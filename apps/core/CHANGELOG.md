@@ -2,6 +2,21 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.1)
 
+### 2026-09-05 · task 1.3 — tenant context middleware, RLS proven through HTTP (issue #3)
+
+- `src/http/`: `requestIdMiddleware` (X-Request-Id in/out), `storeContextMiddleware` (`X-Publishable-Key` →
+  `store_api_key` → store-scoped client on `req.tenant`; missing/unknown/revoked → 401), `staffAuthMiddleware`
+  (bearer token → `staff_user` → `role_assignment` → `req.principal`; Phase 1 `DevTokenVerifier` accepts
+  `dev:<keycloak_subject>` outside production only), `storeClientFor` / `organizationClientFor` /
+  `visibleStoresClientFor` (403 outside scope), `coreErrorHandler` + `handle()` rendering `AppError` as the
+  contract `Error`. `mountCoreMiddleware(app)` is what `src/server.ts` mounts ahead of Medusa.
+- `eslint.config.mjs` + `lint` script: `no-restricted-imports` on `pg` outside `src/lib/db.ts`; `test/guards.test.ts`
+  greps for `pg` imports and `INSERT INTO outbox` outside their owners.
+- `test/tenant-http.test.ts`: seeded throwaway database, the real middleware chain on a bare Express app — brand-a
+  key never returns brand-b rows, brand-b key gets 404 on a brand-a id, 401s, store-staff 403 on brand-b, owner 200.
+- `initDb({ connectionString })` for tests; `dbModule()` exposes `SEED_IDS`; `CORE_ORGANIZATION_ID` env (default
+  seeded HQ) selects the organization the key/user lookups run under.
+
 ### 2026-09-05 · task 1.2 — registry module (issue #2)
 
 - `src/modules/registry`: stores (list/get/create/update), domains (one primary), locales/currencies (one default,
