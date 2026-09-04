@@ -2,6 +2,18 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.1)
 
+### 2026-09-05 · task 1.4 — catalog module (issue #4)
+
+- `src/modules/catalog`: categories (tree), products (create/update/publish/archive), options, variants (unique
+  `sku`, options validated against the product's options, prices written to the default list per currency), media;
+  Admin API shapes with prices and inventory per variant. Events `product.updated` / `product.published` /
+  `product.archived` through `withEvents`; `audit_log` on every mutation.
+- Store read model: `listStoreProducts` (published only, lowest default-list price in the requested currency,
+  category filter includes descendants, tag, ILIKE `q` stub, sort), `getStoreProduct` (variants with `price`,
+  `compare_at_price`, `in_stock`, `available_quantity` over active warehouses), `listStoreCategories`.
+- Tests: 9 cases on a fully seeded throwaway database (brand-a lists 200 products, 0 available → `in_stock:false`,
+  create → publish event order, archive event, 409s, scope).
+
 ### 2026-09-05 · task 1.3 — tenant context middleware, RLS proven through HTTP (issue #3)
 
 - `src/http/`: `requestIdMiddleware` (X-Request-Id in/out), `storeContextMiddleware` (`X-Publishable-Key` →

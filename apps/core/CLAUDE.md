@@ -38,7 +38,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   403 outside scope) → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
   contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).
 - Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
-  `store.created`, `store.updated`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`
+  `store.created`, `store.updated`); `catalog` (categories, products, options, variants, media, Store API read
+  model with price + availability — emits `product.updated`, `product.published`, `product.archived`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`
   (`writeAudit`), `src/outbox/with-events.ts` (`withEvents`, `buildEvent`).
 
 ## Constraints
