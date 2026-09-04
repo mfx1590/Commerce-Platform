@@ -30,3 +30,26 @@ await client.check({
 - `pnpm --filter @platform/auth-sdk fga:seed` bootstraps the local store and writes the ids to `.env`.
 - OpenFGA tests use a throw-away store per run (`OPENFGA_API_URL`, default `http://localhost:8081`) and skip
   when the server is down.
+
+## Roles (task 1.3)
+
+```ts
+import { assignRole, revokeRole, listRoleAssignments, audit } from '@platform/auth-sdk';
+const deps = {
+  fga: createOpenFgaClient(),
+  db: createOrganizationClient(pool, { organizationId, actorId }),
+};
+await assignRole(deps, {
+  staffUserId,
+  relation: 'store_admin',
+  objectType: 'store',
+  objectId: storeId,
+});
+```
+
+Order (ADR 0002 §7): OpenFGA tuple → `role_assignment` mirror + `audit_log` in one transaction → tuple
+compensated if the transaction fails. Idempotent on the mirror's unique key. Only relations a `user` may hold
+directly per `infra/openfga/model.fga` are accepted (`ASSIGNABLE_RELATIONS`). HTTP routes: `apps/core/src/modules/hq-rbac`.
+CLI: `pnpm --filter @platform/auth-sdk roles assign|revoke <email> <relation> <store-code|hq>`, `roles list <email>`.
+`audit(tx, entry)` writes the append-only audit row inside the caller's transaction (`organization_id` from the
+tenant context).
