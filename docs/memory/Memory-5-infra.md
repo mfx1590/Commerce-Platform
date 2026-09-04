@@ -1,7 +1,7 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-04 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra` · Status: task 2.1 done, PR open
+Last updated: 2026-09-04 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra` · Status: 2.1 merged? no — PR #45 open, all CI green; paused before 2.2 for owner confirmation
 
 ## Identity (does not change)
 
@@ -28,7 +28,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## Done
 
-- **2.1 — Dockerfiles for every app + build compose + CI image job (issue #31)** — commit: this commit on `infra/phase2`.
+- **2.1 — Dockerfiles for every app + build compose + CI image job (issue #31)** — commit `69d0480`, PR #45
+  (https://github.com/mfx1590/Commerce-Platform/pull/45), awaiting the Reviewer session. All six CI checks green,
+  including the new `images` job (2m23s on a clean runner: six images built + smoke test).
   Six `apps/<app>/Dockerfile`, `infra/docker/{entrypoint.sh,health-server.mjs,docker-compose.build.yml,smoke-images.sh}`,
   CI job `images`, `infra/README.md` + `infra/CHANGELOG.md`.
   Verified locally: all six images build; smoke test green (uid 1000, HEALTHCHECK `healthy`, `/health` → 200);
@@ -36,7 +38,40 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- (nothing — next up is 2.2)
+- **2.2 — Terraform AWS dev + staging (issue #32).** Plan written before starting; waiting for the owner's go-ahead
+  (>20 tool calls, budget rule). No cloud credentials exist yet, so everything stops at `fmt -check` + `validate`
+  plus a `plan` runbook.
+
+  Layout:
+
+  ```
+  infra/terraform/
+    modules/network/        VPC, 3 AZ, public + private subnets, single NAT (dev) / one per AZ (staging), VPC endpoints
+    modules/cluster/        EKS (small, managed node group), IRSA OIDC provider, aws-auth, cluster autoscaler IAM
+    modules/postgres/       RDS Postgres 16, subnet group, SG, parameter group (RLS-safe: no rds_superuser for the app)
+    modules/redis/          ElastiCache Redis 7, replication group, SG
+    modules/objects/        S3 media + backups buckets (versioned, SSE, public access blocked), lifecycle rules
+    modules/ci-oidc/        GitHub OIDC provider + a deploy role scoped to this repo (no long-lived keys)
+    modules/bootstrap-db/   k8s Job manifest + SQL that creates the `platform_app` role and grants (never by hand)
+    envs/dev/               backend.tf (S3 + DynamoDB lock), main.tf, variables.tf, outputs.tf, terraform.tfvars.example
+    envs/staging/           same, larger sizes, NAT per AZ, deletion protection on
+  ```
+
+  Rules to hold to:
+  - Outputs must be named so they map 1:1 onto `.env.example`: `DATABASE_URL`, `DATABASE_URL_APP`, `REDIS_URL`,
+    `KAFKA_BROKERS`, `KEYCLOAK_URL`, `OPENFGA_API_URL`. Redpanda is Redpanda **Cloud** per the managed-first
+    decision: connection variables only, no cluster resource.
+  - Remote state: S3 bucket + DynamoDB lock table, documented in the runbook and created by a one-off bootstrap;
+    state is never committed and `.gitignore` already covers `*.tfstate`? — check, and if not, ask main (root config).
+  - Secrets never in `.tfvars` in git; only `terraform.tfvars.example` with placeholders.
+  - CI: new `terraform` job in `ci.yml` running `fmt -check -recursive` and `init -backend=false && validate` for
+    both envs. No AWS credentials needed, so it runs on every PR touching `infra/terraform/**`.
+  - Runbook section in `infra/README.md`: empty AWS account → bootstrap state → `plan` → `apply` for dev, then staging.
+
+  Open question for the owner (does not block writing the code): EKS vs. the managed-first decision. Memory-main says
+  managed-first for Phases 0–3 (Vercel, Neon, Upstash, Redpanda Cloud), but issue #32 asks for EKS + RDS +
+  ElastiCache. I will follow the issue (EKS/RDS/ElastiCache) since acceptance criteria override, and keep the
+  managed alternatives as documented variables so a later switch is a values change, not a rewrite.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
