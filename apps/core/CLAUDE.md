@@ -29,6 +29,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   the relay (window 14, Phase 4) publishes. Never publish to the bus directly.
 - Module layout: `src/modules/<name>/{index.ts,service.ts,README.md,*.test.ts}`; cross-module imports only via
   `index.ts`. See README.md "How a module gets a tenant client".
+- Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
+  `store.created`, `store.updated`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`
+  (`writeAudit`), `src/outbox/with-events.ts` (`withEvents`, `buildEvent`).
 
 ## Constraints
 
