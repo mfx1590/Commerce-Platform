@@ -1,0 +1,62 @@
+{
+  "_comment": "Seed tuples for the local OpenFGA store (window 2). Ids are packages/db SEED_IDS: user:<staff_user.id>, store:<store.id>, organization:hq (organization slug; the single HQ row). Mirrors the role_assignment rows written by pnpm db:seed. Applied by pnpm --filter @platform/auth-sdk fga:seed.",
+  "tuples": [
+    {
+      "user": "organization:hq",
+      "relation": "organization",
+      "object": "store:00000000-0000-4000-8000-000000000031"
+    },
+    {
+      "user": "organization:hq",
+      "relation": "organization",
+      "object": "store:00000000-0000-4000-8000-000000000032"
+    },
+    {
+      "user": "organization:hq",
+      "relation": "organization",
+      "object": "store:00000000-0000-4000-8000-000000000033"
+    },
+
+    {
+      "user": "user:00000000-0000-4000-8000-000000000041",
+      "relation": "owner",
+      "object": "organization:hq"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000042",
+      "relation": "finance",
+      "object": "organization:hq"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000043",
+      "relation": "operations",
+      "object": "organization:hq"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000046",
+      "relation": "support",
+      "object": "organization:hq"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000047",
+      "relation": "analyst",
+      "object": "organization:hq"
+    },
+
+    {
+      "user": "user:00000000-0000-4000-8000-000000000044",
+      "relation": "store_admin",
+      "object": "store:00000000-0000-4000-8000-000000000031"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000044",
+      "relation": "store_admin",
+      "object": "store:00000000-0000-4000-8000-000000000032"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000045",
+      "relation": "store_staff",
+      "object": "store:00000000-0000-4000-8000-000000000031"
+    }
+  ]
+}
