@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: ddec363 · Status: task 1.1 done (PR #42 open), 1.2 next
+Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: SHA2 · Status: tasks 1.1 and 1.2 done (PR #42, PR #45), 1.3 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,19 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `SHA2` · PR #45
+  - Route groups `(hq)` and `(store)/[storeId]`; all twelve sections reachable, each placeholder
+    naming the issue that delivers the real screen. 19 routes build.
+  - `src/lib/nav/` is navigation as a pure function of the `Principal`: `sections.ts` (catalogue,
+    every entry records the contract operation its gate comes from) and `relations.ts` (the ADR 0002
+    OpenFGA model, so implication works). No `next/*` imports, so it is unit-testable directly.
+  - Store switcher lists exactly `stores[]`; a server action re-validates the chosen id before
+    remembering it in `admin_selected_store`, and the layout re-validates on every request.
+  - Three gates: nav hides the link, the section guard 403s a typed URL, the Admin API re-checks
+    `x-permission`. Only the third is security.
+  - 78 tests (was 23). Verified against the live Prism mock by starting the built app on port 3200
+    with a locally minted session cookie — see "How to verify without Keycloak" below.
+
 - **1.1 — issue #24 App skeleton, auth hook (Keycloak OIDC), session** · commit `ddec363`
   - `apps/admin` is now a Next.js 15 App Router app (React 19, Tailwind v4, TanStack Query),
     replacing the Phase 0 library scaffold. `src/index.ts`, `main`, `exports` removed.
@@ -35,12 +48,13 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     Blocked / waiting.
 
 ## In progress
-- Nothing. Task 1.2 (issue #25, permission-driven navigation + store switcher) is next; it needs no
-  new dependencies and can start against the mock immediately.
+- Nothing. Task 1.3 (issue #26, TanStack Table data-table primitive) is next. It needs
+  `@tanstack/react-table` installed, and it should be built against `listStores` and `listProducts`
+  so that #28 can drop it straight into the Stores and Products screens.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
-- [ ] 1.2 Permission-driven navigation + store switcher — #25
+- [x] 1.2 Permission-driven navigation + store switcher — #25, PR #45 (do not self-merge)
 - [ ] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26
 - [ ] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27
 - [ ] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28
@@ -48,6 +62,26 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
 ## Decisions made (with reasons)
+- **Navigation is a pure function, deliberately.** `src/lib/nav/navigation.ts` takes a `Principal`
+  and returns sections — no fetch, no `next/*`. That is what makes the seven-role matrix in
+  `test/navigation.test.ts` a real test rather than a rendering snapshot, and it is what #30 builds on.
+- **The relation algebra is mirrored client-side** (`src/lib/nav/relations.ts`) from ADR 0002 rather
+  than asking the API per section. Rendering a section the user holds only by implication is correct;
+  the API still re-checks `x-permission`, so a mistake here is cosmetic, never a hole. Kept in step
+  with `infra/openfga/model.fga` — if window 2 changes the model, change this file.
+- **HQ fixtures give their stores `relations: []`.** HQ roles reach every store by inheritance and
+  the API may or may not expand that. Testing the emptier shape proves the nav derives store access
+  from the organization relations instead of trusting the server to have expanded them.
+- **`Content` is gated on `store_staff`** — it has no Admin API operation yet (window 6 owns the CMS),
+  so it is gated like catalog authoring. Revisit when the CMS contract lands.
+- **The selected store is a hint, not an authority.** The cookie is re-validated against `stores[]`
+  on every request, so revoking access takes effect on the next page load rather than at cookie
+  expiry. The server action validates before writing it, too.
+- **A forbidden store renders the panel *inside* the shell**, switcher included, so the user can get
+  back to their own stores instead of hitting a dead end.
+- **`experimental.typedRoutes` off.** Nearly every link is `/${storeId}/${section}`, built at
+  runtime; typed routes cannot check those and only added casts. Route correctness is covered by
+  `test/navigation.test.ts` instead.
 - **Session in an encrypted cookie, not a server store.** Phase 1 has no session backend and the
   admin app must stay stateless for preview deploys. AES-GCM over the token set with
   `ADMIN_SESSION_SECRET`; a cookie that will not decrypt is simply "signed out". Revisit in Phase 2
@@ -108,6 +142,10 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   `Uint8Array<ArrayBufferLike>` and will not pass to `crypto.subtle`. Build the array over an
   explicit `new ArrayBuffer(n)` — see `fromBase64Url` in `src/lib/auth/crypto.ts`.
 - **`@vitejs/plugin-react` v6 wants Vite 8; vitest 3.2 ships Vite 7.** Pinned to v5.
+- The Prism mock always answers `GET /admin/me` with the **store-admin** example (no organization
+  relations, brand-a + brand-b). So the HQ view cannot be exercised against the mock — HQ rendering
+  is covered by the fixture tests instead. Prism can be steered with a `Prefer` header when #29
+  needs specific responses.
 - Prism admin mock is up on :4011 and answers `GET /admin/me` 200 with any bearer token.
 - This window introduced `next`/`react` to the lockfile (allowed on every branch by the manager,
   Memory-main 2026-09-04). Window 3 will hit the same peer-dependency resolutions.
@@ -124,6 +162,20 @@ pnpm --filter @platform/admin build        # next build
 ```
 Before finishing a task, from the repo root: `pnpm lint && pnpm format:check && pnpm typecheck`
 — delete `apps/admin/.next/` first, or `format:check` will walk the build output.
+
+
+### How to verify without Keycloak (while #43 is open)
+The staff realm forces TOTP and port 3000 is taken, so drive the built app directly:
+1. `pnpm --filter @platform/admin build`
+2. `ADMIN_SESSION_SECRET='admin-dev-session-secret-not-for-production' npx next start -p 3200`
+   (`next start` sets NODE_ENV=production, so the secret is required — that guard is working.)
+3. Mint a session cookie with the same scheme as `src/lib/auth/session.ts` (SHA-256 of the secret →
+   AES-GCM, 12-byte IV prefix, base64url, chunked at 3500 chars) and `curl -H "Cookie: admin_session.0=…"`.
+   The access token can be any string: the Prism mock accepts any bearer value.
+Confirmed this way: `/` redirects to the landing section; `/stores` and `/finance` render the 403
+panel for a store-only principal; `/{brand-a}/catalog` renders with the full store nav;
+`/{brand-c}/catalog` renders the store-forbidden panel with the switcher still showing only brand-a
+and brand-b; a cookie naming brand-c is dropped in favour of brand-a; no server errors.
 
 ## Later phases (do not start until Memory-main says so)
 ### Phase 2 — Commerce complete, brand 1 live

@@ -71,6 +71,40 @@ place that refreshes: within 60 s of expiry it redeems the refresh token, update
 request and the response, and a failed refresh starts a clean sign-in rather than rendering with a
 token the API would reject.
 
+## Two views, one app
+
+Which sections exist is fixed; which of them _you_ see is a pure function of the `Principal` from
+`GET /admin/me`. That function lives in [`src/lib/nav/`](./src/lib/nav/) and imports nothing from
+`next/*`, so it is unit-tested directly against fixtures for all seven seeded roles.
+
+| View                  | Sections                                                  | Gated on                               |
+| --------------------- | --------------------------------------------------------- | -------------------------------------- |
+| **HQ** (`(hq)`)       | Stores, Warehouse, Finance, BI, Roles, Onboarding         | relations on `organization:hq`         |
+| **Store** (`(store)`) | Catalog, Orders, Customers, Promotions, Content, Settings | relations on the selected `store:{id}` |
+
+`src/lib/nav/sections.ts` is the catalogue, and every entry carries a `why` naming the contract
+operation its gate comes from — `Settings` requires `store_admin` because `updateStore` does.
+`src/lib/nav/relations.ts` mirrors the OpenFGA model in ADR 0002, so implication works: an
+organization `owner` is a store admin everywhere, `store_admin` implies `store_staff`, and any
+organization relation makes you a store `viewer`. Finance is organization-only by construction — no
+number of stores adds up to it.
+
+**Three gates, not one.** Hiding a nav entry is the weakest of them:
+
+1. the nav does not render the link;
+2. the page's `HqSectionGuard` / `StoreSectionGuard` renders a 403 panel if you type the URL anyway,
+   and the store layout re-validates the store id against `stores[]` on _every_ request;
+3. the Admin API re-checks the operation's `x-permission`. This is the only one that is security.
+
+**The store switcher** lists exactly `stores[]` — nothing inferred. The choice is remembered in the
+`admin_selected_store` cookie, but the cookie is only a hint: it is re-validated on every request,
+so revoking someone's access to a store takes effect on their next page load rather than at cookie
+expiry. Switching keeps you on the same section (Orders on brand-a → Orders on brand-b).
+
+**Adding a section** means one entry in `src/lib/nav/sections.ts` (with its `why`), a folder under
+`src/app/(hq)/` or `src/app/(store)/[storeId]/`, and a row in the test matrix in
+`test/navigation.test.ts`. Nothing else knows the list.
+
 ## How to add a screen
 
 1. **Add a typed call** in [`src/lib/api/admin.ts`](./src/lib/api/admin.ts):
@@ -102,17 +136,24 @@ token the API would reject.
 
 ## Layout
 
-| Path                 | What lives there                                                     |
-| -------------------- | -------------------------------------------------------------------- |
-| `src/app/`           | Routes. `api/auth/*` are the OIDC endpoints                          |
-| `src/middleware.ts`  | The auth gate and the only place that refreshes tokens               |
-| `src/lib/env.ts`     | Server-side configuration and defaults                               |
-| `src/lib/auth/`      | PKCE, discovery, token exchange, session sealing                     |
-| `src/lib/api/`       | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
-| `src/components/ui/` | Presentational primitives (`cn`, Button, Card, Badge)                |
-| `test/`              | Vitest suites                                                        |
+| Path                     | What lives there                                                     |
+| ------------------------ | -------------------------------------------------------------------- |
+| `src/app/(hq)/`          | HQ routes (`/stores`, `/finance`, …)                                 |
+| `src/app/(store)/`       | Store routes (`/{storeId}/catalog`, …)                               |
+| `src/app/api/auth/`      | The OIDC endpoints                                                   |
+| `src/app/actions/`       | Server actions (the store switcher's submit handler)                 |
+| `src/middleware.ts`      | The auth gate and the only place that refreshes tokens               |
+| `src/lib/env.ts`         | Server-side configuration and defaults                               |
+| `src/lib/auth/`          | PKCE, discovery, token exchange, session sealing                     |
+| `src/lib/api/`           | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
+| `src/lib/nav/`           | Sections, the relation algebra, and the selected-store cookie        |
+| `src/components/shell/`  | The frame: header, side nav, store switcher, section guards          |
+| `src/components/states/` | The 403 / no-access / error panels                                   |
+| `src/components/ui/`     | Presentational primitives (`cn`, Button, Card, Badge)                |
+| `test/`                  | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |
 
-`src/lib/api/admin-client.ts` and `src/lib/auth/session.ts` avoid `next/*` imports on purpose, so
-they run unchanged in the Node runtime, the Edge middleware, and unit tests.
+`src/lib/api/admin-client.ts`, `src/lib/auth/session.ts` and everything in `src/lib/nav/` except
+`selected-store.ts` avoid `next/*` imports on purpose, so they run unchanged in the Node runtime,
+the Edge middleware, and unit tests.
 
 Owner: window 4 (admin). `src/app/(hq)/bi/**` is window 12 (embed only). See CLAUDE.md.
