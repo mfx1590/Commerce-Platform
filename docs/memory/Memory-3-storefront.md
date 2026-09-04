@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: `contracts-v0.1` · Branch: `storefront/phase1` · Status: tasks 1.1 and 1.2 done, 1.3 next
+Last updated: 2026-09-05 · Contracts: `contracts-v0.1` · Branch: `storefront/phase1` · Status: 1.1 in PR #39 (awaiting merge), 1.2 built and waiting to be pushed, 1.3 next
 
 ## Identity (does not change)
 
@@ -39,7 +39,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       `cn`, `variants`; `@platform/ui/preset` Tailwind preset. 35 Vitest tests green, typecheck,
       lint and prettier clean, `pnpm --filter @platform/ui build` emits dist/.
 
-- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `7b0a75f`, PR #47 (stacked on #39; branch `storefront/phase1-task-1.2`).
+- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `7b0a75f` (+ memory `b04a605`), PR pending: opens from `storefront/phase1` once #39 is merged.
       Next 15 App Router on :3100 (React 19, Tailwind 3 via the kit preset); route groups `(shop)`
       `/` `/products`, `(checkout)` `/cart` `/checkout` with its own funnel chrome, `(account)`
       `/account`, `(content)` `/pages/[slug]` placeholder, plus `not-found`. Root layout resolves
@@ -61,6 +61,13 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 - [ ] 1.7 (#23) Playwright smoke suite + `lighthouserc` budgets; CI job only via a `REQUEST:` issue (workflows belong to window 5 / main).
 
 ## Decisions made (with reasons)
+
+- **PR flow (manager ruling, 2026-09-05, also in Memory-main global gotchas): ONE branch per window.**
+  Stay on `storefront/phase1` for the whole phase. After each task: commit, open a PR from that
+  branch, **wait for the manager to merge it (merge commit)**, then continue on the same branch — the
+  next PR then contains only the new task. Never create stacked per-task branches; GitHub allows one
+  open PR per branch, and stacking makes the merge order fragile. Window 3 got this wrong once: PR #47
+  was opened from `storefront/phase1-task-1.2` and has been closed and the branch deleted.
 
 - **Tokens live only as CSS custom properties.** `ThemeProvider` writes `--ui-<group>-<name>` as
   inline styles on its wrapper; the Tailwind preset maps `bg-primary`, `text-2xl`, `rounded-md`, …
@@ -104,7 +111,11 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Blocked / waiting
 
-- Nothing blocking. Two issues filed for main/infra, both with a local workaround in place:
+- **Waiting on the manager to merge PR #39 (task 1.1).** Task 1.2 is finished and committed locally
+  but deliberately not pushed: pushing it to `storefront/phase1` now would fold it into #39. As soon
+  as #39 is merged, push and open the 1.2 PR from the same branch. Do not start 1.3 on top of
+  unpushed work.
+- Two issues filed for main/infra, both with a local workaround in place:
   - **CONTRACT CHANGE #41** — document `Store.theme` as the `@platform/ui` `BrandTokens` shape and
     fix the Brand A example (`colors` → `color`). Tolerated meanwhile by aliases in `parseTheme`.
   - **REQUEST #46** — add `**/.next/` to `.prettierignore` and `**/next-env.d.ts` to the root eslint
