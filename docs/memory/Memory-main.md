@@ -46,11 +46,11 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 ## Window index
 | # | Key | Title | First phase | Memory file | Model |
 |---|---|---|---|---|---|
-| 1 | core | Core commerce | 1 | docs/memory/Memory-1-core.md | Sonnet (strongest for migrations) |
-| 2 | auth | Auth & RBAC | 1 | docs/memory/Memory-2-auth.md | Sonnet (strongest for the OpenFGA model) |
-| 3 | storefront | Storefront starter & UI kit | 1 | docs/memory/Memory-3-storefront.md | Sonnet |
-| 4 | admin | Admin application | 1 | docs/memory/Memory-4-admin.md | Sonnet |
-| 5 | infra | Infra & DevOps | 2 | docs/memory/Memory-5-infra.md | Sonnet |
+| 1 | core | Core commerce | 1 | docs/memory/Memory-1-core.md | Fable (owner decision 2026-09-04: budget not a constraint) |
+| 2 | auth | Auth & RBAC | 1 | docs/memory/Memory-2-auth.md | Fable |
+| 3 | storefront | Storefront starter & UI kit | 1 | docs/memory/Memory-3-storefront.md | Opus |
+| 4 | admin | Admin application | 1 | docs/memory/Memory-4-admin.md | Opus |
+| 5 | infra | Infra & DevOps | 2 | docs/memory/Memory-5-infra.md | Opus |
 | 6 | cms | CMS & landing pages | 2 | docs/memory/Memory-6-cms.md | Sonnet |
 | 7 | payments | Payments, tax, fraud | 2 | docs/memory/Memory-7-payments.md | Sonnet (strongest for webhook idempotency design) |
 | 8 | shipping | Shipping & fulfillment | 2 | docs/memory/Memory-8-shipping.md | Sonnet |

@@ -38,11 +38,11 @@ they would fight over one checked-out branch.
 | Terminal | Folder | Branch | Paste | Model |
 |---|---|---|---|---|
 | manager (this) | `commerce-platform` | `main` | docs/start-messages/00-reviewer.md when reviewing; otherwise you talk to it directly | strongest |
-| 1 | `../wt-core` | `core/phase1` | docs/start-messages/01-core.md | Sonnet (strongest for [core] 1.3, 1.5) |
-| 2 | `../wt-auth` | `auth/phase1` | docs/start-messages/02-auth.md | Sonnet (strongest for [auth] 1.2) |
-| 3 | `../wt-storefront` | `storefront/phase1` | docs/start-messages/03-storefront.md | Sonnet |
-| 4 | `../wt-admin` | `admin/phase1` | docs/start-messages/04-admin.md | Sonnet |
-| 5 | `../wt-infra` | `infra/phase2` | docs/start-messages/05-infra.md | Sonnet |
+| 1 | `../wt-core` | `core/phase1` | docs/start-messages/01-core.md | Fable |
+| 2 | `../wt-auth` | `auth/phase1` | docs/start-messages/02-auth.md | Fable |
+| 3 | `../wt-storefront` | `storefront/phase1` | docs/start-messages/03-storefront.md | Opus |
+| 4 | `../wt-admin` | `admin/phase1` | docs/start-messages/04-admin.md | Opus |
+| 5 | `../wt-infra` | `infra/phase2` | docs/start-messages/05-infra.md | Opus |
 
 Each build window: `cd ../wt-<key> && pnpm install && claude`, paste its start message, pick the model.
 Shared things that are safe in parallel: the docker stack (`pnpm dev` from any worktree reuses the same containers; tests
