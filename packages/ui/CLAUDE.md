@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Shared storefront UI kit: theme tokens, primitives (Button, Input, Price, ProductCard, ...) built on Tailwind + shadcn/ui conventions. Brands override tokens, not components.
+Shared storefront UI kit: theme tokens, a `ThemeProvider` applying brand overrides, and primitives
+built on Tailwind + shadcn/ui conventions. Brands override tokens, not components.
+Framework-agnostic React: no Next.js imports.
 
 ## Owner
 
@@ -11,14 +13,38 @@ window 3 (storefront).
 ## Run / test
 
 - `pnpm --filter @platform/ui build` — compile to dist/
-- `pnpm --filter @platform/ui typecheck`
-- `pnpm --filter @platform/ui test` — Vitest (tests live in test/)
+- `pnpm --filter @platform/ui typecheck` — src and test
+- `pnpm --filter @platform/ui test` — Vitest + Testing Library on jsdom (tests live in test/)
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/ui` before finishing any task.
 
 ## Public API
 
-- `import { Button, Price, ProductCard, ThemeProvider, defaultTokens } from '@platform/ui'` (window 3 fills this in Phase 1)
-- Tokens contract: `packages/ui/src/tokens.ts` — one object per brand overriding `defaultTokens`
+`import { … } from '@platform/ui'`:
+
+- Tokens: `defaultTokens`, `mergeTokens`, `tokensToCssVars`, `parseTheme`, `cssVarName`, types
+  `Tokens`, `BrandTokens`, `ColorTokens`, `FontTokens`, `FontSizeTokens`, `FontWeightTokens`,
+  `LineHeightTokens`, `SpacingTokens`, `RadiusTokens`, `ShadowTokens`
+- Theme: `ThemeProvider`, `ThemeProviderProps`
+- Primitives: `Button` (`buttonVariants`, `ButtonProps`, `ButtonVariants`), `Input` (`InputProps`),
+  `Select` (`SelectProps`), `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`,
+  `CardFooter` (`CardProps`), `Dialog`, `DialogFooter` (`DialogProps`), `Badge` (`badgeVariants`,
+  `BadgeProps`, `BadgeVariants`), `Price` (`PriceProps`, `Money`, `formatMoney`, `minorUnitDigits`,
+  `DEFAULT_LOCALE`), `Skeleton`
+- Helpers: `cn`, `variants` (`VariantMap`, `VariantProps`), `PACKAGE_NAME`
+
+`import { tailwindPreset } from '@platform/ui/preset'` — Tailwind preset mapping utility classes
+onto the `--ui-*` variables. Also the default export of that entry point.
+
+Tokens contract: `packages/ui/src/tokens.ts` — one `BrandTokens` object per brand overriding
+`defaultTokens`; the same shape is what the Store API returns in `Store.theme`.
+
+## Conventions
+
+- `ThemeProvider` stays hook- and context-free so it works in a React Server Component. Only modules
+  that need state carry `'use client'` (today: `components/dialog.tsx`).
+- Components read tokens through Tailwind classes / CSS variables, never by importing token objects.
+- Variant classes go through `variants()` in `src/lib/variants.ts` (a `cva` stand-in, no dependency);
+  merge caller classes with `cn()` so a caller can override a base utility.
 
 ## Constraints
 
