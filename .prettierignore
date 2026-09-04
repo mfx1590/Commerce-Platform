@@ -1,6 +1,8 @@
 node_modules
 dist
 .turbo
+**/.next/
+**/next-env.d.ts
 pnpm-lock.yaml
 packages/contracts/src/generated
 packages/events/src/generated
