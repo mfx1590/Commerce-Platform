@@ -18,6 +18,10 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - `pnpm --filter @platform/core dev` — tsx watch on `src/server.ts`; `GET http://localhost:9000/health` → 200.
 - `pnpm --filter @platform/core typecheck` — `tsc --noEmit` (CommonJS app, `module: NodeNext`).
 - `pnpm --filter @platform/core test` — Vitest; DB tests create their own database via `@platform/db/testing`.
+- `pnpm --filter @platform/core lint` — root rules + this app's `no-restricted-imports` guard on `pg`.
+- Local Admin API calls in Phase 1: `Authorization: Bearer dev:<keycloak_subject>` (seeded subjects `seed-owner`,
+  `seed-finance`, `seed-operations`, `seed-store-admin`, `seed-store-staff`, `seed-support`, `seed-analyst`);
+  refused when `NODE_ENV=production`. Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`.
 - `pnpm --filter @platform/core build` — `medusa build` → `.medusa/server`; `pnpm --filter @platform/core start`.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core` before finishing any task.
 
@@ -29,6 +33,10 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   the relay (window 14, Phase 4) publishes. Never publish to the bus directly.
 - Module layout: `src/modules/<name>/{index.ts,service.ts,README.md,*.test.ts}`; cross-module imports only via
   `index.ts`. See README.md "How a module gets a tenant client".
+- HTTP layer (`src/http`, mounted by `mountCoreMiddleware` ahead of Medusa): request id → header alias →
+  `/store` tenant context (`req.tenant`, 401) → `/admin` staff principal (`req.principal`, 401; `storeClientFor`
+  403 outside scope) → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
+  contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).
 - Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
   `store.created`, `store.updated`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`
   (`writeAudit`), `src/outbox/with-events.ts` (`withEvents`, `buildEvent`).

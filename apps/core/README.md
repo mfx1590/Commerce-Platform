@@ -42,11 +42,22 @@ middleware first, then hands the app to Medusa's standard loaders (config, modul
 workflows, subscribers, jobs). Express keeps registration order, so anything mounted before the loaders runs
 ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
 
-1. `GET /health` — liveness, no session, no database.
-2. `aliasPublishableKeyHeader` — copies the contract header `X-Publishable-Key` to the header Medusa reads
-   (`x-publishable-api-key`). The tenant middleware (task 1.3) is mounted here too.
-3. Medusa loaders. Admin route files opt out of Medusa's auth with `export const AUTHENTICATE = false` and use
-   our `requirePermission` (stub until `@platform/auth-sdk` lands).
+1. `requestIdMiddleware` — `X-Request-Id` in (or generated) and out; lands in `audit_log.request_id`.
+2. `GET /health` — liveness, no session, no database.
+3. `aliasPublishableKeyHeader` — copies the contract header `X-Publishable-Key` to the header Medusa reads
+   (`x-publishable-api-key`).
+4. `/store` → `storeContextMiddleware`: `X-Publishable-Key` → sha256 → `store_api_key` (looked up under
+   `CORE_ORGANIZATION_ID`, default the seeded HQ) → `req.tenant` with a store-scoped client. Missing, unknown or
+   revoked key → `401 { code: "unauthorized" }`.
+5. `/admin` → `staffAuthMiddleware`: bearer token → `staff_user` → `role_assignment` → `req.principal`
+   (`organizationRelations`, `stores[].relations`). Phase 1 verifier accepts `dev:<keycloak_subject>` outside
+   production only; `@platform/auth-sdk` replaces it behind `StaffTokenVerifier`. Handlers take a client from
+   `storeClientFor(principal, storeId)` (403 outside scope), `organizationClientFor` or `visibleStoresClientFor`.
+6. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
+7. Medusa loaders. Our admin route files opt out of Medusa's auth with `export const AUTHENTICATE = false`;
+   `requirePermission(relation, object)` (task 1.7) checks the route's `x-permission`.
+
+`mountCoreMiddleware(app)` exports exactly this chain so tests run it on a bare Express app (`test/tenant-http.test.ts`).
 
 `pnpm build` (`medusa build`) compiles to `.medusa/server`; `pnpm start` runs the compiled entry.
 

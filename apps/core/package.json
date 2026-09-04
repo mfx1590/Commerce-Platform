@@ -11,7 +11,8 @@
     "test": "vitest run --passWithNoTests",
     "db:medusa:migrate": "tsx scripts/db-medusa-migrate.ts",
     "db:medusa:grants": "tsx scripts/db-medusa-migrate.ts --grants-only",
-    "clean": "rm -rf .medusa dist .turbo"
+    "clean": "rm -rf .medusa dist .turbo",
+    "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@medusajs/cli": "2.20.1",

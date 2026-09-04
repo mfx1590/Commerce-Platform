@@ -1,10 +1,10 @@
 // The single database entry point of apps/core. Every module and every route gets its data access from here:
 // a scoped client from @platform/db (RLS-enforced, context set per transaction). Nothing else in this app may
-// open a pg connection (see README.md "How a module gets a tenant client").
+// open a pg connection (see README.md "How a module gets a tenant client"; enforced by eslint.config.mjs).
 //
 // @platform/db is ESM-only and this app is CommonJS (Medusa), so the package is loaded once with a dynamic
 // import() in `initDb()` (called by src/server.ts before Medusa boots, and by tests in beforeAll). Static
-// imports return once the packages export a `default` condition (GitHub REQUEST issue from task 1.1).
+// imports return once the packages export a `default` condition (GitHub REQUEST issue #40).
 import type * as PlatformDb from '@platform/db';
 import type { OrganizationContext, ScopedClient, TenantContext } from '@platform/db';
 
@@ -14,22 +14,37 @@ type Pool = ReturnType<DbModule['createPool']>;
 let db: DbModule | undefined;
 let pool: Pool | undefined;
 
+export interface InitDbOptions {
+  /** Where to start looking for the repo-root .env (default: cwd). */
+  startDir?: string;
+  /** Explicit connection string (tests point at a throwaway database); default DATABASE_URL_APP. */
+  connectionString?: string;
+}
+
 /**
  * Loads @platform/db, the repo-root .env, and opens the process-wide pool on DATABASE_URL_APP (role
  * platform_app, NOBYPASSRLS). Idempotent. Raw `pool.query` returns zero rows by design — always go through
  * `tenantClient` / `organizationClient`.
  */
-export async function initDb(startDir?: string): Promise<void> {
+export async function initDb(opts: InitDbOptions = {}): Promise<void> {
   if (pool) return;
   db ??= await import('@platform/db');
-  db.loadDotenv(startDir);
-  pool = db.createPool(db.connectionStringFromEnv('app'), Number(process.env.DB_POOL_MAX ?? 10));
+  db.loadDotenv(opts.startDir);
+  pool = db.createPool(
+    opts.connectionString ?? db.connectionStringFromEnv('app'),
+    Number(process.env.DB_POOL_MAX ?? 10),
+  );
 }
 
 function ready(): { db: DbModule; pool: Pool } {
   if (!db || !pool)
     throw new Error('database not initialised: call `await initDb()` first (src/lib/db.ts)');
   return { db, pool };
+}
+
+/** The loaded @platform/db module (constants such as SEED_IDS). Only valid after `initDb()`. */
+export function dbModule(): DbModule {
+  return ready().db;
 }
 
 export function getPool(): Pool {
