@@ -1,6 +1,6 @@
 # Memory 1 — Core commerce
 Window: 1 · Key: `core` · Branch prefix: `core/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: task 1.1 (PR open, sha recorded in Done at next commit) · Status: task 1.1 done, task 1.2 next
+Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: task 1.2 (branch `core/phase1-t2`, PR open) · Status: 1.1 + 1.2 done (PRs #49, next), task 1.3 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -20,13 +20,13 @@ Never touches:
 Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant-scoped data access through packages/db with RLS enforced on every query, outbox write on every state change, seed brands loading. Implement Store API and Admin API routes for registry and catalog exactly as in packages/contracts; everything else stays on the mock server.
 
 ## Done
-- [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit: the PR head of the first `core/phase1` PR (fill sha here at the next commit). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
+- [x] **1.2 Registry module (issue #2)** — 2026-09-05, branch `core/phase1-t2` (stacked on 1.1), sha: see PR (recorded at next commit). Delivered: `src/modules/registry` (service over 0003: stores, domains, locales, currencies, sales channels, API keys; audit_log + `store.created|updated` in one transaction), `src/outbox/with-events.ts` first cut, `src/lib/{errors,audit}.ts`, README, 9 tests (RLS scope, one-primary/one-default, key hashing, rollback on invalid event).
+- [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49. Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
-- (nothing — next: task 1.2)
+- (nothing — next: task 1.3)
 
-## Next — Phase 1 (GitHub issues #2–#9 are authoritative)
-- [ ] 1.2 (#2) Registry module `src/modules/registry` over `0003_store_registry.sql`: store/domain/locale/currency/sales_channel/api key services, audit_log + `store.created|updated` outbox in one transaction, tests on `createTestDatabase()`
+## Next — Phase 1 (GitHub issues #3–#9 are authoritative)
 - [ ] 1.3 (#3) Tenant context middleware (mounted in `src/server.ts` ahead of Medusa): `X-Publishable-Key` → `store_api_key`; staff JWT → `staff_user` → `role_assignment` stub; 401/403; RLS proven through HTTP; ESLint `no-restricted-imports` on `pg`
 - [ ] 1.4 (#4) Catalog module: category tree, product/option/variant/media, Store API read model with price + availability
 - [ ] 1.5 (#5) `src/outbox/withEvents(tx, events[])`: validator, rollback test, lint/grep guard on `INSERT INTO outbox`
@@ -42,6 +42,8 @@ Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant
 - 2026-09-04 · Medusa migrations run as a dedicated role `medusa_owner` (owns schema `medusa`, CREATE on the database, no rights on our tables), not as the owner role: Medusa module migrations probe `information_schema.tables` for `public.product`/`public."order"` (v1 upgrade check) and fail on ours; a role without privileges on them does not see them. Runtime stays `platform_app` (granted on `medusa.*` by default privileges).
 - 2026-09-04 · `search_path` pinned via `projectConfig.databaseDriverOptions` (`searchPath` + `connection.options`): `databaseSchema` alone is not honoured by Medusa's raw-SQL migrations (24 tables leaked into `public` before this).
 - 2026-09-04 · Workspace ESM packages are loaded from this CommonJS app with dynamic `import()` (`initDb()`), because their export maps lack a `default`/`require` condition → issue #40. `medusa-config.ts` stays free of `@platform/*` imports.
+- 2026-09-05 · One PR per task with a single `core/phase1` line: each task after 1.1 gets a stacked branch `core/phase1-t<N>` off the previous task's branch, PR against `main`; GitHub trims the diff as earlier PRs merge. `core/phase1` itself stays at the 1.1 head until #49 merges (pushing more to it would grow PR #49). After the manager merges, `git merge main` into the open task branches.
+- 2026-09-05 · Registry services take a `ScopedClient` + `Actor` and own their transaction; the HTTP layer (1.6/1.7) only validates, resolves the client, calls, and renders `AppError` → contract `{ code, message, details }`. `withEvents` exists since 1.2 (task 1.5 adds README, guards, lint rule) so no mutation ever inserts into `outbox` directly. `writeAudit` is a local stub of the helper docs/domain.md assigns to window 2.
 - 2026-09-04 · Medusa's post-migration scripts are skipped (`skipScripts: true`): they fork the `medusa` CLI, which needs ts-node; a fresh schema has nothing for them to patch.
 
 ## Blocked / waiting
@@ -59,6 +61,8 @@ Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant
 - `Error: Cannot find module 'ts-node'` printed once during `db:medusa:migrate` comes from the forked search-index child; harmless (the child still ran).
 - `tsx watch` keeps running after a boot crash; stop it before starting another `pnpm dev` (port 9000).
 - pnpm installed two peer-variants of most `@medusajs/*` packages under `node_modules/.pnpm` (`…_9c4…` and `…_62c…`); Medusa resolves one; watch for duplicate-module bugs.
+- Tenant middleware (1.3) chicken-and-egg: `store_api_key` is under RLS, so looking up a key needs an organization context before any context is known. Phase 1–3 has exactly one organization: resolve it from `CORE_ORGANIZATION_ID` (default `SEED_IDS.organization`) and look the key up with an organization-scoped client; the request then proceeds store-scoped.
+- `@platform/contracts` `ErrorCode` includes `cart_completed` (not listed in the Error schema description); `src/lib/errors.ts` maps every code to a status.
 - The local `platform` DB is shared with the other windows' worktrees: never `pnpm dev --reset` while they run; remove only what you created (schema `medusa` can be dropped and rebuilt safely).
 
 ## How to run & test this package
