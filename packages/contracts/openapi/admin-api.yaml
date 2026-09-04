@@ -2518,7 +2518,7 @@ components:
         content_space_id: brand-a
         search_index: brand-a_products
         psp_account_id: null
-        theme: { colors: { primary: '#1E40AF' } }
+        theme: { color: { primary: '#1E40AF', primaryForeground: '#ffffff' } }
         settings: { support_refund_limit_minor: 5000 }
         created_at: '2026-09-04T00:00:00Z'
         updated_at: '2026-09-04T00:00:00Z'
