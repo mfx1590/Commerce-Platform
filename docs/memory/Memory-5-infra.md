@@ -1,7 +1,7 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-04 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra` · Status: 2.1 merged? no — PR #45 open, all CI green; paused before 2.2 for owner confirmation
+Last updated: 2026-09-04 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra` · Status: PR #45 (task 2.1) open and green, waiting for the manager to merge; 2.2 planned, not started
 
 ## Identity (does not change)
 
@@ -122,6 +122,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   earlier stage does not help, because its cache lives in root's `~/.cache` while the container runs as `node`.
   Use `npm install -g pnpm@<version>`. Caught only by testing the `start`-script branch of the entrypoint with a
   mounted `package.json`; the scaffold path (no `start` script) hides it.
+- **PR flow (manager rule, 2026-09-05; also in Memory-main global gotchas).** GitHub allows one open PR per branch.
+  Keep the single branch `infra/phase2`: finish a task → open a PR → **wait for the manager to merge it** (merge
+  commit) → continue on the same branch → open the next PR, which then contains only the new task. Never create
+  stacked per-task branches. Practical consequence: do not push task N+1 commits to `infra/phase2` while task N's
+  PR is still open, or they land in that PR.
 - `pnpm deploy` in pnpm 10 needs `--legacy` unless the workspace sets `inject-workspace-packages=true`.
 - Windows/Git Bash: `docker run -v` needs `MSYS_NO_PATHCONV=1` and a `C:/…` path or the mount path is mangled.
 - Prettier formats `infra/**` (only `docs/**` is ignored), so every YAML/Markdown/mjs file added here must be
