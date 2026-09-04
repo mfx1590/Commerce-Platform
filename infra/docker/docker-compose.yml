@@ -65,12 +65,13 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_DB: dev-mem # local only: realms re-import from infra/keycloak on every start
+      KC_DB: dev-file # persisted in the keycloak-data volume; realms imported once, then kept
       KC_HEALTH_ENABLED: 'true'
       KC_HTTP_MANAGEMENT_PORT: '9000'
     ports:
       - '8180:8080'
     volumes:
+      - keycloak-data:/opt/keycloak/data
       - ../keycloak:/opt/keycloak/data/import:ro
     healthcheck:
       test:
@@ -141,3 +142,4 @@ services:
 volumes:
   postgres-data:
   redpanda-data:
+  keycloak-data:

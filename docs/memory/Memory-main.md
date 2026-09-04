@@ -76,7 +76,7 @@ Start messages for every window: docs/start-messages/ · Ownership map (CI-enfor
 - Apps connect as `platform_app` (`DATABASE_URL_APP`), never the owner URL. Raw `pool.query` returns zero rows by design: always use `createTenantClient` / `createOrganizationClient` from `@platform/db`.
 - SQL: quote `"order"` and `"return"` (reserved words). `audit_log` and `stock_movement` are append-only for the app role.
 - Contracts, events and db schema are frozen at contracts-v0.1: never edit `packages/contracts|events|db`; file `CONTRACT CHANGE:` and keep going against the mock. Generated files (`src/generated`) are committed; CI fails if stale.
-- Prism docker image needs `--no-multiprocess`; Keycloak local uses dev-mem and re-imports realms on every start (edits in the UI are lost — edit the JSON).
+- Prism docker image needs `--no-multiprocess`; Keycloak local persists in the `keycloak-data` volume (dev-file); realms import on first start only — after editing infra/keycloak/*.json run `pnpm dev --reset` or delete the volume. A restart takes ~15 s during which realms return 500: retry, do not add dev-login bypasses.
 - Events carry no PII (`email_hash` only); money is integer minor units everywhere.
 
 ## Usage budget notes (Max 5x)
