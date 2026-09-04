@@ -1,6 +1,6 @@
 # Memory 2 — Auth & RBAC
 Window: 2 · Key: `auth` · Branch prefix: `auth/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: pending (task 1.1) · Status: Phase 1 in progress, parallel mode (worktree `../wt-auth`, branch `auth/phase1`)
+Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: d95b4b4 (task 1.1, PR #38) · Status: Phase 1 in progress, parallel mode (worktree `../wt-auth`, branch `auth/phase1`)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -22,7 +22,7 @@ Keycloak realms (staff with MFA + SSO, customers per brand), OpenFGA authorizati
 Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria are authoritative.
 
 ## Done
-- [x] 1.1 (#10) Keycloak realm exports — commit: pending (this commit). `infra/keycloak/staff-realm.json` (browser flow `browser-mfa` with TOTP REQUIRED → forced setup on first login; `admin-app` PKCE public client; `test-cli` dev/CI password-grant client; 7 users with id `seed-<username>` = `staff_user.keycloak_subject`; `hq-sso` disabled OIDC placeholder), `customers-realm.json` (3 PKCE clients with hard-coded `store_code` claim, registration + reset, Google IdP disabled with `${GOOGLE_CLIENT_ID:unset}` placeholders, Jane), `README.md`, `reimport.mjs`. Tests: `packages/auth-sdk/test/keycloak-realms.test.ts` (static + live). Verified live: discovery OK, password grant → `sub=seed-store-admin`, `email`, `aud=core-api`; admin-app password grant → 400; browser login after password → 302 to `required-action?execution=CONFIGURE_TOTP`.
+- [x] 1.1 (#10) Keycloak realm exports — commit: d95b4b4 (PR #38). `infra/keycloak/staff-realm.json` (browser flow `browser-mfa` with TOTP REQUIRED → forced setup on first login; `admin-app` PKCE public client; `test-cli` dev/CI password-grant client; 7 users with id `seed-<username>` = `staff_user.keycloak_subject`; `hq-sso` disabled OIDC placeholder), `customers-realm.json` (3 PKCE clients with hard-coded `store_code` claim, registration + reset, Google IdP disabled with `${GOOGLE_CLIENT_ID:unset}` placeholders, Jane), `README.md`, `reimport.mjs`. Tests: `packages/auth-sdk/test/keycloak-realms.test.ts` (static + live). Verified live: discovery OK, password grant → `sub=seed-store-admin`, `email`, `aud=core-api`; admin-app password grant → 400; browser login after password → 302 to `required-action?execution=CONFIGURE_TOTP`.
 
 ## In progress
 - (nothing — next: task 1.2)
