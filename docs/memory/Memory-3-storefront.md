@@ -32,7 +32,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Done
 
-- [x] **1.1 (#17) `packages/ui`: tokens, primitives, ThemeProvider** — commit `<pending>`, PR `<pending>`.
+- [x] **1.1 (#17) `packages/ui`: tokens, primitives, ThemeProvider** — commit `3306861`, PR #39.
       `defaultTokens` → `--ui-*` CSS variables; `ThemeProvider` (+ `parseTheme`, `mergeTokens`,
       `tokensToCssVars`, `cssVarName`); `Button`, `Input`, `Select`, `Card` family, `Dialog` (focus
       trap) + `DialogFooter`, `Badge`, `Price` (+ `formatMoney`, `minorUnitDigits`), `Skeleton`;
