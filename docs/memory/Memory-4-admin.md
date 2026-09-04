@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: SHA2 · Status: tasks 1.1 and 1.2 done (PR #42, PR #45), 1.3 next
+Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: 3b5348c · Status: tasks 1.1 and 1.2 done (PR #42, PR (opened after #42 merges)), 1.3 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `SHA2` · PR #45
+- **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · PR (opened after #42 merges)
   - Route groups `(hq)` and `(store)/[storeId]`; all twelve sections reachable, each placeholder
     naming the issue that delivers the real screen. 19 routes build.
   - `src/lib/nav/` is navigation as a pure function of the `Principal`: `sections.ts` (catalogue,
@@ -54,7 +54,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
-- [x] 1.2 Permission-driven navigation + store switcher — #25, PR #45 (do not self-merge)
+- [x] 1.2 Permission-driven navigation + store switcher — #25, PR (opened after #42 merges) (do not self-merge)
 - [ ] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26
 - [ ] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27
 - [ ] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28
