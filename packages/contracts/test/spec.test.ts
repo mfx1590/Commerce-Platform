@@ -37,7 +37,18 @@ describe('store-api.yaml', () => {
   it('is OpenAPI 3.1 and covers the storefront journey', () => {
     expect(text.startsWith('openapi: 3.1.0')).toBe(true);
     const ids = ops.map((o) => o.id);
-    for (const id of ['getStore', 'listProducts', 'getProduct', 'createCart', 'addLineItem', 'listShippingOptions', 'createPaymentSession', 'completeCart', 'getOrder', 'getMe']) {
+    for (const id of [
+      'getStore',
+      'listProducts',
+      'getProduct',
+      'createCart',
+      'addLineItem',
+      'listShippingOptions',
+      'createPaymentSession',
+      'completeCart',
+      'getOrder',
+      'getMe',
+    ]) {
       expect(ids).toContain(id);
     }
     expect(new Set(ids).size).toBe(ids.length);
@@ -63,7 +74,17 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief', () => {
-    for (const tag of ['registry', 'catalog', 'pricing', 'orders', 'inventory', 'fulfillment', 'customers', 'roles', 'audit']) {
+    for (const tag of [
+      'registry',
+      'catalog',
+      'pricing',
+      'orders',
+      'inventory',
+      'fulfillment',
+      'customers',
+      'roles',
+      'audit',
+    ]) {
       expect(text, tag).toMatch(new RegExp(`tags: \\[[^\\]]*\\b${tag}\\b`));
     }
     expect(ops.length).toBeGreaterThanOrEqual(45);
@@ -76,7 +97,9 @@ describe('admin-api.yaml', () => {
       expect(m, `${o.id} lacks x-permission`).not.toBeNull();
       const relation = m![1]!;
       expect([...RELATIONS, 'viewer'], `${o.id}: ${relation}`).toContain(relation);
-      expect(m![2], o.id).toMatch(/^(organization:hq|store:\{storeId\}|store:\{store_id\}|store:\*)$/);
+      expect(m![2], o.id).toMatch(
+        /^(organization:hq|store:\{storeId\}|store:\{store_id\}|store:\*)$/,
+      );
     }
   });
 

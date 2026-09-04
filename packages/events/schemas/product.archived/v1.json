@@ -5,11 +5,7 @@
   "description": "A product was archived.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "product_id",
-    "handle",
-    "archived_at"
-  ],
+  "required": ["product_id", "handle", "archived_at"],
   "properties": {
     "product_id": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"

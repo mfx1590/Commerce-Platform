@@ -1,0 +1,53 @@
+{
+  "realm": "customers",
+  "displayName": "Customers (all brands)",
+  "enabled": true,
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "sslRequired": "external",
+  "accessTokenLifespan": 1800,
+  "clients": [
+    {
+      "clientId": "storefront-brand-a",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:3100/*"],
+      "webOrigins": ["http://localhost:3100"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "storefront-brand-b",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:3101/*"],
+      "webOrigins": ["http://localhost:3101"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "storefront-brand-c",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "redirectUris": ["http://localhost:3102/*"],
+      "webOrigins": ["http://localhost:3102"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ],
+  "users": [
+    {
+      "username": "jane@example.com",
+      "email": "jane@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "credentials": [{ "type": "password", "value": "jane", "temporary": false }]
+    }
+  ],
+  "attributes": {
+    "_comment": "Local-dev realm stub (main window, Phase 0). Window 2 / window 13 replace it (social login, passwordless, per-brand theming). One client per brand storefront."
+  }
+}

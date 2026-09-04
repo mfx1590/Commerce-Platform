@@ -1,6 +1,31 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import pg from 'pg';
 
 const { Pool } = pg;
+
+/**
+ * Loads the nearest `.env` (walking up from cwd, max 5 levels) into process.env without overriding set vars.
+ * Dependency-free replacement for dotenv, used by the CLI and by tests; apps may use their own loader.
+ */
+export function loadDotenv(startDir = process.cwd()): string | null {
+  let dir = startDir;
+  for (let i = 0; i < 5; i++) {
+    const file = join(dir, '.env');
+    if (existsSync(file)) {
+      for (const line of readFileSync(file, 'utf8').split('\n')) {
+        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+        if (m && m[1] && !(m[1] in process.env))
+          process.env[m[1]] = (m[2] ?? '').replace(/^(['"])(.*)\1$/, '$2');
+      }
+      return file;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
 
 /**
  * DATABASE_URL     = owner role (migrations, seeds, tests bootstrap). Bypasses nothing: FORCE RLS still applies.

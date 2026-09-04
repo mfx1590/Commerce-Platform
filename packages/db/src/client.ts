@@ -15,12 +15,18 @@ export interface OrganizationContext {
 }
 
 export type Queryable = {
-  query<R extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<R>>;
+  query<R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    params?: unknown[],
+  ): Promise<QueryResult<R>>;
 };
 
 export interface ScopedClient {
   /** Runs one statement in its own transaction with the tenant context applied. */
-  query<R extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<R>>;
+  query<R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    params?: unknown[],
+  ): Promise<QueryResult<R>>;
   /** Runs `fn` inside one transaction with the tenant context applied; commits on return, rolls back on throw. */
   transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;
   readonly context: Readonly<TenantContext | OrganizationContext>;
@@ -53,13 +59,19 @@ async function applyContext(
   );
 }
 
-function build(pool: Pool, scope: 'store' | 'organization', ctx: TenantContext | OrganizationContext): ScopedClient {
+function build(
+  pool: Pool,
+  scope: 'store' | 'organization',
+  ctx: TenantContext | OrganizationContext,
+): ScopedClient {
   const transaction = async <T>(fn: (tx: Queryable) => Promise<T>): Promise<T> => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       await applyContext(client, scope, ctx);
-      const out = await fn({ query: (text, params) => client.query(text, params as unknown[] | undefined) });
+      const out = await fn({
+        query: (text, params) => client.query(text, params as unknown[] | undefined),
+      });
       await client.query('COMMIT');
       return out;
     } catch (err) {
@@ -83,7 +95,8 @@ function build(pool: Pool, scope: 'store' | 'organization', ctx: TenantContext |
 
 /** Store scope: rows of the given store(s) inside the organization. This is what every Store/Admin API request uses. */
 export function createTenantClient(pool: Pool, ctx: TenantContext): ScopedClient {
-  if (ctx.storeIds.length === 0) throw new Error('createTenantClient requires at least one storeId');
+  if (ctx.storeIds.length === 0)
+    throw new Error('createTenantClient requires at least one storeId');
   return build(pool, 'store', ctx);
 }
 

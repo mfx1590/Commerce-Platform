@@ -47,10 +47,7 @@
       ]
     },
     "reference_type": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "reference_id": {
       "oneOf": [

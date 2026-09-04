@@ -10,8 +10,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PNPM_VERSION: 10.34.5
   NODE_VERSION: 20
+  DATABASE_URL: postgres://platform:platform@localhost:5432/platform
+  DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5432/platform
 
 jobs:
   ownership:
@@ -28,4 +29,69 @@ jobs:
       - name: check branch writes only its owned paths
         run: bash scripts/check-ownership.sh
 
-  # Steps 4–8 of Phase 0 add: lint, typecheck, unit, contract tests, preview placeholder.
+  lint-typecheck:
+    name: lint + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - name: generated files are current (events + contracts)
+        run: git diff --exit-code -- packages/events/src/generated packages/contracts/src/generated
+
+  unit:
+    name: unit tests (with Postgres, RLS)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - name: migrate + seed against a fresh database (smoke)
+        run: pnpm db:migrate && pnpm db:seed
+
+  contract:
+    name: contract tests (Prism)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:contract
+
+  preview:
+    name: preview deploy (placeholder)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck, unit, contract, ownership]
+    steps:
+      - name: placeholder
+        run: |
+          echo "Preview deploy is wired by window 5 (infra) in Phase 2: Vercel preview per storefront/admin app, core on a staging namespace."
+          echo "PR #${{ github.event.pull_request.number }} from ${{ github.head_ref }} — all checks green."

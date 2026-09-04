@@ -5,11 +5,7 @@
   "description": "Payment secured; the order may be fulfilled.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "order_id",
-    "display_id",
-    "confirmed_at"
-  ],
+  "required": ["order_id", "display_id", "confirmed_at"],
   "properties": {
     "order_id": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"

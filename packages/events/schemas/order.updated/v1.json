@@ -22,34 +22,15 @@
     },
     "status": {
       "type": "string",
-      "enum": [
-        "pending",
-        "confirmed",
-        "processing",
-        "completed",
-        "cancelled"
-      ]
+      "enum": ["pending", "confirmed", "processing", "completed", "cancelled"]
     },
     "payment_status": {
       "type": "string",
-      "enum": [
-        "awaiting",
-        "authorized",
-        "captured",
-        "partially_refunded",
-        "refunded",
-        "failed"
-      ]
+      "enum": ["awaiting", "authorized", "captured", "partially_refunded", "refunded", "failed"]
     },
     "fulfillment_status": {
       "type": "string",
-      "enum": [
-        "unfulfilled",
-        "partially_fulfilled",
-        "fulfilled",
-        "partially_returned",
-        "returned"
-      ]
+      "enum": ["unfulfilled", "partially_fulfilled", "fulfilled", "partially_returned", "returned"]
     },
     "changed_fields": {
       "type": "array",

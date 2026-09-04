@@ -1,7 +1,13 @@
 // Public API of @platform/events. Nothing outside this package may import from src/* directly.
 import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { COMMON_SCHEMA, ENVELOPE_SCHEMA, EVENT_SCHEMAS, EVENT_TOPICS, LATEST_VERSION } from './generated/schemas.js';
+import {
+  COMMON_SCHEMA,
+  ENVELOPE_SCHEMA,
+  EVENT_SCHEMAS,
+  EVENT_TOPICS,
+  LATEST_VERSION,
+} from './generated/schemas.js';
 import type { EventEnvelopeV1Base, EventPayloads, LatestPayloads } from './generated/types.js';
 
 export { EVENT_TOPICS, LATEST_VERSION, EVENT_SCHEMAS, ENVELOPE_SCHEMA, COMMON_SCHEMA };
@@ -12,7 +18,10 @@ export type EventKey = keyof EventPayloads; // 'order.placed@1'
 export type AggregateType = EventEnvelopeV1Base['aggregate_type'];
 
 /** A typed envelope: `EventEnvelope<'order.placed'>` narrows `payload` to the latest version of that topic. */
-export type EventEnvelope<T extends EventTopic = EventTopic> = Omit<EventEnvelopeV1Base, 'topic' | 'payload'> & {
+export type EventEnvelope<T extends EventTopic = EventTopic> = Omit<
+  EventEnvelopeV1Base,
+  'topic' | 'payload'
+> & {
   topic: T;
   payload: LatestPayloads[T];
 };
@@ -33,7 +42,9 @@ function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
 export function createValidator() {
   const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
   // ajv-formats ships a CJS default export; under NodeNext ESM it may arrive wrapped.
-  const applyFormats = ((addFormats as unknown as { default?: unknown }).default ?? addFormats) as (a: Ajv2020) => void;
+  const applyFormats = ((addFormats as unknown as { default?: unknown }).default ?? addFormats) as (
+    a: Ajv2020,
+  ) => void;
   applyFormats(ajv);
   ajv.addSchema(COMMON_SCHEMA as unknown as object);
   const envelopeFn = ajv.compile(ENVELOPE_SCHEMA as unknown as object);

@@ -48,18 +48,10 @@
     },
     "reason": {
       "type": "string",
-      "enum": [
-        "return",
-        "cancellation",
-        "goodwill",
-        "chargeback"
-      ]
+      "enum": ["return", "cancellation", "goodwill", "chargeback"]
     },
     "provider_refund_id": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "issued_at": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"

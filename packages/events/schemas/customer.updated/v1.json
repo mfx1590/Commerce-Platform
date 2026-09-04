@@ -33,12 +33,7 @@
     },
     "status": {
       "type": "string",
-      "enum": [
-        "guest",
-        "registered",
-        "disabled",
-        "erased"
-      ]
+      "enum": ["guest", "registered", "disabled", "erased"]
     },
     "customer_group_id": {
       "oneOf": [

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // `pnpm db:migrate` / `pnpm db:seed` — runs as the owner role (DATABASE_URL).
-import { connectionStringFromEnv, createPool } from './pool.js';
+import { connectionStringFromEnv, createPool, loadDotenv } from './pool.js';
 import { migrate } from './migrate.js';
 import { seed } from './seed/index.js';
 
 const cmd = process.argv[2];
+loadDotenv();
 
 async function main(): Promise<void> {
   const pool = createPool(connectionStringFromEnv('owner'), 2);

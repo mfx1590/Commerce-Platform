@@ -63,23 +63,25 @@ describe('row-level security (platform_app role)', () => {
   it('a store-A session cannot insert a row for store B', async () => {
     const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
     await expect(
-      a.query(`INSERT INTO product (organization_id, store_id, handle, title) VALUES ($1, $2, 'hack', 'Hack')`, [
-        ORG,
-        STORE_B,
-      ]),
+      a.query(
+        `INSERT INTO product (organization_id, store_id, handle, title) VALUES ($1, $2, 'hack', 'Hack')`,
+        [ORG, STORE_B],
+      ),
     ).rejects.toThrow(/row-level security/);
   });
 
   it('a store-A session cannot move its own row to store B', async () => {
     const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
-    await expect(a.query('UPDATE product SET store_id = $1 WHERE store_id = $2', [STORE_B, STORE_A])).rejects.toThrow(
-      /row-level security/,
-    );
+    await expect(
+      a.query('UPDATE product SET store_id = $1 WHERE store_id = $2', [STORE_B, STORE_A]),
+    ).rejects.toThrow(/row-level security/);
   });
 
   it('a multi-store session sees exactly its stores', async () => {
     const ab = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A, STORE_B] });
-    const r = await ab.query<{ store_id: string }>('SELECT store_id FROM product ORDER BY store_id');
+    const r = await ab.query<{ store_id: string }>(
+      'SELECT store_id FROM product ORDER BY store_id',
+    );
     expect(r.rows.map((x) => x.store_id)).toEqual([STORE_A, STORE_B]);
   });
 

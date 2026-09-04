@@ -5,11 +5,7 @@
   "description": "All items delivered or returned; order closed.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "order_id",
-    "display_id",
-    "completed_at"
-  ],
+  "required": ["order_id", "display_id", "completed_at"],
   "properties": {
     "order_id": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"

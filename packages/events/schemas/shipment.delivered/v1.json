@@ -5,11 +5,7 @@
   "description": "Carrier reported delivery.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "shipment_id",
-    "order_id",
-    "delivered_at"
-  ],
+  "required": ["shipment_id", "order_id", "delivered_at"],
   "properties": {
     "shipment_id": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"

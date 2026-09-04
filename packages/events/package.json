@@ -6,9 +6,16 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
-  "files": ["dist", "schemas", "migrations"],
+  "files": [
+    "dist",
+    "schemas",
+    "migrations"
+  ],
   "scripts": {
     "generate": "node scripts/generate.mjs",
     "build": "node scripts/generate.mjs && tsc -p tsconfig.json",

@@ -16,7 +16,9 @@ export interface MigrationFile {
   path: string;
 }
 
-export async function listMigrations(dirs: string[] = DEFAULT_MIGRATION_DIRS): Promise<MigrationFile[]> {
+export async function listMigrations(
+  dirs: string[] = DEFAULT_MIGRATION_DIRS,
+): Promise<MigrationFile[]> {
   const files: MigrationFile[] = [];
   for (const dir of dirs) {
     let entries: string[] = [];
@@ -53,7 +55,9 @@ export async function migrate(pool: Pool, dirs?: string[]): Promise<MigrateResul
     applied_at timestamptz NOT NULL DEFAULT now()
   )`);
   const done = new Set(
-    (await pool.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name),
+    (await pool.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map(
+      (r) => r.name,
+    ),
   );
   const result: MigrateResult = { applied: [], skipped: [] };
   for (const m of await listMigrations(dirs)) {

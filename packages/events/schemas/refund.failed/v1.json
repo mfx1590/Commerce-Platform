@@ -31,10 +31,7 @@
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
     },
     "failure_reason": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "failed_at": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"

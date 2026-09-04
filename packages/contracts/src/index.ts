@@ -29,8 +29,24 @@ export const ERROR_CODES = [
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
 /** OpenFGA relations referenced by `x-permission` in admin-api.yaml (ADR 0002). */
-export const RELATIONS = ['owner', 'finance', 'operations', 'store_admin', 'store_staff', 'support', 'analyst'] as const;
+export const RELATIONS = [
+  'owner',
+  'finance',
+  'operations',
+  'store_admin',
+  'store_staff',
+  'support',
+  'analyst',
+] as const;
 export type Relation = (typeof RELATIONS)[number];
 
-export type { paths as StorePaths, components as StoreComponents, operations as StoreOperations } from './store.js';
-export type { paths as AdminPaths, components as AdminComponents, operations as AdminOperations } from './admin.js';
+export type {
+  paths as StorePaths,
+  components as StoreComponents,
+  operations as StoreOperations,
+} from './store.js';
+export type {
+  paths as AdminPaths,
+  components as AdminComponents,
+  operations as AdminOperations,
+} from './admin.js';

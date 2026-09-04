@@ -5,13 +5,7 @@
   "description": "A product or its variants changed (any status).",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "product_id",
-    "handle",
-    "status",
-    "changed_fields",
-    "variants"
-  ],
+  "required": ["product_id", "handle", "status", "changed_fields", "variants"],
   "properties": {
     "product_id": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
@@ -22,11 +16,7 @@
     },
     "status": {
       "type": "string",
-      "enum": [
-        "draft",
-        "published",
-        "archived"
-      ]
+      "enum": ["draft", "published", "archived"]
     },
     "changed_fields": {
       "type": "array",
@@ -40,11 +30,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "variant_id",
-          "sku",
-          "title"
-        ],
+        "required": ["variant_id", "sku", "title"],
         "properties": {
           "variant_id": {
             "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"

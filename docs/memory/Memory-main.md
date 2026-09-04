@@ -18,10 +18,11 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 
 ## Current status
 - Phase 0 in progress (main window, Architect). Repo: https://github.com/mfx1590/Commerce-Platform (main).
-- Done: step 1 monorepo skeleton (99d4661, 8681771) · step 2 docs/domain.md (66c2ca6) · operating guide docs/HOW-I-RUN-THIS.md (5603a1b) · step 3 ownership check + self-test + CI job (b23676f, 434b401) · step 4 packages/db migrations + RLS + tenant client + 10 isolation tests (8c33bb7) · step 5 packages/events 24 schemas + types + validator + outbox (978a48a) · step 6 packages/contracts store-api (20 ops) + admin-api (46 ops) + types + Prism mock + contract tests (42f59aa) · step 7 ADRs 0001–0005 (pending sha)
-- In progress: step 8 CI (lint, typecheck, unit, contract, ownership, preview placeholder) · step 9 docker-compose + pnpm dev · step 10 seeds
+- Done: step 1 monorepo skeleton (99d4661, 8681771) · step 2 docs/domain.md (66c2ca6) · operating guide docs/HOW-I-RUN-THIS.md (5603a1b) · step 3 ownership check + self-test + CI job (b23676f, 434b401) · step 4 packages/db migrations + RLS + tenant client + 10 isolation tests (8c33bb7) · step 5 packages/events 24 schemas + types + validator + outbox (978a48a) · step 6 packages/contracts store-api (20 ops) + admin-api (46 ops) + types + Prism mock + contract tests (42f59aa) · step 7 ADRs 0001–0005 (45f5d50) · steps 8–10 CI workflow (ownership, lint+typecheck+format, unit with Postgres, contract, preview placeholder), docker-compose full stack + `pnpm dev`, deterministic seeds 3×200 products / 2 warehouses / 7 users (pending sha)
+- In progress: step 11 GitHub issues for windows 1–4 (labels window:<key>), then step 12 memory + tag
 - Next: 4 packages/db · 5 packages/events · 6 packages/contracts · 7 ADRs · 8 CI · 9 docker-compose · 10 seeds · 11 issues · 12 tag
-- Local Postgres is on host port 5433 (5432 is taken by another project on this machine); .env.example and vitest defaults match.
+- Local ports (other projects own the defaults on this machine): Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081, Redpanda 19092, mocks 4010/4011. `.env.example`, vitest defaults and infra/README.md match.
+- Prism docker image 5.15 needs `--no-multiprocess`; Keycloak local uses dev-mem (realms re-import each start).
 - Decisions this phase: plain SQL migrations run by an in-repo runner over node-postgres (no ORM); Prism for the mock server; Vitest; approved extra dev libs: ajv + ajv-formats, json-schema-to-typescript, openapi-typescript; docs/** excluded from prettier (tables are grepped by scripts).
 ## Phase plan and gates
 | Phase | Goal | Windows (in order, one at a time) | Gate (you verify) |

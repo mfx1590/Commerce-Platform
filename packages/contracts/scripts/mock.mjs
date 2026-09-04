@@ -8,11 +8,22 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const prism = resolve(dirname(require.resolve('@stoplight/prism-cli/package.json')), 'dist/index.js');
+const prism = resolve(
+  dirname(require.resolve('@stoplight/prism-cli/package.json')),
+  'dist/index.js',
+);
 
 const servers = [
-  { name: 'store', spec: resolve(here, '../openapi/store-api.yaml'), port: process.env.MOCK_STORE_PORT ?? '4010' },
-  { name: 'admin', spec: resolve(here, '../openapi/admin-api.yaml'), port: process.env.MOCK_ADMIN_PORT ?? '4011' },
+  {
+    name: 'store',
+    spec: resolve(here, '../openapi/store-api.yaml'),
+    port: process.env.MOCK_STORE_PORT ?? '4010',
+  },
+  {
+    name: 'admin',
+    spec: resolve(here, '../openapi/admin-api.yaml'),
+    port: process.env.MOCK_ADMIN_PORT ?? '4011',
+  },
 ];
 
 const children = servers.map(({ name, spec, port }) => {
@@ -37,4 +48,8 @@ function shutdown(code = 0) {
 }
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
-console.info('mock: Store API http://localhost:%s  Admin API http://localhost:%s', servers[0].port, servers[1].port);
+console.info(
+  'mock: Store API http://localhost:%s  Admin API http://localhost:%s',
+  servers[0].port,
+  servers[1].port,
+);

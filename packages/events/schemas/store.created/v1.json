@@ -32,12 +32,7 @@
     },
     "status": {
       "type": "string",
-      "enum": [
-        "draft",
-        "active",
-        "paused",
-        "archived"
-      ]
+      "enum": ["draft", "active", "paused", "archived"]
     },
     "default_currency": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"

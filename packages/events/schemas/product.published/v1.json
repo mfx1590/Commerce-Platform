@@ -5,14 +5,7 @@
   "description": "A product became visible on the storefront.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "product_id",
-    "handle",
-    "title",
-    "category_id",
-    "variants",
-    "published_at"
-  ],
+  "required": ["product_id", "handle", "title", "category_id", "variants", "published_at"],
   "properties": {
     "product_id": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
@@ -40,11 +33,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "variant_id",
-          "sku",
-          "title"
-        ],
+        "required": ["variant_id", "sku", "title"],
         "properties": {
           "variant_id": {
             "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"

@@ -9,8 +9,8 @@ See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 pnpm mock
 ```
 
-| Mock | URL | Auth header |
-|---|---|---|
+| Mock      | URL                   | Auth header                  |
+| --------- | --------------------- | ---------------------------- |
 | Store API | http://localhost:4010 | `X-Publishable-Key: pk_test` |
 | Admin API | http://localhost:4011 | `Authorization: Bearer test` |
 

@@ -30,10 +30,7 @@
       "minLength": 1
     },
     "provider_payment_id": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "amount_minor": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"

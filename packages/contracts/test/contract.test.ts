@@ -9,7 +9,10 @@ import { HEADERS } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const prism = resolve(dirname(require.resolve('@stoplight/prism-cli/package.json')), 'dist/index.js');
+const prism = resolve(
+  dirname(require.resolve('@stoplight/prism-cli/package.json')),
+  'dist/index.js',
+);
 
 const STORE_PORT = 4110;
 const ADMIN_PORT = 4111;
@@ -23,9 +26,22 @@ const procs: ChildProcess[] = [];
 
 function start(spec: string, port: number): Promise<void> {
   return new Promise((resolveStart, reject) => {
-    const child = spawn(process.execPath, [prism, 'mock', resolve(here, '../openapi', spec), '--port', String(port), '--host', '127.0.0.1', '--errors'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(
+      process.execPath,
+      [
+        prism,
+        'mock',
+        resolve(here, '../openapi', spec),
+        '--port',
+        String(port),
+        '--host',
+        '127.0.0.1',
+        '--errors',
+      ],
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     procs.push(child);
     let log = '';
     const onData = (d: Buffer) => {
@@ -71,16 +87,24 @@ describe('Store API mock', () => {
   });
 
   it('GET /store/products and /store/products/{handle} conform to their schemas', async () => {
-    const list = await json(await fetch(`${STORE}/store/products?limit=24`, { headers: storeHeaders }));
+    const list = await json(
+      await fetch(`${STORE}/store/products?limit=24`, { headers: storeHeaders }),
+    );
     expect(Array.isArray(list.items)).toBe(true);
-    const one = await json(await fetch(`${STORE}/store/products/classic-tee`, { headers: storeHeaders }));
+    const one = await json(
+      await fetch(`${STORE}/store/products/classic-tee`, { headers: storeHeaders }),
+    );
     expect(one.handle).toBe('classic-tee');
     const variants = one.variants as Array<{ price: { amount_minor: number; currency: string } }>;
     expect(variants[0]?.price).toEqual({ amount_minor: 1999, currency: 'EUR' });
   });
 
   it('cart flow: create → add item → shipping options → payment session → complete', async () => {
-    const created = await fetch(`${STORE}/store/carts`, { method: 'POST', headers: storeHeaders, body: '{}' });
+    const created = await fetch(`${STORE}/store/carts`, {
+      method: 'POST',
+      headers: storeHeaders,
+      body: '{}',
+    });
     expect(created.status).toBe(201);
     const cart = await json(created);
     expect(cart.items).toEqual([]);
@@ -100,7 +124,9 @@ describe('Store API mock', () => {
     });
     expect(bad.status).toBe(400); // Prism request validation
 
-    const ship = await json(await fetch(`${STORE}/store/carts/${cart.id}/shipping-options`, { headers: storeHeaders }));
+    const ship = await json(
+      await fetch(`${STORE}/store/carts/${cart.id}/shipping-options`, { headers: storeHeaders }),
+    );
     expect((ship.items as unknown[]).length).toBeGreaterThan(0);
 
     const session = await fetch(`${STORE}/store/carts/${cart.id}/payment-session`, {
@@ -169,11 +195,14 @@ describe('Admin API mock', () => {
       body: JSON.stringify({ handle: 'Not Kebab', title: 'x' }),
     });
     expect(bad.status).toBe(400);
-    const refund = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/orders/30000000-0000-4000-8000-000000000501/refunds`, {
-      method: 'POST',
-      headers: { ...adminHeaders, [HEADERS.idempotencyKey]: 'refund-0001' },
-      body: JSON.stringify({ amount_minor: 500, reason: 'goodwill' }),
-    });
+    const refund = await fetch(
+      `${ADMIN}/admin/stores/${STORE_ID}/orders/30000000-0000-4000-8000-000000000501/refunds`,
+      {
+        method: 'POST',
+        headers: { ...adminHeaders, [HEADERS.idempotencyKey]: 'refund-0001' },
+        body: JSON.stringify({ amount_minor: 500, reason: 'goodwill' }),
+      },
+    );
     expect(refund.status).toBe(201);
   });
 });

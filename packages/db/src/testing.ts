@@ -26,7 +26,8 @@ function withDatabase(url: string, db: string): string {
 export async function createTestDatabase(prefix = 'platform_test'): Promise<TestDatabase> {
   const ownerUrl = process.env.DATABASE_URL;
   if (!ownerUrl) throw new Error('DATABASE_URL is required for db tests (docker: pnpm compose:up)');
-  const appUrl = process.env.DATABASE_URL_APP ?? ownerUrl.replace(/\/\/[^@]+@/, '//platform_app:platform_app@');
+  const appUrl =
+    process.env.DATABASE_URL_APP ?? ownerUrl.replace(/\/\/[^@]+@/, '//platform_app:platform_app@');
   const name = `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 
   const admin = new Pool({ connectionString: ownerUrl, max: 1 });

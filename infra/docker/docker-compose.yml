@@ -1,5 +1,5 @@
-# Local stack for `pnpm dev`. Phase 0 step 4 adds Postgres; step 9 adds Redis, Redpanda, Keycloak, OpenFGA, mock API.
-# Credentials here are local-only defaults (also in .env.example). Never reuse them anywhere else.
+# Local stack for `pnpm dev` (main window, Phase 0). Credentials here are local-only defaults, mirrored in .env.example.
+# Host ports avoid the usual defaults where another project may already own them (Postgres 5433, Redis 6381, Keycloak 8180).
 name: commerce-platform
 
 services:
@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: platform
       POSTGRES_DB: platform
     ports:
-      - '5433:5432' # 5433 on the host: leaves a system Postgres on 5432 alone
+      - '5433:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -19,5 +19,125 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6381:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --mode=dev-container
+    ports:
+      - '19092:19092' # Kafka API (KAFKA_BROKERS=localhost:19092)
+      - '18081:18081' # Schema registry
+      - '18082:18082' # HTTP proxy
+      - '9644:9644' # Admin API
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ['CMD-SHELL', 'rpk cluster health | grep -E "Healthy:.+true" || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ['start-dev', '--import-realm', '--http-port=8080']
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: dev-mem # local only: realms re-import from infra/keycloak on every start
+      KC_HEALTH_ENABLED: 'true'
+      KC_HTTP_MANAGEMENT_PORT: '9000'
+    ports:
+      - '8180:8080'
+    volumes:
+      - ../keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n" >&3 && grep -q "UP" <&3',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  openfga:
+    image: openfga/openfga:v1.8.4
+    command: ['run']
+    environment:
+      OPENFGA_DATASTORE_ENGINE: memory
+      OPENFGA_HTTP_ADDR: 0.0.0.0:8080
+      OPENFGA_GRPC_ADDR: 0.0.0.0:8081
+      OPENFGA_PLAYGROUND_ENABLED: 'true'
+      OPENFGA_PLAYGROUND_PORT: '3000'
+      OPENFGA_LOG_FORMAT: text
+    ports:
+      - '8081:8080' # HTTP API (OPENFGA_API_URL=http://localhost:8081)
+      - '8082:8081' # gRPC
+      - '3001:3000' # Playground
+    healthcheck:
+      test: ['CMD', '/openfga', 'version']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mock-store:
+    image: stoplight/prism:5
+    command: [
+        'mock',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '4010',
+        '--errors',
+        '--no-multiprocess',
+        '/specs/store-api.yaml',
+      ] # --no-multiprocess: Prism 5.15 image crashes on cluster.isPrimary
+    ports:
+      - '4010:4010'
+    volumes:
+      - ../../packages/contracts/openapi:/specs:ro
+
+  mock-admin:
+    image: stoplight/prism:5
+    command:
+      [
+        'mock',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '4011',
+        '--errors',
+        '--no-multiprocess',
+        '/specs/admin-api.yaml',
+      ]
+    ports:
+      - '4011:4011'
+    volumes:
+      - ../../packages/contracts/openapi:/specs:ro
+
 volumes:
   postgres-data:
+  redpanda-data:

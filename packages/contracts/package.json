@@ -6,11 +6,23 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./store": { "types": "./dist/store.d.ts", "import": "./dist/store.js" },
-    "./admin": { "types": "./dist/admin.d.ts", "import": "./dist/admin.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./dist/store.js"
+    },
+    "./admin": {
+      "types": "./dist/admin.d.ts",
+      "import": "./dist/admin.js"
+    }
   },
-  "files": ["dist", "openapi"],
+  "files": [
+    "dist",
+    "openapi"
+  ],
   "scripts": {
     "generate": "openapi-typescript openapi/store-api.yaml -o src/generated/store.ts && openapi-typescript openapi/admin-api.yaml -o src/generated/admin.ts",
     "build": "pnpm generate && tsc -p tsconfig.json",

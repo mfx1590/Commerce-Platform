@@ -24,7 +24,13 @@ const orderPlaced: OrderPlacedV1 = {
   email_hash: HASH,
   currency: 'EUR',
   locale: 'en-GB',
-  totals: { subtotal_minor: 1999, discount_minor: 0, shipping_minor: 499, tax_minor: 420, total_minor: 2918 },
+  totals: {
+    subtotal_minor: 1999,
+    discount_minor: 0,
+    shipping_minor: 499,
+    tax_minor: 420,
+    total_minor: 2918,
+  },
   line_items: [
     {
       order_line_item_id: ID,
@@ -39,7 +45,13 @@ const orderPlaced: OrderPlacedV1 = {
       total_minor: 2419,
     },
   ],
-  shipping: { shipping_option_id: null, code: 'standard', name: 'Standard', carrier: 'manual', price_minor: 499 },
+  shipping: {
+    shipping_option_id: null,
+    code: 'standard',
+    name: 'Standard',
+    carrier: 'manual',
+    price_minor: 499,
+  },
   shipping_country: 'NL',
   billing_country: 'NL',
   promotion_codes: [],
@@ -50,7 +62,15 @@ const v = createValidator();
 
 describe('event schemas', () => {
   it('covers every topic in plan section 2.7', () => {
-    for (const t of ['order.placed', 'payment.captured', 'refund.issued', 'shipment.created', 'stock.moved', 'customer.updated', 'product.published']) {
+    for (const t of [
+      'order.placed',
+      'payment.captured',
+      'refund.issued',
+      'shipment.created',
+      'stock.moved',
+      'customer.updated',
+      'product.published',
+    ]) {
       expect(EVENT_TOPICS).toContain(t);
     }
   });
@@ -90,7 +110,9 @@ describe('event schemas', () => {
     expect(v.validatePayload('order.placed', 1, float).errors.join()).toMatch(/integer/);
 
     const extra = { ...orderPlaced, customer_email: 'x@example.com' };
-    expect(v.validatePayload('order.placed', 1, extra).errors.join()).toMatch(/additional properties/);
+    expect(v.validatePayload('order.placed', 1, extra).errors.join()).toMatch(
+      /additional properties/,
+    );
   });
 
   it('rejects raw email instead of a sha256 hash (PII guard)', () => {

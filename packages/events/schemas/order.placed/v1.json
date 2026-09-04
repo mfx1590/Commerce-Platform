@@ -147,12 +147,7 @@
     "shipping": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "code",
-        "name",
-        "carrier",
-        "price_minor"
-      ],
+      "required": ["code", "name", "carrier", "price_minor"],
       "properties": {
         "shipping_option_id": {
           "oneOf": [

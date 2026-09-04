@@ -5,12 +5,7 @@
   "description": "Store settings changed.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "store_id",
-    "code",
-    "status",
-    "changed_fields"
-  ],
+  "required": ["store_id", "code", "status", "changed_fields"],
   "properties": {
     "store_id": {
       "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
@@ -21,12 +16,7 @@
     },
     "status": {
       "type": "string",
-      "enum": [
-        "draft",
-        "active",
-        "paused",
-        "archived"
-      ]
+      "enum": ["draft", "active", "paused", "archived"]
     },
     "changed_fields": {
       "type": "array",

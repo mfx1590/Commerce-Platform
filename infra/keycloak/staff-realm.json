@@ -1,0 +1,91 @@
+{
+  "realm": "staff",
+  "displayName": "Staff (HQ + store admins)",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "sslRequired": "external",
+  "accessTokenLifespan": 900,
+  "clients": [
+    {
+      "clientId": "admin-app",
+      "name": "Admin application",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ],
+  "users": [
+    {
+      "username": "owner",
+      "email": "owner@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Olivia",
+      "lastName": "Owner",
+      "credentials": [{ "type": "password", "value": "owner", "temporary": false }]
+    },
+    {
+      "username": "finance",
+      "email": "finance@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Fin",
+      "lastName": "Finance",
+      "credentials": [{ "type": "password", "value": "finance", "temporary": false }]
+    },
+    {
+      "username": "operations",
+      "email": "operations@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Otto",
+      "lastName": "Operations",
+      "credentials": [{ "type": "password", "value": "operations", "temporary": false }]
+    },
+    {
+      "username": "store-admin",
+      "email": "store-admin@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sam",
+      "lastName": "StoreAdmin",
+      "credentials": [{ "type": "password", "value": "store-admin", "temporary": false }]
+    },
+    {
+      "username": "store-staff",
+      "email": "store-staff@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Stef",
+      "lastName": "StoreStaff",
+      "credentials": [{ "type": "password", "value": "store-staff", "temporary": false }]
+    },
+    {
+      "username": "support",
+      "email": "support@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Sue",
+      "lastName": "Support",
+      "credentials": [{ "type": "password", "value": "support", "temporary": false }]
+    },
+    {
+      "username": "analyst",
+      "email": "analyst@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Ana",
+      "lastName": "Analyst",
+      "credentials": [{ "type": "password", "value": "analyst", "temporary": false }]
+    }
+  ],
+  "attributes": {
+    "_comment": "Local-dev realm stub (main window, Phase 0). Window 2 replaces it with the real export (MFA, SSO, mappers). Users mirror packages/db SEED_IDS.users; roles live in OpenFGA, not here."
+  }
+}

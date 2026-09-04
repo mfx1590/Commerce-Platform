@@ -90,18 +90,11 @@
     "actor": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "type",
-        "id"
-      ],
+      "required": ["type", "id"],
       "properties": {
         "type": {
           "type": "string",
-          "enum": [
-            "staff",
-            "customer",
-            "system"
-          ]
+          "enum": ["staff", "customer", "system"]
         },
         "id": {
           "oneOf": [
@@ -121,16 +114,10 @@
       "required": [],
       "properties": {
         "request_id": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "trace_id": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "correlation_id": {
           "oneOf": [

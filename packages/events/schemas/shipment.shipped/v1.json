@@ -36,16 +36,10 @@
       "minLength": 1
     },
     "service": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "tracking_number": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "cost_minor": {
       "oneOf": [
@@ -65,10 +59,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "order_line_item_id",
-          "quantity"
-        ],
+        "required": ["order_line_item_id", "quantity"],
         "properties": {
           "order_line_item_id": {
             "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"

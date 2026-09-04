@@ -40,12 +40,27 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Principal' }
               example:
-                user: { id: 00000000-0000-4000-8000-000000000044, email: store-admin@example.com, display_name: Store Admin }
+                user:
+                  {
+                    id: 00000000-0000-4000-8000-000000000044,
+                    email: store-admin@example.com,
+                    display_name: Store Admin,
+                  }
                 organization: { id: 00000000-0000-4000-8000-000000000001, slug: hq, name: HQ }
                 organization_relations: []
                 stores:
-                  - { store_id: 00000000-0000-4000-8000-000000000031, code: brand-a, name: Brand A, relations: [store_admin] }
-                  - { store_id: 00000000-0000-4000-8000-000000000032, code: brand-b, name: Brand B, relations: [store_admin] }
+                  - {
+                      store_id: 00000000-0000-4000-8000-000000000031,
+                      code: brand-a,
+                      name: Brand A,
+                      relations: [store_admin],
+                    }
+                  - {
+                      store_id: 00000000-0000-4000-8000-000000000032,
+                      code: brand-b,
+                      name: Brand B,
+                      relations: [store_admin],
+                    }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------------------------------------------- registry
@@ -75,7 +90,24 @@ paths:
                 limit: 20
                 total: 3
                 items:
-                  - { id: 00000000-0000-4000-8000-000000000031, legal_entity_id: 00000000-0000-4000-8000-000000000011, code: brand-a, name: Brand A, status: active, default_currency: EUR, default_locale: en-GB, default_country: NL, timezone: Europe/Amsterdam, content_space_id: brand-a, search_index: brand-a_products, psp_account_id: null, theme: {}, settings: {}, created_at: '2026-09-04T00:00:00Z', updated_at: '2026-09-04T00:00:00Z' }
+                  - {
+                      id: 00000000-0000-4000-8000-000000000031,
+                      legal_entity_id: 00000000-0000-4000-8000-000000000011,
+                      code: brand-a,
+                      name: Brand A,
+                      status: active,
+                      default_currency: EUR,
+                      default_locale: en-GB,
+                      default_country: NL,
+                      timezone: Europe/Amsterdam,
+                      content_space_id: brand-a,
+                      search_index: brand-a_products,
+                      psp_account_id: null,
+                      theme: {},
+                      settings: {},
+                      created_at: '2026-09-04T00:00:00Z',
+                      updated_at: '2026-09-04T00:00:00Z',
+                    }
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
       tags: [registry]
@@ -149,7 +181,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DomainList' }
-              example: { items: [{ id: 40000000-0000-4000-8000-000000000001, hostname: shop.brand-a.example, is_primary: true, verified_at: '2026-09-04T00:00:00Z' }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 40000000-0000-4000-8000-000000000001,
+                        hostname: shop.brand-a.example,
+                        is_primary: true,
+                        verified_at: '2026-09-04T00:00:00Z',
+                      },
+                    ],
+                }
     post:
       tags: [registry]
       operationId: addDomain
@@ -170,7 +213,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Domain' }
-              example: { id: 40000000-0000-4000-8000-000000000001, hostname: shop.brand-a.example, is_primary: true, verified_at: null }
+              example:
+                {
+                  id: 40000000-0000-4000-8000-000000000001,
+                  hostname: shop.brand-a.example,
+                  is_primary: true,
+                  verified_at: null,
+                }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/sales-channels:
@@ -190,7 +239,19 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/SalesChannel' } }
-              example: { items: [{ id: 30000000-0000-4000-8000-000000000001, code: web, name: Web, type: web, is_active: true }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 30000000-0000-4000-8000-000000000001,
+                        code: web,
+                        name: Web,
+                        type: web,
+                        is_active: true,
+                      },
+                    ],
+                }
     post:
       tags: [registry]
       operationId: createSalesChannel
@@ -212,7 +273,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SalesChannel' }
-              example: { id: 30000000-0000-4000-8000-000000000002, code: app, name: Mobile app, type: app, is_active: true }
+              example:
+                {
+                  id: 30000000-0000-4000-8000-000000000002,
+                  code: app,
+                  name: Mobile app,
+                  type: app,
+                  is_active: true,
+                }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/api-keys:
@@ -232,7 +300,21 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/ApiKey' } }
-              example: { items: [{ id: 40000000-0000-4000-8000-000000000101, name: storefront, type: publishable, key_prefix: pk_brand, sales_channel_id: 30000000-0000-4000-8000-000000000001, revoked_at: null, created_at: '2026-09-04T00:00:00Z' }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 40000000-0000-4000-8000-000000000101,
+                        name: storefront,
+                        type: publishable,
+                        key_prefix: pk_brand,
+                        sales_channel_id: 30000000-0000-4000-8000-000000000001,
+                        revoked_at: null,
+                        created_at: '2026-09-04T00:00:00Z',
+                      },
+                    ],
+                }
     post:
       tags: [registry]
       operationId: createApiKey
@@ -261,7 +343,17 @@ paths:
                     required: [key]
                     properties:
                       key: { type: string, description: Shown once }
-              example: { id: 40000000-0000-4000-8000-000000000101, name: storefront, type: publishable, key_prefix: pk_brand, sales_channel_id: 30000000-0000-4000-8000-000000000001, revoked_at: null, created_at: '2026-09-04T00:00:00Z', key: pk_branda_mock_0000000000000000 }
+              example:
+                {
+                  id: 40000000-0000-4000-8000-000000000101,
+                  name: storefront,
+                  type: publishable,
+                  key_prefix: pk_brand,
+                  sales_channel_id: 30000000-0000-4000-8000-000000000001,
+                  revoked_at: null,
+                  created_at: '2026-09-04T00:00:00Z',
+                  key: pk_branda_mock_0000000000000000,
+                }
 
   /admin/warehouses:
     get:
@@ -280,8 +372,22 @@ paths:
                   items: { type: array, items: { $ref: '#/components/schemas/Warehouse' } }
               example:
                 items:
-                  - { id: 00000000-0000-4000-8000-000000000021, code: wh-eu, name: Rotterdam, country: NL, is_active: true, priority: 10 }
-                  - { id: 00000000-0000-4000-8000-000000000022, code: wh-us, name: New Jersey, country: US, is_active: true, priority: 20 }
+                  - {
+                      id: 00000000-0000-4000-8000-000000000021,
+                      code: wh-eu,
+                      name: Rotterdam,
+                      country: NL,
+                      is_active: true,
+                      priority: 10,
+                    }
+                  - {
+                      id: 00000000-0000-4000-8000-000000000022,
+                      code: wh-us,
+                      name: New Jersey,
+                      country: US,
+                      is_active: true,
+                      priority: 20,
+                    }
 
   /admin/legal-entities:
     get:
@@ -298,7 +404,20 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/LegalEntity' } }
-              example: { items: [{ id: 00000000-0000-4000-8000-000000000011, code: le-brand-a, name: Brand A B.V., country: NL, currency: EUR, vat_number: NL000000000B01 }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 00000000-0000-4000-8000-000000000011,
+                        code: le-brand-a,
+                        name: Brand A B.V.,
+                        country: NL,
+                        currency: EUR,
+                        vat_number: NL000000000B01,
+                      },
+                    ],
+                }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- catalog
@@ -319,7 +438,20 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/Category' } }
-              example: { items: [{ id: 30000000-0000-4000-8000-000000000101, handle: tops, name: Tops, parent_id: null, position: 0, is_active: true }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 30000000-0000-4000-8000-000000000101,
+                        handle: tops,
+                        name: Tops,
+                        parent_id: null,
+                        position: 0,
+                        is_active: true,
+                      },
+                    ],
+                }
     post:
       tags: [catalog]
       operationId: createCategory
@@ -335,7 +467,15 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Category' }
-              example: { id: 30000000-0000-4000-8000-000000000101, handle: tops, name: Tops, parent_id: null, position: 0, is_active: true }
+              example:
+                {
+                  id: 30000000-0000-4000-8000-000000000101,
+                  handle: tops,
+                  name: Tops,
+                  parent_id: null,
+                  position: 0,
+                  is_active: true,
+                }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/products:
@@ -511,7 +651,25 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/PriceList' } }
-              example: { items: [{ id: 50000000-0000-4000-8000-000000000001, code: default-eur, name: Default EUR, type: default, currency: EUR, customer_group_id: null, sales_channel_id: null, starts_at: null, ends_at: null, status: active, priority: 0 }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 50000000-0000-4000-8000-000000000001,
+                        code: default-eur,
+                        name: Default EUR,
+                        type: default,
+                        currency: EUR,
+                        customer_group_id: null,
+                        sales_channel_id: null,
+                        starts_at: null,
+                        ends_at: null,
+                        status: active,
+                        priority: 0,
+                      },
+                    ],
+                }
     post:
       tags: [pricing]
       operationId: createPriceList
@@ -527,7 +685,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PriceList' }
-              example: { id: 50000000-0000-4000-8000-000000000002, code: summer-sale, name: Summer sale, type: sale, currency: EUR, customer_group_id: null, sales_channel_id: null, starts_at: '2026-06-01T00:00:00Z', ends_at: '2026-08-31T23:59:59Z', status: active, priority: 10 }
+              example:
+                {
+                  id: 50000000-0000-4000-8000-000000000002,
+                  code: summer-sale,
+                  name: Summer sale,
+                  type: sale,
+                  currency: EUR,
+                  customer_group_id: null,
+                  sales_channel_id: null,
+                  starts_at: '2026-06-01T00:00:00Z',
+                  ends_at: '2026-08-31T23:59:59Z',
+                  status: active,
+                  priority: 10,
+                }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/price-lists/{priceListId}/prices:
@@ -592,7 +763,30 @@ paths:
                     required: [items]
                     properties:
                       items: { type: array, items: { $ref: '#/components/schemas/Promotion' } }
-              example: { page: 1, limit: 20, total: 1, items: [{ id: 50000000-0000-4000-8000-000000000101, code: WELCOME10, name: Welcome 10%, type: percentage, value: 1000, currency: null, rules: { first_order_only: true }, usage_limit: null, usage_count: 12, per_customer_limit: 1, starts_at: null, ends_at: null, status: active }] }
+              example:
+                {
+                  page: 1,
+                  limit: 20,
+                  total: 1,
+                  items:
+                    [
+                      {
+                        id: 50000000-0000-4000-8000-000000000101,
+                        code: WELCOME10,
+                        name: Welcome 10%,
+                        type: percentage,
+                        value: 1000,
+                        currency: null,
+                        rules: { first_order_only: true },
+                        usage_limit: null,
+                        usage_count: 12,
+                        per_customer_limit: 1,
+                        starts_at: null,
+                        ends_at: null,
+                        status: active,
+                      },
+                    ],
+                }
     post:
       tags: [pricing]
       operationId: createPromotion
@@ -608,7 +802,22 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Promotion' }
-              example: { id: 50000000-0000-4000-8000-000000000101, code: WELCOME10, name: Welcome 10%, type: percentage, value: 1000, currency: null, rules: { first_order_only: true }, usage_limit: null, usage_count: 0, per_customer_limit: 1, starts_at: null, ends_at: null, status: active }
+              example:
+                {
+                  id: 50000000-0000-4000-8000-000000000101,
+                  code: WELCOME10,
+                  name: Welcome 10%,
+                  type: percentage,
+                  value: 1000,
+                  currency: null,
+                  rules: { first_order_only: true },
+                  usage_limit: null,
+                  usage_count: 0,
+                  per_customer_limit: 1,
+                  starts_at: null,
+                  ends_at: null,
+                  status: active,
+                }
         '409': { $ref: '#/components/responses/Conflict' }
 
   # ---------------------------------------------------------------- orders
@@ -620,7 +829,11 @@ paths:
       operationId: listOrders
       x-permission: { relation: viewer, object: 'store:{storeId}' }
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, confirmed, processing, completed, cancelled] } }
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [pending, confirmed, processing, completed, cancelled] },
+          }
         - { name: payment_status, in: query, schema: { type: string } }
         - { name: fulfillment_status, in: query, schema: { type: string } }
         - { name: q, in: query, schema: { type: string }, description: display_id or email }
@@ -645,7 +858,17 @@ paths:
                 limit: 20
                 total: 1
                 items:
-                  - { id: 30000000-0000-4000-8000-000000000501, display_id: 1000, email: jane@example.com, customer_id: 30000000-0000-4000-8000-000000000a01, status: confirmed, payment_status: captured, fulfillment_status: unfulfilled, total: { amount_minor: 2918, currency: EUR }, placed_at: '2026-09-04T10:00:00Z' }
+                  - {
+                      id: 30000000-0000-4000-8000-000000000501,
+                      display_id: 1000,
+                      email: jane@example.com,
+                      customer_id: 30000000-0000-4000-8000-000000000a01,
+                      status: confirmed,
+                      payment_status: captured,
+                      fulfillment_status: unfulfilled,
+                      total: { amount_minor: 2918, currency: EUR },
+                      placed_at: '2026-09-04T10:00:00Z',
+                    }
 
   /admin/stores/{storeId}/orders/{orderId}:
     parameters:
@@ -703,7 +926,12 @@ paths:
       summary: Refund part or all of a captured payment. `support` may refund up to the store's support_refund_limit_minor.
       x-permission: { relation: support, object: 'store:{storeId}' }
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, minLength: 8 },
+          }
       requestBody:
         required: true
         content:
@@ -712,7 +940,8 @@ paths:
               type: object
               required: [amount_minor, reason]
               properties:
-                payment_id: { type: string, format: uuid, description: Defaults to the captured payment }
+                payment_id:
+                  { type: string, format: uuid, description: Defaults to the captured payment }
                 amount_minor: { type: integer, minimum: 1 }
                 reason: { type: string, enum: [return, cancellation, goodwill, chargeback] }
                 return_id: { type: string, format: uuid }
@@ -722,7 +951,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Refund' }
-              example: { id: 60000000-0000-4000-8000-000000000001, order_id: 30000000-0000-4000-8000-000000000501, payment_id: 60000000-0000-4000-8000-000000000101, return_id: null, amount: { amount_minor: 500, currency: EUR }, reason: goodwill, status: succeeded, provider_refund_id: re_mock, created_at: '2026-09-04T11:00:00Z' }
+              example:
+                {
+                  id: 60000000-0000-4000-8000-000000000001,
+                  order_id: 30000000-0000-4000-8000-000000000501,
+                  payment_id: 60000000-0000-4000-8000-000000000101,
+                  return_id: null,
+                  amount: { amount_minor: 500, currency: EUR },
+                  reason: goodwill,
+                  status: succeeded,
+                  provider_refund_id: re_mock,
+                  created_at: '2026-09-04T11:00:00Z',
+                }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -758,7 +998,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Return' }
-              example: { id: 60000000-0000-4000-8000-000000000201, order_id: 30000000-0000-4000-8000-000000000501, status: requested, reason: wrong size, warehouse_id: null, refund_id: null, items: [{ order_line_item_id: 30000000-0000-4000-8000-000000000901, quantity: 1, condition: null }], requested_at: '2026-09-05T10:00:00Z', received_at: null }
+              example:
+                {
+                  id: 60000000-0000-4000-8000-000000000201,
+                  order_id: 30000000-0000-4000-8000-000000000501,
+                  status: requested,
+                  reason: wrong size,
+                  warehouse_id: null,
+                  refund_id: null,
+                  items:
+                    [
+                      {
+                        order_line_item_id: 30000000-0000-4000-8000-000000000901,
+                        quantity: 1,
+                        condition: null,
+                      },
+                    ],
+                  requested_at: '2026-09-05T10:00:00Z',
+                  received_at: null,
+                }
 
   /admin/stores/{storeId}/returns/{returnId}/receive:
     parameters:
@@ -793,7 +1051,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Return' }
-              example: { id: 60000000-0000-4000-8000-000000000201, order_id: 30000000-0000-4000-8000-000000000501, status: received, reason: wrong size, warehouse_id: 00000000-0000-4000-8000-000000000021, refund_id: null, items: [{ order_line_item_id: 30000000-0000-4000-8000-000000000901, quantity: 1, condition: resellable }], requested_at: '2026-09-05T10:00:00Z', received_at: '2026-09-08T10:00:00Z' }
+              example:
+                {
+                  id: 60000000-0000-4000-8000-000000000201,
+                  order_id: 30000000-0000-4000-8000-000000000501,
+                  status: received,
+                  reason: wrong size,
+                  warehouse_id: 00000000-0000-4000-8000-000000000021,
+                  refund_id: null,
+                  items:
+                    [
+                      {
+                        order_line_item_id: 30000000-0000-4000-8000-000000000901,
+                        quantity: 1,
+                        condition: resellable,
+                      },
+                    ],
+                  requested_at: '2026-09-05T10:00:00Z',
+                  received_at: '2026-09-08T10:00:00Z',
+                }
 
   # ---------------------------------------------------------------- inventory
   /admin/inventory/levels:
@@ -807,7 +1083,12 @@ paths:
         - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
         - { name: variant_id, in: query, schema: { type: string, format: uuid } }
         - { name: sku, in: query, schema: { type: string } }
-        - { name: below_available, in: query, schema: { type: integer }, description: Only rows with available below this }
+        - {
+            name: below_available,
+            in: query,
+            schema: { type: integer },
+            description: Only rows with available below this,
+          }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -822,7 +1103,26 @@ paths:
                     required: [items]
                     properties:
                       items: { type: array, items: { $ref: '#/components/schemas/InventoryLevel' } }
-              example: { page: 1, limit: 20, total: 1, items: [{ id: 70000000-0000-4000-8000-000000000001, store_id: 00000000-0000-4000-8000-000000000031, variant_id: 30000000-0000-4000-8000-000000000301, sku: TEE-M-RED, warehouse_id: 00000000-0000-4000-8000-000000000021, on_hand: 12, reserved: 1, incoming: 0, available: 11 }] }
+              example:
+                {
+                  page: 1,
+                  limit: 20,
+                  total: 1,
+                  items:
+                    [
+                      {
+                        id: 70000000-0000-4000-8000-000000000001,
+                        store_id: 00000000-0000-4000-8000-000000000031,
+                        variant_id: 30000000-0000-4000-8000-000000000301,
+                        sku: TEE-M-RED,
+                        warehouse_id: 00000000-0000-4000-8000-000000000021,
+                        on_hand: 12,
+                        reserved: 1,
+                        incoming: 0,
+                        available: 11,
+                      },
+                    ],
+                }
 
   /admin/inventory/movements:
     post:
@@ -841,7 +1141,11 @@ paths:
                 variant_id: { type: string, format: uuid }
                 warehouse_id: { type: string, format: uuid }
                 delta: { type: integer }
-                reason: { type: string, enum: [receipt, adjustment, transfer_in, transfer_out, cycle_count] }
+                reason:
+                  {
+                    type: string,
+                    enum: [receipt, adjustment, transfer_in, transfer_out, cycle_count],
+                  }
                 note: { type: string }
       responses:
         '201':
@@ -849,7 +1153,18 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/InventoryLevel' }
-              example: { id: 70000000-0000-4000-8000-000000000001, store_id: 00000000-0000-4000-8000-000000000031, variant_id: 30000000-0000-4000-8000-000000000301, sku: TEE-M-RED, warehouse_id: 00000000-0000-4000-8000-000000000021, on_hand: 22, reserved: 1, incoming: 0, available: 21 }
+              example:
+                {
+                  id: 70000000-0000-4000-8000-000000000001,
+                  store_id: 00000000-0000-4000-8000-000000000031,
+                  variant_id: 30000000-0000-4000-8000-000000000301,
+                  sku: TEE-M-RED,
+                  warehouse_id: 00000000-0000-4000-8000-000000000021,
+                  on_hand: 22,
+                  reserved: 1,
+                  incoming: 0,
+                  available: 21,
+                }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -871,7 +1186,24 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/ShippingOption' } }
-              example: { items: [{ id: 30000000-0000-4000-8000-000000000401, code: standard, name: Standard (2–4 days), carrier: manual, service: null, price: { amount_minor: 499, currency: EUR }, countries: [NL, DE, BE], sales_channel_id: null, rules: {}, is_active: true }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 30000000-0000-4000-8000-000000000401,
+                        code: standard,
+                        name: Standard (2–4 days),
+                        carrier: manual,
+                        service: null,
+                        price: { amount_minor: 499, currency: EUR },
+                        countries: [NL, DE, BE],
+                        sales_channel_id: null,
+                        rules: {},
+                        is_active: true,
+                      },
+                    ],
+                }
     post:
       tags: [fulfillment]
       operationId: createShippingOption
@@ -887,7 +1219,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ShippingOption' }
-              example: { id: 30000000-0000-4000-8000-000000000401, code: standard, name: Standard (2–4 days), carrier: manual, service: null, price: { amount_minor: 499, currency: EUR }, countries: [NL, DE, BE], sales_channel_id: null, rules: {}, is_active: true }
+              example:
+                {
+                  id: 30000000-0000-4000-8000-000000000401,
+                  code: standard,
+                  name: Standard (2–4 days),
+                  carrier: manual,
+                  service: null,
+                  price: { amount_minor: 499, currency: EUR },
+                  countries: [NL, DE, BE],
+                  sales_channel_id: null,
+                  rules: {},
+                  is_active: true,
+                }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/orders/{orderId}/shipments:
@@ -944,7 +1288,11 @@ paths:
             schema:
               type: object
               properties:
-                status: { type: string, enum: [label_created, shipped, in_transit, delivered, failed, cancelled] }
+                status:
+                  {
+                    type: string,
+                    enum: [label_created, shipped, in_transit, delivered, failed, cancelled],
+                  }
                 tracking_number: { type: string }
                 tracking_url: { type: string }
                 label_url: { type: string }
@@ -985,7 +1333,31 @@ paths:
                     required: [items]
                     properties:
                       items: { type: array, items: { $ref: '#/components/schemas/Customer' } }
-              example: { page: 1, limit: 20, total: 1, items: [{ id: 30000000-0000-4000-8000-000000000a01, identity_id: 30000000-0000-4000-8000-000000000b01, email: jane@example.com, first_name: Jane, last_name: Doe, phone: null, customer_group_id: null, status: registered, consent: { marketing_email: { granted: true, at: '2026-09-04T10:00:00Z', source: checkout } }, created_at: '2026-09-04T10:00:00Z' }] }
+              example:
+                {
+                  page: 1,
+                  limit: 20,
+                  total: 1,
+                  items:
+                    [
+                      {
+                        id: 30000000-0000-4000-8000-000000000a01,
+                        identity_id: 30000000-0000-4000-8000-000000000b01,
+                        email: jane@example.com,
+                        first_name: Jane,
+                        last_name: Doe,
+                        phone: null,
+                        customer_group_id: null,
+                        status: registered,
+                        consent:
+                          {
+                            marketing_email:
+                              { granted: true, at: '2026-09-04T10:00:00Z', source: checkout },
+                          },
+                        created_at: '2026-09-04T10:00:00Z',
+                      },
+                    ],
+                }
 
   /admin/stores/{storeId}/customers/{customerId}:
     parameters:
@@ -1001,7 +1373,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
-              example: { id: 30000000-0000-4000-8000-000000000a01, identity_id: 30000000-0000-4000-8000-000000000b01, email: jane@example.com, first_name: Jane, last_name: Doe, phone: null, customer_group_id: null, status: registered, consent: { marketing_email: { granted: true, at: '2026-09-04T10:00:00Z', source: checkout } }, created_at: '2026-09-04T10:00:00Z' }
+              example:
+                {
+                  id: 30000000-0000-4000-8000-000000000a01,
+                  identity_id: 30000000-0000-4000-8000-000000000b01,
+                  email: jane@example.com,
+                  first_name: Jane,
+                  last_name: Doe,
+                  phone: null,
+                  customer_group_id: null,
+                  status: registered,
+                  consent:
+                    {
+                      marketing_email:
+                        { granted: true, at: '2026-09-04T10:00:00Z', source: checkout },
+                    },
+                  created_at: '2026-09-04T10:00:00Z',
+                }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [customers]
@@ -1025,7 +1413,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
-              example: { id: 30000000-0000-4000-8000-000000000a01, identity_id: 30000000-0000-4000-8000-000000000b01, email: jane@example.com, first_name: Jane, last_name: Doe, phone: null, customer_group_id: null, status: registered, consent: {}, created_at: '2026-09-04T10:00:00Z' }
+              example:
+                {
+                  id: 30000000-0000-4000-8000-000000000a01,
+                  identity_id: 30000000-0000-4000-8000-000000000b01,
+                  email: jane@example.com,
+                  first_name: Jane,
+                  last_name: Doe,
+                  phone: null,
+                  customer_group_id: null,
+                  status: registered,
+                  consent: {},
+                  created_at: '2026-09-04T10:00:00Z',
+                }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/customers/{customerId}/erase:
@@ -1063,7 +1463,22 @@ paths:
                     required: [items]
                     properties:
                       items: { type: array, items: { $ref: '#/components/schemas/StaffUser' } }
-              example: { page: 1, limit: 20, total: 1, items: [{ id: 00000000-0000-4000-8000-000000000044, email: store-admin@example.com, display_name: Store Admin, status: active, last_login_at: null }] }
+              example:
+                {
+                  page: 1,
+                  limit: 20,
+                  total: 1,
+                  items:
+                    [
+                      {
+                        id: 00000000-0000-4000-8000-000000000044,
+                        email: store-admin@example.com,
+                        display_name: Store Admin,
+                        status: active,
+                        last_login_at: null,
+                      },
+                    ],
+                }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [roles]
@@ -1086,7 +1501,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/StaffUser' }
-              example: { id: 00000000-0000-4000-8000-000000000048, email: new@example.com, display_name: New Person, status: active, last_login_at: null }
+              example:
+                {
+                  id: 00000000-0000-4000-8000-000000000048,
+                  email: new@example.com,
+                  display_name: New Person,
+                  status: active,
+                  last_login_at: null,
+                }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1107,7 +1529,19 @@ paths:
                 required: [items]
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/RoleAssignment' } }
-              example: { items: [{ id: 80000000-0000-4000-8000-000000000001, relation: store_admin, object_type: store, object_id: 00000000-0000-4000-8000-000000000031, created_at: '2026-09-04T00:00:00Z' }] }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 80000000-0000-4000-8000-000000000001,
+                        relation: store_admin,
+                        object_type: store,
+                        object_id: 00000000-0000-4000-8000-000000000031,
+                        created_at: '2026-09-04T00:00:00Z',
+                      },
+                    ],
+                }
     post:
       tags: [roles]
       operationId: assignRole
@@ -1130,7 +1564,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RoleAssignment' }
-              example: { id: 80000000-0000-4000-8000-000000000001, relation: store_admin, object_type: store, object_id: 00000000-0000-4000-8000-000000000031, created_at: '2026-09-04T00:00:00Z' }
+              example:
+                {
+                  id: 80000000-0000-4000-8000-000000000001,
+                  relation: store_admin,
+                  object_type: store,
+                  object_id: 00000000-0000-4000-8000-000000000031,
+                  created_at: '2026-09-04T00:00:00Z',
+                }
         '400': { $ref: '#/components/responses/BadRequest' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -1174,7 +1615,28 @@ paths:
                     required: [items]
                     properties:
                       items: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } }
-              example: { page: 1, limit: 20, total: 1, items: [{ id: 90000000-0000-4000-8000-000000000001, store_id: 00000000-0000-4000-8000-000000000031, actor_id: 00000000-0000-4000-8000-000000000044, actor_type: staff, action: product.update, entity_type: product, entity_id: 30000000-0000-4000-8000-000000000201, before: { title: Classic T }, after: { title: Classic Tee }, request_id: req_abc, created_at: '2026-09-04T12:00:00Z' }] }
+              example:
+                {
+                  page: 1,
+                  limit: 20,
+                  total: 1,
+                  items:
+                    [
+                      {
+                        id: 90000000-0000-4000-8000-000000000001,
+                        store_id: 00000000-0000-4000-8000-000000000031,
+                        actor_id: 00000000-0000-4000-8000-000000000044,
+                        actor_type: staff,
+                        action: product.update,
+                        entity_type: product,
+                        entity_id: 30000000-0000-4000-8000-000000000201,
+                        before: { title: Classic T },
+                        after: { title: Classic Tee },
+                        request_id: req_abc,
+                        created_at: '2026-09-04T12:00:00Z',
+                      },
+                    ],
+                }
 
 components:
   securitySchemes:
@@ -1210,7 +1672,12 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { code: validation_error, message: handle must be kebab-case, details: { field: handle } }
+          example:
+            {
+              code: validation_error,
+              message: handle must be kebab-case,
+              details: { field: handle },
+            }
     Unauthorized:
       description: Missing or invalid token
       content:
@@ -1222,7 +1689,12 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { code: forbidden, message: 'requires finance on organization:hq', details: { relation: finance, object: 'organization:hq' } }
+          example:
+            {
+              code: forbidden,
+              message: 'requires finance on organization:hq',
+              details: { relation: finance, object: 'organization:hq' },
+            }
     NotFound:
       description: Not found in the caller's scope
       content:
@@ -1241,7 +1713,11 @@ components:
       type: object
       required: [code, message]
       properties:
-        code: { type: string, description: 'validation_error, unauthorized, forbidden, not_found, conflict, out_of_stock, payment_failed, internal' }
+        code:
+          {
+            type: string,
+            description: 'validation_error, unauthorized, forbidden, not_found, conflict, out_of_stock, payment_failed, internal',
+          }
         message: { type: string }
         details: { type: object, additionalProperties: true }
     Page:
@@ -1327,7 +1803,25 @@ components:
         settings: { type: object, additionalProperties: true }
     Store:
       type: object
-      required: [id, legal_entity_id, code, name, status, default_currency, default_locale, default_country, timezone, content_space_id, search_index, psp_account_id, theme, settings, created_at, updated_at]
+      required:
+        [
+          id,
+          legal_entity_id,
+          code,
+          name,
+          status,
+          default_currency,
+          default_locale,
+          default_country,
+          timezone,
+          content_space_id,
+          search_index,
+          psp_account_id,
+          theme,
+          settings,
+          created_at,
+          updated_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         legal_entity_id: { type: string, format: uuid }
@@ -1451,7 +1945,27 @@ components:
               variant_id: { type: [string, 'null'], format: uuid }
     Product:
       type: object
-      required: [id, handle, title, subtitle, description, status, category_id, brand_name, tags, attributes, seo, thumbnail_url, options, variants, media, published_at, created_at, updated_at]
+      required:
+        [
+          id,
+          handle,
+          title,
+          subtitle,
+          description,
+          status,
+          category_id,
+          brand_name,
+          tags,
+          attributes,
+          seo,
+          thumbnail_url,
+          options,
+          variants,
+          media,
+          published_at,
+          created_at,
+          updated_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         handle: { type: string }
@@ -1521,7 +2035,24 @@ components:
               compare_at_minor: { type: [integer, 'null'] }
     Variant:
       type: object
-      required: [id, product_id, sku, barcode, title, options, manage_inventory, allow_backorder, weight_g, dimensions_mm, hs_code, origin_country, position, prices, inventory]
+      required:
+        [
+          id,
+          product_id,
+          sku,
+          barcode,
+          title,
+          options,
+          manage_inventory,
+          allow_backorder,
+          weight_g,
+          dimensions_mm,
+          hs_code,
+          origin_country,
+          position,
+          prices,
+          inventory,
+        ]
       properties:
         id: { type: string, format: uuid }
         product_id: { type: string, format: uuid }
@@ -1591,7 +2122,8 @@ components:
         code: { type: [string, 'null'] }
         name: { type: string }
         type: { type: string, enum: [percentage, fixed_amount, free_shipping] }
-        value: { type: integer, description: basis points for percentage, minor units for fixed_amount }
+        value:
+          { type: integer, description: basis points for percentage, minor units for fixed_amount }
         currency: { type: [string, 'null'] }
         rules:
           type: object
@@ -1611,14 +2143,43 @@ components:
       allOf:
         - $ref: '#/components/schemas/PromotionInput'
         - type: object
-          required: [id, code, value, currency, rules, usage_limit, usage_count, per_customer_limit, starts_at, ends_at, status]
+          required:
+            [
+              id,
+              code,
+              value,
+              currency,
+              rules,
+              usage_limit,
+              usage_count,
+              per_customer_limit,
+              starts_at,
+              ends_at,
+              status,
+            ]
           properties:
             id: { type: string, format: uuid }
             usage_count: { type: integer }
 
     LineItem:
       type: object
-      required: [id, variant_id, sku, title, variant_title, thumbnail_url, quantity, unit_price, discount, tax_rate_bp, tax, total, fulfilled_quantity, returned_quantity]
+      required:
+        [
+          id,
+          variant_id,
+          sku,
+          title,
+          variant_title,
+          thumbnail_url,
+          quantity,
+          unit_price,
+          discount,
+          tax_rate_bp,
+          tax,
+          total,
+          fulfilled_quantity,
+          returned_quantity,
+        ]
       properties:
         id: { type: string, format: uuid }
         variant_id: { type: [string, 'null'], format: uuid }
@@ -1645,15 +2206,34 @@ components:
         total: { $ref: '#/components/schemas/Money' }
     OrderSummary:
       type: object
-      required: [id, display_id, email, customer_id, status, payment_status, fulfillment_status, total, placed_at]
+      required:
+        [
+          id,
+          display_id,
+          email,
+          customer_id,
+          status,
+          payment_status,
+          fulfillment_status,
+          total,
+          placed_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         display_id: { type: integer }
         email: { type: string }
         customer_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [pending, confirmed, processing, completed, cancelled] }
-        payment_status: { type: string, enum: [awaiting, authorized, captured, partially_refunded, refunded, failed] }
-        fulfillment_status: { type: string, enum: [unfulfilled, partially_fulfilled, fulfilled, partially_returned, returned] }
+        payment_status:
+          {
+            type: string,
+            enum: [awaiting, authorized, captured, partially_refunded, refunded, failed],
+          }
+        fulfillment_status:
+          {
+            type: string,
+            enum: [unfulfilled, partially_fulfilled, fulfilled, partially_returned, returned],
+          }
         total: { $ref: '#/components/schemas/Money' }
         placed_at: { type: string, format: date-time }
     Payment:
@@ -1669,7 +2249,18 @@ components:
         captured_at: { type: [string, 'null'], format: date-time }
     Refund:
       type: object
-      required: [id, order_id, payment_id, return_id, amount, reason, status, provider_refund_id, created_at]
+      required:
+        [
+          id,
+          order_id,
+          payment_id,
+          return_id,
+          amount,
+          reason,
+          status,
+          provider_refund_id,
+          created_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         order_id: { type: string, format: uuid }
@@ -1682,7 +2273,22 @@ components:
         created_at: { type: string, format: date-time }
     Shipment:
       type: object
-      required: [id, order_id, warehouse_id, carrier, service, tracking_number, tracking_url, label_url, cost, status, items, shipped_at, delivered_at]
+      required:
+        [
+          id,
+          order_id,
+          warehouse_id,
+          carrier,
+          service,
+          tracking_number,
+          tracking_url,
+          label_url,
+          cost,
+          status,
+          items,
+          shipped_at,
+          delivered_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         order_id: { type: string, format: uuid }
@@ -1696,7 +2302,11 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Money'
             - type: 'null'
-        status: { type: string, enum: [pending, label_created, shipped, in_transit, delivered, failed, cancelled] }
+        status:
+          {
+            type: string,
+            enum: [pending, label_created, shipped, in_transit, delivered, failed, cancelled],
+          }
         items:
           type: array
           items:
@@ -1709,7 +2319,8 @@ components:
         delivered_at: { type: [string, 'null'], format: date-time }
     Return:
       type: object
-      required: [id, order_id, status, reason, warehouse_id, refund_id, items, requested_at, received_at]
+      required:
+        [id, order_id, status, reason, warehouse_id, refund_id, items, requested_at, received_at]
       properties:
         id: { type: string, format: uuid }
         order_id: { type: string, format: uuid }
@@ -1732,7 +2343,24 @@ components:
       allOf:
         - $ref: '#/components/schemas/OrderSummary'
         - type: object
-          required: [sales_channel_id, currency, locale, items, shipping_address, billing_address, shipping_method, promotion_codes, totals, payments, refunds, shipments, returns, cancel_reason, metadata]
+          required:
+            [
+              sales_channel_id,
+              currency,
+              locale,
+              items,
+              shipping_address,
+              billing_address,
+              shipping_method,
+              promotion_codes,
+              totals,
+              payments,
+              refunds,
+              shipments,
+              returns,
+              cancel_reason,
+              metadata,
+            ]
           properties:
             sales_channel_id: { type: string, format: uuid }
             currency: { type: string }
@@ -1759,7 +2387,8 @@ components:
 
     InventoryLevel:
       type: object
-      required: [id, store_id, variant_id, sku, warehouse_id, on_hand, reserved, incoming, available]
+      required:
+        [id, store_id, variant_id, sku, warehouse_id, on_hand, reserved, incoming, available]
       properties:
         id: { type: string, format: uuid }
         store_id: { type: string, format: uuid }
@@ -1786,7 +2415,8 @@ components:
         is_active: { type: boolean }
     ShippingOption:
       type: object
-      required: [id, code, name, carrier, service, price, countries, sales_channel_id, rules, is_active]
+      required:
+        [id, code, name, carrier, service, price, countries, sales_channel_id, rules, is_active]
       properties:
         id: { type: string, format: uuid }
         code: { type: string }
@@ -1801,7 +2431,19 @@ components:
 
     Customer:
       type: object
-      required: [id, identity_id, email, first_name, last_name, phone, customer_group_id, status, consent, created_at]
+      required:
+        [
+          id,
+          identity_id,
+          email,
+          first_name,
+          last_name,
+          phone,
+          customer_group_id,
+          status,
+          consent,
+          created_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         identity_id: { type: [string, 'null'], format: uuid }
@@ -1834,7 +2476,20 @@ components:
         created_at: { type: string, format: date-time }
     AuditEntry:
       type: object
-      required: [id, store_id, actor_id, actor_type, action, entity_type, entity_id, before, after, request_id, created_at]
+      required:
+        [
+          id,
+          store_id,
+          actor_id,
+          actor_type,
+          action,
+          entity_type,
+          entity_id,
+          before,
+          after,
+          request_id,
+          created_at,
+        ]
       properties:
         id: { type: string, format: uuid }
         store_id: { type: [string, 'null'], format: uuid }
@@ -1883,9 +2538,20 @@ components:
         origin_country: PT
         position: 0
         prices:
-          - { price_list_id: 50000000-0000-4000-8000-000000000001, currency: EUR, amount_minor: 1999, compare_at_minor: 2499, min_quantity: 1 }
+          - {
+              price_list_id: 50000000-0000-4000-8000-000000000001,
+              currency: EUR,
+              amount_minor: 1999,
+              compare_at_minor: 2499,
+              min_quantity: 1,
+            }
         inventory:
-          - { warehouse_id: 00000000-0000-4000-8000-000000000021, on_hand: 12, reserved: 1, available: 11 }
+          - {
+              warehouse_id: 00000000-0000-4000-8000-000000000021,
+              on_hand: 12,
+              reserved: 1,
+              available: 11,
+            }
     ProductClassicTee:
       value:
         id: 30000000-0000-4000-8000-000000000201
@@ -1902,7 +2568,12 @@ components:
         thumbnail_url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg
         options:
           - { id: 30000000-0000-4000-8000-000000000211, name: Size, values: [S, M, L], position: 0 }
-          - { id: 30000000-0000-4000-8000-000000000212, name: Color, values: [Red, Black], position: 1 }
+          - {
+              id: 30000000-0000-4000-8000-000000000212,
+              name: Color,
+              values: [Red, Black],
+              position: 1,
+            }
         variants:
           - id: 30000000-0000-4000-8000-000000000301
             product_id: 30000000-0000-4000-8000-000000000201
@@ -1918,11 +2589,28 @@ components:
             origin_country: PT
             position: 0
             prices:
-              - { price_list_id: 50000000-0000-4000-8000-000000000001, currency: EUR, amount_minor: 1999, compare_at_minor: 2499, min_quantity: 1 }
+              - {
+                  price_list_id: 50000000-0000-4000-8000-000000000001,
+                  currency: EUR,
+                  amount_minor: 1999,
+                  compare_at_minor: 2499,
+                  min_quantity: 1,
+                }
             inventory:
-              - { warehouse_id: 00000000-0000-4000-8000-000000000021, on_hand: 12, reserved: 1, available: 11 }
+              - {
+                  warehouse_id: 00000000-0000-4000-8000-000000000021,
+                  on_hand: 12,
+                  reserved: 1,
+                  available: 11,
+                }
         media:
-          - { id: 30000000-0000-4000-8000-000000000221, url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg, alt: Classic Tee, position: 0, variant_id: null }
+          - {
+              id: 30000000-0000-4000-8000-000000000221,
+              url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg,
+              alt: Classic Tee,
+              position: 0,
+              variant_id: null,
+            }
         published_at: '2026-09-04T00:00:00Z'
         created_at: '2026-09-04T00:00:00Z'
         updated_at: '2026-09-04T00:00:00Z'
@@ -1971,9 +2659,39 @@ components:
             total: { amount_minor: 2419, currency: EUR }
             fulfilled_quantity: 0
             returned_quantity: 0
-        shipping_address: { first_name: Jane, last_name: Doe, company: null, line1: Keizersgracht 1, line2: null, city: Amsterdam, region: null, postal_code: 1015 CC, country: NL, phone: null }
-        billing_address: { first_name: Jane, last_name: Doe, company: null, line1: Keizersgracht 1, line2: null, city: Amsterdam, region: null, postal_code: 1015 CC, country: NL, phone: null }
-        shipping_method: { code: standard, name: Standard (2–4 days), carrier: manual, price: { amount_minor: 499, currency: EUR } }
+        shipping_address:
+          {
+            first_name: Jane,
+            last_name: Doe,
+            company: null,
+            line1: Keizersgracht 1,
+            line2: null,
+            city: Amsterdam,
+            region: null,
+            postal_code: 1015 CC,
+            country: NL,
+            phone: null,
+          }
+        billing_address:
+          {
+            first_name: Jane,
+            last_name: Doe,
+            company: null,
+            line1: Keizersgracht 1,
+            line2: null,
+            city: Amsterdam,
+            region: null,
+            postal_code: 1015 CC,
+            country: NL,
+            phone: null,
+          }
+        shipping_method:
+          {
+            code: standard,
+            name: Standard (2–4 days),
+            carrier: manual,
+            price: { amount_minor: 499, currency: EUR },
+          }
         promotion_codes: []
         totals:
           subtotal: { amount_minor: 1999, currency: EUR }
@@ -1982,7 +2700,15 @@ components:
           tax: { amount_minor: 420, currency: EUR }
           total: { amount_minor: 2918, currency: EUR }
         payments:
-          - { id: 60000000-0000-4000-8000-000000000101, provider: stripe, provider_payment_id: pi_3Mock, amount: { amount_minor: 2918, currency: EUR }, status: captured, fee_minor: 62, captured_at: '2026-09-04T10:00:05Z' }
+          - {
+              id: 60000000-0000-4000-8000-000000000101,
+              provider: stripe,
+              provider_payment_id: pi_3Mock,
+              amount: { amount_minor: 2918, currency: EUR },
+              status: captured,
+              fee_minor: 62,
+              captured_at: '2026-09-04T10:00:05Z',
+            }
         refunds: []
         shipments: []
         returns: []
