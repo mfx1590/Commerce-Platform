@@ -1,5 +1,4 @@
 # Start message — Main window: ARCHITECT (Phase 0)
-
 Open a terminal in the repo root (`main` branch, no worktree). Model: strongest available. Nothing else running.
 
 ---
@@ -11,7 +10,6 @@ Your job: build the foundations and freeze the contracts so that windows 1–4 c
 Stack (fixed): TypeScript, Turborepo + pnpm, Medusa 2 core, PostgreSQL with RLS on store_id, Keycloak + OpenFGA, Next.js App Router (storefront + admin), Redpanda with an outbox table, managed-first hosting per docs/decisions.md.
 
 Deliver in this order, committing after each step and updating Memory-main.md "Current status" after each:
-
 1. Monorepo skeleton per plan section 6.2 (apps/, packages/, infra/, data/, cms/). Root package.json, turbo.json, pnpm-workspace.yaml, tsconfig base, eslint/prettier. A CLAUDE.md in every package: purpose, run/test commands, public API.
 2. docs/domain.md — expand plan section 3 into every entity with fields, keys, and which window owns it.
 3. scripts/check-ownership.sh made real: reads docs/ownership.md, compares `git diff --name-only origin/main...HEAD` with the branch prefix, exits 1 on violation. Wire into CI.

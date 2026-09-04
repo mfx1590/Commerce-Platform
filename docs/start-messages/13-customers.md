@@ -1,5 +1,4 @@
 # Start message — Window 13: Customer accounts & identity (Phase 3)
-
 Paste into a Claude Code session opened inside the worktree `../wt-customers` (create it with `./scripts/new-window.sh 13 3`). Model: Sonnet.
 
 ---

@@ -1,5 +1,4 @@
 # Start message — Window 16: CRM, notifications & support (Phase 4)
-
 Paste into a Claude Code session opened inside the worktree `../wt-engagement` (create it with `./scripts/new-window.sh 16 4`). Model: Sonnet.
 
 ---

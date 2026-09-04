@@ -1,5 +1,4 @@
 # Start message — Window 9: Search, media, promotions (Phase 2)
-
 Paste into a Claude Code session opened inside the worktree `../wt-search` (create it with `./scripts/new-window.sh 9 2`). Model: Sonnet.
 
 ---

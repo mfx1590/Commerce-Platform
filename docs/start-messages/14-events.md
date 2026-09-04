@@ -1,5 +1,4 @@
 # Start message — Window 14: Event bus & outbox relay (Phase 4)
-
 Paste into a Claude Code session opened inside the worktree `../wt-events` (create it with `./scripts/new-window.sh 14 4`). Model: strongest.
 
 ---

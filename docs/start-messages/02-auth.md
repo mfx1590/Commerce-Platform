@@ -1,5 +1,4 @@
 # Start message — Window 2: Auth & RBAC (Phase 1)
-
 Paste into a Claude Code session opened inside the worktree `../wt-auth` (create it with `./scripts/new-window.sh 2 1`). Model: Sonnet (strongest for the OpenFGA model).
 
 ---

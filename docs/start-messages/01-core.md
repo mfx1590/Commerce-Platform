@@ -1,5 +1,4 @@
 # Start message — Window 1: Core commerce (Phase 1)
-
 Paste into a Claude Code session opened inside the worktree `../wt-core` (create it with `./scripts/new-window.sh 1 1`). Model: Sonnet (strongest for migrations).
 
 ---

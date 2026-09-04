@@ -1,5 +1,4 @@
 # Start message — Window 6: CMS & landing pages (Phase 2)
-
 Paste into a Claude Code session opened inside the worktree `../wt-cms` (create it with `./scripts/new-window.sh 6 2`). Model: Sonnet.
 
 ---

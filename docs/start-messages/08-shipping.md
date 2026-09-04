@@ -1,5 +1,4 @@
 # Start message — Window 8: Shipping & fulfillment (Phase 2)
-
 Paste into a Claude Code session opened inside the worktree `../wt-shipping` (create it with `./scripts/new-window.sh 8 2`). Model: Sonnet.
 
 ---

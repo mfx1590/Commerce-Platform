@@ -1,5 +1,4 @@
 # Start message — Window 5: Infra & DevOps (Phase 2)
-
 Paste into a Claude Code session opened inside the worktree `../wt-infra` (create it with `./scripts/new-window.sh 5 2`). Model: Sonnet.
 
 ---
