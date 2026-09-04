@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 keeps the design tokens in CSS, not in a JS config. Screens should use these
+ * semantic names (bg-surface, text-muted, border-line) rather than raw palette values, so the
+ * per-brand theming planned for Phase 3 only has to change this block.
+ */
+@theme {
+  --color-canvas: oklch(98.4% 0.003 247);
+  --color-surface: oklch(100% 0 0);
+  --color-line: oklch(92% 0.005 247);
+  --color-ink: oklch(21% 0.02 258);
+  --color-muted: oklch(52% 0.02 258);
+  --color-accent: oklch(54% 0.16 259);
+  --color-accent-ink: oklch(99% 0 0);
+  --color-danger: oklch(52% 0.19 25);
+  --color-warning: oklch(70% 0.15 75);
+  --color-success: oklch(58% 0.13 152);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Keyboard users must always be able to see where they are (issue #26 accessibility criteria). */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
