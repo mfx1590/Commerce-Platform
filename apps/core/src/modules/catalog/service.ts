@@ -7,7 +7,7 @@ import type { Queryable, ScopedClient } from '@platform/db';
 import type { EventEnvelope } from '@platform/events';
 import { SYSTEM_ACTOR, writeAudit, type Actor } from '../../lib/audit';
 import { mapPgError, notFound, validationError } from '../../lib/errors';
-import { buildEvent, eventActor, withEvents } from '../../outbox/with-events';
+import { buildEvent, eventActor, withEvents } from '../../outbox';
 import type {
   AdminCategory,
   AdminProduct,

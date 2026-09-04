@@ -40,7 +40,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
   `store.created`, `store.updated`); `catalog` (categories, products, options, variants, media, Store API read
   model with price + availability — emits `product.updated`, `product.published`, `product.archived`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`
-  (`writeAudit`), `src/outbox/with-events.ts` (`withEvents`, `buildEvent`).
+  (`writeAudit`), `src/outbox` (`withEvents`, `buildEvent`, `eventActor` — import from the index; README lists the guarantees; `INSERT INTO outbox` anywhere else fails lint).
 
 ## Constraints
 

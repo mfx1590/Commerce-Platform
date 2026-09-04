@@ -1,6 +1,6 @@
 // The ONLY place in apps/core that inserts into `outbox` (ADR 0003). Every state change calls `withEvents` inside
 // the same transaction as its writes; the relay (window 14, Phase 4) publishes. Never publish to the bus directly.
-// Task 1.5 hardens this (README, rollback + validation tests, lint guard); task 1.2 needs the write itself.
+// Guarantees, tests and the lint guard: see README.md in this folder.
 import type * as PlatformEvents from '@platform/events';
 import type { AggregateType, EventEnvelope, EventTopic, LatestPayloads } from '@platform/events';
 import type { Queryable } from '@platform/db';

@@ -34,4 +34,12 @@ describe('structural guards', () => {
       .map((f) => f.rel);
     expect(offenders).toEqual([]);
   });
+
+  it('modules import the outbox helper through its index only', () => {
+    const offenders = files
+      .filter((f) => !f.rel.startsWith('outbox/'))
+      .filter((f) => /from\s+['"][./]*outbox\/with-events['"]/.test(f.text))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
 });
