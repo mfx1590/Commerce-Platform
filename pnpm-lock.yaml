@@ -109,6 +109,13 @@ importers:
         version: 3.2.7(@types/node@20.19.43)
 
   packages/auth-sdk:
+    dependencies:
+      '@platform/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@platform/db':
+        specifier: workspace:*
+        version: link:../db
     devDependencies:
       '@types/node':
         specifier: ^20.19.0

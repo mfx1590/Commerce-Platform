@@ -17,12 +17,16 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
+  "dependencies": {
+    "@platform/contracts": "workspace:*",
+    "@platform/db": "workspace:*"
+  },
   "devDependencies": {
+    "@types/node": "^20.19.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/node": "^20.19.0"
+    "vitest": "^3.2.0"
   }
 }
