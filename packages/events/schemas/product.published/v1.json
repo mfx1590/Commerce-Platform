@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/product.published/v1.json",
+  "title": "product.published v1",
+  "description": "A product became visible on the storefront.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "product_id",
+    "handle",
+    "title",
+    "category_id",
+    "variants",
+    "published_at"
+  ],
+  "properties": {
+    "product_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "handle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "variant_id",
+          "sku",
+          "title"
+        ],
+        "properties": {
+          "variant_id": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+          },
+          "sku": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "published_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

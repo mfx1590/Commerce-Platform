@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/order.placed/v1.json",
+  "title": "order.placed v1",
+  "description": "Checkout completed: the order exists and is awaiting payment capture. Source of truth for sales accounting.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "order_id",
+    "display_id",
+    "legal_entity_id",
+    "sales_channel_id",
+    "customer_id",
+    "email_hash",
+    "currency",
+    "locale",
+    "totals",
+    "line_items",
+    "shipping",
+    "shipping_country",
+    "billing_country",
+    "promotion_codes",
+    "placed_at"
+  ],
+  "properties": {
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "display_id": {
+      "type": "integer"
+    },
+    "legal_entity_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "sales_channel_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "customer_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "email_hash": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/sha256"
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "locale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subtotal_minor",
+        "discount_minor",
+        "shipping_minor",
+        "tax_minor",
+        "total_minor"
+      ],
+      "properties": {
+        "subtotal_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "discount_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "shipping_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "tax_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "total_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        }
+      }
+    },
+    "line_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order_line_item_id",
+          "variant_id",
+          "sku",
+          "title",
+          "quantity",
+          "unit_price_minor",
+          "discount_minor",
+          "tax_rate_bp",
+          "tax_minor",
+          "total_minor"
+        ],
+        "properties": {
+          "order_line_item_id": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+          },
+          "variant_id": {
+            "oneOf": [
+              {
+                "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sku": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "unit_price_minor": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+          },
+          "discount_minor": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+          },
+          "tax_rate_bp": {
+            "type": "integer"
+          },
+          "tax_minor": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+          },
+          "total_minor": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+          }
+        }
+      }
+    },
+    "shipping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "name",
+        "carrier",
+        "price_minor"
+      ],
+      "properties": {
+        "shipping_option_id": {
+          "oneOf": [
+            {
+              "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "carrier": {
+          "type": "string",
+          "minLength": 1
+        },
+        "price_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        }
+      }
+    },
+    "shipping_country": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/country"
+    },
+    "billing_country": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/country"
+    },
+    "promotion_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "placed_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

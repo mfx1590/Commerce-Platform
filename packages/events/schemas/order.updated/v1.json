@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/order.updated/v1.json",
+  "title": "order.updated v1",
+  "description": "Status projection changed (status, payment_status, fulfillment_status, edits).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "order_id",
+    "display_id",
+    "status",
+    "payment_status",
+    "fulfillment_status",
+    "changed_fields"
+  ],
+  "properties": {
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "display_id": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "confirmed",
+        "processing",
+        "completed",
+        "cancelled"
+      ]
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "awaiting",
+        "authorized",
+        "captured",
+        "partially_refunded",
+        "refunded",
+        "failed"
+      ]
+    },
+    "fulfillment_status": {
+      "type": "string",
+      "enum": [
+        "unfulfilled",
+        "partially_fulfilled",
+        "fulfilled",
+        "partially_returned",
+        "returned"
+      ]
+    },
+    "changed_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/refund.issued/v1.json",
+  "title": "refund.issued v1",
+  "description": "Refund succeeded at the PSP.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "refund_id",
+    "payment_id",
+    "order_id",
+    "return_id",
+    "legal_entity_id",
+    "amount_minor",
+    "currency",
+    "reason",
+    "provider_refund_id",
+    "issued_at"
+  ],
+  "properties": {
+    "refund_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "payment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "return_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "legal_entity_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "amount_minor": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "return",
+        "cancellation",
+        "goodwill",
+        "chargeback"
+      ]
+    },
+    "provider_refund_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "issued_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

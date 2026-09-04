@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/return.received/v1.json",
+  "title": "return.received v1",
+  "description": "Warehouse received the returned goods.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "return_id",
+    "order_id",
+    "warehouse_id",
+    "items",
+    "received_at"
+  ],
+  "properties": {
+    "return_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "warehouse_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order_line_item_id",
+          "quantity"
+        ],
+        "properties": {
+          "order_line_item_id": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "condition": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "resellable",
+                  "damaged"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "received_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

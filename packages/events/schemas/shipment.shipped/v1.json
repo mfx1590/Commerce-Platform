@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/shipment.shipped/v1.json",
+  "title": "shipment.shipped v1",
+  "description": "Carrier picked up the parcel. Source of truth for shipping cost and COGS timing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "shipment_id",
+    "order_id",
+    "legal_entity_id",
+    "warehouse_id",
+    "carrier",
+    "service",
+    "tracking_number",
+    "cost_minor",
+    "currency",
+    "items",
+    "shipped_at"
+  ],
+  "properties": {
+    "shipment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "legal_entity_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "warehouse_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1
+    },
+    "service": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tracking_number": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cost_minor": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order_line_item_id",
+          "quantity"
+        ],
+        "properties": {
+          "order_line_item_id": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "shipped_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

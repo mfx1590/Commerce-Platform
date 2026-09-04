@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/order.cancelled/v1.json",
+  "title": "order.cancelled v1",
+  "description": "Order cancelled before completion. Reverses sales accounting.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "order_id",
+    "display_id",
+    "legal_entity_id",
+    "currency",
+    "totals",
+    "reason",
+    "cancelled_at"
+  ],
+  "properties": {
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "display_id": {
+      "type": "integer"
+    },
+    "legal_entity_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subtotal_minor",
+        "discount_minor",
+        "shipping_minor",
+        "tax_minor",
+        "total_minor"
+      ],
+      "properties": {
+        "subtotal_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "discount_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "shipping_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "tax_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "total_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        }
+      }
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cancelled_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

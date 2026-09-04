@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/refund.failed/v1.json",
+  "title": "refund.failed v1",
+  "description": "Refund failed at the PSP; needs manual action.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "refund_id",
+    "payment_id",
+    "order_id",
+    "amount_minor",
+    "currency",
+    "failure_reason",
+    "failed_at"
+  ],
+  "properties": {
+    "refund_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "payment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "amount_minor": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "failure_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "failed_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

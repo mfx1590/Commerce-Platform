@@ -6,23 +6,24 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist", "schemas", "migrations"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
-    "clean": "rm -rf dist .turbo"
+    "generate": "node scripts/generate.mjs",
+    "build": "node scripts/generate.mjs && tsc -p tsconfig.json",
+    "typecheck": "node scripts/generate.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/generate.mjs && vitest run",
+    "clean": "rm -rf dist .turbo src/generated"
+  },
+  "dependencies": {
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0"
   },
   "devDependencies": {
+    "@types/node": "^20.19.0",
+    "json-schema-to-typescript": "^15.0.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/node": "^20.19.0"
+    "vitest": "^3.2.0"
   }
 }

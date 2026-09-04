@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/stock.moved/v1.json",
+  "title": "stock.moved v1",
+  "description": "Stock changed in a warehouse (one stock_movement row).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stock_movement_id",
+    "variant_id",
+    "sku",
+    "warehouse_id",
+    "delta",
+    "reason",
+    "reference_type",
+    "reference_id",
+    "on_hand_after",
+    "reserved_after"
+  ],
+  "properties": {
+    "stock_movement_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "variant_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "sku": {
+      "type": "string",
+      "minLength": 1
+    },
+    "warehouse_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "delta": {
+      "type": "integer"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "receipt",
+        "sale",
+        "return",
+        "adjustment",
+        "transfer_in",
+        "transfer_out",
+        "cycle_count"
+      ]
+    },
+    "reference_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reference_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "on_hand_after": {
+      "type": "integer"
+    },
+    "reserved_after": {
+      "type": "integer"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/customer.erased/v1.json",
+  "title": "customer.erased v1",
+  "description": "GDPR erasure completed; consumers must delete their copies.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "customer_id",
+    "identity_id",
+    "erased_at"
+  ],
+  "properties": {
+    "customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "identity_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "erased_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

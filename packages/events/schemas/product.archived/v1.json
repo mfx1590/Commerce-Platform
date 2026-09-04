@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/product.archived/v1.json",
+  "title": "product.archived v1",
+  "description": "A product was archived.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "product_id",
+    "handle",
+    "archived_at"
+  ],
+  "properties": {
+    "product_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "handle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "archived_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

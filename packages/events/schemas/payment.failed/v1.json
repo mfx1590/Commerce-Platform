@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/payment.failed/v1.json",
+  "title": "payment.failed v1",
+  "description": "Authorization or capture failed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payment_id",
+    "order_id",
+    "provider",
+    "provider_payment_id",
+    "amount_minor",
+    "currency",
+    "failure_reason",
+    "failed_at"
+  ],
+  "properties": {
+    "payment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider_payment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "amount_minor": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "failure_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "failed_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/envelope/v1.json",
+  "title": "Event envelope v1",
+  "description": "Every message on the bus. `payload` is validated against schemas/<topic>/v<version>.json. Kafka key = event_id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "topic",
+    "version",
+    "occurred_at",
+    "organization_id",
+    "store_id",
+    "aggregate_type",
+    "aggregate_id",
+    "actor",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "topic": {
+      "type": "string",
+      "enum": [
+        "store.created",
+        "store.updated",
+        "product.published",
+        "product.updated",
+        "product.archived",
+        "customer.created",
+        "customer.updated",
+        "customer.erased",
+        "order.placed",
+        "order.confirmed",
+        "order.cancelled",
+        "order.completed",
+        "order.updated",
+        "payment.authorized",
+        "payment.captured",
+        "payment.failed",
+        "refund.issued",
+        "refund.failed",
+        "shipment.created",
+        "shipment.shipped",
+        "shipment.delivered",
+        "return.requested",
+        "return.received",
+        "stock.moved"
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurred_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    },
+    "organization_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "store_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "aggregate_type": {
+      "type": "string",
+      "enum": [
+        "store",
+        "product",
+        "customer",
+        "order",
+        "payment",
+        "refund",
+        "shipment",
+        "return",
+        "stock_movement"
+      ]
+    },
+    "aggregate_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "staff",
+            "customer",
+            "system"
+          ]
+        },
+        "id": {
+          "oneOf": [
+            {
+              "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "request_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trace_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "correlation_id": {
+          "oneOf": [
+            {
+              "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "causation_id": {
+          "oneOf": [
+            {
+              "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

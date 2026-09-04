@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/order.confirmed/v1.json",
+  "title": "order.confirmed v1",
+  "description": "Payment secured; the order may be fulfilled.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "order_id",
+    "display_id",
+    "confirmed_at"
+  ],
+  "properties": {
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "display_id": {
+      "type": "integer"
+    },
+    "confirmed_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

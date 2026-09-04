@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/payment.captured/v1.json",
+  "title": "payment.captured v1",
+  "description": "Funds captured. Source of truth for cash and PSP-fee accounting.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "payment_id",
+    "order_id",
+    "legal_entity_id",
+    "provider",
+    "provider_payment_id",
+    "amount_minor",
+    "fee_minor",
+    "currency",
+    "captured_at"
+  ],
+  "properties": {
+    "payment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "legal_entity_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider_payment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "amount_minor": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+    },
+    "fee_minor": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "captured_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

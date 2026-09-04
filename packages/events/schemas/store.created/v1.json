@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/store.created/v1.json",
+  "title": "store.created v1",
+  "description": "A store (brand) was created.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "store_id",
+    "legal_entity_id",
+    "code",
+    "name",
+    "status",
+    "default_currency",
+    "default_locale",
+    "default_country"
+  ],
+  "properties": {
+    "store_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "legal_entity_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "code": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "active",
+        "paused",
+        "archived"
+      ]
+    },
+    "default_currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "default_locale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "default_country": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/country"
+    }
+  }
+}

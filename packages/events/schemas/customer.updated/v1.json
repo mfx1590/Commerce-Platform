@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/customer.updated/v1.json",
+  "title": "customer.updated v1",
+  "description": "Customer profile, group, consent, or identity link changed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "customer_id",
+    "identity_id",
+    "email_hash",
+    "status",
+    "customer_group_id",
+    "marketing_consent",
+    "changed_fields"
+  ],
+  "properties": {
+    "customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "identity_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "email_hash": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/sha256"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "guest",
+        "registered",
+        "disabled",
+        "erased"
+      ]
+    },
+    "customer_group_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "marketing_consent": {
+      "type": "boolean"
+    },
+    "changed_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
