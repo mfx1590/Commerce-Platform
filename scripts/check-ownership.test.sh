@@ -37,6 +37,8 @@ expect ok        main/anything     packages/contracts/openapi/store-api.yaml
 expect ok        integration/phase1 packages/db/migrations/0009.sql
 expect violation unknown/phase1    README.md
 expect ok        core/phase1       .claude/CLAUDE.local.md
+expect ok        storefront/phase1 pnpm-lock.yaml apps/storefront-starter/package.json
+expect violation storefront/phase1 package.json
 
 echo "check-ownership self-test: $pass passed, $fail failed"
 [ $fail -eq 0 ]

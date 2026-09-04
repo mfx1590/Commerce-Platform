@@ -18,7 +18,9 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 
 ## Current status
 - **Phase 0 done — tag contracts-v0.1.** Owner runs `git tag contracts-v0.1 && git push --tags` on main (commit listed below), then the next action.
-- **Next action:** run `./scripts/new-window.sh 1 1` and paste `docs/start-messages/01-core.md` (window 1, core, Sonnet; strongest model for the migration-related issues). Operating guide: docs/HOW-I-RUN-THIS.md.
+- **Operating mode changed 2026-09-04: PARALLEL.** This window is the MANAGER (reviews, merges, integrates, contracts, Memory-main); it builds no features. Five build windows run at once in worktrees: `../wt-core` (core/phase1), `../wt-auth` (auth/phase1), `../wt-storefront` (storefront/phase1), `../wt-admin` (admin/phase1), `../wt-infra` (infra/phase2, Phase 2 tasks started early; cloud-account tasks stay at validate/plan until credentials exist). Procedure: docs/HOW-I-RUN-THIS.md section 1b.
+- **Next action (owner):** open five terminals, `cd ../wt-<key> && pnpm install && claude`, paste the window's start message. Issues: window:core #1–9, window:auth #10–16, window:storefront #17–23, window:admin #24–30, window:infra #31–36.
+- Manager rules in force: `pnpm-lock.yaml` is allowed on every branch (ownership check updated); after each merge the manager runs `pnpm install && pnpm test` on main and commits the lockfile; contract-change/request issues are decided by the manager, applied on main, then windows `git merge main`.
 - Repo: https://github.com/mfx1590/Commerce-Platform · CI: `.github/workflows/ci.yml` (ownership, lint+typecheck+format, unit with Postgres, contract with Prism, preview placeholder) · Local stack: `pnpm dev`.
 - Phase 0 commits on main: step 1 skeleton 99d4661/8681771 · step 2 domain 66c2ca6 · guide 5603a1b · step 3 ownership b23676f/434b401 · step 4 db 8c33bb7 · step 5 events 978a48a · step 6 contracts 42f59aa · step 7 ADRs 45f5d50 · steps 8–10 CI/compose/seeds 01b6174 · step 11 issues (GitHub #1–#30) + step 12 this commit.
 - Delivered: docs/domain.md (44 entities) · packages/db (10 migrations incl. outbox, forced RLS, tenant client, 16 tests) · packages/events (24 schemas v1, types, validator) · packages/contracts (Store API 20 ops, Admin API 46 ops with x-permission, Prism mocks :4010/:4011, 15 tests) · ADRs 0001–0005 · docker-compose (Postgres 5433, Redis 6381, Redpanda 19092, Keycloak 8180, OpenFGA 8081, mocks) · seeds (3 brands × 200 products, 2 warehouses, 7 staff users, `SEED_IDS`) · 30 Phase 1 issues labelled window:core|auth|storefront|admin + phase:1.
@@ -29,7 +31,7 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 | Phase | Goal | Windows (in order, one at a time) | Gate (you verify) |
 |---|---|---|---|
 | 0 | Foundations & contracts | main | `pnpm dev` boots everything; contracts-v0.1 tagged |
-| 1 | Isolated modules | 1 core → 2 auth → 3 storefront → 4 admin | store admin cannot open Finance; one order in staging |
+| 1 | Isolated modules | 1 core ∥ 2 auth ∥ 3 storefront ∥ 4 admin ∥ 5 infra (parallel worktrees since 2026-09-04) | store admin cannot open Finance; one order in staging |
 | Int 1 | wire it | main | first checkout end to end |
 | 2 | Commerce complete, brand 1 live | 1 core → 7 payments → 8 shipping → 9 search → 4 admin → 6 cms → 5 infra → 10 brands(A) → 3 storefront | real test-mode order, refund, label; load test |
 | Int 2 | launch brand 1 | main | go-live |

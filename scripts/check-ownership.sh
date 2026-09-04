@@ -27,7 +27,8 @@ fi
 PATTERNS="$(printf '%s\n' "$ROW" | awk -F'|' '{print $4}' | grep -o '`[^`]*`' | tr -d '`' | sed -E 's/ \(.*$//; s/<[^>]*>/*/g')"
 PATTERNS="$PATTERNS
 docs/memory/Memory-*-$PREFIX.md
-.claude/CLAUDE.local.md"
+.claude/CLAUDE.local.md
+pnpm-lock.yaml"  # lockfile: every window adds deps; conflicts are re-resolved with pnpm install at merge
 
 # glob -> anchored ERE: ** = anything (incl. /), * = anything but /, ? = one char; escape the rest.
 glob_to_re() {

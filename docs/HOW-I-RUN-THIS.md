@@ -28,6 +28,35 @@ Sessions = Claude Code sessions of roughly one 5-hour block each. Model "stronge
 
 Never open the next window in a phase until the previous one is closed (section 5). Never run two build windows at once.
 
+## 1b. Parallel mode (several build windows at once, this window = manager)
+
+The repo root `commerce-platform` is the **manager window only**: it reviews, merges, integrates, edits Memory-main and
+contracts. It never builds features. Each build window lives in its own **git worktree** (a sibling folder sharing the
+same repo and remote), on its own branch, with its own `node_modules`. Never open two Claude windows in the same folder:
+they would fight over one checked-out branch.
+
+| Terminal | Folder | Branch | Paste | Model |
+|---|---|---|---|---|
+| manager (this) | `commerce-platform` | `main` | docs/start-messages/00-reviewer.md when reviewing; otherwise you talk to it directly | strongest |
+| 1 | `../wt-core` | `core/phase1` | docs/start-messages/01-core.md | Sonnet (strongest for [core] 1.3, 1.5) |
+| 2 | `../wt-auth` | `auth/phase1` | docs/start-messages/02-auth.md | Sonnet (strongest for [auth] 1.2) |
+| 3 | `../wt-storefront` | `storefront/phase1` | docs/start-messages/03-storefront.md | Sonnet |
+| 4 | `../wt-admin` | `admin/phase1` | docs/start-messages/04-admin.md | Sonnet |
+| 5 | `../wt-infra` | `infra/phase2` | docs/start-messages/05-infra.md | Sonnet |
+
+Each build window: `cd ../wt-<key> && pnpm install && claude`, paste its start message, pick the model.
+Shared things that are safe in parallel: the docker stack (`pnpm dev` from any worktree reuses the same containers; tests
+create their own databases), the mocks on 4010/4011, GitHub issues. Dev-server ports are fixed per app: core 9000,
+admin 3000, storefront 3100. `pnpm-lock.yaml` may change on every branch; the manager re-runs `pnpm install` after each
+merge and commits the lockfile on `main`.
+
+Manager loop while windows run: (1) `gh pr list` → for each green PR, Reviewer session `/review <PR>` → merge with
+`gh pr merge <PR> --squash`; (2) after every merge, in the repo root: `git pull --ff-only && pnpm install && pnpm test`,
+commit the lockfile if it changed; (3) triage issues labelled `contract-change` / `request` (accept → the manager applies
+the change on `main` and regenerates; reject → comment why); (4) tell the other windows to `git merge main` in their
+worktree when something they depend on has landed (auth-sdk for core, ui for storefront); (5) keep Memory-main
+"Current status" current. The windows never pull each other's branches.
+
 ## 2. Starting a window (copy-paste)
 
 Phase 1, window 1 (core). Same shape for every window: `new-window.sh <window> <phase>`, then `cd ../wt-<key>`.
