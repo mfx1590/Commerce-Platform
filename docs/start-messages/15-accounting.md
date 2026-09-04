@@ -1,4 +1,5 @@
 # Start message — Window 15: Automatic accounting (Phase 4)
+
 Paste into a Claude Code session opened inside the worktree `../wt-accounting` (create it with `./scripts/new-window.sh 15 4`). Model: strongest.
 
 ---

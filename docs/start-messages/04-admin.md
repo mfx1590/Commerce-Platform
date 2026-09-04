@@ -1,4 +1,5 @@
 # Start message — Window 4: Admin application (Phase 1)
+
 Paste into a Claude Code session opened inside the worktree `../wt-admin` (create it with `./scripts/new-window.sh 4 1`). Model: Sonnet.
 
 ---

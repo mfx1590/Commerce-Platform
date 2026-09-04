@@ -1,4 +1,5 @@
 # Start message — Window 3: Storefront starter & UI kit (Phase 1)
+
 Paste into a Claude Code session opened inside the worktree `../wt-storefront` (create it with `./scripts/new-window.sh 3 1`). Model: Sonnet.
 
 ---

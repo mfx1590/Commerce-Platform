@@ -1,4 +1,5 @@
 # Start message — Window 10: Brand storefronts (A, B, C…) (Phase 2)
+
 Paste into a Claude Code session opened inside the worktree `../wt-brands` (create it with `./scripts/new-window.sh 10 2`). Model: Sonnet.
 
 ---

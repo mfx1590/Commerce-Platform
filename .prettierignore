@@ -1,0 +1,7 @@
+node_modules
+dist
+.turbo
+pnpm-lock.yaml
+packages/contracts/src/generated
+packages/events/src/generated
+docs/plan

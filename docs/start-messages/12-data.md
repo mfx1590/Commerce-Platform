@@ -1,4 +1,5 @@
 # Start message — Window 12: Data platform, BI & AI (Phase 3)
+
 Paste into a Claude Code session opened inside the worktree `../wt-data` (create it with `./scripts/new-window.sh 12 3`). Model: Sonnet.
 
 ---

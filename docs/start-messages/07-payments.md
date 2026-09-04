@@ -1,4 +1,5 @@
 # Start message — Window 7: Payments, tax, fraud (Phase 2)
+
 Paste into a Claude Code session opened inside the worktree `../wt-payments` (create it with `./scripts/new-window.sh 7 2`). Model: Sonnet (strongest for webhook idempotency design).
 
 ---

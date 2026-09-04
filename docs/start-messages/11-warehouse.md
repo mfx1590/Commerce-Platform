@@ -1,4 +1,5 @@
 # Start message — Window 11: Shared warehouse / WMS (Phase 3)
+
 Paste into a Claude Code session opened inside the worktree `../wt-warehouse` (create it with `./scripts/new-window.sh 11 3`). Model: Sonnet.
 
 ---

@@ -1,4 +1,5 @@
 # Resume message (any window, after a context reset or a new day)
+
 Paste into a new Claude Code session opened in the same worktree.
 
 ---

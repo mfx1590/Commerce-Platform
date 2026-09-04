@@ -3,6 +3,7 @@
 Everything Claude Code needs to build the multi-brand commerce platform, one window at a time.
 
 ## Start (you, once)
+
 1. Fill `docs/decisions.md` (no `<DECIDE>` left). Mirror into `docs/memory/Memory-main.md`.
 2. `git init && git add -A && git commit -m "kit" && gh repo create <org>/commerce-platform --private --source=. --push`
 3. Protect `main` (PR required, CI green). Install: `npm i -g @anthropic-ai/claude-code`, `gh auth login`.
@@ -10,15 +11,18 @@ Everything Claude Code needs to build the multi-brand commerce platform, one win
 5. When it says done: `git tag contracts-v0.1 && git push --tags`.
 
 ## Each window afterwards
+
 ```
 ./scripts/new-window.sh 1 1      # window 1 (core), phase 1 → creates ../wt-core
 cd ../wt-core && claude          # paste docs/start-messages/01-core.md
 ```
+
 New day / context reset in the same worktree: `claude` → `/resume` (or paste `docs/start-messages/00-resume-any-window.md`).
 Before merging a PR: `claude` in repo root → `/review <PR number>`.
 Integration period: `git worktree add ../wt-integration -b integration/phase<N> main` → paste `docs/start-messages/00-integrator.md`.
 
 ## Where things are
+
 - `docs/memory/Memory-main.md` — whole-project state, phase plan, window index (main window owns it)
 - `docs/memory/Memory-<n>-<key>.md` — one memory per window; the window owns it
 - `docs/start-messages/` — paste-ready kickoff for main, integrator, reviewer, resume, and windows 1–16

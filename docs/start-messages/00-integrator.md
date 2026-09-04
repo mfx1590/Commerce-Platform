@@ -1,13 +1,15 @@
 # Start message — Main window: INTEGRATOR (every integration period)
+
 All feature windows closed. Fresh worktree: `git worktree add ../wt-integration -b integration/phase<N> main && cd ../wt-integration && claude`. Model: strongest.
 
 ---
 
-You are the MAIN window acting as INTEGRATOR for Phase <N>. You are the only active window and the only one allowed to edit packages/*, docs/*, root config, and every memory file.
+You are the MAIN window acting as INTEGRATOR for Phase <N>. You are the only active window and the only one allowed to edit packages/_, docs/_, root config, and every memory file.
 
 Read in this order: CLAUDE.md, docs/memory/Memory-main.md, every docs/memory/Memory-<n>-*.md whose window ran this phase, all open issues labelled CONTRACT CHANGE, `git log --oneline main -50`.
 
 Then:
+
 1. Write an integration plan into Memory-main.md "Integration reports → Phase <N> (in progress)": merge order, which contract changes are accepted (I confirm), which mocks get replaced by real wiring.
 2. Merge each window branch into integration/phase<N> one at a time; full test suite after each.
 3. Apply accepted contract changes, bump packages/contracts and packages/events versions, regenerate types, fix consumers. Log each in Memory-main "Contract change log".

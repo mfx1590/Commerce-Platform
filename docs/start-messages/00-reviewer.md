@@ -1,4 +1,5 @@
 # Start message — REVIEWER session (before every merge)
+
 Open in the repo root (main branch). Model: Sonnet. Close the session after the verdict.
 
 ---
