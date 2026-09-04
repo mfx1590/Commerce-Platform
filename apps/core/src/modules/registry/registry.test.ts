@@ -3,7 +3,7 @@ import { createOrganizationClient, createTenantClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppError } from '../../lib/errors';
-import { withEvents } from '../../outbox/with-events';
+import { withEvents } from '../../outbox';
 import {
   addCurrency,
   addDomain,

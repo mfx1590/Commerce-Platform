@@ -1,6 +1,6 @@
 # Memory 1 — Core commerce
 Window: 1 · Key: `core` · Branch prefix: `core/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: task 1.4 (branch `core/phase1-t4`, PR open) · Status: 1.1–1.4 done (PRs #49, #50, #51, next), task 1.5 next
+Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: task 1.5 (branch `core/phase1-t5`, PR open) · Status: 1.1–1.5 done (PRs #49, #50, #51, #52, next), task 1.6 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -20,16 +20,16 @@ Never touches:
 Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant-scoped data access through packages/db with RLS enforced on every query, outbox write on every state change, seed brands loading. Implement Store API and Admin API routes for registry and catalog exactly as in packages/contracts; everything else stays on the mock server.
 
 ## Done
-- [x] **1.4 Catalog module (issue #4)** — 2026-09-05, branch `core/phase1-t4` (stacked on 1.3), sha: see PR (recorded at next commit). Delivered: `src/modules/catalog/{types,service,read-model,index}.ts` + README, 9 tests on the fully seeded DB (200 products listed, availability, event order create→publish, archive, 409s, scope). Publish does not require a variant (issue #5's "create then publish yields exactly product.updated then product.published" holds literally).
+- [x] **1.5 Outbox helper hardened (issue #5)** — 2026-09-05, branch `core/phase1-t5` (stacked on 1.4), sha: see PR (recorded at next commit). Delivered: `src/outbox/{index,README}`, `outbox.test.ts` (rollback after insert, invalid envelope, all-validated-before-any-insert, create→publish order, headers), ESLint `no-restricted-syntax` on `INSERT INTO outbox` outside `src/outbox`, guard test for index-only imports.
+- [x] **1.4 Catalog module (issue #4)** — 2026-09-05, branch `core/phase1-t4` (stacked on 1.3), commit `59d54da`, PR #52. Delivered: `src/modules/catalog/{types,service,read-model,index}.ts` + README, 9 tests on the fully seeded DB (200 products listed, availability, event order create→publish, archive, 409s, scope). Publish does not require a variant (issue #5's "create then publish yields exactly product.updated then product.published" holds literally).
 - [x] **1.3 Tenant context middleware (issue #3)** — 2026-09-05, branch `core/phase1-t3` (stacked on 1.2), commit `47efde4`, PR #51. Delivered: `src/http/{request-id,tenant,staff-auth,errors,types,index}.ts`, `mountCoreMiddleware` in `src/server.ts`, `DevTokenVerifier` (Phase 1, non-production), `storeClientFor`/`organizationClientFor`/`visibleStoresClientFor`, `eslint.config.mjs` pg guard + `lint` script, `test/guards.test.ts`, `test/tenant-http.test.ts` (8 HTTP cases on a seeded DB). Verified live: server boots with the chain; `/store/*` without key → 401 ours, `/admin/*` without token → 401 ours.
 - [x] **1.2 Registry module (issue #2)** — 2026-09-05, branch `core/phase1-t2` (stacked on 1.1), commit `dbeb778`, PR #50. Delivered: `src/modules/registry` (service over 0003: stores, domains, locales, currencies, sales channels, API keys; audit_log + `store.created|updated` in one transaction), `src/outbox/with-events.ts` first cut, `src/lib/{errors,audit}.ts`, README, 9 tests (RLS scope, one-primary/one-default, key hashing, rollback on invalid event).
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49. Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
-- (nothing — next: task 1.5)
+- (nothing — next: task 1.6)
 
-## Next — Phase 1 (GitHub issues #3–#9 are authoritative)
-- [ ] 1.5 (#5) `src/outbox/withEvents(tx, events[])`: validator, rollback test, lint/grep guard on `INSERT INTO outbox`
+## Next — Phase 1 (GitHub issues #6–#9 are authoritative)
 - [ ] 1.6 (#6) Store API routes: `GET /store`, `/store/categories`, `/store/products`, `/store/products/{handle}`; contract test against the real server
 - [ ] 1.7 (#7) Admin API routes with `requirePermission(relation, object)` stub, `/admin/me`, 400 validation_error
 - [ ] 1.8 (#8) Bootstrap loader: seeded stores → Medusa sales channels + publishable keys (token = our plain key) so Medusa's gate accepts the contract key; `GET /store/products?limit=24` returns brand-a with total 200
