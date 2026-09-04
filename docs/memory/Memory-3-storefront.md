@@ -39,7 +39,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       `cn`, `variants`; `@platform/ui/preset` Tailwind preset. 35 Vitest tests green, typecheck,
       lint and prettier clean, `pnpm --filter @platform/ui build` emits dist/.
 
-- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `<pending>`, PR `<pending>`.
+- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `7b0a75f`, PR #47 (stacked on #39; branch `storefront/phase1-task-1.2`).
       Next 15 App Router on :3100 (React 19, Tailwind 3 via the kit preset); route groups `(shop)`
       `/` `/products`, `(checkout)` `/cart` `/checkout` with its own funnel chrome, `(account)`
       `/account`, `(content)` `/pages/[slug]` placeholder, plus `not-found`. Root layout resolves
