@@ -1,6 +1,6 @@
 # Memory main — whole-project state
 Owner: main window (Architect in Phase 0, Integrator in every integration period).
-Last updated: 2026-09-04 · Current phase: 0 · Contracts tag: (none) · Events tag: (none) · main last commit: (none)
+Last updated: 2026-09-04 · Current phase: 0 · Contracts tag: (none) · Events tag: (none) · main last commit: see Current status
 
 ## What this project is
 A multi-brand commerce platform: one HQ control plane, one multi-tenant commerce core (Medusa 2, Postgres RLS on store_id),
@@ -16,8 +16,11 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 - Solo operator on Claude Max 5x: ONE build window active at a time, Reviewer session for merges, strongest model only for main window + events/accounting
 
 ## Current status
-- Phase 0 not started. Next action: open the main window in the repo root and paste docs/start-messages/00-main-architect.md
-
+- Phase 0 in progress (main window, Architect). Repo: https://github.com/mfx1590/Commerce-Platform (main).
+- Done: step 1 monorepo skeleton (99d4661, 8681771) · step 2 docs/domain.md (pending sha)
+- In progress: step 3 scripts/check-ownership.sh hardening + CI wiring
+- Next: 4 packages/db · 5 packages/events · 6 packages/contracts · 7 ADRs · 8 CI · 9 docker-compose · 10 seeds · 11 issues · 12 tag
+- Decisions this phase: plain SQL migrations run by an in-repo runner over node-postgres (no ORM); Prism for the mock server; Vitest; docs/** excluded from prettier (tables are grepped by scripts).
 ## Phase plan and gates
 | Phase | Goal | Windows (in order, one at a time) | Gate (you verify) |
 |---|---|---|---|
