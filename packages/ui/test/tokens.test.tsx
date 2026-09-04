@@ -56,6 +56,26 @@ describe('parseTheme', () => {
     ).toEqual({ color: { primary: '#123456' } });
   });
 
+  it('accepts the plural group names a store theme may use', () => {
+    // The seeded Brand A theme from the Store API mock.
+    expect(parseTheme({ colors: { primary: '#1E40AF' } })).toEqual({
+      color: { primary: '#1E40AF' },
+    });
+    expect(parseTheme({ radii: { md: '2px' }, shadows: { sm: 'none' } })).toEqual({
+      radius: { md: '2px' },
+      shadow: { sm: 'none' },
+    });
+  });
+
+  it('lets the canonical group win when a theme sends both spellings', () => {
+    expect(
+      parseTheme({
+        colors: { primary: '#111111', background: '#eeeeee' },
+        color: { primary: '#222222' },
+      }),
+    ).toEqual({ color: { background: '#eeeeee', primary: '#222222' } });
+  });
+
   it('survives rubbish from the API', () => {
     expect(parseTheme(null)).toEqual({});
     expect(parseTheme('a string')).toEqual({});

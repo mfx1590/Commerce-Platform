@@ -1,5 +1,16 @@
 # Changelog — @platform/ui
 
+## 0.2.1 — 2026-09-04
+
+Follow-up while wiring the starter (task [storefront] 1.2, issue #18).
+
+- `parseTheme` accepts the plural group spellings a store theme may use (`colors`, `fonts`,
+  `radii`, `shadows`, …) as aliases for the canonical groups, with the canonical name winning if a
+  theme sends both. The seeded Brand A theme writes `colors`, so its brand colour reached the page
+  as the kit default before this. Contract issue filed: #41.
+- `exports` gained a `default` condition, so CJS-based resolvers (Tailwind loads
+  `tailwind.config.ts` through jiti) can resolve `@platform/ui/preset`.
+
 ## 0.2.0 — 2026-09-04
 
 Task [storefront] 1.1 (issue #17), contracts `contracts-v0.1`.

@@ -211,24 +211,57 @@ export function tokensToCssVars(tokens: BrandTokens): Record<string, string> {
 }
 
 /**
+ * Plural spellings a store theme may use for a token group. `Store.theme` is free-form JSON in the
+ * contract (the seeded Brand A theme writes `colors`), so the kit accepts both rather than silently
+ * dropping a brand's colours.
+ */
+const GROUP_ALIASES: Readonly<Record<string, keyof Tokens>> = {
+  colors: 'color',
+  fonts: 'font',
+  fontSizes: 'fontSize',
+  fontWeights: 'fontWeight',
+  lineHeights: 'lineHeight',
+  radii: 'radius',
+  shadows: 'shadow',
+};
+
+function canonicalGroup(name: string): keyof Tokens | undefined {
+  if (Object.prototype.hasOwnProperty.call(defaultTokens, name)) return name as keyof Tokens;
+  return GROUP_ALIASES[name];
+}
+
+function pickTokens(group: keyof Tokens, candidate: unknown): Record<string, string> {
+  if (typeof candidate !== 'object' || candidate === null) return {};
+  const allowed = defaultTokens[group] as unknown as Record<string, string>;
+  const picked: Record<string, string> = {};
+  for (const [name, tokenValue] of Object.entries(candidate as Record<string, unknown>)) {
+    if (typeof tokenValue !== 'string') continue;
+    if (!Object.prototype.hasOwnProperty.call(allowed, name)) continue;
+    picked[name] = tokenValue;
+  }
+  return picked;
+}
+
+/**
  * Narrow arbitrary JSON (`store.theme`, which the Store API types as free-form) to BrandTokens.
  * Unknown groups, unknown keys and non-string values are dropped, so a bad theme from the API can
  * never break the layout or smuggle CSS into the page.
  */
 export function parseTheme(value: unknown): BrandTokens {
   if (typeof value !== 'object' || value === null) return {};
-  const theme = value as Record<string, unknown>;
+  const entries = Object.entries(value as Record<string, unknown>);
   const result: BrandTokens = {};
-  for (const group of TOKEN_GROUPS) {
-    const candidate = theme[group];
-    if (typeof candidate !== 'object' || candidate === null) continue;
-    const allowed = defaultTokens[group] as unknown as Record<string, string>;
-    const picked: Record<string, string> = {};
-    for (const [name, tokenValue] of Object.entries(candidate as Record<string, unknown>)) {
-      if (typeof tokenValue !== 'string') continue;
-      if (!Object.prototype.hasOwnProperty.call(allowed, name)) continue;
-      picked[name] = tokenValue;
-    }
+
+  // Aliases first, then canonical names, so `color` wins over `colors` if a theme sends both.
+  const ordered = [
+    ...entries.filter(([name]) => !Object.prototype.hasOwnProperty.call(defaultTokens, name)),
+    ...entries.filter(([name]) => Object.prototype.hasOwnProperty.call(defaultTokens, name)),
+  ];
+
+  for (const [rawGroup, candidate] of ordered) {
+    const group = canonicalGroup(rawGroup);
+    if (!group) continue;
+    const picked = { ...(result[group] ?? {}), ...pickTokens(group, candidate) };
     if (Object.keys(picked).length > 0) Object.assign(result, { [group]: picked });
   }
   return result;
