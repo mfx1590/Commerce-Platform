@@ -1,0 +1,23 @@
+# Local stack for `pnpm dev`. Phase 0 step 4 adds Postgres; step 9 adds Redis, Redpanda, Keycloak, OpenFGA, mock API.
+# Credentials here are local-only defaults (also in .env.example). Never reuse them anywhere else.
+name: commerce-platform
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: platform
+    ports:
+      - '5433:5432' # 5433 on the host: leaves a system Postgres on 5432 alone
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U platform -d platform']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-data:

@@ -9,20 +9,31 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
+    "migrate": "tsc -p tsconfig.json && node dist/cli.js migrate",
+    "seed": "tsc -p tsconfig.json && node dist/cli.js seed",
     "clean": "rm -rf dist .turbo"
   },
+  "dependencies": {
+    "pg": "^8.16.0"
+  },
   "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/pg": "^8.15.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/node": "^20.19.0"
+    "vitest": "^3.2.0"
   }
 }

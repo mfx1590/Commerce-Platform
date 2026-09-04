@@ -1,2 +1,7 @@
 // Public API of @platform/db. Nothing outside this package may import from src/* directly.
-export const PACKAGE_NAME = '@platform/db' as const;
+export { createTenantClient, createOrganizationClient } from './client.js';
+export type { TenantContext, OrganizationContext, ScopedClient, Queryable } from './client.js';
+export { migrate, listMigrations, DEFAULT_MIGRATION_DIRS } from './migrate.js';
+export type { MigrateResult, MigrationFile } from './migrate.js';
+export { createPool, connectionStringFromEnv } from './pool.js';
+export { seed, SEED_IDS } from './seed/index.js';
