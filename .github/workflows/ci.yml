@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: 10.34.5
+  NODE_VERSION: 20
+
+jobs:
+  ownership:
+    name: ownership check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: fetch main
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - name: self-test
+        run: bash scripts/check-ownership.test.sh
+      - name: check branch writes only its owned paths
+        run: bash scripts/check-ownership.sh
+
+  # Steps 4–8 of Phase 0 add: lint, typecheck, unit, contract tests, preview placeholder.
