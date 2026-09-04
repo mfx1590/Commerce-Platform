@@ -18,8 +18,8 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 
 ## Current status
 - Phase 0 in progress (main window, Architect). Repo: https://github.com/mfx1590/Commerce-Platform (main).
-- Done: step 1 monorepo skeleton (99d4661, 8681771) · step 2 docs/domain.md (66c2ca6) · operating guide docs/HOW-I-RUN-THIS.md (5603a1b) · step 3 ownership check + self-test + CI job (b23676f, 434b401) · step 4 packages/db migrations + RLS + tenant client + 10 isolation tests (8c33bb7) · step 5 packages/events 24 schemas + types + validator + outbox (978a48a) · step 6 packages/contracts store-api (20 ops) + admin-api (46 ops) + types + Prism mock + contract tests (pending sha)
-- In progress: step 7 ADRs (0001 tenancy, 0002 auth model, 0003 outbox/events, 0004 storefront-per-brand, 0005 modular monolith)
+- Done: step 1 monorepo skeleton (99d4661, 8681771) · step 2 docs/domain.md (66c2ca6) · operating guide docs/HOW-I-RUN-THIS.md (5603a1b) · step 3 ownership check + self-test + CI job (b23676f, 434b401) · step 4 packages/db migrations + RLS + tenant client + 10 isolation tests (8c33bb7) · step 5 packages/events 24 schemas + types + validator + outbox (978a48a) · step 6 packages/contracts store-api (20 ops) + admin-api (46 ops) + types + Prism mock + contract tests (42f59aa) · step 7 ADRs 0001–0005 (pending sha)
+- In progress: step 8 CI (lint, typecheck, unit, contract, ownership, preview placeholder) · step 9 docker-compose + pnpm dev · step 10 seeds
 - Next: 4 packages/db · 5 packages/events · 6 packages/contracts · 7 ADRs · 8 CI · 9 docker-compose · 10 seeds · 11 issues · 12 tag
 - Local Postgres is on host port 5433 (5432 is taken by another project on this machine); .env.example and vitest defaults match.
 - Decisions this phase: plain SQL migrations run by an in-repo runner over node-postgres (no ORM); Prism for the mock server; Vitest; approved extra dev libs: ajv + ajv-formats, json-schema-to-typescript, openapi-typescript; docs/** excluded from prettier (tables are grepped by scripts).
