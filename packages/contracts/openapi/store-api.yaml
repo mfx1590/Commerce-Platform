@@ -1,0 +1,1022 @@
+openapi: 3.1.0
+info:
+  title: Store API
+  version: 0.1.0
+  description: |
+    Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
+    which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
+    routes additionally send a Keycloak customers-realm JWT as a Bearer token.
+    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1.
+servers:
+  - url: http://localhost:4010
+    description: Prism mock (pnpm mock)
+  - url: https://api.{brandDomain}/v1
+    description: Production edge (Cloudflare → Kong → core)
+    variables:
+      brandDomain:
+        default: brand-a.example
+security:
+  - publishableKey: []
+tags:
+  - name: store
+  - name: catalog
+  - name: cart
+  - name: checkout
+  - name: orders
+  - name: customers
+
+paths:
+  /store:
+    get:
+      tags: [store]
+      operationId: getStore
+      summary: The store resolved from the publishable key
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Store' }
+              examples:
+                brandA: { $ref: '#/components/examples/StoreBrandA' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /store/categories:
+    get:
+      tags: [catalog]
+      operationId: listCategories
+      summary: Active categories as a flat list with parent_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Category' }
+              example:
+                items:
+                  - { id: 30000000-0000-4000-8000-000000000101, handle: tops, name: Tops, parent_id: null, position: 0 }
+                  - { id: 30000000-0000-4000-8000-000000000102, handle: t-shirts, name: T-shirts, parent_id: 30000000-0000-4000-8000-000000000101, position: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /store/products:
+    get:
+      tags: [catalog]
+      operationId: listProducts
+      summary: Published products, paginated
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Full-text query }
+        - { name: category, in: query, schema: { type: string }, description: Category handle (includes children) }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: sort, in: query, schema: { type: string, enum: [relevance, price_asc, price_desc, newest], default: relevance } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProductSummary' }
+              examples:
+                page1:
+                  value:
+                    page: 1
+                    limit: 24
+                    total: 200
+                    items:
+                      - id: 30000000-0000-4000-8000-000000000201
+                        handle: classic-tee
+                        title: Classic Tee
+                        thumbnail_url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg
+                        price: { amount_minor: 1999, currency: EUR }
+                        compare_at_price: null
+                        category_handle: t-shirts
+                        tags: [basics]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /store/products/{handle}:
+    get:
+      tags: [catalog]
+      operationId: getProduct
+      summary: One published product with variants, options, media and prices
+      parameters:
+        - { name: handle, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+              examples:
+                classicTee: { $ref: '#/components/examples/ProductClassicTee' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /store/carts:
+    post:
+      tags: [cart]
+      operationId: createCart
+      summary: Create an empty cart for the resolved store and sales channel
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                country: { type: string, pattern: '^[A-Z]{2}$', description: Shipping destination; defaults to store.default_country }
+                currency: { type: string, pattern: '^[A-Z]{3}$', description: Must be enabled for the store }
+                locale: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+              examples:
+                empty: { $ref: '#/components/examples/CartEmpty' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /store/carts/{cartId}:
+    parameters:
+      - { $ref: '#/components/parameters/CartId' }
+    get:
+      tags: [cart]
+      operationId: getCart
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+              examples:
+                withItem: { $ref: '#/components/examples/CartWithItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [cart]
+      operationId: updateCart
+      summary: Set email, addresses, shipping option, promotion codes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                shipping_address: { $ref: '#/components/schemas/Address' }
+                billing_address: { $ref: '#/components/schemas/Address' }
+                shipping_option_id: { type: string, format: uuid }
+                promotion_codes: { type: array, items: { type: string } }
+                country: { type: string, pattern: '^[A-Z]{2}$' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+              examples:
+                withItem: { $ref: '#/components/examples/CartWithItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /store/carts/{cartId}/line-items:
+    parameters:
+      - { $ref: '#/components/parameters/CartId' }
+    post:
+      tags: [cart]
+      operationId: addLineItem
+      summary: Add a variant (or increase its quantity)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [variant_id, quantity]
+              properties:
+                variant_id: { type: string, format: uuid }
+                quantity: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+              examples:
+                withItem: { $ref: '#/components/examples/CartWithItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Insufficient stock
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: out_of_stock, message: Only 2 left, details: { variant_id: 30000000-0000-4000-8000-000000000301, available: 2 } }
+
+  /store/carts/{cartId}/line-items/{lineItemId}:
+    parameters:
+      - { $ref: '#/components/parameters/CartId' }
+      - { name: lineItemId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [cart]
+      operationId: updateLineItem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+              examples:
+                withItem: { $ref: '#/components/examples/CartWithItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [cart]
+      operationId: removeLineItem
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+              examples:
+                empty: { $ref: '#/components/examples/CartEmpty' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /store/carts/{cartId}/shipping-options:
+    parameters:
+      - { $ref: '#/components/parameters/CartId' }
+    get:
+      tags: [checkout]
+      operationId: listShippingOptions
+      summary: Shipping options valid for the cart's destination and contents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ShippingOption' }
+              example:
+                items:
+                  - { id: 30000000-0000-4000-8000-000000000401, code: standard, name: Standard (2–4 days), carrier: manual, price: { amount_minor: 499, currency: EUR } }
+                  - { id: 30000000-0000-4000-8000-000000000402, code: express, name: Express (next day), carrier: manual, price: { amount_minor: 999, currency: EUR } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /store/carts/{cartId}/payment-session:
+    parameters:
+      - { $ref: '#/components/parameters/CartId' }
+    post:
+      tags: [checkout]
+      operationId: createPaymentSession
+      summary: Create a PSP session; the storefront renders hosted fields with `client_secret`. Card data never reaches our API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider: { type: string, enum: [stripe, manual] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentSession' }
+              example: { provider: stripe, session_id: pi_3Mock, client_secret: pi_3Mock_secret_mock, status: pending, amount: { amount_minor: 2918, currency: EUR } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /store/carts/{cartId}/complete:
+    parameters:
+      - { $ref: '#/components/parameters/CartId' }
+    post:
+      tags: [checkout]
+      operationId: completeCart
+      summary: Place the order (reserve stock, authorize payment, emit order.placed)
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8 } }
+      responses:
+        '201':
+          description: Order placed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+              examples:
+                placed: { $ref: '#/components/examples/OrderPlaced' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '402':
+          description: Payment not authorized
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: payment_failed, message: Card declined, details: {} }
+        '409':
+          description: Cart already completed or stock no longer available
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: cart_completed, message: Cart already completed, details: { order_id: 30000000-0000-4000-8000-000000000501 } }
+
+  /store/orders/{orderId}:
+    get:
+      tags: [orders]
+      operationId: getOrder
+      summary: Order lookup by id plus the email used at checkout (or the customer's token)
+      security:
+        - publishableKey: []
+        - publishableKey: []
+          customerToken: []
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: email, in: query, required: false, schema: { type: string, format: email } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+              examples:
+                placed: { $ref: '#/components/examples/OrderPlaced' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /store/customers:
+    post:
+      tags: [customers]
+      operationId: registerCustomer
+      summary: Link the authenticated Keycloak customer to this store (creates the store-level customer row)
+      security:
+        - publishableKey: []
+          customerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                first_name: { type: string }
+                last_name: { type: string }
+                marketing_consent: { type: boolean, default: false }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+              examples:
+                jane: { $ref: '#/components/examples/CustomerJane' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /store/customers/me:
+    get:
+      tags: [customers]
+      operationId: getMe
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+              examples:
+                jane: { $ref: '#/components/examples/CustomerJane' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [customers]
+      operationId: updateMe
+      security:
+        - publishableKey: []
+          customerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                first_name: { type: string }
+                last_name: { type: string }
+                phone: { type: string }
+                marketing_consent: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+              examples:
+                jane: { $ref: '#/components/examples/CustomerJane' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /store/customers/me/addresses:
+    get:
+      tags: [customers]
+      operationId: listMyAddresses
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/CustomerAddress' }
+              example:
+                items:
+                  - id: 30000000-0000-4000-8000-000000000601
+                    first_name: Jane
+                    last_name: Doe
+                    company: null
+                    line1: Keizersgracht 1
+                    line2: null
+                    city: Amsterdam
+                    region: null
+                    postal_code: 1015 CC
+                    country: NL
+                    phone: null
+                    is_default_shipping: true
+                    is_default_billing: true
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [customers]
+      operationId: addMyAddress
+      security:
+        - publishableKey: []
+          customerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Address' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAddress' }
+              example:
+                id: 30000000-0000-4000-8000-000000000601
+                first_name: Jane
+                last_name: Doe
+                company: null
+                line1: Keizersgracht 1
+                line2: null
+                city: Amsterdam
+                region: null
+                postal_code: 1015 CC
+                country: NL
+                phone: null
+                is_default_shipping: true
+                is_default_billing: true
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /store/customers/me/orders:
+    get:
+      tags: [customers, orders]
+      operationId: listMyOrders
+      security:
+        - publishableKey: []
+          customerToken: []
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/OrderSummary' }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - { id: 30000000-0000-4000-8000-000000000501, display_id: 1000, status: confirmed, payment_status: captured, fulfillment_status: unfulfilled, total: { amount_minor: 2918, currency: EUR }, placed_at: '2026-09-04T10:00:00Z' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    publishableKey:
+      type: apiKey
+      in: header
+      name: X-Publishable-Key
+    customerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak customers realm token
+
+  parameters:
+    CartId:
+      name: cartId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: validation_error, message: quantity must be >= 1, details: { field: quantity } }
+    Unauthorized:
+      description: Missing or invalid publishable key / token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: unauthorized, message: Missing X-Publishable-Key, details: {} }
+    NotFound:
+      description: Not found in this store
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: not_found, message: Not found, details: {} }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, description: 'Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, conflict, internal' }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+
+    Page:
+      type: object
+      required: [page, limit, total]
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+
+    Money:
+      type: object
+      required: [amount_minor, currency]
+      properties:
+        amount_minor: { type: integer, description: Minor units (cents) }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+
+    Address:
+      type: object
+      required: [first_name, last_name, line1, city, postal_code, country]
+      properties:
+        first_name: { type: string }
+        last_name: { type: string }
+        company: { type: [string, 'null'] }
+        line1: { type: string }
+        line2: { type: [string, 'null'] }
+        city: { type: string }
+        region: { type: [string, 'null'] }
+        postal_code: { type: string }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+        phone: { type: [string, 'null'] }
+
+    Store:
+      type: object
+      required: [id, code, name, default_currency, default_locale, default_country, currencies, locales, sales_channel, theme]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        default_currency: { type: string }
+        default_locale: { type: string }
+        default_country: { type: string }
+        currencies: { type: array, items: { type: string } }
+        locales: { type: array, items: { type: string } }
+        sales_channel:
+          type: object
+          required: [id, code, type]
+          properties:
+            id: { type: string, format: uuid }
+            code: { type: string }
+            type: { type: string, enum: [web, app, marketplace, pos] }
+        content_space_id: { type: [string, 'null'] }
+        search_index: { type: [string, 'null'] }
+        theme: { type: object, additionalProperties: true, description: Token overrides for @platform/ui }
+
+    Category:
+      type: object
+      required: [id, handle, name, parent_id, position]
+      properties:
+        id: { type: string, format: uuid }
+        handle: { type: string }
+        name: { type: string }
+        parent_id: { type: [string, 'null'], format: uuid }
+        position: { type: integer }
+
+    ProductSummary:
+      type: object
+      required: [id, handle, title, thumbnail_url, price, compare_at_price, category_handle, tags]
+      properties:
+        id: { type: string, format: uuid }
+        handle: { type: string }
+        title: { type: string }
+        thumbnail_url: { type: [string, 'null'] }
+        price: { $ref: '#/components/schemas/Money', description: Lowest variant price in the cart currency }
+        compare_at_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        category_handle: { type: [string, 'null'] }
+        tags: { type: array, items: { type: string } }
+
+    Product:
+      type: object
+      required: [id, handle, title, subtitle, description, status, category, brand_name, tags, attributes, seo, options, variants, media]
+      properties:
+        id: { type: string, format: uuid }
+        handle: { type: string }
+        title: { type: string }
+        subtitle: { type: [string, 'null'] }
+        description: { type: [string, 'null'], description: Markdown }
+        status: { type: string, enum: [published] }
+        category:
+          oneOf:
+            - $ref: '#/components/schemas/Category'
+            - type: 'null'
+        brand_name: { type: [string, 'null'] }
+        tags: { type: array, items: { type: string } }
+        attributes: { type: object, additionalProperties: true }
+        seo:
+          type: object
+          properties:
+            title: { type: string }
+            description: { type: string }
+            canonical: { type: string }
+        options:
+          type: array
+          items:
+            type: object
+            required: [name, values]
+            properties:
+              name: { type: string }
+              values: { type: array, items: { type: string } }
+        variants:
+          type: array
+          items: { $ref: '#/components/schemas/Variant' }
+        media:
+          type: array
+          items:
+            type: object
+            required: [url, alt, position, variant_id]
+            properties:
+              url: { type: string }
+              alt: { type: [string, 'null'] }
+              position: { type: integer }
+              variant_id: { type: [string, 'null'], format: uuid }
+
+    Variant:
+      type: object
+      required: [id, sku, title, options, price, compare_at_price, in_stock, available_quantity, allow_backorder]
+      properties:
+        id: { type: string, format: uuid }
+        sku: { type: string }
+        title: { type: string }
+        options: { type: object, additionalProperties: { type: string } }
+        price: { $ref: '#/components/schemas/Money' }
+        compare_at_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        in_stock: { type: boolean }
+        available_quantity: { type: [integer, 'null'], description: null when inventory is not managed }
+        allow_backorder: { type: boolean }
+        weight_g: { type: [integer, 'null'] }
+
+    LineItem:
+      type: object
+      required: [id, variant_id, sku, title, variant_title, thumbnail_url, quantity, unit_price, subtotal, discount, tax, total]
+      properties:
+        id: { type: string, format: uuid }
+        variant_id: { type: string, format: uuid }
+        sku: { type: string }
+        title: { type: string }
+        variant_title: { type: string }
+        thumbnail_url: { type: [string, 'null'] }
+        quantity: { type: integer }
+        unit_price: { $ref: '#/components/schemas/Money' }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        discount: { $ref: '#/components/schemas/Money' }
+        tax: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+
+    Totals:
+      type: object
+      required: [subtotal, discount, shipping, tax, total]
+      properties:
+        subtotal: { $ref: '#/components/schemas/Money' }
+        discount: { $ref: '#/components/schemas/Money' }
+        shipping: { $ref: '#/components/schemas/Money' }
+        tax: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+
+    ShippingOption:
+      type: object
+      required: [id, code, name, carrier, price]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        carrier: { type: string }
+        price: { $ref: '#/components/schemas/Money' }
+
+    PaymentSession:
+      type: object
+      required: [provider, session_id, client_secret, status, amount]
+      properties:
+        provider: { type: string, enum: [stripe, manual] }
+        session_id: { type: string }
+        client_secret: { type: [string, 'null'], description: For hosted fields; null for manual }
+        status: { type: string, enum: [pending, authorized, failed] }
+        amount: { $ref: '#/components/schemas/Money' }
+
+    Cart:
+      type: object
+      required: [id, status, currency, locale, country, email, items, shipping_address, billing_address, shipping_option, promotion_codes, payment_session, totals, order_id]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [active, completed, abandoned] }
+        currency: { type: string }
+        locale: { type: string }
+        country: { type: string }
+        email: { type: [string, 'null'] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LineItem' }
+        shipping_address:
+          oneOf:
+            - $ref: '#/components/schemas/Address'
+            - type: 'null'
+        billing_address:
+          oneOf:
+            - $ref: '#/components/schemas/Address'
+            - type: 'null'
+        shipping_option:
+          oneOf:
+            - $ref: '#/components/schemas/ShippingOption'
+            - type: 'null'
+        promotion_codes: { type: array, items: { type: string } }
+        payment_session:
+          oneOf:
+            - $ref: '#/components/schemas/PaymentSession'
+            - type: 'null'
+        totals: { $ref: '#/components/schemas/Totals' }
+        order_id: { type: [string, 'null'], format: uuid }
+
+    OrderSummary:
+      type: object
+      required: [id, display_id, status, payment_status, fulfillment_status, total, placed_at]
+      properties:
+        id: { type: string, format: uuid }
+        display_id: { type: integer }
+        status: { type: string, enum: [pending, confirmed, processing, completed, cancelled] }
+        payment_status: { type: string, enum: [awaiting, authorized, captured, partially_refunded, refunded, failed] }
+        fulfillment_status: { type: string, enum: [unfulfilled, partially_fulfilled, fulfilled, partially_returned, returned] }
+        total: { $ref: '#/components/schemas/Money' }
+        placed_at: { type: string, format: date-time }
+
+    Order:
+      allOf:
+        - $ref: '#/components/schemas/OrderSummary'
+        - type: object
+          required: [email, currency, items, shipping_address, billing_address, shipping_method, totals, shipments]
+          properties:
+            email: { type: string }
+            currency: { type: string }
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/LineItem' }
+            shipping_address: { $ref: '#/components/schemas/Address' }
+            billing_address: { $ref: '#/components/schemas/Address' }
+            shipping_method: { $ref: '#/components/schemas/ShippingOption' }
+            totals: { $ref: '#/components/schemas/Totals' }
+            shipments:
+              type: array
+              items:
+                type: object
+                required: [id, status, carrier, tracking_number, tracking_url, shipped_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, enum: [pending, label_created, shipped, in_transit, delivered, failed, cancelled] }
+                  carrier: { type: string }
+                  tracking_number: { type: [string, 'null'] }
+                  tracking_url: { type: [string, 'null'] }
+                  shipped_at: { type: [string, 'null'], format: date-time }
+
+    Customer:
+      type: object
+      required: [id, email, first_name, last_name, phone, status, marketing_consent]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        first_name: { type: [string, 'null'] }
+        last_name: { type: [string, 'null'] }
+        phone: { type: [string, 'null'] }
+        status: { type: string, enum: [guest, registered, disabled] }
+        marketing_consent: { type: boolean }
+
+    CustomerAddress:
+      allOf:
+        - $ref: '#/components/schemas/Address'
+        - type: object
+          required: [id, is_default_shipping, is_default_billing]
+          properties:
+            id: { type: string, format: uuid }
+            is_default_shipping: { type: boolean }
+            is_default_billing: { type: boolean }
+
+  examples:
+    StoreBrandA:
+      value:
+        id: 00000000-0000-4000-8000-000000000031
+        code: brand-a
+        name: Brand A
+        default_currency: EUR
+        default_locale: en-GB
+        default_country: NL
+        currencies: [EUR]
+        locales: [en-GB, de-DE]
+        sales_channel: { id: 30000000-0000-4000-8000-000000000001, code: web, type: web }
+        content_space_id: brand-a
+        search_index: brand-a_products
+        theme: { colors: { primary: '#1E40AF' } }
+    ProductClassicTee:
+      value:
+        id: 30000000-0000-4000-8000-000000000201
+        handle: classic-tee
+        title: Classic Tee
+        subtitle: Organic cotton
+        description: A classic tee in organic cotton.
+        status: published
+        category: { id: 30000000-0000-4000-8000-000000000102, handle: t-shirts, name: T-shirts, parent_id: 30000000-0000-4000-8000-000000000101, position: 0 }
+        brand_name: Brand A
+        tags: [basics]
+        attributes: { material: cotton }
+        seo: { title: Classic Tee, description: A classic tee., canonical: /products/classic-tee }
+        options:
+          - { name: Size, values: [S, M, L] }
+          - { name: Color, values: [Red, Black] }
+        variants:
+          - id: 30000000-0000-4000-8000-000000000301
+            sku: TEE-M-RED
+            title: M / Red
+            options: { Size: M, Color: Red }
+            price: { amount_minor: 1999, currency: EUR }
+            compare_at_price: { amount_minor: 2499, currency: EUR }
+            in_stock: true
+            available_quantity: 12
+            allow_backorder: false
+            weight_g: 180
+        media:
+          - { url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg, alt: Classic Tee, position: 0, variant_id: null }
+    CartEmpty:
+      value:
+        id: 30000000-0000-4000-8000-000000000701
+        status: active
+        currency: EUR
+        locale: en-GB
+        country: NL
+        email: null
+        items: []
+        shipping_address: null
+        billing_address: null
+        shipping_option: null
+        promotion_codes: []
+        payment_session: null
+        totals:
+          subtotal: { amount_minor: 0, currency: EUR }
+          discount: { amount_minor: 0, currency: EUR }
+          shipping: { amount_minor: 0, currency: EUR }
+          tax: { amount_minor: 0, currency: EUR }
+          total: { amount_minor: 0, currency: EUR }
+        order_id: null
+    CartWithItem:
+      value:
+        id: 30000000-0000-4000-8000-000000000701
+        status: active
+        currency: EUR
+        locale: en-GB
+        country: NL
+        email: jane@example.com
+        items:
+          - id: 30000000-0000-4000-8000-000000000801
+            variant_id: 30000000-0000-4000-8000-000000000301
+            sku: TEE-M-RED
+            title: Classic Tee
+            variant_title: M / Red
+            thumbnail_url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg
+            quantity: 1
+            unit_price: { amount_minor: 1999, currency: EUR }
+            subtotal: { amount_minor: 1999, currency: EUR }
+            discount: { amount_minor: 0, currency: EUR }
+            tax: { amount_minor: 420, currency: EUR }
+            total: { amount_minor: 2419, currency: EUR }
+        shipping_address: { first_name: Jane, last_name: Doe, company: null, line1: Keizersgracht 1, line2: null, city: Amsterdam, region: null, postal_code: 1015 CC, country: NL, phone: null }
+        billing_address: { first_name: Jane, last_name: Doe, company: null, line1: Keizersgracht 1, line2: null, city: Amsterdam, region: null, postal_code: 1015 CC, country: NL, phone: null }
+        shipping_option: { id: 30000000-0000-4000-8000-000000000401, code: standard, name: Standard (2–4 days), carrier: manual, price: { amount_minor: 499, currency: EUR } }
+        promotion_codes: []
+        payment_session: null
+        totals:
+          subtotal: { amount_minor: 1999, currency: EUR }
+          discount: { amount_minor: 0, currency: EUR }
+          shipping: { amount_minor: 499, currency: EUR }
+          tax: { amount_minor: 420, currency: EUR }
+          total: { amount_minor: 2918, currency: EUR }
+        order_id: null
+    OrderPlaced:
+      value:
+        id: 30000000-0000-4000-8000-000000000501
+        display_id: 1000
+        status: confirmed
+        payment_status: authorized
+        fulfillment_status: unfulfilled
+        total: { amount_minor: 2918, currency: EUR }
+        placed_at: '2026-09-04T10:00:00Z'
+        email: jane@example.com
+        currency: EUR
+        items:
+          - id: 30000000-0000-4000-8000-000000000901
+            variant_id: 30000000-0000-4000-8000-000000000301
+            sku: TEE-M-RED
+            title: Classic Tee
+            variant_title: M / Red
+            thumbnail_url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg
+            quantity: 1
+            unit_price: { amount_minor: 1999, currency: EUR }
+            subtotal: { amount_minor: 1999, currency: EUR }
+            discount: { amount_minor: 0, currency: EUR }
+            tax: { amount_minor: 420, currency: EUR }
+            total: { amount_minor: 2419, currency: EUR }
+        shipping_address: { first_name: Jane, last_name: Doe, company: null, line1: Keizersgracht 1, line2: null, city: Amsterdam, region: null, postal_code: 1015 CC, country: NL, phone: null }
+        billing_address: { first_name: Jane, last_name: Doe, company: null, line1: Keizersgracht 1, line2: null, city: Amsterdam, region: null, postal_code: 1015 CC, country: NL, phone: null }
+        shipping_method: { id: 30000000-0000-4000-8000-000000000401, code: standard, name: Standard (2–4 days), carrier: manual, price: { amount_minor: 499, currency: EUR } }
+        totals:
+          subtotal: { amount_minor: 1999, currency: EUR }
+          discount: { amount_minor: 0, currency: EUR }
+          shipping: { amount_minor: 499, currency: EUR }
+          tax: { amount_minor: 420, currency: EUR }
+          total: { amount_minor: 2918, currency: EUR }
+        shipments: []
+    CustomerJane:
+      value:
+        id: 30000000-0000-4000-8000-000000000a01
+        email: jane@example.com
+        first_name: Jane
+        last_name: Doe
+        phone: null
+        status: registered
+        marketing_consent: true
