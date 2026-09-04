@@ -1,7 +1,7 @@
 # Memory main — whole-project state
 Operating guide (how to open, resume, review, close windows): docs/HOW-I-RUN-THIS.md
 Owner: main window (Architect in Phase 0, Integrator in every integration period).
-Last updated: 2026-09-04 · Current phase: 0 · Contracts tag: (none) · Events tag: (none) · main last commit: see Current status
+Last updated: 2026-09-04 · Current phase: 0 → 1 · Contracts tag: contracts-v0.1 (to be created by the owner, see Current status) · Events tag: (events-v0.1 = same commit) · main last commit: see Current status
 
 ## What this project is
 A multi-brand commerce platform: one HQ control plane, one multi-tenant commerce core (Medusa 2, Postgres RLS on store_id),
@@ -17,13 +17,14 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 - Solo operator on Claude Max 5x: ONE build window active at a time, Reviewer session for merges, strongest model only for main window + events/accounting
 
 ## Current status
-- Phase 0 in progress (main window, Architect). Repo: https://github.com/mfx1590/Commerce-Platform (main).
-- Done: step 1 monorepo skeleton (99d4661, 8681771) · step 2 docs/domain.md (66c2ca6) · operating guide docs/HOW-I-RUN-THIS.md (5603a1b) · step 3 ownership check + self-test + CI job (b23676f, 434b401) · step 4 packages/db migrations + RLS + tenant client + 10 isolation tests (8c33bb7) · step 5 packages/events 24 schemas + types + validator + outbox (978a48a) · step 6 packages/contracts store-api (20 ops) + admin-api (46 ops) + types + Prism mock + contract tests (42f59aa) · step 7 ADRs 0001–0005 (45f5d50) · steps 8–10 CI workflow (ownership, lint+typecheck+format, unit with Postgres, contract, preview placeholder), docker-compose full stack + `pnpm dev`, deterministic seeds 3×200 products / 2 warehouses / 7 users (pending sha)
-- In progress: step 11 GitHub issues for windows 1–4 (labels window:<key>), then step 12 memory + tag
-- Next: 4 packages/db · 5 packages/events · 6 packages/contracts · 7 ADRs · 8 CI · 9 docker-compose · 10 seeds · 11 issues · 12 tag
-- Local ports (other projects own the defaults on this machine): Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081, Redpanda 19092, mocks 4010/4011. `.env.example`, vitest defaults and infra/README.md match.
-- Prism docker image 5.15 needs `--no-multiprocess`; Keycloak local uses dev-mem (realms re-import each start).
-- Decisions this phase: plain SQL migrations run by an in-repo runner over node-postgres (no ORM); Prism for the mock server; Vitest; approved extra dev libs: ajv + ajv-formats, json-schema-to-typescript, openapi-typescript; docs/** excluded from prettier (tables are grepped by scripts).
+- **Phase 0 done — tag contracts-v0.1.** Owner runs `git tag contracts-v0.1 && git push --tags` on main (commit listed below), then the next action.
+- **Next action:** run `./scripts/new-window.sh 1 1` and paste `docs/start-messages/01-core.md` (window 1, core, Sonnet; strongest model for the migration-related issues). Operating guide: docs/HOW-I-RUN-THIS.md.
+- Repo: https://github.com/mfx1590/Commerce-Platform · CI: `.github/workflows/ci.yml` (ownership, lint+typecheck+format, unit with Postgres, contract with Prism, preview placeholder) · Local stack: `pnpm dev`.
+- Phase 0 commits on main: step 1 skeleton 99d4661/8681771 · step 2 domain 66c2ca6 · guide 5603a1b · step 3 ownership b23676f/434b401 · step 4 db 8c33bb7 · step 5 events 978a48a · step 6 contracts 42f59aa · step 7 ADRs 45f5d50 · steps 8–10 CI/compose/seeds 01b6174 · step 11 issues (GitHub #1–#30) + step 12 this commit.
+- Delivered: docs/domain.md (44 entities) · packages/db (10 migrations incl. outbox, forced RLS, tenant client, 16 tests) · packages/events (24 schemas v1, types, validator) · packages/contracts (Store API 20 ops, Admin API 46 ops with x-permission, Prism mocks :4010/:4011, 15 tests) · ADRs 0001–0005 · docker-compose (Postgres 5433, Redis 6381, Redpanda 19092, Keycloak 8180, OpenFGA 8081, mocks) · seeds (3 brands × 200 products, 2 warehouses, 7 staff users, `SEED_IDS`) · 30 Phase 1 issues labelled window:core|auth|storefront|admin + phase:1.
+- Decisions this phase: plain SQL migrations run by an in-repo runner over node-postgres (no ORM); Prism for mocks; Vitest; approved extra dev libs: ajv + ajv-formats, json-schema-to-typescript, openapi-typescript; docs/** excluded from prettier (tables are grepped by scripts).
+- Known deviations from the window memory files (do not edit them; windows read this): Memory-2-auth references `docs/adr/auth.md` → real file is `docs/adr/0002-auth-model.md`; core "Seed script" and "RLS test" items are already delivered by packages/db (issues [core] 1.3 and 1.8 scope the remaining work).
+
 ## Phase plan and gates
 | Phase | Goal | Windows (in order, one at a time) | Gate (you verify) |
 |---|---|---|---|
@@ -63,13 +64,18 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 Start messages for every window: docs/start-messages/ · Ownership map (CI-enforced): docs/ownership.md
 
 ## Contract change log
-- (none yet) — format: date · CONTRACT CHANGE #issue · accepted/rejected · new tag
+- 2026-09-04 · baseline contracts-v0.1 (Store API 0.1.0, Admin API 0.1.0, events v1, db migrations 0001–0009 + 0100) · format from here: date · CONTRACT CHANGE #issue · accepted/rejected · new tag
 
 ## Integration reports
 - (none yet)
 
 ## Global gotchas (things every window must know)
-- (none yet)
+- Local ports (other projects own the defaults on this machine): Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081 (playground 3001), Redpanda 19092/18081, mocks 4010/4011. `.env.example` is the truth; `pnpm dev` copies it to `.env`.
+- Apps connect as `platform_app` (`DATABASE_URL_APP`), never the owner URL. Raw `pool.query` returns zero rows by design: always use `createTenantClient` / `createOrganizationClient` from `@platform/db`.
+- SQL: quote `"order"` and `"return"` (reserved words). `audit_log` and `stock_movement` are append-only for the app role.
+- Contracts, events and db schema are frozen at contracts-v0.1: never edit `packages/contracts|events|db`; file `CONTRACT CHANGE:` and keep going against the mock. Generated files (`src/generated`) are committed; CI fails if stale.
+- Prism docker image needs `--no-multiprocess`; Keycloak local uses dev-mem and re-imports realms on every start (edits in the UI are lost — edit the JSON).
+- Events carry no PII (`email_hash` only); money is integer minor units everywhere.
 
 ## Usage budget notes (Max 5x)
 - Check /usage before big tasks. Past ~60% weekly by Wednesday → docs/tests only until reset.

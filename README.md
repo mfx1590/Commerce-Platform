@@ -11,10 +11,12 @@ Everything Claude Code needs to build the multi-brand commerce platform, one win
 5. When it says done: `git tag contracts-v0.1 && git push --tags`.
 
 ## Local development (after Phase 0)
+
 ```
 pnpm install && pnpm dev     # docker compose (Postgres 5433, Redis 6381, Redpanda, Keycloak 8180, OpenFGA 8081, mocks 4010/4011) + migrate + seed
 pnpm lint && pnpm typecheck && pnpm test && pnpm test:contract
 ```
+
 Contracts: `packages/contracts/openapi/*.yaml` · events: `packages/events/schemas` · schema: `packages/db/migrations` · entities: `docs/domain.md` · ADRs: `docs/adr/`.
 
 ## Each window afterwards
