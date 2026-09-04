@@ -1,4 +1,5 @@
 # Memory main — whole-project state
+Operating guide (how to open, resume, review, close windows): docs/HOW-I-RUN-THIS.md
 Owner: main window (Architect in Phase 0, Integrator in every integration period).
 Last updated: 2026-09-04 · Current phase: 0 · Contracts tag: (none) · Events tag: (none) · main last commit: see Current status
 
