@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: ddec363 · Status: task 1.1 done (PR open), 1.2 next
+Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: ddec363 · Status: task 1.1 done (PR #42 open), 1.2 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -39,7 +39,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   new dependencies and can start against the mock immediately.
 
 ## Next — Phase 1
-- [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR open
+- [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
 - [ ] 1.2 Permission-driven navigation + store switcher — #25
 - [ ] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26
 - [ ] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27
@@ -82,8 +82,13 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
      `login-actions/required-action?execution=CONFIGURE_TOTP` after the password step and never
      reaches the callback. This is not in the repo: `infra/keycloak/staff-realm.json` has no
      `browserFlow` or `authenticationFlows` key at all, so the flow was configured out-of-band and
-     now persists in the `keycloak-data` volume (which no longer re-imports on restart). Filed as a
-     `REQUEST:` issue for window 2 — `infra/keycloak/**` is theirs.
+     now persists in the `keycloak-data` volume (which no longer re-imports on restart). Filed as
+     **REQUEST #43** for window 2 — `infra/keycloak/**` is theirs. It offers three fixes: plain
+     browser flow, conditional OTP, or seeded TOTP credentials. #30 (Playwright store-admin journey)
+     needs whichever lands.
+- **REQUEST #44** — root `eslint.config.mjs` and `.prettierignore` do not cover Next build output
+  (`next-env.d.ts`, `.next/`). CI is unaffected; local `pnpm format:check` needs `.next/` deleted
+  first. Window 3 will hit the same thing.
 
 ## Gotchas learned
 - Keycloak's realms now live in a persistent volume (manager, commit bbb6259). If it 500s it is
