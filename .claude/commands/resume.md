@@ -1,0 +1,2 @@
+Read, in this order: CLAUDE.md, .claude/CLAUDE.local.md (if present; otherwise you are the main window), your memory file (docs/memory/Memory-<n>-<key>.md, or docs/memory/Memory-main.md for the main window), then run `git log --oneline -20` and `git status`.
+Summarise in five lines where the previous session stopped. Continue with the first item under "In progress", or the first unchecked item under "Next" if In progress is empty. Do not redo anything under Done.
