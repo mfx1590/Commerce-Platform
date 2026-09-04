@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.1)
 
+### 2026-09-05 · task 1.5 — outbox helper as a structural guarantee (issue #5)
+
+- `src/outbox/index.ts` public API (`withEvents`, `buildEvent`, `eventActor`, `InvalidEventError`), README with the
+  four guarantees; modules import the helper through the index only (guard test).
+- `outbox.test.ts`: throw after the insert → no outbox row and no state change; schema-invalid envelope → clear
+  `InvalidEventError`, nothing committed; every envelope validated before any insert; create → publish yields
+  exactly `product.updated` then `product.published` (`store_id`, `version 1`, `published_at NULL`); headers shape.
+- `eslint.config.mjs`: `no-restricted-syntax` — any `INSERT INTO outbox` in a template literal or string outside
+  `src/outbox/**` is a lint error (in addition to `test/guards.test.ts`).
+
 ### 2026-09-05 · task 1.4 — catalog module (issue #4)
 
 - `src/modules/catalog`: categories (tree), products (create/update/publish/archive), options, variants (unique

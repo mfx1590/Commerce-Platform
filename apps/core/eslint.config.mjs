@@ -25,4 +25,23 @@ export default [
       ],
     },
   },
+  {
+    files: ['**/*.ts'],
+    ignores: ['src/outbox/**'],
+    rules: {
+      // The transactional outbox (ADR 0003) has one writer: src/outbox/withEvents. Any other SQL that inserts
+      // into the outbox table — in a template literal or a string — is a lint error.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TemplateElement[value.raw=/insert\\s+into\\s+"?outbox/i]',
+          message: 'Write to the outbox through withEvents() from src/outbox only (ADR 0003).',
+        },
+        {
+          selector: 'Literal[value=/insert\\s+into\\s+"?outbox/i]',
+          message: 'Write to the outbox through withEvents() from src/outbox only (ADR 0003).',
+        },
+      ],
+    },
+  },
 ];
