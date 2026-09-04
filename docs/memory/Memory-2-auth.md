@@ -1,6 +1,6 @@
 # Memory 2 — Auth & RBAC
 Window: 2 · Key: `auth` · Branch prefix: `auth/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: pending (task 1.2; 1.1 = d95b4b4, PR #38) · Status: Phase 1 in progress, parallel mode (worktree `../wt-auth`, branch `auth/phase1`)
+Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: c97bbdf (task 1.2, PR #38; 1.1 = d95b4b4) · Status: Phase 1 in progress, parallel mode (worktree `../wt-auth`, branch `auth/phase1`)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -23,7 +23,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## Done
 - [x] 1.1 (#10) Keycloak realm exports — commit: d95b4b4 (PR #38). `infra/keycloak/staff-realm.json` (browser flow `browser-mfa` with TOTP REQUIRED → forced setup on first login; `admin-app` PKCE public client; `test-cli` dev/CI password-grant client; 7 users with id `seed-<username>` = `staff_user.keycloak_subject`; `hq-sso` disabled OIDC placeholder), `customers-realm.json` (3 PKCE clients with hard-coded `store_code` claim, registration + reset, Google IdP disabled with `${GOOGLE_CLIENT_ID:unset}` placeholders, Jane), `README.md`, `reimport.mjs`. Tests: `packages/auth-sdk/test/keycloak-realms.test.ts` (static + live). Verified live: discovery OK, password grant → `sub=seed-store-admin`, `email`, `aud=core-api`; admin-app password grant → 400; browser login after password → 302 to `required-action?execution=CONFIGURE_TOTP`.
-- [x] 1.2 (#11) OpenFGA model — commit: pending (PR to follow). `infra/openfga/model.fga` (ADR 0002 verbatim), `tuples.seed.json` (11 tuples: 3 `organization:hq organization store:<id>` + 8 user relations, ids = `SEED_IDS`), `README.md`. auth-sdk: `src/fga/{model,client,seed}.ts` → `loadAuthorizationModel`, `loadSeedTuples`, `modelFromDsl`, `createOpenFgaClient`, `seedOpenFga`; `scripts/fga-seed.ts` (`pnpm --filter @platform/auth-sdk fga:seed`, writes `OPENFGA_STORE_ID`/`OPENFGA_MODEL_ID` to root `.env`). Tests `test/openfga-model.test.ts` 14 (static vs `RELATIONS`/`SEED_IDS` + live on a throw-away store: store-admin store_admin brand-a/b only, never finance/viewer on org; owner viewer+store_admin on all 3 stores; listObjects for store-admin = [brand-a, brand-b]). Seed run twice against docker: store `commerce-platform` reused, 0 written.
+- [x] 1.2 (#11) OpenFGA model — commit: c97bbdf (PR #38, section "Task 1.2"). `infra/openfga/model.fga` (ADR 0002 verbatim), `tuples.seed.json` (11 tuples: 3 `organization:hq organization store:<id>` + 8 user relations, ids = `SEED_IDS`), `README.md`. auth-sdk: `src/fga/{model,client,seed}.ts` → `loadAuthorizationModel`, `loadSeedTuples`, `modelFromDsl`, `createOpenFgaClient`, `seedOpenFga`; `scripts/fga-seed.ts` (`pnpm --filter @platform/auth-sdk fga:seed`, writes `OPENFGA_STORE_ID`/`OPENFGA_MODEL_ID` to root `.env`). Tests `test/openfga-model.test.ts` 14 (static vs `RELATIONS`/`SEED_IDS` + live on a throw-away store: store-admin store_admin brand-a/b only, never finance/viewer on org; owner viewer+store_admin on all 3 stores; listObjects for store-admin = [brand-a, brand-b]). Seed run twice against docker: store `commerce-platform` reused, 0 written.
 
 ## In progress
 - (nothing — next: task 1.3)
@@ -55,6 +55,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 - Keycloak import: providing only custom `authenticationFlows` is fine, the built-in flows (`browser`, `direct grant`, …) are added automatically; `browserFlow` must name an alias in the file.
 - `${VAR:default}` placeholders in realm JSON are resolved only by the startup file import; `reimport.mjs` (admin API) stores them literally (harmless for disabled IdPs).
 - If `test-cli` answers `invalid_client` or the browser login skips straight to the app callback, the running Keycloak still has the Phase 0 stub realms: re-import.
+- **One PR per branch.** GitHub refuses a second open PR for head `auth/phase1`, so PR #38 is the branch PR: every finished task appends its own section (what, acceptance criteria, decisions, commit sha) via `gh pr edit 38 --body`, and the commit message says `Closes #<issue>`. After the manager merges #38, the next task opens a fresh PR for the branch.
 - Contract tag `contracts-v0.1` is not created in this worktree yet (owner action); reference it by name in PRs.
 - Bash tool: the working directory persists between calls; a `cd packages/x` in one call breaks relative paths in the next. Use absolute paths.
 
