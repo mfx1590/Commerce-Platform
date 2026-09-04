@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: 6ef6772 · Status: task 1.1 done (PR open), 1.2 next
+Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: ddec363 · Status: task 1.1 done (PR open), 1.2 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.1 — issue #24 App skeleton, auth hook (Keycloak OIDC), session** · commit `6ef6772`
+- **1.1 — issue #24 App skeleton, auth hook (Keycloak OIDC), session** · commit `ddec363`
   - `apps/admin` is now a Next.js 15 App Router app (React 19, Tailwind v4, TanStack Query),
     replacing the Phase 0 library scaffold. `src/index.ts`, `main`, `exports` removed.
   - OIDC authorization-code + PKCE S256 against the staff realm, public client `admin-app`:
