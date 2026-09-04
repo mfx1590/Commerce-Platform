@@ -58,3 +58,29 @@ unreachable. Typecheck: `pnpm --filter @platform/auth-sdk typecheck` (runs `tsc 
 
 `pnpm --filter @platform/auth-sdk roles assign|revoke <email> <relation> <store-code|hq>` and
 `roles list <email>` — same service functions, system actor, needs `fga:seed` first.
+
+## Scope middleware (task 1.4)
+
+```ts
+import { createStaffScopeMiddleware, toTenantContext } from './modules/hq-rbac/index.js';
+const scopeMw = createStaffScopeMiddleware({ pool, fga, organizationId: HQ_ORGANIZATION_ID });
+const rbac = createHqRbac({ pool, fga, onRoleChange: scopeMw.invalidate });
+// per admin request:
+const scope = await scopeMw.resolve(req.headers.authorization); // throws ApiError 401 / 503
+const ctx = toTenantContext(scope); // { organizationId, storeIds, actorId, scope: 'organization' | 'store' }
+const db =
+  ctx.scope === 'organization'
+    ? createOrganizationClient(pool, ctx)
+    : createTenantClient(pool, ctx); // throws when storeIds is empty → answer 403
+const principal = {
+  userId: scope.userId,
+  subject: scope.subject,
+  organizationId: scope.organizationId,
+};
+```
+
+Steps: verify the JWT against the staff realm JWKS (issuer + `aud: core-api`), `sub → staff_user`
+(`keycloak_subject`; unknown or disabled → 401), OpenFGA `ListObjects(store, viewer)` +
+`ListRelations(organization:hq)` (unreachable → 503, nothing cached), cache per subject ≤ 30 s, invalidated
+by `staff_user.id` on every role change through the tuple API. `last_login_at` is bumped best-effort on each
+cache miss. The organization id is deployment configuration (one HQ organization in Phases 0–3).
