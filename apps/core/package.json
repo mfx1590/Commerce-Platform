@@ -2,27 +2,35 @@
   "name": "@platform/core",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
+  "description": "Medusa 2 commerce core (modular monolith) over the tenant-scoped schema in @platform/db",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch --clear-screen=false src/server.ts",
+    "start": "node .medusa/server/src/server.js",
+    "build": "medusa build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "clean": "rm -rf dist .turbo"
+    "db:medusa:migrate": "tsx scripts/db-medusa-migrate.ts",
+    "db:medusa:grants": "tsx scripts/db-medusa-migrate.ts --grants-only",
+    "clean": "rm -rf .medusa dist .turbo"
+  },
+  "dependencies": {
+    "@medusajs/cli": "2.20.1",
+    "@medusajs/framework": "2.20.1",
+    "@medusajs/medusa": "2.20.1",
+    "@platform/contracts": "workspace:*",
+    "@platform/db": "workspace:*",
+    "@platform/events": "workspace:*",
+    "express": "^4.22.2",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
+    "@types/express": "^4.17.25",
+    "@types/node": "^20.19.0",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.13",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/node": "^20.19.0"
+    "vitest": "^3.2.0"
   }
 }

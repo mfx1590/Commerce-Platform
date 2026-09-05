@@ -51,7 +51,7 @@ admin 3000, storefront 3100. `pnpm-lock.yaml` may change on every branch; the ma
 merge and commits the lockfile on `main`.
 
 Manager loop while windows run: (1) `gh pr list` → for each green PR, Reviewer session `/review <PR>` → merge with
-`gh pr merge <PR> --squash`; (2) after every merge, in the repo root: `git pull --ff-only && pnpm install && pnpm test`,
+`gh pr merge <PR> --merge` (merge commit: one branch per window, one PR per task, the branch continues after each merge); (2) after every merge, in the repo root: `git pull --ff-only && pnpm install && pnpm test`,
 commit the lockfile if it changed; (3) triage issues labelled `contract-change` / `request` (accept → the manager applies
 the change on `main` and regenerates; reject → comment why); (4) tell the other windows to `git merge main` in their
 worktree when something they depend on has landed (auth-sdk for core, ui for storefront); (5) keep Memory-main
@@ -120,7 +120,7 @@ claude
 /review <PR>
 ```
 3. The reply is exactly `MERGE` or `BLOCK` with numbered reasons.
-   - **MERGE**: `gh pr merge <PR> --squash --delete-branch=false`, close the Reviewer session, go back to the build window and say "PR <PR> merged, continue with the next task".
+   - **MERGE**: `gh pr merge <PR> --merge --delete-branch=false` (merge commit, never squash: the window keeps working on the same branch and its next PR must show only the new task), close the Reviewer session, go back to the build window and say "PR <PR> merged, continue with the next task".
    - **BLOCK**: paste the numbered reasons into the build window as-is ("Reviewer blocked PR <PR>: ..."), let it fix, push, then run `/review <PR>` again in a fresh Reviewer session. Never fix it yourself in the worktree.
 4. Never merge from inside the build window. Never merge a red CI. The ownership check failing is always a BLOCK.
 
