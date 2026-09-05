@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: `contracts-v0.1` → **0.2.0** after merging main (2026-09-05) · Branch: `storefront/phase1` · Status: 1.1 merged via PR #39, 1.2 in PR, 1.3 next
+Last updated: 2026-09-05 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1 and 1.2 merged, 1.3 done and in PR, 1.4 next
 
 ## Identity (does not change)
 
@@ -39,7 +39,9 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       `cn`, `variants`; `@platform/ui/preset` Tailwind preset. 35 Vitest tests green, typecheck,
       lint and prettier clean, `pnpm --filter @platform/ui build` emits dist/.
 
-- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `7b0a75f` (+ memory `b04a605`), PR pending: opens from `storefront/phase1` once #39 is merged.
+- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `7b0a75f`
+      (+ `b04a605`, `fba1cd4`, `80832fd`). Merged into main on 2026-09-05 **inside PR #39**, not as its own
+      PR — see the worktree gotcha below. Issue #18 auto-closed by the commit trailer.
       Next 15 App Router on :3100 (React 19, Tailwind 3 via the kit preset); route groups `(shop)`
       `/` `/products`, `(checkout)` `/cart` `/checkout` with its own funnel chrome, `(account)`
       `/account`, `(content)` `/pages/[slug]` placeholder, plus `not-found`. Root layout resolves
@@ -48,13 +50,40 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       theme colour `#1E40AF` reaches `--ui-color-primary`; all routes 200, unknown route 404;
       `next build` green offline. 16 app tests + 37 kit tests.
 
+- [x] **1.3 (#19) PLP + PDP against the mock, images via next/image** — commit `f5cb924`, PR #64.
+      `/products` (search, category, sort, pagination) and `/categories/[handle]` share one
+      `ProductListView`; `/products/[handle]` renders gallery, breadcrumb, description, tags and the
+      `VariantPicker`. `src/lib/catalog.ts` (tagged reads + query parsing) and `src/lib/variant.ts`
+      (pure resolver). 34 new tests → 50 in the app. **Lighthouse mobile, production build, against
+      `pnpm mock`: PLP performance 99–100 (LCP 1.8–2.0 s, TBT 60–80 ms, CLS 0, a11y 100, SEO 91),
+      PDP performance 100 (LCP 1.5 s, TBT 60 ms, CLS 0, a11y 100, SEO 100).**
+
 ## In progress
 
-- (nothing — starting 1.3 next)
+- (nothing — 1.4 next, after the 1.3 PR merges)
+
+<!-- superseded plan, kept for the record:
+- **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
+  Bigger than the ~20-tool-call budget in CLAUDE.md, hence the stop. Plan:
+  1. `src/lib/catalog.ts` — `listProducts`, `listCategories`, `getProduct` wrappers with cache tags
+     (`products`, `categories`, `product:<handle>`) and `revalidate`; all fetching on the server.
+  2. `src/lib/variant.ts` — the option → variant resolver (`product.options` × `variants[].options`),
+     plus `isAvailable` from `in_stock` / `available_quantity`. Pure and unit-tested.
+  3. Components: `ProductCard` (next/image, `Price` with `compare_at_price` strike-through),
+     `ProductGrid`, `Pagination`, `SortSelect`, `CategoryFilter` — filter/sort/pagination as plain
+     links driven by `searchParams`, so the first render needs no client JavaScript.
+  4. Routes: `/products` (page, category, sort, q), `/categories/[handle]`, `/products/[handle]`
+     (option selectors as one small client component, `notFound()` on `isNotFound`).
+  5. Caching: relax the root layout's `force-dynamic` so PLP/PDP can render statically with
+     `revalidate` + tags; keep `getStoreOrNull` non-throwing so `next build` still works offline.
+  6. Lighthouse mobile on PLP and PDP against `pnpm mock` — Chrome is present at
+     `C:/Program Files/Google/Chrome/Application/chrome.exe`, so `npx lighthouse` can run without
+     adding a dependency (the `lighthouserc` and `@lhci/cli` belong to task 1.7). Numbers recorded here.
+  7. Tests for the resolver and the search-param parsing; README/CHANGELOG; PR.
+-->
 
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] 1.3 (#19) PLP (`/products`, `/categories/[handle]`) + PDP (`/products/[handle]`), `next/image`, fetch cache tags, option → variant resolver + unit tests, Lighthouse ≥ 90 mobile (record numbers here).
 - [ ] 1.4 (#20) Cart + checkout steps (address, shipping, payment placeholder `manual`, review, `complete` with `Idempotency-Key`), confirmation page; error mapping 409 `out_of_stock` / 402 `payment_failed`.
 - [ ] 1.5 (#21) Account + order history, Keycloak customers realm (`http://localhost:8180`, client `storefront-brand-a`), bearer token only on `/store/customers/*` and `/store/orders/{id}`.
 - [ ] 1.6 (#22) i18n `next-intl` + multi-currency: `/[locale]/…`, `hreflang`, cookies, defaults from `store.default_locale` / `default_currency`, no hard-coded strings in `(shop)`/`(checkout)`.
@@ -109,10 +138,25 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 - **`(content)` and `(account)` get layouts and placeholder pages only** — windows 6 and 13 own them
   later (docs/ownership.md); the routes exist so navigation and the 1.7 smoke suite are complete.
 
+- **`force-dynamic` belongs on pages, not on the root layout.** On a layout it forces `no-store` on
+  every fetch below it, which would silently defeat the cache tags. It now sits only on `/`, `/cart`,
+  `/checkout` and `/account` — pages with no cacheable data of their own that would otherwise be
+  prerendered with the store baked in (CI builds with no API reachable at all). PLP/PDP cache at the
+  fetch layer and `next build` still needs nothing running.
+- **Listing state lives in the URL**, parsed by `parseListParams` and rebuilt by `listHref`. Filters,
+  sort and pagination are links and a GET form, so the first render needs no JavaScript, every view
+  is shareable and crawlable, and the PDP's `VariantPicker` is the only client component in the
+  catalog.
+- **The option → variant resolver is pure and lives outside React** (`src/lib/variant.ts`), so the
+  server render and the client picker cannot disagree. `withOption` drops an option that a new choice
+  makes impossible instead of leaving the selection stuck on a combination no variant satisfies.
+- **Query strings are narrowed before they reach the API** — an unparseable `page`, `limit` or `sort`
+  falls back to the default rather than producing a 400 from a hand-edited URL.
+
 ## Blocked / waiting
 
-- **1.3 commits stay local until the 1.2 PR is merged** (manager instruction, 2026-09-05). Same rule
-  as before: one branch, one PR per task, merged in order.
+- Nothing blocking. 1.1 and 1.2 are merged; 1.3 is planned and waits only on the owner's go-ahead
+  (CLAUDE.md's ~20-tool-call rule).
 - Both filed issues are **accepted and on main** (merged into this branch on 2026-09-05):
   - **CONTRACT CHANGE #41** — `Store.theme` is documented as the `BrandTokens` shape; examples and
     the seed use the singular group names. Manager ruling: **keep the plural aliases in `parseTheme`
@@ -121,6 +165,31 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **Lighthouse must be run against `next start`, never `next dev`** — dev is unoptimised and scores
+  meaninglessly low. Chrome is at `C:/Program Files/Google/Chrome/Application/chrome.exe`; set
+  `CHROME_PATH` and use `npx -y lighthouse@12 … --chrome-flags="--headless=new --no-sandbox"`; no
+  dependency needed (the budgeted `lighthouserc` belongs to task 1.7).
+- **Next streams metadata into `<body>` when the root layout's `generateMetadata` is async**, and it
+  is here because it awaits `GET /store` for the title template. React hoists the tags at hydration,
+  but Lighthouse only counts metas in `<head>`, so the PLP scores `meta-description` = 0 even though
+  the tag is present and correct in the DOM (verified). Cost: SEO 91 instead of 100 — performance,
+  the actual acceptance criterion, is unaffected. **Phase 2 SEO task: take the brand name from build
+  config instead of the API so root metadata is static.**
+- The API returns `seo.canonical` as a *path*; without `metadataBase` Next emits it relative and
+  crawlers reject it. `metadataBase` is set from `SITE_URL` (default `http://localhost:3100`).
+- The mock's product media are `res.cloudinary.com/demo/...` URLs that 404, so PLP/PDP show empty
+  image boxes and Lighthouse reports `errors-in-console`. Mock data, not a defect.
+- `next build` fails with `EPERM … .next/trace` while a dev or start server is running on the same
+  `.next`. Stop the server first (`netstat -ano | grep :3100`, then `taskkill //PID <pid> //F`).
+
+- **All worktrees share one object database and one set of refs** (`.git` here is a gitdir pointer to
+  `commerce-platform/.git/worktrees/wt-storefront`). A branch is therefore *not* private to a
+  worktree: commits made here on `storefront/phase1` are immediately visible to the manager's
+  checkout, which can merge them without a push. That is how tasks 1.1 and 1.2 both landed in PR #39
+  even though 1.2 was deliberately never pushed. Practical rule: **committing to the window branch is
+  publishing.** If work must not be merged yet, do not commit it to `storefront/phase1` — keep it
+  uncommitted or on a differently named local branch.
 
 - `exactOptionalPropertyTypes: true` in `tsconfig.base.json`: an optional prop that is forwarded
   (`variant?: 'a' | 'b'`) must be typed `… | undefined` at the receiving end, or TS2379.
@@ -166,7 +235,7 @@ pnpm --filter @platform/ui build       # dist/ (the app's Tailwind scan needs it
 # storefront (needs the kit and contracts built once: pnpm --filter @platform/contracts build)
 pnpm mock                                          # Prism Store API on :4010
 pnpm --filter @platform/storefront-starter dev     # :3100
-pnpm --filter @platform/storefront-starter test    # 16 tests
+pnpm --filter @platform/storefront-starter test    # 50 tests
 pnpm --filter @platform/storefront-starter typecheck
 pnpm --filter @platform/storefront-starter build   # next build, works offline
 

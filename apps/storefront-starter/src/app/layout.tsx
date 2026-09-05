@@ -5,16 +5,12 @@ import { brandTokens } from '@/brand/tokens';
 import { getStoreOrNull } from '@/lib/store';
 import './globals.css';
 
-/**
- * Phase 1: every route renders per request. The layout itself calls `GET /store`, so prerendering
- * would bake one snapshot of the store (and require the mock during `next build`). Task 1.3
- * introduces per-route caching with fetch tags where it actually pays off (PLP and PDP).
- */
-export const dynamic = 'force-dynamic';
-
 export async function generateMetadata(): Promise<Metadata> {
   const store = await getStoreOrNull();
   return {
+    // The API returns `seo.canonical` as a path; Next resolves it against this into an absolute
+    // URL, which is what crawlers require. Phase 2 sets SITE_URL per brand and environment.
+    metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3100'),
     title: {
       default: store?.name ?? 'Storefront',
       template: `%s · ${store?.name ?? 'Storefront'}`,
