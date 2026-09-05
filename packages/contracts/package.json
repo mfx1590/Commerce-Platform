@@ -8,15 +8,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./store": {
       "types": "./dist/store.d.ts",
-      "import": "./dist/store.js"
+      "import": "./dist/store.js",
+      "default": "./dist/store.js"
     },
     "./admin": {
       "types": "./dist/admin.d.ts",
-      "import": "./dist/admin.js"
+      "import": "./dist/admin.js",
+      "default": "./dist/admin.js"
     }
   },
   "files": [
