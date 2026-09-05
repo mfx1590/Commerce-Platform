@@ -73,7 +73,7 @@ beforeAll(async () => {
     }),
   );
   app.get(
-    '/admin/me',
+    '/admin/_probe/me',
     handle(async (req, res) => {
       const p = requirePrincipal(req);
       res.json({
@@ -150,19 +150,24 @@ describe('Store API tenant context (X-Publishable-Key)', () => {
 
 describe('Admin API staff principal (Phase 1 dev tokens → role_assignment)', () => {
   it('401 without a token, with a non-dev token, and for an unknown subject', async () => {
-    expect((await request(app).get('/admin/me')).status).toBe(401);
+    expect((await request(app).get('/admin/_probe/me')).status).toBe(401);
     expect(
-      (await request(app).get('/admin/me').set('Authorization', 'Bearer eyJhbGciOiJSUzI1NiJ9.x.y'))
-        .status,
+      (
+        await request(app)
+          .get('/admin/_probe/me')
+          .set('Authorization', 'Bearer eyJhbGciOiJSUzI1NiJ9.x.y')
+      ).status,
     ).toBe(401);
-    const unknown = await request(app).get('/admin/me').set('Authorization', 'Bearer dev:nobody');
+    const unknown = await request(app)
+      .get('/admin/_probe/me')
+      .set('Authorization', 'Bearer dev:nobody');
     expect(unknown.status).toBe(401);
     expect(unknown.body.code).toBe('unauthorized');
   });
 
   it('resolves the seeded store-admin with brand-a and brand-b relations', async () => {
     const res = await request(app)
-      .get('/admin/me')
+      .get('/admin/_probe/me')
       .set('Authorization', 'Bearer dev:seed-store-admin');
     expect(res.status).toBe(200);
     expect(res.body.email).toBe('store-admin@example.com');

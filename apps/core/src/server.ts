@@ -12,6 +12,7 @@ import path from 'node:path';
 import {
   aliasPublishableKeyHeader,
   coreErrorHandler,
+  adminRouter,
   DevTokenVerifier,
   mountStoreRoutes,
   requestIdMiddleware,
@@ -61,6 +62,10 @@ export function mountCoreMiddleware(
   // Admin API: 401 without a valid staff token; req.principal otherwise. Our admin route files opt out of
   // Medusa's auth (`export const AUTHENTICATE = false`).
   app.use('/admin', staffAuthMiddleware(verifier));
+  // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): JSON bodies parsed here, x-permission
+  // from the spec, then the module services. Every other /admin path falls through to Medusa.
+  app.use('/admin', express.json({ limit: '1mb' }));
+  app.use(adminRouter());
   // Renders AppError as the contract's { code, message, details } for everything above.
   app.use(coreErrorHandler);
 }

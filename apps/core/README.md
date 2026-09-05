@@ -58,9 +58,15 @@ ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
    (`organizationRelations`, `stores[].relations`). Phase 1 verifier accepts `dev:<keycloak_subject>` outside
    production only; `@platform/auth-sdk` replaces it behind `StaffTokenVerifier`. Handlers take a client from
    `storeClientFor(principal, storeId)` (403 outside scope), `organizationClientFor` or `visibleStoresClientFor`.
-7. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
-8. Medusa loaders. Our admin route files opt out of Medusa's auth with `export const AUTHENTICATE = false`;
-   `requirePermission(relation, object)` (task 1.7) checks the route's `x-permission`.
+7. Admin API routes window 1 owns (`src/http/admin-routes.ts`, `adminRouter`): `/admin/me`, `/admin/stores`
+   (list/create/get/patch), domains, sales channels, api keys, `/admin/warehouses`, `/admin/legal-entities`,
+   categories, products (list/create/get/patch/archive/publish), variants. Each handler: JSON body validated against
+   the operation's `requestBody` schema **read from `admin-api.yaml` at runtime** (400 `validation_error`, per-field
+   `details`) → `requirePermission(principal, relation, object)` with the operation's `x-permission` (403
+   `forbidden`) → scoped client → module service → contract shape. Every other `/admin` path falls through to
+   Medusa (Prism mock for clients in Phase 1).
+8. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
+9. Medusa loaders.
 
 `mountCoreMiddleware(app)` exports exactly this chain so tests run it on a bare Express app (`test/tenant-http.test.ts`).
 
@@ -74,7 +80,9 @@ src/
   lib/db.ts                 the ONLY place that opens a database pool; exports tenantClient / organizationClient
   http/                     cross-cutting Express middleware (header alias, tenant context, errors)
   http/store-routes.ts      Store API handlers (contract routes), mounted ahead of Medusa by mountCoreMiddleware
-  api/admin/...             Medusa file-based routes for the Admin API (task 1.7); thin: validate → service → respond
+  http/admin-routes.ts      Admin API router (contract routes): validate → requirePermission → client → service
+  http/permissions.ts       requirePermission(principal, relation, object) — Phase 1 stub over role_assignment (ADR 0002)
+  http/openapi.ts           runtime loader of the frozen OpenAPI docs: request-body validation, x-permission lookup
   modules/<name>/
     index.ts                public API of the module — the only file other code may import
     service.ts              use cases; every function takes a ScopedClient and runs in ONE transaction

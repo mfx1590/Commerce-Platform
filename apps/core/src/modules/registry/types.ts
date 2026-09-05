@@ -74,3 +74,6 @@ export interface StoreRow {
   created_at: Date;
   updated_at: Date;
 }
+
+export type Warehouse = AdminComponents['schemas']['Warehouse'];
+export type LegalEntity = AdminComponents['schemas']['LegalEntity'];

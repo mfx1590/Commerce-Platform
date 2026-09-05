@@ -28,8 +28,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 ## Public API
 
 - HTTP: implements `packages/contracts/openapi/store-api.yaml` and `admin-api.yaml` exactly (registry + catalog
-  routes in Phase 1). Store API routes live in `src/http/store-routes.ts` and are mounted ahead of Medusa (they win
-  over Medusa's same-path routes and its key gate); Admin API routes are Medusa file routes under `src/api/admin`.
+  routes in Phase 1). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
+  mounted ahead of Medusa (they win over Medusa's same-path routes, its key gate and its admin auth).
   Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the
   OpenAPI components in tests (`test/helpers/openapi.ts`).
 - Every state change writes to `outbox` in the same transaction (`@platform/events` via `src/outbox/withEvents`);
@@ -40,6 +40,10 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `/store` tenant context (`req.tenant`, 401) → `/admin` staff principal (`req.principal`, 401; `storeClientFor`
   403 outside scope) → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
   contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).
+- Permissions: every mutating Admin API route calls `requirePermission(principal, relation, object)`
+  (`src/http/permissions.ts`) with the `x-permission` read from `admin-api.yaml`; Phase 1 stub over
+  `role_assignment` per ADR 0002 (owner ⊇ all; `viewer` = any relation; org relations reach every store). Request
+  bodies are validated against the spec's `requestBody` schema (`src/http/openapi.ts`, yaml + ajv at runtime).
 - Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
   `store.created`, `store.updated`); `catalog` (categories, products, options, variants, media, Store API read
   model with price + availability — emits `product.updated`, `product.published`, `product.archived`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`

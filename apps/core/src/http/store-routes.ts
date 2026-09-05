@@ -4,7 +4,7 @@
 // `Error`. Mounted by src/server.ts (mountCoreMiddleware) AHEAD of Medusa: Medusa registers its own routes at these
 // paths and its publishable-key gate on /store, so a Medusa file route could not be guaranteed to win — ours answer
 // first. Everything else on the Store API falls through to Medusa (Prism mock for clients in Phase 1).
-import type { Request, RequestHandler } from 'express';
+import type { RequestHandler } from 'express';
 import type { StoreComponents } from '@platform/contracts';
 import {
   getStoreProduct,
@@ -15,32 +15,12 @@ import {
 import { getStore, listCurrencies, listLocales, listSalesChannels } from '../modules/registry';
 import { AppError, validationError } from '../lib/errors';
 import { handle } from './errors';
+import { intParam, one } from './query';
 import { requireTenant, type StoreContext } from './tenant';
 
 type StoreSummary = StoreComponents['schemas']['Store'];
 
 const SORTS: readonly StoreSort[] = ['relevance', 'price_asc', 'price_desc', 'newest'];
-
-function one(v: unknown): string | undefined {
-  if (Array.isArray(v)) return one(v[0]);
-  return typeof v === 'string' ? v : undefined;
-}
-
-function intParam(
-  query: Request['query'],
-  name: string,
-  { min, max }: { min: number; max?: number },
-  problems: Record<string, string>,
-): number | undefined {
-  const raw = one(query[name]);
-  if (raw === undefined || raw === '') return undefined;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < min || (max !== undefined && n > max)) {
-    problems[name] = max !== undefined ? `integer between ${min} and ${max}` : `integer >= ${min}`;
-    return undefined;
-  }
-  return n;
-}
 
 /** `GET /store` — the store resolved from the publishable key. */
 export async function storeSummary(t: StoreContext): Promise<StoreSummary> {

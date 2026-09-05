@@ -2,6 +2,22 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.1)
 
+### 2026-09-05 · task 1.7 — Admin API routes with x-permission checks (issue #7)
+
+- `src/http/admin-routes.ts` (`adminRouter`, mounted ahead of Medusa): `/admin/me`, stores (list/create/get/patch),
+  domains, sales channels, api keys, warehouses, legal entities, categories, products (list/create/get/patch/
+  archive/publish), variants (create/patch). Handler order: body validation → permission → scoped client → module.
+- `src/http/openapi.ts`: loads the frozen `admin-api.yaml` at runtime (`yaml`, `ajv`, `ajv-formats` are runtime
+  deps now) — request bodies validated against each operation's `requestBody` schema (400 `validation_error` with
+  per-field `details`), `x-permission` read from the same document.
+- `src/http/permissions.ts`: `requirePermission(principal, relation, object)` — Phase 1 stub over
+  `role_assignment` following ADR 0002 (`@platform/auth-sdk` drops in behind the signature).
+- `src/http/query.ts` shared query helpers; registry `listWarehouses` / `listLegalEntities`.
+- `@platform/auth-sdk` added as a workspace dependency (issue #48).
+- `test/admin-api.test.ts`: 6 cases on the seeded DB — `/admin/me` relations, finance 403 on product create,
+  store-staff 403 on store create and 201 on product create, 400 details, 404/400 ids, domains/channels/keys,
+  warehouses/legal entities by role, archive needs store_admin; responses validated against `admin-api.yaml`.
+
 ### 2026-09-05 · task 1.6 — Store API routes (issue #6)
 
 - `src/http/store-routes.ts` + `mountStoreRoutes` (mounted by `mountCoreMiddleware` ahead of Medusa): `GET /store`
