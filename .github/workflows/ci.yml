@@ -88,6 +88,9 @@ jobs:
   images:
     name: app images (build only, no push)
     runs-on: ubuntu-latest
+    # Advisory until issue #59 lands (core image: medusa build needs dev deps + medusa-config in the build stage).
+    # Manager decision 2026-09-05; window 5 removes this line in the fix PR.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
