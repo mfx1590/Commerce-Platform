@@ -1,13 +1,13 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
     in each operation's `x-permission` against `store:{storeId}` (or `organization:hq`) before doing anything.
     UI gating is a convenience; these checks are the security boundary. Every mutation writes `audit_log`.
-    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1.
+    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional sort/order to list operations (additive).
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -71,6 +71,12 @@ paths:
       summary: Stores the principal may access (all for HQ roles)
       x-permission: { relation: viewer, object: 'store:*' }
       parameters:
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [code, name, status, created_at], default: created_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -489,6 +495,17 @@ paths:
         - { name: q, in: query, schema: { type: string } }
         - { name: status, in: query, schema: { type: string, enum: [draft, published, archived] } }
         - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - {
+            name: sort,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [title, handle, status, created_at, updated_at],
+                default: updated_at,
+              },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -749,6 +766,17 @@ paths:
       operationId: listPromotions
       x-permission: { relation: viewer, object: 'store:{storeId}' }
       parameters:
+        - {
+            name: sort,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [name, code, status, starts_at, created_at],
+                default: created_at,
+              },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -839,6 +867,13 @@ paths:
         - { name: q, in: query, schema: { type: string }, description: display_id or email }
         - { name: placed_from, in: query, schema: { type: string, format: date-time } }
         - { name: placed_to, in: query, schema: { type: string, format: date-time } }
+        - {
+            name: sort,
+            in: query,
+            schema:
+              { type: string, enum: [placed_at, display_id, total, status], default: placed_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -1089,6 +1124,12 @@ paths:
             schema: { type: integer },
             description: Only rows with available below this,
           }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [sku, available, on_hand], default: sku },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -1319,6 +1360,12 @@ paths:
       parameters:
         - { name: q, in: query, schema: { type: string }, description: email or name }
         - { name: group_id, in: query, schema: { type: string, format: uuid } }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [created_at, email, last_name], default: created_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -1449,6 +1496,12 @@ paths:
       x-permission: { relation: owner, object: 'organization:hq' }
       parameters:
         - { name: q, in: query, schema: { type: string } }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [email, display_name, created_at], default: created_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -1601,6 +1654,12 @@ paths:
         - { name: actor_id, in: query, schema: { type: string, format: uuid } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [created_at], default: created_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -1665,6 +1724,11 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Order:
+      name: order
+      in: query
+      description: Sort direction. Ignored unless `sort` is present.
+      schema: { type: string, enum: [asc, desc], default: desc }
 
   responses:
     BadRequest:

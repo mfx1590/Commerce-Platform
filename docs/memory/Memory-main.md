@@ -66,7 +66,8 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 Start messages for every window: docs/start-messages/ · Ownership map (CI-enforced): docs/ownership.md
 
 ## Contract change log
-- 2026-09-04 · baseline contracts-v0.1 (Store API 0.1.0, Admin API 0.1.0, events v1, db migrations 0001–0009 + 0100) · format from here: date · CONTRACT CHANGE #issue · accepted/rejected · new tag
+- 2026-09-04 · baseline contracts-v0.1 (Store API 0.1.0, Admin API 0.1.0, events v1, db migrations 0001–0009 + 0100)
+- 2026-09-05 · CONTRACT CHANGE #56 (admin list sort/order, additive) · accepted, Admin API 0.2.0 on main · tag contracts-v0.2 to be created by the owner after the current merge round · producer: window 1 follow-up task; consumer: window 4 [admin] 1.3
 
 ## Integration reports
 - (none yet)

@@ -1367,6 +1367,8 @@ export interface components {
         OrderId: string;
         Page: number;
         Limit: number;
+        /** @description Sort direction. Ignored unless `sort` is present. */
+        Order: "asc" | "desc";
     };
     requestBodies: never;
     headers: never;
@@ -1431,6 +1433,9 @@ export interface operations {
     listStores: {
         parameters: {
             query?: {
+                sort?: "code" | "name" | "status" | "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -1959,6 +1964,9 @@ export interface operations {
                 q?: string;
                 status?: "draft" | "published" | "archived";
                 category_id?: string;
+                sort?: "title" | "handle" | "status" | "created_at" | "updated_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -2298,6 +2306,9 @@ export interface operations {
     listPromotions: {
         parameters: {
             query?: {
+                sort?: "name" | "code" | "status" | "starts_at" | "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -2404,6 +2415,9 @@ export interface operations {
                 q?: string;
                 placed_from?: string;
                 placed_to?: string;
+                sort?: "placed_at" | "display_id" | "total" | "status";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -2681,6 +2695,9 @@ export interface operations {
                 sku?: string;
                 /** @description Only rows with available below this */
                 below_available?: number;
+                sort?: "sku" | "available" | "on_hand";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -2948,6 +2965,9 @@ export interface operations {
                 /** @description email or name */
                 q?: string;
                 group_id?: string;
+                sort?: "created_at" | "email" | "last_name";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -3119,6 +3139,9 @@ export interface operations {
         parameters: {
             query?: {
                 q?: string;
+                sort?: "email" | "display_name" | "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -3308,6 +3331,9 @@ export interface operations {
                 actor_id?: string;
                 from?: string;
                 to?: string;
+                sort?: "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
