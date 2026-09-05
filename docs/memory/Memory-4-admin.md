@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.5 — issue #28 Stores (HQ) + Catalog (Store view)** · commit `SHA5`
+- **1.5 — issue #28 Stores (HQ) + Catalog (Store view)** · commit `71eb9a5`
   - Every `registry` and `catalog` operation has a typed wrapper and is reachable from the UI.
     HQ: `/stores`, `/stores/new`, `/stores/{id}` (record + domains + sales channels + API keys).
     Store: `/{storeId}/catalog` (filters + sort), `/catalog/new`, `/catalog/{id}` (edit, publish,
