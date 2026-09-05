@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.3 — issue #26 Data-table primitive** · commit `e1aa583` · PR held until #42 merges
+- **1.3 — issue #26 Data-table primitive** · commit `dd90b81` · PR held until #42 merges
   - `DataTable` on TanStack Table v8 with `manualPagination/Sorting/Filtering`: the server decides
     what is in the page, the component renders it. Column visibility, bulk-action slot,
     loading/empty/error in place of the rows.
