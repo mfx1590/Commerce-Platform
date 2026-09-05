@@ -12,6 +12,8 @@ export {
 } from './tenant';
 export type { StoreContext } from './tenant';
 export {
+  DEV_TOKENS_FLAG,
+  devTokensEnabled,
   DevTokenVerifier,
   hasOrganizationAccess,
   organizationClientFor,
@@ -39,6 +41,17 @@ export {
 export { adminRouter } from './admin-routes';
 export { loadSpec, openApiDir } from './openapi';
 export type { Spec, SpecFile } from './openapi';
-export { hasPermission, requirePermission, resolveObject } from './permissions';
-export type { Permission, PermissionObject, PermissionRelation } from './permissions';
+export {
+  assertPermission,
+  can,
+  hasPermission,
+  requirePermission,
+  resolveObject,
+} from './permissions';
+export type {
+  ObjectFactory,
+  Permission,
+  PermissionObject,
+  PermissionRelation,
+} from './permissions';
 export { intParam, one, pageParams, throwIfProblems, uuidParam } from './query';

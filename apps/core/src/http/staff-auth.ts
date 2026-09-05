@@ -26,14 +26,21 @@ export interface StaffTokenVerifier {
   verify(token: string): Promise<StaffIdentity>;
 }
 
+/** Explicit opt-in for the Phase 1 dev tokens. Never derived from NODE_ENV. */
+export const DEV_TOKENS_FLAG = 'CORE_DEV_TOKENS';
+export const devTokensEnabled = (): boolean => process.env[DEV_TOKENS_FLAG] === '1';
+
 /**
- * Phase 1 verifier: accepts `Bearer dev:<keycloak_subject>` and nothing else, and only outside production.
- * It never decodes an unverified JWT — a JWT must be checked by the real verifier from @platform/auth-sdk.
+ * Phase 1 verifier: accepts `Bearer dev:<keycloak_subject>` and nothing else, and ONLY when the operator set
+ * `CORE_DEV_TOKENS=1` (explicit opt-in; there is no NODE_ENV-based opt-out). It never decodes an unverified
+ * JWT — a JWT must be checked by the real verifier from @platform/auth-sdk.
  */
 export class DevTokenVerifier implements StaffTokenVerifier {
   async verify(token: string): Promise<StaffIdentity> {
-    if (process.env.NODE_ENV === 'production') {
-      throw unauthorized('dev tokens are disabled in production');
+    if (!devTokensEnabled()) {
+      throw unauthorized(
+        `staff tokens are not accepted: no verifier configured (set ${DEV_TOKENS_FLAG}=1 for local dev tokens)`,
+      );
     }
     if (!token.startsWith('dev:') || token.length <= 4) {
       throw unauthorized('unsupported token (Phase 1 accepts `dev:<keycloak_subject>` only)');

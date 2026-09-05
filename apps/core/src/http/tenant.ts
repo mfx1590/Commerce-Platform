@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import type { RequestHandler } from 'express';
 import type { ScopedClient } from '@platform/db';
 import type { Actor } from '../lib/audit';
-import { dbModule, organizationClient, tenantClient } from '../lib/db';
+import { SEED_IDS } from '@platform/db';
+import { organizationClient, tenantClient } from '../lib/db';
 import { AppError } from '../lib/errors';
 import { CONTRACT_PUBLISHABLE_KEY_HEADER } from './publishable-key-alias';
 import { requestIdOf } from './request-id';
@@ -35,7 +36,7 @@ const unauthorized = (message: string) => new AppError('unauthorized', message);
  * Phase 3+ concern.
  */
 export function coreOrganizationId(): string {
-  return process.env.CORE_ORGANIZATION_ID ?? dbModule().SEED_IDS.organization;
+  return process.env.CORE_ORGANIZATION_ID ?? SEED_IDS.organization;
 }
 
 interface KeyRow {

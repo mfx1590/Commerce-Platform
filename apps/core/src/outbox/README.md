@@ -40,7 +40,6 @@ await client.transaction(async (tx) => {
 - `InvalidEventError` (`topic`, `errors[]`) — thrown for a failing envelope; message
   `invalid event <topic>: <path> <problem>; …`.
 - `eventActor(actor)` — maps our audit `Actor` to the envelope `actor`.
-- `eventsModule()` — the dynamically imported `@platform/events` (ESM-only; see `src/lib/db.ts` for why).
 
 ## Guarantees (tested in `outbox.test.ts`)
 

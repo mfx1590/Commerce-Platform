@@ -1,15 +1,20 @@
-// `requirePermission(principal, relation, object)` — the check every mutating Admin API route runs before doing
-// anything (packages/contracts admin-api.yaml `x-permission`). Phase 1 STUB over `role_assignment` following the
-// OpenFGA model in docs/adr/0002-auth-model.md; `@platform/auth-sdk` (window 2) replaces the body of
-// `hasPermission` with the real OpenFGA check behind the same signature.
+// Permission guard for the Admin API (packages/contracts admin-api.yaml `x-permission`).
+//
+// Signature aligned with packages/auth-sdk/CLAUDE.md: `requirePermission(relation, objectFactory)` is a route
+// middleware that throws 403 (`{ code: "forbidden" }`), `can(principal, relation, object)` answers the question.
+// Phase 1 STUB: `can` evaluates `role_assignment` following the OpenFGA model in docs/adr/0002-auth-model.md;
+// `@platform/auth-sdk` (window 2) replaces the body of `can` with the real OpenFGA check behind the same shapes.
+import type { Request, RequestHandler } from 'express';
 import type { Relation } from '@platform/contracts';
 import { AppError } from '../lib/errors';
-import type { StaffPrincipal } from './staff-auth';
+import { requirePrincipal, type StaffPrincipal } from './staff-auth';
 
 /** `viewer` = any relation on the object (ADR 0002). */
 export type PermissionRelation = Relation | 'viewer';
 /** `organization:hq`, `store:<uuid>`, or `store:*` (any store the principal holds the relation on). */
 export type PermissionObject = string;
+/** Resolves the object for a request, e.g. `(req) => \`store:${req.params.storeId}\``. */
+export type ObjectFactory = (req: Request) => PermissionObject;
 
 export interface Permission {
   relation: PermissionRelation;
@@ -60,6 +65,18 @@ function storeSatisfies(
   }
 }
 
+/**
+ * Does the principal hold `relation` on `object`? (auth-sdk: `can(principal, relation, object)`; there it is
+ * async because it asks OpenFGA — kept sync-compatible here by returning a resolved promise.)
+ */
+export async function can(
+  p: StaffPrincipal,
+  relation: PermissionRelation,
+  object: PermissionObject,
+): Promise<boolean> {
+  return hasPermission(p, relation, object);
+}
+
 export function hasPermission(
   p: StaffPrincipal,
   relation: PermissionRelation,
@@ -81,7 +98,7 @@ export function hasPermission(
 }
 
 /** Throws `403 { code: "forbidden" }` unless the principal holds `relation` on `object`. */
-export function requirePermission(
+export function assertPermission(
   p: StaffPrincipal,
   relation: PermissionRelation,
   object: PermissionObject,
@@ -89,6 +106,24 @@ export function requirePermission(
   if (!hasPermission(p, relation, object)) {
     throw new AppError('forbidden', `requires ${relation} on ${object}`);
   }
+}
+
+/**
+ * Route middleware (auth-sdk signature): `requirePermission('store_staff', (req) => \`store:${req.params.storeId}\`)`.
+ * Needs `req.principal` (staffAuthMiddleware ran); 401 without it, 403 without the relation.
+ */
+export function requirePermission(
+  relation: PermissionRelation,
+  objectFactory: ObjectFactory,
+): RequestHandler {
+  return (req, _res, next) => {
+    try {
+      assertPermission(requirePrincipal(req), relation, objectFactory(req));
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
 }
 
 /** Resolves an `x-permission` object template (`store:{storeId}`) for a request. */

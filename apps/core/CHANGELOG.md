@@ -1,6 +1,17 @@
 # Changelog — @platform/core
 
-## Unreleased — Phase 1 (window 1, contracts-v0.1)
+## Unreleased — Phase 1 (window 1, contracts-v0.2)
+
+### 2026-09-05 · fold-back onto `core/phase1` (tasks 1.2–1.7 in one PR)
+
+- Static imports of `@platform/db` / `@platform/events` (the `default` export condition landed on main, #40);
+  the dynamic `import()` shims in `src/lib/db.ts`, `src/outbox/with-events.ts` and `scripts/db-medusa-migrate.ts`
+  are gone.
+- Dev tokens are an explicit opt-in: `CORE_DEV_TOKENS=1` (never derived from `NODE_ENV`).
+- `requirePermission(relation, objectFactory)` is now a route middleware with the `@platform/auth-sdk` signature;
+  `can(principal, relation, object)` / `assertPermission` back it. Admin routes chain `permission(op)` → `body(op)`.
+- `@platform/auth-sdk` and `@platform/db` are workspace dependencies (#48); contracts 0.2.0 (additive sort/order
+  params, implemented in a follow-up task).
 
 ### 2026-09-05 · task 1.7 — Admin API routes with x-permission checks (issue #7)
 

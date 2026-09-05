@@ -1,24 +1,16 @@
 // The ONLY place in apps/core that inserts into `outbox` (ADR 0003). Every state change calls `withEvents` inside
 // the same transaction as its writes; the relay (window 14, Phase 4) publishes. Never publish to the bus directly.
 // Guarantees, tests and the lint guard: see README.md in this folder.
-import type * as PlatformEvents from '@platform/events';
+import { createValidator, makeEvent, toOutboxRow, type Validator } from '@platform/events';
 import type { AggregateType, EventEnvelope, EventTopic, LatestPayloads } from '@platform/events';
 import type { Queryable } from '@platform/db';
 import type { Actor } from '../lib/audit';
 
-type EventsModule = typeof PlatformEvents;
+let validator: Validator | undefined;
 
-let mod: EventsModule | undefined;
-let validator: PlatformEvents.Validator | undefined;
-
-/** @platform/events is ESM-only; this CommonJS app loads it once with import() (same reason as src/lib/db.ts). */
-export async function eventsModule(): Promise<EventsModule> {
-  mod ??= await import('@platform/events');
-  return mod;
-}
-
-async function getValidator(): Promise<PlatformEvents.Validator> {
-  validator ??= (await eventsModule()).createValidator();
+/** One compiled validator per process (compiles every event schema once). */
+function getValidator(): Validator {
+  validator ??= createValidator();
   return validator;
 }
 
@@ -37,10 +29,6 @@ export function eventActor(actor: Actor): EventEnvelope['actor'] {
   return { type: actor.type, id: actor.id };
 }
 
-/**
- * Builds an envelope for the latest version of `topic` (thin wrapper over `makeEvent` so services need no
- * dynamic import of their own).
- */
 export interface BuildEventInput<T extends EventTopic> {
   topic: T;
   organizationId: string;
@@ -54,10 +42,13 @@ export interface BuildEventInput<T extends EventTopic> {
   occurredAt?: Date;
 }
 
+/**
+ * Builds an envelope for the latest version of `topic` (thin wrapper over `makeEvent`). Kept async so call sites
+ * read the same whether the envelope is built here or fetched from elsewhere.
+ */
 export async function buildEvent<T extends EventTopic>(
   input: BuildEventInput<T>,
 ): Promise<EventEnvelope<T>> {
-  const { makeEvent } = await eventsModule();
   return makeEvent(input);
 }
 
@@ -68,8 +59,7 @@ export async function buildEvent<T extends EventTopic>(
  */
 export async function withEvents(tx: Queryable, events: EventEnvelope[]): Promise<void> {
   if (events.length === 0) return;
-  const { toOutboxRow } = await eventsModule();
-  const v = await getValidator();
+  const v = getValidator();
   for (const e of events) {
     const r = v.validateEnvelope(e);
     if (!r.ok) throw new InvalidEventError(e.topic, r.errors);

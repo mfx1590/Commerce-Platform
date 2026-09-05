@@ -35,6 +35,7 @@ const storeStaff = as('seed-store-staff');
 beforeAll(async () => {
   db = await createTestDatabase('core_admin_api');
   await seed(db.owner, { productsPerStore: 12, log: () => {} });
+  process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = SEED_IDS.organization;
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();

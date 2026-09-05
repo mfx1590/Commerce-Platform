@@ -2,7 +2,6 @@
 export {
   buildEvent,
   eventActor,
-  eventsModule,
   InvalidEventError,
   withEvents,
   type BuildEventInput,

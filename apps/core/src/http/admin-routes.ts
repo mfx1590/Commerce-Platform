@@ -1,9 +1,10 @@
 // Admin API routes window 1 owns in Phase 1 (packages/contracts/openapi/admin-api.yaml): /admin/me, registry
 // (stores, domains, sales channels, api keys, warehouses, legal entities) and catalog (categories, products,
-// variants). Every handler: validate → x-permission (read from the spec) → scoped client → module → respond.
-// Mounted by mountCoreMiddleware AHEAD of Medusa (same reasons as the Store API routes). Everything else on the
-// Admin API stays on the Prism mock (:4011).
-import { Router, type RequestHandler } from 'express';
+// variants). Every route: `permission(op)` (the operation's x-permission, read from the spec, via
+// requirePermission) → `body(op)` (JSON body validated against the operation's requestBody schema) → handler:
+// scoped client → module service → contract shape. Mounted by mountCoreMiddleware AHEAD of Medusa (same reasons
+// as the Store API routes). Everything else on the Admin API stays on the Prism mock (:4011).
+import { Router, type Request, type RequestHandler } from 'express';
 import type { AdminComponents } from '@platform/contracts';
 import type { ScopedClient } from '@platform/db';
 import {
@@ -49,27 +50,33 @@ import {
 type Principal = AdminComponents['schemas']['Principal'];
 const PRODUCT_STATUSES: readonly ProductStatus[] = ['draft', 'published', 'archived'];
 
-/**
- * Runs the operation's `x-permission` from admin-api.yaml against the principal, validates the JSON body against
- * the operation's request schema, and returns the principal. `storeId` fills the `store:{storeId}` template.
- */
-function guard(
-  req: Parameters<RequestHandler>[0],
-  operationId: string,
-  storeId?: string,
-  body?: unknown,
-): StaffPrincipal {
-  const spec = loadSpec('admin-api.yaml');
-  const p = requirePrincipal(req);
-  const perm = spec.permission(operationId);
-  requirePermission(p, perm.relation, resolveObject(perm.object, { storeId }));
-  if (body !== undefined) spec.validateBody(operationId, body);
-  return p;
+const spec = () => loadSpec('admin-api.yaml');
+
+/** `requirePermission` for an operation's `x-permission`; `{storeId}` in the object comes from the path. */
+function permission(operationId: string): RequestHandler {
+  const perm = spec().permission(operationId);
+  return requirePermission(perm.relation, (req: Request) =>
+    resolveObject(perm.object, { storeId: one(req.params.storeId) }),
+  );
 }
 
-/** Store-scoped client for an admin request; `storeId` comes from the path. */
-function storeClient(p: StaffPrincipal, storeId: string): ScopedClient {
-  return storeClientFor(p, storeId);
+/** Validates the JSON body against the operation's `requestBody` schema (400 `validation_error`). */
+function body(operationId: string): RequestHandler {
+  return (req, _res, next) => {
+    try {
+      spec().validateBody(operationId, req.body);
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+/** Store-scoped client for an admin request; `storeId` comes from the path (validated as a uuid). */
+function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client: ScopedClient } {
+  const p = requirePrincipal(req);
+  const storeId = uuidParam(req.params, 'storeId');
+  return { p, storeId, client: storeClientFor(p, storeId) };
 }
 
 export function adminRouter(): Router {
@@ -86,21 +93,22 @@ export function adminRouter(): Router {
         name: string;
       }>('SELECT id, slug, name FROM organization WHERE id = $1', [p.organizationId]);
       const organization = org.rows[0] ?? { id: p.organizationId, slug: 'hq', name: 'HQ' };
-      const body: Principal = {
+      const out: Principal = {
         user: p.user,
         organization,
         organization_relations: p.organizationRelations,
         stores: p.stores,
       };
-      res.json(body);
+      res.json(out);
     }),
   );
 
   // ---- registry: stores ------------------------------------------------------------------------------------
   r.get(
     '/admin/stores',
+    permission('listStores'),
     handle(async (req, res) => {
-      const p = guard(req, 'listStores');
+      const p = requirePrincipal(req);
       const problems: Record<string, string> = {};
       const page = pageParams(req.query, 20, problems);
       throwIfProblems(problems);
@@ -109,122 +117,125 @@ export function adminRouter(): Router {
   );
   r.post(
     '/admin/stores',
+    permission('createStore'),
+    body('createStore'),
     handle(async (req, res) => {
-      const p = guard(req, 'createStore', undefined, req.body);
+      const p = requirePrincipal(req);
       res.status(201).json(await createStore(organizationClientFor(p), req.body, p.actor));
     }),
   );
   r.get(
     '/admin/stores/:storeId',
+    permission('getStore'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'getStore', storeId);
-      res.json(await getStore(storeClient(p, storeId), storeId));
+      const { client, storeId } = storeClient(req);
+      res.json(await getStore(client, storeId));
     }),
   );
   r.patch(
     '/admin/stores/:storeId',
+    permission('updateStore'),
+    body('updateStore'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'updateStore', storeId, req.body);
-      res.json(await updateStore(storeClient(p, storeId), storeId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.json(await updateStore(client, storeId, req.body, p.actor));
     }),
   );
 
   // ---- registry: domains, sales channels, api keys ---------------------------------------------------------
   r.get(
     '/admin/stores/:storeId/domains',
+    permission('listDomains'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'listDomains', storeId);
-      res.json({ items: await listDomains(storeClient(p, storeId), storeId) });
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listDomains(client, storeId) });
     }),
   );
   r.post(
     '/admin/stores/:storeId/domains',
+    permission('addDomain'),
+    body('addDomain'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'addDomain', storeId, req.body);
-      res.status(201).json(await addDomain(storeClient(p, storeId), storeId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.status(201).json(await addDomain(client, storeId, req.body, p.actor));
     }),
   );
   r.get(
     '/admin/stores/:storeId/sales-channels',
+    permission('listSalesChannels'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'listSalesChannels', storeId);
-      res.json({ items: await listSalesChannels(storeClient(p, storeId), storeId) });
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listSalesChannels(client, storeId) });
     }),
   );
   r.post(
     '/admin/stores/:storeId/sales-channels',
+    permission('createSalesChannel'),
+    body('createSalesChannel'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'createSalesChannel', storeId, req.body);
-      res
-        .status(201)
-        .json(await createSalesChannel(storeClient(p, storeId), storeId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.status(201).json(await createSalesChannel(client, storeId, req.body, p.actor));
     }),
   );
   r.get(
     '/admin/stores/:storeId/api-keys',
+    permission('listApiKeys'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'listApiKeys', storeId);
-      res.json({ items: await listApiKeys(storeClient(p, storeId), storeId) });
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listApiKeys(client, storeId) });
     }),
   );
   r.post(
     '/admin/stores/:storeId/api-keys',
+    permission('createApiKey'),
+    body('createApiKey'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'createApiKey', storeId, req.body);
-      res.status(201).json(await createApiKey(storeClient(p, storeId), storeId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.status(201).json(await createApiKey(client, storeId, req.body, p.actor));
     }),
   );
 
   // ---- registry: organization level ------------------------------------------------------------------------
   r.get(
     '/admin/warehouses',
+    permission('listWarehouses'),
     handle(async (req, res) => {
-      const p = guard(req, 'listWarehouses');
-      res.json({ items: await listWarehouses(organizationClientFor(p)) });
+      res.json({ items: await listWarehouses(organizationClientFor(requirePrincipal(req))) });
     }),
   );
   r.get(
     '/admin/legal-entities',
+    permission('listLegalEntities'),
     handle(async (req, res) => {
-      const p = guard(req, 'listLegalEntities');
-      res.json({ items: await listLegalEntities(organizationClientFor(p)) });
+      res.json({ items: await listLegalEntities(organizationClientFor(requirePrincipal(req))) });
     }),
   );
 
   // ---- catalog: categories ---------------------------------------------------------------------------------
   r.get(
     '/admin/stores/:storeId/categories',
+    permission('listCategories'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'listCategories', storeId);
-      res.json({ items: await listCategories(storeClient(p, storeId), storeId) });
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listCategories(client, storeId) });
     }),
   );
   r.post(
     '/admin/stores/:storeId/categories',
+    permission('createCategory'),
+    body('createCategory'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'createCategory', storeId, req.body);
-      res
-        .status(201)
-        .json(await createCategory(storeClient(p, storeId), storeId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.status(201).json(await createCategory(client, storeId, req.body, p.actor));
     }),
   );
 
   // ---- catalog: products -----------------------------------------------------------------------------------
   r.get(
     '/admin/stores/:storeId/products',
+    permission('listProducts'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'listProducts', storeId);
+      const { client, storeId } = storeClient(req);
       const problems: Record<string, string> = {};
       const page = pageParams(req.query, 20, problems);
       const status = one(req.query.status);
@@ -232,11 +243,12 @@ export function adminRouter(): Router {
         problems.status = `one of ${PRODUCT_STATUSES.join(', ')}`;
       }
       const categoryId = one(req.query.category_id);
-      if (categoryId !== undefined && !/^[0-9a-f-]{36}$/i.test(categoryId))
+      if (categoryId !== undefined && !/^[0-9a-f-]{36}$/i.test(categoryId)) {
         problems.category_id = 'uuid';
+      }
       throwIfProblems(problems);
       res.json(
-        await listProducts(storeClient(p, storeId), storeId, {
+        await listProducts(client, storeId, {
           ...page,
           q: one(req.query.q),
           ...(status ? { status: status as ProductStatus } : {}),
@@ -247,71 +259,79 @@ export function adminRouter(): Router {
   );
   r.post(
     '/admin/stores/:storeId/products',
+    permission('createProduct'),
+    body('createProduct'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const p = guard(req, 'createProduct', storeId, req.body);
-      res
-        .status(201)
-        .json(await createProduct(storeClient(p, storeId), storeId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.status(201).json(await createProduct(client, storeId, req.body, p.actor));
     }),
   );
   r.get(
     '/admin/stores/:storeId/products/:productId',
+    permission('getProduct'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const productId = uuidParam(req.params, 'productId');
-      const p = guard(req, 'getProduct', storeId);
-      res.json(await getProduct(storeClient(p, storeId), storeId, productId));
+      const { client, storeId } = storeClient(req);
+      res.json(await getProduct(client, storeId, uuidParam(req.params, 'productId')));
     }),
   );
   r.patch(
     '/admin/stores/:storeId/products/:productId',
+    permission('updateProduct'),
+    body('updateProduct'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const productId = uuidParam(req.params, 'productId');
-      const p = guard(req, 'updateProduct', storeId, req.body);
-      res.json(await updateProduct(storeClient(p, storeId), storeId, productId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.json(
+        await updateProduct(client, storeId, uuidParam(req.params, 'productId'), req.body, p.actor),
+      );
     }),
   );
   r.delete(
     '/admin/stores/:storeId/products/:productId',
+    permission('archiveProduct'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const productId = uuidParam(req.params, 'productId');
-      const p = guard(req, 'archiveProduct', storeId);
-      await archiveProduct(storeClient(p, storeId), storeId, productId, p.actor);
+      const { p, client, storeId } = storeClient(req);
+      await archiveProduct(client, storeId, uuidParam(req.params, 'productId'), p.actor);
       res.status(204).end();
     }),
   );
   r.post(
     '/admin/stores/:storeId/products/:productId/publish',
+    permission('publishProduct'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const productId = uuidParam(req.params, 'productId');
-      const p = guard(req, 'publishProduct', storeId);
-      res.json(await publishProduct(storeClient(p, storeId), storeId, productId, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.json(await publishProduct(client, storeId, uuidParam(req.params, 'productId'), p.actor));
     }),
   );
 
   // ---- catalog: variants -----------------------------------------------------------------------------------
   r.post(
     '/admin/stores/:storeId/products/:productId/variants',
+    permission('createVariant'),
+    body('createVariant'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const productId = uuidParam(req.params, 'productId');
-      const p = guard(req, 'createVariant', storeId, req.body);
+      const { p, client, storeId } = storeClient(req);
       res
         .status(201)
-        .json(await createVariant(storeClient(p, storeId), storeId, productId, req.body, p.actor));
+        .json(
+          await createVariant(
+            client,
+            storeId,
+            uuidParam(req.params, 'productId'),
+            req.body,
+            p.actor,
+          ),
+        );
     }),
   );
   r.patch(
     '/admin/stores/:storeId/variants/:variantId',
+    permission('updateVariant'),
+    body('updateVariant'),
     handle(async (req, res) => {
-      const storeId = uuidParam(req.params, 'storeId');
-      const variantId = uuidParam(req.params, 'variantId');
-      const p = guard(req, 'updateVariant', storeId, req.body);
-      res.json(await updateVariant(storeClient(p, storeId), storeId, variantId, req.body, p.actor));
+      const { p, client, storeId } = storeClient(req);
+      res.json(
+        await updateVariant(client, storeId, uuidParam(req.params, 'variantId'), req.body, p.actor),
+      );
     }),
   );
 

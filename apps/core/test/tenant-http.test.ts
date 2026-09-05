@@ -31,6 +31,7 @@ let productA: { id: string; handle: string };
 beforeAll(async () => {
   db = await createTestDatabase('core_tenant');
   await seed(db.owner, { productsPerStore: 5, log: () => {} });
+  process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
   await initDb({ connectionString: db.app.options.connectionString! });
 
@@ -198,15 +199,19 @@ describe('Admin API staff principal (Phase 1 dev tokens → role_assignment)', (
     expect(owner.body).toEqual({ stores: ['brand-b'] });
   });
 
-  it('dev tokens are refused in production', async () => {
-    const prev = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
+  it('dev tokens are refused unless CORE_DEV_TOKENS=1 is set explicitly (no NODE_ENV opt-out)', async () => {
+    const prev = process.env.CORE_DEV_TOKENS;
+    delete process.env.CORE_DEV_TOKENS;
     try {
       await expect(new DevTokenVerifier().verify('dev:seed-owner')).rejects.toMatchObject({
         code: 'unauthorized',
       });
+      process.env.NODE_ENV = 'development';
+      await expect(new DevTokenVerifier().verify('dev:seed-owner')).rejects.toMatchObject({
+        code: 'unauthorized',
+      });
     } finally {
-      process.env.NODE_ENV = prev;
+      process.env.CORE_DEV_TOKENS = prev;
     }
   });
 });

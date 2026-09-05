@@ -21,7 +21,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - `pnpm --filter @platform/core lint` — root rules + this app's `no-restricted-imports` guard on `pg`.
 - Local Admin API calls in Phase 1: `Authorization: Bearer dev:<keycloak_subject>` (seeded subjects `seed-owner`,
   `seed-finance`, `seed-operations`, `seed-store-admin`, `seed-store-staff`, `seed-support`, `seed-analyst`);
-  refused when `NODE_ENV=production`. Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`.
+  accepted only when `CORE_DEV_TOKENS=1` is set in `.env` (explicit opt-in; there is no NODE_ENV opt-out). Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`.
 - `pnpm --filter @platform/core build` — `medusa build` → `.medusa/server`; `pnpm --filter @platform/core start`.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core` before finishing any task.
 
@@ -40,8 +40,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `/store` tenant context (`req.tenant`, 401) → `/admin` staff principal (`req.principal`, 401; `storeClientFor`
   403 outside scope) → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
   contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).
-- Permissions: every mutating Admin API route calls `requirePermission(principal, relation, object)`
-  (`src/http/permissions.ts`) with the `x-permission` read from `admin-api.yaml`; Phase 1 stub over
+- Permissions: every Admin API route runs the `requirePermission(relation, objectFactory)` middleware
+  (`src/http/permissions.ts`, the `@platform/auth-sdk` signature; `can(principal, relation, object)` answers the
+  question) with the `x-permission` read from `admin-api.yaml`; Phase 1 stub over
   `role_assignment` per ADR 0002 (owner ⊇ all; `viewer` = any relation; org relations reach every store). Request
   bodies are validated against the spec's `requestBody` schema (`src/http/openapi.ts`, yaml + ajv at runtime).
 - Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
