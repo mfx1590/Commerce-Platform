@@ -85,6 +85,43 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:contract
 
+  images:
+    name: app images (build only, no push)
+    runs-on: ubuntu-latest
+    # Advisory until issue #59 lands (core image: medusa build needs dev deps + medusa-config in the build stage).
+    # Manager decision 2026-09-05; window 5 removes this line in the fix PR.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Path filter, inline until window 5 task 2.4 generalises filters across every job.
+      - name: does this PR touch the image inputs?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != 'pull_request' ]; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed="$(git diff --name-only '${{ github.event.pull_request.base.sha }}...HEAD')"
+          if printf '%s\n' "$changed" | grep -Eq '^(apps/|packages/|infra/docker/|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig\.base\.json|\.github/workflows/ci\.yml)'; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+            echo 'No app, package or image input changed — skipping the image build.'
+          fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.scope.outputs.build == 'true'
+      - name: build every app image
+        if: steps.scope.outputs.build == 'true'
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: docker compose -f infra/docker/docker-compose.build.yml build
+      - name: smoke — non-root, HEALTHCHECK healthy, /health answers
+        if: steps.scope.outputs.build == 'true'
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: bash infra/docker/smoke-images.sh
+
   preview:
     name: preview deploy (placeholder)
     if: github.event_name == 'pull_request'
