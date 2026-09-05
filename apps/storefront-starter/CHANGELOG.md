@@ -1,5 +1,27 @@
 # Changelog — @platform/storefront-starter
 
+## 0.4.0 — 2026-09-05
+
+Task [storefront] 1.4 (issue #20), contracts `0.2.0`.
+
+- Cart at `/cart`: line items, quantity update and remove. The cart lives in the API; the browser
+  only carries its id in an httpOnly cookie.
+- Checkout steps `/checkout/{address,shipping,payment,review}`, with `/checkout` routing to whatever
+  the cart still needs, and an order confirmation at `/orders/[orderId]`.
+- Every mutation is a server action using the typed client (`src/lib/actions.ts`): add to cart,
+  update/remove line item, save address, choose delivery, create the payment session, place the
+  order. The browser never calls the Store API.
+- `Idempotency-Key` generated once per cart and reused on every retry, stored as `<cartId>:<key>` so
+  a stale cookie can never attach an old key to a new order.
+- Error mapping (`mapCheckoutError`): `409 out_of_stock` offers the quantity actually left,
+  `402 payment_failed` returns to the payment step, `409 cart_completed` forwards to the order that
+  already exists.
+- Payment is the `manual` provider placeholder; no card data touches the app. Hosted fields arrive
+  with window 7.
+- Playwright: PLP → PDP → cart → checkout → confirmation against `pnpm mock`, plus step-skipping and
+  URL-filter checks. `pnpm --filter @platform/storefront-starter e2e`.
+- 23 new unit tests (72 in total).
+
 ## 0.3.0 — 2026-09-05
 
 Task [storefront] 1.3 (issue #19), contracts `0.2.0`.

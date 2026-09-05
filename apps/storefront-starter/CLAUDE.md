@@ -16,6 +16,8 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
 - `pnpm --filter @platform/storefront-starter build` — `next build`
 - `pnpm --filter @platform/storefront-starter typecheck`
 - `pnpm --filter @platform/storefront-starter test` — Vitest (tests live in test/)
+- `pnpm --filter @platform/storefront-starter e2e` — Playwright (specs in e2e/); it starts the Prism
+  mock and a production build itself and drives the system Chrome
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/storefront-starter` before finishing any task.
 
 ## Public API
@@ -33,6 +35,11 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
   is a compile error, not a runtime surprise. Server-only: it throws if constructed in the browser.
 - `src/lib/slots.ts` — slot registries; pages ask `getLayouts()` / `getComponents()` instead of
   importing chrome directly.
+- `src/lib/catalog.ts` — tagged catalog reads and listing query parsing; `src/lib/variant.ts` — the
+  pure option → variant resolver.
+- `src/lib/actions.ts` — every mutation, as server actions. `src/lib/checkout.ts` holds the pure
+  checkout rules (step order, address parsing, error mapping); `src/lib/cart.ts` and
+  `src/lib/idempotency.ts` own the cookies.
 - `src/brand/{tokens.ts,components/,layouts/}` — the only folder a brand app edits routinely.
 - `src/app/` — route groups; the root layout resolves the theme and renders `<body>` through
   `ThemeProvider`.

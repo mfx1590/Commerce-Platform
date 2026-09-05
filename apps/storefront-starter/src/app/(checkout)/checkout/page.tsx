@@ -1,15 +1,12 @@
-import type { Metadata } from 'next';
-import { ComingSoon } from '@/components/coming-soon';
+import { redirect } from 'next/navigation';
+import { getCart } from '@/lib/cart';
+import { isCheckoutable, nextIncompleteStep, stepPath } from '@/lib/checkout';
 
-export const metadata: Metadata = { title: 'Checkout' };
-
-/**
- * Rendered per request: this page has no cacheable data of its own, but the layout above it calls
- * `GET /store` for the header. Prerendering it would bake one snapshot of the store into the build
- * — and CI builds with no API reachable at all. The catalog routes cache at the fetch layer instead.
- */
 export const dynamic = 'force-dynamic';
 
-export default function CheckoutPage() {
-  return <ComingSoon title="Checkout" task="task 1.4 (issue #20)" />;
+/** `/checkout` is not a page: it sends the customer to whichever step the cart still needs. */
+export default async function CheckoutEntryPage() {
+  const cart = await getCart();
+  if (!isCheckoutable(cart)) redirect('/cart');
+  redirect(stepPath(nextIncompleteStep(cart)));
 }

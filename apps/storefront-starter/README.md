@@ -124,12 +124,47 @@ rebuilt by `listHref`. Filters and pagination are links and a GET form, so the f
 JavaScript and every view is shareable and crawlable. The PDP's `VariantPicker` is the only client
 component in the catalog.
 
+## Cart and checkout
+
+The cart lives in the API. The browser carries only its id, in an httpOnly cookie, so nothing about
+price, stock or totals is client-controlled. Every mutation is a **server action** in
+`src/lib/actions.ts` using the typed client — the browser never calls the Store API itself.
+
+Steps are `/checkout/address` → `shipping` → `payment` → `review`; `/checkout` redirects to whichever
+the cart still needs. The order is enforced server-side in `requireCheckoutStep`, not by hiding
+links: typing `/checkout/review` with no address lands you back on the address step.
+
+Reachability deliberately does **not** depend on `payment_session`. That session is a PSP artifact
+with its own lifetime, not customer input — the customer chooses a _method_ at the payment step, and
+`placeOrderAction` creates the session immediately before authorising. Gating review on it would
+strand anyone whose session expired between steps.
+
+`Idempotency-Key` is generated once per cart and reused on every retry, stored as `<cartId>:<key>` so
+a stale cookie cannot attach an old key to a new order. Errors are mapped from the contract's codes,
+never from messages: `409 out_of_stock` offers the quantity actually left, `402 payment_failed`
+returns to the payment step, `409 cart_completed` forwards to the order that already exists.
+
+Phase 1 pays with the `manual` provider — a placeholder. Card data never reaches this app in any
+phase: window 7 adds hosted fields driven by `payment_session.client_secret`.
+
 ## Test
 
 ```bash
-pnpm --filter @platform/storefront-starter test        # Vitest: client, slots, catalog, variants
+pnpm --filter @platform/storefront-starter test        # Vitest: client, slots, catalog, variants, checkout
 pnpm --filter @platform/storefront-starter typecheck
 ```
+
+### End-to-end
+
+```bash
+pnpm --filter @platform/storefront-starter e2e         # Playwright: PLP → PDP → cart → checkout → confirmation
+```
+
+Playwright starts both servers itself (the Prism mock and a **production** build — `next dev`
+behaves differently enough around caching and server actions that a green dev run proves little) and
+drives the system Chrome, so no browser download is needed. The mock keeps no state and answers from
+the contract's examples, so the cart it returns already carries an address and a delivery option and
+the journey enters checkout at the payment step; every step is still exercised for real.
 
 ### Lighthouse
 
