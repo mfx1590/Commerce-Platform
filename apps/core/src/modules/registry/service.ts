@@ -22,6 +22,8 @@ import type {
   StoreInput,
   StoreLocale,
   StoreRow,
+  Warehouse,
+  LegalEntity,
 } from './types';
 
 const CODE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -680,3 +682,21 @@ export async function revokeApiKey(
 }
 
 export type { EventEnvelope };
+
+// ------------------------------------------------------------------------------ organization-level reads
+
+/** Warehouses of the organization (window 11 owns mutations from Phase 3). */
+export async function listWarehouses(client: ScopedClient): Promise<Warehouse[]> {
+  const r = await client.query<Warehouse>(
+    'SELECT id, code, name, country, is_active, priority FROM warehouse ORDER BY priority, code',
+  );
+  return r.rows;
+}
+
+/** Legal entities of the organization (accounting companies; window 15 fills odoo_company_id). */
+export async function listLegalEntities(client: ScopedClient): Promise<LegalEntity[]> {
+  const r = await client.query<LegalEntity>(
+    'SELECT id, code, name, country, currency, vat_number FROM legal_entity ORDER BY code',
+  );
+  return r.rows;
+}

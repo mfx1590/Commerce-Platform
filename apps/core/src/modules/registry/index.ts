@@ -15,6 +15,8 @@ export {
   listLocales,
   listSalesChannels,
   listStores,
+  listWarehouses,
+  listLegalEntities,
   revokeApiKey,
   toStore,
   updateStore,
@@ -37,4 +39,6 @@ export type {
   StoreLocale,
   StoreRow,
   StoreStatus,
+  Warehouse,
+  LegalEntity,
 } from './types';

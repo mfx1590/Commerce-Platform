@@ -36,3 +36,9 @@ export {
   mountStoreRoutes,
   storeSummary,
 } from './store-routes';
+export { adminRouter } from './admin-routes';
+export { loadSpec, openApiDir } from './openapi';
+export type { Spec, SpecFile } from './openapi';
+export { hasPermission, requirePermission, resolveObject } from './permissions';
+export type { Permission, PermissionObject, PermissionRelation } from './permissions';
+export { intParam, one, pageParams, throwIfProblems, uuidParam } from './query';

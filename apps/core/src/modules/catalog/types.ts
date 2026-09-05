@@ -30,9 +30,9 @@ export interface Page<T> {
 }
 
 export interface AdminProductQuery extends PageQuery {
-  q?: string;
-  status?: ProductStatus;
-  category_id?: string;
+  q?: string | undefined;
+  status?: ProductStatus | undefined;
+  category_id?: string | undefined;
 }
 
 export type StoreSort = 'relevance' | 'price_asc' | 'price_desc' | 'newest';
