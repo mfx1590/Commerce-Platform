@@ -1,0 +1,26 @@
+model
+  schema 1.1
+
+# Authorization model — relation names are FROZEN by docs/adr/0002-auth-model.md and mirrored in
+# packages/contracts RELATIONS and the role_assignment.relation CHECK constraint. Adding a relation is a
+# CONTRACT CHANGE. Object ids: user:<staff_user.id>, organization:hq, store:<store.id>.
+
+type user
+
+type organization
+  relations
+    define owner: [user]
+    define finance: [user] or owner
+    define operations: [user] or owner
+    define analyst: [user] or owner
+    define support: [user] or owner
+    define viewer: owner or finance or operations or analyst or support
+
+type store
+  relations
+    define organization: [organization]
+    define store_admin: [user] or owner from organization
+    define store_staff: [user] or store_admin
+    define support: [user] or support from organization or store_admin
+    define analyst: analyst from organization
+    define viewer: store_staff or support or analyst or operations from organization or finance from organization
