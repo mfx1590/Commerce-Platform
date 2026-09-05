@@ -90,9 +90,11 @@ export function toSearchParams(query: TableQuery, defaults: TableQueryDefaults =
 /**
  * The parameters actually sent to the Admin API.
  *
- * `sortable` is false by default: no list operation in contracts-v0.1 accepts `sort`/`order`
- * (CONTRACT CHANGE #56). Until that lands, sorting state is carried in the URL but not forwarded,
- * so we never send a parameter the contract does not define.
+ * `sortable` stays opt-in even though Admin API 0.2.0 added `sort`/`order` (CONTRACT CHANGE #56):
+ * they were added to the four list operations the admin app renders as tables, not to every list in
+ * the contract, and each one accepts its own enum of sortable fields. A screen declares that its
+ * operation supports them, so a table on some other endpoint cannot send a parameter that endpoint
+ * does not define.
  */
 export function toContractQuery(
   query: TableQuery,

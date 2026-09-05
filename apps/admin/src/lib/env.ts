@@ -2,10 +2,9 @@
  * Server-side configuration. Never import this from a client component — it reads process.env,
  * which Next.js only populates on the server, and the session secret must never be bundled.
  *
- * Defaults match `.env.example` at the repo root so `pnpm dev` works with no extra setup.
+ * Every value except ADMIN_SESSION_SECRET has a default matching the repo-root `.env.example`.
+ * The secret has no default on purpose — see `sessionSecret()`.
  */
-
-const DEV_SESSION_SECRET = 'admin-dev-session-secret-not-for-production';
 
 function optional(name: string, fallback: string): string {
   const value = process.env[name];
@@ -19,20 +18,30 @@ function withoutTrailingSlash(url: string): string {
 
 export const isProduction = process.env.NODE_ENV === 'production';
 
+/** 256 bits of base64 is 44 characters; 32 is the floor we accept. */
+const MIN_SESSION_SECRET_LENGTH = 32;
+
 /**
- * The session cookie is encrypted with this value. In production it is required and must be at
- * least 32 characters; in development a constant is used so restarts do not sign everybody out.
+ * The key the session cookie is encrypted with. Required in every environment, including
+ * development and tests.
+ *
+ * There used to be a hard-coded development fallback here. It was a bad idea: a constant committed
+ * to the repository is a key everyone has, and the difference between "dev" and "production" is one
+ * mis-set `NODE_ENV` away. Failing loudly with instructions costs one command; silently encrypting
+ * real sessions with a public constant does not fail at all until it matters.
  */
 export function sessionSecret(): string {
   const value = process.env.ADMIN_SESSION_SECRET;
   if (value === undefined || value === '') {
-    if (isProduction) {
-      throw new Error('ADMIN_SESSION_SECRET is required in production');
-    }
-    return DEV_SESSION_SECRET;
+    throw new Error(
+      'ADMIN_SESSION_SECRET is not set. Generate one with `openssl rand -base64 32` and put it in ' +
+        'apps/admin/.env.local — see apps/admin/.env.example.',
+    );
   }
-  if (isProduction && value.length < 32) {
-    throw new Error('ADMIN_SESSION_SECRET must be at least 32 characters');
+  if (value.length < MIN_SESSION_SECRET_LENGTH) {
+    throw new Error(
+      `ADMIN_SESSION_SECRET must be at least ${MIN_SESSION_SECRET_LENGTH} characters (got ${value.length}).`,
+    );
   }
   return value;
 }

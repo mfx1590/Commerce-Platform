@@ -5,7 +5,7 @@ relations the signed-in principal holds. Everything the UI shows is derived from
 the Admin API re-checks each operation's `x-permission` server-side, so UI gating is convenience,
 never security.
 
-Contracts: `@platform/contracts/admin`, frozen at tag **contracts-v0.1**.
+Contracts: `@platform/contracts/admin`, **Admin API 0.2.0**.
 
 ## Run it
 
@@ -38,8 +38,8 @@ pnpm --filter @platform/admin build      # next build
 ```
 
 From the repo root, `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before
-finishing a task. Run `pnpm --filter @platform/admin clean` (or delete `.next/`) before
-`pnpm format:check`: Prettier's ignore file does not yet exclude Next build output.
+finishing a task. (Next's build output no longer trips the root lint and format checks — that was
+REQUEST #44, fixed on main.)
 
 ## How the auth hook works
 
@@ -125,10 +125,15 @@ const result = await listProducts(storeId, toContractQuery(query));
 `parseTableQuery` only keeps filter keys you declare, so a hand-added `?injected=1` never reaches the
 Admin API as an undeclared parameter.
 
-**Sorting is not wired to the server yet.** No list operation in contracts-v0.1 accepts `sort` or
-`order` — see CONTRACT CHANGE #56. Until it lands, `toContractQuery` withholds both unless the caller
-passes `{ sortable: true }`, and list screens declare `sortableColumns={[]}`. Turning sorting on for
-an operation is then two lines: add the column ids, and pass `sortable: true`.
+**Sorting is server-driven, and opt-in per operation.** Admin API 0.2.0 added `sort`/`order` to the
+four list operations the admin app renders as tables (CONTRACT CHANGE #56), each with its own enum of
+sortable fields. `toContractQuery` therefore still withholds them unless the caller passes
+`{ sortable: true }`, so a table built on some other endpoint cannot send a parameter that endpoint
+does not define. A screen turns sorting on in two places — `sortableColumns` on the table (the
+contract's enum, nothing more) and `{ sortable: true }` on the query — and declares the contract's
+own default sort in its `TableQueryDefaults` so the default stays out of the URL. `listStores` sorts
+by `code`, `name`, `status`, `created_at`; `listProducts` by `title`, `handle`, `status`,
+`created_at`, `updated_at`.
 
 **Selecting a page never selects the rest of the result set.** The header checkbox ticks the rows you
 can see. Only once a full page is ticked, and only if more rows match, does the bar offer
@@ -197,6 +202,28 @@ accepts a comma as the decimal point while rejecting group separators rather tha
 **Optimistic UI is opt-in.** `useContractForm` takes an `optimistic` callback and runs it only when
 one is passed. An admin form that shows a save as done before the server agreed is a form that lies
 about whether a price changed.
+
+## The screens
+
+**HQ · Stores** (`registry`). `/stores` lists the registry; `/stores/new` creates one (brand
+onboarding step 1, `owner` on `organization:hq`); `/stores/{id}` is the record plus its domains,
+sales channels and API keys. The four sub-resources are fetched in parallel and each may fail on its
+own — listing API keys needs `store_admin` while reading the store needs only `viewer`, so a viewer
+still sees the store rather than an error page.
+
+**The API key shown once.** `createApiKey` is documented as returning the plain key exactly once. It
+lives in one component's state and nowhere else: never in the URL, never in storage, never sent back.
+The list only ever holds `key_prefix`, so once the panel is dismissed the value is gone — which is
+why the reveal carries a warning and a copy button rather than a "show again" control.
+
+**Store · Catalog** (`catalog`). `/{storeId}/catalog` lists products with the contract's own filters
+(`q`, `status`) and sort; `/{storeId}/catalog/new` and `/{storeId}/catalog/{id}` are the same form,
+which previews the variant matrix as options are typed — `variantMatrix` is a pure function with its
+own tests, because 3 sizes × 2 colours must be 6 variants and quietly producing 3 would corrupt a
+catalog. Publish and archive render what the server returned (`status`, `published_at`); archive is
+behind a confirmation, since `DELETE` is the verb even though the contract archives rather than
+hard-deletes. `/{storeId}/catalog/categories` assembles the tree from the flat list, showing an
+orphan at the root rather than dropping it.
 
 ## How to add a screen
 

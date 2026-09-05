@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Added — task 1.5, issue #28 (Admin API 0.2.0)
+
+- **HQ Stores**: list, create (`/stores/new`) and detail (`/stores/{id}`) with the store record,
+  domains, sales channels and API keys. Sub-resources load in parallel and fail independently, so a
+  `viewer` still sees the store even though listing API keys needs `store_admin`.
+- **The show-once API key**: revealed once with a copy button and a warning, held in component state
+  only — never in the URL, storage, or a re-fetch. The list carries `key_prefix` alone.
+- **Store Catalog**: products list with the contract's `q` and `status` filters and 0.2.0 sorting;
+  create and edit through one form that previews the variant matrix as options are typed; publish and
+  archive rendering the `status` and `published_at` the server returned, with archive behind a
+  confirmation; and a categories tree assembled from the flat list.
+- Typed wrappers for every `registry` and `catalog` operation, and server actions that re-validate
+  with the same Zod schema the browser used.
+- `variantMatrix` as a pure, separately tested function: options expand as a cross-product, and an
+  option with no values yields no variants rather than a partial matrix.
+- `compact()` for request payloads: Zod's `key?: T | undefined` versus the contract's exact-optional
+  `key?: T` is a real difference on PATCH, where an explicit `undefined` and an omitted key are not
+  the same request.
+
+### Changed
+
+- **Sorting is live.** CONTRACT CHANGE #56 was accepted as Admin API 0.2.0, so `listStores` and
+  `listProducts` now sort server-side. It stays opt-in per operation (`{ sortable: true }` plus the
+  contract's own enum in `sortableColumns`), because only four list operations gained the parameters.
+- **`ADMIN_SESSION_SECRET` is required in every environment.** The hard-coded development fallback is
+  gone: a constant committed to the repo is a key everyone has, and "dev" is one mis-set `NODE_ENV`
+  from production. `.env.example` documents it; `vitest.config.ts` supplies one for tests.
+- Dropped the "delete `.next/` before `format:check`" workaround — REQUEST #44 fixed the root ignore
+  lists on main.
+
+### Fixed
+
+- Tests for the two untested server paths: the `/api/auth/callback` route (state mismatch is refused
+  without redeeming the code, missing verifier, provider error, a rejected exchange, and the success
+  path sealing the session and clearing the transient cookies) and the middleware refresh (refreshes
+  inside the skew window, updates the current request as well as the response, and starts a clean
+  sign-in when the refresh token is spent).
+- `docs/memory/Memory-4-admin.md` claimed the OIDC flow had been verified "end to end" headlessly.
+  It had not: the run stopped at Keycloak's TOTP enrolment, so no authorization code was ever issued
+  and the token exchange was never exercised live. Corrected in place.
+
 ### Added — task 1.4, issue #27 (contracts-v0.1)
 
 - `useContractForm(schema, action)` — the one way this app builds a form. React Hook Form + Zod, with
