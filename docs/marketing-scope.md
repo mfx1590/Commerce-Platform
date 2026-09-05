@@ -65,7 +65,7 @@ Google Merchant Center and Meta Commerce (feed files + API), Klaviyo (segments s
 
 | When | Who | What |
 |---|---|---|
-| Phase 1 (now) | window 3, window 4 | UTM capture into cart metadata (#60); Marketing navigation placeholder (#61) |
+| Phase 1 (now) | window 3, window 4 | UTM capture into cart metadata (#62); Marketing navigation placeholder (#63) |
 | Integration 1 | main | tables, events, Admin API marketing paths → contracts-v0.3; Memory-17 tasks issued |
 | Phase 2 | window 17 (parallel with the others) | 2.1 campaigns + attribution report · 2.2 product feeds (Google, Meta) · 2.3 segments + Klaviyo sync contract · 2.4 abandoned-cart flow (with 1 and 16) · 2.5 admin Marketing section v1 |
 | Phase 3 | window 17 | referral programme, reviews + moderation, consent centre, HQ dashboard |
