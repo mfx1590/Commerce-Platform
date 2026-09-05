@@ -6,8 +6,10 @@ Follow-up while wiring the starter (task [storefront] 1.2, issue #18).
 
 - `parseTheme` accepts the plural group spellings a store theme may use (`colors`, `fonts`,
   `radii`, `shadows`, …) as aliases for the canonical groups, with the canonical name winning if a
-  theme sends both. The seeded Brand A theme writes `colors`, so its brand colour reached the page
-  as the kit default before this. Contract issue filed: #41.
+  theme sends both. The seeded Brand A theme wrote `colors`, so its brand colour reached the page as
+  the kit default before this. CONTRACT CHANGE #41 was accepted on 2026-09-05: `Store.theme` is now
+  documented as the `BrandTokens` shape and the examples and seed use the singular names; the
+  aliases stay as tolerance through Phase 1 (manager ruling).
 - `exports` gained a `default` condition, so CJS-based resolvers (Tailwind loads
   `tailwind.config.ts` through jiti) can resolve `@platform/ui/preset`.
 

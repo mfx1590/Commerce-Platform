@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: `contracts-v0.1` · Branch: `storefront/phase1` · Status: 1.1 in PR #39 (awaiting merge), 1.2 built and waiting to be pushed, 1.3 next
+Last updated: 2026-09-05 · Contracts: `contracts-v0.1` → **0.2.0** after merging main (2026-09-05) · Branch: `storefront/phase1` · Status: 1.1 merged via PR #39, 1.2 in PR, 1.3 next
 
 ## Identity (does not change)
 
@@ -111,15 +111,14 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Blocked / waiting
 
-- **Waiting on the manager to merge PR #39 (task 1.1).** Task 1.2 is finished and committed locally
-  but deliberately not pushed: pushing it to `storefront/phase1` now would fold it into #39. As soon
-  as #39 is merged, push and open the 1.2 PR from the same branch. Do not start 1.3 on top of
-  unpushed work.
-- Two issues filed for main/infra, both with a local workaround in place:
-  - **CONTRACT CHANGE #41** — document `Store.theme` as the `@platform/ui` `BrandTokens` shape and
-    fix the Brand A example (`colors` → `color`). Tolerated meanwhile by aliases in `parseTheme`.
-  - **REQUEST #46** — add `**/.next/` to `.prettierignore` and `**/next-env.d.ts` to the root eslint
-    ignores.
+- **1.3 commits stay local until the 1.2 PR is merged** (manager instruction, 2026-09-05). Same rule
+  as before: one branch, one PR per task, merged in order.
+- Both filed issues are **accepted and on main** (merged into this branch on 2026-09-05):
+  - **CONTRACT CHANGE #41** — `Store.theme` is documented as the `BrandTokens` shape; examples and
+    the seed use the singular group names. Manager ruling: **keep the plural aliases in `parseTheme`
+    as tolerance through Phase 1**; revisit in Phase 2.
+  - **REQUEST #46** — `**/.next/` in `.prettierignore` and `**/next-env.d.ts` in the root eslint
+    ignores. The local papercut below is gone.
 
 ## Gotchas learned
 
@@ -150,12 +149,11 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
   `jsx: preserve`, `noEmit`. Next needs those; the base's NodeNext does not work for an App Router app.
 - Vitest needs the `@` alias declared in `vitest.config.ts` — tsconfig `paths` alone is not enough.
 - `next build` must not need the API: with `force-dynamic` plus `getStoreOrNull`, it does not.
-- After running the app locally, the root `pnpm lint` / `pnpm format:check` trip over Next's
-  generated artefacts (`.next/types/**` for prettier, `next-env.d.ts` for eslint): the root
-  `.prettierignore` / `eslint.config.mjs` do not list them and both are main-owned.
-  **REQUEST #46** asks for the two lines. Workaround until then:
-  `pnpm --filter @platform/storefront-starter clean` before the root checks. CI is unaffected — it
-  never runs `next build`.
+- Next's generated artefacts (`.next/types/**`, `next-env.d.ts`) used to fail the root
+  `pnpm lint` / `format:check`; fixed on main by REQUEST #46 (2026-09-05). No workaround needed any
+  more — but if the root checks ever complain about generated files again, that is the cause.
+- After the manager applies a contract change, `pnpm install && pnpm --filter @platform/contracts build`
+  before typechecking: the generated types are committed, but the local `dist/` the app resolves is not.
 
 ## How to run & test this package
 

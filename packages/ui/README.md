@@ -28,10 +28,13 @@ export default function Layout({ store, children }) {
 ```
 
 `theme` is narrowed by `parseTheme`: unknown groups, unknown keys and non-string values are dropped,
-so a bad theme from the API can never break the layout or smuggle CSS into the page. Plural group
-spellings (`colors`, `fonts`, `radii`, `shadows`, …) are accepted as aliases, because `Store.theme`
-is free-form JSON in the contract and the seeded Brand A theme writes `colors` (issue #41). `tokens` (a
+so a bad theme from the API can never break the layout or smuggle CSS into the page. `tokens` (a
 typed `BrandTokens` from the brand's own `src/brand/tokens.ts`) is layered on top, per key.
+
+`Store.theme` is documented in the contract as exactly this `BrandTokens` shape (CONTRACT CHANGE #41,
+accepted 2026-09-05), and the examples and seed use the singular group names. `parseTheme` also
+accepts the plural spellings (`colors`, `fonts`, `radii`, `shadows`, …) as tolerance for stores
+seeded before that change; the manager's ruling is to keep the aliases through Phase 1.
 
 `ThemeProvider` uses no hooks and no context, so it renders unchanged inside a React Server
 Component. Client components read token values through the CSS variables, never from a context.
