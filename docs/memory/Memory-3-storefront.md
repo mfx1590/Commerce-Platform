@@ -50,7 +50,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       theme colour `#1E40AF` reaches `--ui-color-primary`; all routes 200, unknown route 404;
       `next build` green offline. 16 app tests + 37 kit tests.
 
-- [x] **1.3 (#19) PLP + PDP against the mock, images via next/image** — commit `<pending>`, PR `<pending>`.
+- [x] **1.3 (#19) PLP + PDP against the mock, images via next/image** — commit `f5cb924`, PR #64.
       `/products` (search, category, sort, pagination) and `/categories/[handle]` share one
       `ProductListView`; `/products/[handle]` renders gallery, breadcrumb, description, tags and the
       `VariantPicker`. `src/lib/catalog.ts` (tagged reads + query parsing) and `src/lib/variant.ts`
