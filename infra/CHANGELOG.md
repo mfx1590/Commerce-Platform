@@ -20,6 +20,25 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - CI job `images` in `.github/workflows/ci.yml` — builds all six and runs the smoke test on PRs that touch
   `apps/**`, `packages/**`, `infra/docker/**` or the workspace root files. Never pushes.
 
+- **Terraform for dev + staging (issue #32, task 2.2).** `infra/terraform/` with seven modules — `network`
+  (VPC, 3 AZs, NAT, S3 gateway endpoint), `cluster` (EKS, managed node group, IRSA), `postgres` (RDS 16,
+  `rds.force_ssl`, Secrets Manager), `redis` (ElastiCache 7, transit encryption), `objects` (S3 media +
+  backups), `ci-oidc` (GitHub OIDC, no long-lived keys) and `environment`, which composes them. `envs/dev`
+  and `envs/staging` are thin wrappers around `environment`, so both environments are the same shape and
+  differ only in size and safety flags. Redpanda stays managed (Redpanda Cloud): connection variables only.
+- Environment outputs are named after `.env.example` variables (`DATABASE_URL`, `DATABASE_URL_APP`,
+  `REDIS_URL`, `KAFKA_BROKERS`, `KEYCLOAK_URL`, `OPENFGA_API_URL`, `MOCK_API_URL`, `MOCK_ADMIN_API_URL`),
+  plus a `dotenv` output that renders the whole file.
+- `infra/kubernetes/bootstrap-db/` — Job + idempotent SQL that creates the `platform_app` role with the
+  Terraform-generated password before the migrations run, so the local-development password in
+  `packages/db/migrations/0001_app_schema.sql` never reaches a cloud environment. Refuses to leave the role
+  SUPERUSER or BYPASSRLS.
+- `infra/terraform/check.sh` — `fmt -check` + `init -backend=false` + `validate` for both envs, with no AWS
+  account. Uses a local `terraform` when present, otherwise the official Docker image.
+- CI job `terraform` in `.github/workflows/ci.yml` — runs `check.sh` on PRs touching `infra/terraform/**`.
+- `infra/README.md` — Terraform layout, the secrets/state rules, and a runbook from an empty AWS account
+  through dev to staging, with literal commands.
+
 ### Fixed
 
 - **The app images build and carry their build output again (issue #59).** Three separate defects, all found
@@ -52,3 +71,5 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).
+- Nothing has been applied to a real AWS account. Task 2.2 stops at `terraform validate`, as agreed, until the
+  owner provides credentials; `plan`/`apply` are runbook steps.
