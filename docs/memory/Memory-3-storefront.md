@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: `contracts-v0.1` → **0.2.0** after merging main (2026-09-05) · Branch: `storefront/phase1` · Status: 1.1 merged via PR #39, 1.2 in PR, 1.3 next
+Last updated: 2026-09-05 · Contracts: **0.2.0** · Branch: `storefront/phase1` (synced with main at `ce7558b`) · Status: 1.1 and 1.2 merged, 1.3 planned and awaiting the owner's go-ahead
 
 ## Identity (does not change)
 
@@ -39,7 +39,9 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       `cn`, `variants`; `@platform/ui/preset` Tailwind preset. 35 Vitest tests green, typecheck,
       lint and prettier clean, `pnpm --filter @platform/ui build` emits dist/.
 
-- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `7b0a75f` (+ memory `b04a605`), PR pending: opens from `storefront/phase1` once #39 is merged.
+- [x] **1.2 (#18) Starter app skeleton, typed Store API client, brand override pattern** — commit `7b0a75f`
+      (+ `b04a605`, `fba1cd4`, `80832fd`). Merged into main on 2026-09-05 **inside PR #39**, not as its own
+      PR — see the worktree gotcha below. Issue #18 auto-closed by the commit trailer.
       Next 15 App Router on :3100 (React 19, Tailwind 3 via the kit preset); route groups `(shop)`
       `/` `/products`, `(checkout)` `/cart` `/checkout` with its own funnel chrome, `(account)`
       `/account`, `(content)` `/pages/[slug]` placeholder, plus `not-found`. Root layout resolves
@@ -50,7 +52,23 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## In progress
 
-- (nothing — starting 1.3 next)
+- **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
+  Bigger than the ~20-tool-call budget in CLAUDE.md, hence the stop. Plan:
+  1. `src/lib/catalog.ts` — `listProducts`, `listCategories`, `getProduct` wrappers with cache tags
+     (`products`, `categories`, `product:<handle>`) and `revalidate`; all fetching on the server.
+  2. `src/lib/variant.ts` — the option → variant resolver (`product.options` × `variants[].options`),
+     plus `isAvailable` from `in_stock` / `available_quantity`. Pure and unit-tested.
+  3. Components: `ProductCard` (next/image, `Price` with `compare_at_price` strike-through),
+     `ProductGrid`, `Pagination`, `SortSelect`, `CategoryFilter` — filter/sort/pagination as plain
+     links driven by `searchParams`, so the first render needs no client JavaScript.
+  4. Routes: `/products` (page, category, sort, q), `/categories/[handle]`, `/products/[handle]`
+     (option selectors as one small client component, `notFound()` on `isNotFound`).
+  5. Caching: relax the root layout's `force-dynamic` so PLP/PDP can render statically with
+     `revalidate` + tags; keep `getStoreOrNull` non-throwing so `next build` still works offline.
+  6. Lighthouse mobile on PLP and PDP against `pnpm mock` — Chrome is present at
+     `C:/Program Files/Google/Chrome/Application/chrome.exe`, so `npx lighthouse` can run without
+     adding a dependency (the `lighthouserc` and `@lhci/cli` belong to task 1.7). Numbers recorded here.
+  7. Tests for the resolver and the search-param parsing; README/CHANGELOG; PR.
 
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
@@ -111,8 +129,8 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Blocked / waiting
 
-- **1.3 commits stay local until the 1.2 PR is merged** (manager instruction, 2026-09-05). Same rule
-  as before: one branch, one PR per task, merged in order.
+- Nothing blocking. 1.1 and 1.2 are merged; 1.3 is planned and waits only on the owner's go-ahead
+  (CLAUDE.md's ~20-tool-call rule).
 - Both filed issues are **accepted and on main** (merged into this branch on 2026-09-05):
   - **CONTRACT CHANGE #41** — `Store.theme` is documented as the `BrandTokens` shape; examples and
     the seed use the singular group names. Manager ruling: **keep the plural aliases in `parseTheme`
@@ -121,6 +139,14 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **All worktrees share one object database and one set of refs** (`.git` here is a gitdir pointer to
+  `commerce-platform/.git/worktrees/wt-storefront`). A branch is therefore *not* private to a
+  worktree: commits made here on `storefront/phase1` are immediately visible to the manager's
+  checkout, which can merge them without a push. That is how tasks 1.1 and 1.2 both landed in PR #39
+  even though 1.2 was deliberately never pushed. Practical rule: **committing to the window branch is
+  publishing.** If work must not be merged yet, do not commit it to `storefront/phase1` — keep it
+  uncommitted or on a differently named local branch.
 
 - `exactOptionalPropertyTypes: true` in `tsconfig.base.json`: an optional prop that is forwarded
   (`variant?: 'a' | 'b'`) must be typed `… | undefined` at the receiving end, or TS2379.
