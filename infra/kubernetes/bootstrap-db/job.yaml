@@ -41,6 +41,8 @@ spec:
             - --set=ON_ERROR_STOP=1
             - --set=app_username=$(APP_USERNAME)
             - --set=app_password=$(APP_PASSWORD)
+            - --set=medusa_username=$(MEDUSA_USERNAME)
+            - --set=medusa_password=$(MEDUSA_PASSWORD)
             - --file=/sql/bootstrap.sql
           env:
             # Owner/master connection — the only role allowed to create other roles.
@@ -68,6 +70,13 @@ spec:
             - name: APP_PASSWORD
               valueFrom:
                 secretKeyRef: { name: platform-database-app, key: password }
+            # The role Medusa's own migrations run as (apps/core scripts/db-medusa-migrate.ts).
+            - name: MEDUSA_USERNAME
+              valueFrom:
+                secretKeyRef: { name: platform-database-medusa-owner, key: username }
+            - name: MEDUSA_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: platform-database-medusa-owner, key: password }
           volumeMounts:
             - name: sql
               mountPath: /sql

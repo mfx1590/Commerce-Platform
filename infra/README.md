@@ -62,13 +62,24 @@
   | Build output in a dot-directory needs an explicit copy                     | `pnpm deploy` packs the package the way npm would, and npm's rules skip dot-directories. `medusa build` writes everything to `.medusa/server`, so `apps/core/Dockerfile` copies it across after the deploy step. An app that builds to `dist/` needs nothing extra.                                                                                                       |
   | `start` must run from the package root                                     | The entrypoint runs `pnpm start` with the working directory at the deployed package, so a path like `node .medusa/server/src/server.js` resolves.                                                                                                                                                                                                                         |
 
-  **What the smoke test does and does not prove.** `infra/docker/smoke-images.sh` checks that every image
-  starts, runs as a non-root user, and execs what it should. For a scaffold that means the `HEALTHCHECK`
-  reaches `healthy` and `/health` returns 200. For a real app — `apps/core` today — it means `pnpm start`
-  runs and the process stays up; it is deliberately **not** health-checked there, because a real app needs a
-  migrated database, a cache and secrets, and standing those up is a deployment concern. That end-to-end check
-  belongs to the staging deploy (tasks 2.3/2.4). The test still catches the failure that matters: if the build
-  output is missing from the deployed package, `pnpm start` exits at once and the container is not running.
+  **What the smoke test does and does not prove.** `infra/docker/smoke-images.sh` reads each image's deployed
+  `package.json` and checks accordingly — it does not keep a list of which app is which.
+
+  |                                                        | scaffold (`accounting`, `analytics-ingest`, `notifications`) | real app (`core`, `admin`, `storefront-starter`) |
+  | ------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------ |
+  | non-root                                               | yes, read from the image's `Config.User`                     | same                                             |
+  | build output present under `/app`                      | n/a                                                          | yes — `.medusa/server`, `.next` or `dist`        |
+  | `HEALTHCHECK` reaches `healthy`, `/health` returns 200 | yes                                                          | **no — not attempted**                           |
+
+  A scaffold is self-contained, so it is held to a real health check. A real app is deliberately not booted:
+  `apps/core` throws without `DATABASE_URL_APP` and `apps/admin` without `ADMIN_SESSION_SECRET`, and that is
+  correct fail-fast behaviour rather than something to work around. An image test that stood up Postgres and
+  Redis, ran two sets of migrations and invented secrets would be testing the deployment — slowly, and flakily.
+  Proving that a _configured_ app serves `/health` belongs to the staging deploy (tasks 2.3/2.4).
+
+  What it does catch is the failure that caused issue #59: `pnpm deploy` drops dot-directories, so `.medusa`
+  and `.next` never reached the deployed package and two images shipped no application at all while still
+  building green.
 
   CI job `images` in `.github/workflows/ci.yml` builds all six on PRs that touch `apps/**`, `packages/**`,
   `infra/docker/**` or the workspace root files, runs the smoke test, and never pushes.

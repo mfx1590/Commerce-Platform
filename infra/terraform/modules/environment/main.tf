@@ -184,6 +184,11 @@ locals {
   }, var.tags)
 
   host = "${var.name}.${var.base_domain}"
+
+  # Public origins, per app. The storefront and admin are what a browser talks to; core is the API.
+  storefront_origin = "https://shop.${var.name}.${var.base_domain}"
+  admin_origin      = "https://admin.${var.name}.${var.base_domain}"
+  core_origin       = "https://api.${var.name}.${var.base_domain}"
 }
 
 # ---------- composition ----------
@@ -294,6 +299,40 @@ resource "aws_ecr_lifecycle_policy" "app" {
         action = { type = "expire" }
       },
     ]
+  })
+}
+
+# Application secrets. .env.example carries obvious dev placeholders for these; in a real environment
+# they must be generated and never typed by a human. apps/core's medusa-config.ts refuses to start in
+# production without JWT_SECRET and COOKIE_SECRET, and apps/admin without ADMIN_SESSION_SECRET
+# (which it requires to be at least 32 characters).
+resource "random_password" "jwt_secret" {
+  length  = 64
+  special = false
+}
+
+resource "random_password" "cookie_secret" {
+  length  = 64
+  special = false
+}
+
+resource "random_password" "admin_session_secret" {
+  length  = 64
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "app" {
+  name        = "${var.name}/platform/app"
+  description = "Application secrets for ${var.name}"
+  tags        = local.tags
+}
+
+resource "aws_secretsmanager_secret_version" "app" {
+  secret_id = aws_secretsmanager_secret.app.id
+  secret_string = jsonencode({
+    JWT_SECRET           = random_password.jwt_secret.result
+    COOKIE_SECRET        = random_password.cookie_secret.result
+    ADMIN_SESSION_SECRET = random_password.admin_session_secret.result
   })
 }
 

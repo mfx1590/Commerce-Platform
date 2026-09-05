@@ -44,6 +44,17 @@ output "MOCK_ADMIN_API_URL" {
   value       = module.environment.MOCK_ADMIN_API_URL
 }
 
+output "DATABASE_URL_MEDUSA_OWNER" {
+  description = "Medusa migration role connection string."
+  value       = module.environment.DATABASE_URL_MEDUSA_OWNER
+  sensitive   = true
+}
+
+output "app_secret_arn" {
+  description = "Secrets Manager ARN holding JWT_SECRET, COOKIE_SECRET and ADMIN_SESSION_SECRET."
+  value       = module.environment.app_secret_arn
+}
+
 output "cluster_name" {
   description = "EKS cluster name."
   value       = module.environment.cluster_name

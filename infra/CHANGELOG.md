@@ -26,9 +26,18 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   backups), `ci-oidc` (GitHub OIDC, no long-lived keys) and `environment`, which composes them. `envs/dev`
   and `envs/staging` are thin wrappers around `environment`, so both environments are the same shape and
   differ only in size and safety flags. Redpanda stays managed (Redpanda Cloud): connection variables only.
-- Environment outputs are named after `.env.example` variables (`DATABASE_URL`, `DATABASE_URL_APP`,
-  `REDIS_URL`, `KAFKA_BROKERS`, `KEYCLOAK_URL`, `OPENFGA_API_URL`, `MOCK_API_URL`, `MOCK_ADMIN_API_URL`),
-  plus a `dotenv` output that renders the whole file.
+- Environment outputs are named after `.env.example` variables, including the app configuration windows 1,
+  3 and 4 added while this was in flight: `DATABASE_URL`, `DATABASE_URL_APP`, `DATABASE_URL_MEDUSA_OWNER`,
+  `MEDUSA_DB_SCHEMA`, `REDIS_URL`, `KAFKA_BROKERS`, `KEYCLOAK_URL`, `OPENFGA_API_URL`, `MOCK_API_URL`,
+  `MOCK_ADMIN_API_URL`, `STORE_API_URL`, `ADMIN_API_URL`, `STORE_CORS`, `ADMIN_CORS`, `AUTH_CORS`,
+  `S3_MEDIA_BUCKET`, `S3_BACKUP_BUCKET`, plus a `dotenv` output that renders the whole file.
+- `JWT_SECRET`, `COOKIE_SECRET` and `ADMIN_SESSION_SECRET` are generated with `random_password` and stored in
+  Secrets Manager, never typed. `.env.example` carries obvious dev placeholders for them; a cloud environment
+  must not. `CORE_DEV_TOKENS`, `CORE_ORGANIZATION_ID`, `STORE_PUBLISHABLE_KEY` and `PORT` are deliberately not
+  emitted, and the `dotenv` output says why next to each.
+- The `medusa_owner` role (`apps/core/CLAUDE.md`: owns schema `medusa`, needs CREATE on the database, is never
+  the runtime connection) gets its own generated password, its own Secrets Manager entry and its own branch in
+  the bootstrap Job, alongside `platform_app`.
 - `infra/kubernetes/bootstrap-db/` — Job + idempotent SQL that creates the `platform_app` role with the
   Terraform-generated password before the migrations run, so the local-development password in
   `packages/db/migrations/0001_app_schema.sql` never reaches a cloud environment. Refuses to leave the role

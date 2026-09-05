@@ -72,6 +72,12 @@ variable "app_username" {
   default     = "platform_app"
 }
 
+variable "medusa_owner_username" {
+  description = "Role that owns schema `medusa` and runs Medusa's own migrations. Never used at runtime — see apps/core/CLAUDE.md."
+  type        = string
+  default     = "medusa_owner"
+}
+
 variable "tags" {
   description = "Tags applied to every resource in this module."
   type        = map(string)

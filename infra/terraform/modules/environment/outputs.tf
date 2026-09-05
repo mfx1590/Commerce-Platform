@@ -65,6 +65,65 @@ output "MOCK_ADMIN_API_URL" {
   value       = "https://mock-admin.${local.host}"
 }
 
+output "DATABASE_URL_MEDUSA_OWNER" {
+  description = "Medusa's migration role. Only scripts/db-medusa-migrate.ts uses it; never the runtime connection."
+  value       = module.postgres.database_url_medusa_owner
+  sensitive   = true
+}
+
+output "MEDUSA_DB_SCHEMA" {
+  description = "Schema Medusa's own tables live in. Constant across environments."
+  value       = "medusa"
+}
+
+output "JWT_SECRET" {
+  description = "Generated, not typed. apps/core refuses to start in production without it."
+  value       = random_password.jwt_secret.result
+  sensitive   = true
+}
+
+output "COOKIE_SECRET" {
+  description = "Generated, not typed."
+  value       = random_password.cookie_secret.result
+  sensitive   = true
+}
+
+output "ADMIN_SESSION_SECRET" {
+  description = "Generated, not typed. apps/admin requires at least 32 characters."
+  value       = random_password.admin_session_secret.result
+  sensitive   = true
+}
+
+output "app_secret_arn" {
+  description = "Secrets Manager ARN holding the three application secrets above."
+  value       = aws_secretsmanager_secret.app.arn
+}
+
+output "STORE_API_URL" {
+  description = "Store API base URL — the core app's public origin."
+  value       = local.core_origin
+}
+
+output "ADMIN_API_URL" {
+  description = "Admin API base URL — the same core app."
+  value       = local.core_origin
+}
+
+output "STORE_CORS" {
+  description = "Origins allowed on the Store API."
+  value       = local.storefront_origin
+}
+
+output "ADMIN_CORS" {
+  description = "Origins allowed on the Admin API."
+  value       = local.admin_origin
+}
+
+output "AUTH_CORS" {
+  description = "Origins allowed on the auth routes."
+  value       = "${local.storefront_origin},${local.admin_origin}"
+}
+
 output "S3_MEDIA_BUCKET" {
   description = "Product media bucket."
   value       = module.objects.media_bucket
@@ -133,11 +192,13 @@ output "redis_secret_arn" {
 output "bootstrap_db_env" {
   description = "Values the infra/kubernetes/bootstrap-db Job needs in order to create the platform_app role."
   value = {
-    host             = module.postgres.address
-    database         = "platform"
-    app_username     = module.postgres.app_username
-    owner_secret_arn = module.postgres.owner_secret_arn
-    app_secret_arn   = module.postgres.app_secret_arn
+    host                    = module.postgres.address
+    database                = "platform"
+    app_username            = module.postgres.app_username
+    medusa_owner_username   = module.postgres.medusa_owner_username
+    owner_secret_arn        = module.postgres.owner_secret_arn
+    app_secret_arn          = module.postgres.app_secret_arn
+    medusa_owner_secret_arn = module.postgres.medusa_owner_secret_arn
   }
 }
 
@@ -149,6 +210,8 @@ output "dotenv" {
     DATABASE_URL=${module.postgres.database_url}
     DATABASE_URL_APP=${module.postgres.database_url_app}
     REDIS_URL=${module.redis.redis_url}
+    DATABASE_URL_MEDUSA_OWNER=${module.postgres.database_url_medusa_owner}
+    MEDUSA_DB_SCHEMA=medusa
     KAFKA_BROKERS=${var.kafka_brokers}
     KEYCLOAK_URL=https://auth.${local.host}
     KEYCLOAK_REALM_STAFF=staff
@@ -159,5 +222,18 @@ output "dotenv" {
     MOCK_ADMIN_API_URL=https://mock-admin.${local.host}
     S3_MEDIA_BUCKET=${module.objects.media_bucket}
     S3_BACKUP_BUCKET=${module.objects.backups_bucket}
+    JWT_SECRET=${random_password.jwt_secret.result}
+    COOKIE_SECRET=${random_password.cookie_secret.result}
+    ADMIN_SESSION_SECRET=${random_password.admin_session_secret.result}
+    STORE_API_URL=${local.core_origin}
+    ADMIN_API_URL=${local.core_origin}
+    STORE_CORS=${local.storefront_origin}
+    ADMIN_CORS=${local.admin_origin}
+    AUTH_CORS=${local.storefront_origin},${local.admin_origin}
+    # Deliberately NOT set here, and they must not be:
+    #   CORE_DEV_TOKENS         local-development bypass; setting it in a cloud environment is a security hole
+    #   CORE_ORGANIZATION_ID    seeded application data, not infrastructure
+    #   STORE_PUBLISHABLE_KEY   per-store key, created by the registry module at runtime
+    #   PORT                    set per container image, not per environment
   ENV
 }

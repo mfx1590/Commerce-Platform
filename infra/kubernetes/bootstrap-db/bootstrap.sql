@@ -48,8 +48,37 @@ BEGIN
 END
 $$;
 
--- RDS revokes PUBLIC CONNECT on a created database, so the role needs this explicitly.
+-- The Medusa migration role. apps/core/CLAUDE.md: it owns schema `medusa` and has no rights on our
+-- tables, and it needs CREATE on the database because MikroORM's link-table DDL starts with
+-- `create schema if not exists`. Medusa's own migrations (scripts/db-medusa-migrate.ts) create and
+-- populate the schema; this only has to exist and be able to log in.
+SELECT set_config('bootstrap.medusa_username', :'medusa_username', false);
+SELECT set_config('bootstrap.medusa_password', :'medusa_password', false);
+
+DO $$
+DECLARE
+  v_user text := current_setting('bootstrap.medusa_username');
+  v_pass text := current_setting('bootstrap.medusa_password');
+BEGIN
+  IF v_user = '' OR v_pass = '' THEN
+    RAISE EXCEPTION 'medusa_username and medusa_password must both be set';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_user) THEN
+    EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L NOBYPASSRLS', v_user, v_pass);
+    RAISE NOTICE 'created role %', v_user;
+  ELSE
+    EXECUTE format('ALTER ROLE %I WITH LOGIN PASSWORD %L NOBYPASSRLS', v_user, v_pass);
+    RAISE NOTICE 'role % already existed, password re-applied', v_user;
+  END IF;
+END
+$$;
+
+-- RDS revokes PUBLIC CONNECT on a created database, so both roles need this explicitly.
 GRANT CONNECT ON DATABASE :"DBNAME" TO :"app_username";
+GRANT CONNECT ON DATABASE :"DBNAME" TO :"medusa_username";
+GRANT CREATE ON DATABASE :"DBNAME" TO :"medusa_username";
 
 -- Leave nothing behind in the session.
 SELECT set_config('bootstrap.app_password', '', false);
+SELECT set_config('bootstrap.medusa_password', '', false);

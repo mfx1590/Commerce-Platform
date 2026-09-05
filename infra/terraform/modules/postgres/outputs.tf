@@ -25,6 +25,22 @@ output "database_url_app" {
   sensitive   = true
 }
 
+output "database_url_medusa_owner" {
+  description = "DATABASE_URL_MEDUSA_OWNER — Medusa's migration role. Never the runtime connection."
+  value       = local.medusa_owner_url
+  sensitive   = true
+}
+
+output "medusa_owner_username" {
+  description = "Medusa migration role name, for the bootstrap job."
+  value       = var.medusa_owner_username
+}
+
+output "medusa_owner_secret_arn" {
+  description = "Secrets Manager ARN of the Medusa migration credentials."
+  value       = aws_secretsmanager_secret.medusa_owner.arn
+}
+
 output "owner_secret_arn" {
   description = "Secrets Manager ARN of the owner credentials; what External Secrets reads (task 2.6)."
   value       = aws_secretsmanager_secret.owner.arn

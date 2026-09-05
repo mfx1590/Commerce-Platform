@@ -85,6 +85,13 @@ resource "random_password" "app" {
   special = false
 }
 
+# apps/core runs Medusa's migrations as a third role that owns schema `medusa` and has no rights on
+# ours. Like platform_app it is created by the bootstrap Job, not here.
+resource "random_password" "medusa_owner" {
+  length  = 32
+  special = false
+}
+
 resource "aws_db_instance" "this" {
   identifier     = "${var.name}-postgres"
   engine         = "postgres"
@@ -125,8 +132,9 @@ resource "aws_db_instance" "this" {
 
 locals {
   # sslmode=require is explicit in the URL because the parameter group refuses anything else.
-  owner_url = "postgres://${var.owner_username}:${urlencode(random_password.owner.result)}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.database_name}?sslmode=require"
-  app_url   = "postgres://${var.app_username}:${urlencode(random_password.app.result)}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.database_name}?sslmode=require"
+  owner_url        = "postgres://${var.owner_username}:${urlencode(random_password.owner.result)}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.database_name}?sslmode=require"
+  app_url          = "postgres://${var.app_username}:${urlencode(random_password.app.result)}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.database_name}?sslmode=require"
+  medusa_owner_url = "postgres://${var.medusa_owner_username}:${urlencode(random_password.medusa_owner.result)}@${aws_db_instance.this.address}:${aws_db_instance.this.port}/${var.database_name}?sslmode=require"
 }
 
 # ---------- secrets ----------
@@ -146,6 +154,24 @@ resource "aws_secretsmanager_secret_version" "owner" {
     port         = aws_db_instance.this.port
     database     = var.database_name
     DATABASE_URL = local.owner_url
+  })
+}
+
+resource "aws_secretsmanager_secret" "medusa_owner" {
+  name        = "${var.name}/platform/database/medusa-owner"
+  description = "Medusa migration role for ${var.name} Postgres (created by the bootstrap job)"
+  tags        = var.tags
+}
+
+resource "aws_secretsmanager_secret_version" "medusa_owner" {
+  secret_id = aws_secretsmanager_secret.medusa_owner.id
+  secret_string = jsonencode({
+    username                  = var.medusa_owner_username
+    password                  = random_password.medusa_owner.result
+    host                      = aws_db_instance.this.address
+    port                      = aws_db_instance.this.port
+    database                  = var.database_name
+    DATABASE_URL_MEDUSA_OWNER = local.medusa_owner_url
   })
 }
 
