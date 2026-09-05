@@ -18,14 +18,14 @@ pnpm --filter @platform/admin dev    # http://localhost:3000
 No `.env` is required — every setting has a default matching the repo-root `.env.example`. Copy
 [`.env.example`](./.env.example) to `.env.local` only to point somewhere else.
 
-| Variable                | Default                  | Meaning                                     |
-| ----------------------- | ------------------------ | ------------------------------------------- |
-| `KEYCLOAK_URL`          | `http://localhost:8180`  | Keycloak base URL                           |
-| `KEYCLOAK_REALM_STAFF`  | `staff`                  | Staff realm (customers live in another one) |
-| `ADMIN_OIDC_CLIENT_ID`  | `admin-app`              | Public PKCE client                          |
-| `ADMIN_APP_URL`         | `http://localhost:3000`  | Origin used to build the redirect URI       |
-| `MOCK_ADMIN_API_URL`    | `http://localhost:4011`  | Admin API base URL                          |
-| `ADMIN_SESSION_SECRET`  | dev constant             | Encrypts the session cookie; required in production |
+| Variable               | Default                 | Meaning                                             |
+| ---------------------- | ----------------------- | --------------------------------------------------- |
+| `KEYCLOAK_URL`         | `http://localhost:8180` | Keycloak base URL                                   |
+| `KEYCLOAK_REALM_STAFF` | `staff`                 | Staff realm (customers live in another one)         |
+| `ADMIN_OIDC_CLIENT_ID` | `admin-app`             | Public PKCE client                                  |
+| `ADMIN_APP_URL`        | `http://localhost:3000` | Origin used to build the redirect URI               |
+| `MOCK_ADMIN_API_URL`   | `http://localhost:4011` | Admin API base URL                                  |
+| `ADMIN_SESSION_SECRET` | dev constant            | Encrypts the session cookie; required in production |
 
 Port 3000 is fixed: the Keycloak client registers `http://localhost:3000/*` as its only redirect URI.
 
@@ -102,15 +102,15 @@ token the API would reject.
 
 ## Layout
 
-| Path                       | What lives there                                              |
-| -------------------------- | ------------------------------------------------------------- |
-| `src/app/`                 | Routes. `api/auth/*` are the OIDC endpoints                   |
-| `src/middleware.ts`        | The auth gate and the only place that refreshes tokens        |
-| `src/lib/env.ts`           | Server-side configuration and defaults                        |
-| `src/lib/auth/`            | PKCE, discovery, token exchange, session sealing              |
-| `src/lib/api/`             | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
-| `src/components/ui/`       | Presentational primitives (`cn`, Button, Card, Badge)         |
-| `test/`                    | Vitest suites                                                 |
+| Path                 | What lives there                                                     |
+| -------------------- | -------------------------------------------------------------------- |
+| `src/app/`           | Routes. `api/auth/*` are the OIDC endpoints                          |
+| `src/middleware.ts`  | The auth gate and the only place that refreshes tokens               |
+| `src/lib/env.ts`     | Server-side configuration and defaults                               |
+| `src/lib/auth/`      | PKCE, discovery, token exchange, session sealing                     |
+| `src/lib/api/`       | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
+| `src/components/ui/` | Presentational primitives (`cn`, Button, Card, Badge)                |
+| `test/`              | Vitest suites                                                        |
 
 `src/lib/api/admin-client.ts` and `src/lib/auth/session.ts` avoid `next/*` imports on purpose, so
 they run unchanged in the Node runtime, the Edge middleware, and unit tests.
