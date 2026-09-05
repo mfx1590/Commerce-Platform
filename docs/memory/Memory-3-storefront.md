@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1/1.2 merged, 1.3 in PR #64, 1.4 built and committed locally (push held until #64 merges)
+Last updated: 2026-09-05 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.3 merged (#39, #64), 1.4 in PR #66, 1.5 next
 
 ## Identity (does not change)
 
@@ -58,8 +58,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       `pnpm mock`: PLP performance 99–100 (LCP 1.8–2.0 s, TBT 60–80 ms, CLS 0, a11y 100, SEO 91),
       PDP performance 100 (LCP 1.5 s, TBT 60 ms, CLS 0, a11y 100, SEO 100).**
 
-- [x] **1.4 (#20) Cart + checkout steps against the mock** — commit `<pending>`, PR pending (push held
-      until #64 merges, per the manager). Cart at `/cart` (line items, quantity, remove); steps
+- [x] **1.4 (#20) Cart + checkout steps against the mock** — commit `076d2e7`, PR #66. Cart at `/cart` (line items, quantity, remove); steps
       `/checkout/{address,shipping,payment,review}` with `/checkout` routing to what the cart needs;
       confirmation at `/orders/[orderId]`. All mutations are server actions in `src/lib/actions.ts`.
       `Idempotency-Key` stored as `<cartId>:<key>`. Error mapping for 409 out_of_stock / 402
