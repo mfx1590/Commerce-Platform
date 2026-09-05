@@ -29,49 +29,36 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 ## Done
 
 - **2.1 — Dockerfiles for every app + build compose + CI image job (issue #31)** — commit `69d0480`, PR #45
-  (https://github.com/mfx1590/Commerce-Platform/pull/45), awaiting the Reviewer session. All six CI checks green,
-  including the new `images` job (2m23s on a clean runner: six images built + smoke test).
+  **merged** into main 2026-09-05 (merge commit `7df4aa9`).
   Six `apps/<app>/Dockerfile`, `infra/docker/{entrypoint.sh,health-server.mjs,docker-compose.build.yml,smoke-images.sh}`,
   CI job `images`, `infra/README.md` + `infra/CHANGELOG.md`.
   Verified locally: all six images build; smoke test green (uid 1000, HEALTHCHECK `healthy`, `/health` → 200);
   scaffold image ~221 MB (node:20-alpine + 24 MB pnpm; the app layers are ~100 KB).
 
+- **2.1b — app images fixed for the real apps (issue #59)** — this PR. Three defects, all found by building and
+  running rather than reading: `pnpm --filter <app> build` never built the workspace dependencies;
+  `medusa build` needs `ts-node` and a non-empty environment; and `pnpm deploy` silently dropped `.medusa` and
+  `.next` because npm packing skips dot-directories. `continue-on-error` removed from the `images` job.
+  Verified: all six images build, smoke test green, core and admin both boot inside their containers and fail
+  only on missing configuration (a database / `ADMIN_SESSION_SECRET`), which is correct.
+
 ## In progress
 
-- **2.2 — Terraform AWS dev + staging (issue #32).** Plan written before starting; waiting for the owner's go-ahead
-  (>20 tool calls, budget rule). No cloud credentials exist yet, so everything stops at `fmt -check` + `validate`
-  plus a `plan` runbook.
+- **2.2 — Terraform for dev + staging (issue #32) is FINISHED but PARKED.** The work is two commits on the local
+  branch `park/2.2` (tip `d0e7cd4`, built on `69d0480`). It was moved off `infra/phase2` so this #59 fix could go
+  out as its own PR under the one-open-PR rule. Nothing is lost and nothing is pushed.
 
-  Layout:
+  To resume after this PR merges:
 
-  ```
-  infra/terraform/
-    modules/network/        VPC, 3 AZ, public + private subnets, single NAT (dev) / one per AZ (staging), VPC endpoints
-    modules/cluster/        EKS (small, managed node group), IRSA OIDC provider, aws-auth, cluster autoscaler IAM
-    modules/postgres/       RDS Postgres 16, subnet group, SG, parameter group (RLS-safe: no rds_superuser for the app)
-    modules/redis/          ElastiCache Redis 7, replication group, SG
-    modules/objects/        S3 media + backups buckets (versioned, SSE, public access blocked), lifecycle rules
-    modules/ci-oidc/        GitHub OIDC provider + a deploy role scoped to this repo (no long-lived keys)
-    modules/bootstrap-db/   k8s Job manifest + SQL that creates the `platform_app` role and grants (never by hand)
-    envs/dev/               backend.tf (S3 + DynamoDB lock), main.tf, variables.tf, outputs.tf, terraform.tfvars.example
-    envs/staging/           same, larger sizes, NAT per AZ, deletion protection on
+  ```bash
+  git fetch origin && git checkout infra/phase2 && git reset --hard origin/main
+  git cherry-pick 30eb592 d0e7cd4     # or: git merge park/2.2
+  bash infra/terraform/check.sh       # must stay green
   ```
 
-  Rules to hold to:
-  - Outputs must be named so they map 1:1 onto `.env.example`: `DATABASE_URL`, `DATABASE_URL_APP`, `REDIS_URL`,
-    `KAFKA_BROKERS`, `KEYCLOAK_URL`, `OPENFGA_API_URL`. Redpanda is Redpanda **Cloud** per the managed-first
-    decision: connection variables only, no cluster resource.
-  - Remote state: S3 bucket + DynamoDB lock table, documented in the runbook and created by a one-off bootstrap;
-    state is never committed and `.gitignore` already covers `*.tfstate`? — check, and if not, ask main (root config).
-  - Secrets never in `.tfvars` in git; only `terraform.tfvars.example` with placeholders.
-  - CI: new `terraform` job in `ci.yml` running `fmt -check -recursive` and `init -backend=false && validate` for
-    both envs. No AWS credentials needed, so it runs on every PR touching `infra/terraform/**`.
-  - Runbook section in `infra/README.md`: empty AWS account → bootstrap state → `plan` → `apply` for dev, then staging.
-
-  Open question for the owner (does not block writing the code): EKS vs. the managed-first decision. Memory-main says
-  managed-first for Phases 0–3 (Vercel, Neon, Upstash, Redpanda Cloud), but issue #32 asks for EKS + RDS +
-  ElastiCache. I will follow the issue (EKS/RDS/ElastiCache) since acceptance criteria override, and keep the
-  managed alternatives as documented variables so a later switch is a values change, not a rewrite.
+  Expect one conflict in `.github/workflows/ci.yml`: the parked commit adds a `terraform` job next to `images`,
+  and this PR edits `images`. Keep both jobs. `infra/CHANGELOG.md` and `docs/memory/Memory-5-infra.md` will also
+  conflict — keep both sets of entries. Delete the `park/2.2` branch once the cherry-pick is verified.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
@@ -109,8 +96,28 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   default. The build compose publishes nothing; only `smoke-images.sh` maps them to the host.
 - **Inline path filter in the `images` job** rather than a third-party action — task 2.4 owns generalising it.
 
+- **The image smoke test does not boot real apps, on purpose.** `apps/core` throws without `DATABASE_URL_APP`
+  and `apps/admin` without `ADMIN_SESSION_SECRET` — correct fail-fast behaviour, not a bug to work around. An
+  image test that spun up Postgres and Redis, ran two sets of migrations and invented secrets would be testing
+  the deployment, slowly and flakily. So images are checked for what an image owns (non-root, build output
+  present, right entrypoint) and the staging deploy owns "a configured app serves /health".
+- **Workarounds for app defects live in the Dockerfile, each marked with the REQUEST issue that removes it.**
+  Waiting for another window would leave main's CI red; editing their app would break ownership. Every
+  workaround is one line with a comment naming the issue, so the cleanup is mechanical.
+- **The admin and storefront images follow the app's hard-coded port (3000/3100) instead of the 900x
+  allocation.** A HEALTHCHECK probing a port the app does not listen on is worse than an inconsistent number.
+  REQUEST #68 reverses this.
+
 ## Blocked / waiting
 
+- **REQUEST #60** (window 1) — `apps/core` must declare `ts-node`; until then the core image installs it in the
+  build stage. Not blocking.
+- **REQUEST #68** (windows 3 and 4) — Next.js `start` scripts should honour `$PORT`, and
+  `storefront-starter/next.config.ts` breaks `next start` in a production image (it needs `typescript` at
+  runtime and `--prod` drops it). The port half is worked around; **the config half is not, and will fail on
+  the first staging deploy** — CI cannot catch it because the smoke test does not boot Next.js apps.
+- **REQUEST #55** (main) — `.prettierignore` needs `**/.terraform`. Filed with the parked 2.2 work; re-check it
+  is still open when 2.2 is un-parked.
 - Cloud credentials (AWS, Grafana Cloud, Sentry, Vault) — until the owner puts them in `.env`, tasks 2.2/2.5/2.6
   stop at `terraform validate` / `helm template` / runbooks. Never commit credentials.
 
@@ -127,6 +134,22 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   commit) → continue on the same branch → open the next PR, which then contains only the new task. Never create
   stacked per-task branches. Practical consequence: do not push task N+1 commits to `infra/phase2` while task N's
   PR is still open, or they land in that PR.
+- **`pnpm deploy` drops dot-directories.** It packs like npm, and npm's rules skip them — so `.medusa/server`
+  and `.next` never reach the deployed package and the container dies with MODULE_NOT_FOUND (core) or serves
+  nothing (Next.js). Every real app needs an explicit `cp -r` after the deploy step. `dist/` is unaffected.
+- **`pnpm --filter <app> build` does not build workspace dependencies.** Use `--filter "<app>..."` (trailing
+  `...`), or the app compiles against packages with no `dist/`: "Cannot find module '@platform/db'".
+- **`medusa build` requires `ts-node` and a populated environment.** The CLI does a bare `require('ts-node')`,
+  so no loader flag (`--import tsx`, `--require tsx/cjs`) can substitute, and `NODE_ENV=production` only makes
+  it fail differently. `medusa-config.ts` also throws on missing `DATABASE_URL_APP` / `REDIS_URL` /
+  `JWT_SECRET` / `COOKIE_SECRET`, and nothing calls `loadDotenv()` on the CLI path — an image build has no
+  `.env`, so the build stage must supply placeholders.
+- **Git Bash on Windows rewrites absolute POSIX paths in any argument**, not just `-v` mounts:
+  `docker run --entrypoint node img -p 'require("/app/package.json")'` reaches the container as
+  `C:/Program Files/Git/app/package.json`. Use relative paths (WORKDIR is `/app`) or `MSYS_NO_PATHCONV=1`.
+- **A container that has exited answers nothing.** `docker exec ... id -u` errors, which the first version of
+  the smoke test read as "root". Use `docker image inspect -f '{{.Config.User}}'` — a property of the image,
+  true whether or not anything is running.
 - `pnpm deploy` in pnpm 10 needs `--legacy` unless the workspace sets `inject-workspace-packages=true`.
 - Windows/Git Bash: `docker run -v` needs `MSYS_NO_PATHCONV=1` and a `C:/…` path or the mount path is mangled.
 - Prettier formats `infra/**` (only `docs/**` is ignored), so every YAML/Markdown/mjs file added here must be
