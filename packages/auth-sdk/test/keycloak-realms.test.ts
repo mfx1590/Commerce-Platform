@@ -1,6 +1,7 @@
 // Keycloak realm exports (infra/keycloak, issue #10).
 // Static part: always runs, validates the JSON files against the seed contract and the security rules.
 // Live part: runs only when the local Keycloak (KEYCLOAK_URL, default http://localhost:8180) answers.
+import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,7 +41,7 @@ interface User {
   username: string;
   email: string;
   requiredActions?: string[];
-  credentials?: { type: string; value?: string }[];
+  credentials?: { type: string; value?: string; secretData?: string; credentialData?: string }[];
 }
 interface Realm {
   realm: string;
@@ -82,24 +83,43 @@ describe('staff realm export (static)', () => {
     }
   });
 
-  it('enforces MFA through the browser flow (TOTP REQUIRED, not conditional)', () => {
+  it('dev browser flow: TOTP is CONDITIONAL — challenged only when enrolled (#43, manager decision)', () => {
     expect(staff.browserFlow).toBe('browser-mfa');
     expect(staff.otpPolicyType).toBe('totp');
     const top = staff.authenticationFlows?.find((f) => f.alias === 'browser-mfa');
     const forms = staff.authenticationFlows?.find((f) => f.alias === 'browser-mfa forms');
+    const otpFlow = staff.authenticationFlows?.find((f) => f.alias === 'browser-mfa otp');
     expect(top?.topLevel).toBe(true);
     expect(top?.authenticationExecutions.map((e) => e.flowAlias ?? e.authenticator)).toEqual([
       'auth-cookie',
       'identity-provider-redirector',
       'browser-mfa forms',
     ]);
-    const otp = forms?.authenticationExecutions.find((e) => e.authenticator === 'auth-otp-form');
-    const pwd = forms?.authenticationExecutions.find(
-      (e) => e.authenticator === 'auth-username-password-form',
-    );
-    expect(pwd?.requirement).toBe('REQUIRED');
-    expect(otp?.requirement).toBe('REQUIRED');
-    expect(otp!.priority).toBeGreaterThan(pwd!.priority);
+    expect(
+      forms?.authenticationExecutions.map(
+        (e) => `${e.flowAlias ?? e.authenticator}:${e.requirement}`,
+      ),
+    ).toEqual(['auth-username-password-form:REQUIRED', 'browser-mfa otp:CONDITIONAL']);
+    expect(
+      otpFlow?.authenticationExecutions.map((e) => `${e.authenticator}:${e.requirement}`),
+    ).toEqual(['conditional-user-configured:REQUIRED', 'auth-otp-form:REQUIRED']);
+  });
+
+  it('owner (and only owner) is pre-enrolled with the documented dev TOTP secret', () => {
+    const withOtp = staff.users
+      .filter((u) => (u.credentials ?? []).some((c) => c.type === 'otp'))
+      .map((u) => u.username);
+    expect(withOtp).toEqual(['owner']);
+    const cred = staff.users
+      .find((u) => u.username === 'owner')!
+      .credentials!.find((c) => c.type === 'otp')!;
+    expect(JSON.parse(cred.secretData!)).toEqual({ value: OWNER_DEV_TOTP_SECRET });
+    expect(JSON.parse(cred.credentialData!)).toMatchObject({
+      subType: 'totp',
+      digits: 6,
+      period: 30,
+      algorithm: 'HmacSHA1',
+    });
   });
 
   it('admin-app is a public PKCE client without password grant and carries email + audience', () => {
@@ -206,6 +226,61 @@ function claims(jwt: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
 }
 
+/** Dev-only TOTP secret of the pre-enrolled `owner` user (infra/keycloak/README.md, issue #43). */
+const OWNER_DEV_TOTP_SECRET = 'owner-dev-totp-secret-20260905';
+
+/** RFC 6238 TOTP over the raw secret string (HmacSHA1, 6 digits, 30 s) — Keycloak's OTP policy. */
+function totp(secret: string, at = Date.now()): string {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
+  const h = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
+  const o = h[h.length - 1]! & 0xf;
+  return ((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
+}
+
+/** Opens the admin-app authorization page and returns the login-form action plus a cookie-jar fetch. */
+async function startBrowserLogin() {
+  const jar = new Map<string, string>();
+  const store = (res: Response) => {
+    for (const c of res.headers.getSetCookie()) {
+      const [kv] = c.split(';');
+      const i = kv!.indexOf('=');
+      jar.set(kv!.slice(0, i).trim(), kv!.slice(i + 1).trim());
+    }
+  };
+  const cookieHeader = () => [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+  const authUrl =
+    `${KC}/realms/staff/protocol/openid-connect/auth?client_id=admin-app&response_type=code&scope=openid` +
+    `&redirect_uri=${encodeURIComponent('http://localhost:3000/callback')}` +
+    `&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=t`;
+  const page = await fetch(authUrl, { redirect: 'manual' });
+  store(page);
+  const html = await page.text();
+  const action = html.match(/id="kc-form-login"[^>]*action="([^"]+)"/)?.[1]?.replace(/&amp;/g, '&');
+  if (!action) throw new Error('login form not found');
+  const postForm = async (url: string, fields: Record<string, string>) => {
+    const res = await fetch(url, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: cookieHeader() },
+      body: new URLSearchParams(fields),
+    });
+    store(res);
+    return res;
+  };
+  /** 200 → its HTML; 302 to a Keycloak page → follow once with cookies. */
+  const followToHtml = async (res: Response) => {
+    if (res.status !== 302) return res.text();
+    const next = await fetch(res.headers.get('location')!, {
+      redirect: 'manual',
+      headers: { cookie: cookieHeader() },
+    });
+    store(next);
+    return next.text();
+  };
+  return { action, postForm, followToHtml };
+}
+
 describe.runIf(live)('staff realm (live Keycloak)', () => {
   it('publishes OIDC discovery for both realms', async () => {
     for (const realm of ['staff', 'customers']) {
@@ -234,33 +309,36 @@ describe.runIf(live)('staff realm (live Keycloak)', () => {
     expect(t.access_token).toBeUndefined();
   });
 
-  it('browser login as store-admin requires TOTP setup right after the password', async () => {
-    const authUrl =
-      `${KC}/realms/staff/protocol/openid-connect/auth?client_id=admin-app&response_type=code&scope=openid` +
-      `&redirect_uri=${encodeURIComponent('http://localhost:3000/callback')}` +
-      `&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=t`;
-    const page = await fetch(authUrl, { redirect: 'manual' });
-    const cookies = page.headers
-      .getSetCookie()
-      .map((c) => c.split(';')[0])
-      .join('; ');
-    const html = await page.text();
-    const action = html
-      .match(/id="kc-form-login"[^>]*action="([^"]+)"/)?.[1]
-      ?.replace(/&amp;/g, '&');
-    expect(action, 'login form').toBeDefined();
-
-    const after = await fetch(action!, {
-      method: 'POST',
-      redirect: 'manual',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: cookies },
-      body: new URLSearchParams({ username: 'store-admin', password: 'store-admin' }),
+  it('browser login as store-admin (no TOTP enrolled) reaches the app callback directly (#43)', async () => {
+    const login = await startBrowserLogin();
+    const after = await login.postForm(login.action, {
+      username: 'store-admin',
+      password: 'store-admin',
     });
     expect(after.status).toBe(302);
     const location = after.headers.get('location') ?? '';
-    expect(location).toContain('login-actions/required-action');
-    expect(location).toContain('execution=CONFIGURE_TOTP');
-    expect(location).not.toContain('localhost:3000/callback');
+    expect(location).toContain('http://localhost:3000/callback');
+    expect(location).toContain('code=');
+    expect(location).not.toContain('required-action');
+  });
+
+  it('browser login as owner (pre-enrolled) is challenged for TOTP and passes with the documented secret', async () => {
+    const login = await startBrowserLogin();
+    const after = await login.postForm(login.action, { username: 'owner', password: 'owner' });
+    // CONDITIONAL flow: enrolled user gets the OTP form (200 page, never the app callback yet).
+    expect(after.headers.get('location') ?? '').not.toContain('localhost:3000/callback');
+    const otpHtml = await login.followToHtml(after);
+    expect(otpHtml).toMatch(/name="otp"/);
+    const otpAction = otpHtml
+      .match(/<form[^>]*action="([^"]+)"[^>]*>(?:(?!<\/form>)[\s\S])*name="otp"/)?.[1]
+      ?.replace(/&amp;/g, '&');
+    expect(otpAction, 'otp form action').toBeDefined();
+
+    const done = await login.postForm(otpAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
+    expect(done.status).toBe(302);
+    const location = done.headers.get('location') ?? '';
+    expect(location).toContain('http://localhost:3000/callback');
+    expect(location).toContain('code=');
   });
 
   it('customers realm: jane gets a token with email and store-less audience', async () => {

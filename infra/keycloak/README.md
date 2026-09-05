@@ -17,11 +17,18 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 
 ## Staff realm
 
-- **MFA is mandatory.** The realm's browser flow is the custom `browser-mfa` flow: cookie → corporate SSO
-  redirect (`hq-sso`, disabled placeholder) → `browser-mfa forms` = username/password **then TOTP as
-  REQUIRED**. A user who has no TOTP credential yet is sent to the "Mobile Authenticator Setup" page on
-  first login (Keycloak adds the `CONFIGURE_TOTP` required action). This is enforced by the flow, not by a
-  per-user required action, so a fresh import never has half-configured users.
+- **MFA: CONDITIONAL in this dev realm (issue #43, manager decision 2026-09-05).** The browser flow is the
+  custom `browser-mfa` flow: cookie → corporate SSO redirect (`hq-sso`, disabled placeholder) →
+  `browser-mfa forms` = username/password, then the sub-flow `browser-mfa otp` (CONDITIONAL:
+  `conditional-user-configured` + OTP form). A user **with** an enrolled TOTP is challenged; a user
+  **without** one signs in with the password alone — so the other windows can drive the admin app locally
+  without enrolling authenticators after every `pnpm dev --reset`. **Production realms must flip the
+  sub-flow wiring back to forced enrolment** (make the OTP execution REQUIRED in `browser-mfa forms`); the
+  dev-only table below lists this.
+- **`owner` is pre-enrolled** so the challenge path stays testable. Dev-only TOTP secret (raw, HmacSHA1,
+  6 digits, 30 s): `owner-dev-totp-secret-20260905`. For an authenticator app enter the Base32 form:
+  `N53W4ZLSFVSGK5RNORXXI4BNONSWG4TFOQWTEMBSGYYDSMBV`. Tests compute codes from the raw value
+  (`test/keycloak-realms.test.ts`).
 - **OTP policy:** TOTP, SHA1, 6 digits, 30 s, look-ahead 1 (works with FreeOTP, Google/Microsoft
   Authenticator).
 - **Clients**
@@ -58,6 +65,8 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 | Setting                                | Local value                | Elsewhere                               |
 | -------------------------------------- | -------------------------- | --------------------------------------- |
 | `sslRequired`                          | `external`                 | `all` behind TLS                        |
+| OTP step in `browser-mfa forms` (#43)  | CONDITIONAL                | REQUIRED (forced enrolment)             |
+| `owner` pre-enrolled TOTP credential   | documented secret above    | remove; no committed OTP secrets        |
 | Seeded users with password = username  | present                    | remove the `users` array                |
 | `test-cli` client (password grant)     | present                    | remove                                  |
 | Password policy                        | none (seed passwords)      | e.g. `length(12) and notUsername and …` |
@@ -104,9 +113,10 @@ deterministic, except user ids, which are the `keycloak_subject` contract with t
 
 ## Symptoms of a stale realm
 
-`test-cli` answers `invalid_client`, or a browser login lands on the app callback without a TOTP step: the
-running Keycloak still holds an older realm (for example the Phase 0 stubs imported on the volume's first
-start). Run `node infra/keycloak/reimport.mjs staff` / `… customers`.
+`test-cli` answers `invalid_client`, or a browser login as `store-admin` demands TOTP **setup**
+(`execution=CONFIGURE_TOTP` — the pre-#43 flow): the running Keycloak still holds an older realm (for
+example the Phase 0 stubs imported on the volume's first start, or the REQUIRED-OTP revision). Run
+`node infra/keycloak/reimport.mjs staff` / `… customers`, or `pnpm dev --reset` (wipes all volumes).
 
 History: `KC_DB=dev-mem` dropped its in-memory database ~15 min after start (issue #37); main switched to
 `dev-file` + volume, which is why the import is now one-shot.

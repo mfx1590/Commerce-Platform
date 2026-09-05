@@ -1,6 +1,6 @@
 # Memory 2 — Auth & RBAC
 Window: 2 · Key: `auth` · Branch prefix: `auth/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-04 · Contracts: contracts-v0.1 · Last commit: c97bbdf (task 1.2, PR #38; 1.1 = d95b4b4) · Status: Phase 1 in progress, parallel mode (worktree `../wt-auth`, branch `auth/phase1`)
+Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: pending (#43 follow-up; PR #38 with 1.1+1.2 MERGED 2026-09-05) · Status: Phase 1 in progress, parallel mode (worktree `../wt-auth`, branch `auth/phase1`)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -25,10 +25,14 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 - [x] 1.1 (#10) Keycloak realm exports — commit: d95b4b4 (PR #38). `infra/keycloak/staff-realm.json` (browser flow `browser-mfa` with TOTP REQUIRED → forced setup on first login; `admin-app` PKCE public client; `test-cli` dev/CI password-grant client; 7 users with id `seed-<username>` = `staff_user.keycloak_subject`; `hq-sso` disabled OIDC placeholder), `customers-realm.json` (3 PKCE clients with hard-coded `store_code` claim, registration + reset, Google IdP disabled with `${GOOGLE_CLIENT_ID:unset}` placeholders, Jane), `README.md`, `reimport.mjs`. Tests: `packages/auth-sdk/test/keycloak-realms.test.ts` (static + live). Verified live: discovery OK, password grant → `sub=seed-store-admin`, `email`, `aud=core-api`; admin-app password grant → 400; browser login after password → 302 to `required-action?execution=CONFIGURE_TOTP`.
 - [x] 1.2 (#11) OpenFGA model — commit: c97bbdf (PR #38, section "Task 1.2"). `infra/openfga/model.fga` (ADR 0002 verbatim), `tuples.seed.json` (11 tuples: 3 `organization:hq organization store:<id>` + 8 user relations, ids = `SEED_IDS`), `README.md`. auth-sdk: `src/fga/{model,client,seed}.ts` → `loadAuthorizationModel`, `loadSeedTuples`, `modelFromDsl`, `createOpenFgaClient`, `seedOpenFga`; `scripts/fga-seed.ts` (`pnpm --filter @platform/auth-sdk fga:seed`, writes `OPENFGA_STORE_ID`/`OPENFGA_MODEL_ID` to root `.env`). Tests `test/openfga-model.test.ts` 14 (static vs `RELATIONS`/`SEED_IDS` + live on a throw-away store: store-admin store_admin brand-a/b only, never finance/viewer on org; owner viewer+store_admin on all 3 stores; listObjects for store-admin = [brand-a, brand-b]). Seed run twice against docker: store `commerce-platform` reused, 0 written.
 
+- [x] #43 follow-up (manager decision) — commit: pending (own PR). Staff realm OTP now CONDITIONAL: `browser-mfa forms` = password REQUIRED + sub-flow `browser-mfa otp` CONDITIONAL (`conditional-user-configured` + `auth-otp-form`); `owner` pre-enrolled with dev TOTP secret `owner-dev-totp-secret-20260905` (Base32 in infra/keycloak/README.md). Tests flipped: static flow-shape + owner-only-enrolled; live store-admin → 302 straight to callback with code=; live owner → OTP form, passes with computed RFC 6238 code. README: MFA paragraph, dev-only table rows (REQUIRED elsewhere), stale-realm symptoms inverted.
+
 ## In progress
-- (nothing — next: task 1.3)
+- (nothing — waiting: #43-follow-up PR merge, then cherry-pick task 1.3 from `auth/parked-13-14` and open its PR, then 1.4. **Tasks 1.3 and 1.4 are DONE but parked** on local branch `auth/parked-13-14` (1.3 = 9c18c35 + memory 228c6e7, 1.4 = bec3bd2 + memory 8c0a675) because the manager wants one task per PR on this branch; their memory entries return with the cherry-picks. 1.3 PR body must document the organization:hq ↔ organization uuid mapping (fgaObject resolves object_id uuid → organization slug for the tuple). Window 1 applies #48; do NOT touch apps/core/package.json.)
 
 ## Next — Phase 1
+- [ ] Open PR for 1.3 (cherry-pick 9c18c35 + 228c6e7 from auth/parked-13-14 after the #43 PR merges; document org uuid↔slug mapping in the body)
+- [ ] Open PR for 1.4 (cherry-pick bec3bd2 + 8c0a675 after the 1.3 PR merges)
 - [ ] 1.3 (#12) Tuple management in hq-rbac: OpenFGA write → mirror `role_assignment` → `audit_log`, rollback tuple on mirror failure; `POST /admin/users/{id}/roles`, `DELETE …/{assignmentId}` (require `owner` on `organization:hq`); CLI `roles assign <email> <relation> <store-code|hq>`.
 - [ ] 1.4 (#13) Scope middleware in hq-rbac: JWT (staff JWKS) → `sub` → staff_user → OpenFGA ListObjects(store, viewer) + Check(org relations) → `{ organizationId, storeIds, organizationRelations }`; 30 s per-sub cache invalidated by the tuple API; unknown sub 401; OpenFGA down 503.
 - [ ] 1.5 (#14) `audit(tx, {...})` writer in auth-sdk with PII redaction; `GET /admin/audit-log`; test that `UPDATE audit_log` as platform_app is denied.
@@ -36,7 +40,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 - [ ] 1.7 (#16) Gate tests: store-admin (brand-a+b) 200 on `GET /admin/stores`, 403 on `GET /admin/legal-entities` and `/admin/finance/ping`; analyst 403 on `GET /admin/stores/{id}/customers` (decide + document analyst↔viewer on customers).
 
 ## Decisions made (with reasons)
-- MFA is enforced by the staff realm's **browser flow** (`auth-otp-form` REQUIRED), not by a per-user `CONFIGURE_TOTP` required action. Reason: a pending required action makes the password grant fail ("Account is not fully set up"), which would break the test tokens issue #16 needs; the flow approach forces TOTP setup on first browser login and leaves the direct-grant flow (password only) usable by `test-cli`.
+- MFA lives in the staff realm's **browser flow**, never in per-user required actions (a pending required action breaks the password grant that issue #16's tests need). **Since 2026-09-05 (#43, manager decision) the dev realm's OTP step is CONDITIONAL** — enrolled users are challenged, others pass with the password — so the other windows can use the admin app without enrolling after every reset; `owner` is pre-enrolled (documented dev secret) to keep the challenge path tested. Production realms must restore REQUIRED (README dev-only table). ADR 0002's "MFA required" stands for production; the relaxation is local-dev only.
 - Keycloak user ids are set to `seed-<username>` so the JWT `sub` equals the seeded `staff_user.keycloak_subject` with no mapping table; the same for `seed-jane` in customers.
 - Tokens carry `aud: core-api` via a custom-audience mapper (no bearer-only client needed); `verifyStaffToken` will check it.
 - Customer tokens carry a hard-coded `store_code` claim per storefront client so `verifyCustomerToken(token, storeId)` can bind the token to one store (ADR 0002 §8).
@@ -55,7 +59,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 - Keycloak import: providing only custom `authenticationFlows` is fine, the built-in flows (`browser`, `direct grant`, …) are added automatically; `browserFlow` must name an alias in the file.
 - `${VAR:default}` placeholders in realm JSON are resolved only by the startup file import; `reimport.mjs` (admin API) stores them literally (harmless for disabled IdPs).
 - If `test-cli` answers `invalid_client` or the browser login skips straight to the app callback, the running Keycloak still has the Phase 0 stub realms: re-import.
-- **One PR per branch.** GitHub refuses a second open PR for head `auth/phase1`, so PR #38 is the branch PR: every finished task appends its own section (what, acceptance criteria, decisions, commit sha) via `gh pr edit 38 --body`, and the commit message says `Closes #<issue>`. After the manager merges #38, the next task opens a fresh PR for the branch.
+- **PR flow (manager decision 2026-09-04/05):** single branch `auth/phase1`; after each task open ONE PR, manager merges with a merge commit, next PR contains only the new task. Consequence: finished-but-unmergeable work waits on a local parking branch (`auth/parked-13-14`) and is cherry-picked onto `auth/phase1` when its turn comes; shas change at cherry-pick time — update the memory Done entries then. PR #38 (1.1+1.2) merged 2026-09-05.
 - Contract tag `contracts-v0.1` is not created in this worktree yet (owner action); reference it by name in PRs.
 - Bash tool: the working directory persists between calls; a `cd packages/x` in one call breaks relative paths in the next. Use absolute paths.
 
