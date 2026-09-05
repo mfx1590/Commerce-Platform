@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `SHA4` · PR held until #42 merges
+- **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `f2c8df5` · PR held until #42 merges
   - `useContractForm(schema, action)`: one Zod schema validates on the client and re-validates in
     the server action, so the two cannot disagree.
   - Schemas hand-written, not generated: the contract marks nearly every input property optional
