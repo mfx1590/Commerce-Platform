@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Added — task 1.4, issue #27 (contracts-v0.1)
+
+- `useContractForm(schema, action)` — the one way this app builds a form. React Hook Form + Zod, with
+  the same schema validating on the client and re-validating in the server action, so the two cannot
+  disagree about what is valid.
+- `src/lib/forms/schemas.ts` — Zod mirrors of `StoreInput`, `ProductInput`, `CategoryInput` and
+  `VariantInput`. Hand-written because the contract marks nearly every input property optional
+  (`POST` and `PATCH` share a schema), so a generated schema would accept an empty create form. A
+  `MatchesContract` type assertion fails the build if a field name or value type drifts — verified
+  to fire on both a typo'd field and a wrong value type.
+- `src/lib/forms/server-errors.ts` — `400 { details: { field } }` and `409 conflict` are attached to
+  that input and the first is focused; a field the form does not render is raised to form level with
+  its name kept in the message; `403` is rewritten in terms of the missing relation; a transport
+  failure says the API is unreachable. Server errors clear on the next submit.
+- `src/lib/forms/action-result.ts` — `toActionResult` maps an `ApiResult` to what the form consumes,
+  server-side, so the browser never learns the Admin API's error shape.
+- `MoneyField` and `src/lib/forms/money.ts` — money edited as **integer minor units**. Typed text is
+  parsed by string manipulation, never by multiplying a float (`12.10 * 100` is
+  `1209.9999999999998`). Currency-aware decimals (JPY 0, EUR 2, KWD 3), comma accepted as the
+  decimal point, group separators rejected rather than guessed at.
+- Accessible field chrome: real `<label>`s, `aria-invalid` on the control, hint and error wired
+  through `aria-describedby`, and the form-level banner as `role="alert"`.
+- 40 more tests (175 total): money parsing and round-tripping, the full server-error mapping, and
+  rendered-form behaviour (schema validation blocks a submit, `details.field` shows under the right
+  input, an unknown field shows at form level, stale errors clear, optimistic never runs by default).
+
+### Notes
+
+- Optimistic UI is opt-in: `useContractForm` runs its `optimistic` callback only when one is passed.
+
 ### Added — task 1.3, issue #26 (contracts-v0.1)
 
 - `DataTable`, the single list primitive: server-driven paging, filtering and sorting on TanStack

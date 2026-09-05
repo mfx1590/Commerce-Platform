@@ -143,6 +143,61 @@ are real `<button>`s inside `<th aria-sort>`, so the sort state is announced rat
 the range line is `aria-live="polite"`; the bulk bar is a `role="status"`; and a column that cannot
 be sorted never claims it can.
 
+## Forms: `useContractForm`
+
+Every form in this app is built the same way:
+
+```tsx
+const { form, submit, formError, isSubmitting } = useContractForm({
+  schema: storeCreateSchema,
+  action: createStoreAction,
+  defaultValues,
+});
+```
+
+**One schema, both sides.** `src/lib/forms/schemas.ts` holds Zod schemas mirroring the contract
+input types. The client validates with them and the server action re-validates with the same object,
+so the two cannot disagree about what is valid. They are hand-written rather than generated on
+purpose: `admin-api.yaml` marks almost every input property optional because `POST` and `PATCH`
+share one schema — `StoreInput` has no `required` list at all — so a generated schema would accept
+an empty create form and let the server say no. Each form gets what it actually needs
+(`storeCreateSchema` demands what a store cannot exist without; `storeUpdateSchema` is the same
+fields, all optional).
+
+The schemas cannot silently rot: a `MatchesContract` type assertion fails the build if a field name
+or a value type drifts from `AdminComponents`.
+
+**Server errors land on the control that caused them.** The contract names the offending field —
+`400 { code: validation_error, details: { field: 'handle' } }` and `409 { code: conflict, … }` — so
+`mapServerError` attaches the message to that input via `setError`, focusing the first one. A field
+the form does not render is raised to `formError` with the field name kept in the text, because a
+message pinned to an invisible input is a message nobody reads. A `403` is rewritten in terms of the
+missing relation; a transport failure says the API is unreachable rather than showing `ECONNREFUSED`.
+Server errors are cleared on the next submit, so a stale "handle already exists" never sits under a
+handle the user has since changed.
+
+Actions return an `ActionResult` and never throw at the form — `toActionResult(result, knownFields)`
+does the mapping server-side, so the browser never has to know the Admin API's error shape:
+
+```ts
+'use server';
+export async function createStoreAction(values: StoreCreateValues) {
+  const parsed = storeCreateSchema.parse(values); // re-validate; the client is not trusted
+  return toActionResult(await createStore(parsed), fieldNames(storeCreateSchema));
+}
+```
+
+**Money is edited as integer minor units.** `MoneyField` shows major units but reports an integer:
+what the user types is parsed by string manipulation (`src/lib/forms/money.ts`), never by
+multiplying a float, because `12.10 * 100` is `1209.9999999999998` and a cent lost in a price list
+is a cent lost in the ledger. It is currency-aware — JPY takes no decimals, EUR two, KWD three — and
+accepts a comma as the decimal point while rejecting group separators rather than guessing at
+`1,234`.
+
+**Optimistic UI is opt-in.** `useContractForm` takes an `optimistic` callback and runs it only when
+one is passed. An admin form that shows a save as done before the server agreed is a form that lies
+about whether a price changed.
+
 ## How to add a screen
 
 1. **Add a typed call** in [`src/lib/api/admin.ts`](./src/lib/api/admin.ts):
@@ -186,6 +241,8 @@ be sorted never claims it can.
 | `src/lib/api/`           | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
 | `src/lib/nav/`           | Sections, the relation algebra, and the selected-store cookie        |
 | `src/lib/table/`         | URL table state and the row-selection model (both pure)              |
+| `src/lib/forms/`         | Contract schemas, server-error mapping, money parsing (all pure)     |
+| `src/components/form/`   | `useContractForm`, field chrome, `MoneyField`                        |
 | `src/components/table/`  | The `DataTable` primitive                                            |
 | `src/components/shell/`  | The frame: header, side nav, store switcher, section guards          |
 | `src/components/states/` | The 403 / no-access / error panels                                   |

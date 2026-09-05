@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: 3b5348c · Status: tasks 1.1-1.3 done; PR #42 green, 1.2 + 1.3 held local until it merges
+Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: 3b5348c · Status: tasks 1.1-1.4 done; PR #42 green but unmerged, 1.2-1.4 held local until it lands
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,21 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `SHA4` · PR held until #42 merges
+  - `useContractForm(schema, action)`: one Zod schema validates on the client and re-validates in
+    the server action, so the two cannot disagree.
+  - Schemas hand-written, not generated: the contract marks nearly every input property optional
+    because POST and PATCH share a schema, so a generated schema would accept an empty create form.
+    A `MatchesContract` type assertion fails the build on drift — **verified it actually fires** for
+    both a typo'd field name and a wrong value type.
+  - Server-error mapping: `400 details.field` / `409 conflict` attach to that input and focus it;
+    an unknown field is raised to form level with its name kept; 403 names the missing relation;
+    stale errors clear on the next submit.
+  - `MoneyField` edits integer minor units, parsed by string manipulation (never `x * 100`),
+    currency-aware decimals, comma accepted, group separators rejected.
+  - Optimistic UI runs only when an `optimistic` callback is passed.
+  - 175 tests total.
+
 - **1.3 — issue #26 Data-table primitive** · commit `dd90b81` · PR held until #42 merges
   - `DataTable` on TanStack Table v8 with `manualPagination/Sorting/Filtering`: the server decides
     what is in the page, the component renders it. Column visibility, bulk-action slot,
@@ -61,22 +76,43 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     Blocked / waiting.
 
 ## In progress
-- Nothing implementing. **Waiting on the manager to merge PR #42** (all five checks green as of
-  2026-09-05). The moment it merges: push 1.2 + 1.3 to `admin/phase1`, open the 1.2 PR against
-  `main`, then the 1.3 PR. Task 1.4 (issue #27, RHF + Zod form primitive) is next to build; it needs
-  `react-hook-form` and `@hookform/resolvers`, and should derive schemas from `StoreInput` /
-  `ProductInput` so #28 can use it for the Stores and Product forms.
+- Nothing implementing. **Waiting on the manager to merge PR #42** (all five checks green since
+  2026-09-05). The moment it lands, in this order:
+  1. `git merge main` — main has moved (#40 default export condition, #41 Store.theme example,
+     #44/#46 Next artefacts added to the root eslint/prettier ignores).
+  2. Delete the now-stale "delete `.next/` before `format:check`" workaround from
+     `apps/admin/README.md` and `apps/admin/CLAUDE.md` — #44 fixed it upstream.
+  3. Push, open the 1.2 PR against `main`; after it merges, the 1.3 PR; then the 1.4 PR.
+     One open PR per branch (manager note in CLAUDE.md) — never stack branches.
+- Task 1.5 (issue #28, Stores + Catalog screens) is next to build. Both primitives are ready:
+  the Stores list already renders through `DataTable`, and `useContractForm` + `storeCreateSchema`
+  are waiting for the create/edit forms.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
 - [x] 1.2 Permission-driven navigation + store switcher — #25, PR (opened after #42 merges) (do not self-merge)
 - [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26 (PR pending)
-- [ ] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27
+- [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27 (PR pending)
 - [ ] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28
 - [ ] 1.6 403 / empty / error states pattern — #29
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
 ## Decisions made (with reasons)
+- **Form schemas are hand-written, not generated from the contract.** `admin-api.yaml` marks almost
+  every input property optional because POST and PATCH share one schema (`StoreInput` has no
+  `required` list at all). A generated schema would accept an empty create form and let the server
+  say no. The `MatchesContract` assertion keeps them honest — it was checked to fail on a typo'd
+  field name and on a wrong value type, so it is not decorative.
+- **Server errors attach to the control that caused them.** The contract names the field, so pinning
+  it there is free; the only judgement call is what to do with a field the form does not render, and
+  that is raised to form level *with the field name in the text* rather than silently dropped.
+- **Money never goes through a float.** `12.10 * 100` is `1209.9999999999998`; `parseMoney` works on
+  the string. Currency decimals come from `Intl.NumberFormat`, so JPY takes 0 and KWD 3 for free.
+- **Optimistic UI is opt-in.** A form that shows a save as done before the server agreed is a form
+  that lies about whether a price changed.
+- **`MoneyField` adjusts state during render, not in an effect,** when the currency changes. The repo
+  ESLint config has no `react-hooks` plugin, so an `eslint-disable` for `exhaustive-deps` is an
+  error ("rule not found"); the render-time pattern needs no suppression and is what React documents.
 - **Table state lives in the URL, not React state.** Paging, filtering and sorting are all
   server-driven, so the URL is the only place that can hold "the request the server should answer".
   It also makes every list linkable, back-button correct and reproducible from a bug report.
@@ -159,6 +195,12 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **No `react-hooks` ESLint plugin in the repo config.** An `// eslint-disable-next-line
+  react-hooks/exhaustive-deps` comment is itself a lint *error* ("Definition for rule was not
+  found"). Restructure instead of suppressing.
+- **`@hookform/resolvers` + Zod 4 under `exactOptionalPropertyTypes`:** type the schema as
+  `ZodType<TValues, TValues>` (output = input), or `zodResolver` will not line up with
+  `useForm<TValues>`.
 - Keycloak's realms now live in a persistent volume (manager, commit bbb6259). If it 500s it is
   restarting: wait 20 s, then `docker compose -f infra/docker/docker-compose.yml restart keycloak`.
   Restarting a shared dev service is allowed for every window.
