@@ -34,3 +34,10 @@ export async function adminCall<K extends keyof operations>(
 export async function getMe(): Promise<ApiResult<AdminResponse<'getMe'>>> {
   return adminCall<'getMe'>({ path: '/admin/me' });
 }
+
+/** The store registry (HQ). `sort`/`order` are withheld until CONTRACT CHANGE #56 lands. */
+export async function listStores(
+  query: Record<string, string | number>,
+): Promise<ApiResult<AdminResponse<'listStores'>>> {
+  return adminCall<'listStores'>({ path: '/admin/stores', query });
+}

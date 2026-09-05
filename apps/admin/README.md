@@ -105,6 +105,44 @@ expiry. Switching keeps you on the same section (Orders on brand-a → Orders on
 `src/app/(hq)/` or `src/app/(store)/[storeId]/`, and a row in the test matrix in
 `test/navigation.test.ts`. Nothing else knows the list.
 
+## Lists: the data-table primitive
+
+Every list screen uses one component, [`DataTable`](./src/components/table/data-table.tsx). It is a
+renderer, not a data engine: `manualPagination`, `manualSorting` and `manualFiltering` are all on,
+because the contract returns `{ page, limit, total, items }` and the server decides what is in it.
+
+**State lives in the URL, not in React.** `src/lib/table/query-state.ts` parses `?page=2&q=tee` into
+a `TableQuery` on the server and serialises it back on every interaction, omitting anything at its
+default so `/stores` stays `/stores`. That makes every list linkable, back-button correct and
+reproducible from a bug report. A page reads it once and hands it down already parsed, so the first
+paint matches the link that was opened:
+
+```tsx
+const query = parseTableQuery(params, ['q', 'status']);
+const result = await listProducts(storeId, toContractQuery(query));
+```
+
+`parseTableQuery` only keeps filter keys you declare, so a hand-added `?injected=1` never reaches the
+Admin API as an undeclared parameter.
+
+**Sorting is not wired to the server yet.** No list operation in contracts-v0.1 accepts `sort` or
+`order` — see CONTRACT CHANGE #56. Until it lands, `toContractQuery` withholds both unless the caller
+passes `{ sortable: true }`, and list screens declare `sortableColumns={[]}`. Turning sorting on for
+an operation is then two lines: add the column ids, and pass `sortable: true`.
+
+**Selecting a page never selects the rest of the result set.** The header checkbox ticks the rows you
+can see. Only once a full page is ticked, and only if more rows match, does the bar offer
+"Select all N matching" — a separate, deliberate click that switches the selection into
+`all-matching` mode (with an exclusion list, so you can still untick individuals). `describeSelection`
+gives a bulk action the exact wording for its confirmation, so "delete selected" is never ambiguous
+about whether it means 20 rows or 4 000. The model is pure and lives in
+`src/lib/table/selection.ts`.
+
+**Accessibility.** The table carries an `aria-label` and an off-screen `<caption>`; sortable headers
+are real `<button>`s inside `<th aria-sort>`, so the sort state is announced rather than only drawn;
+the range line is `aria-live="polite"`; the bulk bar is a `role="status"`; and a column that cannot
+be sorted never claims it can.
+
 ## How to add a screen
 
 1. **Add a typed call** in [`src/lib/api/admin.ts`](./src/lib/api/admin.ts):
@@ -147,6 +185,8 @@ expiry. Switching keeps you on the same section (Orders on brand-a → Orders on
 | `src/lib/auth/`          | PKCE, discovery, token exchange, session sealing                     |
 | `src/lib/api/`           | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
 | `src/lib/nav/`           | Sections, the relation algebra, and the selected-store cookie        |
+| `src/lib/table/`         | URL table state and the row-selection model (both pure)              |
+| `src/components/table/`  | The `DataTable` primitive                                            |
 | `src/components/shell/`  | The frame: header, side nav, store switcher, section guards          |
 | `src/components/states/` | The 403 / no-access / error panels                                   |
 | `src/components/ui/`     | Presentational primitives (`cn`, Button, Card, Badge)                |

@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: 3b5348c · Status: tasks 1.1 and 1.2 done (PR #42, PR (opened after #42 merges)), 1.3 next
+Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: 3b5348c · Status: tasks 1.1-1.3 done; PR #42 green, 1.2 + 1.3 held local until it merges
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,19 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.3 — issue #26 Data-table primitive** · commit `e1aa583` · PR held until #42 merges
+  - `DataTable` on TanStack Table v8 with `manualPagination/Sorting/Filtering`: the server decides
+    what is in the page, the component renders it. Column visibility, bulk-action slot,
+    loading/empty/error in place of the rows.
+  - `src/lib/table/query-state.ts` (URL is the state) and `selection.ts` (no silent select-all),
+    both pure and directly tested.
+  - HQ Stores list wired to it with columns typed from `AdminComponents['Store']`.
+  - 135 tests total. Verified against the live mock via a scratchpad stub that serves an owner
+    principal and proxies the rest to Prism — the HQ nav, the guard and the real store rows all
+    render.
+  - **CONTRACT CHANGE #56 filed**: no list operation in contracts-v0.1 accepts `sort`/`order`.
+    Sorting is carried in the URL but withheld from the request until it lands.
+
 - **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · PR (opened after #42 merges)
   - Route groups `(hq)` and `(store)/[storeId]`; all twelve sections reachable, each placeholder
     naming the issue that delivers the real screen. 19 routes build.
@@ -48,20 +61,37 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     Blocked / waiting.
 
 ## In progress
-- Nothing. Task 1.3 (issue #26, TanStack Table data-table primitive) is next. It needs
-  `@tanstack/react-table` installed, and it should be built against `listStores` and `listProducts`
-  so that #28 can drop it straight into the Stores and Products screens.
+- Nothing implementing. **Waiting on the manager to merge PR #42** (all five checks green as of
+  2026-09-05). The moment it merges: push 1.2 + 1.3 to `admin/phase1`, open the 1.2 PR against
+  `main`, then the 1.3 PR. Task 1.4 (issue #27, RHF + Zod form primitive) is next to build; it needs
+  `react-hook-form` and `@hookform/resolvers`, and should derive schemas from `StoreInput` /
+  `ProductInput` so #28 can use it for the Stores and Product forms.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
 - [x] 1.2 Permission-driven navigation + store switcher — #25, PR (opened after #42 merges) (do not self-merge)
-- [ ] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26
+- [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26 (PR pending)
 - [ ] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27
 - [ ] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28
 - [ ] 1.6 403 / empty / error states pattern — #29
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
 ## Decisions made (with reasons)
+- **Table state lives in the URL, not React state.** Paging, filtering and sorting are all
+  server-driven, so the URL is the only place that can hold "the request the server should answer".
+  It also makes every list linkable, back-button correct and reproducible from a bug report.
+- **`parseTableQuery` keeps only declared filter keys.** Passing the raw query string through would
+  forward `?injected=1` to the Admin API as an undeclared parameter — a 400 at best.
+- **Sorting is withheld from the request, not from the UI.** contracts-v0.1 has no `sort`/`order`
+  (#56). `toContractQuery` needs `{ sortable: true }` before it forwards them, and list screens pass
+  `sortableColumns={[]}`, so nothing undefined is ever sent. Two lines per list to switch on later.
+- **Selecting a page never selects the result set.** The escalation is a separate click offered only
+  after a full page is ticked and only when more rows match, and it keeps an exclusion list.
+  `describeSelection` gives bulk actions exact wording so a confirmation is never ambiguous.
+- **Selection survives paging but not a filter change.** Ticking rows across pages is deliberate;
+  an `all-matching` selection made under a different filter would silently mean something else.
+- **`@tanstack/react-table` pinned to `^8`.** `@latest` resolves to v9, which has a different API
+  (`createCoreRowModel`, `TableFeatures`) — worth knowing before anyone "upgrades" it.
 - **Navigation is a pure function, deliberately.** `src/lib/nav/navigation.ts` takes a `Principal`
   and returns sections — no fetch, no `next/*`. That is what makes the seven-role matrix in
   `test/navigation.test.ts` a real test rather than a rendering snapshot, and it is what #30 builds on.
@@ -106,6 +136,10 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   no build step, so typecheck must pass without generated `.next/types`.
 
 ## Blocked / waiting
+- **PR ordering.** The owner's call (2026-09-05): keep one branch, no stacked PRs. 1.2 and 1.3 stay
+  local until #42 merges, then they are pushed to `admin/phase1` and get their own PRs in order.
+- **CONTRACT CHANGE #56** (sort/order on list operations) — filed, not blocking: sorting is carried
+  in the URL and simply not forwarded until the manager accepts it.
 - **#24 acceptance criterion 1 (browser sign-in round-trip) — two environment blockers, both
   outside `apps/admin/**`.** The code is complete and the OIDC flow is verified headlessly.
   1. **Port 3000 is taken by an unrelated project** (`Propertymate` Next dev server, PID varies).
@@ -163,6 +197,12 @@ pnpm --filter @platform/admin build        # next build
 Before finishing a task, from the repo root: `pnpm lint && pnpm format:check && pnpm typecheck`
 — delete `apps/admin/.next/` first, or `format:check` will walk the build output.
 
+
+### Verifying an HQ screen against the mock
+Prism always answers `/admin/me` with the store-admin example, so HQ routes 403 against it. Put a
+tiny stub in front: serve an owner `Principal` for `/admin/me`, proxy everything else to :4011, and
+point `MOCK_ADMIN_API_URL` at it. That is how the HQ nav, the section guard and the Stores table were
+verified for 1.3. Keep the stub in the scratchpad — it is a harness, not repo code.
 
 ### How to verify without Keycloak (while #43 is open)
 The staff realm forces TOTP and port 3000 is taken, so drive the built app directly:
