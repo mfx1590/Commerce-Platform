@@ -37,11 +37,11 @@ export interface AdminProductQuery extends PageQuery {
 
 export type StoreSort = 'relevance' | 'price_asc' | 'price_desc' | 'newest';
 export interface StoreProductQuery extends PageQuery {
-  q?: string;
+  q?: string | undefined;
   /** Category handle; includes descendants. */
-  category?: string;
-  tag?: string;
-  sort?: StoreSort;
+  category?: string | undefined;
+  tag?: string | undefined;
+  sort?: StoreSort | undefined;
 }
 
 // ---- rows ----

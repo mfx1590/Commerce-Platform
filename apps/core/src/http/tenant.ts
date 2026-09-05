@@ -14,6 +14,8 @@ export interface StoreContext {
   organizationId: string;
   storeId: string;
   storeCode: string;
+  /** Store default currency = the cart currency in Phase 1 (prices in Store API responses). */
+  defaultCurrency: string;
   salesChannelId: string | null;
   apiKeyId: string;
   apiKeyType: 'publishable' | 'secret';
@@ -41,6 +43,7 @@ interface KeyRow {
   store_id: string;
   store_code: string;
   store_status: string;
+  default_currency: string;
   sales_channel_id: string | null;
   type: 'publishable' | 'secret';
   revoked_at: Date | null;
@@ -56,7 +59,7 @@ export async function resolveStoreContext(
   const organizationId = coreOrganizationId();
   const hq = organizationClient({ organizationId });
   const r = await hq.query<KeyRow>(
-    `SELECT k.id, k.store_id, s.code AS store_code, s.status AS store_status, k.sales_channel_id, k.type, k.revoked_at
+    `SELECT k.id, k.store_id, s.code AS store_code, s.status AS store_status, s.default_currency, k.sales_channel_id, k.type, k.revoked_at
      FROM store_api_key k JOIN store s ON s.id = k.store_id
      WHERE k.key_hash = $1`,
     [createHash('sha256').update(plainKey.trim()).digest('hex')],
@@ -68,6 +71,7 @@ export async function resolveStoreContext(
     organizationId,
     storeId: row.store_id,
     storeCode: row.store_code,
+    defaultCurrency: row.default_currency,
     salesChannelId: row.sales_channel_id,
     apiKeyId: row.id,
     apiKeyType: row.type,

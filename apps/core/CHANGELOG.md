@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.1)
 
+### 2026-09-05 · task 1.6 — Store API routes (issue #6)
+
+- `src/http/store-routes.ts` + `mountStoreRoutes` (mounted by `mountCoreMiddleware` ahead of Medusa): `GET /store`
+  (store, currencies, locales, the key's sales channel), `GET /store/categories`, `GET /store/products` (`q`,
+  `category` incl. children, `tag`, `sort`, `page`, `limit`; 400 `validation_error` on bad params),
+  `GET /store/products/{handle}` (404 outside the store). Prices in the store default currency
+  (`StoreContext.defaultCurrency`).
+- `test/helpers/openapi.ts`: Ajv 2020 validator over the frozen `store-api.yaml` components; `test/store-api.test.ts`
+  replays the Phase 0 contract requests and validates every response (`yaml`, `ajv`, `ajv-formats` dev deps).
+
 ### 2026-09-05 · task 1.5 — outbox helper as a structural guarantee (issue #5)
 
 - `src/outbox/index.ts` public API (`withEvents`, `buildEvent`, `eventActor`, `InvalidEventError`), README with the

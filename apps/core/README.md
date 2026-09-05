@@ -47,14 +47,19 @@ ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
 3. `aliasPublishableKeyHeader` — copies the contract header `X-Publishable-Key` to the header Medusa reads
    (`x-publishable-api-key`).
 4. `/store` → `storeContextMiddleware`: `X-Publishable-Key` → sha256 → `store_api_key` (looked up under
-   `CORE_ORGANIZATION_ID`, default the seeded HQ) → `req.tenant` with a store-scoped client. Missing, unknown or
-   revoked key → `401 { code: "unauthorized" }`.
-5. `/admin` → `staffAuthMiddleware`: bearer token → `staff_user` → `role_assignment` → `req.principal`
+   `CORE_ORGANIZATION_ID`, default the seeded HQ) → `req.tenant` with a store-scoped client and the store default
+   currency. Missing, unknown or revoked key → `401 { code: "unauthorized" }`.
+5. Store API routes window 1 owns (`src/http/store-routes.ts`, `mountStoreRoutes`): `GET /store`,
+   `GET /store/categories`, `GET /store/products`, `GET /store/products/{handle}` — exactly the contract shapes,
+   prices in the store default currency, query params validated (400 `validation_error`), 404 for a handle outside
+   the store. They answer here, ahead of Medusa's routes of the same paths and of its publishable-key gate; every
+   other Store API path falls through to Medusa (clients use the Prism mock for those in Phase 1).
+6. `/admin` → `staffAuthMiddleware`: bearer token → `staff_user` → `role_assignment` → `req.principal`
    (`organizationRelations`, `stores[].relations`). Phase 1 verifier accepts `dev:<keycloak_subject>` outside
    production only; `@platform/auth-sdk` replaces it behind `StaffTokenVerifier`. Handlers take a client from
    `storeClientFor(principal, storeId)` (403 outside scope), `organizationClientFor` or `visibleStoresClientFor`.
-6. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
-7. Medusa loaders. Our admin route files opt out of Medusa's auth with `export const AUTHENTICATE = false`;
+7. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
+8. Medusa loaders. Our admin route files opt out of Medusa's auth with `export const AUTHENTICATE = false`;
    `requirePermission(relation, object)` (task 1.7) checks the route's `x-permission`.
 
 `mountCoreMiddleware(app)` exports exactly this chain so tests run it on a bare Express app (`test/tenant-http.test.ts`).
@@ -68,7 +73,8 @@ src/
   server.ts                 entry (above)
   lib/db.ts                 the ONLY place that opens a database pool; exports tenantClient / organizationClient
   http/                     cross-cutting Express middleware (header alias, tenant context, errors)
-  api/{store,admin}/...     Medusa file-based routes, one folder per contract path; thin: validate → service → respond
+  http/store-routes.ts      Store API handlers (contract routes), mounted ahead of Medusa by mountCoreMiddleware
+  api/admin/...             Medusa file-based routes for the Admin API (task 1.7); thin: validate → service → respond
   modules/<name>/
     index.ts                public API of the module — the only file other code may import
     service.ts              use cases; every function takes a ScopedClient and runs in ONE transaction

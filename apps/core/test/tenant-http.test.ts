@@ -1,6 +1,6 @@
 // RLS proven THROUGH THE HTTP LAYER (issue #3): the exact middleware chain src/server.ts mounts, on a bare
-// Express app with two minimal product handlers (the contract routes arrive in task 1.6 and reuse the same
-// chain), against a seeded throwaway database (packages/db `seed()`, 3 stores).
+// Express app with two minimal probe handlers under /store/_probe (the contract routes live in the same
+// chain, see test/store-api.test.ts), against a seeded throwaway database (packages/db `seed()`, 3 stores).
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, SEED_IDS, seed } from '@platform/db';
@@ -44,7 +44,7 @@ beforeAll(async () => {
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier());
   app.get(
-    '/store/products',
+    '/store/_probe/products',
     handle(async (req, res) => {
       const { client } = requireTenant(req);
       const rows = await client.query<{ id: string; store_id: string }>(
@@ -54,7 +54,7 @@ beforeAll(async () => {
     }),
   );
   app.get(
-    '/store/products/:id',
+    '/store/_probe/products/:id',
     handle(async (req, res) => {
       const { client } = requireTenant(req);
       const rows = await client.query<{ id: string }>('SELECT id FROM product WHERE id = $1', [
@@ -92,7 +92,7 @@ afterAll(async () => {
 
 describe('Store API tenant context (X-Publishable-Key)', () => {
   it('brand-a key lists only brand-a products', async () => {
-    const res = await request(app).get('/store/products').set('X-Publishable-Key', KEY_A);
+    const res = await request(app).get('/store/_probe/products').set('X-Publishable-Key', KEY_A);
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(5);
     expect(new Set(res.body.items.map((p: { store_id: string }) => p.store_id))).toEqual(
@@ -103,39 +103,45 @@ describe('Store API tenant context (X-Publishable-Key)', () => {
 
   it('brand-b key cannot fetch a brand-a product by id (404), brand-a key can', async () => {
     const asB = await request(app)
-      .get(`/store/products/${productA.id}`)
+      .get(`/store/_probe/products/${productA.id}`)
       .set('X-Publishable-Key', KEY_B);
     expect(asB.status).toBe(404);
     expect(asB.body).toEqual({ code: 'not_found', message: `product ${productA.id} not found` });
 
     const asA = await request(app)
-      .get(`/store/products/${productA.id}`)
+      .get(`/store/_probe/products/${productA.id}`)
       .set('X-Publishable-Key', KEY_A);
     expect(asA.status).toBe(200);
     expect(asA.body.id).toBe(productA.id);
   });
 
   it('missing, unknown and revoked keys are refused with 401 { code: unauthorized }', async () => {
-    const missing = await request(app).get('/store/products');
+    const missing = await request(app).get('/store/_probe/products');
     expect(missing.status).toBe(401);
     expect(missing.body.code).toBe('unauthorized');
 
-    const unknown = await request(app).get('/store/products').set('X-Publishable-Key', 'pk_nope');
+    const unknown = await request(app)
+      .get('/store/_probe/products')
+      .set('X-Publishable-Key', 'pk_nope');
     expect(unknown.status).toBe(401);
     expect(unknown.body.code).toBe('unauthorized');
 
     const hq = createOrganizationClient(db.app, { organizationId: ORG });
     const created = await createApiKey(hq, A, { name: 'temp', type: 'publishable' });
-    const before = await request(app).get('/store/products').set('X-Publishable-Key', created.key);
+    const before = await request(app)
+      .get('/store/_probe/products')
+      .set('X-Publishable-Key', created.key);
     expect(before.status).toBe(200);
     await revokeApiKey(hq, A, created.id);
-    const after = await request(app).get('/store/products').set('X-Publishable-Key', created.key);
+    const after = await request(app)
+      .get('/store/_probe/products')
+      .set('X-Publishable-Key', created.key);
     expect(after.status).toBe(401);
   });
 
   it('echoes a client-supplied X-Request-Id', async () => {
     const res = await request(app)
-      .get('/store/products')
+      .get('/store/_probe/products')
       .set('X-Publishable-Key', KEY_A)
       .set('X-Request-Id', 'req-42');
     expect(res.headers['x-request-id']).toBe('req-42');

@@ -13,6 +13,7 @@ import {
   aliasPublishableKeyHeader,
   coreErrorHandler,
   DevTokenVerifier,
+  mountStoreRoutes,
   requestIdMiddleware,
   staffAuthMiddleware,
   storeContextMiddleware,
@@ -52,6 +53,11 @@ export function mountCoreMiddleware(
   app.use(aliasPublishableKeyHeader);
   // Store API: 401 without a valid X-Publishable-Key; req.tenant otherwise (ADR 0001).
   app.use('/store', storeContextMiddleware);
+  // The Store API routes window 1 owns (contracts store-api.yaml: GET /store, /store/categories,
+  // /store/products, /store/products/{handle}) answer here, ahead of Medusa's own routes of the same paths and
+  // of its publishable-key gate — our tenant middleware is the contract's key check. Every other Store API path
+  // falls through to Medusa (and, in Phase 1, stays on the Prism mock for clients).
+  mountStoreRoutes(app);
   // Admin API: 401 without a valid staff token; req.principal otherwise. Our admin route files opt out of
   // Medusa's auth (`export const AUTHENTICATE = false`).
   app.use('/admin', staffAuthMiddleware(verifier));

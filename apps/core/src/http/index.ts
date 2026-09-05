@@ -28,3 +28,11 @@ export type {
   StaffPrincipal,
   StaffTokenVerifier,
 } from './staff-auth';
+export {
+  getProductRoute,
+  getStoreRoute,
+  listCategoriesRoute,
+  listProductsRoute,
+  mountStoreRoutes,
+  storeSummary,
+} from './store-routes';
