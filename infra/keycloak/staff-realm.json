@@ -1,91 +1,379 @@
 {
   "realm": "staff",
   "displayName": "Staff (HQ + store admins)",
+  "displayNameHtml": "<b>Commerce Platform</b> staff",
   "enabled": true,
   "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
   "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
   "sslRequired": "external",
   "accessTokenLifespan": 900,
+  "accessTokenLifespanForImplicitFlow": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
+  "actionTokenGeneratedByAdminLifespan": 43200,
+  "actionTokenGeneratedByUserLifespan": 300,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "defaultSignatureAlgorithm": "RS256",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyInitialCounter": 0,
+  "otpPolicyDigits": 6,
+  "otpPolicyLookAheadWindow": 1,
+  "otpPolicyPeriod": 30,
+  "otpPolicyCodeReusable": false,
+  "otpSupportedApplications": [
+    "totpAppFreeOTPName",
+    "totpAppGoogleName",
+    "totpAppMicrosoftAuthenticatorName"
+  ],
+  "browserFlow": "browser-mfa",
+  "directGrantFlow": "direct grant",
+  "clientAuthenticationFlow": "clients",
+  "dockerAuthenticationFlow": "docker auth",
+  "firstBrokerLoginFlow": "first broker login",
+  "authenticationFlows": [
+    {
+      "alias": "browser-mfa",
+      "description": "Browser flow for staff: cookie, or corporate SSO redirect, or username+password followed by a mandatory TOTP. A user without a TOTP credential is forced to set one up on first login (CONFIGURE_TOTP required action).",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "flowAlias": "browser-mfa forms",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "browser-mfa forms",
+      "description": "Username + password, then TOTP (REQUIRED, not conditional).",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "hq-sso",
+      "displayName": "Corporate SSO (placeholder, disabled)",
+      "providerId": "oidc",
+      "enabled": false,
+      "trustEmail": false,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "clientId": "${HQ_SSO_CLIENT_ID:unset}",
+        "clientSecret": "${HQ_SSO_CLIENT_SECRET:unset}",
+        "authorizationUrl": "https://sso.example.invalid/oauth2/authorize",
+        "tokenUrl": "https://sso.example.invalid/oauth2/token",
+        "clientAuthMethod": "client_secret_post",
+        "syncMode": "IMPORT",
+        "validateSignature": "true",
+        "useJwksUrl": "true",
+        "defaultScope": "openid email profile"
+      }
+    }
+  ],
   "clients": [
     {
       "clientId": "admin-app",
       "name": "Admin application",
+      "description": "Next.js admin app (apps/admin). Authorization code + PKCE, no client secret, no password grant.",
+      "enabled": true,
       "publicClient": true,
+      "protocol": "openid-connect",
       "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "rootUrl": "http://localhost:3000",
+      "baseUrl": "/",
       "redirectUris": ["http://localhost:3000/*"],
       "webOrigins": ["http://localhost:3000"],
-      "attributes": { "pkce.code.challenge.method": "S256" }
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false",
+        "use.refresh.tokens": "true",
+        "access.token.lifespan": "900"
+      },
+      "defaultClientScopes": ["openid", "profile", "email", "roles", "web-origins", "basic"],
+      "optionalClientScopes": ["offline_access"],
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "email",
+            "claim.name": "email",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "email verified",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "emailVerified",
+            "claim.name": "email_verified",
+            "jsonType.label": "boolean",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "full name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-full-name-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience core-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "core-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "test-cli",
+      "name": "Test CLI (dev/CI only)",
+      "description": "DEV/CI ONLY. Resource-owner password grant for automated tests (packages/auth-sdk, hq-rbac). Remove this client from any non-local realm export.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.refresh.tokens": "true",
+        "access.token.lifespan": "900"
+      },
+      "defaultClientScopes": ["openid", "profile", "email", "roles", "web-origins", "basic"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "email",
+            "claim.name": "email",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience core-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "core-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
     {
+      "id": "seed-owner",
       "username": "owner",
       "email": "owner@example.com",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Olivia",
       "lastName": "Owner",
+      "requiredActions": [],
       "credentials": [{ "type": "password", "value": "owner", "temporary": false }]
     },
     {
+      "id": "seed-finance",
       "username": "finance",
       "email": "finance@example.com",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Fin",
       "lastName": "Finance",
+      "requiredActions": [],
       "credentials": [{ "type": "password", "value": "finance", "temporary": false }]
     },
     {
+      "id": "seed-operations",
       "username": "operations",
       "email": "operations@example.com",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Otto",
       "lastName": "Operations",
+      "requiredActions": [],
       "credentials": [{ "type": "password", "value": "operations", "temporary": false }]
     },
     {
+      "id": "seed-store-admin",
       "username": "store-admin",
       "email": "store-admin@example.com",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Sam",
       "lastName": "StoreAdmin",
+      "requiredActions": [],
       "credentials": [{ "type": "password", "value": "store-admin", "temporary": false }]
     },
     {
+      "id": "seed-store-staff",
       "username": "store-staff",
       "email": "store-staff@example.com",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Stef",
       "lastName": "StoreStaff",
+      "requiredActions": [],
       "credentials": [{ "type": "password", "value": "store-staff", "temporary": false }]
     },
     {
+      "id": "seed-support",
       "username": "support",
       "email": "support@example.com",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Sue",
       "lastName": "Support",
+      "requiredActions": [],
       "credentials": [{ "type": "password", "value": "support", "temporary": false }]
     },
     {
+      "id": "seed-analyst",
       "username": "analyst",
       "email": "analyst@example.com",
       "enabled": true,
       "emailVerified": true,
       "firstName": "Ana",
       "lastName": "Analyst",
+      "requiredActions": [],
       "credentials": [{ "type": "password", "value": "analyst", "temporary": false }]
     }
   ],
   "attributes": {
-    "_comment": "Local-dev realm stub (main window, Phase 0). Window 2 replaces it with the real export (MFA, SSO, mappers). Users mirror packages/db SEED_IDS.users; roles live in OpenFGA, not here."
+    "_comment": "Staff realm (window 2, Phase 1). Users mirror packages/db SEED_IDS.users; user id == staff_user.keycloak_subject (seed-<key>). Roles live in OpenFGA, never here. Dev-only settings are listed in infra/keycloak/README.md.",
+    "frontendUrl": "http://localhost:8180"
   }
 }

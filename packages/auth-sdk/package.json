@@ -17,12 +17,20 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
+    "fga:seed": "tsx scripts/fga-seed.ts",
     "clean": "rm -rf dist .turbo"
   },
+  "dependencies": {
+    "@openfga/sdk": "0.9.7",
+    "@platform/contracts": "workspace:*",
+    "@platform/db": "workspace:*"
+  },
   "devDependencies": {
+    "@openfga/syntax-transformer": "0.2.2",
+    "@types/node": "^20.19.0",
+    "tsx": "^4.23.13",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/node": "^20.19.0"
+    "vitest": "^3.2.0"
   }
 }

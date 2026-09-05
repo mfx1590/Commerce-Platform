@@ -66,7 +66,8 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 Start messages for every window: docs/start-messages/ · Ownership map (CI-enforced): docs/ownership.md
 
 ## Contract change log
-- 2026-09-04 · baseline contracts-v0.1 (Store API 0.1.0, Admin API 0.1.0, events v1, db migrations 0001–0009 + 0100) · format from here: date · CONTRACT CHANGE #issue · accepted/rejected · new tag
+- 2026-09-04 · baseline contracts-v0.1 (Store API 0.1.0, Admin API 0.1.0, events v1, db migrations 0001–0009 + 0100)
+- 2026-09-05 · CONTRACT CHANGE #56 (admin list sort/order, additive) · accepted, Admin API 0.2.0 on main · tag contracts-v0.2 to be created by the owner after the current merge round · producer: window 1 follow-up task; consumer: window 4 [admin] 1.3
 
 ## Integration reports
 - (none yet)
@@ -78,6 +79,8 @@ Start messages for every window: docs/start-messages/ · Ownership map (CI-enfor
 - Contracts, events and db schema are frozen at contracts-v0.1: never edit `packages/contracts|events|db`; file `CONTRACT CHANGE:` and keep going against the mock. Generated files (`src/generated`) are committed; CI fails if stale.
 - Prism docker image needs `--no-multiprocess`; Keycloak local persists in the `keycloak-data` volume (dev-file); realms import on first start only — after editing infra/keycloak/*.json run `pnpm dev --reset` or delete the volume. A restart takes ~15 s during which realms return 500: retry, do not add dev-login bypasses.
 - Events carry no PII (`email_hash` only); money is integer minor units everywhere.
+- PR flow (decided 2026-09-04 after window 2 hit GitHub's one-open-PR-per-branch limit): one branch per window, one PR per task, the manager merges with a **merge commit** (never squash), the window keeps working on the same branch and opens the next PR, which then contains only the new task. No stacked branches.
+- OpenFGA user object id = `staff_user.id` (uuid), not the Keycloak `sub` (window 2 decision, accepted): it survives an IdP migration and matches the `role_assignment` mirror key. The scope middleware resolves `sub` → `staff_user.id` first; seed tuples use `SEED_IDS.users`.
 
 ## Usage budget notes (Max 5x)
 - Check /usage before big tasks. Past ~60% weekly by Wednesday → docs/tests only until reset.

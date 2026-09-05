@@ -149,10 +149,26 @@ importers:
         version: 3.2.7(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.13)(yaml@2.9.0)
 
   packages/auth-sdk:
+    dependencies:
+      '@openfga/sdk':
+        specifier: 0.9.7
+        version: 0.9.7
+      '@platform/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@platform/db':
+        specifier: workspace:*
+        version: link:../db
     devDependencies:
+      '@openfga/syntax-transformer':
+        specifier: 0.2.2
+        version: 0.2.2
       '@types/node':
         specifier: ^20.19.0
         version: 20.19.43
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -293,12 +309,12 @@ packages:
     resolution: {integrity: sha512-Dtu0gr4dnATZAPwEYbpCsG+MpLM7OAliy2gTepEFQwl1vZ6DL3QMH2FveMa3HLvPsOdhJsPRB3KtxVhph9T75A==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-dynamodb@3.1126.0':
-    resolution: {integrity: sha512-JJquheUb1DCcY4p2cejC5HBDC45UEMIlIBHXkKJnIhDj132fEFOgSOdlEdu+tbXxNi/SybFiVezydVvqfKDjGQ==}
+  '@aws-sdk/client-dynamodb@3.1127.0':
+    resolution: {integrity: sha512-rV9TC7gqtwekWR9jXBdzuvCG65fnv7jphnYdJmFBfLX1b0Q+ma3xijzZaGGeN+US2pKw/XaQiZapJX/nZqtBJw==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/client-s3@3.1126.0':
-    resolution: {integrity: sha512-9v+D5TOnISyWDBkY5N+lSeQ3/pPNi1bltpd7wfY2nALO7GoGq9QbRQ8KyI4j/ctnnHq40otqV5KWKYARdYI0vg==}
+  '@aws-sdk/client-s3@3.1127.0':
+    resolution: {integrity: sha512-0ZSAgmEda33xPqVPt+bx2KzrXV1cUCKRRVPGliLu+V7DzHPa04CqPSi1maGEM4O0LDP0iI6HRSW5ULloNwayNw==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.977.9':
@@ -345,11 +361,11 @@ packages:
     resolution: {integrity: sha512-8q1ICxcDjHId3bBryuu/j+1L9y5/3uQnwzLDt5j2ElcjZSoWmFtymdJy7OjLrluSMe0Z4mq5bcH4fxBXvlEHfw==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/lib-storage@3.1126.0':
-    resolution: {integrity: sha512-PVPxttx+kioa4zHgg+UnJprAQ9suuNzxgrZLQI8QX7ChZ1oK1R0gDQtmv9Z4iQyNdhc9K16pzksLRbMyB9a7Fw==}
+  '@aws-sdk/lib-storage@3.1127.0':
+    resolution: {integrity: sha512-em87TJQOrdE3sAqlMnhg3HUAVj1hcoGdDjpekzDdKQcyQSKKbFfulnV57j41h/dHJxVqXRGzTqS8QOdOPtNFtw==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
-      '@aws-sdk/client-s3': ^3.1126.0
+      '@aws-sdk/client-s3': ^3.1127.0
 
   '@aws-sdk/middleware-endpoint-discovery@3.972.30':
     resolution: {integrity: sha512-0hmD7/NG2NoVOVHvUb6rtY5POQYr+/9gdHvrYhIBA1zmCqKOBd5Gz3dL+iZ15FHOJbs/5kLplGoePc8PHTlzYA==}
@@ -363,8 +379,8 @@ packages:
     resolution: {integrity: sha512-NhEgryjlBF9w38ZXqGymQV28IhkYa1mKhlbYnqIis57AYwWGVYfUPgg/qC2rLRqOUfblxx++irvju10kVTa8Vw==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/s3-request-presigner@3.1126.0':
-    resolution: {integrity: sha512-QeLZT7ynBL1ZxyreCF8alGG5iOExGg62erNnfgo/woAaw6wsIrJ5ceLynCBKASViqzdoU+Zn73E6PY7FjCO5kA==}
+  '@aws-sdk/s3-request-presigner@3.1127.0':
+    resolution: {integrity: sha512-vl3WBaE2fMqfnEhyqulKT6ZIPNsCR2caCps92tyt1yGfLVlDXScSXBDXf4m3E2ejXBb4pplX0EdwBukJyBXtBg==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/signature-v4-multi-region@3.996.46':
@@ -1556,6 +1572,14 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@openfga/sdk@0.9.7':
+    resolution: {integrity: sha512-dWZN6A/9B/+xuvFuW/h9LJLRw1IX0h25PGrytMoELRYjkzRPeqKc0T4l2OnpuY3lJSACNIz4UxWd8oSdDVgQ1w==}
+    engines: {node: '>=20.19.0'}
+
+  '@openfga/syntax-transformer@0.2.2':
+    resolution: {integrity: sha512-XWZJHZicboO+wWSO0zpxE+S01/oiNXnE5L7jfCNqjv0Llh7y6X1FKCJrHjwCR0jlh3eLUxm+FuIoW8g3IIo8Uw==}
+    engines: {node: '>=20.19.0'}
 
   '@opentelemetry/api-logs@0.200.0':
     resolution: {integrity: sha512-IKJBQxh91qJ+3ssRly5hYEJ8NDHu9oY/B1PXVSCWf7zytmYO9RNLB0Ox9XQ/fJ8m6gY6Q6NtBWlmXfaXt5Uc4Q==}
@@ -3260,6 +3284,10 @@ packages:
     resolution: {integrity: sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg==}
     engines: {node: '>=8'}
 
+  antlr4@4.13.2:
+    resolution: {integrity: sha512-QiVbZhyy4xAZ17UPEuG3YTOt8ZaoeOR1CvEAqrEsDBsOqINslaB147i9xqljZqoyf5S+EUlGStaj+t22LT9MOg==}
+    engines: {node: '>=16'}
+
   any-promise@1.3.0:
     resolution: {integrity: sha512-7UvmKalWRt1wgjL1RrGxoSJW/0QZFIegpeGvZG9kjp8vrRu55XTHbwnqq2GpXm9uLbcuhxm3IqX9OB4MZR1b2A==}
 
@@ -3328,8 +3356,8 @@ packages:
   axios-retry@3.9.1:
     resolution: {integrity: sha512-8PJDLJv7qTTMMwdnbMvrLYuvB47M81wRtxQmEdV5w4rgbTXTt+vtPkXwajOfOdSyv/wZICJOC+/UhXH4aQ/R+w==}
 
-  axios@1.20.0:
-    resolution: {integrity: sha512-r8aOh8j9cGKpgQAqpzrUHnSIc6a59Y3Xf/cv8sy1DrHCkZHzQGEuoq1tARk6qSyDdtQGSDgpb9kFlruzPvrgwg==}
+  axios@1.19.0:
+    resolution: {integrity: sha512-ht/iuYZXEjFxLH/Hkezgd7m6JKlHHXEUSneaDz8uZe1Gj5QZtCnpyDsckvAiEnT89OEbCLmnte4R4sn7P0EKFw==}
 
   balanced-match@1.0.2:
     resolution: {integrity: sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw==}
@@ -4540,6 +4568,9 @@ packages:
   jose@4.15.9:
     resolution: {integrity: sha512-1vUQX+IdDMVPj4k8kOxgUqlcK518yluMuGZwqlr44FS1ppZB/5GWh4rZG89erpOBOJjU/OBsnCVFfapsRz6nEA==}
 
+  jose@5.10.0:
+    resolution: {integrity: sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg==}
+
   js-levenshtein@1.1.6:
     resolution: {integrity: sha512-X2BB11YZtrRqY4EnQcLX5Rh373zbK4alC1FW7D7MBhL2gtcC17cTnr6DmfHZeS0s2rTHjUTMMHfG7gO8SSdw+g==}
     engines: {node: '>=0.10.0'}
@@ -5502,8 +5533,8 @@ packages:
     resolution: {integrity: sha512-s4VSOf6yN0rvbRZGxs8Om5CWj6seneMwK3oDb4lWDH0UPhWcxwOWw5+qk24bxq87szX1ydrwylIOp2uG1ojUpA==}
     engines: {node: '>= 0.8'}
 
-  react-aria@3.52.0:
-    resolution: {integrity: sha512-eGU8GOqT6Stn4Se/X3esz0Wum6TqSwQJBbK3jSLJIbFAS7XkvpICCVwmqZQG1/siXuCgB9DBRq9CttI+K9HPTA==}
+  react-aria@3.52.1:
+    resolution: {integrity: sha512-fdZZruC9/x/joCg0mhKGs5aHpwrXLCSZ4GOJmhhYyiE0ffyEsk9MLFt9LCOCF9tn8ErTD+UDQP4oDUSlZkmpCg==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
       react-dom: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
@@ -6019,6 +6050,9 @@ packages:
   tildify@2.0.0:
     resolution: {integrity: sha512-Cc+OraorugtXNfs50hU9KS369rFXCfgGLpfCfvlc+Ud5u6VWmUQsOAa9HbTvheQdYnrdJqqv1e5oIqXppMYnSw==}
     engines: {node: '>=8'}
+
+  tiny-async-pool@2.1.0:
+    resolution: {integrity: sha512-ltAHPh/9k0STRQqaoUX52NH4ZQYAJz24ZAEwf1Zm+HYg3l9OXTWeqWKyYsHu40wF/F0rxd2N2bk5sLvX2qlSvg==}
 
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
@@ -6546,7 +6580,7 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-dynamodb@3.1126.0':
+  '@aws-sdk/client-dynamodb@3.1127.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/credential-provider-node': 3.972.82
@@ -6559,7 +6593,7 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/client-s3@3.1126.0':
+  '@aws-sdk/client-s3@3.1127.0':
     dependencies:
       '@aws-sdk/checksums': 3.1000.29
       '@aws-sdk/core': 3.977.9
@@ -6680,9 +6714,9 @@ snapshots:
       mnemonist: 0.38.3
       tslib: 2.8.1
 
-  '@aws-sdk/lib-storage@3.1126.0(@aws-sdk/client-s3@3.1126.0)':
+  '@aws-sdk/lib-storage@3.1127.0(@aws-sdk/client-s3@3.1127.0)':
     dependencies:
-      '@aws-sdk/client-s3': 3.1126.0
+      '@aws-sdk/client-s3': 3.1127.0
       '@smithy/core': 3.33.3
       '@smithy/types': 4.18.0
       buffer: 5.6.0
@@ -6718,7 +6752,7 @@ snapshots:
       '@smithy/types': 4.18.0
       tslib: 2.8.1
 
-  '@aws-sdk/s3-request-presigner@3.1126.0':
+  '@aws-sdk/s3-request-presigner@3.1127.0':
     dependencies:
       '@aws-sdk/core': 3.977.9
       '@aws-sdk/signature-v4-multi-region': 3.996.46
@@ -7709,9 +7743,9 @@ snapshots:
 
   '@medusajs/file-s3@2.20.1(@medusajs/framework@2.20.1(@medusajs/cli@2.20.1(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@7.3.6(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.13)(yaml@2.9.0))(zod@4.2.0))':
     dependencies:
-      '@aws-sdk/client-s3': 3.1126.0
-      '@aws-sdk/lib-storage': 3.1126.0(@aws-sdk/client-s3@3.1126.0)
-      '@aws-sdk/s3-request-presigner': 3.1126.0
+      '@aws-sdk/client-s3': 3.1127.0
+      '@aws-sdk/lib-storage': 3.1127.0(@aws-sdk/client-s3@3.1127.0)
+      '@aws-sdk/s3-request-presigner': 3.1127.0
       '@medusajs/framework': 2.20.1(@medusajs/cli@2.20.1(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@7.3.6(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.13)(yaml@2.9.0))(zod@4.2.0)
       ulid: 2.4.0
 
@@ -7721,7 +7755,7 @@ snapshots:
 
   '@medusajs/framework@2.20.1(@medusajs/cli@2.20.1(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@7.3.6(@types/node@20.19.43)(jiti@1.21.7)(tsx@4.23.13)(yaml@2.9.0))(zod@4.2.0)':
     dependencies:
-      '@aws-sdk/client-dynamodb': 3.1126.0
+      '@aws-sdk/client-dynamodb': 3.1127.0
       '@jercle/yargonaut': 1.1.5
       '@medusajs/cli': 2.20.1(@types/node@20.19.43)
       '@medusajs/deps': 2.20.1(@types/node@20.19.43)
@@ -8079,7 +8113,7 @@ snapshots:
   '@medusajs/telemetry@2.20.1':
     dependencies:
       '@babel/runtime': 7.29.7
-      axios: 1.20.0
+      axios: 1.19.0
       axios-retry: 3.9.1
       boxen: 5.1.2
       ci-info: 3.9.0
@@ -8119,7 +8153,7 @@ snapshots:
       prismjs: 1.30.0
       radix-ui: 1.1.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react: 18.3.1
-      react-aria: 3.52.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-aria: 3.52.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-currency-input-field: 3.10.0(react@18.3.1)
       react-dom: 18.3.1(react@18.3.1)
       react-stately: 3.50.0(react@18.3.1)
@@ -8340,6 +8374,22 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.3
+
+  '@openfga/sdk@0.9.7':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      axios: 1.19.0
+      jose: 5.10.0
+      tiny-async-pool: 2.1.0
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@openfga/syntax-transformer@0.2.2':
+    dependencies:
+      ajv: 8.20.0
+      antlr4: 4.13.2
+      yaml: 2.9.0
 
   '@opentelemetry/api-logs@0.200.0':
     dependencies:
@@ -9535,7 +9585,7 @@ snapshots:
   '@sendgrid/client@8.1.6':
     dependencies:
       '@sendgrid/helpers': 8.0.0
-      axios: 1.20.0
+      axios: 1.19.0
     transitivePeerDependencies:
       - debug
       - supports-color
@@ -10208,6 +10258,8 @@ snapshots:
     dependencies:
       color-convert: 2.0.1
 
+  antlr4@4.13.2: {}
+
   any-promise@1.3.0: {}
 
   anymatch@3.1.3:
@@ -10266,7 +10318,7 @@ snapshots:
       '@babel/runtime': 7.29.7
       is-retry-allowed: 2.2.0
 
-  axios@1.20.0:
+  axios@1.19.0:
     dependencies:
       follow-redirects: 1.16.0
       form-data: 4.0.6
@@ -10645,7 +10697,7 @@ snapshots:
 
   connect-dynamodb@3.0.5:
     optionalDependencies:
-      '@aws-sdk/client-dynamodb': 3.1126.0
+      '@aws-sdk/client-dynamodb': 3.1127.0
 
   connect-redis@5.2.0: {}
 
@@ -11531,6 +11583,8 @@ snapshots:
   jju@1.4.0: {}
 
   jose@4.15.9: {}
+
+  jose@5.10.0: {}
 
   js-levenshtein@1.1.6: {}
 
@@ -12497,7 +12551,7 @@ snapshots:
       iconv-lite: 0.4.24
       unpipe: 1.0.0
 
-  react-aria@3.52.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  react-aria@3.52.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       '@internationalized/date': 3.12.4
       '@internationalized/number': 3.6.8
@@ -13041,6 +13095,8 @@ snapshots:
   through@2.3.8: {}
 
   tildify@2.0.0: {}
+
+  tiny-async-pool@2.1.0: {}
 
   tinybench@2.9.0: {}
 
