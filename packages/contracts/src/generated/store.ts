@@ -338,7 +338,7 @@ export interface components {
             };
             content_space_id?: string | null;
             search_index?: string | null;
-            /** @description Token overrides for @platform/ui */
+            /** @description Token overrides for @platform/ui (`BrandTokens`). Each key is a token group — color, font, fontSize, fontWeight, lineHeight, spacing, radius, shadow — mapping token name to a CSS value string, e.g. `{ color: { primary: "#1E40AF", primaryForeground: "#ffffff" } }`. Unknown groups, unknown keys and non-string values are ignored by the storefront. */
             theme: {
                 [key: string]: unknown;
             };

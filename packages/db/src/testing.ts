@@ -45,6 +45,10 @@ export async function createTestDatabase(prefix = 'platform_test'): Promise<Test
     throw err;
   }
   const app = new Pool({ connectionString: withDatabase(appUrl, name), max: 4 });
+  // DROP DATABASE ... WITH (FORCE) terminates sockets that pool.end() has not fully closed yet; without a
+  // listener that FATAL 57P01 surfaces as an unhandled error and fails the run (seen once in CI).
+  owner.on('error', () => {});
+  app.on('error', () => {});
 
   return {
     owner,

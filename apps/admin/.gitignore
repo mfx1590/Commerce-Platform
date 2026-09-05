@@ -1,0 +1,5 @@
+# Next.js build output and generated/incremental TypeScript state.
+# (The root .gitignore is owned by the main window; see REQUEST issue for next-env.d.ts + eslint.)
+.next/
+next-env.d.ts
+*.tsbuildinfo

@@ -408,7 +408,12 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
         s.timezone,
         s.code,
         `${s.code}_products`,
-        JSON.stringify({ colors: { primary: ['#1E40AF', '#047857', '#B91C1C'][s.index - 1] } }),
+        JSON.stringify({
+          color: {
+            primary: ['#1E40AF', '#047857', '#B91C1C'][s.index - 1],
+            primaryForeground: '#ffffff',
+          },
+        }),
         JSON.stringify({ support_refund_limit_minor: 5000 }),
       ]),
     );
