@@ -199,8 +199,9 @@ describe('Admin API staff principal (Phase 1 dev tokens → role_assignment)', (
     expect(owner.body).toEqual({ stores: ['brand-b'] });
   });
 
-  it('dev tokens are refused unless CORE_DEV_TOKENS=1 is set explicitly (no NODE_ENV opt-out)', async () => {
+  it('dev tokens are refused unless CORE_DEV_TOKENS=1 is set explicitly (NODE_ENV never enables them)', async () => {
     const prev = process.env.CORE_DEV_TOKENS;
+    const prevEnv = process.env.NODE_ENV;
     delete process.env.CORE_DEV_TOKENS;
     try {
       await expect(new DevTokenVerifier().verify('dev:seed-owner')).rejects.toMatchObject({
@@ -212,6 +213,25 @@ describe('Admin API staff principal (Phase 1 dev tokens → role_assignment)', (
       });
     } finally {
       process.env.CORE_DEV_TOKENS = prev;
+      process.env.NODE_ENV = prevEnv;
+    }
+  });
+
+  it('dev tokens are never accepted in production, even with CORE_DEV_TOKENS=1', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    process.env.CORE_DEV_TOKENS = '1';
+    try {
+      await expect(new DevTokenVerifier().verify('dev:seed-owner')).rejects.toMatchObject({
+        code: 'unauthorized',
+        message: 'dev tokens are never accepted in production',
+      });
+      const res = await request(app)
+        .get('/admin/_probe/me')
+        .set('Authorization', 'Bearer dev:seed-owner');
+      expect(res.status).toBe(401);
+    } finally {
+      process.env.NODE_ENV = prevEnv;
     }
   });
 });

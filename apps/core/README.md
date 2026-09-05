@@ -58,7 +58,7 @@ ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
    other Store API path falls through to Medusa (clients use the Prism mock for those in Phase 1).
 6. `/admin` → `staffAuthMiddleware`: bearer token → `staff_user` → `role_assignment` → `req.principal`
    (`organizationRelations`, `stores[].relations`). Phase 1 verifier accepts `dev:<keycloak_subject>` **only when
-   `CORE_DEV_TOKENS=1` is set** (explicit opt-in, no NODE_ENV opt-out); `@platform/auth-sdk` replaces it behind
+   `CORE_DEV_TOKENS=1` is set, and never in production** (explicit opt-in; `NODE_ENV=production` refuses first); `@platform/auth-sdk` replaces it behind
    `StaffTokenVerifier`. Handlers take a client from
    `storeClientFor(principal, storeId)` (403 outside scope), `organizationClientFor` or `visibleStoresClientFor`.
 7. Admin API routes window 1 owns (`src/http/admin-routes.ts`, `adminRouter`): `/admin/me`, `/admin/stores`

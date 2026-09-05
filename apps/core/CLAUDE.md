@@ -21,7 +21,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - `pnpm --filter @platform/core lint` — root rules + this app's `no-restricted-imports` guard on `pg`.
 - Local Admin API calls in Phase 1: `Authorization: Bearer dev:<keycloak_subject>` (seeded subjects `seed-owner`,
   `seed-finance`, `seed-operations`, `seed-store-admin`, `seed-store-staff`, `seed-support`, `seed-analyst`);
-  accepted only when `CORE_DEV_TOKENS=1` is set in `.env` (explicit opt-in; there is no NODE_ENV opt-out). Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`.
+  accepted only when `CORE_DEV_TOKENS=1` is set in `.env` (explicit opt-in), and never in production (`NODE_ENV=production` refuses before the flag). Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`.
 - `pnpm --filter @platform/core build` — `medusa build` → `.medusa/server`; `pnpm --filter @platform/core start`.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core` before finishing any task.
 

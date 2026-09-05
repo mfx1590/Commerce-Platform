@@ -7,7 +7,8 @@
 - Static imports of `@platform/db` / `@platform/events` (the `default` export condition landed on main, #40);
   the dynamic `import()` shims in `src/lib/db.ts`, `src/outbox/with-events.ts` and `scripts/db-medusa-migrate.ts`
   are gone.
-- Dev tokens are an explicit opt-in: `CORE_DEV_TOKENS=1` (never derived from `NODE_ENV`).
+- Dev tokens are an explicit opt-in: `CORE_DEV_TOKENS=1`, and never in production (`NODE_ENV=production` refuses
+  before the flag is consulted).
 - `requirePermission(relation, objectFactory)` is now a route middleware with the `@platform/auth-sdk` signature;
   `can(principal, relation, object)` / `assertPermission` back it. Admin routes chain `permission(op)` → `body(op)`.
 - `@platform/auth-sdk` and `@platform/db` are workspace dependencies (#48); contracts 0.2.0 (additive sort/order
