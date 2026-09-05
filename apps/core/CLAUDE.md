@@ -28,7 +28,10 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 ## Public API
 
 - HTTP: implements `packages/contracts/openapi/store-api.yaml` and `admin-api.yaml` exactly (registry + catalog
-  routes in Phase 1). Contract header `X-Publishable-Key`; errors `{ code, message, details }`.
+  routes in Phase 1). Store API routes live in `src/http/store-routes.ts` and are mounted ahead of Medusa (they win
+  over Medusa's same-path routes and its key gate); Admin API routes are Medusa file routes under `src/api/admin`.
+  Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the
+  OpenAPI components in tests (`test/helpers/openapi.ts`).
 - Every state change writes to `outbox` in the same transaction (`@platform/events` via `src/outbox/withEvents`);
   the relay (window 14, Phase 4) publishes. Never publish to the bus directly.
 - Module layout: `src/modules/<name>/{index.ts,service.ts,README.md,*.test.ts}`; cross-module imports only via
