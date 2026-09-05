@@ -1,5 +1,20 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist", "types": ["node"] },
-  "include": ["src/**/*.ts"]
+  "compilerOptions": {
+    // Medusa 2 projects compile to CommonJS (its CLI, build and loaders assume it; no "type": "module").
+    // Everything else in the workspace is ESM: Node >= 20.19 lets this CJS app require() the ESM
+    // @platform/* packages, and TypeScript >= 5.8 only allows that under "nodenext" (Node16 reports TS1479).
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "verbatimModuleSyntax": false,
+    "declaration": false,
+    "declarationMap": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "rootDir": ".",
+    "outDir": ".medusa/server",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "medusa-config.ts", ".medusa/types/*"],
+  "exclude": ["node_modules", ".medusa/server", "dist", "test", "**/*.test.ts", "vitest.config.ts"]
 }
