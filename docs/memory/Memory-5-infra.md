@@ -35,7 +35,8 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified locally: all six images build; smoke test green (uid 1000, HEALTHCHECK `healthy`, `/health` → 200);
   scaffold image ~221 MB (node:20-alpine + 24 MB pnpm; the app layers are ~100 KB).
 
-- **2.1b — app images fixed for the real apps (issue #59)** — this PR. Three defects, all found by building and
+- **2.1b — app images fixed for the real apps (issue #59)** — commit `e1bdfb3`, PR #69
+  (https://github.com/mfx1590/Commerce-Platform/pull/69), all six checks green on a clean runner. Three defects, all found by building and
   running rather than reading: `pnpm --filter <app> build` never built the workspace dependencies;
   `medusa build` needs `ts-node` and a non-empty environment; and `pnpm deploy` silently dropped `.medusa` and
   `.next` because npm packing skips dot-directories. `continue-on-error` removed from the `images` job.
@@ -134,6 +135,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   commit) → continue on the same branch → open the next PR, which then contains only the new task. Never create
   stacked per-task branches. Practical consequence: do not push task N+1 commits to `infra/phase2` while task N's
   PR is still open, or they land in that PR.
+- **The `images` job takes ~12 minutes on a clean runner** now that three real apps are built (it was 2m23s
+  with six scaffolds). Nothing is cached between runs yet — task 2.4 (#34) should add a registry or GHA build
+  cache for the `pnpm install` and `pnpm build` layers, or this becomes the slowest required check by far.
 - **`pnpm deploy` drops dot-directories.** It packs like npm, and npm's rules skip them — so `.medusa/server`
   and `.next` never reach the deployed package and the container dies with MODULE_NOT_FOUND (core) or serves
   nothing (Next.js). Every real app needs an explicit `cp -r` after the deploy step. `dist/` is unaffected.
