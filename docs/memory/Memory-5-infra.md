@@ -57,6 +57,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   bash infra/terraform/check.sh       # must stay green
   ```
 
+  Fold in before opening the 2.2 PR (manager 2026-09-06): the `.dockerignore`, **if REQUEST #70 has granted the
+  path** — every legal location for that file (`/.dockerignore`, `apps/*/Dockerfile.dockerignore`) is outside my
+  owned paths and the ownership check rejects both, so the file and the exact ownership-map line are in #70.
+  If #70 is still open when #69 merges, open the 2.2 PR without it and add it the moment the grant lands.
+
   Expect one conflict in `.github/workflows/ci.yml`: the parked commit adds a `terraform` job next to `images`,
   and this PR edits `images`. Keep both jobs. `infra/CHANGELOG.md` and `docs/memory/Memory-5-infra.md` will also
   conflict — keep both sets of entries. Delete the `park/2.2` branch once the cherry-pick is verified.
@@ -68,9 +73,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
       `plan` runbook only until credentials exist. Outputs must match `.env.example` names.
 - [ ] **#33 · 2.3** Helm charts (core, admin, storefront, Prism mocks) + ArgoCD app-of-apps; `helm lint`,
       `helm template`, `kubeconform` in CI; `values-dev.yaml` / `values-staging.yaml`; image tag = git sha.
-- [ ] **#34 · 2.4** CI: generalise path filters, pnpm + turbo caching, Playwright job hooks (gated on
-      `apps/*/playwright.config.*`), `deploy-staging.yml` on main (no-op with a clear log line until the
-      ArgoCD secret exists), branch-protection docs. Docs-only PR under 2 minutes.
+- [ ] **#34 · 2.4** CI, in this order (manager 2026-09-06: caching first): (a) BuildKit `type=gha` cache in
+      `docker-compose.build.yml`; (b) split the install layer — copy every `package.json` + lockfile, install,
+      then copy sources, otherwise the cache misses on every source change; (c) `actions/cache` for the pnpm
+      store and turbo in the non-image jobs; (d) one `changes` job replacing the two inline `git diff` filters
+      that 2.1 and 2.2 added; (e) Playwright hooks gated on `apps/*/playwright.config.*`, `deploy-staging.yml`
+      (no-op with a clear log line until the ArgoCD secret exists), branch-protection docs.
+      Targets: `images` under ~4 min warm, docs-only PR under 2 min. Plan posted as a comment on #34.
 - [ ] **#35 · 2.5** Observability: OTel collector + Grafana/Prometheus/Loki/Tempo as a
       `docker compose --profile observability` overlay, provisioned dashboards (per-store request rate, error
       rate, p95, outbox lag), Sentry DSN via env. Needs a `CONTRACT CHANGE:` issue for the read-only Postgres
