@@ -1,5 +1,6 @@
 // Staff scope middleware against docker Keycloak (real tokens via test-cli), a throw-away Postgres db and a
 // throw-away OpenFGA store. Issue #13.
+import { createHmac } from 'node:crypto';
 import {
   createOpenFgaClient,
   createStaffTokenVerifier,
@@ -31,19 +32,48 @@ const live =
   (await up(`${API}/healthz`)) &&
   Boolean(process.env.DATABASE_URL);
 
+/** Dev TOTP of the pre-enrolled `owner` (#43; infra/keycloak/README.md). RFC 6238, HmacSHA1/6/30. */
+const OWNER_DEV_TOTP_SECRET = 'owner-dev-totp-secret-20260905';
+function totp(secret: string, at = Date.now()): string {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
+  const h = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
+  const o = h[h.length - 1]! & 0xf;
+  return ((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
+}
+
+const tokenCache = new Map<string, string>();
 async function token(realm: string, username: string, password = username): Promise<string> {
-  const res = await fetch(`${KC}/realms/${realm}/protocol/openid-connect/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
+  // Memoized per user: tokens live 15 min, and re-granting `owner` inside one 30 s TOTP window would trip
+  // the realm's code-reuse protection (otpPolicyCodeReusable: false).
+  const key = `${realm}/${username}`;
+  const cached = tokenCache.get(key);
+  if (cached) return cached;
+  const grant = async (otpAt?: number) => {
+    const body = new URLSearchParams({
       client_id: 'test-cli',
       grant_type: 'password',
       username,
       password,
-    }),
-  });
-  const json = (await res.json()) as { access_token?: string; error?: string };
+    });
+    // Keycloak's built-in direct-grant flow validates OTP conditionally: since #43 pre-enrolled `owner`,
+    // its password grant must carry a code (the other seeded users have no OTP credential).
+    if (username === 'owner') body.set('otp', totp(OWNER_DEV_TOTP_SECRET, otpAt));
+    const res = await fetch(`${KC}/realms/${realm}/protocol/openid-connect/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    return (await res.json()) as { access_token?: string; error?: string };
+  };
+  // The look-ahead of 1 accepts the previous window's code; using it here leaves the CURRENT window's code
+  // for keycloak-realms.test.ts's browser login, so the two files never trip code-reuse protection.
+  let json = await grant(Date.now() - 30_000);
+  if (!json.access_token && username === 'owner') {
+    json = await grant(Date.now());
+  }
   if (!json.access_token) throw new Error(`token for ${username}: ${json.error}`);
+  tokenCache.set(key, json.access_token);
   return json.access_token;
 }
 
