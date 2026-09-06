@@ -1,0 +1,35 @@
+// Public API of the catalog module. Nothing outside this folder may import from its other files.
+export {
+  archiveProduct,
+  createCategory,
+  createProduct,
+  createVariant,
+  getProduct,
+  listCategories,
+  listProducts,
+  publishProduct,
+  toAdminProduct,
+  toAdminVariant,
+  updateProduct,
+  updateVariant,
+} from './service';
+export { getStoreProduct, listStoreCategories, listStoreProducts } from './read-model';
+export type {
+  AdminCategory,
+  AdminProduct,
+  AdminProductQuery,
+  AdminVariant,
+  CategoryInput,
+  Money,
+  Page,
+  PageQuery,
+  ProductInput,
+  ProductStatus,
+  StoreCategory,
+  StoreProduct,
+  StoreProductQuery,
+  StoreProductSummary,
+  StoreSort,
+  StoreVariant,
+  VariantInput,
+} from './types';

@@ -1,9 +1,8 @@
 import { defineConfig } from '@medusajs/framework/utils';
 
-// Settings come from process.env only. The repo-root .env is loaded by whoever boots Medusa before this file
-// is evaluated: src/server.ts and scripts/db-medusa-migrate.ts call loadDotenv() from @platform/db first.
-// (This file stays free of @platform imports: Medusa evaluates it synchronously as CommonJS, and the workspace
-// packages are ESM-only — see GitHub issue "REQUEST: add a default export condition".)
+// Settings come from process.env only. The repo-root .env is loaded by whoever boots Medusa before this file is
+// evaluated (src/server.ts and scripts/db-medusa-migrate.ts call loadDotenv() from @platform/db first), so the
+// `medusa` CLI — which reads this file on its own — sees the same values when its process env is prepared.
 
 const isProduction = process.env.NODE_ENV === 'production';
 

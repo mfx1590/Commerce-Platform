@@ -98,13 +98,50 @@ dependency.
 `(checkout)` deliberately has its own chrome: no navigation, nothing that invites the customer out of
 the funnel.
 
-Every route renders per request in Phase 1 (`dynamic = 'force-dynamic'` in the root layout), because
-the layout itself calls `GET /store`. Task 1.3 introduces per-route caching with fetch tags where it
-pays off (PLP and PDP).
+## Catalog and caching
+
+The catalog reads live in `src/lib/catalog.ts`, the only place that knows the cache tags:
+
+| Read             | Tags                      | Revalidate |
+| ---------------- | ------------------------- | ---------- |
+| `listProducts`   | `products`                | 60 s       |
+| `listCategories` | `categories`              | 60 s       |
+| `getProduct(h)`  | `products`, `product:<h>` | 60 s       |
+
+So a Phase 2 webhook can `revalidateTag('product:classic-tee')` and drop exactly one page instead of
+the whole cache. Each read is also wrapped in React's `cache()`, so a page and its `generateMetadata`
+share one request.
+
+`force-dynamic` sits on the pages that have **no cacheable data of their own** (`/`, `/cart`,
+`/checkout`, `/account`) rather than on the root layout: it would otherwise force `no-store` on every
+fetch below it and defeat the tags. Those pages still render the header from `GET /store`, and
+prerendering them would bake one snapshot of the store into a build that CI runs with no API at all.
+PLP and PDP therefore cache at the fetch layer, and `next build` still needs nothing running.
+
+Listing state — search, category, sort, page — lives entirely in the URL, parsed by
+`parseListParams` (which narrows untrusted query strings to the values the contract allows) and
+rebuilt by `listHref`. Filters and pagination are links and a GET form, so the first render needs no
+JavaScript and every view is shareable and crawlable. The PDP's `VariantPicker` is the only client
+component in the catalog.
 
 ## Test
 
 ```bash
-pnpm --filter @platform/storefront-starter test        # Vitest: client, slots
+pnpm --filter @platform/storefront-starter test        # Vitest: client, slots, catalog, variants
 pnpm --filter @platform/storefront-starter typecheck
 ```
+
+### Lighthouse
+
+Measure the production build, never `dev` — `next dev` is unoptimised and scores meaninglessly low:
+
+```bash
+pnpm mock
+pnpm --filter @platform/storefront-starter build
+pnpm --filter @platform/storefront-starter start
+npx lighthouse http://localhost:3100/products --only-categories=performance --chrome-flags="--headless=new"
+```
+
+Latest run (mobile emulation, production build, against the mock): PLP performance 99–100, PDP 100;
+LCP 1.5–2.0 s, CLS 0, accessibility 100. The budgeted, repeatable version of this lands with task 1.7
+(`lighthouserc`).
