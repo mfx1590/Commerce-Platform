@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.6 — issue #29 The 401/403/404/empty/error pattern** · commit `SHA7` · **not pushed** — held
+- **1.6 — issue #29 The 401/403/404/empty/error pattern** · commit `a2eac56` · **not pushed** — held
   local until #67 merges (one open PR per branch).
   - `ApiStatePanel` is the single entry point; screens hand it a failed result instead of branching
     on status. 401 offers signing in again rather than a retry that would fail identically; 403 names
