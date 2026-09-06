@@ -46,6 +46,11 @@ export default async function StoresPage({
             rows={result.ok ? result.data.items : []}
             total={result.ok ? result.data.total : 0}
             query={query}
+            emptyAction={
+              <Link href="/stores/new">
+                <Button>Create the first store</Button>
+              </Link>
+            }
             error={result.ok ? undefined : { status: result.status, error: result.error }}
           />
         </CardBody>

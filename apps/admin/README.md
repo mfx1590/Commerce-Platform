@@ -40,9 +40,10 @@ Port 3000 is fixed: the Keycloak client registers `http://localhost:3000/*` as i
 ## Checks
 
 ```bash
-pnpm --filter @platform/admin test       # Vitest
-pnpm --filter @platform/admin typecheck  # tsc --noEmit
-pnpm --filter @platform/admin build      # next build
+pnpm --filter @platform/admin test           # Vitest — fast, hermetic, no services
+pnpm --filter @platform/admin test:contract  # boots Prism itself and drives it with `Prefer: code=…`
+pnpm --filter @platform/admin typecheck      # tsc --noEmit, including the test files
+pnpm --filter @platform/admin build          # next build
 ```
 
 From the repo root, `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before
@@ -233,6 +234,51 @@ behind a confirmation, since `DELETE` is the verb even though the contract archi
 hard-deletes. `/{storeId}/catalog/categories` assembles the tree from the flat list, showing an
 orphan at the root rather than dropping it.
 
+## When a screen cannot show what was asked for
+
+One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:
+
+1. **A refusal renders in place.** Never a blank page, never a thrown error — the panel appears where
+   the content would have been, with the shell and navigation intact, so the reader can go somewhere
+   else instead of hitting a dead end.
+2. **Every panel has a heading and a next action.** "Access denied" tells an administrator nothing;
+   "you need `finance` on `organization:hq`, ask an owner" tells them who to ask. There is a test
+   asserting this for every panel, and asserting that none of them logs to the console.
+
+| State                               | Panel                                        | Next action                                                 |
+| ----------------------------------- | -------------------------------------------- | ----------------------------------------------------------- |
+| `401`                               | session ended                                | sign in again — _not_ a retry, which would fail identically |
+| `403`                               | names `details.relation` on `details.object` | who to ask                                                  |
+| `403` on a store outside `stores[]` | store forbidden                              | the switcher, still on screen                               |
+| `404`                               | scoped: "searched in store …"                | back to the list                                            |
+| empty, unfiltered                   | "no products yet"                            | create the first one                                        |
+| empty, filtered                     | "nothing matched"                            | clear the filters                                           |
+| no relations at all                 | explains onboarding                          | —                                                           |
+| network / `5xx`                     | retry                                        | `router.refresh()`, the only state where retrying can work  |
+
+Screens call **`ApiStatePanel`** with a failed result rather than branching on status themselves —
+that is what keeps one pattern one pattern:
+
+```tsx
+if (!result.ok) {
+  return (
+    <ApiStatePanel
+      status={result.status}
+      error={result.error}
+      what="This product"
+      storeId={storeId}
+    />
+  );
+}
+```
+
+`DataTable` does this for you, and splits the two empty cases. Below the API layer,
+`src/app/error.tsx` catches anything a route throws and shows only the `digest` — a server error
+message may contain whatever the server was holding, and this app handles tokens and customer data.
+
+`/states` renders every panel on one page for eyeballing them side by side. It is development only
+(`notFound()` in production) and uses the same components the real screens do, so it cannot drift.
+
 ## How to add a screen
 
 1. **Add a typed call** in [`src/lib/api/admin.ts`](./src/lib/api/admin.ts):
@@ -280,7 +326,7 @@ orphan at the root rather than dropping it.
 | `src/components/form/`   | `useContractForm`, field chrome, `MoneyField`                        |
 | `src/components/table/`  | The `DataTable` primitive                                            |
 | `src/components/shell/`  | The frame: header, side nav, store switcher, section guards          |
-| `src/components/states/` | The 403 / no-access / error panels                                   |
+| `src/components/states/` | Every state panel plus the `ApiStatePanel` dispatcher                |
 | `src/components/ui/`     | Presentational primitives (`cn`, Button, Card, Badge)                |
 | `test/`                  | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |
 

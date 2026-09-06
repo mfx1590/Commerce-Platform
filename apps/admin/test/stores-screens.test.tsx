@@ -116,17 +116,24 @@ describe('stores list', () => {
     );
   });
 
-  it('renders the error panel instead of an empty table', () => {
+  it('renders a refusal as the panel that names the relation', () => {
     render(
       <StoresTable
         rows={[]}
         total={0}
         query={query()}
-        error={{ status: 403, error: { code: 'forbidden', message: 'requires viewer' } }}
+        error={{
+          status: 403,
+          error: {
+            code: 'forbidden',
+            message: 'requires viewer',
+            details: { relation: 'viewer', object: 'store:*' },
+          },
+        }}
       />,
     );
     expect(screen.queryByRole('table')).toBeNull();
-    expect(screen.getByText('Admin API returned 403')).toBeInTheDocument();
+    expect(screen.getByText(/You need the viewer relation/)).toBeInTheDocument();
   });
 });
 

@@ -78,17 +78,48 @@ describe('rendering', () => {
     expect(screen.getByText('No stores yet')).toBeInTheDocument();
   });
 
-  it('says so when a filter is what emptied it', () => {
+  it('distinguishes "nothing yet" from "your filter matched nothing"', () => {
+    // Different problems, different next actions: one wants a create button, the other wants the
+    // filter cleared. Conflating them leaves someone wondering whether an import failed.
     renderTable({ rows: [], total: 0, query: query({ filters: { q: 'zzz' } }) });
-    expect(screen.getByText('Nothing matches the current filter.')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /No stores match this filter/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
   });
 
-  it('renders the error panel in place of the rows', () => {
+  it('offers the call to action when the list is empty and unfiltered', () => {
+    renderTable({ rows: [], total: 0, emptyAction: <Button>Create the first store</Button> });
+    expect(screen.getByRole('heading', { name: 'No stores yet' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create the first store' })).toBeInTheDocument();
+  });
+
+  it('clears the filters by navigating to the bare path', async () => {
+    const user = userEvent.setup();
+    renderTable({ rows: [], total: 0, query: query({ filters: { q: 'zzz' }, page: 3 }) });
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }));
+    expect(push).toHaveBeenCalledWith('/stores');
+  });
+
+  it('renders a refusal as the panel that names the relation, not a generic error', () => {
     renderTable({
-      error: { status: 403, error: { code: 'forbidden', message: 'requires viewer' } },
+      error: {
+        status: 403,
+        error: {
+          code: 'forbidden',
+          message: 'requires viewer',
+          details: { relation: 'viewer', object: 'store:*' },
+        },
+      },
     });
     expect(screen.queryByRole('table')).toBeNull();
-    expect(screen.getByText('Admin API returned 403')).toBeInTheDocument();
+    expect(screen.getByText(/You need the viewer relation on store:\*/)).toBeInTheDocument();
+  });
+
+  it('renders a 5xx as the retry panel', () => {
+    renderTable({ error: { status: 500, error: { code: 'internal', message: 'boom' } } });
+    expect(screen.getByRole('heading', { name: 'Admin API returned 500' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
 

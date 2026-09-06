@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { HqSectionGuard } from '@/components/shell/section-guard';
-import { RequestErrorPanel } from '@/components/states/state-panel';
+import { ApiStatePanel, RequestErrorPanel } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { updateStoreAction } from '@/app/actions/stores';
@@ -51,7 +51,13 @@ export default async function StoreDetailPage({
   if (!store.ok) {
     return (
       <HqSectionGuard id="stores">
-        <RequestErrorPanel status={store.status} error={store.error} />
+        <ApiStatePanel
+          status={store.status}
+          error={store.error}
+          what="This store"
+          backHref="/stores"
+          backLabel="All stores"
+        />
       </HqSectionGuard>
     );
   }

@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.4 merged (PR #42); 1.5 in review (PR #67, BLOCK items addressed); 1.6 next
+Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.4 merged (PR #42); 1.5 in review (PR #67, BLOCK addressed); 1.6 done but HELD LOCAL until #67 merges
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,24 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.6 — issue #29 The 401/403/404/empty/error pattern** · commit `SHA7` · **not pushed** — held
+  local until #67 merges (one open PR per branch).
+  - `ApiStatePanel` is the single entry point; screens hand it a failed result instead of branching
+    on status. 401 offers signing in again rather than a retry that would fail identically; 403 names
+    the relation and object; 404 says which store was searched, because the API scopes it; only
+    network/5xx gets a retry.
+  - Empty is split from error, and "nothing yet" from "filter matched nothing" — different problems,
+    different next actions.
+  - Router boundaries `error.tsx` / `not-found.tsx`; the error boundary shows only `digest`, since a
+    server error message can contain whatever the server was holding.
+  - `/states` renders every panel, dev only, from the same components the screens use.
+  - New `test:contract` suite boots Prism itself and drives it with `Prefer: code=403` (plus 401,
+    404, 200) — proving a real refusal becomes the panel that names the relation. Kept out of
+    `pnpm test` so the unit suite stays fast.
+  - Found and fixed: **the test files had never been typechecked** — `tsconfig.json` only included
+    `src/`.
+  - 266 unit + 6 contract tests.
+
 - **1.5 review follow-up** (manager BLOCK on PR #67, all three addressed) · commit `a1b297a`
   1. `createVariantAction` had no caller. The product page now reconciles the matrix against
      existing variants and offers the gap — one button per row plus "Create all N" — and
@@ -116,11 +134,11 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     are covered by unit tests (task 1.5) — not by a live round-trip. #43 (window 2) unblocks the rest.
 
 ## In progress
-- Nothing. Task 1.6 (issue #29, the 401/403/404/empty/error pattern) is next: `src/components/states/`
-  already has forbidden / store-forbidden / no-access / request-error panels from 1.2, and the
-  data-table and forms already route failures into them, so 1.6 is mostly completing the set (401
-  re-authenticate, 404 scoped to the store), the `Prefer: code=403` mock tests, and the `(dev)/states`
-  demo route.
+- Nothing implementing. **Waiting for the manager to merge PR #67** (BLOCK items addressed in
+  `a1b297a`). When it merges: push 1.6 and open its PR. Then 1.7 (#30) is the last Phase 1 task —
+  the per-role test matrix largely exists in `test/navigation.test.ts`, so what is left is the
+  Playwright store-admin journey against `pnpm mock` and a `REQUEST:` issue for its CI job, since
+  `.github/workflows/**` is not this window's.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
@@ -132,6 +150,15 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
 ## Decisions made (with reasons)
+- **`ApiStatePanel` dispatches; screens do not branch on status.** One dispatcher is what makes the
+  pattern one pattern — a 401 in a data-table looks like a 401 on a detail page because it is the
+  same component, not because two places happen to agree.
+- **Only network/5xx offers a retry.** Retrying a 403 fails identically, and a button that cannot
+  work is worse than no button.
+- **The error boundary shows `digest`, never the message.** A server-side error message may contain
+  whatever the server was holding, and this app handles tokens and customer data.
+- **Contract tests live in `test-contract/` with their own vitest config.** They boot Prism, which
+  takes seconds and needs a free port; `pnpm test` stays fast and hermetic.
 - **Creating variants is a deliberate act, not a side effect of saving options.** A variant is a
   sellable thing with its own SKU, price and stock; adding a colour to a live product would
   otherwise silently POST several. The page offers the gap between the matrix and what exists, one
@@ -256,6 +283,8 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **`tsconfig.json` only included `src/`, so no test file was ever typechecked.** Fixed in 1.6;
+  worth checking in any other window that scaffolded its own tsconfig.
 - **Anything a server component imports must come from a non-`'use client'` module** — not just
   functions, constants too. The silent variant (object properties reading `undefined`) is the
   dangerous one.

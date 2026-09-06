@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Added — task 1.6, issue #29 (Admin API 0.2.0)
+
+- One pattern for every way a screen can fail, with `ApiStatePanel` as the single entry point:
+  `401` → sign in again (not a retry, which would fail identically); `403` → names the relation and
+  the object from `details`; `404` → scoped, saying which store was searched, because the API
+  answers "not found in the caller's scope"; network/`5xx` → the only panel with a retry.
+- Empty lists are split from errors, and "nothing yet" from "your filter matched nothing" — the
+  first wants a create button, the second wants the filter cleared. `DataTable` takes an
+  `emptyAction`, and the Stores and Catalog lists pass one.
+- `src/app/error.tsx` and `src/app/not-found.tsx`: the router boundaries. The error boundary shows
+  only `error.digest` — a server error message may contain whatever the server was holding.
+- `/states`: every panel on one page for comparison, development only (`notFound()` in production)
+  and built from the same components the real screens use, so it cannot drift from them.
+- `pnpm --filter @platform/admin test:contract` — a suite that boots Prism itself and drives it with
+  `Prefer: code=403` (and 401, 404, 200), proving a real refusal from the mock travels through
+  `adminRequest` and comes out as the panel naming the missing relation. If the contract's documented
+  error example stopped carrying `details.relation`, the unit tests would still pass and this would
+  not.
+- 37 more tests (266 unit + 6 contract): every panel has a heading and a next action, and none logs
+  to the console — both asserted rather than assumed.
+
+### Changed
+
+- `tsconfig.json` now includes `test/` and `test-contract/`. The test files had never been
+  typechecked.
+- A `403` in a list used to render as "Admin API returned 403"; it now renders the panel that names
+  the missing relation. The tests asserting the old wording were updated, not worked around.
+
 ### Added — task 1.5 review follow-up (#67)
 
 - **Variants are now actually created and edited.** The product page reconciles the option matrix
