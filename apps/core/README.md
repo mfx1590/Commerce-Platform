@@ -18,7 +18,9 @@ pnpm --filter @platform/core dev                # http://localhost:9000/health �
 Configuration comes from the repo-root `.env` (created from `.env.example` by `pnpm dev`): `DATABASE_URL_APP` for the
 server, `DATABASE_URL` (owner) only to create the Medusa role and schema, `REDIS_URL`, optional `PORT` (9000),
 `JWT_SECRET`, `COOKIE_SECRET`, `STORE_CORS`, `ADMIN_CORS`, `AUTH_CORS`, `MEDUSA_DB_SCHEMA` (`medusa`),
-`MEDUSA_DB_OWNER_PASSWORD` / `DATABASE_URL_MEDUSA_OWNER` (dev default `medusa_owner`; rotated from Vault elsewhere).
+`MEDUSA_DB_OWNER_PASSWORD` / `DATABASE_URL_MEDUSA_OWNER` (dev default `medusa_owner`; rotated from Vault elsewhere),
+`CORE_DEV_TOKENS=1` to accept `Authorization: Bearer dev:<keycloak_subject>` on the Admin API (local only; add it to
+your `.env` — the Phase 1 stand-in for Keycloak tokens until `@platform/auth-sdk` verifies real JWTs).
 
 ## One database, two schemas
 
@@ -42,11 +44,34 @@ middleware first, then hands the app to Medusa's standard loaders (config, modul
 workflows, subscribers, jobs). Express keeps registration order, so anything mounted before the loaders runs
 ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
 
-1. `GET /health` — liveness, no session, no database.
-2. `aliasPublishableKeyHeader` — copies the contract header `X-Publishable-Key` to the header Medusa reads
-   (`x-publishable-api-key`). The tenant middleware (task 1.3) is mounted here too.
-3. Medusa loaders. Admin route files opt out of Medusa's auth with `export const AUTHENTICATE = false` and use
-   our `requirePermission` (stub until `@platform/auth-sdk` lands).
+1. `requestIdMiddleware` — `X-Request-Id` in (or generated) and out; lands in `audit_log.request_id`.
+2. `GET /health` — liveness, no session, no database.
+3. `aliasPublishableKeyHeader` — copies the contract header `X-Publishable-Key` to the header Medusa reads
+   (`x-publishable-api-key`).
+4. `/store` → `storeContextMiddleware`: `X-Publishable-Key` → sha256 → `store_api_key` (looked up under
+   `CORE_ORGANIZATION_ID`, default the seeded HQ) → `req.tenant` with a store-scoped client and the store default
+   currency. Missing, unknown or revoked key → `401 { code: "unauthorized" }`.
+5. Store API routes window 1 owns (`src/http/store-routes.ts`, `mountStoreRoutes`): `GET /store`,
+   `GET /store/categories`, `GET /store/products`, `GET /store/products/{handle}` — exactly the contract shapes,
+   prices in the store default currency, query params validated (400 `validation_error`), 404 for a handle outside
+   the store. They answer here, ahead of Medusa's routes of the same paths and of its publishable-key gate; every
+   other Store API path falls through to Medusa (clients use the Prism mock for those in Phase 1).
+6. `/admin` → `staffAuthMiddleware`: bearer token → `staff_user` → `role_assignment` → `req.principal`
+   (`organizationRelations`, `stores[].relations`). Phase 1 verifier accepts `dev:<keycloak_subject>` **only when
+   `CORE_DEV_TOKENS=1` is set, and never in production** (explicit opt-in; `NODE_ENV=production` refuses first); `@platform/auth-sdk` replaces it behind
+   `StaffTokenVerifier`. Handlers take a client from
+   `storeClientFor(principal, storeId)` (403 outside scope), `organizationClientFor` or `visibleStoresClientFor`.
+7. Admin API routes window 1 owns (`src/http/admin-routes.ts`, `adminRouter`): `/admin/me`, `/admin/stores`
+   (list/create/get/patch), domains, sales channels, api keys, `/admin/warehouses`, `/admin/legal-entities`,
+   categories, products (list/create/get/patch/archive/publish), variants. Each handler: JSON body validated against
+   the operation's `requestBody` schema **read from `admin-api.yaml` at runtime** (400 `validation_error`, per-field
+   `details`) → `requirePermission(relation, objectFactory)` middleware (auth-sdk signature) with the operation's
+   `x-permission` (403 `forbidden`) → scoped client → module service → contract shape. Every other `/admin` path falls through to
+   Medusa (Prism mock for clients in Phase 1).
+8. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
+9. Medusa loaders.
+
+`mountCoreMiddleware(app)` exports exactly this chain so tests run it on a bare Express app (`test/tenant-http.test.ts`).
 
 `pnpm build` (`medusa build`) compiles to `.medusa/server`; `pnpm start` runs the compiled entry.
 
@@ -57,7 +82,10 @@ src/
   server.ts                 entry (above)
   lib/db.ts                 the ONLY place that opens a database pool; exports tenantClient / organizationClient
   http/                     cross-cutting Express middleware (header alias, tenant context, errors)
-  api/{store,admin}/...     Medusa file-based routes, one folder per contract path; thin: validate → service → respond
+  http/store-routes.ts      Store API handlers (contract routes), mounted ahead of Medusa by mountCoreMiddleware
+  http/admin-routes.ts      Admin API router (contract routes): validate → requirePermission → client → service
+  http/permissions.ts       requirePermission(relation, objectFactory) middleware + can() — Phase 1 stub over role_assignment
+  http/openapi.ts           runtime loader of the frozen OpenAPI docs: request-body validation, x-permission lookup
   modules/<name>/
     index.ts                public API of the module — the only file other code may import
     service.ts              use cases; every function takes a ScopedClient and runs in ONE transaction

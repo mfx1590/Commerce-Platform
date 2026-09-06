@@ -6,7 +6,7 @@
 #   docker build -f apps/accounting/Dockerfile -t commerce-platform/accounting:dev .
 #
 # Contract with the app window (changing it needs a CONTRACT CHANGE issue):
-#   build time      `pnpm --filter @platform/accounting build`
+#   build time      `pnpm --filter @platform/accounting... build` (the app and its workspace dependencies)
 #   container start `pnpm start` inside the deployed package (infra/docker/entrypoint.sh)
 #   runtime         listens on $PORT and answers `GET /health` with 200
 # The app is still a Phase 0 scaffold with no `start` script, so the entrypoint serves
@@ -33,7 +33,10 @@ COPY apps ./apps
 # A developer's build context carries workspace node_modules symlinks; the image installs its own.
 RUN find apps packages -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} +
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
-RUN pnpm --filter "$APP" build
+# The "..." suffix builds the app AND its workspace dependencies (@platform/db, events,
+# contracts) in topological order. Without it the app compiles against packages that have no
+# dist/ yet and tsc reports "Cannot find module '@platform/db'".
+RUN pnpm --filter "$APP..." build
 RUN pnpm --filter "$APP" --prod --legacy deploy /out
 
 # ---------- runtime ----------

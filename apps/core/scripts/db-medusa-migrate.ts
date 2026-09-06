@@ -17,13 +17,11 @@
 //   4. as `medusa_owner`: catch-up grants on what now exists.
 import path from 'node:path';
 import type { Logger } from '@medusajs/framework/types';
-import type * as PlatformDb from '@platform/db';
+import { connectionStringFromEnv, createPool, loadDotenv } from '@platform/db';
 
 const directory = path.resolve(__dirname, '..');
 const APP_ROLE = 'platform_app';
 const MEDUSA_ROLE = 'medusa_owner';
-
-type Db = typeof PlatformDb;
 
 function assertIdentifier(value: string, what: string): void {
   if (!/^[a-z_][a-z0-9_]*$/.test(value))
@@ -40,8 +38,8 @@ function medusaOwnerUrl(ownerUrl: string, password: string): string {
   return u.toString();
 }
 
-async function runSql(db: Db, url: string, statements: string[]): Promise<void> {
-  const pool = db.createPool(url, 1);
+async function runSql(url: string, statements: string[]): Promise<void> {
+  const pool = createPool(url, 1);
   try {
     for (const sql of statements) await pool.query(sql);
   } finally {
@@ -77,23 +75,21 @@ async function runMedusaMigrations(schema: string, medusaUrl: string): Promise<v
 }
 
 async function main(): Promise<void> {
-  // @platform/db is ESM-only; this CommonJS script loads it with import() (see src/lib/db.ts).
-  const db: Db = await import('@platform/db');
-  db.loadDotenv(directory);
+  loadDotenv(directory);
 
   const schema = process.env.MEDUSA_DB_SCHEMA ?? 'medusa';
   assertIdentifier(schema, 'MEDUSA_DB_SCHEMA');
   // Local default only (mirrors platform_app in packages/db migration 0001); staging/production rotate it via
   // ALTER ROLE from Vault and set DATABASE_URL_MEDUSA_OWNER.
   const medusaPassword = process.env.MEDUSA_DB_OWNER_PASSWORD ?? MEDUSA_ROLE;
-  const ownerUrl = db.connectionStringFromEnv('owner');
+  const ownerUrl = connectionStringFromEnv('owner');
   const medusaUrl = medusaOwnerUrl(ownerUrl, medusaPassword);
 
   const dbName = decodeURIComponent(new URL(ownerUrl).pathname.replace(/^\//, ''));
   assertIdentifier(dbName, 'database name');
 
   console.info(`core: [owner] role ${MEDUSA_ROLE}, schema "${schema}", extensions…`);
-  await runSql(db, ownerUrl, [
+  await runSql(ownerUrl, [
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${MEDUSA_ROLE}') THEN
          CREATE ROLE ${MEDUSA_ROLE} LOGIN PASSWORD '${medusaPassword.replace(/'/g, "''")}' NOBYPASSRLS;
@@ -112,7 +108,7 @@ async function main(): Promise<void> {
   ]);
 
   console.info(`core: [${MEDUSA_ROLE}] default privileges for ${APP_ROLE}…`);
-  await runSql(db, medusaUrl, [
+  await runSql(medusaUrl, [
     `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON TABLES TO ${APP_ROLE}`,
     `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${APP_ROLE}`,
     `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT EXECUTE ON FUNCTIONS TO ${APP_ROLE}`,
@@ -124,7 +120,7 @@ async function main(): Promise<void> {
   }
 
   console.info(`core: [${MEDUSA_ROLE}] catch-up grants for ${APP_ROLE} on existing objects…`);
-  await runSql(db, medusaUrl, [
+  await runSql(medusaUrl, [
     `GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA ${schema} TO ${APP_ROLE}`,
     `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA ${schema} TO ${APP_ROLE}`,
     `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ${schema} TO ${APP_ROLE}`,
