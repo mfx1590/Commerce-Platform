@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.5 review follow-up** (manager BLOCK on PR #67, all three addressed) · commit `SHA6`
+- **1.5 review follow-up** (manager BLOCK on PR #67, all three addressed) · commit `a1b297a`
   1. `createVariantAction` had no caller. The product page now reconciles the matrix against
      existing variants and offers the gap — one button per row plus "Create all N" — and
      `updateVariant` is wired for inline SKU/title/price editing. The page copy claiming that saving
