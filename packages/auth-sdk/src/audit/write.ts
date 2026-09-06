@@ -1,8 +1,9 @@
 // Append-only audit writer. Takes the caller's transaction (`Queryable` from @platform/db) and never opens a
 // connection: the row is committed or rolled back together with the change it describes.
 // organization_id comes from the transaction's tenant context (app.current_organization_id()).
-// Task 1.5 adds PII redaction of before/after and GET /admin/audit-log.
+// before/after snapshots are PII-redacted (redact.ts) before they are stored.
 import type { Queryable } from '@platform/db';
+import { redactPii } from './redact.js';
 
 export type AuditActorType = 'staff' | 'customer' | 'system';
 
@@ -33,8 +34,12 @@ export async function audit(tx: Queryable, entry: AuditEntry): Promise<{ id: str
       entry.action,
       entry.entityType,
       entry.entityId,
-      entry.before === undefined || entry.before === null ? null : JSON.stringify(entry.before),
-      entry.after === undefined || entry.after === null ? null : JSON.stringify(entry.after),
+      entry.before === undefined || entry.before === null
+        ? null
+        : JSON.stringify(redactPii(entry.before)),
+      entry.after === undefined || entry.after === null
+        ? null
+        : JSON.stringify(redactPii(entry.after)),
       entry.requestId ?? null,
     ],
   );

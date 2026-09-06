@@ -41,3 +41,10 @@
   `toTenantContext()`, `ScopeCache` (per-subject, TTL clamped to ≤ 30 s, `invalidate(staffUserId)`),
   `ORGANIZATION_RELATIONS`. The middleware itself (`createStaffScopeMiddleware`) is in
   `apps/core/src/modules/hq-rbac/scope.ts`. Dependency: `jose`.
+- Task 1.5 (#14): audit log completed. `redactPii` (email, phone, address lines line1/line2, key_hash,
+  first_name/last_name → "[redacted]", recursive, case-insensitive) applied inside `audit(tx, entry)` at write
+  time; `listAuditLog(db, filters)` — the read side of `GET /admin/audit-log` (filters store_id/entity/actor/
+  from/to, paging, order; visibility purely via the caller's RLS scope). The route lives in hq-rbac
+  (`HqRbacRequest.scope` carries the middleware's StaffScope; a `store_id` filter re-checks `viewer` on that
+  store). Tests: redaction units; live: redaction at rest, `UPDATE`/`DELETE audit_log` denied for
+  platform_app, HQ sees NULL-store rows, store scope never does, 403 on a foreign store filter.

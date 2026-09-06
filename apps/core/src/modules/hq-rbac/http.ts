@@ -6,15 +6,18 @@ import {
   forbidden,
   isApiError,
   isUuid,
+  listAuditLog,
   listRoleAssignments,
   listStaffUsers,
   revokeRole,
+  toTenantContext,
   type OpenFgaClient,
   type Relation,
   type RolesDeps,
   type StaffPrincipal,
+  type StaffScope,
 } from '@platform/auth-sdk';
-import { createOrganizationClient } from '@platform/db';
+import { createOrganizationClient, createTenantClient } from '@platform/db';
 
 type Pool = Parameters<typeof createOrganizationClient>[0];
 
@@ -33,6 +36,8 @@ export interface HqRbacRequest {
   path: string;
   /** null = no verified staff token → 401. */
   principal: StaffPrincipal | null;
+  /** Full scope from the staff scope middleware (task 1.4); required by routes that list RLS-scoped data. */
+  scope?: StaffScope | null;
   query?: Record<string, string | undefined>;
   body?: unknown;
   requestId?: string;
@@ -52,8 +57,9 @@ export interface HqRbacRoute {
   method: 'GET' | 'POST' | 'DELETE';
   /** Contract path, `{param}` placeholders as in admin-api.yaml. */
   path: string;
-  operationId: 'listUsers' | 'listUserRoles' | 'assignRole' | 'revokeRole';
-  permission: Permission;
+  operationId: 'listUsers' | 'listUserRoles' | 'assignRole' | 'revokeRole' | 'listAuditLog';
+  /** null = the handler checks dynamically (listAuditLog: viewer on store:{store_id} when given). */
+  permission: Permission | null;
 }
 
 /** Mirrors the `x-permission` entries of packages/contracts admin-api.yaml for the routes this module owns. */
@@ -81,6 +87,12 @@ export const HQ_RBAC_ROUTES: readonly HqRbacRoute[] = [
     path: '/admin/users/{userId}/roles/{assignmentId}',
     operationId: 'revokeRole',
     permission: { relation: 'owner', object: 'organization:hq' },
+  },
+  {
+    method: 'GET',
+    path: '/admin/audit-log',
+    operationId: 'listAuditLog',
+    permission: null, // x-permission: viewer on store:{store_id} — checked in the handler (query-dependent)
   },
 ];
 
@@ -186,6 +198,58 @@ export function createHqRbac(deps: HqRbacDeps) {
       });
       return { status: 204 };
     },
+
+    async listAuditLog(
+      req: HqRbacRequest & { principal: StaffPrincipal },
+    ): Promise<HqRbacResponse> {
+      const scope = req.scope;
+      if (!scope) throw new ApiError(401, 'unauthorized', 'Missing staff scope');
+      const q = req.query ?? {};
+      if (q.store_id !== undefined) {
+        // x-permission: viewer on store:{store_id} when a store filter is given — re-checked server-side.
+        if (!isUuid(q.store_id)) {
+          throw new ApiError(400, 'validation_error', 'store_id must be a uuid', {
+            field: 'store_id',
+          });
+        }
+        await requirePermission(deps.fga, req.principal, {
+          relation: 'viewer',
+          object: `store:${q.store_id}`,
+        });
+      }
+      // Without a store filter, visibility comes from RLS through the caller's own scope: organization
+      // scope sees every row (store_id IS NULL included), store scope only its stores' rows.
+      const ctx = toTenantContext(scope);
+      if (ctx.scope === 'store' && ctx.storeIds.length === 0) {
+        throw forbidden('viewer', 'store:*');
+      }
+      const db =
+        ctx.scope === 'organization'
+          ? createOrganizationClient(deps.pool, ctx)
+          : createTenantClient(deps.pool, ctx);
+      const num = (v: string | undefined) => (v === undefined ? undefined : Number(v));
+      if ([q.page, q.limit].some((v) => v !== undefined && !Number.isInteger(Number(v)))) {
+        throw new ApiError(400, 'validation_error', 'page and limit must be integers');
+      }
+      if (q.order !== undefined && q.order !== 'asc' && q.order !== 'desc') {
+        throw new ApiError(400, 'validation_error', 'order must be asc or desc', {
+          field: 'order',
+        });
+      }
+      const body = await listAuditLog(db, {
+        storeId: q.store_id,
+        entityType: q.entity_type,
+        entityId: q.entity_id,
+        actorId: q.actor_id,
+        from: q.from,
+        to: q.to,
+        sort: q.sort as 'created_at' | undefined,
+        order: q.order,
+        page: num(q.page),
+        limit: num(q.limit),
+      });
+      return { status: 200, body };
+    },
   };
 
   /**
@@ -214,7 +278,9 @@ export function createHqRbac(deps: HqRbacDeps) {
     }
     try {
       if (!req.principal) throw new ApiError(401, 'unauthorized', 'Missing bearer token');
-      await requirePermission(deps.fga, req.principal, matched.route.permission);
+      if (matched.route.permission) {
+        await requirePermission(deps.fga, req.principal, matched.route.permission);
+      }
       const params = matched.params;
       for (const [k, v] of Object.entries(params)) {
         if (!isUuid(v)) throw new ApiError(404, 'not_found', `${k} must be a uuid`);
@@ -235,6 +301,8 @@ export function createHqRbac(deps: HqRbacDeps) {
             principal: p,
             params: { userId: params.userId! },
           });
+        case 'listAuditLog':
+          return await handlers.listAuditLog({ ...req, principal: p });
         case 'revokeRole':
           return await handlers.revokeRole({
             ...req,
