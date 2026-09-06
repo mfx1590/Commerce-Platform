@@ -9,7 +9,7 @@ Branch prefix → allowed write paths. Everything else is read-only for that bra
 | `auth/` | 2 — Auth & RBAC | `packages/auth-sdk/**`, `infra/keycloak/**`, `infra/openfga/**`, `apps/core/src/modules/hq-rbac/**` |
 | `storefront/` | 3 — Storefront starter & UI kit | `apps/storefront-starter/**`, `packages/ui/**` |
 | `admin/` | 4 — Admin application | `apps/admin/**` |
-| `infra/` | 5 — Infra & DevOps | `infra/**`, `.github/workflows/**`, `**/Dockerfile` |
+| `infra/` | 5 — Infra & DevOps | `infra/**`, `.github/workflows/**`, `**/Dockerfile`, `.dockerignore` |
 | `cms/` | 6 — CMS & landing pages | `cms/**`, `apps/storefront-starter/src/app/(content)/**`, `apps/storefront-starter/src/lib/cms/**` |
 | `payments/` | 7 — Payments, tax, fraud | `apps/core/src/modules/payments/**`, `apps/core/src/modules/tax/**`, `apps/core/src/modules/fraud/**` |
 | `shipping/` | 8 — Shipping & fulfillment | `apps/core/src/modules/fulfillment/**`, `apps/core/src/modules/shipping/**` |
@@ -21,6 +21,7 @@ Branch prefix → allowed write paths. Everything else is read-only for that bra
 | `events/` | 14 — Event bus & outbox relay | `apps/core/src/outbox/**`, `infra/redpanda/**`, `packages/events/** (exception this phase only)` |
 | `accounting/` | 15 — Automatic accounting | `apps/accounting/**` |
 | `engagement/` | 16 — CRM, notifications & support | `apps/notifications/**`, `apps/support/**`, `data/cdp/**` |
+| `marketing/` | 17 — Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | `apps/core/src/modules/marketing/**`, `apps/feeds/**`, `apps/admin/src/app/(store)/[storeId]/marketing/**`, `apps/admin/src/app/(hq)/marketing/**` |
 
 Rules:
 1. A window that needs a change outside its paths files a GitHub issue titled `CONTRACT CHANGE: …` or `REQUEST: …` and keeps building against a local mock.

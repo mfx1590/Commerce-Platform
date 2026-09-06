@@ -11,17 +11,22 @@
     "test": "vitest run --passWithNoTests",
     "db:medusa:migrate": "tsx scripts/db-medusa-migrate.ts",
     "db:medusa:grants": "tsx scripts/db-medusa-migrate.ts --grants-only",
-    "clean": "rm -rf .medusa dist .turbo"
+    "clean": "rm -rf .medusa dist .turbo",
+    "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
     "@medusajs/cli": "2.20.1",
     "@medusajs/framework": "2.20.1",
     "@medusajs/medusa": "2.20.1",
+    "@platform/auth-sdk": "workspace:*",
     "@platform/contracts": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/events": "workspace:*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "express": "^4.22.2",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.25",
