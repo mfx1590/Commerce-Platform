@@ -25,28 +25,50 @@
   | image                                  | Dockerfile                           | container `PORT` | app window |
   | -------------------------------------- | ------------------------------------ | ---------------- | ---------- |
   | `commerce-platform/core`               | `apps/core/Dockerfile`               | 9000             | 1          |
-  | `commerce-platform/admin`              | `apps/admin/Dockerfile`              | 9001             | 4          |
-  | `commerce-platform/storefront-starter` | `apps/storefront-starter/Dockerfile` | 9002             | 3          |
+  | `commerce-platform/admin`              | `apps/admin/Dockerfile`              | 3000             | 4          |
+  | `commerce-platform/storefront-starter` | `apps/storefront-starter/Dockerfile` | 3100             | 3          |
   | `commerce-platform/accounting`         | `apps/accounting/Dockerfile`         | 9003             | 15         |
   | `commerce-platform/analytics-ingest`   | `apps/analytics-ingest/Dockerfile`   | 9004             | 12         |
   | `commerce-platform/notifications`      | `apps/notifications/Dockerfile`      | 9005             | 16         |
 
   These are container ports. The build compose publishes none, and the smoke script maps each one to the same
   number on the host — free on this machine (other projects own 5432/6379/6380/8080; ours are 5433/6381/8180/8081/19092/4010/4011).
+  The two Next.js apps sit at 3000/3100 rather than in the 900x block because their `start` scripts hard-code
+  `next start --port 3000` / `--port 3100`, which overrides `$PORT`; the image follows the app so that its
+  `HEALTHCHECK` probes the port the app really listens on. [REQUEST #68](https://github.com/mfx1590/Commerce-Platform/issues/68)
+  asks windows 3 and 4 to drop the flag, after which both images move back to 9001/9002.
 
   **Image contract with the app windows** (a change needs a `CONTRACT CHANGE:` issue):
 
-  1. Build context is the repo root; the Dockerfile runs `pnpm install --frozen-lockfile`, then
-     `pnpm --filter <app> build`, then `pnpm --filter <app> --prod --legacy deploy /out` to get a pruned,
-     self-contained package.
+  1. Build context is the repo root. The Dockerfile runs `pnpm install --frozen-lockfile`, then
+     `pnpm --filter <app>... build` — the `...` suffix builds the app **and its workspace dependencies**
+     (`@platform/db`, `@platform/events`, `@platform/contracts`) in topological order — then
+     `pnpm --filter <app> --prod --legacy deploy /out` to get a pruned, self-contained package.
   2. The container starts `pnpm start` inside that package. **Adding a `start` script to an app is the only
-     change needed** to switch its image from scaffold to the real app (Medusa for core, `next start` for
-     admin/storefront, the worker entrypoint for accounting/analytics-ingest/notifications). The infra window
-     does not have to touch the Dockerfile again.
-  3. Until an app has a `start` script, `docker/entrypoint.sh` runs `docker/health-server.mjs` instead, so the
-     image `HEALTHCHECK` is real today and stays real afterwards.
-  4. The app must listen on `$PORT` and answer `GET /health` with 200. Every image runs as the non-root `node`
-     user (uid 1000) and ships no build toolchain beyond node + pnpm (~53 MB for a scaffold).
+     change needed** to switch its image from scaffold to the real app. Until then, `docker/entrypoint.sh` runs
+     `docker/health-server.mjs`, so the `HEALTHCHECK` is real either way.
+  3. The app must listen on `$PORT` and answer `GET /health` with 200. Every image runs as the non-root `node`
+     user (uid 1000) and ships no build toolchain beyond node + pnpm.
+
+  **What an app must provide for its image to build.** Everything below is something that actually broke a
+  build; check it when adding an app or changing a build:
+
+  | requirement                                                                | why                                                                                                                                                                                                                                                                                                                                                                       |
+  | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Every tool the `build` script invokes is a declared dependency of that app | The image installs the workspace from the lockfile and nothing else. A tool that happens to be on your machine, or that a framework CLI `require()`s by name, will not be there. `apps/core` needs `ts-node` for `medusa build`, which is [REQUEST #60](https://github.com/mfx1590/Commerce-Platform/issues/60); the Dockerfile installs it in the build stage meanwhile. |
+  | Dev dependencies are available at build time                               | The image installs the full workspace and only prunes with `--prod` afterwards, when producing the deployed package.                                                                                                                                                                                                                                                      |
+  | Config files the build reads live inside the app directory                 | The build stage copies `apps/` and `packages/` from the repo root. `apps/core/medusa-config.ts` is copied; a file outside the workspace is not.                                                                                                                                                                                                                           |
+  | The build must not need real infrastructure or secrets                     | There is no database, cache or `.env` during an image build. If a config file throws on a missing variable — as `medusa-config.ts` does for `DATABASE_URL_APP`, `REDIS_URL`, `JWT_SECRET`, `COOKIE_SECRET` — the Dockerfile sets syntactically valid placeholders for the build stage only. Nothing connects anywhere and no placeholder is baked into the output.        |
+  | Build output in a dot-directory needs an explicit copy                     | `pnpm deploy` packs the package the way npm would, and npm's rules skip dot-directories. `medusa build` writes everything to `.medusa/server`, so `apps/core/Dockerfile` copies it across after the deploy step. An app that builds to `dist/` needs nothing extra.                                                                                                       |
+  | `start` must run from the package root                                     | The entrypoint runs `pnpm start` with the working directory at the deployed package, so a path like `node .medusa/server/src/server.js` resolves.                                                                                                                                                                                                                         |
+
+  **What the smoke test does and does not prove.** `infra/docker/smoke-images.sh` checks that every image
+  starts, runs as a non-root user, and execs what it should. For a scaffold that means the `HEALTHCHECK`
+  reaches `healthy` and `/health` returns 200. For a real app — `apps/core` today — it means `pnpm start`
+  runs and the process stays up; it is deliberately **not** health-checked there, because a real app needs a
+  migrated database, a cache and secrets, and standing those up is a deployment concern. That end-to-end check
+  belongs to the staging deploy (tasks 2.3/2.4). The test still catches the failure that matters: if the build
+  output is missing from the deployed package, `pnpm start` exits at once and the container is not running.
 
   CI job `images` in `.github/workflows/ci.yml` builds all six on PRs that touch `apps/**`, `packages/**`,
   `infra/docker/**` or the workspace root files, runs the smoke test, and never pushes.

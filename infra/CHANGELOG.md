@@ -20,6 +20,35 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - CI job `images` in `.github/workflows/ci.yml` — builds all six and runs the smoke test on PRs that touch
   `apps/**`, `packages/**`, `infra/docker/**` or the workspace root files. Never pushes.
 
+### Fixed
+
+- **The app images build and carry their build output again (issue #59).** Three separate defects, all found
+  by building and running the images rather than by reading them:
+  1. `pnpm --filter <app> build` does not build the app's workspace dependencies, so `apps/core` compiled
+     against `@platform/db` with no `dist/`. Every Dockerfile now runs `pnpm --filter <app>... build`.
+  2. `medusa build` cannot load `medusa-config.ts` without `ts-node`, which `apps/core` does not declare —
+     `pnpm --filter @platform/core build` fails the same way on a laptop and in CI, not just in Docker. The
+     build stage installs it globally until [REQUEST #60](https://github.com/mfx1590/Commerce-Platform/issues/60)
+     lands; it never reaches the runtime image. The stage also sets placeholder values for the variables
+     `medusa-config.ts` requires, because an image build has no `.env` and the config throws without them.
+  3. `pnpm deploy` packs the package the way npm does and skips dot-directories, so `.medusa/server` and
+     `.next` — the entire output of `medusa build` and `next build` — were dropped from all three real app
+     images. Each Dockerfile now copies its build output across explicitly and asserts it is there.
+- `continue-on-error` removed from the CI `images` job: it is a required check again.
+
+### Changed
+
+- `infra/docker/smoke-images.sh` now decides per image what to check, from the deployed `package.json`:
+  a scaffold must reach `healthy` and answer `/health`; a real app must run as non-root and carry its build
+  output. Real apps are deliberately not booted — `apps/core` and `apps/admin` both refuse to start without a
+  database or secrets, which is correct behaviour, and proving a configured app serves traffic belongs to the
+  staging deploy. The new check is what caught defect 3 above in `admin` and `storefront-starter`.
+- The admin and storefront images use `PORT` 3000 and 3100 to match the `--port` their `start` scripts
+  hard-code, so the `HEALTHCHECK` probes the port the app actually listens on
+  ([REQUEST #68](https://github.com/mfx1590/Commerce-Platform/issues/68) asks for `$PORT` to be honoured).
+- `infra/README.md` "Image contract" now lists what an app must provide for its image to build, with the
+  reason behind each entry.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

@@ -5,7 +5,7 @@
 Next.js App Router admin application. One app, two views (Store view and HQ view) decided by the
 principal's relations; every API call is re-checked server-side against the operation's
 `x-permission`. Phase 1 reads permissions from `GET /admin/me` on the Prism mock — do **not** import
-`@platform/auth-sdk` yet (window 2 is still writing it).
+`@platform/auth-sdk` yet (window 2 is still writing it). Contract: Admin API 0.2.0.
 
 ## Owner
 
@@ -20,8 +20,6 @@ window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
 - `pnpm --filter @platform/admin typecheck`
 - `pnpm --filter @platform/admin test` — Vitest (tests live in test/)
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before finishing any task.
-- Delete `.next/` before `pnpm format:check`: Prettier's root ignore list does not exclude Next
-  build output yet.
 - Playwright (from issue #30 onward): scripted against `pnpm mock`; CI wiring is requested from
   window 5 via a `REQUEST:` issue, because `.github/workflows/**` is not owned by this window.
 
@@ -35,6 +33,8 @@ window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
 
 - Import other packages only through their public API (`@platform/<name>`), never `src/*`.
 - No secrets in code. No PII in logs. Every DB access through `@platform/db` tenant client.
+- `ADMIN_SESSION_SECRET` is required in every environment — there is no development fallback.
+  Copy `.env.example` to `.env.local` and generate one with `openssl rand -base64 32`.
 - Tokens stay on the server: `src/lib/api/admin.ts` is `server-only`; client components use server
   actions and route handlers. Never `fetch` the Admin API from the browser.
 - `src/lib/api/admin-client.ts` and `src/lib/auth/{crypto,session,jwt}.ts` must stay free of
