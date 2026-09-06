@@ -73,3 +73,31 @@ export function suggestSku(handle: string, combination: VariantCombination): str
 export function variantCount(options: readonly ProductOptionDraft[]): number {
   return variantMatrix(options).length;
 }
+
+/** The subset of a `Variant` this reconciliation needs — anything with an option assignment. */
+export interface ExistingVariant {
+  options: Readonly<Record<string, string>>;
+}
+
+/** Two combinations are the same variant when every option maps to the same value. */
+export function sameCombination(a: VariantCombination, b: VariantCombination): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
+
+/**
+ * Which rows of the matrix have no variant yet.
+ *
+ * The product page offers these for creation instead of creating them on save: adding a colour to a
+ * live product would otherwise silently POST several new variants, and a variant is a sellable
+ * thing with its own SKU and price. Explicit beats convenient here for the same reason the
+ * data-table refuses to select a whole result set behind a single checkbox.
+ */
+export function missingCombinations(
+  options: readonly ProductOptionDraft[],
+  existing: readonly ExistingVariant[],
+): VariantCombination[] {
+  return variantMatrix(options).filter(
+    (combination) => !existing.some((variant) => sameCombination(variant.options, combination)),
+  );
+}

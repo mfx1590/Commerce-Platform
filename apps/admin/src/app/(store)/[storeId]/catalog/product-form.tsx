@@ -47,6 +47,7 @@ export function ProductForm({
   });
 
   const options = useFieldArray({ control: form.control, name: 'options' });
+  const media = useFieldArray({ control: form.control, name: 'media' });
   // Watching, not reading form state, so the matrix preview updates as the operator types.
   const watchedOptions = useWatch({ control: form.control, name: 'options' }) ?? [];
   const handle = useWatch({ control: form.control, name: 'handle' }) ?? '';
@@ -140,6 +141,57 @@ export function ProductForm({
                   size="sm"
                   variant="secondary"
                   onClick={() => options.remove(index)}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-3">
+          <h2 className="text-base font-semibold">Media</h2>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => media.append({ url: '', alt: null, position: media.fields.length })}
+          >
+            Add image
+          </Button>
+        </div>
+
+        {media.fields.length === 0 ? (
+          <p className="text-muted text-sm">
+            No images. The first one becomes the product thumbnail.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {media.fields.map((field, index) => (
+              <li key={field.id} className="flex flex-wrap items-end gap-3">
+                <div className="min-w-72 flex-1">
+                  <TextField
+                    label={index === 0 ? 'Image URL (thumbnail)' : 'Image URL'}
+                    placeholder="https://cdn.example.com/front.jpg"
+                    error={errorMessage(errors.media?.[index]?.url)}
+                    {...form.register(`media.${index}.url`)}
+                  />
+                </div>
+                <div className="min-w-48 flex-1">
+                  <TextField
+                    label="Alt text"
+                    hint="Describe the image for screen readers and search."
+                    error={errorMessage(errors.media?.[index]?.alt)}
+                    {...form.register(`media.${index}.alt`)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => media.remove(index)}
                 >
                   Remove
                 </Button>

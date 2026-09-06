@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.4 merged (PR #42); 1.5 done, PR open
+Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.4 merged (PR #42); 1.5 in review (PR #67, BLOCK items addressed); 1.6 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,16 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.5 review follow-up** (manager BLOCK on PR #67, all three addressed) · commit `SHA6`
+  1. `createVariantAction` had no caller. The product page now reconciles the matrix against
+     existing variants and offers the gap — one button per row plus "Create all N" — and
+     `updateVariant` is wired for inline SKU/title/price editing. The page copy claiming that saving
+     options creates the matrix was wrong and is gone. Product media (`ProductInput.media`) added to
+     the form, URL-validated.
+  2. README no longer claims `.env` is optional; `ADMIN_SESSION_SECRET` is listed as required.
+  3. The stale "sorting withheld / `sortableColumns={[]}`" decision is replaced by the 0.2.0 one.
+  - 248 tests (was 229).
+
 - **1.5 — issue #28 Stores (HQ) + Catalog (Store view)** · commit `71eb9a5`
   - Every `registry` and `catalog` operation has a typed wrapper and is reachable from the UI.
     HQ: `/stores`, `/stores/new`, `/stores/{id}` (record + domains + sales channels + API keys).
@@ -64,8 +74,9 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   - 135 tests total. Verified against the live mock via a scratchpad stub that serves an owner
     principal and proxies the rest to Prism — the HQ nav, the guard and the real store rows all
     render.
-  - **CONTRACT CHANGE #56 filed**: no list operation in contracts-v0.1 accepts `sort`/`order`.
-    Sorting is carried in the URL but withheld from the request until it lands.
+  - **CONTRACT CHANGE #56 filed** — accepted as Admin API 0.2.0 during task 1.5, so sorting is now
+    forwarded for `listStores` and `listProducts`. At the time of this task it was carried in the URL
+    only.
 
 - **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · PR (opened after #42 merges)
   - Route groups `(hq)` and `(store)/[storeId]`; all twelve sections reachable, each placeholder
@@ -121,6 +132,12 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
 ## Decisions made (with reasons)
+- **Creating variants is a deliberate act, not a side effect of saving options.** A variant is a
+  sellable thing with its own SKU, price and stock; adding a colour to a live product would
+  otherwise silently POST several. The page offers the gap between the matrix and what exists, one
+  button per row plus an explicit "create all" that names the count — the same principle as the
+  data-table refusing to select a result set behind one checkbox. A bulk create stops at the first
+  refusal, because a half-created matrix is worse than a stated failure.
 - **Table configuration lives in plain `*.config.ts` modules, never in the `'use client'` file.**
   A constant exported from a client module and imported by a server component arrives as a client
   reference: arrays stop being iterable and object properties read as `undefined` *silently*. That
@@ -157,9 +174,13 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   It also makes every list linkable, back-button correct and reproducible from a bug report.
 - **`parseTableQuery` keeps only declared filter keys.** Passing the raw query string through would
   forward `?injected=1` to the Admin API as an undeclared parameter — a 400 at best.
-- **Sorting is withheld from the request, not from the UI.** contracts-v0.1 has no `sort`/`order`
-  (#56). `toContractQuery` needs `{ sortable: true }` before it forwards them, and list screens pass
-  `sortableColumns={[]}`, so nothing undefined is ever sent. Two lines per list to switch on later.
+- **Sorting is server-driven and opt-in per operation.** CONTRACT CHANGE #56 was accepted as
+  **Admin API 0.2.0**, so `listStores` (`code, name, status, created_at`) and `listProducts`
+  (`title, handle, status, created_at, updated_at`) sort on the server. `toContractQuery` still
+  requires `{ sortable: true }`, because only four list operations gained the parameters and each has
+  its own enum — a table built on any other endpoint must not be able to send one. A screen declares
+  the contract's enum in `sortableColumns` and the contract's default in its `TableQueryDefaults`, so
+  the default stays out of the URL.
 - **Selecting a page never selects the result set.** The escalation is a separate click offered only
   after a full page is ticked and only when more rows match, and it keeps an exclusion list.
   `describeSelection` gives bulk actions exact wording so a confirmation is never ambiguous.

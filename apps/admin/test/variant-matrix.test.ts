@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { suggestSku, variantCount, variantMatrix, variantTitle } from '@/lib/forms/variant-matrix';
+import {
+  missingCombinations,
+  sameCombination,
+  suggestSku,
+  variantCount,
+  variantMatrix,
+  variantTitle,
+} from '@/lib/forms/variant-matrix';
 
 const size = { name: 'Size', values: ['S', 'M', 'L'] };
 const colour = { name: 'Colour', values: ['Red', 'Blue'] };
@@ -70,5 +77,47 @@ describe('suggestSku', () => {
 
   it('copes with an empty handle', () => {
     expect(suggestSku('', { Size: 'M' })).toEqual('M');
+  });
+});
+
+describe('missingCombinations', () => {
+  const options = [size, colour];
+
+  it('is everything when the product has no variants yet', () => {
+    expect(missingCombinations(options, [])).toHaveLength(6);
+  });
+
+  it('is nothing when every combination already exists', () => {
+    const existing = variantMatrix(options).map((combination) => ({ options: combination }));
+    expect(missingCombinations(options, existing)).toEqual([]);
+  });
+
+  it('is exactly the gap after a value is added to an option', () => {
+    // The realistic case: six variants exist, someone adds Green, and three are missing.
+    const existing = variantMatrix(options).map((combination) => ({ options: combination }));
+    const widened = [size, { name: 'Colour', values: ['Red', 'Blue', 'Green'] }];
+
+    const missing = missingCombinations(widened, existing);
+    expect(missing).toHaveLength(3);
+    expect(missing.every((combination) => combination['Colour'] === 'Green')).toBe(true);
+  });
+
+  it('does not treat a variant with extra options as a match', () => {
+    const existing = [{ options: { Size: 'S', Colour: 'Red', Fit: 'Slim' } }];
+    expect(missingCombinations(options, existing)).toHaveLength(6);
+  });
+
+  it('ignores variants whose options belong to a different product shape', () => {
+    expect(missingCombinations(options, [{ options: { Material: 'Cotton' } }])).toHaveLength(6);
+  });
+});
+
+describe('sameCombination', () => {
+  it('ignores key order', () => {
+    expect(sameCombination({ Size: 'M', Colour: 'Red' }, { Colour: 'Red', Size: 'M' })).toBe(true);
+  });
+
+  it('rejects a subset', () => {
+    expect(sameCombination({ Size: 'M' }, { Size: 'M', Colour: 'Red' })).toBe(false);
   });
 });

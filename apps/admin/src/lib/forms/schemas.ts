@@ -90,6 +90,14 @@ export const productOptionSchema = z.object({
     .refine((values) => new Set(values).size === values.length, 'Values must be unique'),
 });
 
+/** `ProductInput.media`: an ordered list of image URLs, each optionally tied to one variant. */
+export const productMediaSchema = z.object({
+  url: z.string().min(1, 'Enter an image URL').url('Enter a full URL, e.g. https://…/front.jpg'),
+  alt: z.string().nullable().optional(),
+  position: z.number().int().optional(),
+  variant_id: z.string().uuid().nullable().optional(),
+});
+
 export const productCreateSchema = z.object({
   handle: kebabCase('handle'),
   title: z.string().min(1, 'Enter a title'),
@@ -99,6 +107,7 @@ export const productCreateSchema = z.object({
   brand_name: z.string().nullable().optional(),
   tags: z.array(z.string().min(1)).optional(),
   options: z.array(productOptionSchema).optional(),
+  media: z.array(productMediaSchema).optional(),
 });
 
 export type ProductCreateValues = z.infer<typeof productCreateSchema>;

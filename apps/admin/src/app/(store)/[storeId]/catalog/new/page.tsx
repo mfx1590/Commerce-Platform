@@ -20,7 +20,7 @@ export default async function NewProductPage({ params }: { params: Promise<{ sto
             categories={categories.ok ? categories.data.items : []}
             submitLabel="Create product"
             redirectBase={`/${storeId}/catalog`}
-            defaultValues={{ handle: '', title: '', options: [] }}
+            defaultValues={{ handle: '', title: '', options: [], media: [] }}
           />
         </CardBody>
       </Card>

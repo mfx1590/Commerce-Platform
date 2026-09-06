@@ -15,17 +15,25 @@ pnpm compose:up                      # Postgres, Redis, Keycloak (:8180), OpenFG
 pnpm --filter @platform/admin dev    # http://localhost:3000
 ```
 
-No `.env` is required — every setting has a default matching the repo-root `.env.example`. Copy
-[`.env.example`](./.env.example) to `.env.local` only to point somewhere else.
+**`.env.local` is required before the first run.** `ADMIN_SESSION_SECRET` has no default — a
+constant committed to the repository would be a key everyone has — so copy
+[`.env.example`](./.env.example) to `.env.local` and generate one:
 
-| Variable               | Default                 | Meaning                                             |
-| ---------------------- | ----------------------- | --------------------------------------------------- |
-| `KEYCLOAK_URL`         | `http://localhost:8180` | Keycloak base URL                                   |
-| `KEYCLOAK_REALM_STAFF` | `staff`                 | Staff realm (customers live in another one)         |
-| `ADMIN_OIDC_CLIENT_ID` | `admin-app`             | Public PKCE client                                  |
-| `ADMIN_APP_URL`        | `http://localhost:3000` | Origin used to build the redirect URI               |
-| `MOCK_ADMIN_API_URL`   | `http://localhost:4011` | Admin API base URL                                  |
-| `ADMIN_SESSION_SECRET` | dev constant            | Encrypts the session cookie; required in production |
+```bash
+openssl rand -base64 32
+```
+
+Everything else has a working default matching the repo-root `.env.example`; set those only to point
+somewhere else.
+
+| Variable               | Default                 | Meaning                                                                     |
+| ---------------------- | ----------------------- | --------------------------------------------------------------------------- |
+| `KEYCLOAK_URL`         | `http://localhost:8180` | Keycloak base URL                                                           |
+| `KEYCLOAK_REALM_STAFF` | `staff`                 | Staff realm (customers live in another one)                                 |
+| `ADMIN_OIDC_CLIENT_ID` | `admin-app`             | Public PKCE client                                                          |
+| `ADMIN_APP_URL`        | `http://localhost:3000` | Origin used to build the redirect URI                                       |
+| `MOCK_ADMIN_API_URL`   | `http://localhost:4011` | Admin API base URL                                                          |
+| `ADMIN_SESSION_SECRET` | **none — required**     | Encrypts the session cookie. Startup fails without it, in every environment |
 
 Port 3000 is fixed: the Keycloak client registers `http://localhost:3000/*` as its only redirect URI.
 

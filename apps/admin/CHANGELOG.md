@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Added — task 1.5 review follow-up (#67)
+
+- **Variants are now actually created and edited.** The product page reconciles the option matrix
+  against the existing variants and offers only the gap: one button per missing combination, plus an
+  explicit "Create all N" that names the count. Existing variants edit inline (SKU, title, price per
+  currency) through `updateVariant`.
+  Saving options deliberately does **not** create variants — a variant is a sellable thing with its
+  own SKU, price and stock, so adding a colour to a live product must not silently POST several of
+  them. The copy on the product page said the opposite; it now says what actually happens.
+  A bulk create stops at the first refusal rather than pressing on, because a half-created matrix is
+  harder to reason about than a stated failure.
+- `missingCombinations` / `sameCombination`, pure and separately tested — including the realistic
+  case where a value is added to an existing option and exactly the three new rows are offered.
+- **Product media** (`ProductInput.media`): an ordered list of image URLs with alt text, the first
+  being the thumbnail. URLs are validated, so `front.jpg` is refused before it reaches the API.
+- `compactList` for request bodies carrying arrays of objects with optional fields — `compact` is
+  shallow, and product media hit the same nesting that variant prices did.
+
+### Fixed
+
+- README claimed no `.env` was required and listed `ADMIN_SESSION_SECRET` as a "dev constant". It is
+  mandatory in every environment; the README now leads with copying `.env.example` and generating one.
+
 ### Added — task 1.5, issue #28 (Admin API 0.2.0)
 
 - **HQ Stores**: list, create (`/stores/new`) and detail (`/stores/{id}`) with the store record,

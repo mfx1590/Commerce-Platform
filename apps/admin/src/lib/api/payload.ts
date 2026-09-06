@@ -23,3 +23,14 @@ export function compact<T extends Record<string, unknown>>(value: T): Compacted<
     Object.entries(value).filter(([, entry]) => entry !== undefined),
   ) as Compacted<T>;
 }
+
+/**
+ * `compact` for a list of objects. `compact` is shallow by design — it only knows the keys it is
+ * handed — so a request body carrying an array of objects with optional fields (product media,
+ * variant prices) needs its elements compacted too.
+ */
+export function compactList<T extends Record<string, unknown>>(
+  values: readonly T[],
+): Compacted<T>[] {
+  return values.map((value) => compact(value));
+}

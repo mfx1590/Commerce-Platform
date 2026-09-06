@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
 import { RequestErrorPanel } from '@/components/states/state-panel';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { updateProductAction } from '@/app/actions/catalog';
+import { VariantsPanel } from './variants-panel';
 import { getProduct, listCategories } from '@/lib/api/admin';
 import type { ProductCreateValues } from '@/lib/forms/schemas';
 import { ProductForm } from '../product-form';
@@ -40,6 +40,12 @@ export default async function ProductDetailPage({
     brand_name: current.brand_name,
     tags: current.tags,
     options: current.options.map((option) => ({ name: option.name, values: option.values })),
+    media: current.media.map((item) => ({
+      url: item.url,
+      alt: item.alt,
+      position: item.position,
+      ...(item.variant_id === undefined ? {} : { variant_id: item.variant_id }),
+    })),
   };
 
   return (
@@ -81,47 +87,10 @@ export default async function ProductDetailPage({
         <Card>
           <CardHeader
             title="Variants"
-            description={`${current.variants.length} on this product.`}
+            description="Saving options does not create variants — each one is a sellable thing with its own SKU and price, so they are created here, deliberately."
           />
           <CardBody>
-            {current.variants.length === 0 ? (
-              <p className="text-muted text-sm">
-                No variants yet. Saving options above creates the matrix.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" aria-label="Variants">
-                  <thead className="border-line border-b">
-                    <tr>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
-                        Title
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
-                        SKU
-                      </th>
-                      <th scope="col" className="px-3 py-2 text-left font-medium">
-                        Options
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-line divide-y">
-                    {current.variants.map((variant) => (
-                      <tr key={variant.id}>
-                        <td className="px-3 py-2">{variant.title}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{variant.sku}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-wrap gap-1">
-                            {Object.entries(variant.options).map(([name, value]) => (
-                              <Badge key={name}>{`${name}: ${value}`}</Badge>
-                            ))}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <VariantsPanel storeId={storeId} product={current} />
           </CardBody>
         </Card>
       </div>

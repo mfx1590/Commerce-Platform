@@ -8,8 +8,9 @@ import {
   createVariant,
   publishProduct,
   updateProduct,
+  updateVariant,
 } from '@/lib/api/admin';
-import { compact } from '@/lib/api/payload';
+import { compact, compactList } from '@/lib/api/payload';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
 import {
@@ -33,6 +34,15 @@ function revalidateProduct(storeId: string, productId?: string): void {
   if (productId !== undefined) revalidatePath(`/${storeId}/catalog/${productId}`);
 }
 
+/** `media` is a list of objects with optional fields, and `compact` is shallow — hence the split. */
+function toProductBody(values: ProductCreateValues) {
+  const { media, ...rest } = values;
+  return {
+    ...compact(rest),
+    ...(media === undefined ? {} : { media: compactList(media) }),
+  };
+}
+
 export async function createProductAction(
   storeId: string,
   values: ProductCreateValues,
@@ -40,7 +50,7 @@ export async function createProductAction(
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
-  const result = await createProduct(storeId, compact(parsed.data));
+  const result = await createProduct(storeId, toProductBody(parsed.data));
   if (result.ok) revalidateProduct(storeId);
   return toActionResult(result, fieldNames(productCreateSchema));
 }
@@ -53,7 +63,7 @@ export async function updateProductAction(
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
-  const result = await updateProduct(storeId, productId, compact(parsed.data));
+  const result = await updateProduct(storeId, productId, toProductBody(parsed.data));
   if (result.ok) revalidateProduct(storeId, productId);
   return toActionResult(result, fieldNames(productCreateSchema));
 }
@@ -99,6 +109,27 @@ export async function createVariantAction(
     ...(prices === undefined ? {} : { prices: prices.map((price) => compact(price)) }),
   });
   if (result.ok) revalidateProduct(storeId, productId);
+  return toActionResult(result, fieldNames(variantCreateSchema));
+}
+
+/**
+ * Editing one variant. Prices are integer minor units all the way down, so the nested `compact` is
+ * not optional: `compare_at_minor` is optional inside each price object and `compact` is shallow.
+ */
+export async function updateVariantAction(
+  storeId: string,
+  variantId: string,
+  values: VariantCreateValues,
+): Promise<ActionResult<AdminComponents['Variant']>> {
+  const parsed = variantCreateSchema.safeParse(values);
+  if (!parsed.success) return invalid();
+
+  const { prices, ...rest } = parsed.data;
+  const result = await updateVariant(storeId, variantId, {
+    ...compact(rest),
+    ...(prices === undefined ? {} : { prices: prices.map((price) => compact(price)) }),
+  });
+  if (result.ok) revalidatePath(`/${storeId}/catalog`);
   return toActionResult(result, fieldNames(variantCreateSchema));
 }
 
