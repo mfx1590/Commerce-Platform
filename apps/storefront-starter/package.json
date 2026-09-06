@@ -1,12 +1,12 @@
 {
   "name": "@platform/storefront-starter",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3100",
     "build": "next build",
-    "start": "next start --port 3100",
+    "start": "next start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf .next dist .turbo",

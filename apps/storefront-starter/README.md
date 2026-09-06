@@ -21,11 +21,18 @@ degrades to a readable "Store API not reachable" card instead of a stack trace, 
 
 Configuration (all optional; `.env.example` at the repo root has the local defaults):
 
-| Variable                | Default                      | Meaning                                                  |
-| ----------------------- | ---------------------------- | -------------------------------------------------------- |
-| `STORE_API_URL`         | —                            | Real Store API. Wins over `MOCK_API_URL`.                |
-| `MOCK_API_URL`          | `http://localhost:4010`      | Prism mock (Phase 1).                                    |
-| `STORE_PUBLISHABLE_KEY` | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value. |
+| Variable                   | Default                      | Meaning                                                                          |
+| -------------------------- | ---------------------------- | -------------------------------------------------------------------------------- |
+| `PORT`                     | `3000` for `start`           | `start` honours `$PORT` — the image contract (REQUEST #68). `dev` stays on 3100. |
+| `SITE_URL`                 | `http://localhost:3100`      | Absolute URLs: canonical links and the OIDC redirect URI.                        |
+| `STORE_API_URL`            | —                            | Real Store API. Wins over `MOCK_API_URL`.                                        |
+| `MOCK_API_URL`             | `http://localhost:4010`      | Prism mock (Phase 1).                                                            |
+| `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                         |
+| `KEYCLOAK_URL`             | `http://localhost:8180`      | Customer sign-in.                                                                |
+| `KEYCLOAK_REALM_CUSTOMERS` | `customers`                  | Realm.                                                                           |
+| `KEYCLOAK_CLIENT_ID`       | `storefront-brand-a`         | Public OIDC client; each brand app has its own.                                  |
+
+`GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
 
 ## The Store API client
 
@@ -88,12 +95,12 @@ dependency.
 
 ## Routes
 
-| Route group  | Routes               | Owner                           |
-| ------------ | -------------------- | ------------------------------- |
-| `(shop)`     | `/`, `/products`     | window 3                        |
-| `(checkout)` | `/cart`, `/checkout` | window 3 (task 1.4)             |
-| `(account)`  | `/account`           | window 3 (task 1.5) → window 13 |
-| `(content)`  | `/pages/[slug]`      | window 6 (placeholder only)     |
+| Route group  | Routes                                                                      | Owner                          |
+| ------------ | --------------------------------------------------------------------------- | ------------------------------ |
+| `(shop)`     | `/`, `/products`, `/categories/[handle]`, `/products/[handle]`              | window 3                       |
+| `(checkout)` | `/cart`, `/checkout/{address,shipping,payment,review}`, `/orders/[orderId]` | window 3                       |
+| `(account)`  | `/account`, `/account/orders`, `/account/{sign-in,callback,sign-out}`       | window 3 → window 13 (Phase 3) |
+| `(content)`  | `/pages/[slug]`                                                             | window 6 (placeholder only)    |
 
 `(checkout)` deliberately has its own chrome: no navigation, nothing that invites the customer out of
 the funnel.
@@ -147,6 +154,36 @@ returns to the payment step, `409 cart_completed` forwards to the order that alr
 Phase 1 pays with the `manual` provider — a placeholder. Card data never reaches this app in any
 phase: window 7 adds hosted fields driven by `payment_session.client_secret`.
 
+## Accounts
+
+Sign-in is OIDC authorization code + **PKCE** against the Keycloak customers realm.
+`storefront-brand-a` is a public client (no secret), so the PKCE verifier is what binds the
+authorization code to the browser that started the flow. The code exchange happens on the server and
+the tokens go into an httpOnly cookie — no page, component or script ever sees them.
+
+- `/account/sign-in` → stores the verifier, state and `returnTo` in short-lived httpOnly cookies and
+  redirects to Keycloak. `/account/callback` checks the state, exchanges the code, saves the session.
+  `/account/sign-out` is **POST only** (a GET would let any prefetch sign the customer out) and ends
+  Keycloak's SSO session too, or the next visit would silently sign them back in.
+- `returnTo` only ever accepts a same-site path (`safeReturnTo`): an open redirect here would hand a
+  freshly signed-in customer to somebody else's page.
+- An expired access token sends the customer through sign-in again rather than refreshing during a
+  render — cookies cannot be written while rendering, and Keycloak's SSO session makes it invisible.
+- The customer token reaches only `/store/customers/*` and `/store/orders/{id}`; the API client
+  throws if anything tries to send it elsewhere.
+
+Window 13 takes this folder over in Phase 3, so it is deliberately the smallest correct thing rather
+than a session framework. Known limits, both fine for Phase 1: the session lives in the cookie, so it
+is bounded by ~4 KB, and there is no silent refresh.
+
+Local Keycloak:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml up -d keycloak   # or pnpm compose:up
+```
+
+Seeded customer: **jane@example.com** / `jane` (the realm seeds the email as the username).
+
 ## Test
 
 ```bash
@@ -157,7 +194,7 @@ pnpm --filter @platform/storefront-starter typecheck
 ### End-to-end
 
 ```bash
-pnpm --filter @platform/storefront-starter e2e         # Playwright: PLP → PDP → cart → checkout → confirmation
+pnpm --filter @platform/storefront-starter e2e         # Playwright: catalog, checkout, account
 ```
 
 Playwright starts both servers itself (the Prism mock and a **production** build — `next dev`
@@ -165,6 +202,11 @@ behaves differently enough around caching and server actions that a green dev ru
 drives the system Chrome, so no browser download is needed. The mock keeps no state and answers from
 the contract's examples, so the cart it returns already carries an address and a delivery option and
 the journey enters checkout at the payment step; every step is still exercised for real.
+
+The account specs need Keycloak running (command above). Without it they **skip** — unless
+`E2E_REQUIRE_KEYCLOAK=1`, which CI should set so a missing dependency there fails loudly instead of
+passing quietly. They also run serially: they share one Keycloak user, and the sign-out test ends
+that SSO session.
 
 ### Lighthouse
 

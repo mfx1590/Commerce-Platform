@@ -1,6 +1,11 @@
-import type { NextConfig } from 'next';
-
-const config: NextConfig = {
+/**
+ * Plain ESM on purpose, not TypeScript: `next start` loads this file at **runtime**, and loading a
+ * `.ts` config needs the `typescript` package. That is a devDependency, so the production image
+ * (built with `pnpm deploy --prod`) does not have it and the container fails to boot (REQUEST #68).
+ *
+ * @type {import('next').NextConfig}
+ */
+const config = {
   reactStrictMode: true,
   // The kit ships as TypeScript-compiled ESM; Next must transpile it like app code.
   transpilePackages: ['@platform/ui'],

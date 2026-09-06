@@ -1,5 +1,26 @@
 # Changelog — @platform/storefront-starter
 
+## 0.5.0 — 2026-09-06
+
+Task [storefront] 1.5 (issue #21) and REQUEST #68, contracts `0.2.0`.
+
+- Sign-in against the Keycloak **customers** realm: OIDC authorization code + PKCE (S256) with the
+  public client `storefront-brand-a`. Route handlers `/account/sign-in`, `/account/callback` and
+  `/account/sign-out`; tokens live in an httpOnly cookie and never reach the page.
+- `/account`: profile (`GET`/`PATCH /store/customers/me`) and addresses
+  (`GET`/`POST …/me/addresses`). `/account/orders`: order history from `GET …/me/orders` with
+  `Price` and an empty state. Unauthenticated access redirects to sign-in and back to the page that
+  was asked for; `returnTo` is restricted to same-site paths.
+- The customer token is attached only to `/store/customers/*` and `/store/orders/{id}` — enforced by
+  the API client, which throws rather than sending it anywhere else.
+- Playwright: sign-in as the seeded Jane, order history renders order `#1000`, sign-out ends the
+  Keycloak SSO session. The account specs run serially because they share one Keycloak user.
+- **REQUEST #68 (window 5):** `next.config.ts` → `next.config.mjs`, so the production image (built
+  with `--prod`, without `typescript`) can load it; `start` honours `$PORT` instead of hard-coding
+  `--port 3100`; new `GET /health` route, required by the image contract in `infra/README.md` now
+  that this package has a `start` script.
+- 16 new unit tests (89 in total).
+
 ## 0.4.0 — 2026-09-05
 
 Task [storefront] 1.4 (issue #20), contracts `0.2.0`.
