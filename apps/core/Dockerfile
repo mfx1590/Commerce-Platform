@@ -1,17 +1,22 @@
 # syntax=docker/dockerfile:1.7
-# Image for @platform/core. Owned by window 5 (infra); the app source is owned by window 1.
+# Image for @platform/core (Medusa 2). Owned by window 5 (infra); the app source is owned by window 1.
 #
 # Build from the REPO ROOT — the pnpm workspace is the build context:
 #   docker compose -f infra/docker/docker-compose.build.yml build core
 #   docker build -f apps/core/Dockerfile -t commerce-platform/core:dev .
 #
 # Contract with the app window (changing it needs a CONTRACT CHANGE issue):
-#   build time      `pnpm --filter @platform/core build`
+#   build time      `pnpm --filter @platform/core... build` — the app and its workspace dependencies
 #   container start `pnpm start` inside the deployed package (infra/docker/entrypoint.sh)
 #   runtime         listens on $PORT and answers `GET /health` with 200
-# The app is still a Phase 0 scaffold with no `start` script, so the entrypoint serves
-# infra/docker/health-server.mjs instead. Adding a `start` script is the only change needed
-# to switch this image over to Medusa 2 (`medusa start`) — the Dockerfile stays as is.
+#
+# `medusa build` emits .medusa/server and apps/core's `start` is `node .medusa/server/src/server.js`,
+# so the deployed package carries .medusa and the entrypoint runs the real server — the scaffold
+# health server in infra/docker/health-server.mjs is only a fallback for apps that still have no
+# `start` script.
+#
+# Two Medusa-specific steps below (ts-node and the build-time placeholder environment) are commented
+# where they appear. Both are build-stage only; neither reaches the runtime image.
 
 ARG NODE_VERSION=20.19-alpine
 ARG PNPM_VERSION=10.34.5
@@ -33,8 +38,36 @@ COPY apps ./apps
 # A developer's build context carries workspace node_modules symlinks; the image installs its own.
 RUN find apps packages -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} +
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
-RUN pnpm --filter "$APP" build
+
+# WORKAROUND, remove when REQUEST #60 lands. `medusa build` loads medusa-config.ts, and the Medusa
+# CLI does a bare `require('ts-node')` to do it. apps/core does not declare ts-node (it uses tsx), so
+# `pnpm --filter @platform/core build` fails identically on a laptop, in CI and here — this is not a
+# container problem. Installing it globally rather than with `pnpm add` is deliberate: `pnpm add`
+# rewrites the lockfile inside the image, which would quietly un-freeze every other dependency.
+# NODE_PATH is what lets a global package satisfy a bare require() from deep inside .pnpm.
+RUN npm install -g ts-node@10.9.2 && npm cache clean --force
+ENV NODE_PATH=/usr/local/lib/node_modules
+
+# `medusa build` evaluates medusa-config.ts, which throws when these are missing: the config reads
+# process.env directly and nothing calls loadDotenv() on the CLI path, so there is no .env to fall
+# back on. These placeholders only have to parse — the build connects to nothing and bakes none of
+# them into the output. Real values arrive at runtime (External Secrets in staging, .env locally).
+ENV DATABASE_URL_APP=postgres://build:build@127.0.0.1:5432/build \
+    REDIS_URL=redis://127.0.0.1:6379 \
+    JWT_SECRET=build-time-placeholder \
+    COOKIE_SECRET=build-time-placeholder
+
+# The "..." suffix builds the app AND its workspace dependencies (@platform/db, @platform/events,
+# @platform/contracts) in topological order. Without it the app compiles against packages that have
+# no dist/ yet and tsc reports "Cannot find module '@platform/db'".
+RUN pnpm --filter "$APP..." build
 RUN pnpm --filter "$APP" --prod --legacy deploy /out
+
+# `pnpm deploy` packs the package the way npm would, and npm's packing rules skip dot-directories.
+# `medusa build` writes its entire output to .medusa/server, so the deployed package would contain
+# every source file and none of the build. Copy it across explicitly; `start` is
+# `node .medusa/server/src/server.js`, so without this the container exits with MODULE_NOT_FOUND.
+RUN cp -r /repo/apps/core/.medusa /out/.medusa && test -f /out/.medusa/server/src/server.js
 
 # ---------- runtime ----------
 # pnpm is installed globally with npm, NOT with corepack: the deployed package.json carries no
