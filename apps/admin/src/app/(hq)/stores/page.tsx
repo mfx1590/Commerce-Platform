@@ -1,17 +1,17 @@
+import Link from 'next/link';
 import { HqSectionGuard } from '@/components/shell/section-guard';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { listStores } from '@/lib/api/admin';
 import { parseTableQuery, toContractQuery } from '@/lib/table/query-state';
 import { StoresTable } from './stores-table';
+import { STORES_TABLE_DEFAULTS } from './stores-table.config';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * The store registry, and the first screen on the data-table primitive (issue #26). Issue #28 adds
- * create, detail/edit, domains, sales channels and API keys on top of this list.
- *
- * Table state is read from the URL and handed to the client component already parsed, so the first
- * paint matches the link that was opened.
+ * The store registry. Table state is read from the URL and handed to the client component already
+ * parsed, so the first paint matches the link that was opened.
  */
 export default async function StoresPage({
   searchParams,
@@ -24,28 +24,32 @@ export default async function StoresPage({
     if (typeof value === 'string') params.set(key, value);
   }
 
-  // `listStores` takes only page and limit in contracts-v0.1 — no q, no sort.
-  const query = parseTableQuery(params);
-  const result = await listStores(toContractQuery(query));
+  // `listStores` (Admin API 0.2.0) takes page, limit, sort and order — no filters.
+  // `created_at` desc is the contract's own default, so it is omitted from the URL.
+  const query = parseTableQuery(params, [], STORES_TABLE_DEFAULTS);
+  const result = await listStores(toContractQuery(query, { sortable: true }));
 
   return (
     <HqSectionGuard id="stores">
-      <div className="space-y-4">
-        <Card>
-          <CardHeader
-            title="Stores"
-            description="Every store in the organization. Create and edit arrive with issue #28."
+      <Card>
+        <CardHeader
+          title="Stores"
+          description="Every store in the organization."
+          action={
+            <Link href="/stores/new">
+              <Button size="sm">New store</Button>
+            </Link>
+          }
+        />
+        <CardBody>
+          <StoresTable
+            rows={result.ok ? result.data.items : []}
+            total={result.ok ? result.data.total : 0}
+            query={query}
+            error={result.ok ? undefined : { status: result.status, error: result.error }}
           />
-          <CardBody>
-            <StoresTable
-              rows={result.ok ? result.data.items : []}
-              total={result.ok ? result.data.total : 0}
-              query={query}
-              error={result.ok ? undefined : { status: result.status, error: result.error }}
-            />
-          </CardBody>
-        </Card>
-      </div>
+        </CardBody>
+      </Card>
     </HqSectionGuard>
   );
 }
