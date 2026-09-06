@@ -131,7 +131,19 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     What was independently confirmed: the client is `publicClient=true` with
     `pkce.code.challenge.method=S256` and redirect `http://localhost:3000/*` (Keycloak admin API),
     and `GET /admin/me` answers on the mock with a bearer token. The token exchange and refresh paths
-    are covered by unit tests (task 1.5) — not by a live round-trip. #43 (window 2) unblocks the rest.
+    are covered by unit tests (task 1.5) — not by a live round-trip.
+  - **Now verified (2026-09-06), after #65 fixed #43.** The staff realm's OTP is CONDITIONAL
+    (`conditional-user-configured`), so `store-admin` signs in with a password alone while `owner`
+    stays TOTP-enrolled to keep the challenge path testable. The whole flow was driven through the
+    app's own routes against real Keycloak: `/api/auth/login` (PKCE S256, three transient cookies) →
+    the realm's sign-in form → password accepted with no OTP challenge → `/api/auth/callback`
+    exchanging a **real** authorization code with the **real** token endpoint → session sealed into
+    two `admin_session.N` cookies → returned to the `returnTo` → `/{brand-a}/catalog` rendering 200
+    with the products table and "Store Admin" from the real ID-token claims → logout redirecting to
+    the realm's end-session endpoint with `id_token_hint`. Replaying the code with a wrong verifier
+    is rejected 400. Zero server errors throughout. **#24's last acceptance criterion is met.**
+    Caveat: the app listened on 3200 (another project still holds 3000) with `ADMIN_APP_URL=3000` so
+    the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
 - Nothing implementing. **Waiting for the manager to merge PR #67** (BLOCK items addressed in
@@ -263,8 +275,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   for the manager to merge it, then continue on the same branch — never stacked branches.
 - **CONTRACT CHANGE #56 accepted** as Admin API 0.2.0; sorting is live for `listStores` and
   `listProducts`. Nothing blocked.
-- **#24 acceptance criterion 1 (browser sign-in round-trip) — two environment blockers, both
-  outside `apps/admin/**`.** The code is complete; the OIDC flow is verified up to the sign-in form
+- ~~**#24 acceptance criterion 1 (browser sign-in round-trip)**~~ — **done 2026-09-06.** The code is complete; the OIDC flow is verified up to the sign-in form
   only (see the correction in the 1.1 entry — no code was issued, so no live token exchange).
   1. **Port 3000 is taken by an unrelated project** (`Propertymate` Next dev server, PID varies).
      Port 3000 is not negotiable: the `admin-app` client registers `http://localhost:3000/*` as its
@@ -283,6 +294,17 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Re-importing the staff realm after window 2 changes it:** `node infra/keycloak/reimport.mjs staff`
+  deletes and recreates the realm through the admin API without touching any volume, then restart
+  just Keycloak (`docker compose -f infra/docker/docker-compose.yml restart keycloak`). **Do not use
+  `pnpm dev --reset` for this** — it is `docker compose down -v` and wipes Postgres, OpenFGA and
+  Redpanda too, which destroys the other windows' migrated and seeded data while they are building.
+- Staff realm since #65: OTP is CONDITIONAL, so six of the seven seeded users sign in with a password
+  alone; `owner` is pre-enrolled with a dev TOTP secret documented in `infra/keycloak/README.md` so
+  the challenge path stays testable.
+- Port 3000 is still held by an unrelated project on this machine, and `admin-app` registers only
+  `http://localhost:3000/*`. Workaround for local verification: run the app on another port with
+  `ADMIN_APP_URL=http://localhost:3000` so the `redirect_uri` still matches.
 - **`tsconfig.json` only included `src/`, so no test file was ever typechecked.** Fixed in 1.6;
   worth checking in any other window that scaffolded its own tsconfig.
 - **Anything a server component imports must come from a non-`'use client'` module** — not just
