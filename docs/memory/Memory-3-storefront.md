@@ -227,6 +227,17 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 - Keycloak is a container, not a `pnpm` script, so Playwright does not start it. The account specs
   skip when it is unreachable unless `E2E_REQUIRE_KEYCLOAK=1` — CI must set that (task 1.7) or a
   missing dependency would pass quietly.
+- **Never run `pnpm dev --reset` while other windows are building.** It is
+  `docker compose down -v`: it wipes every volume (Postgres, Redpanda, Keycloak) and then exits
+  without bringing the stack back up, destroying the other windows' database and seed state.
+  `pnpm dev --down` stops without wiping; `pnpm dev` boots and re-seeds.
+- **Keycloak now persists realms** (`KC_DB: dev-file` in the keycloak volume, "imported once, then
+  kept"). A restart no longer re-imports them, so the note in Memory-main's global gotchas about
+  re-importing on every start is out of date. The only refresh paths are
+  `node infra/keycloak/reimport.mjs <realm>` or wiping the `keycloak-data` volume.
+- **Compose mounts `../keycloak` from *this worktree*.** Re-importing or recreating Keycloak from a
+  worktree whose realm JSON is behind main installs the stale realm for everybody. Check
+  `git diff origin/main -- infra/keycloak/` before touching Keycloak, and merge main first.
 
 - **The Prism mock is stateless and answers from the contract's examples.** `CartWithItem` already
   has email, address and a delivery option, so the e2e journey enters checkout at the payment step;
