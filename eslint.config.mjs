@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/.turbo/**',
       '**/.next/**',
+      '**/.medusa/**',
       '**/next-env.d.ts',
       '**/src/generated/**',
       'docs/**',

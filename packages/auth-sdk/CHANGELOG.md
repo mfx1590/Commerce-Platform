@@ -18,3 +18,12 @@
   `pnpm --filter @platform/auth-sdk fga:seed` creates/reuses the store, writes model + missing tuples and records
   `OPENFGA_STORE_ID` / `OPENFGA_MODEL_ID` in the root `.env`. Tests: `test/openfga-model.test.ts` (static +
   live on a throw-away store). Dependencies: `@openfga/sdk`, dev `@openfga/syntax-transformer`, `tsx`.
+
+## 0.1.2 — 2026-09-05 (unreleased, auth/phase1)
+
+- #43 follow-up (manager decision): the dev staff realm's OTP step is now CONDITIONAL
+  (`browser-mfa forms` → sub-flow `browser-mfa otp` with `conditional-user-configured`), so staff users
+  without an enrolled TOTP sign in with the password alone; `owner` is pre-enrolled with a documented
+  dev-only TOTP secret so the challenge path stays tested. Flipped the two realm tests (flow shape; live
+  browser logins: store-admin → straight to the app callback, owner → OTP challenge passed with a computed
+  RFC 6238 code). Production realms must restore REQUIRED (see infra/keycloak/README.md dev-only table).
