@@ -1,5 +1,27 @@
 # Changelog — @platform/storefront-starter
 
+## 0.3.0 — 2026-09-05
+
+Task [storefront] 1.3 (issue #19), contracts `0.2.0`.
+
+- PLP at `/products` (search, category filter, sort, pagination) and `/categories/[handle]`, sharing
+  one `ProductListView`. Filters, sort and paging are links and a GET form — no client component,
+  every view has a shareable URL, and the first render needs no JavaScript.
+- PDP at `/products/[handle]`: gallery via `next/image`, breadcrumb, description, tags, and a
+  `VariantPicker` (the page's only client component) that resolves `product.options` against
+  `variants[].options`, disables unreachable combinations, and shows price with `compare_at_price`
+  struck through plus in-stock / low-stock / backorder / out-of-stock state.
+- `src/lib/catalog.ts` — tagged, deduped catalog reads (`products`, `categories`,
+  `product:<handle>`, 60 s revalidate), query-string parsing narrowed to the contract's values, and
+  canonical link building. `src/lib/variant.ts` — the pure option → variant resolver.
+- Caching: `force-dynamic` moved off the root layout onto the pages that have no cacheable data of
+  their own, so PLP and PDP now use the fetch cache while `next build` still needs no API.
+- `metadataBase` so the API's relative `seo.canonical` resolves to an absolute URL; descriptions on
+  the listing pages.
+- Lighthouse (mobile, production build, against `pnpm mock`): **PLP performance 99–100, PDP 100**;
+  LCP 1.5–2.0 s, CLS 0, accessibility 100.
+- 34 new tests (50 in total).
+
 ## 0.2.0 — 2026-09-04
 
 Task [storefront] 1.2 (issue #18), contracts `contracts-v0.1`. Replaces the Phase 0 scaffold with the
