@@ -159,16 +159,29 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 - **Query strings are narrowed before they reach the API** — an unparseable `page`, `limit` or `sort`
   falls back to the default rather than producing a 400 from a hand-edited URL.
 
-- **Checkout step reachability does not depend on `payment_session`.** The session is a PSP artifact
+- **Checkout step reachability does not depend on `payment_session`** (accepted by the manager on
+  2026-09-06 in the review of PR #66). The session is a PSP artifact
   with its own lifetime, not customer input: the customer picks a *method* at the payment step, and
   `placeOrderAction` creates the session immediately before authorising. Gating review on it would
   strand a customer whose session expired between steps — and it also made the review step
-  unreachable against the stateless mock, which is what surfaced the problem. Window 7 revisits this
-  for Stripe hosted fields, which need `client_secret` while the customer is still on the payment step.
+  unreachable against the stateless mock, which is what surfaced the problem.
+  **Window 7 must revisit this for hosted fields:** Stripe needs `client_secret` while the customer
+  is still on the payment step, so the session has to exist *before* review, not at place-order.
+  Related: `createPaymentSessionAction` currently redirects and returns nothing, so the
+  `client_secret` from `POST …/payment-session` is discarded — window 7 will need it on that page.
 - **The idempotency key is stored as `<cartId>:<key>`** and validated on read, so a stale cookie can
   never attach a previous cart's key to a new order. Cleared on success.
 - **Errors are mapped from the contract's `code`, never from messages** (`mapCheckoutError`), so the
   409/402 handling the AC asks for is a pure, unit-tested function rather than string matching.
+  The `out_of_stock` payload is `details.available` — **not** `available_quantity`, which is the
+  field name on `Variant` and the wrong guess I originally made (caught in review of #66).
+  `available_quantity` is kept only as a fallback.
+- **Open question for Phase 2 — the idempotency key is not rotated after a `402`.** A customer who
+  clicks "try another method" retries `complete` with the same key. If the core caches error replies
+  per key, that replays the decline instead of attempting the new payment; if it only caches
+  successes, the retry is correct and the key is what stops a double charge. **Windows 7 and 1 own
+  the decision in Phase 2**; the storefront follows whatever the core guarantees. Raised by the
+  manager reviewing #66; no code change now.
 - **Playwright drives the system Chrome (`channel: 'chrome'`)** instead of downloading browsers, and
   starts a *production* build — `next dev` differs enough around caching and server actions that a
   green dev run proves little.

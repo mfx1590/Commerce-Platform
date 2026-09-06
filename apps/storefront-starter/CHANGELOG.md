@@ -13,7 +13,8 @@ Task [storefront] 1.4 (issue #20), contracts `0.2.0`.
   order. The browser never calls the Store API.
 - `Idempotency-Key` generated once per cart and reused on every retry, stored as `<cartId>:<key>` so
   a stale cookie can never attach an old key to a new order.
-- Error mapping (`mapCheckoutError`): `409 out_of_stock` offers the quantity actually left,
+- Error mapping (`mapCheckoutError`): `409 out_of_stock` offers the quantity actually left (read
+  from the contract's `details.available`),
   `402 payment_failed` returns to the payment step, `409 cart_completed` forwards to the order that
   already exists.
 - Payment is the `manual` provider placeholder; no card data touches the app. Hosted fields arrive

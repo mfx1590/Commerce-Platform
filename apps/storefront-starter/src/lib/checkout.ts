@@ -133,6 +133,8 @@ export interface CheckoutError {
   step?: CheckoutStep;
   /** Set for `out_of_stock`, so the page can say how many are actually left. */
   availableQuantity?: number;
+  /** Set for `out_of_stock`: which variant ran out, when the API says so. */
+  variantId?: string;
   /** Set for `cart_completed`: the order already exists and the customer should see it. */
   orderId?: string;
 }
@@ -159,7 +161,13 @@ export function mapCheckoutError(error: unknown): CheckoutError {
   const code = String(error.code);
   switch (error.code) {
     case 'out_of_stock': {
-      const available = detailNumber(error.details, 'available_quantity');
+      // The contract's payload is `details.available` (store-api.yaml, addLineItem 409).
+      // `available_quantity` is accepted as a fallback: it is the field name on Variant, and an
+      // implementation could plausibly reach for it.
+      const available =
+        detailNumber(error.details, 'available') ??
+        detailNumber(error.details, 'available_quantity');
+      const variantId = detailString(error.details, 'variant_id');
       return {
         code,
         message:
@@ -169,6 +177,7 @@ export function mapCheckoutError(error: unknown): CheckoutError {
               ? 'That item just sold out.'
               : `Only ${available} left in stock — reduce the quantity to continue.`,
         ...(available === undefined ? {} : { availableQuantity: available }),
+        ...(variantId === undefined ? {} : { variantId }),
       };
     }
     case 'payment_failed':

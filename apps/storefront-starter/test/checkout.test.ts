@@ -197,15 +197,27 @@ describe('mapCheckoutError', () => {
     new StoreApiError(status, { code, message, details } as never);
 
   it('turns 409 out_of_stock into the quantity actually left', () => {
-    const mapped = mapCheckoutError(apiError(409, 'out_of_stock', { available_quantity: 2 }));
+    // The contract's payload: `{ variant_id, available }` (store-api.yaml, addLineItem 409).
+    const mapped = mapCheckoutError(
+      apiError(409, 'out_of_stock', {
+        variant_id: '30000000-0000-4000-8000-000000000301',
+        available: 2,
+      }),
+    );
     expect(mapped.availableQuantity).toBe(2);
+    expect(mapped.variantId).toBe('30000000-0000-4000-8000-000000000301');
     expect(mapped.message).toContain('Only 2 left');
   });
 
   it('says sold out when nothing is left', () => {
-    const mapped = mapCheckoutError(apiError(409, 'out_of_stock', { available_quantity: 0 }));
+    const mapped = mapCheckoutError(apiError(409, 'out_of_stock', { available: 0 }));
     expect(mapped.availableQuantity).toBe(0);
     expect(mapped.message).toMatch(/sold out/i);
+  });
+
+  it('falls back to available_quantity if an implementation sends that instead', () => {
+    const mapped = mapCheckoutError(apiError(409, 'out_of_stock', { available_quantity: 3 }));
+    expect(mapped.availableQuantity).toBe(3);
   });
 
   it('sends 402 payment_failed back to the payment step', () => {
@@ -222,7 +234,7 @@ describe('mapCheckoutError', () => {
   });
 
   it('ignores details of the wrong type', () => {
-    const mapped = mapCheckoutError(apiError(409, 'out_of_stock', { available_quantity: 'two' }));
+    const mapped = mapCheckoutError(apiError(409, 'out_of_stock', { available: 'two' }));
     expect(mapped.availableQuantity).toBeUndefined();
   });
 
