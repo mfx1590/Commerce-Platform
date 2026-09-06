@@ -12,6 +12,7 @@ See [CLAUDE.md](./CLAUDE.md) for the exact run/test commands and rules.
 ```bash
 pnpm dev                                        # repo root: docker stack, packages/db migrations, seed (once per machine)
 pnpm --filter @platform/core db:medusa:migrate  # once: Medusa's own tables, schema `medusa` (owner role)
+pnpm --filter @platform/core bootstrap          # readiness verifier: seed present, keys resolve, Medusa schema migrated
 pnpm --filter @platform/core dev                # http://localhost:9000/health → 200 OK
 ```
 
@@ -73,7 +74,8 @@ ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
 
 `mountCoreMiddleware(app)` exports exactly this chain so tests run it on a bare Express app (`test/tenant-http.test.ts`).
 
-`pnpm build` (`medusa build`) compiles to `.medusa/server`; `pnpm start` runs the compiled entry.
+`pnpm build` (`medusa build`) compiles to `.medusa/server` and works on a clean checkout (`ts-node` dev dependency,
+#60; `medusa-config.ts` tolerates missing connection settings at build time); `pnpm start` runs the compiled entry.
 
 ## Module layout
 
@@ -92,6 +94,7 @@ src/
     README.md               purpose, public API, events emitted, permissions, how to test
     *.test.ts               unit/integration tests on a throwaway database
   outbox/                   withEvents(tx, events[]) helper (task 1.5) — the only INSERT INTO outbox
+  bootstrap/                verifyBootstrap(): read-only readiness checks (issue #8), run by the CLI and at server start
 ```
 
 Cross-module imports go through `index.ts` only; other workspace packages only through `@platform/<name>`.
@@ -119,5 +122,6 @@ In tests: `const db = await createTestDatabase()` from `@platform/db/testing`, t
 | `pnpm --filter @platform/core dev`                | tsx watch on `src/server.ts`, port 9000                                                               |
 | `pnpm --filter @platform/core db:medusa:migrate`  | create schema `medusa` + default privileges, run Medusa migrations as `medusa_owner`, catch-up grants |
 | `pnpm --filter @platform/core db:medusa:grants`   | only the grants (after a manual Medusa migration)                                                     |
+| `pnpm --filter @platform/core bootstrap`          | readiness verifier (exit 1 with fixes when the database cannot serve the contract)                    |
 | `pnpm --filter @platform/core build` / `start`    | `medusa build` → `.medusa/server`; run the compiled entry                                             |
 | `pnpm --filter @platform/core typecheck` / `test` | `tsc --noEmit`; Vitest (needs Postgres, see `vitest.config.ts`)                                       |
