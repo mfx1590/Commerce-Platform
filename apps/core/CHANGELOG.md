@@ -2,6 +2,15 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.2)
 
+### 2026-09-06 · task 1.8 — bootstrap verifier (issue #8, re-scoped) + ts-node (#60)
+
+- `src/bootstrap/verify.ts` + `pnpm --filter @platform/core bootstrap`: read-only readiness checks (our tables,
+  organization, every store has an active channel / live publishable key / default price list, seeded keys resolve
+  through the tenant layer, Medusa schema + link tables migrated); exit 1 with a fix per finding. Runs at server
+  start too; `CORE_BOOTSTRAP_STRICT=1` aborts the boot when not ready. No Medusa-side rows (deferred to Phase 2).
+- `ts-node` devDependency and a build-tolerant `medusa-config.ts` (loads the root `.env`, loud placeholders instead
+  of throwing) so `pnpm --filter @platform/core build` works on a clean checkout (#60).
+
 ### 2026-09-05 · fold-back onto `core/phase1` (tasks 1.2–1.7 in one PR)
 
 - Static imports of `@platform/db` / `@platform/events` (the `default` export condition landed on main, #40);

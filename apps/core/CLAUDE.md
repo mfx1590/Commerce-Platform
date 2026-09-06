@@ -15,6 +15,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 
 - Prerequisites once per machine: `pnpm dev` at the repo root (docker stack on 5433/6381, `pnpm db:migrate`,
   `pnpm db:seed`), then `pnpm --filter @platform/core db:medusa:migrate` (Medusa's own tables, schema `medusa`).
+- `pnpm --filter @platform/core bootstrap` — readiness verifier (read-only): migrations + seed present, every store
+  has a channel and a live publishable key, seeded keys resolve, Medusa schema migrated. Also runs at server start
+  (`CORE_BOOTSTRAP_STRICT=1` aborts the boot when not ready).
 - `pnpm --filter @platform/core dev` — tsx watch on `src/server.ts`; `GET http://localhost:9000/health` → 200.
 - `pnpm --filter @platform/core typecheck` — `tsc --noEmit` (CommonJS app, `module: NodeNext`).
 - `pnpm --filter @platform/core test` — Vitest; DB tests create their own database via `@platform/db/testing`.
@@ -45,6 +48,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   question) with the `x-permission` read from `admin-api.yaml`; Phase 1 stub over
   `role_assignment` per ADR 0002 (owner ⊇ all; `viewer` = any relation; org relations reach every store). Request
   bodies are validated against the spec's `requestBody` schema (`src/http/openapi.ts`, yaml + ajv at runtime).
+- `src/bootstrap` (issue #8, verifier only): never writes; the Medusa mirror of stores/keys is deferred to the
+  Phase 2 cart task (owner decision 2026-09-05).
 - Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
   `store.created`, `store.updated`); `catalog` (categories, products, options, variants, media, Store API read
   model with price + availability — emits `product.updated`, `product.published`, `product.archived`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`
@@ -64,6 +69,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 
 - Node `>= 20.19` required: this app is CommonJS (Medusa) and `require()`s the ESM `@platform/*` packages.
 - `medusa-config.ts` and `scripts/*` load the repo-root `.env` through `loadDotenv()`; there is no `apps/core/.env`.
+  The config uses loud placeholders for missing `DATABASE_URL_APP` / `REDIS_URL` so `medusa build` works without a
+  database; `src/server.ts` refuses to start without them.
 - Medusa migrations run in-process (`scripts/db-medusa-migrate.ts`) as role `medusa_owner` (owns schema `medusa`,
   no rights on ours). Two Medusa traps this script works around: raw-SQL migrations follow `search_path`, not
   `databaseSchema` (pinned via `databaseDriverOptions`); and module migrations probe `information_schema` for
