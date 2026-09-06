@@ -3,6 +3,14 @@
   "compilerOptions": {
     "noEmit": true,
     "types": ["node"],
+    // apps/core is a CommonJS package since the Medusa setup (window 1). This config only TYPECHECKS the
+    // module (run from @platform/auth-sdk's typecheck script); it checks the sources as ES modules, matching
+    // how they actually execute (vitest/esbuild in tests, Medusa's own build in the app). Without this
+    // override, tsc treats the files as CJS (nearest package.json) and rejects the import/export syntax
+    // under verbatimModuleSyntax.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": false,
     "baseUrl": ".",
     "paths": {
       "@platform/auth-sdk": ["../../../../../packages/auth-sdk/src/index.ts"],
