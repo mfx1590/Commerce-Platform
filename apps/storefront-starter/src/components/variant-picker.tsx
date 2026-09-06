@@ -1,7 +1,9 @@
 'use client';
 
 import { Badge, Button, Price, cn } from '@platform/ui';
-import { useState } from 'react';
+import { useActionState, useState } from 'react';
+import { useFormStatus } from 'react-dom';
+import { addToCartAction, type ActionState } from '@/lib/actions';
 import type { Product } from '@/lib/store-api';
 import {
   availability,
@@ -17,10 +19,23 @@ import {
  * The only client component on the PDP. The server already rendered the default variant's price and
  * availability, so this hydrates over correct markup rather than filling in a blank.
  *
- * Adding to the cart arrives with task 1.4 (issue #20); the button carries the resolved variant id.
+ * Adding to the cart posts the resolved variant id to a server action — the browser never talks to
+ * the Store API, so it cannot invent a price or a quantity the core did not agree to.
  */
+
+const EMPTY: ActionState = {};
+
+function AddToCartButton({ disabled }: { disabled: boolean }) {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" size="lg" disabled={disabled} loading={pending}>
+      {disabled ? 'Unavailable' : 'Add to cart'}
+    </Button>
+  );
+}
 export function VariantPicker({ product, locale }: { product: Product; locale: string }) {
   const [selection, setSelection] = useState<Selection>(() => defaultSelection(product));
+  const [state, formAction] = useActionState(addToCartAction, EMPTY);
 
   const variant = findVariant(product, selection);
   const stock = availability(variant);
@@ -79,9 +94,16 @@ export function VariantPicker({ product, locale }: { product: Product; locale: s
 
       <AvailabilityNote stock={stock} />
 
-      <Button size="lg" disabled={!isPurchasable(variant)} data-variant-id={variant?.id}>
-        {isPurchasable(variant) ? 'Add to cart' : 'Unavailable'}
-      </Button>
+      <form action={formAction} className="flex flex-col gap-2">
+        <input type="hidden" name="variant_id" value={variant?.id ?? ''} />
+        <input type="hidden" name="quantity" value="1" />
+        <AddToCartButton disabled={!isPurchasable(variant)} />
+        {state.error === undefined ? null : (
+          <p role="alert" className="text-sm text-destructive">
+            {state.error}
+          </p>
+        )}
+      </form>
       {variant === undefined ? null : (
         <p className="text-sm text-muted-foreground">SKU {variant.sku}</p>
       )}

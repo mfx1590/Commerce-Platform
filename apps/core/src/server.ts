@@ -20,6 +20,7 @@ import {
   storeContextMiddleware,
   type StaffTokenVerifier,
 } from './http';
+import { formatReport, verifyBootstrap } from './bootstrap';
 import { closePool, initDb } from './lib/db';
 
 export interface CoreServer {
@@ -75,6 +76,17 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
   const directory = opts.directory ?? path.resolve(__dirname, '..');
   // Loads the repo-root .env (medusa-config.ts reads process.env only) and opens our platform_app pool.
   await initDb({ startDir: directory });
+  // Readiness (issue #8): migrations + seed/onboarding present, every store resolvable, Medusa schema migrated.
+  // Findings are logged; the boot aborts only with CORE_BOOTSTRAP_STRICT=1 (staging/production).
+  const readiness = await verifyBootstrap();
+  if (!readiness.ok) {
+    console.warn(`[core] bootstrap check failed:\n${formatReport(readiness)}`);
+    if (process.env.CORE_BOOTSTRAP_STRICT === '1') {
+      throw new Error('bootstrap: database not ready (CORE_BOOTSTRAP_STRICT=1)');
+    }
+  } else {
+    console.info(`[core] bootstrap check: ready (${readiness.stores.length} store(s))`);
+  }
   const app = express();
   mountCoreMiddleware(app, opts.staffTokenVerifier);
 

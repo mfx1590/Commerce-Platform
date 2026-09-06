@@ -1,6 +1,6 @@
 {
   "name": "@platform/storefront-starter",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,9 @@
     "start": "next start --port 3100",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "clean": "rm -rf .next dist .turbo"
+    "clean": "rm -rf .next dist .turbo",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@platform/contracts": "workspace:*",
@@ -19,6 +21,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@types/node": "^20.19.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
