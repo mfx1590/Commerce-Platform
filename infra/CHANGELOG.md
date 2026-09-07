@@ -117,13 +117,20 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   `describe.runIf(await reachable())`, so without this a mis-wired URL would produce a green job that asserted
   nothing.
 - `infra/ci/run-e2e.sh` — runs every `apps/*/playwright.config.*` it finds, so a new journey is picked up
-  without a workflow change, and fails if it finds none. `ADMIN_E2E_PORT` (3000 today) becomes 3200 when
-  REQUEST #82 registers that redirect URI.
+  without a workflow change, and fails if it finds none. `ADMIN_E2E_PORT` defaults to 3200 (registered by
+  REQUEST #82, now merged) and `ADMIN_APP_URL` is exported to match, so Keycloak's callback lands on the app.
+  The browser is Playwright's chromium on CI and the machine's Chrome locally — except where a config still
+  pins `channel: 'chrome'`, which forces the Chrome channel; REQUEST #84 removes that and the script switches
+  by itself.
 - The classifier grew an `e2e` group, and `infra/ci/**` now counts towards `images` and `e2e` — those scripts
   are the pipeline, so a change to them has to be exercised by the jobs that use them.
 
 ### Fixed
 
+- `infra/ci/run-e2e.sh` builds each app's workspace dependencies with turbo before running its journey.
+  A playwright config's `webServer` builds the app but not the packages it imports, so on a clean runner the
+  storefront build failed with "Can't resolve '@platform/ui'". `--filter='<pkg>^...'` builds the dependencies
+  and leaves the app to its own config.
 - `infra/ci/check-image-manifests.sh` discovered workspace packages with `find ... -name package.json`, which
   also matched build output (`apps/storefront-starter/.next/package.json` is written by `next build`) and
   failed on any machine that had run a build. It now asks `pnpm -r list`.

@@ -7,22 +7,16 @@
 # a workflow change — apps/admin's journey ([admin] 1.7, #30) lands this way. It also means the job
 # cannot quietly become a no-op: if no journey is found at all, this fails, because the whole point
 # of the job is to run them.
-#
-# Ports: each app's playwright config starts its own web server and derives the base URL from $PORT
-# or E2E_BASE_URL. apps/admin needs the port Keycloak has registered as a redirect URI on the
-# `admin-app` client — 3000 today. REQUEST #82 adds 3200 as a second one; when it lands, set
-# ADMIN_E2E_PORT=3200 (it is already honoured below) and 3000 stops being a hard requirement.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-ADMIN_E2E_PORT="${ADMIN_E2E_PORT:-3000}"
-
-# `chrome` is the Google Chrome channel, which is what the Playwright configs pin
-# (`channel: 'chrome'`). REQUEST #84 asks for that to be conditional on $CI; when it lands this
-# becomes `chromium`, which is smaller and version-matched to Playwright.
-E2E_BROWSER="${E2E_BROWSER:-chrome}"
+# apps/admin signs in against the real realm, so it has to serve on a port Keycloak has registered
+# as a redirect URI on the `admin-app` client. Both 3000 and 3200 are registered (REQUEST #82);
+# 3200 is the default because an unrelated project holds 3000 on the owner's machine.
+# ADMIN_APP_URL has to agree, or Keycloak sends the browser to the wrong callback.
+ADMIN_E2E_PORT="${ADMIN_E2E_PORT:-3200}"
 
 mapfile -t configs < <(ls -1 apps/*/playwright.config.* 2>/dev/null | sort)
 
@@ -44,30 +38,50 @@ for cfg in "${configs[@]}"; do
   pkg="$(node -p "require('./$dir/package.json').name")"
   has_e2e="$(node -p "Boolean((require('./$dir/package.json').scripts||{}).e2e)")"
 
-  # The admin journey signs in against the real realm, so it has to serve on a registered
-  # redirect URI. Everything else keeps whatever its config defaults to.
-  port_env=()
+  # The web server in a playwright config builds and starts the app, but not the workspace packages
+  # it imports — on a clean runner the storefront build fails with "Can't resolve '@platform/ui'".
+  # `<pkg>^...` is turbo's dependencies-only filter: it builds @platform/ui and @platform/contracts
+  # and leaves the app to its own config. Same trap as running vitest without turbo, and as
+  # `pnpm --filter <app> build` in the Dockerfiles.
+  echo "== $pkg: building workspace dependencies"
+  pnpm exec turbo run build --filter="$pkg^..."
+
+  # Browser choice. On CI, Playwright's own chromium — smaller, and version-matched to the
+  # @playwright/test in the lockfile. Locally, the Chrome already on the machine, so nothing is
+  # downloaded. A config that still pins `channel: 'chrome'` forces the Chrome channel either way:
+  # installing chromium for it would fail at run time with "Chromium distribution 'chrome' is not
+  # found". REQUEST #84 asks windows 3 and 4 to make that conditional; this picks chromium up by
+  # itself the moment they do, with no change here.
+  if [ -n "${E2E_BROWSER:-}" ]; then
+    browser="$E2E_BROWSER"
+  elif [ -n "${CI:-}" ] && ! grep -Eq "channel: *['\"]chrome['\"]" "$cfg"; then
+    browser=chromium
+  else
+    browser=chrome
+  fi
+
+  # Install from the package that declares @playwright/test — `pnpm exec playwright` at the
+  # workspace root cannot find it, because it is a dependency of the app, not of the root.
+  # `--with-deps` installs system libraries with sudo: right on a runner, rude on a laptop.
+  echo "== $pkg: installing browser '$browser'"
+  if [ -n "${CI:-}" ]; then
+    pnpm --filter "$pkg" exec playwright install --with-deps "$browser"
+  else
+    pnpm --filter "$pkg" exec playwright install "$browser"
+  fi
+
+  run_env=()
   if [ "$app" = 'admin' ]; then
-    port_env=(PORT="$ADMIN_E2E_PORT")
-    echo "== $pkg (PORT=$ADMIN_E2E_PORT — must match a redirect URI on the admin-app client)"
+    run_env=(PORT="$ADMIN_E2E_PORT" ADMIN_APP_URL="http://localhost:$ADMIN_E2E_PORT")
+    echo "== $pkg (PORT=$ADMIN_E2E_PORT, ADMIN_APP_URL=http://localhost:$ADMIN_E2E_PORT)"
   else
     echo "== $pkg"
   fi
 
-  # Install the browser from the package that declares @playwright/test — `pnpm exec playwright`
-  # at the workspace root cannot find it, because it is a dependency of the app, not of the root.
-  # `--with-deps` installs system libraries with sudo, which is right on a runner and rude on a
-  # laptop, so it is CI-only.
-  if [ -n "${CI:-}" ]; then
-    pnpm --filter "$pkg" exec playwright install --with-deps "$E2E_BROWSER"
-  else
-    pnpm --filter "$pkg" exec playwright install "$E2E_BROWSER"
-  fi
-
   if [ "$has_e2e" = 'true' ]; then
-    env "${port_env[@]+"${port_env[@]}"}" pnpm --filter "$pkg" e2e || fail=1
+    env "${run_env[@]+"${run_env[@]}"}" pnpm --filter "$pkg" e2e || fail=1
   else
-    env "${port_env[@]+"${port_env[@]}"}" pnpm --filter "$pkg" exec playwright test || fail=1
+    env "${run_env[@]+"${run_env[@]}"}" pnpm --filter "$pkg" exec playwright test || fail=1
   fi
 done
 

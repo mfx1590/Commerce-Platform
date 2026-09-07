@@ -70,7 +70,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   images rebuild and the smoke test passes; `changes.test.sh` 18/18; the bootstrap SQL was run twice against a
   real Postgres (create, then rotate) with a password containing a quote, and the test roles dropped after.
 
-- **#80 — one CI job for the live auth suites and the Playwright journeys** — this PR. `auth-e2e` boots
+- **#80 — one CI job for the live auth suites and the Playwright journeys** — commits `19675b1`, `a96b9ec`,
+  `5e995f3` (+ the review fixes below), PR #87
+  (https://github.com/mfx1590/Commerce-Platform/pull/87). `auth-e2e` boots
   Keycloak (both realms), OpenFGA and Postgres from the compose file, asserts they are really up, runs
   `turbo run test --filter=@platform/auth-sdk` (which covers apps/core hq-rbac too) and every
   `apps/*/playwright.config.*`. Also adds the `e2e` group and `infra/ci/**` to the classifier.
@@ -217,6 +219,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **Exporting a `mode=max` GHA cache is expensive**: measured 60–145s "preparing build cache for export" plus
   14–37s "sending", per image, six images. It was the largest component of a 14-minute run. Export on pushes to
   main only; let pull requests read.
+- **A playwright config's `webServer` builds the app, not the workspace packages it imports.** On a clean
+  runner the storefront build fails with "Can't resolve '@platform/ui'". Build the dependencies first with
+  turbo's dependencies-only filter, `--filter='<pkg>^...'` — the trailing `^...` means "the deps, not the
+  package". Third time this family of gotcha has bitten: `pnpm --filter <app> build` in the Dockerfiles,
+  `pnpm --filter <pkg> test` for vitest, and now the e2e web server.
 - **A local Keycloak keeps its realms in a volume and does NOT re-import them.** `KC_DB: dev-file` plus the
   `keycloak-data` volume means edits to `infra/keycloak/*.json` are invisible until
   `docker compose down -v`. Four live auth tests failed against my stale realm and all 51 passed after a
