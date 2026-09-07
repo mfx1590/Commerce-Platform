@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.6 merged (#39, #64, #66, #76, #96), 1.7 in PR #97, then 1.8 (#62) UTM capture closes Phase 1
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.7 merged (#39, #64, #66, #76, #96, #97), 1.8 in PR — **that is all of Phase 1 for this window**
 
 ## Identity (does not change)
 
@@ -88,6 +88,14 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       PDP `/en-GB/products/classic-tee` perf **99**, a11y 100, LCP 2.05 s, TBT 30 ms, CLS 0.
       First run was 89/85 — see the client-message fix below.
 
+- [x] **1.8 (#62) UTM / referrer capture into `cart.metadata.attribution`** — commit `<pending>`,
+      PR `<pending>`. Captured in the middleware into `sf_attribution` (httpOnly, 30 days); first
+      touch never overwritten, last touch updated, no cookie without a marketing signal. Sent at
+      `POST /store/carts` and via `PATCH` before `complete`. Verified live: campaign landing →
+      cookie, second campaign → `last` only, ordinary visit → no cookie; Prism accepts the body on
+      both endpoints (201/200). 20 new unit tests → 157. **CONTRACT CHANGE #100 filed:** `metadata`
+      is absent from contracts-v0.1 entirely, contrary to the issue's premise.
+
 ## In progress
 
 - (nothing — 1.4 next, after the 1.3 PR merges)
@@ -114,7 +122,6 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] 1.8 (#62) UTM / referrer capture into `cart.metadata.attribution` (added by the manager 2026-09-07).
 
 ## Decisions made (with reasons)
 
@@ -251,6 +258,16 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
   `infra/ci/run-e2e.sh` decides what to install by grepping the config for a pinned
   `channel: 'chrome'`, so that literal must not appear in the source when CI runs — it is computed.
 
+- **First touch is never overwritten; last touch always is.** Crediting the last campaign for the
+  first one's work is the entire failure mode this feature exists to avoid, so it is a property of
+  `mergeAttribution` and is tested directly, not an incidental result of the write order.
+- **Only the referrer's origin is stored.** A full referring URL routinely carries a query string
+  with an email address in it; the origin is all attribution needs, and a test asserts no PII
+  survives serialisation.
+- **Attribution is refreshed onto the cart before `complete`, and never fatally.** `complete` has no
+  request body (see #100), so the last touch has to be `PATCH`ed onto the cart first; a failure
+  there is logged and swallowed, because losing a marketing attribute must not cost the order.
+
 ## Blocked / waiting
 
 - Nothing blocking. 1.1 and 1.2 are merged; 1.3 is planned and waits only on the owner's go-ahead
@@ -263,6 +280,15 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`metadata` does not exist anywhere in the Store API spec** (`grep -c metadata store-api.yaml`
+  → 0), despite issue #62 stating it was free-form in contracts-v0.1. `completeCart` has no request
+  body at all either. Check the spec before believing an issue's description of it —
+  CONTRACT CHANGE #100. Prism accepts the extra field because no schema sets
+  `additionalProperties: false`, which is what makes building ahead of the contract possible here.
+- Heredocs mangle `
+` inside string literals (the operator's own memory says as much). Multi-line
+  string fixtures belong in a file written with the Write tool — `test/fixtures/directives.ts`.
 
 - **A conflicted branch means GitHub runs no CI at all** — PR #96 sat with zero checks, not failing
   ones, because `pnpm-lock.yaml` conflicted with main. Merge main *before* asking for review, or the
@@ -389,7 +415,7 @@ pnpm --filter @platform/ui build       # dist/ (the app's Tailwind scan needs it
 # storefront (needs the kit and contracts built once: pnpm --filter @platform/contracts build)
 pnpm mock                                          # Prism Store API on :4010
 pnpm --filter @platform/storefront-starter dev     # :3100
-pnpm --filter @platform/storefront-starter test    # 124 tests
+pnpm --filter @platform/storefront-starter test    # 157 tests
 pnpm --filter @platform/storefront-starter e2e     # Playwright, starts mock + prod build itself
 pnpm --filter @platform/storefront-starter typecheck
 pnpm --filter @platform/storefront-starter build   # next build, works offline

@@ -179,6 +179,51 @@ Adding a locale: add `messages/<locale>.json`, add it to `SUPPORTED_LOCALES`, an
 returns it in `store.locales`. The tests fail if the catalogues drift apart, if a placeholder differs
 between them, if a key used in code is missing, or if copy is hard-coded in `(shop)` or `(checkout)`.
 
+## Attribution
+
+Which campaign brought the customer, and which one was in play when they bought. Captured
+first-party in the middleware into an httpOnly cookie (`sf_attribution`, 30 days, SameSite=Lax) and
+sent to **our own Store API** as `cart.metadata.attribution`. No third-party pixels, no beacons,
+nothing leaves this system.
+
+Two touches are kept. **First is never overwritten** — it is what actually acquired the customer,
+and letting a later campaign replace it would credit the last click for the first one's work.
+**Last** is replaced whenever a new campaign appears, because that is what closed the sale.
+
+```json
+{
+  "attribution": {
+    "first": {
+      "utm_source": "newsletter",
+      "utm_medium": "email",
+      "utm_campaign": "spring",
+      "utm_term": null,
+      "utm_content": null,
+      "ref": null,
+      "referrer": "https://news.example.com",
+      "landing_path": "/en-GB/products",
+      "at": "2026-09-07T10:00:00.000Z"
+    },
+    "last": { "…": "same shape" },
+    "captured_at": "2026-09-14T09:30:00.000Z"
+  }
+}
+```
+
+**No PII.** UTM parameters, a referral code (`?ref=`), the referrer's **origin only** — a full
+referrer URL can carry a query string with someone's email in it — and the landing path. A visit with
+no marketing signal at all writes no cookie, and an internal referrer is not a touch.
+
+Sent at `POST /store/carts`, and again with `PATCH /store/carts/{id}` immediately before
+`POST …/complete`, so the last touch is the campaign that closed the sale rather than the one that
+created the cart days earlier. It goes on the _cart_ because `complete` takes no request body.
+
+**For window 17 (and window 1):** the core is expected to copy `cart.metadata` to `order.metadata` at
+placement, which is where reporting should read it. `metadata` does **not** exist in contracts-v0.1 —
+the storefront sends it anyway (the mock accepts it, since neither schema forbids extra properties)
+and **CONTRACT CHANGE #100** asks for the field to be specified. Until that lands, `src/lib/cart.ts`
+carries a one-line local type extension; delete it when #100 is accepted.
+
 ## Accounts
 
 Sign-in is OIDC authorization code + **PKCE** against the Keycloak customers realm.
