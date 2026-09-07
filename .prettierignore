@@ -5,6 +5,8 @@ dist
 **/.medusa/
 **/.terraform/
 **/next-env.d.ts
+**/test-results/
+**/playwright-report/
 pnpm-lock.yaml
 packages/contracts/src/generated
 packages/events/src/generated
