@@ -72,6 +72,7 @@ Start messages for every window: docs/start-messages/ · Ownership map (CI-enfor
 
 ## Contract change log
 - 2026-09-04 · baseline contracts-v0.1 (Store API 0.1.0, Admin API 0.1.0, events v1, db migrations 0001–0009 + 0100)
+- 2026-09-07 · CONTRACT CHANGE #77 (customers read = support, not viewer; PII minimisation) · accepted, Admin API 0.2.1 on main (permission tightening; consumers: window 4 nav gating for Customers, window 1 permission table reads the spec at runtime) · tag contracts-v0.2.1 later with v0.3
 - 2026-09-05 · CONTRACT CHANGE #56 (admin list sort/order, additive) · accepted, Admin API 0.2.0 on main · tag contracts-v0.2 to be created by the owner after the current merge round · producer: window 1 follow-up task; consumer: window 4 [admin] 1.3
 
 ## Integration reports
