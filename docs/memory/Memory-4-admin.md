@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: contracts-v0.1 · Last commit: 3b5348c · Status: tasks 1.1-1.4 done; PR #42 green but unmerged, 1.2-1.4 held local until it lands
+Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.4 merged (PR #42); 1.5 in review (PR #67, BLOCK items addressed); 1.6 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,39 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.5 review follow-up** (manager BLOCK on PR #67, all three addressed) · commit `a1b297a`
+  1. `createVariantAction` had no caller. The product page now reconciles the matrix against
+     existing variants and offers the gap — one button per row plus "Create all N" — and
+     `updateVariant` is wired for inline SKU/title/price editing. The page copy claiming that saving
+     options creates the matrix was wrong and is gone. Product media (`ProductInput.media`) added to
+     the form, URL-validated.
+  2. README no longer claims `.env` is optional; `ADMIN_SESSION_SECRET` is listed as required.
+  3. The stale "sorting withheld / `sortableColumns={[]}`" decision is replaced by the 0.2.0 one.
+  - 248 tests (was 229).
+
+- **1.5 — issue #28 Stores (HQ) + Catalog (Store view)** · commit `71eb9a5`
+  - Every `registry` and `catalog` operation has a typed wrapper and is reachable from the UI.
+    HQ: `/stores`, `/stores/new`, `/stores/{id}` (record + domains + sales channels + API keys).
+    Store: `/{storeId}/catalog` (filters + sort), `/catalog/new`, `/catalog/{id}` (edit, publish,
+    archive, variants), `/catalog/categories`.
+  - The show-once API key lives in one component's state and nowhere else; the list only ever holds
+    `key_prefix`, so there is no control that could bring the value back.
+  - `variantMatrix` is a pure, separately tested cross-product; the product form previews it live.
+  - **Two bugs only running the app could find** (unit tests and `next build` were both green):
+    1. A plain function (`redirectTo`) and an arrow-wrapped server action passed from a server
+       component to a client one — React refuses both. Actions are now `.bind(null, …)`ed and the
+       redirect is a string prefix.
+    2. **Constants exported from a `'use client'` module become client references when a server
+       component imports them.** `PRODUCT_FILTER_KEYS` threw "b is not iterable"; worse,
+       `STORES_TABLE_DEFAULTS` failed *silently* (property reads returned undefined), so the stores
+       table's default sort was never applied. Both moved to plain `*.config.ts` modules.
+  - Verified: all seven screens render 200 with zero server errors against the mock, and
+    `/stores` now really carries `aria-sort="descending"` on Created.
+  - Follow-ups in the same task: sorting turned on against Admin API 0.2.0; `ADMIN_SESSION_SECRET`
+    made mandatory everywhere; callback-route and middleware-refresh tests added; the overstated
+    "verified end to end" claim corrected (see the 1.1 entry).
+  - 229 tests. `pnpm lint`, `format:check`, `typecheck` (15/15), `check-ownership` green.
+
 - **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `f2c8df5` · PR held until #42 merges
   - `useContractForm(schema, action)`: one Zod schema validates on the client and re-validates in
     the server action, so the two cannot disagree.
@@ -41,8 +74,9 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   - 135 tests total. Verified against the live mock via a scratchpad stub that serves an owner
     principal and proxies the rest to Prism — the HQ nav, the guard and the real store rows all
     render.
-  - **CONTRACT CHANGE #56 filed**: no list operation in contracts-v0.1 accepts `sort`/`order`.
-    Sorting is carried in the URL but withheld from the request until it lands.
+  - **CONTRACT CHANGE #56 filed** — accepted as Admin API 0.2.0 during task 1.5, so sorting is now
+    forwarded for `listStores` and `listProducts`. At the time of this task it was carried in the URL
+    only.
 
 - **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · PR (opened after #42 merges)
   - Route groups `(hq)` and `(store)/[storeId]`; all twelve sections reachable, each placeholder
@@ -71,33 +105,55 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   - `/` renders the `Principal` from `GET /admin/me`. 23 Vitest tests. README rewritten (how to run,
     how the auth hook works, how to add a screen), CHANGELOG + package CLAUDE.md updated.
   - Verified: `pnpm lint`, `pnpm format:check`, `pnpm typecheck` (13/13), `next build`, 23 tests green.
-    OIDC config verified headlessly end to end (discovery → PKCE → login form → code → token
-    exchange → `GET /admin/me` with the real access token); the browser round-trip is blocked, see
-    Blocked / waiting.
+  - **Correction (2026-09-05):** an earlier version of this entry claimed the OIDC flow was verified
+    "end to end" headlessly. It was not. The headless run reached discovery → the PKCE authorization
+    request → the realm's sign-in form → the password being accepted, and then stopped at
+    `login-actions/required-action?execution=CONFIGURE_TOTP`. **No authorization code was ever
+    issued, so `exchangeCode` and the token endpoint were never exercised against real Keycloak.**
+    What was independently confirmed: the client is `publicClient=true` with
+    `pkce.code.challenge.method=S256` and redirect `http://localhost:3000/*` (Keycloak admin API),
+    and `GET /admin/me` answers on the mock with a bearer token. The token exchange and refresh paths
+    are covered by unit tests (task 1.5) — not by a live round-trip. #43 (window 2) unblocks the rest.
 
 ## In progress
-- Nothing implementing. **Waiting on the manager to merge PR #42** (all five checks green since
-  2026-09-05). The moment it lands, in this order:
-  1. `git merge main` — main has moved (#40 default export condition, #41 Store.theme example,
-     #44/#46 Next artefacts added to the root eslint/prettier ignores).
-  2. Delete the now-stale "delete `.next/` before `format:check`" workaround from
-     `apps/admin/README.md` and `apps/admin/CLAUDE.md` — #44 fixed it upstream.
-  3. Push, open the 1.2 PR against `main`; after it merges, the 1.3 PR; then the 1.4 PR.
-     One open PR per branch (manager note in CLAUDE.md) — never stack branches.
-- Task 1.5 (issue #28, Stores + Catalog screens) is next to build. Both primitives are ready:
-  the Stores list already renders through `DataTable`, and `useContractForm` + `storeCreateSchema`
-  are waiting for the create/edit forms.
+- Nothing. Task 1.6 (issue #29, the 401/403/404/empty/error pattern) is next: `src/components/states/`
+  already has forbidden / store-forbidden / no-access / request-error panels from 1.2, and the
+  data-table and forms already route failures into them, so 1.6 is mostly completing the set (401
+  re-authenticate, 404 scoped to the store), the `Prefer: code=403` mock tests, and the `(dev)/states`
+  demo route.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
 - [x] 1.2 Permission-driven navigation + store switcher — #25, PR (opened after #42 merges) (do not self-merge)
 - [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26 (PR pending)
 - [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27 (PR pending)
-- [ ] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28
+- [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28 (PR open)
 - [ ] 1.6 403 / empty / error states pattern — #29
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
 ## Decisions made (with reasons)
+- **Creating variants is a deliberate act, not a side effect of saving options.** A variant is a
+  sellable thing with its own SKU, price and stock; adding a colour to a live product would
+  otherwise silently POST several. The page offers the gap between the matrix and what exists, one
+  button per row plus an explicit "create all" that names the count — the same principle as the
+  data-table refusing to select a result set behind one checkbox. A bulk create stops at the first
+  refusal, because a half-created matrix is worse than a stated failure.
+- **Table configuration lives in plain `*.config.ts` modules, never in the `'use client'` file.**
+  A constant exported from a client module and imported by a server component arrives as a client
+  reference: arrays stop being iterable and object properties read as `undefined` *silently*. That
+  second failure mode had already broken the stores table's default sort without any test noticing.
+- **Server actions cross to client components bound, never wrapped.** `action={(v) => act(id, v)}`
+  is a plain function and React refuses it; `action={act.bind(null, id)}` is a server action
+  reference and is fine. Likewise a `redirectTo` callback became a `redirectBase` string.
+- **`compact()` before every request body.** Zod's `key?: T | undefined` and the contract's exact
+  optional `key?: T` differ under `exactOptionalPropertyTypes`, and on PATCH the difference is real:
+  an explicit `undefined` is not the same request as an omitted key.
+- **Store detail loads its four sub-resources in parallel and lets each fail alone.** Listing API
+  keys needs `store_admin` while reading the store needs only `viewer`; one 403 must not replace the
+  whole page with an error.
+- **`ADMIN_SESSION_SECRET` has no fallback.** A constant committed to the repo is a key everyone
+  has, and "development" is one mis-set `NODE_ENV` from production. Failing loudly with a generate
+  command costs one command; the silent version does not fail until it matters.
 - **Form schemas are hand-written, not generated from the contract.** `admin-api.yaml` marks almost
   every input property optional because POST and PATCH share one schema (`StoreInput` has no
   `required` list at all). A generated schema would accept an empty create form and let the server
@@ -118,9 +174,13 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   It also makes every list linkable, back-button correct and reproducible from a bug report.
 - **`parseTableQuery` keeps only declared filter keys.** Passing the raw query string through would
   forward `?injected=1` to the Admin API as an undeclared parameter — a 400 at best.
-- **Sorting is withheld from the request, not from the UI.** contracts-v0.1 has no `sort`/`order`
-  (#56). `toContractQuery` needs `{ sortable: true }` before it forwards them, and list screens pass
-  `sortableColumns={[]}`, so nothing undefined is ever sent. Two lines per list to switch on later.
+- **Sorting is server-driven and opt-in per operation.** CONTRACT CHANGE #56 was accepted as
+  **Admin API 0.2.0**, so `listStores` (`code, name, status, created_at`) and `listProducts`
+  (`title, handle, status, created_at, updated_at`) sort on the server. `toContractQuery` still
+  requires `{ sortable: true }`, because only four list operations gained the parameters and each has
+  its own enum — a table built on any other endpoint must not be able to send one. A screen declares
+  the contract's enum in `sortableColumns` and the contract's default in its `TableQueryDefaults`, so
+  the default stays out of the URL.
 - **Selecting a page never selects the result set.** The escalation is a separate click offered only
   after a full page is ticked and only when more rows match, and it keeps an exclusion list.
   `describeSelection` gives bulk actions exact wording so a confirmation is never ambiguous.
@@ -172,12 +232,13 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   no build step, so typecheck must pass without generated `.next/types`.
 
 ## Blocked / waiting
-- **PR ordering.** The owner's call (2026-09-05): keep one branch, no stacked PRs. 1.2 and 1.3 stay
-  local until #42 merges, then they are pushed to `admin/phase1` and get their own PRs in order.
-- **CONTRACT CHANGE #56** (sort/order on list operations) — filed, not blocking: sorting is carried
-  in the URL and simply not forwarded until the manager accepts it.
+- **PR ordering** (manager note in CLAUDE.md): one branch, one open PR at a time. Open a PR, wait
+  for the manager to merge it, then continue on the same branch — never stacked branches.
+- **CONTRACT CHANGE #56 accepted** as Admin API 0.2.0; sorting is live for `listStores` and
+  `listProducts`. Nothing blocked.
 - **#24 acceptance criterion 1 (browser sign-in round-trip) — two environment blockers, both
-  outside `apps/admin/**`.** The code is complete and the OIDC flow is verified headlessly.
+  outside `apps/admin/**`.** The code is complete; the OIDC flow is verified up to the sign-in form
+  only (see the correction in the 1.1 entry — no code was issued, so no live token exchange).
   1. **Port 3000 is taken by an unrelated project** (`Propertymate` Next dev server, PID varies).
      Port 3000 is not negotiable: the `admin-app` client registers `http://localhost:3000/*` as its
      only redirect URI and `http://localhost:3000` as its only web origin.
@@ -195,6 +256,15 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Anything a server component imports must come from a non-`'use client'` module** — not just
+  functions, constants too. The silent variant (object properties reading `undefined`) is the
+  dangerous one.
+- **`pnpm install` after merging main.** The merge brought window 1's and 2's new dependencies
+  (`@openfga/sdk`, `@medusajs/*`, `express`); `pnpm typecheck` fails across those packages until
+  they are installed, and the errors look like their bugs rather than a missing install.
+- Window 17 (marketing) was added to `docs/ownership.md` and owns
+  `apps/admin/src/app/(store)/[storeId]/marketing/**` and `apps/admin/src/app/(hq)/marketing/**` —
+  inside this app's tree but not this window's to write.
 - **No `react-hooks` ESLint plugin in the repo config.** An `// eslint-disable-next-line
   react-hooks/exhaustive-deps` comment is itself a lint *error* ("Definition for rule was not
   found"). Restructure instead of suppressing.

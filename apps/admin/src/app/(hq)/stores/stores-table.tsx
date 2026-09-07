@@ -1,10 +1,12 @@
 'use client';
 
 import type { ColumnDef } from '@tanstack/react-table';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/data-table';
 import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
 import type { TableQuery } from '@/lib/table/query-state';
+import { STORES_SORTABLE_COLUMNS, STORES_TABLE_DEFAULTS } from './stores-table.config';
 
 type Store = AdminComponents['Store'];
 
@@ -15,6 +17,11 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'neutral'> = {
   archived: 'neutral',
 };
 
+function formatDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10);
+}
+
 /**
  * Columns are typed against the contract schema, so renaming a field in `admin-api.yaml` breaks
  * this file at compile time instead of rendering blanks.
@@ -24,6 +31,11 @@ const columns: ColumnDef<Store, unknown>[] = [
     id: 'name',
     header: 'Name',
     accessorKey: 'name',
+    cell: ({ row }) => (
+      <Link href={`/stores/${row.original.id}`} className="text-accent hover:underline">
+        {row.original.name}
+      </Link>
+    ),
   },
   {
     id: 'code',
@@ -49,6 +61,12 @@ const columns: ColumnDef<Store, unknown>[] = [
     header: 'Country',
     accessorKey: 'default_country',
   },
+  {
+    id: 'created_at',
+    header: 'Created',
+    accessorKey: 'created_at',
+    cell: ({ row }) => <span className="text-muted">{formatDate(row.original.created_at)}</span>,
+  },
 ];
 
 export function StoresTable({
@@ -68,11 +86,10 @@ export function StoresTable({
       rows={rows}
       total={total}
       query={query}
+      defaults={STORES_TABLE_DEFAULTS}
       getRowId={(store) => store.id}
       caption="Stores"
-      // No sortable columns yet: contracts-v0.1 has no sort parameter (CONTRACT CHANGE #56).
-      // Adding one here plus `sortable: true` in the API wrapper is all it takes once that lands.
-      sortableColumns={[]}
+      sortableColumns={STORES_SORTABLE_COLUMNS}
       error={error}
     />
   );
