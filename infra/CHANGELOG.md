@@ -170,6 +170,24 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   found by `helm lint` against a placeholder tag of all zeroes, which is exactly the case that would have
   reached a real deploy.
 
+### Fixed (review of #95)
+
+- The Prism mock probes could never have passed. Every path Prism serves answers 401 without credentials and
+  Kubernetes counts only 200-399 as success, so readiness would have stayed red and liveness would have
+  restarted a healthy pod. The mocks now use a `tcpSocket` probe, and their ALB annotation carries
+  `success-codes: '200-399,401,404'` because an ALB target group has no TCP health check. The chart gained
+  `service.probe`, validated to be `httpGet` or `tcpSocket`, and all three probes render from one helper so
+  they cannot drift.
+- No application configuration reached the pods: `env:` was empty everywhere, so admin and storefront would
+  have fallen back to their localhost defaults — inside a pod, themselves. All ten values files now carry the
+  non-secret half of `.env.example` (`KEYCLOAK_URL`, `KEYCLOAK_REALM_*`, `OPENFGA_API_URL`, `OPENFGA_STORE_ID`,
+  `MEDUSA_DB_SCHEMA`, `CORE_ORGANIZATION_ID`, the three CORS vars, `STORE_API_URL`, `ADMIN_API_URL`,
+  `ADMIN_APP_URL`, `STORE_PUBLISHABLE_KEY`, `S3_MEDIA_BUCKET`), using the same substituted-at-deploy hostname
+  placeholder as `ingress.host`. Secrets still come only from the ExternalSecret.
+- `stoplight/prism:5` was a moving tag — the exact failure the chart's `latest` guard exists to prevent. Both
+  mock values files pin `sha256:3f6d29e…`, and the chart supports `image.digest` (validated to start
+  `sha256:`) alongside `image.tag` for our own git-sha-tagged images.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

@@ -1,8 +1,9 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1 (#31) and 2.1b (#59) merged · 2.2 (#32) in PR #74, green, awaiting review · next up 2.4a (#34, caching) then 2.3 (#33)
+Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
+Status: 2.1 (#31), 2.1b (#59), 2.2 (#32) and 2.4a (#34, first half) merged · 2.3 (#33) in PR #95, review fixes pushed
+· next up 2.4b, then 2.5 (#35) and 2.6 (#36)
 
 ## Identity (does not change)
 
@@ -197,6 +198,18 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **The Prism specs come from a ConfigMap built out of `packages/contracts/openapi`, not copied into the
   chart.** Helm cannot read files outside a chart directory, and copying frozen contracts would give them a
   second home that silently rots.
+
+- **A probe that answers 401 is a failing probe.** Kubernetes counts only 200-399 as success, so an httpGet
+  probe against a Prism mock holds readiness red and lets liveness restart a healthy pod — CrashLoopBackOff
+  from a container that was fine. The mocks use `tcpSocket` (listening IS the health of a static mock) and the
+  ALB gets `success-codes: '200-399,401,404'`, because an ALB target group has no TCP health check.
+- **Third-party images are pinned by digest, ours by git sha.** `stoplight/prism:5` is a moving tag: the same
+  tag can be republished over a different manifest, so two syncs of one commit can run different code — the
+  `latest` failure, just slower. CI knows the git sha before it knows the digest, which is why our own images
+  cannot use the same rule.
+- **A values file with no `env:` is not "no configuration", it is localhost.** Every app falls back to its
+  local defaults, which inside a pod means itself. The non-secret half of `.env.example` has to be filled in
+  per app per environment; only the secret half comes from the ExternalSecret.
 
 ## Blocked / waiting
 

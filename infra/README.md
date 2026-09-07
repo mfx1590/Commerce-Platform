@@ -124,6 +124,20 @@ otherwise, so a laptop with neither helm nor kubeconform installed can still run
 while saying nothing about the two object types most likely to be wrong. `-strict` also rejects unknown fields,
 which is what catches a typo'd key.
 
+**Probes tell you the process is serving, not that it is happy.** Kubernetes counts only 200-399 as a passing
+probe, so the Prism mocks — every path of which answers 401 without credentials — use `service.probe:
+tcpSocket`. An httpGet probe there would hold readiness red and let liveness restart a healthy pod. The ALB has
+no TCP health check for an HTTP target group, so the mock ingresses carry
+`alb.ingress.kubernetes.io/success-codes` instead.
+
+**Our images are pinned by git sha, third-party images by digest.** `image.tag` for the former (CI knows the
+sha before it knows the digest), `image.digest` for the latter. A floating tag like `stoplight/prism:5` can be
+republished over a different manifest, so two syncs of the same commit could run different code — the same
+failure the `latest` guard prevents, arriving more slowly.
+
+**`env:` is where the non-secret half of `.env.example` lives**, per app per environment. It is not optional:
+an app given no configuration falls back to its localhost defaults, which inside a pod means itself.
+
 **The chart refuses to render** without an image repository, an image tag, or an ingress host, and refuses the
 tag `latest` outright: ArgoCD syncs a tag, so a moving tag means the cluster and the repository disagree about
 what is running. Tags are git shas, set by the deploy workflow (task 2.4b).

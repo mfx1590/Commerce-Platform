@@ -22,7 +22,7 @@ spec:
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: app
-          image: "{{ .Values.image.repository }}:{{ toString .Values.image.tag }}"
+          image: {{ include "platform-app.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.args }}
           args: {{- toYaml . | nindent 12 }}
@@ -49,15 +49,15 @@ spec:
           # forever; readiness takes a pod out of the Service while it is busy; liveness restarts it
           # only when it is genuinely wedged.
           startupProbe:
-            httpGet: { path: {{ .Values.service.healthPath }}, port: http }
+            {{- include "platform-app.probeAction" . | nindent 12 }}
             periodSeconds: 5
             failureThreshold: 30
           readinessProbe:
-            httpGet: { path: {{ .Values.service.healthPath }}, port: http }
+            {{- include "platform-app.probeAction" . | nindent 12 }}
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
-            httpGet: { path: {{ .Values.service.healthPath }}, port: http }
+            {{- include "platform-app.probeAction" . | nindent 12 }}
             periodSeconds: 20
             timeoutSeconds: 3
             failureThreshold: 3

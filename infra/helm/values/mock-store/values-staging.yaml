@@ -1,15 +1,20 @@
 # mock-store in staging. See infra/README.md "Helm" for how these files are used.
 #
 # Nothing secret belongs here: credentials reach the pod through the ExternalSecret below,
-# which names a key in AWS Secrets Manager and never carries a value.
+# which names a key in AWS Secrets Manager and never carries a value. Hostnames use the same
+# <sub>.<env>.example.com placeholder as ingress.host and are substituted by the deploy.
 
 # Prism serving the frozen OpenAPI document. Same container in both environments and no
 # state, so one replica everywhere. The document comes from the `contracts-openapi`
 # ConfigMap, which the deploy creates from packages/contracts/openapi — copying those
 # files into this chart would give the frozen contracts a second home.
+#
+# Pinned by digest. `stoplight/prism:5` is a moving tag: the same tag can be republished
+# over a different manifest, so two syncs of one commit could run different code. That is
+# the failure the chart's `latest` guard exists to prevent, just slower.
 image:
   repository: stoplight/prism
-  tag: '5'
+  digest: sha256:3f6d29e31bfe0b99587f0f6f79c423858dd6a2ea7e1e4658273ed930a78a9acf
 
 replicaCount: 1
 
@@ -36,20 +41,22 @@ extraVolumeMounts:
 service:
   port: 80
   targetPort: 4010
-  # Prism serves the paths in the document and nothing else, so there is no /health.
-  # `/store` without a publishable key answers 401 — still proof the process is serving the
-  # contract, which is all a probe has to establish.
-  healthPath: /store
+  # Every path Prism serves answers 401 without credentials, and Kubernetes counts only
+  # 200-399 as a passing probe — an httpGet probe here would hold readiness red and let
+  # liveness restart a healthy pod. Listening IS the health of a static mock.
+  probe: tcpSocket
 
 ingress:
   enabled: true
   className: alb
-  # example.com is a placeholder; the deploy substitutes the environment's base_domain.
   host: mock-store.staging.example.com
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/healthcheck-path: /store
+    # The ALB has no TCP health check for an HTTP target group, so it gets the 401 it
+    # will actually receive as a success code. Same reasoning as the tcpSocket probe.
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/success-codes: '200-399,401,404'
 
 # No credentials to project: Prism serves a static document.
 externalSecrets:

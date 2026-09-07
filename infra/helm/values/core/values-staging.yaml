@@ -1,7 +1,8 @@
 # core in staging. See infra/README.md "Helm" for how these files are used.
 #
 # Nothing secret belongs here: credentials reach the pod through the ExternalSecret below,
-# which names a key in AWS Secrets Manager and never carries a value.
+# which names a key in AWS Secrets Manager and never carries a value. Hostnames use the same
+# <sub>.<env>.example.com placeholder as ingress.host and are substituted by the deploy.
 
 image:
   # From the terraform output `ecr_repository_urls`. The account id differs per
@@ -22,7 +23,6 @@ service:
 ingress:
   enabled: true
   className: alb
-  # example.com is a placeholder; the deploy substitutes the environment's base_domain.
   host: api.staging.example.com
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -34,6 +34,21 @@ autoscaling:
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
+
+# Non-secret configuration, names exactly as in .env.example. Without this an app falls
+# back to its localhost defaults, which inside a pod means itself.
+env:
+  KEYCLOAK_URL: 'https://auth.staging.example.com'
+  KEYCLOAK_REALM_STAFF: 'staff'
+  KEYCLOAK_REALM_CUSTOMERS: 'customers'
+  OPENFGA_API_URL: 'https://openfga.staging.example.com'
+  OPENFGA_STORE_ID: ''
+  MEDUSA_DB_SCHEMA: 'medusa'
+  CORE_ORGANIZATION_ID: '00000000-0000-4000-8000-000000000001'
+  STORE_CORS: 'https://shop.staging.example.com'
+  ADMIN_CORS: 'https://admin.staging.example.com'
+  AUTH_CORS: 'https://shop.staging.example.com,https://admin.staging.example.com'
+  S3_MEDIA_BUCKET: 'REPLACED_BY_DEPLOY-staging-media'
 
 externalSecrets:
   enabled: true

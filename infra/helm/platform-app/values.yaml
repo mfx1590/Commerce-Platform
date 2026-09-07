@@ -5,7 +5,12 @@
 # cluster and the repository disagree about what is running. CI sets it (task 2.4b).
 image:
   repository: '' # required, e.g. 123456789012.dkr.ecr.eu-central-1.amazonaws.com/dev/commerce-platform/core
-  tag: '' # required, a git sha
+  tag: '' # required for our own images: a git sha
+  # Third-party images are pinned by digest instead. A tag — even a major like `5` — is a moving
+  # target: the same manifest can be republished under it, so two syncs of the same commit can run
+  # different code. That is the failure the `latest` guard exists to prevent, and a floating major
+  # is the same failure more slowly. Set `digest` and `tag` is ignored.
+  digest: ''
   pullPolicy: IfNotPresent
 
 replicaCount: 2
@@ -15,6 +20,11 @@ service:
   port: 80
   targetPort: 9000
   healthPath: /health
+  # `httpGet` or `tcpSocket`. Kubernetes counts only 200-399 as a passing probe, so an endpoint that
+  # answers 401 without credentials — every path the Prism mocks serve — leaves readiness red and
+  # gets the pod killed by liveness. Those use tcpSocket: the question a probe has to answer is
+  # "is this process serving", and for a static mock, listening is that answer.
+  probe: httpGet
 
 ingress:
   enabled: true
@@ -36,7 +46,11 @@ autoscaling:
   targetCPUUtilizationPercentage: 70
 
 # Plain configuration, rendered into the Deployment as env vars. Names match .env.example, so the
-# same variable means the same thing locally, in an image and in the cluster.
+# same variable means the same thing locally, in an image and in the cluster. Anything secret belongs
+# in externalSecrets below instead — this map ends up in the rendered manifest and in git.
+#
+# The per-app values files fill this in. An app that gets none of it falls back to whatever its code
+# defaults to, which is localhost, which in a pod means itself.
 env: {}
 
 # Only the Prism mocks need these: their image takes the document to serve as an argument and mounts
