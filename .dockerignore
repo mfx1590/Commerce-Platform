@@ -1,0 +1,31 @@
+# Docker build context rules for every image built from the repo root
+# (infra/docker/docker-compose.build.yml, apps/<app>/Dockerfile). Owned by window 5 per
+# docs/ownership.md; granted by REQUEST #70.
+#
+# The first rule is the one that matters. The Dockerfiles do `COPY apps ./apps`, so without it an
+# apps/<app>/.env would be baked into an image layer, where it survives every later `RUN rm` and
+# ships to the registry. There is no such file today; the point is that there never can be.
+
+**/.env
+**/.env.*
+!**/.env.example
+
+# Installed inside the image from the lockfile — this is why the Dockerfiles no longer need
+# `RUN find apps packages -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} +`.
+**/node_modules
+
+# Build outputs belong to the build stage. Copying a developer's stale one into the context is waste,
+# and would be actively misleading if a build step were ever skipped.
+**/dist
+**/.next
+**/.medusa
+**/.turbo
+
+# Terraform provider binaries: ~710 MB per environment (see REQUEST #55).
+**/.terraform
+
+# Nothing in the image needs history, logs or coverage.
+.git
+.gitattributes
+**/*.log
+**/coverage

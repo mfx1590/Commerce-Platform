@@ -16,15 +16,17 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ../../apps/core/src/modules/hq-rbac/tsconfig.json",
     "test": "vitest run",
     "fga:seed": "tsx scripts/fga-seed.ts",
+    "roles": "tsx scripts/roles.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
     "@openfga/sdk": "0.9.7",
     "@platform/contracts": "workspace:*",
-    "@platform/db": "workspace:*"
+    "@platform/db": "workspace:*",
+    "jose": "^6.2.11"
   },
   "devDependencies": {
     "@openfga/syntax-transformer": "0.2.2",
