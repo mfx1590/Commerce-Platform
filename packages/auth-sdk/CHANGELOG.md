@@ -51,3 +51,12 @@
 - REQUEST #82 (manager decision, shipped with task 1.5): `admin-app` registers a second local redirect URI and
   web origin, `http://localhost:3200/*` — window 4's Playwright journey can run with `PORT=3200` when 3000 is
   taken. Dev realm only; production keeps exactly one redirect URI (README dev-only table).
+- Task 1.6 (#15): the headline guard API. `can(subject, relation, object)` (with `store:*` = any visible
+  store via ListObjects), `allowedStores(subject)`, `resolveScope(subject)`, `requirePermission(relation,
+objectFactory)` (string template or function; throws the contract's exact `403 { code: forbidden,
+details: { relation, object } }`, 503 fail closed), `resolvePermissionObject` for the `x-permission`
+  templates, `verifyStaffToken` / `verifyCustomerToken` conveniences and `createCustomerTokenVerifier`
+  (customers-realm JWKS + `store_code` binding: wrong store → 401 store_mismatch). A test sweeps every
+  `x-permission` in admin-api.yaml and asserts each is resolvable; unit tests run on a mocked OpenFGA
+  client; integration against docker OpenFGA (seeded tuples) and Keycloak. Dev realm: the customers
+  `test-cli` client now stamps `store_code=brand-a` so the binding has a live positive path.

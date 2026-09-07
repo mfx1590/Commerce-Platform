@@ -299,7 +299,7 @@
     {
       "clientId": "test-cli",
       "name": "Test CLI (dev/CI only)",
-      "description": "DEV/CI ONLY. Resource-owner password grant for automated tests. Remove this client from any non-local realm export.",
+      "description": "DEV/CI ONLY. Resource-owner password grant for automated tests; stamps store_code=brand-a so verifyCustomerToken has a positive path. Remove this client from any non-local realm export.",
       "enabled": true,
       "publicClient": true,
       "protocol": "openid-connect",
@@ -311,7 +311,9 @@
       "fullScopeAllowed": true,
       "redirectUris": [],
       "webOrigins": [],
-      "attributes": { "use.refresh.tokens": "true" },
+      "attributes": {
+        "use.refresh.tokens": "true"
+      },
       "defaultClientScopes": ["openid", "profile", "email", "roles", "web-origins", "basic"],
       "optionalClientScopes": [],
       "protocolMappers": [
@@ -341,6 +343,21 @@
             "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "name": "store code",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "store_code",
+            "claim.value": "brand-a",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     }
@@ -355,7 +372,13 @@
       "firstName": "Jane",
       "lastName": "Doe",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "jane", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "jane",
+          "temporary": false
+        }
+      ]
     }
   ],
   "attributes": {
