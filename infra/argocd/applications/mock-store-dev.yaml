@@ -1,0 +1,36 @@
+# mock-store-dev. Generated shape, reviewed content — infra/README.md "Helm" explains the layout.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mock-store-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: commerce-platform
+    platform/environment: dev
+spec:
+  project: commerce-platform
+  source:
+    repoURL: https://github.com/mfx1590/Commerce-Platform.git
+    targetRevision: main
+    path: infra/helm/platform-app
+    helm:
+      releaseName: mock-store
+      valueFiles:
+        # Paths are relative to `path` above.
+        - ../values/mock-store/values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: commerce-dev
+  syncPolicy:
+    # dev syncs itself: it is meant to be disposable, and a drifting dev cluster teaches
+    # nobody anything.
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The namespace and the ClusterSecretStore come from Terraform and the bootstrap; a sync
+      # should never be the thing that invents them.
+      - ServerSideApply=true

@@ -46,6 +46,7 @@ jobs:
       images: ${{ steps.filter.outputs.images }}
       terraform: ${{ steps.filter.outputs.terraform }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      helm: ${{ steps.filter.outputs.helm }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -289,6 +290,29 @@ jobs:
       - name: stop the stack
         if: always() && needs.changes.outputs.e2e == 'true'
         run: docker compose -f infra/docker/docker-compose.yml down -v
+
+  helm:
+    name: helm lint + template + kubeconform
+    runs-on: ubuntu-latest
+    needs: [changes]
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.helm == 'true'
+      - uses: azure/setup-helm@v4
+        if: needs.changes.outputs.helm == 'true'
+        with:
+          version: v3.16.3
+      - name: kubeconform
+        if: needs.changes.outputs.helm == 'true'
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz |
+            sudo tar -xz -C /usr/local/bin kubeconform
+      # helm lint, then `helm template` for all ten app/environment combinations, then kubeconform
+      # -strict over everything rendered plus infra/argocd. No cluster and no credentials: this
+      # answers "would Kubernetes accept these objects", not "did the deploy work".
+      - name: render and validate every chart and environment
+        if: needs.changes.outputs.helm == 'true'
+        run: bash infra/helm/check.sh
 
   preview:
     name: preview deploy (placeholder)

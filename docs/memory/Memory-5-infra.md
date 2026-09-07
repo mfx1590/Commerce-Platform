@@ -1,8 +1,9 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1 (#31) and 2.1b (#59) merged · 2.2 (#32) in PR #74, green, awaiting review · next up 2.4a (#34, caching) then 2.3 (#33)
+Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
+Status: 2.1 (#31), 2.1b (#59), 2.2 (#32) and 2.4a (#34, first half) merged · 2.3 (#33) in PR #95, review fixes pushed
+· next up 2.4b, then 2.5 (#35) and 2.6 (#36)
 
 ## Identity (does not change)
 
@@ -79,10 +80,15 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified locally: 51/51 live auth tests against a freshly imported realm, and the storefront journey
   6/6 through `infra/ci/run-e2e.sh`.
 
+- **2.3 — Helm charts + ArgoCD (issue #33)** — this PR. One `platform-app` chart + 10 values files + 10 ArgoCD
+  Applications + `infra/helm/check.sh` + CI job `helm` + the bootstrap runbook.
+  Verified locally: `helm lint`, `helm template` for all ten app/environment combinations, `kubeconform -strict`
+  with the CRD catalogue over everything rendered and over `infra/argocd`.
+
 ## In progress
 
-- Nothing being written. #80 is in its PR. Then 2.3 (#33, Helm + ArgoCD — go-ahead given, one PR),
-  then 2.4b, 2.5, 2.6.
+- Nothing being written. 2.3 is in its PR, blocked on REQUEST #92 (`.prettierignore` must skip
+  `infra/helm/*/templates/`, or `pnpm format:check` fails on Go templating). Then 2.4b, 2.5, 2.6.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
@@ -181,8 +187,36 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   GitHub Actions budget on 2026-09-07. A push to main still builds everything, so the coverage moves from
   "every PR" to "at merge" rather than disappearing. Cost is a real constraint here, not an afterthought.
 
+- **One chart for five apps, not five charts.** They are the same shape — a stateless container serving
+  `$PORT` with a health path — and five charts that start identical drift. What genuinely differs (the mocks
+  take their document as an argument and mount it from a ConfigMap) is values, not a forked chart.
+- **The AppProject lists permitted kinds explicitly and allows no cluster-scoped ones.** An app-of-apps means
+  a commit can create Applications; without a project boundary that is unrestricted cluster access one merge
+  away. Cluster-scoped objects (the `ClusterSecretStore`, CRDs) are bootstrap, not sync.
+- **dev self-syncs, staging does not.** A release should be an action someone took and can point at, not a
+  side effect of a merge landing while nobody was looking.
+- **The Prism specs come from a ConfigMap built out of `packages/contracts/openapi`, not copied into the
+  chart.** Helm cannot read files outside a chart directory, and copying frozen contracts would give them a
+  second home that silently rots.
+
+- **A probe that answers 401 is a failing probe.** Kubernetes counts only 200-399 as success, so an httpGet
+  probe against a Prism mock holds readiness red and lets liveness restart a healthy pod — CrashLoopBackOff
+  from a container that was fine. The mocks use `tcpSocket` (listening IS the health of a static mock) and the
+  ALB gets `success-codes: '200-399,401,404'`, because an ALB target group has no TCP health check.
+- **Third-party images are pinned by digest, ours by git sha.** `stoplight/prism:5` is a moving tag: the same
+  tag can be republished over a different manifest, so two syncs of one commit can run different code — the
+  `latest` failure, just slower. CI knows the git sha before it knows the digest, which is why our own images
+  cannot use the same rule.
+- **A values file with no `env:` is not "no configuration", it is localhost.** Every app falls back to its
+  local defaults, which inside a pod means itself. The non-secret half of `.env.example` has to be filled in
+  per app per environment; only the secret half comes from the ExternalSecret.
+
 ## Blocked / waiting
 
+- **REQUEST #92** (main) — `.prettierignore` must skip `infra/helm/*/templates/`. **Blocking 2.3**: Helm
+  templates are Go templates, not YAML, and `prettier --check .` fails to parse them, so `format:check` and
+  the whole `lint + typecheck` job go red. No in-chart workaround exists (prettier reads only the root
+  ignore file); the alternative is renaming templates to `.yaml.tpl`, which breaks Helm convention.
 - **REQUEST #60** (window 1) — `apps/core` must declare `ts-node`; until then the core image installs it in the
   build stage. Not blocking.
 - **REQUEST #68** (windows 3 and 4) — Next.js `start` scripts should honour `$PORT`, and
@@ -249,6 +283,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **`pnpm install --frozen-lockfile` after every `git pull`.** Three separate red herrings this phase
   (`ajv`/`yaml`, `@playwright/test`, `jose`) were all a stale local store while other windows added
   dependencies.
+- **A git sha can be all digits, and YAML reads that as a number.** `eq .Values.image.tag "latest"` then dies
+  with "incompatible types for comparison". Quote tags in values files AND `toString` them in the template —
+  `helm lint` found this on a placeholder of forty zeroes.
+- **kubeconform skips CRDs silently unless given a schema location.** `ExternalSecret` and ArgoCD
+  `Application` would report "Skipped" and the check would pass having validated nothing that matters. Pass
+  the datree CRD catalogue as a second `-schema-location`, and use `-strict` so unknown fields fail.
 - **`docker buildx bake` resolves a target's `context` relative to the working directory, not to the file
   that declares it.** `context: ../..` in `infra/docker/docker-compose.build.yml` therefore means the repo root
   only when bake runs from `infra/docker`; from the repo root it looks for `../../apps` and fails with

@@ -1,0 +1,31 @@
+# The single Application an operator creates by hand. Everything else is created by ArgoCD from
+# infra/argocd/applications, so adding an app to an environment is a file in this repository rather
+# than a kubectl command someone has to remember to run.
+#
+#   kubectl apply -n argocd -f infra/argocd/projects/commerce-platform.yaml
+#   kubectl apply -n argocd -f infra/argocd/app-of-apps.yaml
+#
+# See the ArgoCD runbook in infra/README.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: commerce-platform
+  namespace: argocd
+  finalizers:
+    # Deleting this Application should take its children with it, rather than orphan them.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: commerce-platform
+  source:
+    repoURL: https://github.com/mfx1590/Commerce-Platform.git
+    targetRevision: main
+    path: infra/argocd/applications
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
