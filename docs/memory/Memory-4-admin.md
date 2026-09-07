@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.7 — issue #30 Tests per role fixture** · commit `SHA8`
+- **1.7 — issue #30 Tests per role fixture** · commit `e45eb8e`
   - `test/role-access.test.ts`: what each role may *open*, next to `navigation.test.ts`'s what each
     role *sees*. A URL can be typed, so the two only agree if the guards and the navigation come from
     the same rules — and every section is now decided for all seven seeded roles, so adding one
