@@ -2,9 +2,10 @@
 # migrations run. Wired as an ArgoCD PreSync hook in task 2.3, so it runs on every sync and is a
 # no-op when the role already has the right password.
 #
-# It reads two Kubernetes secrets that External Secrets Operator projects from AWS Secrets Manager
-# (task 2.6) — `platform-database-owner` and `platform-database-app`. No credential is ever inlined
-# here, and the Job never logs one: psql gets the password through PGPASSWORD and a psql variable.
+# It reads the Kubernetes secrets that External Secrets Operator projects from AWS Secrets Manager
+# (task 2.6): `platform-database-owner`, `platform-database-app` and `platform-database-medusa-owner`.
+# No credential is inlined here, none is passed as a command-line argument (argv is readable with
+# `ps` inside the pod), and the Job never logs one — everything travels through the environment.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -39,11 +40,9 @@ spec:
             - psql
             - --no-psqlrc
             - --set=ON_ERROR_STOP=1
-            - --set=app_username=$(APP_USERNAME)
-            - --set=app_password=$(APP_PASSWORD)
-            - --set=medusa_username=$(MEDUSA_USERNAME)
-            - --set=medusa_password=$(MEDUSA_PASSWORD)
             - --file=/sql/bootstrap.sql
+          # No credential is passed as an argument. bootstrap.sql reads them from the environment
+          # with \getenv, because container argv is readable with `ps` from inside the pod.
           env:
             # Owner/master connection — the only role allowed to create other roles.
             - name: PGHOST

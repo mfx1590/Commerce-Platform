@@ -21,22 +21,41 @@
 ARG NODE_VERSION=20.19-alpine
 ARG PNPM_VERSION=10.34.5
 
-# ---------- build: install the workspace, build the app, prune to a deployable package ----------
+# ---------- manifests: every package.json, and nothing else ----------
+# The install layer must not depend on source files. Extracting the manifests in their own stage
+# means BuildKit checksums only what `COPY --from` actually copies, so `pnpm install` is re-run when
+# a dependency changes and cached when a source file changes. Doing it with `find` rather than one
+# `COPY apps/<name>/package.json` line per package means a new workspace package needs no Dockerfile
+# edit — the thing a hand-maintained list always gets wrong eventually.
+FROM node:${NODE_VERSION} AS manifests
+WORKDIR /src
+COPY . .
+RUN set -eu; mkdir -p /manifests; \
+    find . -name package.json -not -path '*/node_modules/*' | while read -r f; do \
+      mkdir -p "/manifests/$(dirname "$f")"; cp "$f" "/manifests/$f"; \
+    done; \
+    cp pnpm-lock.yaml pnpm-workspace.yaml /manifests/
+
+# ---------- deps: the workspace install, cached on the manifests alone ----------
 # corepack is safe here: /repo/package.json pins `packageManager` and the build runs as root.
-FROM node:${NODE_VERSION} AS build
+FROM node:${NODE_VERSION} AS deps
 ARG PNPM_VERSION
-ARG APP=@platform/core
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     CI=true \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /repo
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
-COPY packages ./packages
-COPY apps ./apps
+COPY --from=manifests /manifests/ ./
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
 
+# ---------- build: add the sources and build the app ----------
+FROM deps AS build
+ARG APP=@platform/core
+
+# Everything that does not depend on the sources goes above `COPY . .`, so a source-only change
+# reuses these layers instead of re-downloading a 24 MB package on every push.
+#
 # WORKAROUND, remove when REQUEST #60 lands. `medusa build` loads medusa-config.ts, and the Medusa
 # CLI does a bare `require('ts-node')` to do it. apps/core does not declare ts-node (it uses tsx), so
 # `pnpm --filter @platform/core build` fails identically on a laptop, in CI and here — this is not a
@@ -54,6 +73,8 @@ ENV DATABASE_URL_APP=postgres://build:build@127.0.0.1:5432/build \
     REDIS_URL=redis://127.0.0.1:6379 \
     JWT_SECRET=build-time-placeholder \
     COOKIE_SECRET=build-time-placeholder
+
+COPY . .
 
 # The "..." suffix builds the app AND its workspace dependencies (@platform/db, @platform/events,
 # @platform/contracts) in topological order. Without it the app compiles against packages that have

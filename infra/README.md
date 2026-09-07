@@ -81,8 +81,8 @@
   and `.next` never reached the deployed package and two images shipped no application at all while still
   building green.
 
-  CI job `images` in `.github/workflows/ci.yml` builds all six on PRs that touch `apps/**`, `packages/**`,
-  `infra/docker/**` or the workspace root files, runs the smoke test, and never pushes.
+  The `images` CI job builds all six and runs the smoke test; see the CI pipeline section below for when it
+  runs and how it is cached. It never pushes.
 
 - `keycloak/` — realm exports. Phase 0 ships local-dev stubs (7 staff users, one customer); window 2 replaces them (MFA, SSO, mappers).
 - `openfga/` — authorization model (`model.fga`) and seed tuples. Window 2 (the frozen relation names are in docs/adr/0002-auth-model.md).
@@ -90,6 +90,52 @@
 - `kubernetes/` — raw manifests that are not part of a chart. Today: `bootstrap-db/`, the Job that creates the
   `platform_app` database role. See `kubernetes/README.md`.
 - `terraform/` — AWS `dev` and `staging`. Window 5.
+- `ci/` — the pieces of `.github/workflows/ci.yml` that are worth testing on their own.
+  `changes.sh` decides which job groups a change needs (`code`, `images`, `terraform`) and
+  `changes.test.sh` is its self-test, which the `changes` job runs before trusting it — the same
+  arrangement `scripts/check-ownership.sh` and its `.test.sh` use. Keeping the rules in a script
+  rather than inline YAML is what makes them testable:
+
+  ```bash
+  bash infra/ci/changes.test.sh                                  # 18 cases
+  CHANGED_FILES='apps/core/src/x.ts' bash infra/ci/changes.sh    # try one by hand
+  ```
+
+## CI pipeline
+
+`.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
+belongs to the main window.
+
+| job              | runs when   | what it does                                                             |
+| ---------------- | ----------- | ------------------------------------------------------------------------ |
+| `ownership`      | always      | `check-ownership.sh` + its self-test                                     |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform`                 |
+| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                            |
+| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                           |
+| `contract`       | `code`      | `pnpm test:contract` against Prism                                       |
+| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes |
+| `terraform`      | `terraform` | `infra/terraform/check.sh`                                               |
+| `preview`        | PRs         | placeholder until 2.4b                                                   |
+
+**Every job always runs; only its expensive steps are skipped.** A job skipped by a job-level `if`
+reports a different conclusion to branch protection than a successful one, and required checks are
+much easier to reason about when every job always reports success. The cost is a few seconds of
+runner startup; the saving is the install, the test run and the image build.
+
+**Caching.**
+
+- Images: `infra/docker/docker-bake.hcl` adds a GitHub Actions build cache (`type=gha`, one scope
+  per image, `mode=max`) on top of `docker-compose.build.yml`. CI drives it with
+  `docker/bake-action` rather than `docker compose build`, because the cache backend needs
+  `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_CACHE_URL`, which GitHub gives to an action but not to a
+  plain `run:` step. Locally, `docker compose build` is unchanged and needs no flags.
+- The Dockerfiles install dependencies in a `deps` stage that copies **only** the `package.json`
+  files and the lockfile, extracted by a `manifests` stage. Sources arrive afterwards, so a
+  source-only change reuses the install layer instead of redoing `pnpm install`. Using `find` to
+  collect the manifests rather than one `COPY apps/<name>/package.json` line per package means a new
+  workspace package needs no Dockerfile edit.
+- Node jobs: `actions/setup-node` caches the pnpm store, and `actions/cache` keeps turbo's task
+  output so an unchanged package skips its work entirely.
 
 ## Terraform
 

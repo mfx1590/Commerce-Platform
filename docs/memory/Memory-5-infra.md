@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1 (#31) and 2.1b (#59) merged · 2.2 (#32) in PR #74, green, awaiting review · next up 2.3 (#33), then 2.4 (#34) with caching first
+Status: 2.1 (#31) and 2.1b (#59) merged · 2.2 (#32) in PR #74, green, awaiting review · next up 2.4a (#34, caching) then 2.3 (#33)
 
 ## Identity (does not change)
 
@@ -52,24 +52,28 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified: `bash infra/terraform/check.sh` green (`fmt -check`, `init -backend=false`, `validate`, both envs).
   Nothing applied to a real AWS account — no credentials exist yet.
 
+- **2.4a — CI caching, path filters, and two review fold-ins (issue #34, first half)** — this PR.
+  `infra/ci/changes.sh` + self-test replacing the two inline `git diff` filters; `infra/docker/docker-bake.hcl`
+  (GHA build cache, one scope per image) driven by `docker/bake-action`; turbo task cache in the three node
+  jobs; every Dockerfile split into `manifests` → `deps` → `build` so `pnpm install` no longer depends on
+  source files. Plus `backend.hcl` ignored by name, and the bootstrap Job's credentials moved out of argv into
+  the environment (`\getenv`).
+  Verified locally: touching an app source file leaves `pnpm install --frozen-lockfile` `CACHED`; all six
+  images rebuild and the smoke test passes; `changes.test.sh` 18/18; the bootstrap SQL was run twice against a
+  real Postgres (create, then rotate) with a password containing a quote, and the test roles dropped after.
+
 ## In progress
 
-- Nothing being written. 2.2 is in its PR; 2.3 (#33, Helm charts + ArgoCD) starts once it merges.
+- Nothing being written. 2.4a is in its PR; 2.3 (#33, Helm charts + ArgoCD) is next, then 2.4b.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
-- [ ] **#32 · 2.2** Terraform AWS dev + staging: VPC, EKS, RDS Postgres 16 (+ `platform_app` bootstrap job),
-      ElastiCache Redis, Redpanda Cloud connection vars, S3, CI OIDC role. `fmt -check` + `validate` in CI,
-      `plan` runbook only until credentials exist. Outputs must match `.env.example` names.
 - [ ] **#33 · 2.3** Helm charts (core, admin, storefront, Prism mocks) + ArgoCD app-of-apps; `helm lint`,
       `helm template`, `kubeconform` in CI; `values-dev.yaml` / `values-staging.yaml`; image tag = git sha.
-- [ ] **#34 · 2.4** CI, in this order (manager 2026-09-06: caching first): (a) BuildKit `type=gha` cache in
-      `docker-compose.build.yml`; (b) split the install layer — copy every `package.json` + lockfile, install,
-      then copy sources, otherwise the cache misses on every source change; (c) `actions/cache` for the pnpm
-      store and turbo in the non-image jobs; (d) one `changes` job replacing the two inline `git diff` filters
-      that 2.1 and 2.2 added; (e) Playwright hooks gated on `apps/*/playwright.config.*`, `deploy-staging.yml`
-      (no-op with a clear log line until the ArgoCD secret exists), branch-protection docs.
-      Targets: `images` under ~4 min warm, docs-only PR under 2 min. Plan posted as a comment on #34.
+- [ ] **#34 · 2.4b** (after 2.3) Playwright job hooks — `apps/storefront-starter` already has
+      `playwright.config.ts` and `e2e/checkout.spec.ts` and nothing runs them; `deploy-staging.yml` on main
+      (no-op with a clear log line until the ArgoCD secret exists); required-status-check documentation for
+      branch protection. Depends on 2.3 for the charts and the ArgoCD app names.
 - [ ] **#35 · 2.5** Observability: OTel collector + Grafana/Prometheus/Loki/Tempo as a
       `docker compose --profile observability` overlay, provisioned dashboards (per-store request rate, error
       rate, p95, outbox lag), Sentry DSN via env. Needs a `CONTRACT CHANGE:` issue for the read-only Postgres
@@ -136,6 +140,22 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **EKS/RDS/ElastiCache over the managed-first alternatives** (Neon, Upstash): issue #32's acceptance criteria
   are authoritative and name them explicitly. The managed alternatives stay reachable as a values change
   because every consumer reads a `DATABASE_URL`/`REDIS_URL`, never a provider-specific resource.
+
+- **The install layer is split with a `manifests` stage, not a hand-written list of `COPY` lines.** One
+  `COPY apps/<name>/package.json` per package is the usual recipe and it rots the first time someone adds a
+  workspace package without touching six Dockerfiles. `find` + `COPY --from` is content-checksummed by
+  BuildKit, so it caches exactly as well and cannot go stale.
+- **CI uses `docker/bake-action`, not `docker compose build`.** Not a preference: `type=gha` needs
+  `ACTIONS_RUNTIME_TOKEN`/`ACTIONS_CACHE_URL`, which are available to an action but not to a `run:` step.
+  The alternative was a third-party action exporting them into the environment of a required check.
+- **One GHA cache scope per image, accepting duplicated `deps` layers.** A shared scope would store the
+  identical `manifests`/`deps` stages once, but six concurrent builds writing one last-write-wins scope
+  would clobber each other exactly when it matters. Duplicated storage is the cheaper failure.
+- **Jobs always run and skip their steps; no job-level `if`.** A skipped job reports a different conclusion
+  to branch protection than a successful one, and 2.4b has to document required checks.
+- **The `changes` classifier is a script with a self-test, not inline YAML.** Mirrors
+  `scripts/check-ownership.sh` + `.test.sh`. A wrong answer is expensive both ways: a false negative skips
+  the tests that would have caught a bug, a false positive gives back the 13-minute image build.
 
 ## Blocked / waiting
 
