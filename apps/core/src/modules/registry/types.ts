@@ -46,6 +46,15 @@ export interface PageQuery {
   limit?: number;
 }
 
+/** Admin API 0.2.0 `sort` for `listStores`; `order` is ignored unless `sort` is present. */
+export const STORE_SORT_FIELDS = ['code', 'name', 'status', 'created_at'] as const;
+export type StoreSortField = (typeof STORE_SORT_FIELDS)[number];
+export type SortOrder = 'asc' | 'desc';
+export interface StoreListQuery extends PageQuery {
+  sort?: StoreSortField | undefined;
+  order?: SortOrder | undefined;
+}
+
 export interface Page<T> {
   page: number;
   limit: number;

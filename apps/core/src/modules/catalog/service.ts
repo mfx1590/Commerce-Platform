@@ -22,6 +22,8 @@ import type {
   PriceRow,
   ProductInput,
   ProductRow,
+  ProductSortField,
+  SortOrder,
   VariantInput,
   VariantRow,
 } from './types';
@@ -320,6 +322,15 @@ async function emitProductUpdated(
 
 // -------------------------------------------------------------------------------------------------- products
 
+/** Whitelisted ORDER BY per contract `sort` value (never interpolate user input into SQL). */
+const PRODUCT_ORDER_BY: Record<ProductSortField, string> = {
+  title: 'title',
+  handle: 'handle',
+  status: 'status',
+  created_at: 'created_at',
+  updated_at: 'updated_at',
+};
+
 export async function listProducts(
   client: ScopedClient,
   storeId: string,
@@ -342,13 +353,17 @@ export async function listProducts(
     where.push(`(title ILIKE $${params.length} OR handle ILIKE $${params.length})`);
   }
   const clause = where.join(' AND ');
+  // Contract defaults: sort updated_at, order desc; `order` only applies together with `sort`.
+  const sort: ProductSortField = q.sort ?? 'updated_at';
+  const order: SortOrder = q.sort ? (q.order ?? 'desc') : 'desc';
+  const orderBy = `${PRODUCT_ORDER_BY[sort]} ${order === 'asc' ? 'ASC' : 'DESC'}, handle`;
   return client.transaction(async (tx) => {
     const total = await tx.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM product WHERE ${clause}`,
       params,
     );
     const rows = await tx.query<ProductRow>(
-      `SELECT ${PRODUCT_COLS} FROM product WHERE ${clause} ORDER BY created_at DESC, handle LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `SELECT ${PRODUCT_COLS} FROM product WHERE ${clause} ORDER BY ${orderBy} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, limit, (page - 1) * limit],
     );
     const aggregates = await loadAggregates(tx, rows.rows);

@@ -43,6 +43,35 @@ export function uuidParam(params: Request['params'], name: string): string {
   return v;
 }
 
+/** A query parameter restricted to `values` (400 detail `one of …` otherwise). */
+export function enumParam<T extends string>(
+  query: Request['query'],
+  name: string,
+  values: readonly T[],
+  problems: Record<string, string>,
+): T | undefined {
+  const raw = one(query[name]);
+  if (raw === undefined || raw === '') return undefined;
+  if (!(values as readonly string[]).includes(raw)) {
+    problems[name] = `one of ${values.join(', ')}`;
+    return undefined;
+  }
+  return raw as T;
+}
+
+const ORDERS = ['asc', 'desc'] as const;
+
+/** Contract `sort` (per-operation enum) + `order` (asc|desc, ignored unless `sort` is present). */
+export function sortParams<T extends string>(
+  query: Request['query'],
+  sortValues: readonly T[],
+  problems: Record<string, string>,
+): { sort?: T; order?: 'asc' | 'desc' } {
+  const sort = enumParam(query, 'sort', sortValues, problems);
+  const order = enumParam(query, 'order', ORDERS, problems);
+  return { ...(sort ? { sort } : {}), ...(sort && order ? { order } : {}) };
+}
+
 export function throwIfProblems(problems: Record<string, string>): void {
   if (Object.keys(problems).length) throw validationError('invalid query', problems);
 }

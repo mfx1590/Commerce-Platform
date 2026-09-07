@@ -19,7 +19,7 @@ the `audit_log` row and the outbox rows commit or roll back together.
 
 | Function                                                                               | Scope        | Audit action                                          | Event                                                                     |
 | -------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| `listStores(client, { page, limit })` → `Page<Store>`                                  | any          | —                                                     | —                                                                         |
+| `listStores(client, { page, limit, sort, order })` → `Page<Store>` (sort `code         | name         | status                                                | created_at`, default `created_at desc`; `order`only with`sort`)           | any | —   | —   |
 | `getStore(client, id)` → `Store`                                                       | any          | —                                                     | —                                                                         |
 | `createStore(client, StoreInput, actor)` → `Store`                                     | organization | `store.create`                                        | `store.created`                                                           |
 | `updateStore(client, id, StoreInput, actor)` → `Store`                                 | any visible  | `store.update`                                        | `store.updated` (`changed_fields`, sorted; no event when nothing changed) |

@@ -29,10 +29,23 @@ export interface Page<T> {
   items: T[];
 }
 
+/** Admin API 0.2.0 `sort` for `listProducts`; `order` is ignored unless `sort` is present. */
+export const PRODUCT_SORT_FIELDS = [
+  'title',
+  'handle',
+  'status',
+  'created_at',
+  'updated_at',
+] as const;
+export type ProductSortField = (typeof PRODUCT_SORT_FIELDS)[number];
+export type SortOrder = 'asc' | 'desc';
+
 export interface AdminProductQuery extends PageQuery {
   q?: string | undefined;
   status?: ProductStatus | undefined;
   category_id?: string | undefined;
+  sort?: ProductSortField | undefined;
+  order?: SortOrder | undefined;
 }
 
 export type StoreSort = 'relevance' | 'price_asc' | 'price_desc' | 'newest';

@@ -14,6 +14,7 @@ export {
   updateVariant,
 } from './service';
 export { getStoreProduct, listStoreCategories, listStoreProducts } from './read-model';
+export { PRODUCT_SORT_FIELDS } from './types';
 export type {
   AdminCategory,
   AdminProduct,
@@ -24,7 +25,9 @@ export type {
   Page,
   PageQuery,
   ProductInput,
+  ProductSortField,
   ProductStatus,
+  SortOrder,
   StoreCategory,
   StoreProduct,
   StoreProductQuery,
