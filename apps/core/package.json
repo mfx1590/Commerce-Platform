@@ -12,7 +12,8 @@
     "db:medusa:migrate": "tsx scripts/db-medusa-migrate.ts",
     "db:medusa:grants": "tsx scripts/db-medusa-migrate.ts --grants-only",
     "clean": "rm -rf .medusa dist .turbo",
-    "lint": "eslint . --max-warnings 0"
+    "lint": "eslint . --max-warnings 0",
+    "bootstrap": "tsx scripts/bootstrap.ts"
   },
   "dependencies": {
     "@medusajs/cli": "2.20.1",
@@ -34,6 +35,7 @@
     "@types/pg": "^8.23.1",
     "@types/supertest": "^6.0.3",
     "supertest": "^7.2.2",
+    "ts-node": "^10.9.2",
     "tsx": "^4.23.13",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"

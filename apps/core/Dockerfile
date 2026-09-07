@@ -21,24 +21,45 @@
 ARG NODE_VERSION=20.19-alpine
 ARG PNPM_VERSION=10.34.5
 
-# ---------- build: install the workspace, build the app, prune to a deployable package ----------
+# ---------- deps: the workspace install, cached on the manifests alone ----------
 # corepack is safe here: /repo/package.json pins `packageManager` and the build runs as root.
-FROM node:${NODE_VERSION} AS build
+FROM node:${NODE_VERSION} AS deps
 ARG PNPM_VERSION
-ARG APP=@platform/core
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
     CI=true \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /repo
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
-COPY packages ./packages
-COPY apps ./apps
-# A developer's build context carries workspace node_modules symlinks; the image installs its own.
-RUN find apps packages -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} +
+
+# Only the manifests, listed one by one on purpose. Collecting them in a `find` stage reads better
+# and works with a local cache, but a REMOTE cache (type=gha) matches `COPY --from=<stage>` on the
+# producing stage's cache key rather than on the content it produced — and that stage has to copy
+# the whole context to search it, so any change anywhere in the repo invalidated the install layer.
+# Copying from the build context instead makes the cache key the file contents themselves.
+# infra/ci/check-image-manifests.sh fails the build if this list ever goes stale.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/accounting/package.json apps/accounting/
+COPY apps/admin/package.json apps/admin/
+COPY apps/analytics-ingest/package.json apps/analytics-ingest/
+COPY apps/core/package.json apps/core/
+COPY apps/notifications/package.json apps/notifications/
+COPY apps/storefront-starter/package.json apps/storefront-starter/
+COPY packages/auth-sdk/package.json packages/auth-sdk/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/db/package.json packages/db/
+COPY packages/events/package.json packages/events/
+COPY packages/test-utils/package.json packages/test-utils/
+COPY packages/ui/package.json packages/ui/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
 
+# ---------- build: add the sources and build the app ----------
+FROM deps AS build
+ARG APP=@platform/core
+
+# Everything that does not depend on the sources goes above `COPY . .`, so a source-only change
+# reuses these layers instead of re-downloading a 24 MB package on every push.
+#
 # WORKAROUND, remove when REQUEST #60 lands. `medusa build` loads medusa-config.ts, and the Medusa
 # CLI does a bare `require('ts-node')` to do it. apps/core does not declare ts-node (it uses tsx), so
 # `pnpm --filter @platform/core build` fails identically on a laptop, in CI and here — this is not a
@@ -56,6 +77,8 @@ ENV DATABASE_URL_APP=postgres://build:build@127.0.0.1:5432/build \
     REDIS_URL=redis://127.0.0.1:6379 \
     JWT_SECRET=build-time-placeholder \
     COOKIE_SECRET=build-time-placeholder
+
+COPY . .
 
 # The "..." suffix builds the app AND its workspace dependencies (@platform/db, @platform/events,
 # @platform/contracts) in topological order. Without it the app compiles against packages that have

@@ -4,6 +4,8 @@ import root from '../../eslint.config.mjs';
 
 export default [
   ...root,
+  // `medusa build` output (gitignored) must never be linted.
+  { ignores: ['.medusa/**'] },
   {
     files: ['**/*.ts'],
     ignores: ['src/lib/db.ts'],

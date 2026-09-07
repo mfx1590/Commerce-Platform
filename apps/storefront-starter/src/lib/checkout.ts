@@ -86,13 +86,22 @@ function optional(formData: FormData, name: string): string | null {
 /**
  * Validate the address form before it reaches the API. The contract requires an ISO-3166 alpha-2
  * country and a plausible email; catching that here gives a field-level message instead of a 400.
+ *
+ * `requireEmail` is false for the account's address book, where the customer is already identified
+ * and the form has no email field — same validation, one source of truth for the Address shape.
  */
-export function parseAddressForm(formData: FormData): AddressFormResult {
+export function parseAddressForm(
+  formData: FormData,
+  { requireEmail = true }: { requireEmail?: boolean } = {},
+): AddressFormResult {
   const errors: Record<string, string> = {};
 
   const email = value(formData, 'email');
-  if (email === '') errors.email = 'Enter your email address';
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Enter a valid email address';
+  if (requireEmail) {
+    if (email === '') errors.email = 'Enter your email address';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      errors.email = 'Enter a valid email address';
+  }
 
   for (const [field, label] of REQUIRED_ADDRESS_FIELDS) {
     if (value(formData, field) === '') errors[field] = `${label} is required`;
@@ -106,7 +115,7 @@ export function parseAddressForm(formData: FormData): AddressFormResult {
   if (Object.keys(errors).length > 0) return { errors };
 
   return {
-    email,
+    ...(requireEmail ? { email } : {}),
     address: {
       first_name: value(formData, 'first_name'),
       last_name: value(formData, 'last_name'),

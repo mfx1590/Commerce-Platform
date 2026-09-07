@@ -1,7 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-04 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra` · Status: PR #45 (task 2.1) open and green, waiting for the manager to merge; 2.2 planned, not started
+Last updated: 2026-09-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
+Status: 2.1 (#31) and 2.1b (#59) merged · 2.2 (#32) in PR #74, green, awaiting review · next up 2.4a (#34, caching) then 2.3 (#33)
 
 ## Identity (does not change)
 
@@ -43,43 +44,44 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified: all six images build, smoke test green, core and admin both boot inside their containers and fail
   only on missing configuration (a database / `ADMIN_SESSION_SECRET`), which is correct.
 
+- **2.2 — Terraform for dev + staging (issue #32)** — commits `9b96f58` + `fd95530`, PR #74
+  (https://github.com/mfx1590/Commerce-Platform/pull/74), all seven checks green (new `terraform` job 29s,
+  `images` 13m02s). Seven modules + `envs/dev` + `envs/staging` + `infra/kubernetes/bootstrap-db` + CI job
+  `terraform` + the runbook in `infra/README.md`, plus the repo-root `.dockerignore` (REQUEST #70) and the four
+  doc fixes from the #69 review.
+  Verified: `bash infra/terraform/check.sh` green (`fmt -check`, `init -backend=false`, `validate`, both envs).
+  Nothing applied to a real AWS account — no credentials exist yet.
+
+- **2.4a — CI caching, path filters, and two review fold-ins (issue #34, first half)** — commits `e7fe27e`
+  + `3c1e50d`, PR #81 (https://github.com/mfx1590/Commerce-Platform/pull/81), all eight checks green.
+  Measured on the PR — node jobs warm: `lint + typecheck` 1m47s → 49s, `unit` 2m28s → 58s, `contract` 50s → 40s.
+  `images`: 13m02s before → 14m20s (first attempt, cache never hit and export cost more than it saved) →
+  **9m38s** after the remote-cache fix. All three of those are COLD runs. **The ~4 min warm target is not
+  demonstrated yet and cannot be from a PR branch**: pull requests read the cache and only pushes to main write
+  it, so the first warm number appears on the first PR opened after this merges. Check it then; if it is still
+  far off, the next lever is the six identical `pnpm install`s — one shared base image would collapse them, but
+  that needs a registry to push to (ECR exists in 2.2; wiring it is 2.3/2.4b).
+  `infra/ci/changes.sh` + self-test replacing the two inline `git diff` filters; `infra/docker/docker-bake.hcl`
+  (GHA build cache, one scope per image) driven by `docker/bake-action`; turbo task cache in the three node
+  jobs; every Dockerfile split into `manifests` → `deps` → `build` so `pnpm install` no longer depends on
+  source files. Plus `backend.hcl` ignored by name, and the bootstrap Job's credentials moved out of argv into
+  the environment (`\getenv`).
+  Verified locally: touching an app source file leaves `pnpm install --frozen-lockfile` `CACHED`; all six
+  images rebuild and the smoke test passes; `changes.test.sh` 18/18; the bootstrap SQL was run twice against a
+  real Postgres (create, then rotate) with a password containing a quote, and the test roles dropped after.
+
 ## In progress
 
-- **2.2 — Terraform for dev + staging (issue #32) is FINISHED but PARKED.** The work is two commits on the local
-  branch `park/2.2` (tip `d0e7cd4`, built on `69d0480`). It was moved off `infra/phase2` so this #59 fix could go
-  out as its own PR under the one-open-PR rule. Nothing is lost and nothing is pushed.
-
-  To resume after this PR merges:
-
-  ```bash
-  git fetch origin && git checkout infra/phase2 && git reset --hard origin/main
-  git cherry-pick 30eb592 d0e7cd4     # or: git merge park/2.2
-  bash infra/terraform/check.sh       # must stay green
-  ```
-
-  Fold in before opening the 2.2 PR (manager 2026-09-06): the `.dockerignore`, **if REQUEST #70 has granted the
-  path** — every legal location for that file (`/.dockerignore`, `apps/*/Dockerfile.dockerignore`) is outside my
-  owned paths and the ownership check rejects both, so the file and the exact ownership-map line are in #70.
-  If #70 is still open when #69 merges, open the 2.2 PR without it and add it the moment the grant lands.
-
-  Expect one conflict in `.github/workflows/ci.yml`: the parked commit adds a `terraform` job next to `images`,
-  and this PR edits `images`. Keep both jobs. `infra/CHANGELOG.md` and `docs/memory/Memory-5-infra.md` will also
-  conflict — keep both sets of entries. Delete the `park/2.2` branch once the cherry-pick is verified.
+- Nothing being written. 2.4a is in its PR; 2.3 (#33, Helm charts + ArgoCD) is next, then 2.4b.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
-- [ ] **#32 · 2.2** Terraform AWS dev + staging: VPC, EKS, RDS Postgres 16 (+ `platform_app` bootstrap job),
-      ElastiCache Redis, Redpanda Cloud connection vars, S3, CI OIDC role. `fmt -check` + `validate` in CI,
-      `plan` runbook only until credentials exist. Outputs must match `.env.example` names.
 - [ ] **#33 · 2.3** Helm charts (core, admin, storefront, Prism mocks) + ArgoCD app-of-apps; `helm lint`,
       `helm template`, `kubeconform` in CI; `values-dev.yaml` / `values-staging.yaml`; image tag = git sha.
-- [ ] **#34 · 2.4** CI, in this order (manager 2026-09-06: caching first): (a) BuildKit `type=gha` cache in
-      `docker-compose.build.yml`; (b) split the install layer — copy every `package.json` + lockfile, install,
-      then copy sources, otherwise the cache misses on every source change; (c) `actions/cache` for the pnpm
-      store and turbo in the non-image jobs; (d) one `changes` job replacing the two inline `git diff` filters
-      that 2.1 and 2.2 added; (e) Playwright hooks gated on `apps/*/playwright.config.*`, `deploy-staging.yml`
-      (no-op with a clear log line until the ArgoCD secret exists), branch-protection docs.
-      Targets: `images` under ~4 min warm, docs-only PR under 2 min. Plan posted as a comment on #34.
+- [ ] **#34 · 2.4b** (after 2.3) Playwright job hooks — `apps/storefront-starter` already has
+      `playwright.config.ts` and `e2e/checkout.spec.ts` and nothing runs them; `deploy-staging.yml` on main
+      (no-op with a clear log line until the ArgoCD secret exists); required-status-check documentation for
+      branch protection. Depends on 2.3 for the charts and the ArgoCD app names.
 - [ ] **#35 · 2.5** Observability: OTel collector + Grafana/Prometheus/Loki/Tempo as a
       `docker compose --profile observability` overlay, provisioned dashboards (per-store request rate, error
       rate, p95, outbox lag), Sentry DSN via env. Needs a `CONTRACT CHANGE:` issue for the read-only Postgres
@@ -118,6 +120,51 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   allocation.** A HEALTHCHECK probing a port the app does not listen on is worse than an inconsistent number.
   REQUEST #68 reverses this.
 
+- **`modules/environment` composes everything; `envs/dev` and `envs/staging` are thin wrappers.** Two
+  environments that are literally the same module cannot drift apart in shape, which is what "reproducible from
+  an empty account" actually requires. They differ only in sizes and a single `protect` flag.
+- **The `platform_app` role is created by a Kubernetes Job, not by Terraform.** A Terraform-managed role would
+  put its password in the state file and would drift on every `GRANT`. The Job also has to run *before* the
+  migrations: `0001_app_schema.sql` creates the role with a local-dev password when it is missing, so creating
+  it first is what keeps that password out of the cloud entirely. The Job re-applies the password on every
+  sync, which is also the rotation path for 2.6.
+- **Grants are not repeated in the bootstrap SQL.** `0009_rls_policies.sql` owns every GRANT/REVOKE for
+  `platform_app`; duplicating them in infra would give the role's privileges two homes and one of them would
+  rot. The Job only creates the role, sets the password, and asserts it is neither SUPERUSER nor BYPASSRLS.
+- **Application secrets are generated by Terraform, not written into a tfvars file.** `.env.example` gained
+  `JWT_SECRET`, `COOKIE_SECRET` and `ADMIN_SESSION_SECRET` with dev placeholders while 2.2 was parked; a cloud
+  environment must never inherit those. They are `random_password` → Secrets Manager, and the `dotenv` output
+  documents, inline, the four variables that are deliberately absent (`CORE_DEV_TOKENS` above all — it is a
+  local auth bypass and setting it in a cloud environment would be a security hole).
+- **Partial S3 backend (`backend "s3" {}` + `-backend-config=backend.hcl`).** Bucket and lock-table names are
+  account-specific; keeping them out of git means the same code works for any account and no identifier leaks.
+- **`.terraform.lock.hcl` is committed** (registry `zh:` hashes for all platforms, native `h1:` for linux).
+  Generating native hashes for three platforms downloads ~700 MB and timed out here; the documented one-liner
+  `terraform providers lock -platform=darwin_arm64` adds a platform when someone needs it.
+- **ECR repositories are per environment** (`<env>/commerce-platform/<app>`, IMMUTABLE tags). Sharing one
+  registry between environments would couple them; ECR storage is cheap and independence is the point.
+- **Redpanda is not created in Terraform** — managed-first is a fixed decision, so only `kafka_brokers` and
+  `schema_registry_url` are inputs. Recorded here because it looks like an omission otherwise.
+- **EKS/RDS/ElastiCache over the managed-first alternatives** (Neon, Upstash): issue #32's acceptance criteria
+  are authoritative and name them explicitly. The managed alternatives stay reachable as a values change
+  because every consumer reads a `DATABASE_URL`/`REDIS_URL`, never a provider-specific resource.
+
+- **The install layer is split with a `manifests` stage, not a hand-written list of `COPY` lines.** One
+  `COPY apps/<name>/package.json` per package is the usual recipe and it rots the first time someone adds a
+  workspace package without touching six Dockerfiles. `find` + `COPY --from` is content-checksummed by
+  BuildKit, so it caches exactly as well and cannot go stale.
+- **CI uses `docker/bake-action`, not `docker compose build`.** Not a preference: `type=gha` needs
+  `ACTIONS_RUNTIME_TOKEN`/`ACTIONS_CACHE_URL`, which are available to an action but not to a `run:` step.
+  The alternative was a third-party action exporting them into the environment of a required check.
+- **One GHA cache scope per image, accepting duplicated `deps` layers.** A shared scope would store the
+  identical `manifests`/`deps` stages once, but six concurrent builds writing one last-write-wins scope
+  would clobber each other exactly when it matters. Duplicated storage is the cheaper failure.
+- **Jobs always run and skip their steps; no job-level `if`.** A skipped job reports a different conclusion
+  to branch protection than a successful one, and 2.4b has to document required checks.
+- **The `changes` classifier is a script with a self-test, not inline YAML.** Mirrors
+  `scripts/check-ownership.sh` + `.test.sh`. A wrong answer is expensive both ways: a false negative skips
+  the tests that would have caught a bug, a false positive gives back the 13-minute image build.
+
 ## Blocked / waiting
 
 - **REQUEST #60** (window 1) — `apps/core` must declare `ts-node`; until then the core image installs it in the
@@ -133,6 +180,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## Gotchas learned
 
+- **A `str.replace()` that finds nothing fails silently, and that is how the memory header went three updates
+  out of date** before the #69 review caught it — each edit targeted wording a previous edit had already
+  changed. Assert the target text exists before replacing it, and re-read a file before editing it rather than
+  trusting what it said two edits ago.
+
 - **corepack cannot be used in the runtime stage.** `pnpm deploy` writes a `package.json` with no
   `packageManager` field, so a corepack shim resolves "latest", tries to download pnpm from npm on container
   start, and dies with `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING` — and `corepack prepare --activate` in an
@@ -147,6 +199,24 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **The `images` job takes ~12 minutes on a clean runner** now that three real apps are built (it was 2m23s
   with six scaffolds). Nothing is cached between runs yet — task 2.4 (#34) should add a registry or GHA build
   cache for the `pnpm install` and `pnpm build` layers, or this becomes the slowest required check by far.
+- **A remote build cache does not match `COPY --from=<stage>` on content — it matches on the producing
+  stage's cache key.** A `manifests` stage that does `COPY . .` to find the package.json files therefore gets a
+  new key on any repo change, and the `pnpm install` layer beneath it misses every time, even though the
+  manifests are byte-identical. It caches perfectly with a LOCAL cache, which is exactly how it passed local
+  testing and then failed in CI. Copy manifests straight from the build context, one `COPY` per package, and
+  guard the list with a script.
+- **Exporting a `mode=max` GHA cache is expensive**: measured 60–145s "preparing build cache for export" plus
+  14–37s "sending", per image, six images. It was the largest component of a 14-minute run. Export on pushes to
+  main only; let pull requests read.
+- **`docker buildx bake` resolves a target's `context` relative to the working directory, not to the file
+  that declares it.** `context: ../..` in `infra/docker/docker-compose.build.yml` therefore means the repo root
+  only when bake runs from `infra/docker`; from the repo root it looks for `../../apps` and fails with
+  `ERROR: resolve : lstat ../../apps: no such file or directory`. `docker compose build` uses the opposite
+  rule (relative to the compose file), which is why the local command never noticed. Fix:
+  `workdir: infra/docker` in `docker/bake-action`.
+- **`bake --print` does not resolve contexts**, so it happily prints a configuration that cannot build. It
+  validates merging and syntax, nothing more — only a real build validates the context. Caught in CI after a
+  green `--print` locally.
 - **`pnpm deploy` drops dot-directories.** It packs like npm, and npm's rules skip them — so `.medusa/server`
   and `.next` never reach the deployed package and the container dies with MODULE_NOT_FOUND (core) or serves
   nothing (Next.js). Every real app needs an explicit `cp -r` after the deploy step. `dist/` is unaffected.
@@ -163,6 +233,19 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **A container that has exited answers nothing.** `docker exec ... id -u` errors, which the first version of
   the smoke test read as "root". Use `docker image inspect -f '{{.Config.User}}'` — a property of the image,
   true whether or not anything is running.
+- **A `.terraform` directory in the repo breaks `pnpm format:check`.** Provider binaries are ~710 MB per
+  environment; prettier walks them and dies with `Invalid string length` plus a misleading "code style issues
+  in 2 files". `infra/terraform/check.sh` sets `TF_DATA_DIR=~/.cache/commerce-platform-terraform` so this never
+  happens on the normal path; a manual `terraform init` still creates one — delete it before `format:check`.
+  REQUEST #55 asks main for the `.prettierignore` line.
+- Terraform is not installed on this machine; `infra/terraform/check.sh` falls back to the
+  `hashicorp/terraform` Docker image, which is also why the committed lock file has a linux-only native hash.
+- `terraform providers lock -platform=... -platform=... -platform=...` downloads a full provider zip per
+  platform (~700 MB for AWS) and will time out on a slow link. Do it once, deliberately, not in a loop.
+- `aws_elasticache_replication_group` needs `automatic_failover_enabled = false` when there are no replicas;
+  driving both it and `multi_az_enabled` off `replica_count > 0` keeps dev and staging on one code path.
+- An AWS account may hold only **one** GitHub OIDC provider. The second environment in the same account must
+  set `create_github_oidc_provider = false` or the apply fails with EntityAlreadyExists.
 - `pnpm deploy` in pnpm 10 needs `--legacy` unless the workspace sets `inject-workspace-packages=true`.
 - Windows/Git Bash: `docker run -v` needs `MSYS_NO_PATHCONV=1` and a `C:/…` path or the mount path is mangled.
 - Prettier formats `infra/**` (only `docs/**` is ignored), so every YAML/Markdown/mjs file added here must be
