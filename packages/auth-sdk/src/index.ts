@@ -55,3 +55,35 @@ export {
   SCOPE_CACHE_MAX_TTL_MS,
 } from './scope/resolve.js';
 export type { StaffScope, ResolveScopeInput } from './scope/resolve.js';
+
+// Audit log: PII redaction and the read side of GET /admin/audit-log.
+export { redactPii, PII_FIELDS, REDACTED } from './audit/redact.js';
+export { listAuditLog } from './audit/read.js';
+export type { AuditLogFilters, AuditLogEntry, AuditLogPage } from './audit/read.js';
+
+// The headline guard API (issue #15): can / allowedStores / resolveScope / requirePermission + token
+// conveniences. x-permission templates from packages/contracts resolve via resolvePermissionObject.
+export {
+  can,
+  allowedStores,
+  resolveScope,
+  requirePermission,
+  resolvePermissionObject,
+  verifyStaffToken,
+  verifyCustomerToken,
+  resetDefaultOpenFgaClient,
+  ANY_STORE,
+} from './guard.js';
+export type {
+  PermissionSubject,
+  PermissionRelation,
+  PermissionGuard,
+  PermissionObjectFactory,
+  GuardOptions,
+} from './guard.js';
+export { createCustomerTokenVerifier } from './jwt/customer.js';
+export type {
+  CustomerClaims,
+  CustomerTokenVerifier,
+  CustomerTokenVerifierOptions,
+} from './jwt/customer.js';

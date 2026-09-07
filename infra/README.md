@@ -107,16 +107,23 @@
 `.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
 belongs to the main window.
 
-| job              | runs when   | what it does                                                             |
-| ---------------- | ----------- | ------------------------------------------------------------------------ |
-| `ownership`      | always      | `check-ownership.sh` + its self-test                                     |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform`                 |
-| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                            |
-| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                           |
-| `contract`       | `code`      | `pnpm test:contract` against Prism                                       |
-| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes |
-| `terraform`      | `terraform` | `infra/terraform/check.sh`                                               |
-| `preview`        | PRs         | placeholder until 2.4b                                                   |
+| job              | runs when   | what it does                                                                                              |
+| ---------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                      |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e`                                          |
+| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                             |
+| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                            |
+| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                        |
+| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                  |
+| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA and Postgres from compose; the live auth suites; every Playwright journey |
+| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                |
+| `preview`        | PRs         | placeholder until 2.4b                                                                                    |
+
+**`images` is narrower on a PR than `code` is.** A source change under `apps/**` or `packages/**` no longer
+rebuilds the six images: only a `Dockerfile`, `.dockerignore`, `infra/docker/**`, `infra/ci/**` or a
+workspace-root manifest does. A push to `main` always builds everything, so an app change that breaks its own
+image is caught at merge. This is a deliberate cost trade — the six-image build is ~10 minutes of runner time
+and it was running on every push to every branch, which exhausted the month's Actions budget.
 
 **Every job always runs; only its expensive steps are skipped.** A job skipped by a job-level `if`
 reports a different conclusion to branch protection than a successful one, and required checks are

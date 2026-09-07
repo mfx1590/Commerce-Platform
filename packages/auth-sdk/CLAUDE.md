@@ -17,11 +17,20 @@ window 2 (auth).
 
 ## Public API
 
-- `verifyStaffToken(token) → Principal`, `verifyCustomerToken(token, storeId) → CustomerPrincipal`
-- `can(principal, relation, object) → Promise<boolean>` e.g. `can(p, 'finance', 'organization:hq')`
-- `resolveScope(principal) → { organizationId, storeIds: string[] }`
-- `requirePermission(relation, objectFactory)` — route middleware; throws 403
-- Relation names are frozen in `infra/openfga/model.fga`
+- `verifyStaffToken(tokenOrHeader) → StaffClaims` — staff-realm JWKS, RS256, issuer + `aud: core-api`; 401 on any failure.
+- `verifyCustomerToken(tokenOrHeader, storeCode) → CustomerClaims` — customers realm, and the token's
+  `store_code` claim must equal the request's **store code** (`store.code`, e.g. `brand-a`), not a store id:
+  the storefront client stamps its brand, and the core resolves publishable key/host → code anyway. A token
+  for another brand is 401 `store_mismatch` (ADR 0002 §8).
+- `can(subject, relation, object) → Promise<boolean>` e.g. `can(scope, 'finance', 'organization:hq')`;
+  `object: 'store:*'` asks "any store this subject can view".
+- `allowedStores(subject) → Promise<string[]>` · `resolveScope(subject) → { storeIds, organizationRelations, scope }`
+- `requirePermission(relation, objectTemplate | factory)` — route guard; throws the contract's 403
+  (`{ code: forbidden, details: { relation, object } }`), 503 fail closed when OpenFGA is unreachable.
+- `assignRole` / `revokeRole` / `listRoleAssignments` / `listStaffUsers`; `audit(tx, entry)` (PII-redacted at
+  write time) and `listAuditLog(db, filters)`; `seedOpenFga` + `createOpenFgaClient`.
+- Subjects are a `StaffScope`/`StaffPrincipal` or the bare `staff_user.id`. Relation names are frozen in
+  `infra/openfga/model.fga`; full reference in README.md.
 
 ## Constraints
 

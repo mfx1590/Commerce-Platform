@@ -22,7 +22,17 @@ export default [
                 'Import tenantClient / organizationClient from src/lib/db.ts; never open a pg connection elsewhere.',
             },
           ],
-          patterns: ['pg/*'],
+          patterns: [
+            { group: ['pg/*'] },
+            // ADR 0005 module boundary: another module's internals are never imported directly — only its
+            // index.ts (`../modules/catalog`, `../../modules/registry`). Same-module relative imports do not
+            // contain the `modules/` segment and stay allowed; test/guards.test.ts resolves those too.
+            {
+              group: ['**/modules/*/*', '!**/modules/*/index', '!**/modules/*/index.js'],
+              message:
+                'Import a module through its index.ts (ADR 0005): `../modules/<name>`, never `../modules/<name>/<file>`.',
+            },
+          ],
         },
       ],
     },

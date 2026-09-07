@@ -96,3 +96,23 @@ Steps: verify the JWT against the staff realm JWKS (issuer + `aud: core-api`), `
 `ListRelations(organization:hq)` (unreachable → 503, nothing cached), cache per subject ≤ 30 s, invalidated
 by `staff_user.id` on every role change through the tuple API. `last_login_at` is bumped best-effort on each
 cache miss. The organization id is deployment configuration (one HQ organization in Phases 0–3).
+
+## GET /admin/audit-log (task 1.5)
+
+Fifth route of `createHqRbac().handle()`. Needs `HqRbacRequest.scope` (the StaffScope from
+`createStaffScopeMiddleware`) — without it the route answers 401. Permission per the contract
+(`x-permission: viewer on store:{store_id}`): when the `store_id` filter is present it is re-checked against
+OpenFGA (403 with `{ relation: 'viewer', object: 'store:<id>' }`); without the filter, visibility comes from
+RLS through the caller's own scope — organization scope sees everything including organization-level rows
+(`store_id IS NULL`), store scope exactly its stores, an empty store scope 403 (fail closed). Filters:
+`store_id`, `entity_type`, `entity_id`, `actor_id`, `from`, `to`, `sort=created_at`, `order`, `page`,
+`limit`. Snapshots come back redacted because they are redacted at write time (`@platform/auth-sdk`
+`redactPii`).
+
+## GET /admin/finance/ping (task 1.7 — NOT in the contract)
+
+Phase 1 gate test double standing in for the Phase 4 accounting routes: guarded exactly like
+`GET /admin/legal-entities` (`finance` on `organization:hq`), answers `{ ok: true }`. Keep it — Phase 4 can
+replace it; it costs one routing-table row and proves the finance gate without accounting existing yet.
+The gate itself: `test/gate.test.ts` (real Keycloak tokens through the scope middleware; store-admin of two
+stores 403 on every finance-gated operation swept from the contract; analyst denied customer PII per Admin API 0.2.1 — `support` on the store, CONTRACT CHANGE #77 accepted).

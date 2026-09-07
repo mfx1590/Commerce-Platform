@@ -18,6 +18,7 @@ import {
   publishProduct,
   updateProduct,
   updateVariant,
+  PRODUCT_SORT_FIELDS,
   type ProductStatus,
 } from '../modules/catalog';
 import {
@@ -33,12 +34,13 @@ import {
   listStores,
   listWarehouses,
   updateStore,
+  STORE_SORT_FIELDS,
 } from '../modules/registry';
 import { organizationClient } from '../lib/db';
 import { handle } from './errors';
 import { loadSpec } from './openapi';
 import { requirePermission, resolveObject } from './permissions';
-import { one, pageParams, throwIfProblems, uuidParam } from './query';
+import { one, pageParams, sortParams, throwIfProblems, uuidParam } from './query';
 import {
   organizationClientFor,
   requirePrincipal,
@@ -111,8 +113,9 @@ export function adminRouter(): Router {
       const p = requirePrincipal(req);
       const problems: Record<string, string> = {};
       const page = pageParams(req.query, 20, problems);
+      const sort = sortParams(req.query, STORE_SORT_FIELDS, problems);
       throwIfProblems(problems);
-      res.json(await listStores(visibleStoresClientFor(p), page));
+      res.json(await listStores(visibleStoresClientFor(p), { ...page, ...sort }));
     }),
   );
   r.post(
@@ -246,10 +249,12 @@ export function adminRouter(): Router {
       if (categoryId !== undefined && !/^[0-9a-f-]{36}$/i.test(categoryId)) {
         problems.category_id = 'uuid';
       }
+      const sort = sortParams(req.query, PRODUCT_SORT_FIELDS, problems);
       throwIfProblems(problems);
       res.json(
         await listProducts(client, storeId, {
           ...page,
+          ...sort,
           q: one(req.query.q),
           ...(status ? { status: status as ProductStatus } : {}),
           ...(categoryId ? { category_id: categoryId } : {}),

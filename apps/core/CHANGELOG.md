@@ -2,6 +2,30 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.2)
 
+### 2026-09-07 · customer PII gate proven for window 1 (contracts 0.2.1, issue #77)
+
+- `test/admin-api.test.ts`: the frozen spec gates `listCustomers` / `getCustomer` / `updateCustomer` with
+  `support` (not `viewer`); an `analyst` gets **403** on a route carrying that permission while keeping the
+  viewer-gated aggregates (products) — and `hasPermission` denies `analyst` `support` on every store, including
+  `store:*`. The customers routes themselves belong to window 13 and stay on the Prism mock in Phase 1; the probe
+  route mounts the spec permission on our guard so the gate is proven for everything window 1 owns.
+
+### 2026-09-07 · follow-up — `sort` / `order` on Admin API list handlers (contracts 0.2.0)
+
+- `GET /admin/stores` (`sort`: code | name | status | created_at, default `created_at`) and
+  `GET /admin/stores/{storeId}/products` (`sort`: title | handle | status | created_at | updated_at, default
+  `updated_at`) accept `order` (asc | desc, default desc, ignored unless `sort` is present) — the only two list
+  operations window 1 owns that gained the parameters. Unknown values → 400 `validation_error` with details.
+  ORDER BY columns are whitelisted per enum value.
+
+### 2026-09-07 · task 1.9 — READMEs, CLAUDE.md, tests green (issue #9)
+
+- READMEs for `src/http` and `src/lib`; every module folder now has `index.ts`, `README.md` (purpose, public API,
+  events, permissions, how to test) and tests. CLAUDE.md lists the modules in a table with the exact run/test
+  commands (incl. building workspace packages before package-local typecheck/test).
+- Verified on the merged `main`: typecheck clean, lint clean, 65 tests green (55 core + window 2's hq-rbac), CI
+  `unit` job runs them through `pnpm test`.
+
 ### 2026-09-06 · task 1.8 — bootstrap verifier (issue #8, re-scoped) + ts-node (#60)
 
 - `src/bootstrap/verify.ts` + `pnpm --filter @platform/core bootstrap`: read-only readiness checks (our tables,

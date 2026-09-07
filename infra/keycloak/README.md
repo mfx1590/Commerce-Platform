@@ -32,8 +32,9 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 - **OTP policy:** TOTP, SHA1, 6 digits, 30 s, look-ahead 1 (works with FreeOTP, Google/Microsoft
   Authenticator).
 - **Clients**
-  - `admin-app` — public, authorization code + PKCE (S256), no password grant, redirect
-    `http://localhost:3000/*`. Mappers put `email`, `email_verified`, `preferred_username`, `name` and
+  - `admin-app` — public, authorization code + PKCE (S256), no password grant. Registered redirects:
+    `http://localhost:3000/*` and `http://localhost:3200/*` (#82 — 3200 is window 4's verification port,
+    dev-only: production realms keep exactly one redirect URI). Mappers put `email`, `email_verified`, `preferred_username`, `name` and
     `aud: core-api` in the access token.
   - `test-cli` — **dev/CI only.** Public client with the resource-owner password grant enabled so tests can
     mint real tokens for the seeded users (`grant_type=password&client_id=test-cli&username=…&password=…`).
@@ -54,7 +55,7 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 - One public PKCE client per brand: `storefront-brand-a` (`:3100`), `storefront-brand-b` (`:3101`),
   `storefront-brand-c` (`:3102`). Each client hard-codes a `store_code` claim (`brand-a` …) and `aud: core-api`
   so the core can bind a customer token to one store (ADR 0002 §8).
-- `test-cli` (dev/CI only) as above.
+- `test-cli` (dev/CI only) as above — it also stamps `store_code=brand-a` so `verifyCustomerToken` has a live positive path in tests.
 - Social login: `google` identity provider present but **disabled**; its client id/secret come from the
   environment (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) via realm-import placeholders. Enable it by setting
   the variables and flipping `enabled` to `true`.
@@ -62,19 +63,20 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 
 ## Dev-only settings (must change outside local)
 
-| Setting                                | Local value                | Elsewhere                               |
-| -------------------------------------- | -------------------------- | --------------------------------------- |
-| `sslRequired`                          | `external`                 | `all` behind TLS                        |
-| OTP step in `browser-mfa forms` (#43)  | CONDITIONAL                | REQUIRED (forced enrolment)             |
-| `owner` pre-enrolled TOTP credential   | documented secret above    | remove; no committed OTP secrets        |
-| Seeded users with password = username  | present                    | remove the `users` array                |
-| `test-cli` client (password grant)     | present                    | remove                                  |
-| Password policy                        | none (seed passwords)      | e.g. `length(12) and notUsername and …` |
-| `verifyEmail` (customers)              | `false`                    | `true` with SMTP configured             |
-| `attributes.frontendUrl`               | `http://localhost:8180`    | the public Keycloak URL                 |
-| Redirect URIs / web origins            | `http://localhost:*`       | the real app origins                    |
-| `hq-sso` / `google` identity providers | disabled placeholders      | real client ids from the environment    |
-| Keycloak `KC_DB=dev-file` + volume     | one-shot import, persisted | Postgres                                |
+| Setting                                  | Local value                | Elsewhere                               |
+| ---------------------------------------- | -------------------------- | --------------------------------------- |
+| `sslRequired`                            | `external`                 | `all` behind TLS                        |
+| OTP step in `browser-mfa forms` (#43)    | CONDITIONAL                | REQUIRED (forced enrolment)             |
+| `owner` pre-enrolled TOTP credential     | documented secret above    | remove; no committed OTP secrets        |
+| Seeded users with password = username    | present                    | remove the `users` array                |
+| `test-cli` client (password grant)       | present                    | remove                                  |
+| Password policy                          | none (seed passwords)      | e.g. `length(12) and notUsername and …` |
+| `verifyEmail` (customers)                | `false`                    | `true` with SMTP configured             |
+| `attributes.frontendUrl`                 | `http://localhost:8180`    | the public Keycloak URL                 |
+| Redirect URIs / web origins              | `http://localhost:*`       | the real app origins                    |
+| `hq-sso` / `google` identity providers   | disabled placeholders      | real client ids from the environment    |
+| `admin-app` second redirect (:3200, #82) | registered                 | exactly one redirect URI per app        |
+| Keycloak `KC_DB=dev-file` + volume       | one-shot import, persisted | Postgres                                |
 
 Secrets: no confidential client is defined, so no client secret is committed. Identity-provider secrets are
 `${ENV_VAR:unset}` placeholders resolved by Keycloak at import time.

@@ -41,3 +41,36 @@
   `toTenantContext()`, `ScopeCache` (per-subject, TTL clamped to ≤ 30 s, `invalidate(staffUserId)`),
   `ORGANIZATION_RELATIONS`. The middleware itself (`createStaffScopeMiddleware`) is in
   `apps/core/src/modules/hq-rbac/scope.ts`. Dependency: `jose`.
+- Task 1.5 (#14): audit log completed. `redactPii` (email, phone, address lines line1/line2, key_hash,
+  first_name/last_name → "[redacted]", recursive, case-insensitive) applied inside `audit(tx, entry)` at write
+  time; `listAuditLog(db, filters)` — the read side of `GET /admin/audit-log` (filters store_id/entity/actor/
+  from/to, paging, order; visibility purely via the caller's RLS scope). The route lives in hq-rbac
+  (`HqRbacRequest.scope` carries the middleware's StaffScope; a `store_id` filter re-checks `viewer` on that
+  store). Tests: redaction units; live: redaction at rest, `UPDATE`/`DELETE audit_log` denied for
+  platform_app, HQ sees NULL-store rows, store scope never does, 403 on a foreign store filter.
+- REQUEST #82 (manager decision, shipped with task 1.5): `admin-app` registers a second local redirect URI and
+  web origin, `http://localhost:3200/*` — window 4's Playwright journey can run with `PORT=3200` when 3000 is
+  taken. Dev realm only; production keeps exactly one redirect URI (README dev-only table).
+- Task 1.6 (#15): the headline guard API. `can(subject, relation, object)` (with `store:*` = any visible
+  store via ListObjects), `allowedStores(subject)`, `resolveScope(subject)`, `requirePermission(relation,
+objectFactory)` (string template or function; throws the contract's exact `403 { code: forbidden,
+details: { relation, object } }`, 503 fail closed), `resolvePermissionObject` for the `x-permission`
+  templates, `verifyStaffToken` / `verifyCustomerToken` conveniences and `createCustomerTokenVerifier`
+  (customers-realm JWKS + `store_code` binding: wrong store → 401 store_mismatch). A test sweeps every
+  `x-permission` in admin-api.yaml and asserts each is resolvable; unit tests run on a mocked OpenFGA
+  client; integration against docker OpenFGA (seeded tuples) and Keycloak. Dev realm: the customers
+  `test-cli` client now stamps `store_code=brand-a` so the binding has a live positive path.
+- Task 1.7 (#16): PHASE 1 GATE proven end to end. `apps/core/src/modules/hq-rbac/test/gate.test.ts` — real
+  Keycloak tokens → scope middleware → x-permission guards: the two-store `store-admin` gets the exact 403 on
+  EVERY finance-gated operation of the contract (swept from the spec) and on the new `/admin/finance/ping`
+  test-double route (finance on organization:hq, stands in for Phase 4 accounting; finance user gets 200);
+  `analyst` keeps viewer reads but is denied customer PII under the `support` gate proposed in
+  CONTRACT CHANGE #77 (frozen contract has listCustomers at viewer, which the analyst-PII criterion of #16
+  contradicts — support/store_admin/owner keep access, analyst/finance/operations lose it).
+- Admin API 0.2.1 (#77 accepted): the gate test now asserts the spec itself carries `support` on
+  `listCustomers`/`getCustomer` and builds the customer-PII gate from the parsed contract entry instead of a
+  hardcoded proposal.
+- Docs fixes (#88 review): `CLAUDE.md` Public API now matches the shipped surface — `verifyCustomerToken(token,
+storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap entries. `resolvePermissionObject`'s
+  comment no longer claims non-uuid values are rejected: only MISSING placeholders are 400, a malformed id becomes
+  a failing OpenFGA check (403) — pinned by a new test so comment and behaviour cannot drift.

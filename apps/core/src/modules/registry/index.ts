@@ -21,6 +21,7 @@ export {
   toStore,
   updateStore,
 } from './service';
+export { STORE_SORT_FIELDS } from './types';
 export type {
   ApiKey,
   ApiKeyCreated,
@@ -31,6 +32,9 @@ export type {
   Page,
   PageQuery,
   SalesChannel,
+  SortOrder,
+  StoreListQuery,
+  StoreSortField,
   SalesChannelInput,
   SalesChannelType,
   Store,
