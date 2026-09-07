@@ -43,7 +43,8 @@ export default defineConfig({
       url: APP_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
-      env: { MOCK_API_URL: MOCK_URL },
+      // `start` honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
+      env: { MOCK_API_URL: MOCK_URL, PORT: new URL(APP_URL).port },
     },
   ],
 });
