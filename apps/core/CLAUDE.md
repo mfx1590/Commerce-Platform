@@ -53,7 +53,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   bodies are validated against the spec's `requestBody` schema (`src/http/openapi.ts`, yaml + ajv at runtime).
 - `src/bootstrap` (issue #8, verifier only): never writes; the Medusa mirror of stores/keys is deferred to the
   Phase 2 cart task (owner decision 2026-09-05).
-- Modules and helpers (each folder: `index.ts` public API, `README.md`, tests):
+- Modules and helpers. Modules, `outbox`, `bootstrap` and `http` expose an `index.ts` public API and have their own
+  tests; `lib` is a plain helper folder (imported by path, covered through the module and HTTP tests). Every folder
+  has a `README.md`:
 
   | Folder                 | Purpose                                                                                          | Events                                                     | README                           |
   | ---------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------- |

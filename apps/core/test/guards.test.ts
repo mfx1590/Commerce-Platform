@@ -42,4 +42,24 @@ describe('structural guards', () => {
       .map((f) => f.rel);
     expect(offenders).toEqual([]);
   });
+
+  it('ADR 0005: a module is imported only through its index.ts from outside the module', () => {
+    // Resolve every relative import to a path under src/ and flag imports that land inside
+    // src/modules/<m>/<file> from a file that is not itself part of src/modules/<m>/.
+    const offenders: string[] = [];
+    for (const f of files) {
+      const fromDir = join(SRC, f.rel, '..');
+      const ownModule = /^modules\/([^/]+)\//.exec(f.rel)?.[1];
+      for (const m of f.text.matchAll(/from\s+['"](\.{1,2}\/[^'"]+)['"]/g)) {
+        const target = relative(SRC, join(fromDir, m[1]!)).replace(/\\/g, '/');
+        const hit = /^modules\/([^/]+)\/(.+)$/.exec(target);
+        if (!hit) continue;
+        const [, moduleName, inner] = hit;
+        if (moduleName === ownModule) continue;
+        if (inner === 'index' || inner === 'index.ts') continue;
+        offenders.push(`${f.rel} → ${m[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
