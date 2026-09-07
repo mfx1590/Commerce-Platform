@@ -115,5 +115,4 @@ Phase 1 gate test double standing in for the Phase 4 accounting routes: guarded 
 `GET /admin/legal-entities` (`finance` on `organization:hq`), answers `{ ok: true }`. Keep it — Phase 4 can
 replace it; it costs one routing-table row and proves the finance gate without accounting existing yet.
 The gate itself: `test/gate.test.ts` (real Keycloak tokens through the scope middleware; store-admin of two
-stores 403 on every finance-gated operation swept from the contract; analyst denied customer PII under the
-`support` gate proposed in CONTRACT CHANGE #77).
+stores 403 on every finance-gated operation swept from the contract; analyst denied customer PII per Admin API 0.2.1 — `support` on the store, CONTRACT CHANGE #77 accepted).

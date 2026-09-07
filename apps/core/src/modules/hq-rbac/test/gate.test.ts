@@ -100,7 +100,9 @@ describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
       relation: 'finance',
       object: 'organization:hq',
     });
-    expect(byOp.listCustomers).toBeDefined();
+    // CONTRACT CHANGE #77 accepted in Admin API 0.2.1: customer reads are support-gated.
+    expect(byOp.listCustomers).toMatchObject({ relation: 'support', object: 'store:{storeId}' });
+    expect(byOp.getCustomer).toMatchObject({ relation: 'support', object: 'store:{storeId}' });
   });
 
   it('store-admin of two stores: GET /admin/stores would answer 200 with both stores listed', async () => {
@@ -163,10 +165,10 @@ describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
     }
   });
 
-  it('GATE: analyst cannot read customer PII — 403 under the proposed support gate (CONTRACT CHANGE #77)', async () => {
-    // Frozen contract has listCustomers/getCustomer at viewer (analyst WOULD pass — the leak #16 exists to
-    // catch). Until #77 is decided we test the proposed permission: support on store:{storeId}.
-    const customersGate = requirePermission('support', 'store:{storeId}');
+  it('GATE: analyst cannot read customer PII — 403 per Admin API 0.2.1 (support on the store, #77)', async () => {
+    // The gate is built from the CONTRACT, not hardcoded: listCustomers carries support since 0.2.1 (#77).
+    const spec = SPEC_PERMISSIONS.find((x) => x.operationId === 'listCustomers')!;
+    const customersGate = requirePermission(spec.relation as 'support', spec.object);
     await expect(
       customersGate(scopes.get('analyst')!, { storeId: S.brandA }, { fga }),
     ).rejects.toMatchObject({

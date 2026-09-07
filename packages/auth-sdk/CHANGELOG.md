@@ -67,3 +67,6 @@ details: { relation, object } }`, 503 fail closed), `resolvePermissionObject` fo
   `analyst` keeps viewer reads but is denied customer PII under the `support` gate proposed in
   CONTRACT CHANGE #77 (frozen contract has listCustomers at viewer, which the analyst-PII criterion of #16
   contradicts — support/store_admin/owner keep access, analyst/finance/operations lose it).
+- Admin API 0.2.1 (#77 accepted): the gate test now asserts the spec itself carries `support` on
+  `listCustomers`/`getCustomer` and builds the customer-PII gate from the parsed contract entry instead of a
+  hardcoded proposal.
