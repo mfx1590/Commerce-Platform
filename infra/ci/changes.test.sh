@@ -29,16 +29,23 @@ check() {
 NONE='code=false images=false terraform=false e2e=false'
 CODE_IMG='code=true images=true terraform=false e2e=true'
 IMG_E2E='code=false images=true terraform=false e2e=true'
+# Source changes no longer rebuild the images on a PR — a push to main does that.
+CODE_ONLY='code=true images=false terraform=false e2e=true'
 
 check 'docs only'           $'docs/memory/Memory-5-infra.md\ndocs/ownership.md'  "$NONE"
 check 'a single README'     'README.md'                                         "$NONE"
 check 'infra README only'   'infra/README.md'                                   "$NONE"
-check 'app source'          'apps/core/src/http/store-routes.ts'                "$CODE_IMG"
-check 'a package'           'packages/db/migrations/0010_x.sql'                 "$CODE_IMG"
+# A source change alone must NOT rebuild the six images on a PR — that is the point of the change.
+check 'app source'          'apps/core/src/http/store-routes.ts'                "$CODE_ONLY"
+check 'a package'           'packages/db/migrations/0010_x.sql'                 "$CODE_ONLY"
+check 'app source + a doc'  $'apps/core/src/x.ts\nREADME.md'                    "$CODE_ONLY"
+# What an image is built FROM still does.
 check 'a Dockerfile'        'apps/core/Dockerfile'                              "$CODE_IMG"
+check 'a nested Dockerfile' 'apps/storefront-starter/Dockerfile'                "$CODE_IMG"
 check 'the lockfile'        'pnpm-lock.yaml'                                    "$CODE_IMG"
+check 'root package.json'   'package.json'                                      "$CODE_IMG"
 check 'the .dockerignore'   '.dockerignore'                                     "$CODE_IMG"
-check 'mixed docs + app'    $'docs/x.md\napps/admin/src/page.tsx'               "$CODE_IMG"
+check 'mixed docs + app'    $'docs/x.md\napps/admin/src/page.tsx'               "$CODE_ONLY"
 check 'compose build file'  'infra/docker/docker-compose.build.yml'             "$IMG_E2E"
 check 'the bake overlay'    'infra/docker/docker-bake.hcl'                      "$IMG_E2E"
 check 'terraform'           'infra/terraform/modules/network/main.tf'           'code=false images=false terraform=true e2e=false'

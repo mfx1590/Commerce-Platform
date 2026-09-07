@@ -135,6 +135,14 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   also matched build output (`apps/storefront-starter/.next/package.json` is written by `next build`) and
   failed on any machine that had run a build. It now asks `pnpm -r list`.
 
+### Changed (runner-minute budget)
+
+- On a pull request the `images` group now fires only for things that define **how** an image is built — a
+  `Dockerfile`, `.dockerignore`, `infra/docker/**`, `infra/ci/**` or a workspace-root manifest — and no longer
+  for every change under `apps/**` or `packages/**`. A push to `main` still builds everything, so an app change
+  that breaks its own image is caught at merge. Rebuilding six images on every push was ~10 minutes of runner
+  time each time and exhausted the month's budget. The self-test covers both directions.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

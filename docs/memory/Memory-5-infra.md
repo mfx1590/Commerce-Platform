@@ -176,6 +176,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   `scripts/check-ownership.sh` + `.test.sh`. A wrong answer is expensive both ways: a false negative skips
   the tests that would have caught a bug, a false positive gives back the 13-minute image build.
 
+- **On a PR, `images` fires only on what defines how an image is built, not on app source.** Rebuilding six
+  images because one source file moved was ~10 minutes of runner time per push, and it ran out the month's
+  GitHub Actions budget on 2026-09-07. A push to main still builds everything, so the coverage moves from
+  "every PR" to "at merge" rather than disappearing. Cost is a real constraint here, not an afterthought.
+
 ## Blocked / waiting
 
 - **REQUEST #60** (window 1) — `apps/core` must declare `ts-node`; until then the core image installs it in the

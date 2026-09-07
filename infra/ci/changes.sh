@@ -12,7 +12,12 @@
 #
 # Groups:
 #   code       lint, typecheck, format, unit tests, contract tests
-#   images     the app images and their smoke test
+#   images     the app images and their smoke test. On a PR this fires only when something that
+#              defines HOW an image is built changes — a Dockerfile, .dockerignore, infra/docker/**
+#              or infra/ci/**. NOT on apps/** or packages/**: rebuilding six images because one
+#              source file moved cost ~10 minutes of runner time per push and exhausted the monthly
+#              budget. A push to main still builds everything, so a source change that breaks its
+#              own image is caught at merge rather than never.
 #   terraform  terraform fmt/validate, and the Kubernetes manifests that go with it
 #   e2e        the live auth suites and the Playwright journeys — anything `code` covers, plus the
 #              realms and authorization model those suites run against
@@ -64,7 +69,11 @@ terraform=false
 e2e=false
 
 if match '^(apps/|packages/|scripts/|cms/|data/)' || match "$ROOT_FILES"; then code=true; fi
-if match '^(apps/|packages/|infra/docker/)' || match "$ROOT_FILES" || match "$CI_SCRIPTS"; then images=true; fi
+# Deliberately narrower than `code`: see the note at the top of this file.
+if match '(^|/)Dockerfile$' || match '^\.dockerignore$' || match '^infra/docker/' || match "$CI_SCRIPTS" ||
+  match '^(pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json)$' || match '^\.github/workflows/ci\.yml$'; then
+  images=true
+fi
 if match '^(infra/terraform/|infra/kubernetes/)' || match '^\.github/workflows/ci\.yml$'; then terraform=true; fi
 if [ "$code" = true ] || match '^(infra/keycloak/|infra/openfga/|infra/docker/)' || match "$CI_SCRIPTS"; then e2e=true; fi
 
