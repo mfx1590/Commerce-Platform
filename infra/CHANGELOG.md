@@ -143,6 +143,51 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   that breaks its own image is caught at merge. Rebuilding six images on every push was ~10 minutes of runner
   time each time and exhausted the month's budget. The self-test covers both directions.
 
+### Added (task 2.3 — Helm charts and ArgoCD, issue #33)
+
+- `infra/helm/platform-app` — **one** chart for core, admin, storefront and both Prism mocks. They are the
+  same shape (a stateless container serving `$PORT` with a health path), so five charts would only give five
+  places to drift; ten values files under `infra/helm/values/<app>/values-<env>.yaml` carry what differs.
+  Deployment with startup/readiness/liveness probes, Service, Ingress, ServiceAccount (IRSA-ready),
+  ExternalSecret and an optional HPA.
+- The chart refuses to render without an image repository, tag or ingress host, and rejects the tag `latest`:
+  ArgoCD syncs a tag, so a moving tag means the cluster and the repository disagree about what is running.
+- `infra/argocd` — the `AppProject` (which lists sources, destinations and permitted kinds explicitly rather
+  than `*`, because an app-of-apps otherwise puts unrestricted cluster access one commit away), the
+  app-of-apps, and ten `Application` manifests. dev self-syncs; staging is synced by the deploy workflow, so a
+  release is deliberate.
+- `infra/helm/check.sh` — `helm lint`, `helm template` for all ten app/environment combinations, and
+  `kubeconform -strict` over every rendered manifest plus `infra/argocd`. Local binaries when present,
+  official images through Docker otherwise, same as `infra/terraform/check.sh`. kubeconform is given the CRD
+  catalogue so `ExternalSecret` and `Application` are actually validated rather than skipped as
+  "missing schema".
+- CI job `helm`, and a `helm` group in the classifier so chart changes re-check only what they affect.
+
+### Fixed
+
+- The chart passes the image tag through `toString`. A git sha can be forty digits with no letters, which YAML
+  reads as a number, and comparing it to a string failed the render with "incompatible types for comparison" —
+  found by `helm lint` against a placeholder tag of all zeroes, which is exactly the case that would have
+  reached a real deploy.
+
+### Fixed (review of #95)
+
+- The Prism mock probes could never have passed. Every path Prism serves answers 401 without credentials and
+  Kubernetes counts only 200-399 as success, so readiness would have stayed red and liveness would have
+  restarted a healthy pod. The mocks now use a `tcpSocket` probe, and their ALB annotation carries
+  `success-codes: '200-399,401,404'` because an ALB target group has no TCP health check. The chart gained
+  `service.probe`, validated to be `httpGet` or `tcpSocket`, and all three probes render from one helper so
+  they cannot drift.
+- No application configuration reached the pods: `env:` was empty everywhere, so admin and storefront would
+  have fallen back to their localhost defaults — inside a pod, themselves. All ten values files now carry the
+  non-secret half of `.env.example` (`KEYCLOAK_URL`, `KEYCLOAK_REALM_*`, `OPENFGA_API_URL`, `OPENFGA_STORE_ID`,
+  `MEDUSA_DB_SCHEMA`, `CORE_ORGANIZATION_ID`, the three CORS vars, `STORE_API_URL`, `ADMIN_API_URL`,
+  `ADMIN_APP_URL`, `STORE_PUBLISHABLE_KEY`, `S3_MEDIA_BUCKET`), using the same substituted-at-deploy hostname
+  placeholder as `ingress.host`. Secrets still come only from the ExternalSecret.
+- `stoplight/prism:5` was a moving tag — the exact failure the chart's `latest` guard exists to prevent. Both
+  mock values files pin `sha256:3f6d29e…`, and the chart supports `image.digest` (validated to start
+  `sha256:`) alongside `image.tag` for our own git-sha-tagged images.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

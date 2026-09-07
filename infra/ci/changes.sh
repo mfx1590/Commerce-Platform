@@ -19,21 +19,22 @@
 #              budget. A push to main still builds everything, so a source change that breaks its
 #              own image is caught at merge rather than never.
 #   terraform  terraform fmt/validate, and the Kubernetes manifests that go with it
+#   helm       helm lint/template + kubeconform over the charts and the ArgoCD manifests
 #   e2e        the live auth suites and the Playwright journeys — anything `code` covers, plus the
 #              realms and authorization model those suites run against
 set -euo pipefail
 
 emit() {
-  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\n' "$1" "$2" "$3" "$4"
+  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\n' "$1" "$2" "$3" "$4" "$5"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\n' "$1" "$2" "$3" "$4" >> "$GITHUB_OUTPUT"
+    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\n' "$1" "$2" "$3" "$4" "$5" >> "$GITHUB_OUTPUT"
   fi
 }
 
 # A push to main is never a partial build.
 if [ -n "${CHANGES_ALL:-}" ]; then
   echo 'changes: CHANGES_ALL set — every group runs' >&2
-  emit true true true true
+  emit true true true true true
   exit 0
 fi
 
@@ -67,6 +68,7 @@ code=false
 images=false
 terraform=false
 e2e=false
+helm=false
 
 if match '^(apps/|packages/|scripts/|cms/|data/)' || match "$ROOT_FILES"; then code=true; fi
 # Deliberately narrower than `code`: see the note at the top of this file.
@@ -76,9 +78,11 @@ if match '(^|/)Dockerfile$' || match '^\.dockerignore$' || match '^infra/docker/
 fi
 if match '^(infra/terraform/|infra/kubernetes/)' || match '^\.github/workflows/ci\.yml$'; then terraform=true; fi
 if [ "$code" = true ] || match '^(infra/keycloak/|infra/openfga/|infra/docker/)' || match "$CI_SCRIPTS"; then e2e=true; fi
+if match '^(infra/helm/|infra/argocd/)' || match "$CI_SCRIPTS" || match '^\.github/workflows/ci\.yml$'; then helm=true; fi
 
-if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ] && [ "$e2e" = false ]; then
+if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ] && [ "$e2e" = false ] &&
+  [ "$helm" = false ]; then
   echo 'changes: documentation-only change — the heavy jobs will no-op' >&2
 fi
 
-emit "$code" "$images" "$terraform" "$e2e"
+emit "$code" "$images" "$terraform" "$e2e" "$helm"

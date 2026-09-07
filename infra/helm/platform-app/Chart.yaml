@@ -1,0 +1,11 @@
+apiVersion: v2
+name: platform-app
+description: >-
+  One chart for every long-running HTTP service in the platform. The apps differ in image, port and
+  configuration, not in shape: each is a stateless container that serves $PORT and answers /health,
+  which is the contract infra/README.md records for the images. Five near-identical charts would
+  drift; this one is instantiated once per app per environment through a values file.
+type: application
+version: 0.1.0
+# The apps are versioned by the image tag (a git sha), not by a chart appVersion.
+appVersion: '0.1.0'

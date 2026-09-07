@@ -1,0 +1,93 @@
+# Defaults for every app. A values file under infra/helm/values/<app>/values-<env>.yaml overrides
+# what differs; anything not overridden is deliberate shared policy, so change it here once.
+
+# Image. `tag` is always a git sha, never `latest`: ArgoCD syncs a tag, and a moving tag means the
+# cluster and the repository disagree about what is running. CI sets it (task 2.4b).
+image:
+  repository: '' # required, e.g. 123456789012.dkr.ecr.eu-central-1.amazonaws.com/dev/commerce-platform/core
+  tag: '' # required for our own images: a git sha
+  # Third-party images are pinned by digest instead. A tag — even a major like `5` — is a moving
+  # target: the same manifest can be republished under it, so two syncs of the same commit can run
+  # different code. That is the failure the `latest` guard exists to prevent, and a floating major
+  # is the same failure more slowly. Set `digest` and `tag` is ignored.
+  digest: ''
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# The port the container serves and the health path it answers. Both come from the image contract.
+service:
+  port: 80
+  targetPort: 9000
+  healthPath: /health
+  # `httpGet` or `tcpSocket`. Kubernetes counts only 200-399 as a passing probe, so an endpoint that
+  # answers 401 without credentials — every path the Prism mocks serve — leaves readiness red and
+  # gets the pod killed by liveness. Those use tcpSocket: the question a probe has to answer is
+  # "is this process serving", and for a static mock, listening is that answer.
+  probe: httpGet
+
+ingress:
+  enabled: true
+  className: alb
+  host: '' # required, e.g. api.dev.example.com
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi # no CPU limit on purpose: throttling a latency-sensitive service is worse than bursting
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# Plain configuration, rendered into the Deployment as env vars. Names match .env.example, so the
+# same variable means the same thing locally, in an image and in the cluster. Anything secret belongs
+# in externalSecrets below instead — this map ends up in the rendered manifest and in git.
+#
+# The per-app values files fill this in. An app that gets none of it falls back to whatever its code
+# defaults to, which is localhost, which in a pod means itself.
+env: {}
+
+# Only the Prism mocks need these: their image takes the document to serve as an argument and mounts
+# it from a ConfigMap. The apps use their image's own entrypoint.
+args: []
+extraVolumes: []
+extraVolumeMounts: []
+
+# Secrets never appear here. External Secrets Operator (task 2.6) projects an AWS Secrets Manager
+# entry into a Kubernetes Secret, and the Deployment consumes it with envFrom. `secretName` is that
+# Kubernetes Secret; `remoteRef` is what task 2.6 fills in.
+externalSecrets:
+  enabled: true
+  secretStoreRef: aws-secrets-manager
+  refreshInterval: 1h
+  # secretName defaults to <release>-env
+  secretName: ''
+  remoteKeys: [] # e.g. [{ key: dev/platform/database/app }]
+
+serviceAccount:
+  create: true
+  # IRSA: filled from the Terraform output when an app needs AWS access (S3 media, for example).
+  roleArn: ''
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false # Next.js writes a cache; core writes nothing but is not worth splitting
+  capabilities:
+    drop: ['ALL']
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

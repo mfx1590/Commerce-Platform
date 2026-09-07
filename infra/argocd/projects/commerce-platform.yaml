@@ -1,0 +1,39 @@
+# The AppProject is the blast radius. ArgoCD can otherwise deploy anything from anywhere into any
+# namespace, and an "app of apps" makes that reach one commit away — so the sources, destinations
+# and cluster-scoped kinds are all listed explicitly rather than left at `*`.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: commerce-platform
+  namespace: argocd
+spec:
+  description: Commerce platform applications, one namespace per environment.
+  sourceRepos:
+    - https://github.com/mfx1590/Commerce-Platform.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: commerce-dev
+    - server: https://kubernetes.default.svc
+      namespace: commerce-staging
+  # Applications deploy namespaced objects only. Anything cluster-scoped (a ClusterSecretStore, a
+  # CRD, an IngressClass) is infrastructure and belongs to Terraform or the bootstrap, not to a sync.
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ServiceAccount
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: apps
+      kind: Deployment
+    - group: batch
+      kind: Job
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: external-secrets.io
+      kind: ExternalSecret

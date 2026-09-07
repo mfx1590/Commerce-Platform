@@ -1,0 +1,44 @@
+# storefront in dev. See infra/README.md "Helm" for how these files are used.
+#
+# Nothing secret belongs here: credentials reach the pod through the ExternalSecret below,
+# which names a key in AWS Secrets Manager and never carries a value. Hostnames use the same
+# <sub>.<env>.example.com placeholder as ingress.host and are substituted by the deploy.
+
+image:
+  # From the terraform output `ecr_repository_urls`. The account id differs per
+  # environment, so the deploy workflow overrides this with --set rather than
+  # committing an account number.
+  repository: REPLACED_BY_DEPLOY/dev/commerce-platform/storefront
+  # A git sha, always. The placeholder is what `helm template` renders in CI; the chart
+  # refuses `latest`, because a moving tag means the cluster and the repo disagree.
+  tag: '0000000000000000000000000000000000000000'
+
+replicaCount: 1
+
+service:
+  port: 80
+  targetPort: 3100
+  healthPath: /health
+
+ingress:
+  enabled: true
+  className: alb
+  host: shop.dev.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+
+# Non-secret configuration, names exactly as in .env.example. Without this an app falls
+# back to its localhost defaults, which inside a pod means itself.
+env:
+  KEYCLOAK_URL: 'https://auth.dev.example.com'
+  KEYCLOAK_REALM_STAFF: 'staff'
+  KEYCLOAK_REALM_CUSTOMERS: 'customers'
+  STORE_API_URL: 'https://api.dev.example.com'
+  STORE_PUBLISHABLE_KEY: 'pk_brand-a_dev_00000000000000000000'
+
+externalSecrets:
+  enabled: true
+  remoteKeys:
+    - key: dev/platform/app
