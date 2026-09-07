@@ -15,6 +15,7 @@ env:
   DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5432/platform
 
 jobs:
+  # scripts/check-ownership.sh is owned by the main window and stays the first job.
   ownership:
     name: ownership check
     runs-on: ubuntu-latest
@@ -29,26 +30,76 @@ jobs:
       - name: check branch writes only its owned paths
         run: bash scripts/check-ownership.sh
 
+  # One place that answers "what did this PR touch", replacing the per-job `git diff` filters that
+  # tasks 2.1 and 2.2 each added inline.
+  #
+  # The jobs below always RUN and skip their expensive steps, rather than being skipped wholesale
+  # with a job-level `if`. A skipped job reports a different conclusion to branch protection than a
+  # successful one, and required checks are far easier to reason about when every job always reports
+  # success. The cost is a few seconds of runner startup per job; the saving is the pnpm install,
+  # the test run and the image build.
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      images: ${{ steps.filter.outputs.images }}
+      terraform: ${{ steps.filter.outputs.terraform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The classifier lives in infra/ci/changes.sh with its own self-test, so the rules are
+      # testable instead of buried in YAML. Same arrangement as scripts/check-ownership.sh.
+      - name: self-test the classifier
+        run: bash infra/ci/changes.test.sh
+      - id: filter
+        run: |
+          if [ "${{ github.event_name }}" != 'pull_request' ]; then
+            CHANGES_ALL=1 bash infra/ci/changes.sh
+          else
+            bash infra/ci/changes.sh '${{ github.event.pull_request.base.sha }}'
+          fi
+
   lint-typecheck:
     name: lint + typecheck
     runs-on: ubuntu-latest
+    needs: [changes]
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+      # setup-node already caches the pnpm store. This caches turbo's task output, so an unchanged
+      # package skips its build/typecheck entirely instead of redoing it.
+      - uses: actions/cache@v4
+        if: needs.changes.outputs.code == 'true'
+        with:
+          path: .turbo
+          key: turbo-lint-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-lint-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.code == 'true'
       - run: pnpm lint
+        if: needs.changes.outputs.code == 'true'
       - run: pnpm format:check
+        if: needs.changes.outputs.code == 'true'
       - run: pnpm typecheck
+        if: needs.changes.outputs.code == 'true'
       - name: generated files are current (events + contracts)
+        if: needs.changes.outputs.code == 'true'
         run: git diff --exit-code -- packages/events/src/generated packages/contracts/src/generated
 
   unit:
     name: unit tests (with Postgres, RLS)
     runs-on: ubuntu-latest
+    needs: [changes]
     services:
       postgres:
         image: postgres:16-alpine
@@ -62,62 +113,117 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+      - uses: actions/cache@v4
+        if: needs.changes.outputs.code == 'true'
+        with:
+          path: .turbo
+          key: turbo-unit-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-unit-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.code == 'true'
       - run: pnpm test
+        if: needs.changes.outputs.code == 'true'
       - name: migrate + seed against a fresh database (smoke)
+        if: needs.changes.outputs.code == 'true'
         run: pnpm db:migrate && pnpm db:seed
 
   contract:
     name: contract tests (Prism)
     runs-on: ubuntu-latest
+    needs: [changes]
     steps:
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.code == 'true'
       - uses: actions/setup-node@v4
+        if: needs.changes.outputs.code == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+      - uses: actions/cache@v4
+        if: needs.changes.outputs.code == 'true'
+        with:
+          path: .turbo
+          key: turbo-contract-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-contract-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.code == 'true'
       - run: pnpm test:contract
+        if: needs.changes.outputs.code == 'true'
 
   images:
     name: app images (build only, no push)
     runs-on: ubuntu-latest
+    needs: [changes]
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      # Path filter, inline until window 5 task 2.4 generalises filters across every job.
-      - name: does this PR touch the image inputs?
-        id: scope
-        run: |
-          if [ "${{ github.event_name }}" != 'pull_request' ]; then
-            echo 'build=true' >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          changed="$(git diff --name-only '${{ github.event.pull_request.base.sha }}...HEAD')"
-          if printf '%s\n' "$changed" | grep -Eq '^(apps/|packages/|infra/docker/|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig\.base\.json|\.github/workflows/ci\.yml)'; then
-            echo 'build=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'build=false' >> "$GITHUB_OUTPUT"
-            echo 'No app, package or image input changed — skipping the image build.'
-          fi
+        if: needs.changes.outputs.images == 'true'
       - uses: docker/setup-buildx-action@v3
-        if: steps.scope.outputs.build == 'true'
-      - name: build every app image
-        if: steps.scope.outputs.build == 'true'
+        if: needs.changes.outputs.images == 'true'
+      # bake, not `docker compose build`: the GitHub Actions cache backend needs
+      # ACTIONS_RUNTIME_TOKEN and ACTIONS_CACHE_URL, which are available to an action but not to a
+      # plain `run:` step. docker-compose.build.yml still defines every image; docker-bake.hcl only
+      # adds the cache wiring. See the comments in that file.
+      # workdir matters: bake resolves a target's `context` relative to the working directory, not to
+      # the file that declares it, so `context: ../..` only means the repo root when bake runs from
+      # infra/docker. (`docker compose build` resolves it relative to the compose file, which is why
+      # the local command needs no equivalent.) `bake --print` does not resolve contexts at all, so
+      # it cannot catch this — only a real build can.
+      - name: build every app image (cached, no push)
+        if: needs.changes.outputs.images == 'true'
+        uses: docker/bake-action@v5
         env:
           IMAGE_TAG: ${{ github.sha }}
-        run: docker compose -f infra/docker/docker-compose.build.yml build
-      - name: smoke — non-root, HEALTHCHECK healthy, /health answers
-        if: steps.scope.outputs.build == 'true'
+          # Pull requests read the build cache; only pushes to main write it. Exporting cost more
+          # than the build saved — see the CACHE_TO comment in infra/docker/docker-bake.hcl.
+          CACHE_TO: ${{ github.event_name == 'push' && '1' || '' }}
+        with:
+          workdir: infra/docker
+          files: |
+            docker-compose.build.yml
+            docker-bake.hcl
+          load: true
+          push: false
+      # The COPY list in each Dockerfile's `deps` stage is what makes the install layer cacheable;
+      # this fails the build if a workspace package was added or removed without updating it.
+      - name: the image manifest lists are complete
+        if: needs.changes.outputs.images == 'true'
+        run: bash infra/ci/check-image-manifests.sh
+      - name: smoke — non-root, build output present, scaffolds healthy
+        if: needs.changes.outputs.images == 'true'
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: bash infra/docker/smoke-images.sh
+
+  terraform:
+    name: terraform fmt + validate
+    runs-on: ubuntu-latest
+    needs: [changes]
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.terraform == 'true'
+      - uses: hashicorp/setup-terraform@v3
+        if: needs.changes.outputs.terraform == 'true'
+        with:
+          terraform_version: 1.13.0
+          terraform_wrapper: false
+      # fmt -check, then init -backend=false + validate for dev and staging.
+      # No AWS account, no credentials and no state are involved; `terraform plan` stays a manual
+      # step in the runbook until the owner provides an account.
+      - name: fmt + validate (dev and staging)
+        if: needs.changes.outputs.terraform == 'true'
+        run: bash infra/terraform/check.sh
 
   preview:
     name: preview deploy (placeholder)

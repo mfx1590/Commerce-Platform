@@ -37,6 +37,8 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
   importing chrome directly.
 - `src/lib/catalog.ts` — tagged catalog reads and listing query parsing; `src/lib/variant.ts` — the
   pure option → variant resolver.
+- `src/lib/auth/` — OIDC PKCE against the Keycloak customers realm, and the session cookie.
+  `src/lib/account-actions.ts` — profile and address mutations.
 - `src/lib/actions.ts` — every mutation, as server actions. `src/lib/checkout.ts` holds the pure
   checkout rules (step order, address parsing, error mapping); `src/lib/cart.ts` and
   `src/lib/idempotency.ts` own the cookies.
@@ -50,4 +52,6 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
 - No secrets in code. No PII in logs. Every DB access through `@platform/db` tenant client.
 - No business logic here: pricing, stock, tax and promotions come from the core (ADR 0004).
 - Card data never touches the app — hosted fields only (window 7 in Phase 2).
+- Customer tokens live in an httpOnly cookie and go only to `/store/customers/*` and `/store/orders/{id}`.
+- `start` must honour `$PORT` and `GET /health` must answer 200 (image contract, infra/README.md).
 - Update README.md and CHANGELOG.md with every change.
