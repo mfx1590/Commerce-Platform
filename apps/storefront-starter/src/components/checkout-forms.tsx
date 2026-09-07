@@ -1,6 +1,7 @@
 'use client';
 
 import { Badge, Button, Input, Price, Select, cn } from '@platform/ui';
+import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import {
@@ -19,6 +20,12 @@ import type { Address, Cart, ShippingOption } from '@/lib/store-api';
  */
 
 const EMPTY: ActionState = {};
+
+/**
+ * The contract's payment provider id (`PaymentSession.provider`), not copy: an identifier is the
+ * same in every language, so it is a constant rather than a catalogue entry.
+ */
+const PAYMENT_PROVIDER = 'manual';
 
 function SubmitButton({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus();
@@ -75,6 +82,7 @@ function Field({
 
 export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCountry: string }) {
   const [state, formAction] = useActionState(saveAddressAction, EMPTY);
+  const t = useTranslations('checkout.address');
   const address: Partial<Address> = cart.shipping_address ?? {};
   const errors = state.fieldErrors;
 
@@ -83,7 +91,7 @@ export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCount
       <ErrorNote state={state} />
       <Field
         name="email"
-        label="Email"
+        label={t('email')}
         type="email"
         autoComplete="email"
         errors={errors}
@@ -92,14 +100,14 @@ export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCount
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
           name="first_name"
-          label="First name"
+          label={t('firstName')}
           autoComplete="given-name"
           errors={errors}
           defaultValue={address.first_name}
         />
         <Field
           name="last_name"
-          label="Last name"
+          label={t('lastName')}
           autoComplete="family-name"
           errors={errors}
           defaultValue={address.last_name}
@@ -107,21 +115,21 @@ export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCount
       </div>
       <Field
         name="company"
-        label="Company (optional)"
+        label={t('company')}
         autoComplete="organization"
         errors={errors}
         defaultValue={address.company ?? ''}
       />
       <Field
         name="line1"
-        label="Address"
+        label={t('line1')}
         autoComplete="address-line1"
         errors={errors}
         defaultValue={address.line1}
       />
       <Field
         name="line2"
-        label="Apartment, suite (optional)"
+        label={t('line2')}
         autoComplete="address-line2"
         errors={errors}
         defaultValue={address.line2 ?? ''}
@@ -129,21 +137,21 @@ export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCount
       <div className="grid gap-4 sm:grid-cols-3">
         <Field
           name="postal_code"
-          label="Postal code"
+          label={t('postalCode')}
           autoComplete="postal-code"
           errors={errors}
           defaultValue={address.postal_code}
         />
         <Field
           name="city"
-          label="City"
+          label={t('city')}
           autoComplete="address-level2"
           errors={errors}
           defaultValue={address.city}
         />
         <Field
           name="region"
-          label="Region (optional)"
+          label={t('region')}
           autoComplete="address-level1"
           errors={errors}
           defaultValue={address.region ?? ''}
@@ -152,7 +160,7 @@ export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCount
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
           name="country"
-          label="Country code"
+          label={t('country')}
           autoComplete="country"
           maxLength={2}
           errors={errors}
@@ -160,14 +168,14 @@ export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCount
         />
         <Field
           name="phone"
-          label="Phone (optional)"
+          label={t('phone')}
           type="tel"
           autoComplete="tel"
           errors={errors}
           defaultValue={address.phone ?? ''}
         />
       </div>
-      <SubmitButton>Continue to delivery</SubmitButton>
+      <SubmitButton>{t('submit')}</SubmitButton>
     </form>
   );
 }
@@ -182,11 +190,12 @@ export function ShippingForm({
   locale: string;
 }) {
   const [state, formAction] = useActionState(saveShippingAction, EMPTY);
+  const t = useTranslations('checkout.shipping');
 
   if (options.length === 0) {
     return (
       <p role="alert" className="text-sm text-muted-foreground">
-        No delivery options are available for this address. Go back and check the address.
+        {t('none')}
       </p>
     );
   }
@@ -195,7 +204,7 @@ export function ShippingForm({
     <form action={formAction} className="flex flex-col gap-4">
       <ErrorNote state={state} />
       <fieldset className="flex flex-col gap-3">
-        <legend className="sr-only">Delivery option</legend>
+        <legend className="sr-only">{t('legend')}</legend>
         {options.map((option, index) => (
           <label
             key={option.id}
@@ -221,13 +230,14 @@ export function ShippingForm({
           </label>
         ))}
       </fieldset>
-      <SubmitButton>Continue to payment</SubmitButton>
+      <SubmitButton>{t('submit')}</SubmitButton>
     </form>
   );
 }
 
 export function PaymentForm({ failed }: { failed: boolean }) {
   const [state, formAction] = useActionState(createPaymentSessionAction, EMPTY);
+  const t = useTranslations('checkout.payment');
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -236,43 +246,38 @@ export function PaymentForm({ failed }: { failed: boolean }) {
           role="alert"
           className="rounded-md border border-destructive p-3 text-sm text-destructive"
         >
-          Payment was not authorised. Choose a payment method and try again.
+          {t('failed')}
         </p>
       ) : null}
       <ErrorNote state={state} />
 
       <div className="flex items-center justify-between rounded-lg border border-border p-4">
         <span className="flex flex-col">
-          <span className="font-medium">Pay on invoice</span>
-          <span className="text-sm text-muted-foreground">
-            Phase 1 placeholder — the <code>manual</code> provider. Card payment arrives with hosted
-            fields, so card data never reaches this app.
-          </span>
+          <span className="font-medium">{t('manual')}</span>
+          <span className="text-sm text-muted-foreground">{t('manualBody')}</span>
         </span>
-        <Badge variant="neutral">manual</Badge>
+        <Badge variant="neutral">{PAYMENT_PROVIDER}</Badge>
       </div>
 
       {/* Present so the payment method is an explicit choice, as it will be with real providers. */}
-      <Select name="provider" aria-label="Payment method" defaultValue="manual" disabled>
-        <option value="manual">Pay on invoice</option>
+      <Select name="provider" aria-label={t('method')} defaultValue={PAYMENT_PROVIDER} disabled>
+        <option value={PAYMENT_PROVIDER}>{t('manual')}</option>
       </Select>
 
-      <SubmitButton>Continue to review</SubmitButton>
+      <SubmitButton>{t('submit')}</SubmitButton>
     </form>
   );
 }
 
 export function PlaceOrderForm() {
   const [state, formAction] = useActionState(placeOrderAction, EMPTY);
+  const t = useTranslations('checkout.review');
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
       <ErrorNote state={state} />
-      <SubmitButton>Place order</SubmitButton>
-      <p className="text-sm text-muted-foreground">
-        Placing the order sends an idempotency key, so a retry after a network error cannot create a
-        second order.
-      </p>
+      <SubmitButton>{t('placeOrder')}</SubmitButton>
+      <p className="text-sm text-muted-foreground">{t('idempotencyNote')}</p>
     </form>
   );
 }

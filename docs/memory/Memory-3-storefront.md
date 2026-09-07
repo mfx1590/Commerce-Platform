@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.4 merged (#39, #64, #66), 1.5 in PR #76, then 1.6 i18n, 1.7 Playwright+Lighthouse, 1.8 (#62) UTM capture
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.5 merged (#39, #64, #66, #76), 1.6 in PR #96, then 1.7 Playwright+Lighthouse config, 1.8 (#62) UTM capture
 
 ## Identity (does not change)
 
@@ -73,6 +73,13 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       16 new unit tests → 89. **Also REQUEST #68:** `next.config.mjs`, `start` honours `$PORT`,
       new `GET /health`.
 
+- [x] **1.6 (#22) i18n (next-intl) + multi-currency** — commit `126ff6d`, PR #96.
+      Locale routing under `src/app/[locale]/` with next-intl 4; catalogues `en-GB`/`de-DE`;
+      `hreflang` + per-locale canonical; money formatted in the request locale; currency cookie
+      validated against `store.currencies` and fixed on the cart at creation; language/currency
+      switchers server-rendered. Route handlers (`/health`, `/auth/*`) stay outside the locale tree.
+      35 new unit tests → 124, plus two e2e specs; 8 Playwright specs green.
+
 ## In progress
 
 - (nothing — 1.4 next, after the 1.3 PR merges)
@@ -99,7 +106,6 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] 1.6 (#22) i18n `next-intl` + multi-currency: `/[locale]/…`, `hreflang`, cookies, defaults from `store.default_locale` / `default_currency`, no hard-coded strings in `(shop)`/`(checkout)`.
 - [ ] 1.7 (#23) Playwright smoke suite + `lighthouserc` budgets; CI job only via a `REQUEST:` issue (workflows belong to window 5 / main). Much of the suite already exists from 1.4/1.5 — 1.7 adds the budgets, the CI job YAML and `E2E_REQUIRE_KEYCLOAK=1`.
 - [ ] 1.8 (#62) UTM / referrer capture into `cart.metadata.attribution` (added by the manager 2026-09-07).
 
@@ -208,6 +214,28 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
   customer. Window 13 can revisit with a server-side session store — the session currently lives in
   the cookie and is therefore bounded by ~4 KB.
 
+- **Supported locales are build config, reconciled with the store at render.** Routing has to be
+  decided in middleware, before any API call, so `SUPPORTED_LOCALES` (default `en-GB,de-DE`) drives
+  the prefix and `assertStoreOffersLocale` 404s anything the store does not offer.
+- **`localePrefix: 'always'`** — one canonical URL shape, no duplicate content between `/products`
+  and `/en-GB/products`, and `hreflang` alternates that all look the same.
+- **The cart is created in the request locale and the chosen currency**, not the store defaults —
+  the contract fixes both at creation, so a `/de-DE` shopper paying in GBP must get a `de-DE`/`GBP`
+  cart. `country` stays the store's: it is the market, not a preference.
+- **Formatting follows the URL locale, not `store.default_locale`.** Using the store default meant
+  `/de-DE` rendered `€19.99`; the acceptance criterion is exactly this, and it was wrong until the
+  live check caught it.
+- **Anything derived from a cookie must be *read back* from the cookie, not re-derived from the
+  store.** The switcher and the footer showed `store.default_currency` while the cookie and the cart
+  held the customer's actual choice: every layer was individually correct and the UI still lied.
+  Review of #96 caught it; `test/currency-roundtrip.test.ts` now walks switcher → cookie → cart.
+- **Currency is a cookie, not a path segment.** The same URL priced in EUR or GBP is the same page,
+  so it does not belong in the URL; it is validated against `store.currencies` before use and fixed
+  on the cart at `POST /store/carts`, as the contract requires.
+- **Route handlers stay outside `[locale]`**: `/health` must answer the probe without a redirect and
+  `/auth/*` has a callback URL registered with Keycloak. Everything else redirects through
+  `redirectLocalized`.
+
 ## Blocked / waiting
 
 - Nothing blocking. 1.1 and 1.2 are merged; 1.3 is planned and waits only on the owner's go-ahead
@@ -220,6 +248,30 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **A conflicted branch means GitHub runs no CI at all** — PR #96 sat with zero checks, not failing
+  ones, because `pnpm-lock.yaml` conflicted with main. Merge main *before* asking for review, or the
+  greens being reported are from a stale commit. Resolve the lockfile with `git checkout --theirs
+  pnpm-lock.yaml && pnpm install`, never by hand.
+- Layout/component slots are React Server Components and one may be `async` (the footer reads a
+  cookie), which `ComponentType` cannot express — `src/lib/slots.ts` types them as
+  `(props) => ReactNode | Promise<ReactNode>`.
+- The app's `tsconfig` sets `jsx: preserve` for Next, so Vitest needs `esbuild: { jsx: 'automatic' }`
+  or importing a component in a test fails with "React is not defined".
+- An async server component can be tested by calling it directly and walking the returned element
+  tree — no DOM, no RSC renderer. That is how the switcher's selected value is covered.
+
+- **next-intl logs `MISSING_MESSAGE` and renders the key name — it does not throw.** A typo ships as
+  visible rubbish and every end-to-end assertion still passes; `checkout.confirmation.deliveryAddress`
+  did exactly that. `test/i18n.test.ts` now resolves every `t('...')` call against the catalogue, and
+  the check was verified by deleting a key and watching it fail.
+- `redirect()` from `next/navigation` drops the locale prefix and lands on a route that does not
+  exist. Use `redirectLocalized`, and **`return`** it: `await` does not narrow control flow, so TS
+  reports "function lacks ending return statement" and the code after it stays reachable.
+- Vitest cannot resolve next-intl's own `next/navigation` import from inside pnpm's isolated store;
+  `test.server.deps.inline: ['next-intl']` makes Vite resolve it from the app.
+- Moving pages under `[locale]` means the root layout moves too — `<html lang>` has to be the locale
+  being rendered, so `app/layout.tsx` is deleted and `app/[locale]/layout.tsx` is the root.
 
 - The realm seeds Jane's username as **`jane@example.com`**, not `jane` as issue #21 says; the
   password is `jane`. Keycloak's login page needs `#username` / `#password` locators — a
@@ -322,7 +374,7 @@ pnpm --filter @platform/ui build       # dist/ (the app's Tailwind scan needs it
 # storefront (needs the kit and contracts built once: pnpm --filter @platform/contracts build)
 pnpm mock                                          # Prism Store API on :4010
 pnpm --filter @platform/storefront-starter dev     # :3100
-pnpm --filter @platform/storefront-starter test    # 89 tests
+pnpm --filter @platform/storefront-starter test    # 124 tests
 pnpm --filter @platform/storefront-starter e2e     # Playwright, starts mock + prod build itself
 pnpm --filter @platform/storefront-starter typecheck
 pnpm --filter @platform/storefront-starter build   # next build, works offline

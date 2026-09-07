@@ -10,12 +10,8 @@ import { isStoreApiError } from './store-api';
 export const CHECKOUT_STEPS = ['address', 'shipping', 'payment', 'review'] as const;
 export type CheckoutStep = (typeof CHECKOUT_STEPS)[number];
 
-export const STEP_LABELS: Record<CheckoutStep, string> = {
-  address: 'Address',
-  shipping: 'Delivery',
-  payment: 'Payment',
-  review: 'Review',
-};
+// Step labels live in the message catalogues (`checkout.steps.*`), not here: this module is pure
+// logic and must not hold display text.
 
 export function stepPath(step: CheckoutStep): string {
   return `/checkout/${step}`;

@@ -1,7 +1,7 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
+import { redirectLocalized } from './navigate';
 import { clearCart, getCart, getOrCreateCart } from './cart';
 import { mapCheckoutError, parseAddressForm, stepPath } from './checkout';
 import { checkoutIdempotencyKey, clearIdempotencyKey } from './idempotency';
@@ -61,7 +61,7 @@ export async function addToCartAction(
         : { availableQuantity: mapped.availableQuantity }),
     };
   }
-  redirect('/cart');
+  return redirectLocalized('/cart');
 }
 
 export async function updateLineItemAction(
@@ -123,7 +123,7 @@ export async function saveAddressAction(
   } catch (error) {
     return { error: mapCheckoutError(error).message };
   }
-  redirect(stepPath('shipping'));
+  return redirectLocalized(stepPath('shipping'));
 }
 
 export async function saveShippingAction(
@@ -141,7 +141,7 @@ export async function saveShippingAction(
   } catch (error) {
     return { error: mapCheckoutError(error).message };
   }
-  redirect(stepPath('payment'));
+  return redirectLocalized(stepPath('payment'));
 }
 
 /**
@@ -161,7 +161,7 @@ export async function createPaymentSessionAction(
   } catch (error) {
     return { error: mapCheckoutError(error).message };
   }
-  redirect(stepPath('review'));
+  return redirectLocalized(stepPath('review'));
 }
 
 export async function placeOrderAction(
@@ -200,9 +200,11 @@ export async function placeOrderAction(
     if (mapped.orderId !== undefined) {
       await clearCart();
       await clearIdempotencyKey();
-      redirect(`/orders/${mapped.orderId}`);
+      return redirectLocalized(`/orders/${mapped.orderId}`);
     }
-    if (mapped.step !== undefined) redirect(`${stepPath(mapped.step)}?error=${mapped.code}`);
+    if (mapped.step !== undefined) {
+      return redirectLocalized(`${stepPath(mapped.step)}?error=${mapped.code}`);
+    }
     return {
       error: mapped.message,
       ...(mapped.availableQuantity === undefined
@@ -210,5 +212,5 @@ export async function placeOrderAction(
         : { availableQuantity: mapped.availableQuantity }),
     };
   }
-  redirect(`/orders/${orderId}`);
+  return redirectLocalized(`/orders/${orderId}`);
 }

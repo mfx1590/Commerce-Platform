@@ -62,40 +62,40 @@ async function signIn(page: Page): Promise<void> {
 test('an unauthenticated visitor is sent to sign-in and back to the page they asked for', async ({
   page,
 }) => {
-  await page.goto('/account/orders');
+  await page.goto('/en-GB/account/orders');
 
   // Off to Keycloak, carrying no session of ours.
   await expect(page).toHaveURL(new RegExp(`^${KEYCLOAK_URL}/realms/${REALM}/`));
   await signIn(page);
 
   // ...and back to the order history, not to a generic account home.
-  await expect(page).toHaveURL(/\/account\/orders$/);
+  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Order history' })).toBeVisible();
 });
 
 test('order history lists the seeded order with its price', async ({ page }) => {
-  await page.goto('/account');
+  await page.goto('/en-GB/account');
   await signIn(page);
 
-  await expect(page).toHaveURL(/\/account$/);
+  await expect(page).toHaveURL(/\/en-GB\/account$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
   await expect(page.getByText('jane@example.com')).toBeVisible();
 
   await page.getByRole('link', { name: 'Order history' }).click();
-  await expect(page).toHaveURL(/\/account\/orders$/);
+  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/);
 
   await expect(page.getByRole('link', { name: /Order #1000/ })).toBeVisible();
   await expect(page.getByTestId('price-value').first()).toBeVisible();
 });
 
 test('signing out drops the session', async ({ page }) => {
-  await page.goto('/account');
+  await page.goto('/en-GB/account');
   await signIn(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Sign out' }).click();
 
   // Back on the storefront, and the account area asks for sign-in again.
-  await page.goto('/account');
+  await page.goto('/en-GB/account');
   await expect(page).toHaveURL(new RegExp(`^${KEYCLOAK_URL}/realms/${REALM}/`));
 });

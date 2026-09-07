@@ -1,5 +1,33 @@
 # Changelog — @platform/storefront-starter
 
+## 0.6.0 — 2026-09-07
+
+Task [storefront] 1.6 (issue #22), contracts `0.2.0`.
+
+Review fixes from PR #96: the currency switcher and the footer read the chosen currency from the
+cookie rather than `store.default_currency` (they snapped back to the default on every render while
+the cookie and cart stayed correct), and the cart is created in the **request** locale, so a
+`/de-DE` shopper no longer gets an `en-GB` cart. `test/currency-roundtrip.test.ts` walks the whole
+path — switcher → cookie → `POST /store/carts` — and was verified by reintroducing both bugs.
+
+- Locale routing with **next-intl 4**: every page moves under `src/app/[locale]/`, `/` redirects to
+  the default locale, and the choice is remembered in a cookie. Message catalogues for `en-GB` and
+  `de-DE`; supported locales are build config (`SUPPORTED_LOCALES`) validated at render against
+  `store.locales` — a locale the store does not offer is a 404, not a half-translated page.
+- `hreflang` alternates and a per-locale canonical.
+- Money and dates format in the **request** locale, not the store default: `/de-DE` prices read
+  `19,99 €` where `/en-GB` reads `€19.99`.
+- Currency selection limited to `store.currencies`, kept in a cookie and validated before use;
+  `POST /store/carts` is created in the chosen currency. Language and currency switchers in the
+  shop header, both server-rendered and JavaScript-free.
+- The route handlers (`/health`, `/auth/{sign-in,callback,sign-out}`) deliberately stay outside the
+  locale tree: the probe must not redirect and the OIDC callback URL is registered with Keycloak.
+  In-app redirects go through `redirectLocalized` so they keep the prefix.
+- Tests: catalogue parity, placeholder parity, an untranslated-copy check, currency resolution,
+  a **key-existence check** (next-intl only logs `MISSING_MESSAGE`, so a typo would otherwise ship
+  as visible rubbish), and the no-hard-coded-strings check the acceptance criteria ask for.
+  35 new unit tests (124 in total) plus two Playwright specs for the German page and the alternates.
+
 ## 0.5.0 — 2026-09-06
 
 Task [storefront] 1.5 (issue #21) and REQUEST #68, contracts `0.2.0`.
