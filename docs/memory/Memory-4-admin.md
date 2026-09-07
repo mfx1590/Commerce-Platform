@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.5 merged; 1.6 in review (PR #78); 1.7 and 1.8 queued behind it — **Phase 1 complete**
+Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: `pending` (this memory commit; the work it describes is `f83e36e` and earlier) · Status: 1.1–1.5 merged; 1.6 in review (PR #78); 1.7 and 1.8 committed locally, queued behind it — **Phase 1 complete**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -183,18 +183,20 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- Nothing. **Phase 1's Next list is complete.** Two PRs are queued behind #78 (one open PR per
-  branch): 1.7 (#30) then 1.8 (#63).
+- **Nothing is half-done.** Phase 1's Next list is complete; the working tree is clean and every
+  check is green (lint, format:check, typecheck, 302 unit + 6 contract tests, ownership).
+- **Exact next step when the window reopens:** check whether the manager merged **PR #78** (1.6 +
+  REQUEST #68). If merged → `git pull`, then `git push` and open the **1.7 PR** (#30) against `main`,
+  citing `test/role-access.test.ts` and the Playwright journey; when that merges, open the **1.8 PR**
+  (#63). One open PR per branch — never stack branches.
+- **Six local commits are queued** on `admin/phase1` ahead of `origin`:
+  `09522a2` 1.7 · `6e854bd` sha · `422a7fb` 1.8 · `61f3266` sha · `e9545ba` e2e `$PORT` + REQUEST #82
+  · `f83e36e` sha correction.
+- Files to open first next time: `docs/memory/Memory-4-admin.md`, then whatever the manager's review
+  of #78 asks for. No file is mid-edit.
 - Outstanding, not blocking: the Playwright journey has never been executed — it needs port 3000,
-  which an unrelated project holds. REQUEST #82 (a second registered redirect URI) unblocks
-  running it on 3200; REQUEST #80 covers its CI job.
-
-<!-- superseded -->
-- Previously: waiting for the manager to merge PR #67 (BLOCK items addressed in
-  `a1b297a`). When it merges: push 1.6 and open its PR. Then 1.7 (#30) is the last Phase 1 task —
-  the per-role test matrix largely exists in `test/navigation.test.ts`, so what is left is the
-  Playwright store-admin journey against `pnpm mock` and a `REQUEST:` issue for its CI job, since
-  `.github/workflows/**` is not this window's.
+  which an unrelated project holds. **REQUEST #82** (register `http://localhost:3200/*` on the dev
+  realm) unblocks running it on 3200; **REQUEST #80** covers its CI job.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
@@ -207,6 +209,11 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [x] 1.8 Reserve the Marketing section — #63 (queued behind 1.7)
 
 ## Decisions made (with reasons)
+- **`pnpm dev --reset` is not used to refresh the staff realm.** It is `docker compose down -v`,
+  which also wipes Postgres, OpenFGA and Redpanda — the other windows' migrated and seeded data,
+  while they are building. `node infra/keycloak/reimport.mjs staff` plus a Keycloak-only restart
+  achieves the same thing for the realm and touches nothing else. Verified twice that the running
+  realm then matches the repo JSON exactly.
 - **`ApiStatePanel` dispatches; screens do not branch on status.** One dispatcher is what makes the
   pattern one pattern — a 401 in a data-table looks like a 401 on a detail page because it is the
   same component, not because two places happen to agree.
@@ -339,6 +346,18 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **A `cat > file` with no heredoc hangs forever waiting on stdin, and takes the rest of the `&&`
+  chain with it.** One did, for hours. Worse, killing the stranded process let the chain *resume*:
+  it re-ran `python docs7.py` (duplicating a CHANGELOG section) and `gh issue create` (filing #83, a
+  duplicate of #80, since closed). Two lessons: never leave a bare `cat >` in a chain, and after any
+  hung-then-killed command, check `git status` **and** whatever side effects the tail would have had.
+- **Restacking rewrites shas, so the sha-recording commits go stale.** Every unstack/restack round
+  (reset to origin → fix → push → rebase the held work back on) rewrites the held commits, and the
+  memory entries that name them then point at commits that no longer exist. Re-grep the file for the
+  old shas after every rebase.
+- When resolving a rebase conflict in this memory file, take the *incoming* version (`--theirs`,
+  which carries the newer task entry) and re-apply the corrections by script — the file is edited by
+  nearly every commit, so it conflicts on nearly every rebase.
 - **The Playwright journey cannot run while another process holds port 3000.** `admin-app` registers
   `http://localhost:3000/*` as its only redirect URI, so Keycloak sends the callback there whatever
   port the app listens on — moving `$PORT` alone does not help. `playwright.config.ts` honours
