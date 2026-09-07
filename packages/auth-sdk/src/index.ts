@@ -55,3 +55,8 @@ export {
   SCOPE_CACHE_MAX_TTL_MS,
 } from './scope/resolve.js';
 export type { StaffScope, ResolveScopeInput } from './scope/resolve.js';
+
+// Audit log: PII redaction and the read side of GET /admin/audit-log.
+export { redactPii, PII_FIELDS, REDACTED } from './audit/redact.js';
+export { listAuditLog } from './audit/read.js';
+export type { AuditLogFilters, AuditLogEntry, AuditLogPage } from './audit/read.js';
