@@ -8,25 +8,27 @@
 #   CHANGES_ALL=1 infra/ci/changes.sh     # everything runs (pushes to main)
 #   CHANGED_FILES=$'a\nb' infra/ci/changes.sh   # test mode, no git needed
 #
-# Writes `code=…`, `images=…`, `terraform=…` to stdout, and to $GITHUB_OUTPUT when it is set.
+# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…` to stdout, and to $GITHUB_OUTPUT when set.
 #
 # Groups:
 #   code       lint, typecheck, format, unit tests, contract tests
 #   images     the app images and their smoke test
 #   terraform  terraform fmt/validate, and the Kubernetes manifests that go with it
+#   e2e        the live auth suites and the Playwright journeys — anything `code` covers, plus the
+#              realms and authorization model those suites run against
 set -euo pipefail
 
 emit() {
-  printf 'code=%s\nimages=%s\nterraform=%s\n' "$1" "$2" "$3"
+  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\n' "$1" "$2" "$3" "$4"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf 'code=%s\nimages=%s\nterraform=%s\n' "$1" "$2" "$3" >> "$GITHUB_OUTPUT"
+    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\n' "$1" "$2" "$3" "$4" >> "$GITHUB_OUTPUT"
   fi
 }
 
 # A push to main is never a partial build.
 if [ -n "${CHANGES_ALL:-}" ]; then
   echo 'changes: CHANGES_ALL set — every group runs' >&2
-  emit true true true
+  emit true true true true
   exit 0
 fi
 
@@ -51,16 +53,23 @@ match() { printf '%s\n' "$changed" | grep -Eq "$1"; }
 # pipeline should be exercised by the whole pipeline.
 ROOT_FILES='^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.dockerignore|\.github/workflows/ci\.yml)$'
 
+# infra/ci/*.sh ARE the pipeline: changes.sh decides what runs, check-image-manifests.sh gates the
+# image build, wait-for-auth-stack.sh and run-e2e.sh are the e2e job. A change to any of them has to
+# be exercised by the jobs that use it, or it ships untested.
+CI_SCRIPTS='^infra/ci/'
+
 code=false
 images=false
 terraform=false
+e2e=false
 
 if match '^(apps/|packages/|scripts/|cms/|data/)' || match "$ROOT_FILES"; then code=true; fi
-if match '^(apps/|packages/|infra/docker/)' || match "$ROOT_FILES"; then images=true; fi
+if match '^(apps/|packages/|infra/docker/)' || match "$ROOT_FILES" || match "$CI_SCRIPTS"; then images=true; fi
 if match '^(infra/terraform/|infra/kubernetes/)' || match '^\.github/workflows/ci\.yml$'; then terraform=true; fi
+if [ "$code" = true ] || match '^(infra/keycloak/|infra/openfga/|infra/docker/)' || match "$CI_SCRIPTS"; then e2e=true; fi
 
-if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ]; then
+if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ] && [ "$e2e" = false ]; then
   echo 'changes: documentation-only change — the heavy jobs will no-op' >&2
 fi
 
-emit "$code" "$images" "$terraform"
+emit "$code" "$images" "$terraform" "$e2e"

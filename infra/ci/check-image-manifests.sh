@@ -15,9 +15,24 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-# The workspace globs in pnpm-workspace.yaml are packages/*, apps/* and apps/storefronts/*.
+# Ask pnpm which packages exist rather than searching the tree for package.json files. A `find`
+# also turns up build output — apps/storefront-starter/.next/package.json is written by `next build`
+# and made this check fail on any machine that had run a build. A denylist of build directories
+# would just rot the next time a tool invents one; pnpm's own workspace list cannot.
 mapfile -t expected < <(
-  find apps packages -mindepth 2 -maxdepth 3 -name package.json -not -path '*/node_modules/*' | sort
+  pnpm -r list --depth -1 --json 2>/dev/null |
+    node -e '
+      const slash = (p) => p.split("\\").join("/");
+      let s = "";
+      process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        const root = slash(process.cwd());
+        for (const p of JSON.parse(s)) {
+          const dir = slash(p.path);
+          if (dir === root) continue; // the workspace root is not an app or a package
+          console.log(dir.slice(root.length + 1) + "/package.json");
+        }
+      });
+    ' | sort
 )
 
 if [ "${#expected[@]}" -eq 0 ]; then

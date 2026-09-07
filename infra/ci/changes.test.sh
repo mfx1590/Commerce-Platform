@@ -26,30 +26,37 @@ check() {
   fi
 }
 
-NONE='code=false images=false terraform=false'
-CODE_IMG='code=true images=true terraform=false'
+NONE='code=false images=false terraform=false e2e=false'
+CODE_IMG='code=true images=true terraform=false e2e=true'
+IMG_E2E='code=false images=true terraform=false e2e=true'
 
 check 'docs only'           $'docs/memory/Memory-5-infra.md\ndocs/ownership.md'  "$NONE"
 check 'a single README'     'README.md'                                         "$NONE"
 check 'infra README only'   'infra/README.md'                                   "$NONE"
-check 'a keycloak realm'    'infra/keycloak/staff-realm.json'                   "$NONE"
 check 'app source'          'apps/core/src/http/store-routes.ts'                "$CODE_IMG"
 check 'a package'           'packages/db/migrations/0010_x.sql'                 "$CODE_IMG"
 check 'a Dockerfile'        'apps/core/Dockerfile'                              "$CODE_IMG"
 check 'the lockfile'        'pnpm-lock.yaml'                                    "$CODE_IMG"
 check 'the .dockerignore'   '.dockerignore'                                     "$CODE_IMG"
 check 'mixed docs + app'    $'docs/x.md\napps/admin/src/page.tsx'               "$CODE_IMG"
-check 'compose build file'  'infra/docker/docker-compose.build.yml'             'code=false images=true terraform=false'
-check 'the bake overlay'    'infra/docker/docker-bake.hcl'                      'code=false images=true terraform=false'
-check 'terraform'           'infra/terraform/modules/network/main.tf'           'code=false images=false terraform=true'
-check 'the bootstrap job'   'infra/kubernetes/bootstrap-db/job.yaml'            'code=false images=false terraform=true'
-check 'a root script'       'scripts/dev.mjs'                                   'code=true images=false terraform=false'
-check 'the workflow itself' '.github/workflows/ci.yml'                          'code=true images=true terraform=true'
+check 'compose build file'  'infra/docker/docker-compose.build.yml'             "$IMG_E2E"
+check 'the bake overlay'    'infra/docker/docker-bake.hcl'                      "$IMG_E2E"
+check 'terraform'           'infra/terraform/modules/network/main.tf'           'code=false images=false terraform=true e2e=false'
+check 'the bootstrap job'   'infra/kubernetes/bootstrap-db/job.yaml'            'code=false images=false terraform=true e2e=false'
+check 'a root script'       'scripts/dev.mjs'                                   'code=true images=false terraform=false e2e=true'
+check 'the workflow itself' '.github/workflows/ci.yml'                          'code=true images=true terraform=true e2e=true'
+# infra/ci/*.sh are the pipeline itself: a change to them must be exercised by the jobs that use them.
+check 'the classifier'      'infra/ci/changes.sh'                               "$IMG_E2E"
+check 'the manifest guard'  'infra/ci/check-image-manifests.sh'                 "$IMG_E2E"
+check 'the e2e runner'      'infra/ci/run-e2e.sh'                               "$IMG_E2E"
+# The realms and the authorization model are what the live auth suites run against.
+check 'a keycloak realm'    'infra/keycloak/staff-realm.json'                   'code=false images=false terraform=false e2e=true'
+check 'the openfga model'   'infra/openfga/model.fga'                           'code=false images=false terraform=false e2e=true'
 
 # CHANGES_ALL wins over everything: a push to main runs the lot.
 got="$(CHANGES_ALL=1 CHANGED_FILES='docs/x.md' bash "$SUT" 2>/dev/null | tr '\n' ' ')"
 got="${got% }"
-if [ "$got" = 'code=true images=true terraform=true' ]; then
+if [ "$got" = 'code=true images=true terraform=true e2e=true' ]; then
   printf 'ok   %-34s %s\n' 'CHANGES_ALL overrides' "$got"
 else
   printf 'FAIL %-34s got [%s]\n' 'CHANGES_ALL overrides' "$got"
