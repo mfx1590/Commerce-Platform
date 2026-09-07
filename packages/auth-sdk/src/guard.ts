@@ -67,7 +67,9 @@ export const ANY_STORE = 'store:*';
 /**
  * Turns an `x-permission` object template into a concrete OpenFGA object.
  * `{param}` placeholders are read from `params` (route/query values); `store:*` passes through.
- * Missing or non-uuid store params → 400 (the route param is client input).
+ * A missing (or empty) placeholder value is a 400 — the route param is client input. The VALUE is not
+ * validated here: a syntactically wrong id simply fails the OpenFGA check and becomes a 403. Callers that
+ * need "unknown id → 404 before the permission check" validate the param themselves (hq-rbac does).
  */
 export function resolvePermissionObject(
   template: string,

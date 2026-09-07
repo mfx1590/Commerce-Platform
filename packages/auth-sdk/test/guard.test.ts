@@ -52,6 +52,25 @@ describe('every x-permission in admin-api.yaml is resolvable', () => {
     expect(() => resolvePermissionObject('store:{storeId}', {})).toThrowError(
       expect.objectContaining({ status: 400, code: 'validation_error' }),
     );
+    expect(() => resolvePermissionObject('store:{storeId}', { storeId: '' })).toThrowError(
+      expect.objectContaining({ status: 400 }),
+    );
+  });
+
+  it('does NOT validate the param value: a malformed id yields an object, and the check denies it', async () => {
+    // Documented contract (see the resolvePermissionObject comment): only MISSING values are 400 here.
+    // A syntactically wrong id becomes a normal OpenFGA check that fails → 403, never a silent allow.
+    expect(resolvePermissionObject('store:{storeId}', { storeId: 'not-a-uuid' })).toBe(
+      'store:not-a-uuid',
+    );
+    const { fga } = mockFga({ allowed: false });
+    await expect(
+      requirePermission('store_admin', 'store:{storeId}')(
+        U.storeAdmin,
+        { storeId: 'not-a-uuid' },
+        { fga },
+      ),
+    ).rejects.toMatchObject({ status: 403, details: { object: 'store:not-a-uuid' } });
   });
 });
 

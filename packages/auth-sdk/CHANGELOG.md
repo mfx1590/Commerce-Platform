@@ -70,3 +70,7 @@ details: { relation, object } }`, 503 fail closed), `resolvePermissionObject` fo
 - Admin API 0.2.1 (#77 accepted): the gate test now asserts the spec itself carries `support` on
   `listCustomers`/`getCustomer` and builds the customer-PII gate from the parsed contract entry instead of a
   hardcoded proposal.
+- Docs fixes (#88 review): `CLAUDE.md` Public API now matches the shipped surface — `verifyCustomerToken(token,
+storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap entries. `resolvePermissionObject`'s
+  comment no longer claims non-uuid values are rejected: only MISSING placeholders are 400, a malformed id becomes
+  a failing OpenFGA check (403) — pinned by a new test so comment and behaviour cannot drift.
