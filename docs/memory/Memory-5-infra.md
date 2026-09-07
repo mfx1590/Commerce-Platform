@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1 (#31) and 2.1b (#59) merged · 2.2 (#32) in PR · next up 2.3 (#33), then 2.4 (#34) with caching first
+Status: 2.1 (#31) and 2.1b (#59) merged · 2.2 (#32) in PR #74, green, awaiting review · next up 2.3 (#33), then 2.4 (#34) with caching first
 
 ## Identity (does not change)
 
@@ -44,8 +44,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified: all six images build, smoke test green, core and admin both boot inside their containers and fail
   only on missing configuration (a database / `ADMIN_SESSION_SECRET`), which is correct.
 
-- **2.2 — Terraform for dev + staging (issue #32)** — commit `30eb592`, rebased onto the merged main as part
-  of this PR. Seven modules + `envs/dev` + `envs/staging` + `infra/kubernetes/bootstrap-db` + CI job
+- **2.2 — Terraform for dev + staging (issue #32)** — commits `9b96f58` + `fd95530`, PR #74
+  (https://github.com/mfx1590/Commerce-Platform/pull/74), all seven checks green (new `terraform` job 29s,
+  `images` 13m02s). Seven modules + `envs/dev` + `envs/staging` + `infra/kubernetes/bootstrap-db` + CI job
   `terraform` + the runbook in `infra/README.md`, plus the repo-root `.dockerignore` (REQUEST #70) and the four
   doc fixes from the #69 review.
   Verified: `bash infra/terraform/check.sh` green (`fmt -check`, `init -backend=false`, `validate`, both envs).
