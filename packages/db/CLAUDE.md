@@ -24,6 +24,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
   Sets `app.organization_id`, `app.scope='store'`, `app.store_ids`, `app.actor_id` transaction-locally (`set_config(..., true)`), so pooled connections never leak context.
 - `createOrganizationClient(pool, { organizationId, actorId? })` → same shape, `scope: 'organization'` (HQ: all stores). Only after an organization-level permission check.
 - `migrate(pool)`, `listMigrations()`, `createPool(url)`, `connectionStringFromEnv('owner' | 'app')`.
+- `app.outbox_lag()` (SQL, not TS): per-store/topic unpublished counts for monitoring. Callable by the `platform_metrics` role, which has EXECUTE on that function and no table access at all.
 - `seed(pool)`, `SEED_IDS` — fixed uuids for brand-a/b/c, wh-eu/wh-us, one staff user per role.
 - `@platform/db/testing` → `createTestDatabase()` returns `{ owner, app, drop }` pools (app = `platform_app` role, RLS enforced).
 
