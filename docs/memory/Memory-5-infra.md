@@ -54,8 +54,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 - **2.4a — CI caching, path filters, and two review fold-ins (issue #34, first half)** — commits `e7fe27e`
   + `3c1e50d`, PR #81 (https://github.com/mfx1590/Commerce-Platform/pull/81), all eight checks green.
-  Measured on the PR: `lint + typecheck` 1m47s → 49s, `unit` 2m28s → 58s, `contract` 50s → 40s once the turbo
-  cache was warm.
+  Measured on the PR — node jobs warm: `lint + typecheck` 1m47s → 49s, `unit` 2m28s → 58s, `contract` 50s → 40s.
+  `images`: 13m02s before → 14m20s (first attempt, cache never hit and export cost more than it saved) →
+  **9m38s** after the remote-cache fix. All three of those are COLD runs. **The ~4 min warm target is not
+  demonstrated yet and cannot be from a PR branch**: pull requests read the cache and only pushes to main write
+  it, so the first warm number appears on the first PR opened after this merges. Check it then; if it is still
+  far off, the next lever is the six identical `pnpm install`s — one shared base image would collapse them, but
+  that needs a registry to push to (ECR exists in 2.2; wiring it is 2.3/2.4b).
   `infra/ci/changes.sh` + self-test replacing the two inline `git diff` filters; `infra/docker/docker-bake.hcl`
   (GHA build cache, one scope per image) driven by `docker/bake-action`; turbo task cache in the three node
   jobs; every Dockerfile split into `manifests` → `deps` → `build` so `pnpm install` no longer depends on
