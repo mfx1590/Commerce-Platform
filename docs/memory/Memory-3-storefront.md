@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.3 merged (#39, #64), 1.4 in PR #66 (review fix pushed), 1.5 built and committed locally, 1.6 next
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.4 merged (#39, #64, #66), 1.5 in PR #76, then 1.6 i18n, 1.7 Playwright+Lighthouse, 1.8 (#62) UTM capture
 
 ## Identity (does not change)
 
@@ -65,8 +65,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       payment_failed / 409 cart_completed. Playwright journey green (4 consecutive runs incl. a cold
       build). 23 new unit tests → 72 in the app.
 
-- [x] **1.5 (#21) Account + order history, Keycloak customers realm** — commit `<pending>`, PR pending
-      (push held until #66 merges). OIDC code+PKCE (S256) against realm `customers`, public client
+- [x] **1.5 (#21) Account + order history, Keycloak customers realm** — commit `73354a9`, PR #76. OIDC code+PKCE (S256) against realm `customers`, public client
       `storefront-brand-a`; route handlers `/account/{sign-in,callback,sign-out}`; tokens in an
       httpOnly cookie. `/account` = profile + addresses, `/account/orders` = history with `Price`
       and an empty state. `returnTo` restricted to same-site paths. Playwright: sign-in as seeded
@@ -101,7 +100,8 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
 - [ ] 1.6 (#22) i18n `next-intl` + multi-currency: `/[locale]/…`, `hreflang`, cookies, defaults from `store.default_locale` / `default_currency`, no hard-coded strings in `(shop)`/`(checkout)`.
-- [ ] 1.7 (#23) Playwright smoke suite + `lighthouserc` budgets; CI job only via a `REQUEST:` issue (workflows belong to window 5 / main).
+- [ ] 1.7 (#23) Playwright smoke suite + `lighthouserc` budgets; CI job only via a `REQUEST:` issue (workflows belong to window 5 / main). Much of the suite already exists from 1.4/1.5 — 1.7 adds the budgets, the CI job YAML and `E2E_REQUIRE_KEYCLOAK=1`.
+- [ ] 1.8 (#62) UTM / referrer capture into `cart.metadata.attribution` (added by the manager 2026-09-07).
 
 ## Decisions made (with reasons)
 
