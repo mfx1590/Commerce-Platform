@@ -94,8 +94,8 @@ export const STORE_SECTIONS: readonly Section[] = [
     id: 'customers',
     label: 'Customers',
     scope: 'store',
-    requires: [VIEWER],
-    why: 'listCustomers — x-permission viewer on store:{storeId}',
+    requires: ['support'],
+    why: 'listCustomers / getCustomer — x-permission support on store:{storeId} (Admin API 0.2.1 raised this from viewer: customer records are personal data, so reading them is no longer implied by merely holding a relation on the store)',
   },
   {
     id: 'promotions',

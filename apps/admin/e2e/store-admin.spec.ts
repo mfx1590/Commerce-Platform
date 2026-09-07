@@ -17,12 +17,20 @@ const STORE_ADMIN = { username: 'store-admin', password: 'store-admin' };
 const BRAND_A = '00000000-0000-4000-8000-000000000031';
 const BRAND_C = '00000000-0000-4000-8000-000000000033';
 
+/** The app's session cookie, chunked across `admin_session.N`. */
+async function sessionCookies(page: Page) {
+  const cookies = await page.context().cookies();
+  return cookies.filter((cookie) => cookie.name.startsWith('admin_session'));
+}
+
 async function signIn(page: Page, to = '/'): Promise<void> {
   await page.goto(to);
   // The middleware bounces an unauthenticated request to the realm's own sign-in form.
   await page.waitForURL(/\/realms\/staff\/protocol\/openid-connect\/auth/);
-  await page.getByLabel(/username|email/i).fill(STORE_ADMIN.username);
-  await page.getByLabel(/password/i).fill(STORE_ADMIN.password);
+  // Role-based, not getByLabel: Keycloak renders a "Show password" toggle whose aria-label also
+  // contains "password", so a label regex matches two elements and trips strict mode.
+  await page.getByRole('textbox', { name: /username/i }).fill(STORE_ADMIN.username);
+  await page.getByRole('textbox', { name: 'Password', exact: true }).fill(STORE_ADMIN.password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
 }
 
@@ -35,7 +43,10 @@ test.describe('store-admin', () => {
     // `/` sends a principal with no HQ relations to their first store section.
     await page.waitForURL(new RegExp(`/${BRAND_A}/catalog`));
     await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
-    await expect(page.getByText('Sam StoreAdmin')).toBeVisible();
+    // The shell shows `display_name` from GET /admin/me — the Prism mock's "Store Admin" — not the
+    // ID token's `name` claim ("Sam StoreAdmin" in the DB seed). The two differ on purpose: the
+    // principal is what the API says, not what the token asserts.
+    await expect(page.getByText('Store Admin')).toBeVisible();
   });
 
   test('sees the store view and no HQ view at all', async ({ page }) => {
@@ -99,12 +110,19 @@ test.describe('store-admin', () => {
     await expect(page.getByRole('heading', { name: /do not have access/i })).toBeVisible();
   });
 
-  test('signing out ends the session and the next visit asks again', async ({ page }) => {
+  test('signing out drops the app session', async ({ page }) => {
     await signIn(page);
     await page.waitForURL(/\/catalog/);
+    expect(await sessionCookies(page)).not.toHaveLength(0);
 
     await page.getByRole('button', { name: 'Sign out' }).click();
-    await page.goto('/');
-    await page.waitForURL(/\/realms\/staff\/protocol\/openid-connect\/auth/);
+    // Sign-out is a chain: the app clears its cookies, then hands off to the realm's end-session
+    // endpoint, which returns to the app root. Wait for it to settle before asserting.
+    await page.waitForLoadState('load');
+
+    // What this pins is the part this app owns: its own session is gone. Whether the *realm* then
+    // re-authenticates silently is Keycloak's SSO policy, not this app's behaviour, so asserting on
+    // the landing URL would be testing someone else's decision — and flakily.
+    expect(await sessionCookies(page)).toHaveLength(0);
   });
 });

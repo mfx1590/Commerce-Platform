@@ -99,9 +99,12 @@ describe('HQ route access, per role', () => {
 });
 
 describe('store route access, per role', () => {
-  const viewerOnly = ['catalog', 'orders', 'customers', 'promotions'];
+  // Admin API 0.2.1 raised customer reads from `viewer` to `support`, so Customers is no longer
+  // part of what merely holding a relation on the store gets you.
+  const viewerOnly = ['catalog', 'orders', 'promotions'];
+  const withCustomers = ['catalog', 'orders', 'customers', 'promotions'];
   const staff = [...viewerOnly, 'content', 'marketing'];
-  const everything = [...viewerOnly, 'content', 'marketing', 'settings'];
+  const everything = [...withCustomers, 'content', 'marketing', 'settings'];
 
   const expected: Record<PrincipalKey, string[]> = {
     // owner is store_admin everywhere (owner from organization)
@@ -109,10 +112,11 @@ describe('store route access, per role', () => {
     storeAdmin: everything,
     // store_staff authors content and marketing but does not administer the store
     storeStaff: staff,
-    // organization relations imply store viewer, never staff or admin
+    // an organization `support` is `support` on every store, so it reaches customer records
+    support: withCustomers,
+    // the other organization relations imply store viewer and nothing more
     finance: viewerOnly,
     operations: viewerOnly,
-    support: viewerOnly,
     analyst: viewerOnly,
     unassigned: [],
   };
@@ -124,6 +128,11 @@ describe('store route access, per role', () => {
   it('store Marketing is store_staff and up — reserved for window 17 (#63)', () => {
     const reachable = ROLES.filter((role) => canOpenStore(role, SEED.stores.brandA, 'marketing'));
     expect(reachable).toEqual(['owner', 'storeAdmin', 'storeStaff']);
+  });
+
+  it('Customers is support and up — Admin API 0.2.1 raised it from viewer', () => {
+    const reachable = ROLES.filter((role) => canOpenStore(role, SEED.stores.brandA, 'customers'));
+    expect(reachable).toEqual(['owner', 'support', 'storeAdmin']);
   });
 
   it('Settings is store_admin, so no organization relation short of owner reaches it', () => {
