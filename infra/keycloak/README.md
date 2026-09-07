@@ -55,7 +55,7 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 - One public PKCE client per brand: `storefront-brand-a` (`:3100`), `storefront-brand-b` (`:3101`),
   `storefront-brand-c` (`:3102`). Each client hard-codes a `store_code` claim (`brand-a` …) and `aud: core-api`
   so the core can bind a customer token to one store (ADR 0002 §8).
-- `test-cli` (dev/CI only) as above.
+- `test-cli` (dev/CI only) as above — it also stamps `store_code=brand-a` so `verifyCustomerToken` has a live positive path in tests.
 - Social login: `google` identity provider present but **disabled**; its client id/secret come from the
   environment (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) via realm-import placeholders. Enable it by setting
   the variables and flipping `enabled` to `true`.

@@ -75,3 +75,18 @@ for the app role (`UPDATE`/`DELETE` are denied by the grants in packages/db). `l
 backs `GET /admin/audit-log`: pass the CALLER's scoped client — RLS does the visibility (organization scope
 sees every row including `store_id IS NULL`; store scope only its stores). Route + permission handling:
 `apps/core/src/modules/hq-rbac`.
+
+## Guard API (task 1.6)
+
+```ts
+import { can, allowedStores, resolveScope, requirePermission } from '@platform/auth-sdk';
+await can(scope, 'finance', 'organization:hq'); // boolean; store:* = "any visible store"
+await allowedStores(scope); // string[] of store ids
+const gate = requirePermission('store_admin', 'store:{storeId}'); // x-permission template
+await gate(scope, req.params); // throws 403 { code: forbidden, details: { relation, object } } / 503
+```
+
+Subjects are a `StaffScope`/`StaffPrincipal` or the bare `staff_user.id`. The OpenFGA client defaults to the
+env-configured one (pass `{ fga }` to override). `verifyStaffToken(header)` and
+`verifyCustomerToken(header, storeCode)` are env-configured verifier singletons; the customer variant
+enforces the token's `store_code` binding (ADR 0002 §8).
