@@ -1,0 +1,18 @@
+# kubectl kustomize infra/kubernetes/bootstrap-db | kubectl apply -n <namespace> -f -
+#
+# The SQL is kept as a real .sql file (readable, diffable, testable against the local stack) and
+# turned into the ConfigMap the Job mounts. The generated name carries a content hash, so editing
+# bootstrap.sql produces a new ConfigMap and the Job cannot run against a stale copy.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - job.yaml
+
+configMapGenerator:
+  - name: bootstrap-db-sql
+    files:
+      - bootstrap.sql
+
+generatorOptions:
+  disableNameSuffixHash: false

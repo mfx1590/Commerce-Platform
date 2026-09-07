@@ -16,9 +16,10 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ../../apps/core/src/modules/hq-rbac/tsconfig.json",
     "test": "vitest run",
     "fga:seed": "tsx scripts/fga-seed.ts",
+    "roles": "tsx scripts/roles.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {

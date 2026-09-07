@@ -35,8 +35,6 @@ WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
-# A developer's build context carries workspace node_modules symlinks; the image installs its own.
-RUN find apps packages -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} +
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
 
 # WORKAROUND, remove when REQUEST #60 lands. `medusa build` loads medusa-config.ts, and the Medusa

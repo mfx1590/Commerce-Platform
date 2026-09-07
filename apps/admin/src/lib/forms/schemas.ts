@@ -90,6 +90,14 @@ export const productOptionSchema = z.object({
     .refine((values) => new Set(values).size === values.length, 'Values must be unique'),
 });
 
+/** `ProductInput.media`: an ordered list of image URLs, each optionally tied to one variant. */
+export const productMediaSchema = z.object({
+  url: z.string().min(1, 'Enter an image URL').url('Enter a full URL, e.g. https://…/front.jpg'),
+  alt: z.string().nullable().optional(),
+  position: z.number().int().optional(),
+  variant_id: z.string().uuid().nullable().optional(),
+});
+
 export const productCreateSchema = z.object({
   handle: kebabCase('handle'),
   title: z.string().min(1, 'Enter a title'),
@@ -99,6 +107,7 @@ export const productCreateSchema = z.object({
   brand_name: z.string().nullable().optional(),
   tags: z.array(z.string().min(1)).optional(),
   options: z.array(productOptionSchema).optional(),
+  media: z.array(productMediaSchema).optional(),
 });
 
 export type ProductCreateValues = z.infer<typeof productCreateSchema>;
@@ -141,6 +150,39 @@ export const variantCreateSchema = z.object({
 
 export type VariantCreateValues = z.infer<typeof variantCreateSchema>;
 const _variantMatches: MatchesContract<VariantCreateValues, AdminComponents['VariantInput']> = true;
+
+/** A hostname, not a URL: no scheme, no port, no path — those are configuration mistakes here. */
+export const DOMAIN_HOSTNAME = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/;
+
+/** `addDomain` takes `{ hostname, is_primary }` inline — the contract has no named input schema. */
+export const domainCreateSchema = z.object({
+  hostname: z
+    .string()
+    .min(1, 'Enter a hostname')
+    .regex(DOMAIN_HOSTNAME, 'Enter a hostname like shop.brand-a.com, without http:// or a path'),
+  is_primary: z.boolean().optional(),
+});
+export type DomainCreateValues = z.infer<typeof domainCreateSchema>;
+
+export const SALES_CHANNEL_TYPES = ['web', 'app', 'marketplace', 'pos'] as const;
+
+/** `createSalesChannel` takes `{ code, name, type }` inline. */
+export const salesChannelCreateSchema = z.object({
+  code: kebabCase('code'),
+  name: z.string().min(1, 'Enter a name'),
+  type: z.enum(SALES_CHANNEL_TYPES),
+});
+export type SalesChannelCreateValues = z.infer<typeof salesChannelCreateSchema>;
+
+export const API_KEY_TYPES = ['publishable', 'secret'] as const;
+
+/** `createApiKey` takes `{ name, type, sales_channel_id }` inline. */
+export const apiKeyCreateSchema = z.object({
+  name: z.string().min(1, 'Name the key so it can be recognised later'),
+  type: z.enum(API_KEY_TYPES),
+  sales_channel_id: z.union([z.string().uuid(), z.literal('')]).optional(),
+});
+export type ApiKeyCreateValues = z.infer<typeof apiKeyCreateSchema>;
 
 /** The field paths a form renders, for `toActionResult`'s known-field check. */
 export function fieldNames(schema: z.ZodObject<z.ZodRawShape>): string[] {

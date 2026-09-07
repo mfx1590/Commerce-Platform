@@ -62,13 +62,24 @@
   | Build output in a dot-directory needs an explicit copy                     | `pnpm deploy` packs the package the way npm would, and npm's rules skip dot-directories. `medusa build` writes everything to `.medusa/server`, so `apps/core/Dockerfile` copies it across after the deploy step. An app that builds to `dist/` needs nothing extra.                                                                                                       |
   | `start` must run from the package root                                     | The entrypoint runs `pnpm start` with the working directory at the deployed package, so a path like `node .medusa/server/src/server.js` resolves.                                                                                                                                                                                                                         |
 
-  **What the smoke test does and does not prove.** `infra/docker/smoke-images.sh` checks that every image
-  starts, runs as a non-root user, and execs what it should. For a scaffold that means the `HEALTHCHECK`
-  reaches `healthy` and `/health` returns 200. For a real app — `apps/core` today — it means `pnpm start`
-  runs and the process stays up; it is deliberately **not** health-checked there, because a real app needs a
-  migrated database, a cache and secrets, and standing those up is a deployment concern. That end-to-end check
-  belongs to the staging deploy (tasks 2.3/2.4). The test still catches the failure that matters: if the build
-  output is missing from the deployed package, `pnpm start` exits at once and the container is not running.
+  **What the smoke test does and does not prove.** `infra/docker/smoke-images.sh` reads each image's deployed
+  `package.json` and checks accordingly — it does not keep a list of which app is which.
+
+  |                                                        | scaffold (`accounting`, `analytics-ingest`, `notifications`) | real app (`core`, `admin`, `storefront-starter`) |
+  | ------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------ |
+  | non-root                                               | yes, read from the image's `Config.User`                     | same                                             |
+  | build output present under `/app`                      | n/a                                                          | yes — `.medusa/server`, `.next` or `dist`        |
+  | `HEALTHCHECK` reaches `healthy`, `/health` returns 200 | yes                                                          | **no — not attempted**                           |
+
+  A scaffold is self-contained, so it is held to a real health check. A real app is deliberately not booted:
+  `apps/core` throws without `DATABASE_URL_APP` and `apps/admin` without `ADMIN_SESSION_SECRET`, and that is
+  correct fail-fast behaviour rather than something to work around. An image test that stood up Postgres and
+  Redis, ran two sets of migrations and invented secrets would be testing the deployment — slowly, and flakily.
+  Proving that a _configured_ app serves `/health` belongs to the staging deploy (tasks 2.3/2.4).
+
+  What it does catch is the failure that caused issue #59: `pnpm deploy` drops dot-directories, so `.medusa`
+  and `.next` never reached the deployed package and two images shipped no application at all while still
+  building green.
 
   CI job `images` in `.github/workflows/ci.yml` builds all six on PRs that touch `apps/**`, `packages/**`,
   `infra/docker/**` or the workspace root files, runs the smoke test, and never pushes.
@@ -76,4 +87,140 @@
 - `keycloak/` — realm exports. Phase 0 ships local-dev stubs (7 staff users, one customer); window 2 replaces them (MFA, SSO, mappers).
 - `openfga/` — authorization model (`model.fga`) and seed tuples. Window 2 (the frozen relation names are in docs/adr/0002-auth-model.md).
 - `redpanda/` — topic definitions and schema registry config. Window 14.
-- `terraform/` — AWS dev/staging (Phase 2). Window 5.
+- `kubernetes/` — raw manifests that are not part of a chart. Today: `bootstrap-db/`, the Job that creates the
+  `platform_app` database role. See `kubernetes/README.md`.
+- `terraform/` — AWS `dev` and `staging`. Window 5.
+
+## Terraform
+
+```
+terraform/
+  check.sh                    fmt -check + init -backend=false + validate for both envs (also the CI job)
+  modules/
+    environment/              composes everything below; this is what an env module block calls
+    network/                  VPC, 3 AZs, public + private subnets, NAT, S3 gateway endpoint
+    cluster/                  EKS, managed node group, IRSA OIDC provider, add-ons
+    postgres/                 RDS Postgres 16, parameter group, Secrets Manager entries
+    redis/                    ElastiCache Redis 7, transit encryption, auth token
+    objects/                  S3 media + backups buckets
+    ci-oidc/                  GitHub OIDC provider and the CI deploy role
+  envs/dev/                   cheap: 1 NAT, single-AZ RDS, no Redis replica, nothing protected
+  envs/staging/               production-shaped: NAT per AZ, Multi-AZ RDS, Redis replica, deletion protection
+```
+
+`dev` and `staging` are thin wrappers around `modules/environment`, so the two environments are provably the
+same shape and differ only in size and safety flags. Small modules keep their variables and outputs in
+`main.tf`; the larger ones (`network`, `cluster`, `postgres`) split into `variables.tf` / `main.tf` /
+`outputs.tf`.
+
+**Redpanda is not created here.** The fixed decision is managed-first, so the cluster is created in the
+Redpanda Cloud console and only `kafka_brokers` / `schema_registry_url` are passed in as variables.
+
+### What is checked without an AWS account
+
+```bash
+bash infra/terraform/check.sh          # fmt -check, init -backend=false, validate (dev + staging)
+bash infra/terraform/check.sh --fix    # rewrite files with terraform fmt
+```
+
+The script uses a local `terraform` if there is one and otherwise the official Docker image, so it works on a
+laptop with nothing installed. CI runs the same script in the `terraform` job. `terraform plan` and `apply`
+need credentials and stay manual until the owner provides an account — see the runbook below.
+
+### Secrets and state
+
+- No password is ever typed, written to a `.tfvars` file, or committed. Terraform generates the RDS and Redis
+  credentials with `random_password` and stores them in Secrets Manager under `<env>/platform/database/owner`,
+  `<env>/platform/database/app` and `<env>/platform/redis`.
+- State lives in an S3 bucket with a DynamoDB lock table, configured as a **partial backend**: the bucket and
+  table names are passed with `-backend-config=backend.hcl`, so no account identifier is committed. State is
+  never committed — `infra/terraform/.gitignore` blocks `*.tfstate*`, `.terraform/`, `*.tfvars` (except the
+  `.example` files) and `*.tfplan`.
+- `.terraform.lock.hcl` **is** committed. It carries registry (`zh:`) hashes for every platform plus a native
+  (`h1:`) hash for linux. If your platform's hash is missing, add it once with
+  `terraform providers lock -platform=darwin_arm64`.
+
+### Outputs are `.env.example` variables
+
+Every environment output is named after the variable it fills in `.env.example` — `DATABASE_URL`,
+`DATABASE_URL_APP`, `REDIS_URL`, `KAFKA_BROKERS`, `KEYCLOAK_URL`, `OPENFGA_API_URL`, `MOCK_API_URL`,
+`MOCK_ADMIN_API_URL` — so an application's configuration is identical locally and in the cloud. The whole file
+can be produced at once:
+
+```bash
+cd infra/terraform/envs/dev
+terraform output -raw dotenv > /tmp/dev.env   # contains secrets; never commit it
+```
+
+## Runbook: an empty AWS account → dev → staging
+
+Everything below is a literal command. Nothing has been run against a real account yet: this task stops at
+`validate`, as agreed, until credentials exist.
+
+**0. Prerequisites.** An AWS account, `aws` CLI v2 logged in (`aws sts get-caller-identity` works), Terraform
+≥ 1.9, and a Route 53 hosted zone for `base_domain`.
+
+**1. Create the state backend, once per account.**
+
+```bash
+export AWS_REGION=eu-central-1 PREFIX=acme
+aws s3api create-bucket --bucket "$PREFIX-tfstate" --region "$AWS_REGION" \
+  --create-bucket-configuration LocationConstraint="$AWS_REGION"
+aws s3api put-bucket-versioning --bucket "$PREFIX-tfstate" --versioning-configuration Status=Enabled
+aws s3api put-public-access-block --bucket "$PREFIX-tfstate" \
+  --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-bucket-encryption --bucket "$PREFIX-tfstate" \
+  --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+aws dynamodb create-table --table-name "$PREFIX-tfstate-lock" \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST
+```
+
+**2. Bring up dev.**
+
+```bash
+cd infra/terraform/envs/dev
+cp backend.hcl.example backend.hcl && $EDITOR backend.hcl              # bucket + lock table names
+cp terraform.tfvars.example terraform.tfvars && $EDITOR terraform.tfvars  # base_domain, bucket_prefix
+terraform init -backend-config=backend.hcl
+terraform plan  -var-file=terraform.tfvars -out=dev.tfplan             # read it before applying
+terraform apply dev.tfplan                                             # ~20 min, mostly EKS and RDS
+rm -f dev.tfplan                                                       # a plan file is readable state
+```
+
+**3. Create the application database role.** The migrations create `platform_app` with a local-development
+password only if it does not already exist, so the bootstrap Job must run first — that way the dev-default
+password never exists in the cloud, not even briefly.
+
+```bash
+aws eks update-kubeconfig --name "$(terraform output -raw cluster_name)"
+kubectl create namespace commerce
+
+# Until External Secrets is wired (task 2.6), project the two secrets by hand:
+aws secretsmanager get-secret-value --secret-id dev/platform/database/owner --query SecretString --output text \
+  | jq -r 'to_entries|map("--from-literal=\(.key)=\(.value)")|join(" ")' \
+  | xargs kubectl create secret generic platform-database-owner -n commerce
+aws secretsmanager get-secret-value --secret-id dev/platform/database/app --query SecretString --output text \
+  | jq -r 'to_entries|map("--from-literal=\(.key)=\(.value)")|join(" ")' \
+  | xargs kubectl create secret generic platform-database-app -n commerce
+
+kubectl kustomize infra/kubernetes/bootstrap-db | kubectl apply -n commerce -f -
+kubectl wait --for=condition=complete --timeout=120s job/bootstrap-db -n commerce
+kubectl logs -n commerce job/bootstrap-db
+```
+
+**4. Migrate and seed.** From a machine that can reach the database (a VPN, a bastion, or a one-off pod):
+
+```bash
+DATABASE_URL="$(terraform output -raw DATABASE_URL)" pnpm db:migrate
+DATABASE_URL="$(terraform output -raw DATABASE_URL)" pnpm db:seed     # dev only
+```
+
+**5. Wire CI.** `terraform output -raw ci_role_arn` gives the role GitHub Actions assumes with OIDC. Set it as
+the `AWS_ROLE_ARN` repository variable — there is no access key to store, and nothing to rotate.
+
+**6. Staging.** Same steps in `envs/staging`, with one difference: if it shares the AWS account with dev, leave
+`create_github_oidc_provider = false`, because an account may hold only one GitHub OIDC provider.
+
+**Tearing dev down.** `terraform destroy -var-file=terraform.tfvars`. It succeeds because `protect = false` in
+dev: no deletion protection and buckets are force-destroyable. In staging it will refuse, by design.

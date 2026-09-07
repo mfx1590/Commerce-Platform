@@ -119,6 +119,39 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: bash infra/docker/smoke-images.sh
 
+  terraform:
+    name: terraform fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Path filter, inline until window 5 task 2.4 generalises filters across every job.
+      - name: does this PR touch the terraform tree?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != 'pull_request' ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          changed="$(git diff --name-only '${{ github.event.pull_request.base.sha }}...HEAD')"
+          if printf '%s\n' "$changed" | grep -Eq '^(infra/terraform/|\.github/workflows/ci\.yml)'; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            echo 'No Terraform change — skipping.'
+          fi
+      - uses: hashicorp/setup-terraform@v3
+        if: steps.scope.outputs.run == 'true'
+        with:
+          terraform_version: 1.13.0
+          terraform_wrapper: false
+      # fmt -check, then init -backend=false + validate for dev and staging.
+      # No AWS account, no credentials and no state are involved; `terraform plan` stays a manual
+      # step in the runbook until the owner provides an account.
+      - name: fmt + validate (dev and staging)
+        if: steps.scope.outputs.run == 'true'
+        run: bash infra/terraform/check.sh
+
   preview:
     name: preview deploy (placeholder)
     if: github.event_name == 'pull_request'

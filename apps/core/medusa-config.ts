@@ -1,10 +1,21 @@
 import { defineConfig } from '@medusajs/framework/utils';
+import { loadDotenv } from '@platform/db';
 
-// Settings come from process.env only. The repo-root .env is loaded by whoever boots Medusa before this file is
-// evaluated (src/server.ts and scripts/db-medusa-migrate.ts call loadDotenv() from @platform/db first), so the
-// `medusa` CLI — which reads this file on its own — sees the same values when its process env is prepared.
+// Loads the repo-root .env itself (three levels up; the `medusa` CLI only reads apps/core/.env). Missing
+// connection settings do NOT throw here: `medusa build` evaluates this file on a clean checkout / in a Docker build
+// stage where no database exists. src/server.ts refuses to start without them (initDb / REDIS_URL check), and
+// scripts/db-medusa-migrate.ts sets them explicitly.
+loadDotenv(__dirname);
 
 const isProduction = process.env.NODE_ENV === 'production';
+
+/** Build-time stand-in for a missing connection setting (see the header comment); loud, never silent. */
+function placeholder(name: string, value: string): string {
+  console.warn(
+    `[core] medusa-config: ${name} is not set — using a placeholder (fine for \`medusa build\`, fatal at runtime)`,
+  );
+  return value;
+}
 
 /**
  * Medusa connects as the application role (DATABASE_URL_APP, RLS-subject). Only `scripts/db-medusa-migrate.ts`
@@ -13,8 +24,8 @@ const isProduction = process.env.NODE_ENV === 'production';
  */
 const dbEnvKey =
   process.env.MEDUSA_DB_ROLE === 'owner' ? 'DATABASE_URL_MEDUSA_OWNER' : 'DATABASE_URL_APP';
-const baseDatabaseUrl = process.env[dbEnvKey];
-if (!baseDatabaseUrl) throw new Error(`${dbEnvKey} is not set (see .env.example at the repo root)`);
+const baseDatabaseUrl =
+  process.env[dbEnvKey] ?? placeholder(dbEnvKey, 'postgres://unset:unset@localhost:5432/unset');
 
 const databaseSchema = process.env.MEDUSA_DB_SCHEMA ?? 'medusa';
 if (!/^[a-z_][a-z0-9_]*$/.test(databaseSchema)) {
@@ -42,8 +53,7 @@ const databaseDriverOptions = {
   } as { ssl?: boolean | { rejectUnauthorized: boolean } },
 };
 
-const redisUrl = process.env.REDIS_URL;
-if (!redisUrl) throw new Error('REDIS_URL is not set (see .env.example at the repo root)');
+const redisUrl = process.env.REDIS_URL ?? placeholder('REDIS_URL', 'redis://unset:6379');
 
 /** Secrets come from the environment. Local development falls back to obvious placeholders; production never does. */
 function secret(name: string): string {

@@ -1,0 +1,12 @@
+# Copy to backend.hcl and fill in. backend.hcl is gitignored (*.tfvars / state rules in
+# infra/terraform/.gitignore also cover it — check `git status` before every commit).
+#
+#   terraform init -backend-config=backend.hcl
+#
+# The bucket and lock table are created once per AWS account by the bootstrap step in the
+# runbook (infra/README.md), before the first `terraform apply`.
+bucket         = "REPLACE-tfstate"
+key            = "commerce-platform/staging/terraform.tfstate"
+region         = "eu-central-1"
+dynamodb_table = "REPLACE-tfstate-lock"
+encrypt        = true
