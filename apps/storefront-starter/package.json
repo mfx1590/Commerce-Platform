@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --port 3100",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/start.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf .next dist .turbo",

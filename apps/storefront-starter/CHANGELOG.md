@@ -16,9 +16,10 @@ Task [storefront] 1.5 (issue #21) and REQUEST #68, contracts `0.2.0`.
 - Playwright: sign-in as the seeded Jane, order history renders order `#1000`, sign-out ends the
   Keycloak SSO session. The account specs run serially because they share one Keycloak user.
 - **REQUEST #68 (window 5):** `next.config.ts` → `next.config.mjs`, so the production image (built
-  with `--prod`, without `typescript`) can load it; `start` honours `$PORT` instead of hard-coding
-  `--port 3100`; new `GET /health` route, required by the image contract in `infra/README.md` now
-  that this package has a `start` script.
+  with `--prod`, without `typescript`) can load it; `start` honours `$PORT` (defaulting to 3100, not
+  Next's 3000, which collides with the admin app) through `scripts/start.mjs` — a wrapper because
+  `--port ${PORT:-3100}` does not expand on Windows; new `GET /health` route, required by the image
+  contract in `infra/README.md` now that this package has a `start` script.
 - 16 new unit tests (89 in total).
 
 ## 0.4.0 — 2026-09-05

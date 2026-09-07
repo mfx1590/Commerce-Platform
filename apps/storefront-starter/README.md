@@ -21,16 +21,16 @@ degrades to a readable "Store API not reachable" card instead of a stack trace, 
 
 Configuration (all optional; `.env.example` at the repo root has the local defaults):
 
-| Variable                   | Default                      | Meaning                                                                          |
-| -------------------------- | ---------------------------- | -------------------------------------------------------------------------------- |
-| `PORT`                     | `3000` for `start`           | `start` honours `$PORT` — the image contract (REQUEST #68). `dev` stays on 3100. |
-| `SITE_URL`                 | `http://localhost:3100`      | Absolute URLs: canonical links and the OIDC redirect URI.                        |
-| `STORE_API_URL`            | —                            | Real Store API. Wins over `MOCK_API_URL`.                                        |
-| `MOCK_API_URL`             | `http://localhost:4010`      | Prism mock (Phase 1).                                                            |
-| `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                         |
-| `KEYCLOAK_URL`             | `http://localhost:8180`      | Customer sign-in.                                                                |
-| `KEYCLOAK_REALM_CUSTOMERS` | `customers`                  | Realm.                                                                           |
-| `KEYCLOAK_CLIENT_ID`       | `storefront-brand-a`         | Public OIDC client; each brand app has its own.                                  |
+| Variable                   | Default                      | Meaning                                                                                                                                |
+| -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                     | `3100`                       | `start` honours `$PORT` (image contract, REQUEST #68) and defaults to 3100 rather than Next's 3000, which collides with the admin app. |
+| `SITE_URL`                 | `http://localhost:3100`      | Absolute URLs: canonical links and the OIDC redirect URI.                                                                              |
+| `STORE_API_URL`            | —                            | Real Store API. Wins over `MOCK_API_URL`.                                                                                              |
+| `MOCK_API_URL`             | `http://localhost:4010`      | Prism mock (Phase 1).                                                                                                                  |
+| `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                                                                               |
+| `KEYCLOAK_URL`             | `http://localhost:8180`      | Customer sign-in.                                                                                                                      |
+| `KEYCLOAK_REALM_CUSTOMERS` | `customers`                  | Realm.                                                                                                                                 |
+| `KEYCLOAK_CLIENT_ID`       | `storefront-brand-a`         | Public OIDC client; each brand app has its own.                                                                                        |
 
 `GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
 
