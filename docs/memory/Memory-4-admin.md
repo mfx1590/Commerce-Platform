@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: `b132628` · Status: 1.1–1.5 merged (PR #42, PR #67); 1.6 in review (PR #78)
+Last updated: 2026-09-08 · Contracts: **Admin API 0.2.1** (customer reads need `support`) · Last commit: `pending` (this memory commit; the work is `c41e731` and earlier) · Status: 1.1–1.6 merged; **1.7 + 1.8 + the 0.2.1 gating in PR #94, main merged in** — Phase 1 Next list complete
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,42 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **Admin API 0.2.1 — Customers gated on `support`** · commit `c41e731` · PR #94
+  - `listCustomers`/`getCustomer` moved from `viewer` to `support`, so the section follows: an
+    organization `support`, a `store_admin` or an `owner` — no longer `store_staff`, `finance`,
+    `operations` or `analyst`. Customer records are personal data; reading them is not implied by
+    merely holding a relation on the store.
+  - **The Playwright journey ran for the first time and passes 8/8** (`PORT=3200`, after window 2
+    registered `http://localhost:3200/*` live). It found three real bugs, all in the test:
+    `getByLabel(/password/i)` matched Keycloak's "Show password" toggle as well as the input;
+    the shell shows `display_name` from `GET /admin/me` ("Store Admin") rather than the ID token's
+    `name` ("Sam StoreAdmin"); and the sign-out check raced the logout chain and leaned on Keycloak's
+    SSO policy — it now pins that the app's own session cookies are gone, which is the part this app
+    owns.
+  - 304 unit + 6 contract + 8 e2e.
+
+- **1.8 — issue #63 Reserve the Marketing section** · commit `422a7fb`
+  - HQ Marketing gated on `analyst` (owner implies it); Store Marketing on `store_staff`
+    (store_admin implies it) — so finance and operations see neither, as the issue asks.
+  - A placeholder page each, self-contained on purpose: one file, no components of their own, no API
+    calls (no marketing contract until contracts-v0.3), so window 17 inherits a clean folder.
+  - Fixtures updated in both `navigation.test.ts` and `role-access.test.ts`; README and CLAUDE.md
+    record both folders as reserved for window 17.
+  - 302 tests. **This completes the Phase 1 Next list.**
+
+- **1.7 — issue #30 Tests per role fixture** · commit `09522a2`
+  - `test/role-access.test.ts`: what each role may *open*, next to `navigation.test.ts`'s what each
+    role *sees*. A URL can be typed, so the two only agree if the guards and the navigation come from
+    the same rules — and every section is now decided for all seven seeded roles, so adding one
+    without deciding who reaches it fails a test.
+  - Playwright store-admin journey (sign in → switch store → products), plus the foreign store's 403
+    with the switcher intact, an HQ section refused, and sign-out ending the realm session. 8 tests,
+    all discovered by `playwright test --list`.
+  - **Not yet executed**: the journey needs port 3000 (the only redirect URI `admin-app` registers)
+    and an unrelated project still holds it. Everything it asserts is duplicated at the unit level.
+  - CI wiring filed as REQUEST #80 — `.github/workflows/**` is not this window's.
+  - 299 unit tests.
+
 - **REQUEST #68 — `$PORT`, `/health`, and media position renumbering** · commit `b132628` · PR #78
   - `start` is plain `next start`, so the app honours `$PORT` (default 3000). A hard-coded `--port`
     beats `$PORT`, so the container would listen on one port while Docker and Kubernetes probed
@@ -161,8 +197,25 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- Nothing implementing. **PR #78 (1.6 + REQUEST #68) is open and green, waiting on the manager.**
-  One open PR per branch, so 1.7 (#30) goes up next, then 1.8 (#63).
+- **Nothing is half-done.** Working tree clean; lint, format:check, typecheck, 304 unit, 6 contract
+  and 8 e2e all green.
+- **Exact next step:** wait for the manager's review of **PR #94** (1.7 + 1.8 + the 0.2.1 Customers
+  gating). The PR opens by explaining why it is one PR rather than two — both tasks were already
+  committed before the instruction arrived, and splitting would have shipped a Playwright spec I now
+  know was broken. If the manager wants it split, redo as two.
+- Merged `origin/main` into the branch (window 2 and 5 work, plus #85 and #93). Everything still
+  green afterwards: lint, format:check, typecheck, 304 unit, 6 contract, and the e2e journey
+  re-run at 8/8 on `PORT=3200`.
+- **Phase 1's Next list is complete for this window.**
+
+### Open requests, none blocking
+- ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
+  `redirectUris`, `webOrigins` **and** `post.logout.redirect.uris`. My earlier "the repo and the
+  running realm disagree" claim was wrong: I compared the live realm against this branch's stale copy
+  of the file, before #85 had been merged in. Corrected on the issue.
+- **#80** — CI job for the Playwright journeys (admin and storefront).
+- ~~**#93**~~ — **applied on main**: `**/test-results/` and `**/playwright-report/` are in the root
+  `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
@@ -170,10 +223,22 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26, merged (PR #42)
 - [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27, merged (PR #42)
 - [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28, merged (PR #67)
-- [ ] 1.6 403 / empty / error states pattern — #29
-- [ ] 1.7 Tests: nav renders per role fixture — #30
+- [x] 1.6 403 / empty / error states pattern — #29, PR #78 (do not self-merge)
+- [x] 1.7 Tests: nav renders per role fixture — #30, PR #94 (e2e journey passes 8/8)
+- [x] 1.8 Reserve the Marketing section — #63, PR #94
 
 ## Decisions made (with reasons)
+- **Customers is gated on `support`, not `viewer`** (Admin API 0.2.1). Customer records are personal
+  data, so a relation on the store is no longer enough to read them — `store_staff`, `finance`,
+  `operations` and `analyst` all lose the section, while an organization `support` keeps it.
+- **The e2e sign-out test asserts the app's own cookies are gone, not the landing URL.** Whether the
+  realm then re-authenticates silently is Keycloak's SSO policy; asserting on it would be testing
+  someone else's configuration, and flakily.
+- **`pnpm dev --reset` is not used to refresh the staff realm.** It is `docker compose down -v`,
+  which also wipes Postgres, OpenFGA and Redpanda — the other windows' migrated and seeded data,
+  while they are building. `node infra/keycloak/reimport.mjs staff` plus a Keycloak-only restart
+  achieves the same thing for the realm and touches nothing else. Verified twice that the running
+  realm then matches the repo JSON exactly.
 - **`ApiStatePanel` dispatches; screens do not branch on status.** One dispatcher is what makes the
   pattern one pattern — a 401 in a data-table looks like a 401 on a detail page because it is the
   same component, not because two places happen to agree.
@@ -306,6 +371,33 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Check `origin/main`, not your branch, before reporting that a shared file is missing something.**
+  I told window 2 the realm JSON lacked the 3200 redirect URI; it did not — their #85 had landed on
+  `main` and I was reading this branch's older copy. `git fetch && git show origin/main:<path>`
+  would have caught it.
+- **Keycloak's login form breaks `getByLabel`.** A "Show password" toggle carries
+  `aria-label="Show password"`, so `getByLabel(/password/i)` matches two elements and trips
+  Playwright strict mode. Use `getByRole('textbox', { name: 'Password', exact: true })`.
+- **The shell's display name comes from `GET /admin/me`, not the ID token.** The mock says
+  "Store Admin"; the DB seed and the token claim say "Sam StoreAdmin". Assert the API's value.
+- **A `cat > file` with no heredoc hangs forever waiting on stdin, and takes the rest of the `&&`
+  chain with it.** One did, for hours. Worse, killing the stranded process let the chain *resume*:
+  it re-ran `python docs7.py` (duplicating a CHANGELOG section) and `gh issue create` (filing #83, a
+  duplicate of #80, since closed). Two lessons: never leave a bare `cat >` in a chain, and after any
+  hung-then-killed command, check `git status` **and** whatever side effects the tail would have had.
+- **Restacking rewrites shas, so the sha-recording commits go stale.** Every unstack/restack round
+  (reset to origin → fix → push → rebase the held work back on) rewrites the held commits, and the
+  memory entries that name them then point at commits that no longer exist. Re-grep the file for the
+  old shas after every rebase.
+- When resolving a rebase conflict in this memory file, take the *incoming* version (`--theirs`,
+  which carries the newer task entry) and re-apply the corrections by script — the file is edited by
+  nearly every commit, so it conflicts on nearly every rebase.
+- **The Playwright journey cannot run while another process holds port 3000.** `admin-app` registers
+  `http://localhost:3000/*` as its only redirect URI, so Keycloak sends the callback there whatever
+  port the app listens on — moving `$PORT` alone does not help. `playwright.config.ts` honours
+  `$PORT` (default 3000) and derives `ADMIN_APP_URL` from it, so **REQUEST #82** (register
+  `http://localhost:3200/*` on the dev realm) is all that stands between this and
+  `PORT=3200 pnpm --filter @platform/admin e2e`.
 - **Re-importing the staff realm after window 2 changes it:** `node infra/keycloak/reimport.mjs staff`
   deletes and recreates the realm through the admin API without touching any volume, then restart
   just Keycloak (`docker compose -f infra/docker/docker-compose.yml restart keycloak`). **Do not use

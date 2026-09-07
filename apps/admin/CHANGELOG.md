@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Added — task 1.8, issue #63 (no contract change)
+
+- **Marketing** reserved in both views: HQ gated on `analyst` (owner implies it), Store gated on
+  `store_staff` (store_admin implies it), matching `docs/marketing-scope.md`. finance and operations
+  see neither, which is what the issue asks.
+- A placeholder page each, listing what will live there (Overview, Campaigns, Segments, Feeds,
+  Referrals, Reviews, Consent) and pointing at the scope doc. Deliberately self-contained — one file,
+  no components of their own, and no API calls, since there is no marketing contract until
+  contracts-v0.3 — so window 17 inherits a clean folder in Phase 2.
+- Navigation and route-access fixtures updated for all seven seeded roles, and README and CLAUDE.md
+  record both folders as reserved.
+
+### Added — task 1.7, issue #30 (Admin API 0.2.0)
+
+- `test/role-access.test.ts`: route access per role fixture, the other half of the navigation
+  matrix. `navigation.test.ts` asserts what each role _sees_; this asserts what each role may
+  _open_, because a URL can be typed and the two only agree if the section guards and the navigation
+  are derived from the same rules. Every section is decided for every one of the seven seeded roles,
+  so adding a section without deciding who reaches it fails a test rather than shipping.
+- Playwright: the store-admin journey (sign in → switch store → products), plus the store outside
+  `stores[]` getting the 403 panel with the switcher intact, an HQ section being refused, and sign-out
+  ending the realm session. It is the only test that exercises the real realm, the app's own OIDC
+  routes, the encrypted session cookie, the permission-driven navigation and the catalog screen
+  together — everything else stubs at least one of them.
+- `playwright.config.ts` starts the Prism mock and a production build of the app; Keycloak must
+  already be up. It honours `$PORT` (default 3000) like the app does since #68, and derives both
+  the base URL and `ADMIN_APP_URL` from it — though the port is not yet free to choose, because
+  `admin-app` registers only `http://localhost:3000/*` as a redirect URI (REQUEST #82 asks for
+  3200 as well). Documented in CLAUDE.md as #30 asks. CI wiring is REQUEST #80.
+
 ### Changed — REQUEST #68 and a media fix
 
 - `start` is now plain `next start`, so the app honours `$PORT` (default 3000). A hard-coded

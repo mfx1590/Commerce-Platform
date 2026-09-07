@@ -52,6 +52,13 @@ export const HQ_SECTIONS: readonly Section[] = [
     why: 'window 12 embeds here; analyst is the reporting relation in ADR 0002',
   },
   {
+    id: 'marketing',
+    label: 'Marketing',
+    scope: 'hq',
+    requires: ['analyst'],
+    why: 'reserved for window 17 (docs/marketing-scope.md); analyst is the cross-store reporting relation, and owner implies it',
+  },
+  {
     id: 'roles',
     label: 'Roles',
     scope: 'hq',
@@ -87,8 +94,8 @@ export const STORE_SECTIONS: readonly Section[] = [
     id: 'customers',
     label: 'Customers',
     scope: 'store',
-    requires: [VIEWER],
-    why: 'listCustomers — x-permission viewer on store:{storeId}',
+    requires: ['support'],
+    why: 'listCustomers / getCustomer — x-permission support on store:{storeId} (Admin API 0.2.1 raised this from viewer: customer records are personal data, so reading them is no longer implied by merely holding a relation on the store)',
   },
   {
     id: 'promotions',
@@ -103,6 +110,13 @@ export const STORE_SECTIONS: readonly Section[] = [
     scope: 'store',
     requires: ['store_staff'],
     why: 'no Admin API operation yet (window 6 owns the CMS); gated like catalog authoring, which is store_staff',
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    scope: 'store',
+    requires: ['store_staff'],
+    why: 'reserved for window 17 (docs/marketing-scope.md); campaigns and segments are authoring work, so store_staff — store_admin implies it',
   },
   {
     id: 'settings',
