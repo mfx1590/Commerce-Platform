@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Changed — REQUEST #68 and a media fix
+
+- `start` is now plain `next start`, so the app honours `$PORT` (default 3000). A hard-coded
+  `--port` beats `$PORT`, so the container would listen on one port while Docker and Kubernetes
+  probed another and the pod would never become ready.
+- Added `GET /health`, the other half of the image contract, and excluded it from the middleware's
+  matcher — a probe redirected to the sign-in page never reports healthy. It reports only that the
+  process is up: a liveness probe that fails when Keycloak or the Admin API is down would get the
+  container killed and restarted, which fixes nothing and removes the instance that could still
+  serve the error panels.
+- **Media positions are renumbered from the array order** before the request is sent. The form
+  assigned a position on append and never revisited it, so removing the first of three images sent
+  positions 1 and 2 with no 0, and appending afterwards reused a number already in use. The array
+  order is what the user actually sees, so it is what goes to the API.
+
 ### Added — task 1.6, issue #29 (Admin API 0.2.0)
 
 - One pattern for every way a screen can fail, with `ApiStatePanel` as the single entry point:

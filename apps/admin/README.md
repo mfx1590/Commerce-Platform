@@ -35,7 +35,10 @@ somewhere else.
 | `MOCK_ADMIN_API_URL`   | `http://localhost:4011` | Admin API base URL                                                          |
 | `ADMIN_SESSION_SECRET` | **none — required**     | Encrypts the session cookie. Startup fails without it, in every environment |
 
-Port 3000 is fixed: the Keycloak client registers `http://localhost:3000/*` as its only redirect URI.
+The app honours `$PORT` (default 3000, REQUEST #68) and answers `GET /health` with 200 for the
+container probe. Keep it on 3000 for sign-in: the Keycloak client registers
+`http://localhost:3000/*` as its only redirect URI. To run it elsewhere locally, set
+`ADMIN_APP_URL=http://localhost:3000` so the `redirect_uri` still matches.
 
 ## Checks
 
