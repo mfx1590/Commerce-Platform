@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-08 · Contracts: **Admin API 0.2.1** (customer reads need `support`) · Last commit: `pending` (this memory commit; the work is `c41e731` and earlier) · Status: 1.1–1.6 merged; **1.7 + 1.8 + the 0.2.1 gating in PR #94** — Phase 1 Next list complete
+Last updated: 2026-09-08 · Contracts: **Admin API 0.2.1** (customer reads need `support`) · Last commit: `pending` (this memory commit; the work is `c41e731` and earlier) · Status: 1.1–1.6 merged; **1.7 + 1.8 + the 0.2.1 gating in PR #94, main merged in** — Phase 1 Next list complete
 
 ## Identity (does not change)
 Owned paths (write):
@@ -203,16 +203,19 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   gating). The PR opens by explaining why it is one PR rather than two — both tasks were already
   committed before the instruction arrived, and splitting would have shipped a Playwright spec I now
   know was broken. If the manager wants it split, redo as two.
-- Nothing is queued locally: `origin/admin/phase1` == `HEAD` apart from this memory commit.
+- Merged `origin/main` into the branch (window 2 and 5 work, plus #85 and #93). Everything still
+  green afterwards: lint, format:check, typecheck, 304 unit, 6 contract, and the e2e journey
+  re-run at 8/8 on `PORT=3200`.
 - **Phase 1's Next list is complete for this window.**
 
 ### Open requests, none blocking
-- **#82** — 3200 is registered on the *running* realm but **not in `infra/keycloak/staff-realm.json`**,
-  which is the documented source of truth. Lost on the next fresh volume, and infra's CI e2e job
-  would fail because a runner starts from the JSON. Commented on the issue.
+- ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
+  `redirectUris`, `webOrigins` **and** `post.logout.redirect.uris`. My earlier "the repo and the
+  running realm disagree" claim was wrong: I compared the live realm against this branch's stale copy
+  of the file, before #85 had been merged in. Corrected on the issue.
 - **#80** — CI job for the Playwright journeys (admin and storefront).
-- **#93** — Playwright's `test-results/` and `playwright-report/` trip `pnpm format:check`; delete
-  them before running it locally until the root `.prettierignore` covers them.
+- ~~**#93**~~ — **applied on main**: `**/test-results/` and `**/playwright-report/` are in the root
+  `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
@@ -368,6 +371,10 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Check `origin/main`, not your branch, before reporting that a shared file is missing something.**
+  I told window 2 the realm JSON lacked the 3200 redirect URI; it did not — their #85 had landed on
+  `main` and I was reading this branch's older copy. `git fetch && git show origin/main:<path>`
+  would have caught it.
 - **Keycloak's login form breaks `getByLabel`.** A "Show password" toggle carries
   `aria-label="Show password"`, so `getByLabel(/password/i)` matches two elements and trips
   Playwright strict mode. Use `getByRole('textbox', { name: 'Password', exact: true })`.
