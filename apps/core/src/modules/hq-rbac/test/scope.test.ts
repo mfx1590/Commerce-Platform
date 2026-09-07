@@ -72,6 +72,12 @@ async function token(realm: string, username: string, password = username): Prom
   if (!json.access_token && username === 'owner') {
     json = await grant(Date.now());
   }
+  if (!json.access_token && username === 'owner') {
+    // Both accepted windows were consumed (back-to-back suite runs). Wait for a fresh window: its code
+    // cannot have been used by anyone yet.
+    await new Promise((r) => setTimeout(r, 30_500 - (Date.now() % 30_000)));
+    json = await grant(Date.now());
+  }
   if (!json.access_token) throw new Error(`token for ${username}: ${json.error}`);
   tokenCache.set(key, json.access_token);
   return json.access_token;
