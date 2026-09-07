@@ -3,3 +3,6 @@
 .next/
 next-env.d.ts
 *.tsbuildinfo
+# Playwright run artefacts (window 3 and 4)
+test-results/
+playwright-report/

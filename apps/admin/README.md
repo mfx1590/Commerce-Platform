@@ -45,9 +45,16 @@ container probe. Keep it on 3000 for sign-in: the Keycloak client registers
 ```bash
 pnpm --filter @platform/admin test           # Vitest — fast, hermetic, no services
 pnpm --filter @platform/admin test:contract  # boots Prism itself and drives it with `Prefer: code=…`
+pnpm --filter @platform/admin e2e            # Playwright: the store-admin journey (needs Keycloak)
 pnpm --filter @platform/admin typecheck      # tsc --noEmit, including the test files
 pnpm --filter @platform/admin build          # next build
 ```
+
+Three layers on purpose. The unit suite stubs the network and runs in seconds. The contract suite
+boots Prism, so a change to the contract's documented examples breaks a test rather than a screen.
+The Playwright journey is the only one that touches the real realm, the real OIDC routes and the real
+session cookie end to end — everything else stubs at least one of those. It needs port 3000, because
+that is the only redirect URI the Keycloak client registers.
 
 From the repo root, `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before
 finishing a task. (Next's build output no longer trips the root lint and format checks — that was
@@ -313,28 +320,33 @@ message may contain whatever the server was holding, and this app handles tokens
 
 ## Layout
 
-| Path                     | What lives there                                                     |
-| ------------------------ | -------------------------------------------------------------------- |
-| `src/app/(hq)/`          | HQ routes (`/stores`, `/finance`, …)                                 |
-| `src/app/(store)/`       | Store routes (`/{storeId}/catalog`, …)                               |
-| `src/app/api/auth/`      | The OIDC endpoints                                                   |
-| `src/app/actions/`       | Server actions (the store switcher's submit handler)                 |
-| `src/middleware.ts`      | The auth gate and the only place that refreshes tokens               |
-| `src/lib/env.ts`         | Server-side configuration and defaults                               |
-| `src/lib/auth/`          | PKCE, discovery, token exchange, session sealing                     |
-| `src/lib/api/`           | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
-| `src/lib/nav/`           | Sections, the relation algebra, and the selected-store cookie        |
-| `src/lib/table/`         | URL table state and the row-selection model (both pure)              |
-| `src/lib/forms/`         | Contract schemas, server-error mapping, money parsing (all pure)     |
-| `src/components/form/`   | `useContractForm`, field chrome, `MoneyField`                        |
-| `src/components/table/`  | The `DataTable` primitive                                            |
-| `src/components/shell/`  | The frame: header, side nav, store switcher, section guards          |
-| `src/components/states/` | Every state panel plus the `ApiStatePanel` dispatcher                |
-| `src/components/ui/`     | Presentational primitives (`cn`, Button, Card, Badge)                |
-| `test/`                  | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |
+| Path                                   | What lives there                                                     |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| `src/app/(hq)/`                        | HQ routes (`/stores`, `/finance`, …)                                 |
+| `src/app/(hq)/marketing/`              | **Reserved for window 17** from Phase 2 (`docs/ownership.md`)        |
+| `src/app/(store)/`                     | Store routes (`/{storeId}/catalog`, …)                               |
+| `src/app/(store)/[storeId]/marketing/` | **Reserved for window 17** from Phase 2                              |
+| `src/app/api/auth/`                    | The OIDC endpoints                                                   |
+| `src/app/actions/`                     | Server actions (the store switcher's submit handler)                 |
+| `src/middleware.ts`                    | The auth gate and the only place that refreshes tokens               |
+| `src/lib/env.ts`                       | Server-side configuration and defaults                               |
+| `src/lib/auth/`                        | PKCE, discovery, token exchange, session sealing                     |
+| `src/lib/api/`                         | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
+| `src/lib/nav/`                         | Sections, the relation algebra, and the selected-store cookie        |
+| `src/lib/table/`                       | URL table state and the row-selection model (both pure)              |
+| `src/lib/forms/`                       | Contract schemas, server-error mapping, money parsing (all pure)     |
+| `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
+| `src/components/table/`                | The `DataTable` primitive                                            |
+| `src/components/shell/`                | The frame: header, side nav, store switcher, section guards          |
+| `src/components/states/`               | Every state panel plus the `ApiStatePanel` dispatcher                |
+| `src/components/ui/`                   | Presentational primitives (`cn`, Button, Card, Badge)                |
+| `test/`                                | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |
 
 `src/lib/api/admin-client.ts`, `src/lib/auth/session.ts` and everything in `src/lib/nav/` except
 `selected-store.ts` avoid `next/*` imports on purpose, so they run unchanged in the Node runtime,
 the Edge middleware, and unit tests.
 
-Owner: window 4 (admin). `src/app/(hq)/bi/**` is window 12 (embed only). See CLAUDE.md.
+Owner: window 4 (admin). `src/app/(hq)/bi/**` is window 12 (embed only), and
+`src/app/(hq)/marketing/**` plus `src/app/(store)/[storeId]/marketing/**` are window 17 from
+Phase 2 — they hold a placeholder each today, deliberately self-contained (one file, no shared
+components inside them, no API calls) so window 17 inherits a clean folder. See CLAUDE.md.
