@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.2.0
+  version: 0.2.1
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -1356,7 +1356,7 @@ paths:
     get:
       tags: [customers]
       operationId: listCustomers
-      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      x-permission: { relation: support, object: 'store:{storeId}' }
       parameters:
         - { name: q, in: query, schema: { type: string }, description: email or name }
         - { name: group_id, in: query, schema: { type: string, format: uuid } }
@@ -1413,7 +1413,7 @@ paths:
     get:
       tags: [customers]
       operationId: getCustomer
-      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      x-permission: { relation: support, object: 'store:{storeId}' }
       responses:
         '200':
           description: OK

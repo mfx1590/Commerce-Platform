@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.3 merged (#39, #64), 1.4 in PR #66, 1.5 next
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.4 merged (#39, #64, #66), 1.5 in PR #76, then 1.6 i18n, 1.7 Playwright+Lighthouse, 1.8 (#62) UTM capture
 
 ## Identity (does not change)
 
@@ -65,6 +65,14 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       payment_failed / 409 cart_completed. Playwright journey green (4 consecutive runs incl. a cold
       build). 23 new unit tests → 72 in the app.
 
+- [x] **1.5 (#21) Account + order history, Keycloak customers realm** — commit `73354a9`, PR #76. OIDC code+PKCE (S256) against realm `customers`, public client
+      `storefront-brand-a`; route handlers `/account/{sign-in,callback,sign-out}`; tokens in an
+      httpOnly cookie. `/account` = profile + addresses, `/account/orders` = history with `Price`
+      and an empty state. `returnTo` restricted to same-site paths. Playwright: sign-in as seeded
+      Jane, order `#1000` listed, sign-out ends the SSO session — 6 e2e green, 3 consecutive runs.
+      16 new unit tests → 89. **Also REQUEST #68:** `next.config.mjs`, `start` honours `$PORT`,
+      new `GET /health`.
+
 ## In progress
 
 - (nothing — 1.4 next, after the 1.3 PR merges)
@@ -91,9 +99,9 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] 1.5 (#21) Account + order history, Keycloak customers realm (`http://localhost:8180`, client `storefront-brand-a`), bearer token only on `/store/customers/*` and `/store/orders/{id}`.
 - [ ] 1.6 (#22) i18n `next-intl` + multi-currency: `/[locale]/…`, `hreflang`, cookies, defaults from `store.default_locale` / `default_currency`, no hard-coded strings in `(shop)`/`(checkout)`.
-- [ ] 1.7 (#23) Playwright smoke suite + `lighthouserc` budgets; CI job only via a `REQUEST:` issue (workflows belong to window 5 / main).
+- [ ] 1.7 (#23) Playwright smoke suite + `lighthouserc` budgets; CI job only via a `REQUEST:` issue (workflows belong to window 5 / main). Much of the suite already exists from 1.4/1.5 — 1.7 adds the budgets, the CI job YAML and `E2E_REQUIRE_KEYCLOAK=1`.
+- [ ] 1.8 (#62) UTM / referrer capture into `cart.metadata.attribution` (added by the manager 2026-09-07).
 
 ## Decisions made (with reasons)
 
@@ -186,6 +194,20 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
   starts a *production* build — `next dev` differs enough around caching and server actions that a
   green dev run proves little.
 
+- **`NextResponse.redirect()` defaults to 307, which preserves the request method.** Sign-out is a
+  POST, so the browser was re-POSTing to Keycloak's logout endpoint, which does not end an SSO
+  session that way: the customer was signed straight back in on their next visit. Fixed with an
+  explicit 303. Caught by the e2e, not by review.
+- **The account e2e specs run serially.** They share one Keycloak fixture user, and the sign-out
+  test ends that SSO session server-side — in parallel it bounced a sibling test back to the login
+  form mid-flow. That is what the first full-suite failure was.
+- **Sign-out is POST-only**, so a prefetch or an image tag cannot sign a customer out, and
+  `safeReturnTo` accepts only same-site paths so sign-in cannot become an open redirect.
+- **No silent token refresh.** Cookies cannot be written during a render, so a page with an expired
+  token redirects through `/account/sign-in`; Keycloak's SSO session makes that invisible to the
+  customer. Window 13 can revisit with a server-side session store — the session currently lives in
+  the cookie and is therefore bounded by ~4 KB.
+
 ## Blocked / waiting
 
 - Nothing blocking. 1.1 and 1.2 are merged; 1.3 is planned and waits only on the owner's go-ahead
@@ -198,6 +220,24 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- The realm seeds Jane's username as **`jane@example.com`**, not `jane` as issue #21 says; the
+  password is `jane`. Keycloak's login page needs `#username` / `#password` locators — a
+  label-based locator matches the password input *and* its "Show password" toggle.
+- Keycloak is a container, not a `pnpm` script, so Playwright does not start it. The account specs
+  skip when it is unreachable unless `E2E_REQUIRE_KEYCLOAK=1` — CI must set that (task 1.7) or a
+  missing dependency would pass quietly.
+- **Never run `pnpm dev --reset` while other windows are building.** It is
+  `docker compose down -v`: it wipes every volume (Postgres, Redpanda, Keycloak) and then exits
+  without bringing the stack back up, destroying the other windows' database and seed state.
+  `pnpm dev --down` stops without wiping; `pnpm dev` boots and re-seeds.
+- **Keycloak now persists realms** (`KC_DB: dev-file` in the keycloak volume, "imported once, then
+  kept"). A restart no longer re-imports them, so the note in Memory-main's global gotchas about
+  re-importing on every start is out of date. The only refresh paths are
+  `node infra/keycloak/reimport.mjs <realm>` or wiping the `keycloak-data` volume.
+- **Compose mounts `../keycloak` from *this worktree*.** Re-importing or recreating Keycloak from a
+  worktree whose realm JSON is behind main installs the stale realm for everybody. Check
+  `git diff origin/main -- infra/keycloak/` before touching Keycloak, and merge main first.
 
 - **The Prism mock is stateless and answers from the contract's examples.** `CartWithItem` already
   has email, address and a delivery option, so the e2e journey enters checkout at the payment step;
@@ -282,7 +322,7 @@ pnpm --filter @platform/ui build       # dist/ (the app's Tailwind scan needs it
 # storefront (needs the kit and contracts built once: pnpm --filter @platform/contracts build)
 pnpm mock                                          # Prism Store API on :4010
 pnpm --filter @platform/storefront-starter dev     # :3100
-pnpm --filter @platform/storefront-starter test    # 72 tests
+pnpm --filter @platform/storefront-starter test    # 89 tests
 pnpm --filter @platform/storefront-starter e2e     # Playwright, starts mock + prod build itself
 pnpm --filter @platform/storefront-starter typecheck
 pnpm --filter @platform/storefront-starter build   # next build, works offline
