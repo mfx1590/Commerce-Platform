@@ -28,7 +28,7 @@ export function oidcConfigFromEnv(
   return {
     issuer: `${keycloakUrl.replace(/\/+$/, '')}/realms/${realm}`,
     clientId: env.KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a',
-    redirectUri: `${appUrl.replace(/\/+$/, '')}/account/callback`,
+    redirectUri: `${appUrl.replace(/\/+$/, '')}/auth/callback`,
     scope: 'openid profile email',
   };
 }
@@ -84,8 +84,11 @@ export function buildAuthorizationUrl(
 
 /**
  * Where to send the customer after sign-in. **Only same-site paths**: an attacker who can make
- * someone click `/account/sign-in?returnTo=https://evil.example` must not be able to bounce them off
+ * someone click `/auth/sign-in?returnTo=https://evil.example` must not be able to bounce them off
  * this domain carrying a fresh session.
+ *
+ * The caller supplies the fallback, because the account page lives under a locale prefix and only
+ * the request knows which one.
  */
 export function safeReturnTo(value: string | null | undefined, fallback = '/account'): string {
   if (typeof value !== 'string' || value === '') return fallback;

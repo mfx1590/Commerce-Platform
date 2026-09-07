@@ -154,6 +154,31 @@ returns to the payment step, `409 cart_completed` forwards to the order that alr
 Phase 1 pays with the `manual` provider — a placeholder. Card data never reaches this app in any
 phase: window 7 adds hosted fields driven by `payment_session.client_secret`.
 
+## Locales and currency
+
+Every page lives under `src/app/[locale]/`; `/` redirects to the default locale and the choice is
+remembered in a cookie. **next-intl 4** provides the routing, the catalogues in `messages/*.json`,
+and the locale-aware `Link` (`@/i18n/navigation`) that pages import instead of `next/link`.
+
+Which locales exist is _build_ configuration (`SUPPORTED_LOCALES`, default `en-GB,de-DE`), because
+the middleware has to rewrite a URL long before any API call. What the store actually offers is API
+data, and the two are reconciled at render: `assertStoreOffersLocale` 404s a locale the store does
+not sell in, rather than serving a half-translated page.
+
+Money and dates format in the **locale being read**, not the store default — `/de-DE` shows
+`19,99 €` where `/en-GB` shows `€19.99`. Currency is separate from language: it is a cookie, not a
+path segment, validated against `store.currencies` before use and fixed on the cart at
+`POST /store/carts`. Language and currency switchers sit in the shop header; both are server-rendered
+and work without JavaScript.
+
+The route handlers stay **outside** the locale tree on purpose: `/health` must answer the container
+probe without a redirect, and `/auth/*` carries the OIDC round trip whose callback URL is registered
+with Keycloak. In-app redirects go through `redirectLocalized` so they keep the prefix.
+
+Adding a locale: add `messages/<locale>.json`, add it to `SUPPORTED_LOCALES`, and make sure the store
+returns it in `store.locales`. The tests fail if the catalogues drift apart, if a placeholder differs
+between them, if a key used in code is missing, or if copy is hard-coded in `(shop)` or `(checkout)`.
+
 ## Accounts
 
 Sign-in is OIDC authorization code + **PKCE** against the Keycloak customers realm.

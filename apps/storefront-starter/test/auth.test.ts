@@ -14,7 +14,7 @@ import { isExpired, parseSession, sessionFromTokens } from '@/lib/auth/session';
 const CONFIG = {
   issuer: 'http://localhost:8180/realms/customers',
   clientId: 'storefront-brand-a',
-  redirectUri: 'http://localhost:3100/account/callback',
+  redirectUri: 'http://localhost:3100/auth/callback',
   scope: 'openid profile email',
 };
 
@@ -32,7 +32,7 @@ describe('oidcConfigFromEnv', () => {
     });
     expect(config.issuer).toBe('https://id.example.com/realms/customers-eu');
     expect(config.clientId).toBe('storefront-brand-b');
-    expect(config.redirectUri).toBe('https://brand-b.example.com/account/callback');
+    expect(config.redirectUri).toBe('https://brand-b.example.com/auth/callback');
   });
 });
 
@@ -72,7 +72,7 @@ describe('PKCE', () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({
       response_type: 'code',
       client_id: 'storefront-brand-a',
-      redirect_uri: 'http://localhost:3100/account/callback',
+      redirect_uri: 'http://localhost:3100/auth/callback',
       scope: 'openid profile email',
       state: 'st',
       code_challenge: codeChallenge('ver-1234'),
@@ -175,7 +175,7 @@ describe('exchangeCode', () => {
     expect(Object.fromEntries(body)).toEqual({
       grant_type: 'authorization_code',
       client_id: 'storefront-brand-a',
-      redirect_uri: 'http://localhost:3100/account/callback',
+      redirect_uri: 'http://localhost:3100/auth/callback',
       code: 'the-code',
       code_verifier: 'the-verifier',
     });

@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl';
 import type { ProductSummary } from '@/lib/store-api';
 import { ProductCard } from './product-card';
 
@@ -5,12 +6,10 @@ import { ProductCard } from './product-card';
 const ABOVE_THE_FOLD = 2;
 
 export function ProductGrid({ products, locale }: { products: ProductSummary[]; locale: string }) {
+  const t = useTranslations('plp');
+
   if (products.length === 0) {
-    return (
-      <p className="py-16 text-center text-muted-foreground">
-        No products match these filters. Try clearing the search or choosing another category.
-      </p>
-    );
+    return <p className="py-16 text-center text-muted-foreground">{t('empty')}</p>;
   }
 
   return (

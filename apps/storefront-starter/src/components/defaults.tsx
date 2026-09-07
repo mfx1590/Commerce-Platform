@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import type { ComponentSlots } from '@/lib/slots';
 
 /** Wordmark. A brand usually replaces this with its own SVG or a `next/image` logo. */
