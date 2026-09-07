@@ -1,6 +1,7 @@
 import { Badge, Price } from '@platform/ui';
+import { useTranslations } from 'next-intl';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import type { ProductSummary } from '@/lib/store-api';
 
 /** Grid sizes, so the browser downloads one image per breakpoint instead of the largest. */
@@ -14,6 +15,7 @@ export interface ProductCardProps {
 }
 
 export function ProductCard({ product, locale, priority = false }: ProductCardProps) {
+  const t = useTranslations('common');
   const onSale =
     product.compare_at_price !== null &&
     product.compare_at_price.amount_minor > product.price.amount_minor;
@@ -26,7 +28,7 @@ export function ProductCard({ product, locale, priority = false }: ProductCardPr
       >
         {product.thumbnail_url === null ? (
           <span className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-            No image
+            {t('noImage')}
           </span>
         ) : (
           <Image
@@ -40,7 +42,7 @@ export function ProductCard({ product, locale, priority = false }: ProductCardPr
         )}
         {onSale ? (
           <Badge variant="destructive" className="absolute left-2 top-2">
-            Sale
+            {t('sale')}
           </Badge>
         ) : null}
       </Link>

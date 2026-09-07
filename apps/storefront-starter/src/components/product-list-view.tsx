@@ -1,3 +1,4 @@
+import { getLocale, getTranslations } from 'next-intl/server';
 import { CategoryFilter, SearchForm, SortLinks } from '@/components/catalog-filters';
 import { Pagination } from '@/components/pagination';
 import { ProductGrid } from '@/components/product-grid';
@@ -8,7 +9,6 @@ import {
   totalPages,
   type ListParams,
 } from '@/lib/catalog';
-import { getStoreOrNull } from '@/lib/store';
 
 /**
  * The listing itself, shared by `/products` and `/categories/[handle]`.
@@ -29,13 +29,13 @@ export async function ProductListView({
   params: ListParams;
   activeCategoryHandle?: string | undefined;
 }) {
-  const [store, page, categories] = await Promise.all([
-    getStoreOrNull(),
+  const [page, categories, t] = await Promise.all([
     listProducts(params),
     listCategories(),
+    getTranslations('plp'),
   ]);
 
-  const locale = store?.default_locale ?? 'en-US';
+  const locale = await getLocale();
   const pages = totalPages(page);
 
   return (
@@ -46,8 +46,8 @@ export async function ProductListView({
           <p className="max-w-prose text-muted-foreground">{description}</p>
         )}
         <p className="text-sm text-muted-foreground">
-          {page.total} {page.total === 1 ? 'product' : 'products'}
-          {params.q === undefined ? null : <> matching “{params.q}”</>}
+          {t('count', { count: page.total })}
+          {params.q === undefined ? null : t('matching', { query: params.q })}
         </p>
       </header>
 

@@ -1,12 +1,7 @@
 import { cn } from '@platform/ui';
-import Link from 'next/link';
-import {
-  CHECKOUT_STEPS,
-  STEP_LABELS,
-  isStepReachable,
-  stepPath,
-  type CheckoutStep,
-} from '@/lib/checkout';
+import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
+import { CHECKOUT_STEPS, isStepReachable, stepPath, type CheckoutStep } from '@/lib/checkout';
 import type { Cart } from '@/lib/store-api';
 
 /**
@@ -14,13 +9,15 @@ import type { Cart } from '@/lib/store-api';
  * address; a step the cart cannot support yet is plain text, matching the server-side guard.
  */
 export function CheckoutSteps({ cart, current }: { cart: Cart; current: CheckoutStep }) {
+  const t = useTranslations('checkout');
+
   return (
-    <nav aria-label="Checkout progress" className="mb-8">
+    <nav aria-label={t('progress')} className="mb-8">
       <ol className="flex flex-wrap items-center gap-2 text-sm">
         {CHECKOUT_STEPS.map((step, index) => {
           const active = step === current;
           const reachable = isStepReachable(cart, step);
-          const label = `${index + 1}. ${STEP_LABELS[step]}`;
+          const label = `${index + 1}. ${t(`steps.${step}`)}`;
 
           return (
             <li key={step} className="flex items-center gap-2">

@@ -1,0 +1,152 @@
+import { Badge } from '@platform/ui';
+import type { Metadata } from 'next';
+import { getLocale, getTranslations } from 'next-intl/server';
+import Image from 'next/image';
+import { Link } from '@/i18n/navigation';
+import { notFound } from 'next/navigation';
+import { VariantPicker } from '@/components/variant-picker';
+import { getProduct } from '@/lib/catalog';
+import { isNotFound } from '@/lib/store-api';
+import { defaultSelection, findVariant, mediaFor } from '@/lib/variant';
+
+type Params = Promise<{ handle: string }>;
+
+/** The gallery is the largest element on the page; sizes keep the LCP image small on a phone. */
+const GALLERY_SIZES = '(min-width: 1024px) 50vw, 100vw';
+
+/** `getProduct` is wrapped in `cache()`, so metadata and the page share one request. */
+async function loadProduct(handle: string) {
+  try {
+    return await getProduct(handle);
+  } catch (error) {
+    if (isNotFound(error)) notFound();
+    throw error;
+  }
+}
+
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { handle } = await params;
+  const product = await loadProduct(handle);
+  const description = product.seo?.description ?? product.subtitle ?? undefined;
+
+  return {
+    title: product.seo?.title ?? product.title,
+    ...(description === undefined ? {} : { description }),
+    ...(product.seo?.canonical === undefined
+      ? {}
+      : { alternates: { canonical: product.seo.canonical } }),
+  };
+}
+
+export default async function ProductDetailPage({ params }: { params: Params }) {
+  const { handle } = await params;
+  const [product, t, tCommon] = await Promise.all([
+    loadProduct(handle),
+    getTranslations('pdp'),
+    getTranslations('common'),
+  ]);
+
+  const locale = await getLocale();
+  // Render the same variant the picker will start on, so hydration replaces correct markup.
+  const initialVariant = findVariant(product, defaultSelection(product));
+  const media = mediaFor(product, initialVariant);
+  const hero = media[0];
+
+  return (
+    <article className="flex flex-col gap-10">
+      <nav aria-label={t('breadcrumb')} className="text-sm text-muted-foreground">
+        <ol className="flex flex-wrap items-center gap-2">
+          <li>
+            <Link href="/products" className="hover:underline">
+              {t('products')}
+            </Link>
+          </li>
+          {product.category === null ? null : (
+            <li className="flex items-center gap-2">
+              <span aria-hidden="true">/</span>
+              <Link href={`/categories/${product.category.handle}`} className="hover:underline">
+                {product.category.name}
+              </Link>
+            </li>
+          )}
+          <li className="flex items-center gap-2">
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">{product.title}</span>
+          </li>
+        </ol>
+      </nav>
+
+      <div className="grid gap-10 lg:grid-cols-2">
+        <div className="flex flex-col gap-4">
+          <div className="relative aspect-square overflow-hidden rounded-lg bg-muted">
+            {hero === undefined ? (
+              <span className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+                {tCommon('noImage')}
+              </span>
+            ) : (
+              <Image
+                src={hero.url}
+                alt={hero.alt ?? product.title}
+                fill
+                sizes={GALLERY_SIZES}
+                priority
+                className="object-cover"
+              />
+            )}
+          </div>
+          {media.length > 1 ? (
+            <ul className="grid grid-cols-4 gap-3">
+              {media.slice(1, 5).map((item) => (
+                <li
+                  key={item.url}
+                  className="relative aspect-square overflow-hidden rounded-md bg-muted"
+                >
+                  <Image
+                    src={item.url}
+                    alt={item.alt ?? product.title}
+                    fill
+                    sizes="25vw"
+                    className="object-cover"
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-6">
+          <header className="flex flex-col gap-2">
+            {product.brand_name === null ? null : (
+              <p className="text-sm text-muted-foreground">{product.brand_name}</p>
+            )}
+            <h1 className="text-3xl font-bold leading-tight">{product.title}</h1>
+            {product.subtitle === null ? null : (
+              <p className="text-lg text-muted-foreground">{product.subtitle}</p>
+            )}
+          </header>
+
+          <VariantPicker product={product} locale={locale} />
+
+          {product.tags.length === 0 ? null : (
+            <ul className="flex flex-wrap gap-2">
+              {product.tags.map((tag) => (
+                <li key={tag}>
+                  <Badge variant="outline">{tag}</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {product.description === null ? null : (
+        <section aria-labelledby="description" className="max-w-prose">
+          <h2 id="description" className="mb-2 text-xl font-semibold">
+            {t('description')}
+          </h2>
+          <p className="whitespace-pre-line text-muted-foreground">{product.description}</p>
+        </section>
+      )}
+    </article>
+  );
+}

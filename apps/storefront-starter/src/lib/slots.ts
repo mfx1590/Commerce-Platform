@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import type { ReactNode } from 'react';
 import { componentOverrides } from '@/brand/components';
 import { layoutOverrides } from '@/brand/layouts';
 import { defaultComponents } from '@/components/defaults';
@@ -16,15 +16,22 @@ import type { Store } from './store-api';
  * header renders the `Logo`), and a getter keeps that from depending on module evaluation order.
  */
 
+/**
+ * Slots are React Server Components, so one may be `async` — the default footer reads the currency
+ * cookie, and a brand will want to fetch its own data. `ComponentType` cannot express that, because
+ * an async component returns a Promise.
+ */
+type ServerComponent<P> = (props: P) => ReactNode | Promise<ReactNode>;
+
 export interface ComponentSlots {
-  Logo: ComponentType<{ storeName: string }>;
+  Logo: ServerComponent<{ storeName: string }>;
   /** Thin strip above the header. The default renders nothing. */
-  Announcement: ComponentType<{ store: Store | null }>;
+  Announcement: ServerComponent<{ store: Store | null }>;
 }
 
 export interface LayoutSlots {
-  Header: ComponentType<{ store: Store | null }>;
-  Footer: ComponentType<{ store: Store | null }>;
+  Header: ServerComponent<{ store: Store | null }>;
+  Footer: ServerComponent<{ store: Store | null }>;
 }
 
 /** Skips keys explicitly set to `undefined`, so a partial override never blanks a default. */

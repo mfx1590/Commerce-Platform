@@ -1,27 +1,29 @@
 import { Price } from '@platform/ui';
+import { useTranslations } from 'next-intl';
 import type { Totals } from '@/lib/store-api';
 
 /** The money table shown in the cart, at review, and on the confirmation page. */
 export function TotalsTable({ totals, locale }: { totals: Totals; locale: string }) {
+  const t = useTranslations('totals');
   const rows: [string, Totals[keyof Totals]][] = [
-    ['Subtotal', totals.subtotal],
-    ['Discount', totals.discount],
-    ['Delivery', totals.shipping],
-    ['Tax', totals.tax],
+    ['subtotal', totals.subtotal],
+    ['discount', totals.discount],
+    ['shipping', totals.shipping],
+    ['tax', totals.tax],
   ];
 
   return (
     <dl className="flex flex-col gap-2 text-sm">
-      {rows.map(([label, money]) => (
-        <div key={label} className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">{label}</dt>
+      {rows.map(([key, money]) => (
+        <div key={key} className="flex justify-between gap-4">
+          <dt className="text-muted-foreground">{t(key)}</dt>
           <dd>
             <Price value={money} locale={locale} />
           </dd>
         </div>
       ))}
       <div className="mt-2 flex justify-between gap-4 border-t border-border pt-3 text-base font-semibold">
-        <dt>Total</dt>
+        <dt>{t('total')}</dt>
         <dd>
           <Price value={totals.total} locale={locale} />
         </dd>

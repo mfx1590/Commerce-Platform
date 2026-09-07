@@ -1,6 +1,7 @@
 'use client';
 
 import { Badge, Button, Price, cn } from '@platform/ui';
+import { useTranslations } from 'next-intl';
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { addToCartAction, type ActionState } from '@/lib/actions';
@@ -27,15 +28,17 @@ const EMPTY: ActionState = {};
 
 function AddToCartButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
+  const t = useTranslations('pdp');
   return (
     <Button type="submit" size="lg" disabled={disabled} loading={pending}>
-      {disabled ? 'Unavailable' : 'Add to cart'}
+      {disabled ? t('unavailable') : t('addToCart')}
     </Button>
   );
 }
 export function VariantPicker({ product, locale }: { product: Product; locale: string }) {
   const [selection, setSelection] = useState<Selection>(() => defaultSelection(product));
   const [state, formAction] = useActionState(addToCartAction, EMPTY);
+  const t = useTranslations('pdp');
 
   const variant = findVariant(product, selection);
   const stock = availability(variant);
@@ -48,6 +51,7 @@ export function VariantPicker({ product, locale }: { product: Product; locale: s
           value={price}
           compareAt={variant?.compare_at_price ?? null}
           locale={locale}
+          compareAtLabel={t('originalPrice')}
           className="text-2xl font-semibold"
         />
       )}
@@ -105,13 +109,15 @@ export function VariantPicker({ product, locale }: { product: Product; locale: s
         )}
       </form>
       {variant === undefined ? null : (
-        <p className="text-sm text-muted-foreground">SKU {variant.sku}</p>
+        <p className="text-sm text-muted-foreground">{t('sku', { sku: variant.sku })}</p>
       )}
     </div>
   );
 }
 
 function AvailabilityNote({ stock }: { stock: ReturnType<typeof availability> }) {
+  const t = useTranslations('pdp.stock');
+
   switch (stock.state) {
     // `self-start` matters: the picker is a flex column, which would otherwise stretch the badge.
     case 'in_stock':
@@ -123,19 +129,19 @@ function AvailabilityNote({ stock }: { stock: ReturnType<typeof availability> })
     case 'low_stock':
       return (
         <Badge variant="destructive" className="self-start">
-          Only {stock.quantity} left
+          {t('low_stock', { quantity: stock.quantity })}
         </Badge>
       );
     case 'backorder':
       return (
         <Badge variant="neutral" className="self-start">
-          On backorder — ships when restocked
+          {t('backorder')}
         </Badge>
       );
     case 'out_of_stock':
       return (
         <Badge variant="neutral" className="self-start">
-          Out of stock
+          {t('out_of_stock')}
         </Badge>
       );
   }

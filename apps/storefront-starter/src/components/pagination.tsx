@@ -1,5 +1,6 @@
 import { buttonVariants } from '@platform/ui';
-import Link from 'next/link';
+import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import { listHref, type ListParams } from '@/lib/catalog';
 
 /** How many numbered pages to show around the current one before eliding. */
@@ -35,18 +36,19 @@ export function Pagination({
   params: ListParams;
   total: number;
 }) {
+  const t = useTranslations('plp');
   if (total <= 1) return null;
   const current = Math.min(params.page, total);
 
   return (
-    <nav aria-label="Pagination" className="mt-10 flex items-center justify-center gap-1">
+    <nav aria-label={t('pagination')} className="mt-10 flex items-center justify-center gap-1">
       {current > 1 ? (
         <Link
           href={listHref(basePath, { ...params, page: current - 1 })}
           rel="prev"
           className={buttonVariants({ variant: 'outline', size: 'sm' })}
         >
-          Previous
+          {t('previous')}
         </Link>
       ) : null}
 
@@ -59,7 +61,7 @@ export function Pagination({
           <Link
             key={page}
             href={listHref(basePath, { ...params, page })}
-            aria-label={`Page ${page}`}
+            aria-label={t('page', { page })}
             aria-current={page === current ? 'page' : undefined}
             className={buttonVariants({
               variant: page === current ? 'primary' : 'ghost',
@@ -77,7 +79,7 @@ export function Pagination({
           rel="next"
           className={buttonVariants({ variant: 'outline', size: 'sm' })}
         >
-          Next
+          {t('next')}
         </Link>
       ) : null}
     </nav>

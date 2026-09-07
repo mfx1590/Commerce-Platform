@@ -1,3 +1,4 @@
+import { getLocale } from 'next-intl/server';
 import { redirect } from 'next/navigation';
 import { getAccessToken } from './session';
 
@@ -10,6 +11,11 @@ import { getAccessToken } from './session';
  */
 export async function requireCustomerToken(returnTo: string): Promise<string> {
   const token = await getAccessToken();
-  if (token === null) redirect(`/account/sign-in?returnTo=${encodeURIComponent(returnTo)}`);
+  if (token === null) {
+    // `/auth/*` is deliberately outside the locale tree (its callback URL is registered with
+    // Keycloak), but the page to come back to is not — so returnTo carries the prefix.
+    const locale = await getLocale();
+    redirect(`/auth/sign-in?returnTo=${encodeURIComponent(`/${locale}${returnTo}`)}`);
+  }
   return token;
 }
