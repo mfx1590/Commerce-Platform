@@ -10,7 +10,7 @@ import {
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { RequestErrorPanel, StatePanel } from '@/components/states/state-panel';
+import { ApiStatePanel, EmptyPanel } from '@/components/states/state-panel';
 import type { AdminError } from '@/lib/api/admin-client';
 import {
   ariaSort,
@@ -58,6 +58,8 @@ export interface DataTableProps<T> {
   searchKey?: string;
   searchPlaceholder?: string;
   emptyState?: ReactNode;
+  /** Offered when the list is empty *and* unfiltered — "create your first product". */
+  emptyAction?: ReactNode;
   /** A failed request renders in place of the rows rather than taking down the route. */
   error?: { status: number; error: AdminError } | undefined;
 }
@@ -75,6 +77,7 @@ export function DataTable<T>({
   searchKey,
   searchPlaceholder,
   emptyState,
+  emptyAction,
   error,
 }: DataTableProps<T>) {
   const router = useRouter();
@@ -192,16 +195,10 @@ export function DataTable<T>({
       )}
 
       {error !== undefined ? (
-        <RequestErrorPanel status={error.status} error={error.error} />
+        // One dispatcher, so a 401 here looks like a 401 everywhere else.
+        <ApiStatePanel status={error.status} error={error.error} what={caption} />
       ) : rows.length === 0 ? (
-        (emptyState ?? (
-          <StatePanel
-            title={`No ${caption.toLowerCase()} yet`}
-            {...(Object.keys(query.filters).length > 0
-              ? { description: 'Nothing matches the current filter.' }
-              : {})}
-          />
-        ))
+        (emptyState ?? <EmptyTable caption={caption} query={query} action={emptyAction} />)
       ) : (
         <div className="border-line bg-surface overflow-x-auto rounded-lg border">
           <table className="w-full text-sm" aria-busy={isPending} aria-label={caption}>
@@ -308,5 +305,45 @@ export function DataTable<T>({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * "Nothing here yet" and "your filter matched nothing" are different problems with different next
+ * actions: the first wants a create button, the second wants the filter cleared. Conflating them
+ * leaves someone staring at an empty catalog wondering whether the import failed.
+ */
+function EmptyTable({
+  caption,
+  query,
+  action,
+}: {
+  caption: string;
+  query: TableQuery;
+  action: ReactNode;
+}) {
+  const filtered = Object.keys(query.filters).length > 0;
+  return filtered ? (
+    <EmptyPanel
+      title={`No ${caption.toLowerCase()} match this filter`}
+      description="Nothing here matched what you searched for."
+      action={<ClearFiltersButton />}
+    />
+  ) : (
+    <EmptyPanel
+      title={`No ${caption.toLowerCase()} yet`}
+      {...(action === undefined ? {} : { action })}
+    />
+  );
+}
+
+/** Clears every filter by navigating to the bare path — the URL is the state. */
+function ClearFiltersButton() {
+  const router = useRouter();
+  const pathname = usePathname();
+  return (
+    <Button variant="secondary" onClick={() => router.push(pathname)}>
+      Clear filters
+    </Button>
   );
 }

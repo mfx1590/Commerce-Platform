@@ -2,9 +2,9 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { AppShell } from './app-shell';
 import {
+  ApiStatePanel,
   ForbiddenPanel,
   NoAccessPanel,
-  RequestErrorPanel,
   StoreForbiddenPanel,
 } from '@/components/states/state-panel';
 import {
@@ -48,11 +48,7 @@ export async function Shell({
     }
     return (
       <BareFrame>
-        {result.status === 403 ? (
-          <ForbiddenPanel error={result.error} />
-        ) : (
-          <RequestErrorPanel status={result.status} error={result.error} />
-        )}
+        <ApiStatePanel status={result.status} error={result.error} what="Your account" />
       </BareFrame>
     );
   }

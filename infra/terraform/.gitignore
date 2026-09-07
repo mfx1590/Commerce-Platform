@@ -10,5 +10,10 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 !*.tfvars.example
+
+# Backend configuration names the state bucket and lock table for a specific AWS account.
+# It is NOT matched by the *.tfvars rules above, which is what this line is for.
+backend.hcl
+!backend.hcl.example
 # Plan output is a readable copy of the state, including secrets.
 *.tfplan

@@ -334,7 +334,19 @@ describe.runIf(live)('staff realm (live Keycloak)', () => {
       ?.replace(/&amp;/g, '&');
     expect(otpAction, 'otp form action').toBeDefined();
 
-    const done = await login.postForm(otpAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
+    let done = await login.postForm(otpAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
+    if (done.status !== 302) {
+      // The current window's code was consumed elsewhere in this run (code reuse is off). The policy's
+      // look-ahead of 1 also accepts the next window's (different) code; the error page re-renders the form.
+      const retryHtml = await done.text();
+      const retryAction = retryHtml
+        .match(/<form[^>]*action="([^"]+)"[^>]*>(?:(?!<\/form>)[\s\S])*name="otp"/)?.[1]
+        ?.replace(/&amp;/g, '&');
+      expect(retryAction, 'otp retry form action').toBeDefined();
+      done = await login.postForm(retryAction!, {
+        otp: totp(OWNER_DEV_TOTP_SECRET, Date.now() + 30_000),
+      });
+    }
     expect(done.status).toBe(302);
     const location = done.headers.get('location') ?? '';
     expect(location).toContain('http://localhost:3000/callback');

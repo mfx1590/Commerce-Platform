@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.4 merged (PR #42); 1.5 in review (PR #67, BLOCK items addressed); 1.6 next
+Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: `b132628` · Status: 1.1–1.5 merged (PR #42, PR #67); 1.6 in review (PR #78)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,39 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **REQUEST #68 — `$PORT`, `/health`, and media position renumbering** · commit `b132628` · PR #78
+  - `start` is plain `next start`, so the app honours `$PORT` (default 3000). A hard-coded `--port`
+    beats `$PORT`, so the container would listen on one port while Docker and Kubernetes probed
+    another, the pod would never become ready, and the deploy would roll back.
+  - Added `GET /health` — the half of the image contract the request only mentions in passing, and
+    which this app did not have: the probe would have been **redirected to the sign-in page**. It is
+    excluded from the middleware matcher and reports only that the process is up; a liveness probe
+    that fails when Keycloak or the Admin API is down gets the container killed and restarted, which
+    fixes nothing and removes the instance that could still serve the error panels.
+  - Media positions are renumbered from the array order before the body is sent. The form assigned a
+    position on append and never revisited it, so removing the first of three images sent 1 and 2
+    with no 0, and appending afterwards reused a number already in use — anything ordering images
+    downstream would have been working from duplicates.
+  - 274 tests.
+
+- **1.6 — issue #29 The 401/403/404/empty/error pattern** · commits `a2eac56` and `b132628` ·
+  **PR #78**, all seven checks green.
+  - `ApiStatePanel` is the single entry point; screens hand it a failed result instead of branching
+    on status. 401 offers signing in again rather than a retry that would fail identically; 403 names
+    the relation and object; 404 says which store was searched, because the API scopes it; only
+    network/5xx gets a retry.
+  - Empty is split from error, and "nothing yet" from "filter matched nothing" — different problems,
+    different next actions.
+  - Router boundaries `error.tsx` / `not-found.tsx`; the error boundary shows only `digest`, since a
+    server error message can contain whatever the server was holding.
+  - `/states` renders every panel, dev only, from the same components the screens use.
+  - New `test:contract` suite boots Prism itself and drives it with `Prefer: code=403` (plus 401,
+    404, 200) — proving a real refusal becomes the panel that names the relation. Kept out of
+    `pnpm test` so the unit suite stays fast.
+  - Found and fixed: **the test files had never been typechecked** — `tsconfig.json` only included
+    `src/`.
+  - 266 unit + 6 contract tests.
+
 - **1.5 review follow-up** (manager BLOCK on PR #67, all three addressed) · commit `a1b297a`
   1. `createVariantAction` had no caller. The product page now reconciles the matrix against
      existing variants and offers the gap — one button per row plus "Create all N" — and
@@ -49,7 +82,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     "verified end to end" claim corrected (see the 1.1 entry).
   - 229 tests. `pnpm lint`, `format:check`, `typecheck` (15/15), `check-ownership` green.
 
-- **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `f2c8df5` · PR held until #42 merges
+- **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `f2c8df5` · merged in PR #42
   - `useContractForm(schema, action)`: one Zod schema validates on the client and re-validates in
     the server action, so the two cannot disagree.
   - Schemas hand-written, not generated: the contract marks nearly every input property optional
@@ -64,7 +97,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   - Optimistic UI runs only when an `optimistic` callback is passed.
   - 175 tests total.
 
-- **1.3 — issue #26 Data-table primitive** · commit `dd90b81` · PR held until #42 merges
+- **1.3 — issue #26 Data-table primitive** · commit `dd90b81` · merged in PR #42
   - `DataTable` on TanStack Table v8 with `manualPagination/Sorting/Filtering`: the server decides
     what is in the page, the component renders it. Column visibility, bulk-action slot,
     loading/empty/error in place of the rows.
@@ -78,7 +111,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     forwarded for `listStores` and `listProducts`. At the time of this task it was carried in the URL
     only.
 
-- **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · PR (opened after #42 merges)
+- **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · merged in PR #42
   - Route groups `(hq)` and `(store)/[storeId]`; all twelve sections reachable, each placeholder
     naming the issue that delivers the real screen. 19 routes build.
   - `src/lib/nav/` is navigation as a pure function of the `Principal`: `sections.ts` (catalogue,
@@ -113,25 +146,43 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     What was independently confirmed: the client is `publicClient=true` with
     `pkce.code.challenge.method=S256` and redirect `http://localhost:3000/*` (Keycloak admin API),
     and `GET /admin/me` answers on the mock with a bearer token. The token exchange and refresh paths
-    are covered by unit tests (task 1.5) — not by a live round-trip. #43 (window 2) unblocks the rest.
+    are covered by unit tests (task 1.5) — not by a live round-trip.
+  - **Now verified (2026-09-06), after #65 fixed #43.** The staff realm's OTP is CONDITIONAL
+    (`conditional-user-configured`), so `store-admin` signs in with a password alone while `owner`
+    stays TOTP-enrolled to keep the challenge path testable. The whole flow was driven through the
+    app's own routes against real Keycloak: `/api/auth/login` (PKCE S256, three transient cookies) →
+    the realm's sign-in form → password accepted with no OTP challenge → `/api/auth/callback`
+    exchanging a **real** authorization code with the **real** token endpoint → session sealed into
+    two `admin_session.N` cookies → returned to the `returnTo` → `/{brand-a}/catalog` rendering 200
+    with the products table and "Store Admin" from the real ID-token claims → logout redirecting to
+    the realm's end-session endpoint with `id_token_hint`. Replaying the code with a wrong verifier
+    is rejected 400. Zero server errors throughout. **#24's last acceptance criterion is met.**
+    Caveat: the app listened on 3200 (another project still holds 3000) with `ADMIN_APP_URL=3000` so
+    the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- Nothing. Task 1.6 (issue #29, the 401/403/404/empty/error pattern) is next: `src/components/states/`
-  already has forbidden / store-forbidden / no-access / request-error panels from 1.2, and the
-  data-table and forms already route failures into them, so 1.6 is mostly completing the set (401
-  re-authenticate, 404 scoped to the store), the `Prefer: code=403` mock tests, and the `(dev)/states`
-  demo route.
+- Nothing implementing. **PR #78 (1.6 + REQUEST #68) is open and green, waiting on the manager.**
+  One open PR per branch, so 1.7 (#30) goes up next, then 1.8 (#63).
 
 ## Next — Phase 1
-- [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
-- [x] 1.2 Permission-driven navigation + store switcher — #25, PR (opened after #42 merges) (do not self-merge)
-- [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26 (PR pending)
-- [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27 (PR pending)
-- [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28 (PR open)
+- [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
+- [x] 1.2 Permission-driven navigation + store switcher — #25, merged (PR #42)
+- [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26, merged (PR #42)
+- [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27, merged (PR #42)
+- [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28, merged (PR #67)
 - [ ] 1.6 403 / empty / error states pattern — #29
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
 ## Decisions made (with reasons)
+- **`ApiStatePanel` dispatches; screens do not branch on status.** One dispatcher is what makes the
+  pattern one pattern — a 401 in a data-table looks like a 401 on a detail page because it is the
+  same component, not because two places happen to agree.
+- **Only network/5xx offers a retry.** Retrying a 403 fails identically, and a button that cannot
+  work is worse than no button.
+- **The error boundary shows `digest`, never the message.** A server-side error message may contain
+  whatever the server was holding, and this app handles tokens and customer data.
+- **Contract tests live in `test-contract/` with their own vitest config.** They boot Prism, which
+  takes seconds and needs a free port; `pnpm test` stays fast and hermetic.
 - **Creating variants is a deliberate act, not a side effect of saving options.** A variant is a
   sellable thing with its own SKU, price and stock; adding a colour to a live product would
   otherwise silently POST several. The page offers the gap between the matrix and what exists, one
@@ -236,8 +287,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   for the manager to merge it, then continue on the same branch — never stacked branches.
 - **CONTRACT CHANGE #56 accepted** as Admin API 0.2.0; sorting is live for `listStores` and
   `listProducts`. Nothing blocked.
-- **#24 acceptance criterion 1 (browser sign-in round-trip) — two environment blockers, both
-  outside `apps/admin/**`.** The code is complete; the OIDC flow is verified up to the sign-in form
+- ~~**#24 acceptance criterion 1 (browser sign-in round-trip)**~~ — **done 2026-09-06.** The code is complete; the OIDC flow is verified up to the sign-in form
   only (see the correction in the 1.1 entry — no code was issued, so no live token exchange).
   1. **Port 3000 is taken by an unrelated project** (`Propertymate` Next dev server, PID varies).
      Port 3000 is not negotiable: the `admin-app` client registers `http://localhost:3000/*` as its
@@ -256,6 +306,19 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Re-importing the staff realm after window 2 changes it:** `node infra/keycloak/reimport.mjs staff`
+  deletes and recreates the realm through the admin API without touching any volume, then restart
+  just Keycloak (`docker compose -f infra/docker/docker-compose.yml restart keycloak`). **Do not use
+  `pnpm dev --reset` for this** — it is `docker compose down -v` and wipes Postgres, OpenFGA and
+  Redpanda too, which destroys the other windows' migrated and seeded data while they are building.
+- Staff realm since #65: OTP is CONDITIONAL, so six of the seven seeded users sign in with a password
+  alone; `owner` is pre-enrolled with a dev TOTP secret documented in `infra/keycloak/README.md` so
+  the challenge path stays testable.
+- Port 3000 is still held by an unrelated project on this machine, and `admin-app` registers only
+  `http://localhost:3000/*`. Workaround for local verification: run the app on another port with
+  `ADMIN_APP_URL=http://localhost:3000` so the `redirect_uri` still matches.
+- **`tsconfig.json` only included `src/`, so no test file was ever typechecked.** Fixed in 1.6;
+  worth checking in any other window that scaffolded its own tsconfig.
 - **Anything a server component imports must come from a non-`'use client'` module** — not just
   functions, constants too. The silent variant (object properties reading `undefined`) is the
   dangerous one.
