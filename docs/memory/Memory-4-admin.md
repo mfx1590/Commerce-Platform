@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.4 merged (PR #42); 1.5 in review (PR #67, BLOCK addressed); 1.6 done but HELD LOCAL until #67 merges
+Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: `b132628` · Status: 1.1–1.5 merged (PR #42, PR #67); 1.6 in review (PR #78)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,8 +16,23 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.6 — issue #29 The 401/403/404/empty/error pattern** · commit `a2eac56` · **not pushed** — held
-  local until #67 merges (one open PR per branch).
+- **REQUEST #68 — `$PORT`, `/health`, and media position renumbering** · commit `b132628` · PR #78
+  - `start` is plain `next start`, so the app honours `$PORT` (default 3000). A hard-coded `--port`
+    beats `$PORT`, so the container would listen on one port while Docker and Kubernetes probed
+    another, the pod would never become ready, and the deploy would roll back.
+  - Added `GET /health` — the half of the image contract the request only mentions in passing, and
+    which this app did not have: the probe would have been **redirected to the sign-in page**. It is
+    excluded from the middleware matcher and reports only that the process is up; a liveness probe
+    that fails when Keycloak or the Admin API is down gets the container killed and restarted, which
+    fixes nothing and removes the instance that could still serve the error panels.
+  - Media positions are renumbered from the array order before the body is sent. The form assigned a
+    position on append and never revisited it, so removing the first of three images sent 1 and 2
+    with no 0, and appending afterwards reused a number already in use — anything ordering images
+    downstream would have been working from duplicates.
+  - 274 tests.
+
+- **1.6 — issue #29 The 401/403/404/empty/error pattern** · commits `a2eac56` and `b132628` ·
+  **PR #78**, all seven checks green.
   - `ApiStatePanel` is the single entry point; screens hand it a failed result instead of branching
     on status. 401 offers signing in again rather than a retry that would fail identically; 403 names
     the relation and object; 404 says which store was searched, because the API scopes it; only
@@ -67,7 +82,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     "verified end to end" claim corrected (see the 1.1 entry).
   - 229 tests. `pnpm lint`, `format:check`, `typecheck` (15/15), `check-ownership` green.
 
-- **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `f2c8df5` · PR held until #42 merges
+- **1.4 — issue #27 Form primitive (RHF + Zod)** · commit `f2c8df5` · merged in PR #42
   - `useContractForm(schema, action)`: one Zod schema validates on the client and re-validates in
     the server action, so the two cannot disagree.
   - Schemas hand-written, not generated: the contract marks nearly every input property optional
@@ -82,7 +97,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   - Optimistic UI runs only when an `optimistic` callback is passed.
   - 175 tests total.
 
-- **1.3 — issue #26 Data-table primitive** · commit `dd90b81` · PR held until #42 merges
+- **1.3 — issue #26 Data-table primitive** · commit `dd90b81` · merged in PR #42
   - `DataTable` on TanStack Table v8 with `manualPagination/Sorting/Filtering`: the server decides
     what is in the page, the component renders it. Column visibility, bulk-action slot,
     loading/empty/error in place of the rows.
@@ -96,7 +111,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     forwarded for `listStores` and `listProducts`. At the time of this task it was carried in the URL
     only.
 
-- **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · PR (opened after #42 merges)
+- **1.2 — issue #25 Permission-driven navigation + store switcher** · commit `3b5348c` · merged in PR #42
   - Route groups `(hq)` and `(store)/[storeId]`; all twelve sections reachable, each placeholder
     naming the issue that delivers the real screen. 19 routes build.
   - `src/lib/nav/` is navigation as a pure function of the `Principal`: `sections.ts` (catalogue,
@@ -146,18 +161,15 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- Nothing implementing. **Waiting for the manager to merge PR #67** (BLOCK items addressed in
-  `a1b297a`). When it merges: push 1.6 and open its PR. Then 1.7 (#30) is the last Phase 1 task —
-  the per-role test matrix largely exists in `test/navigation.test.ts`, so what is left is the
-  Playwright store-admin journey against `pnpm mock` and a `REQUEST:` issue for its CI job, since
-  `.github/workflows/**` is not this window's.
+- Nothing implementing. **PR #78 (1.6 + REQUEST #68) is open and green, waiting on the manager.**
+  One open PR per branch, so 1.7 (#30) goes up next, then 1.8 (#63).
 
 ## Next — Phase 1
-- [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, PR #42 (do not self-merge)
-- [x] 1.2 Permission-driven navigation + store switcher — #25, PR (opened after #42 merges) (do not self-merge)
-- [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26 (PR pending)
-- [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27 (PR pending)
-- [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28 (PR open)
+- [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
+- [x] 1.2 Permission-driven navigation + store switcher — #25, merged (PR #42)
+- [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26, merged (PR #42)
+- [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27, merged (PR #42)
+- [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28, merged (PR #67)
 - [ ] 1.6 403 / empty / error states pattern — #29
 - [ ] 1.7 Tests: nav renders per role fixture — #30
 
