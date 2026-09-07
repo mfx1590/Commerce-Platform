@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.2)
 
+### 2026-09-07 · task 1.9 — READMEs, CLAUDE.md, tests green (issue #9)
+
+- READMEs for `src/http` and `src/lib`; every module folder now has `index.ts`, `README.md` (purpose, public API,
+  events, permissions, how to test) and tests. CLAUDE.md lists the modules in a table with the exact run/test
+  commands (incl. building workspace packages before package-local typecheck/test).
+- Verified on the merged `main`: typecheck clean, lint clean, 65 tests green (55 core + window 2's hq-rbac), CI
+  `unit` job runs them through `pnpm test`.
+
 ### 2026-09-06 · task 1.8 — bootstrap verifier (issue #8, re-scoped) + ts-node (#60)
 
 - `src/bootstrap/verify.ts` + `pnpm --filter @platform/core bootstrap`: read-only readiness checks (our tables,
