@@ -271,12 +271,8 @@ jobs:
       - name: live auth suites (packages/auth-sdk + apps/core hq-rbac)
         if: needs.changes.outputs.e2e == 'true'
         run: pnpm exec turbo run test --filter=@platform/auth-sdk
-      # `channel: 'chrome'` in the Playwright configs means the Chrome channel, not bundled chromium,
-      # so that is what gets installed. REQUEST #84 asks windows 3 and 4 to make the channel
-      # conditional on $CI; when it lands this becomes `chromium`, which is smaller and faster.
-      - name: install the browser
-        if: needs.changes.outputs.e2e == 'true'
-        run: pnpm exec playwright install --with-deps chrome
+      # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
+      # `pnpm exec playwright` at the workspace root cannot find it.
       - name: playwright journeys (every apps/*/playwright.config.*)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/run-e2e.sh

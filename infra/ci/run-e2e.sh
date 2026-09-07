@@ -19,6 +19,11 @@ cd "$ROOT"
 
 ADMIN_E2E_PORT="${ADMIN_E2E_PORT:-3000}"
 
+# `chrome` is the Google Chrome channel, which is what the Playwright configs pin
+# (`channel: 'chrome'`). REQUEST #84 asks for that to be conditional on $CI; when it lands this
+# becomes `chromium`, which is smaller and version-matched to Playwright.
+E2E_BROWSER="${E2E_BROWSER:-chrome}"
+
 mapfile -t configs < <(ls -1 apps/*/playwright.config.* 2>/dev/null | sort)
 
 if [ "${#configs[@]}" -eq 0 ]; then
@@ -47,6 +52,16 @@ for cfg in "${configs[@]}"; do
     echo "== $pkg (PORT=$ADMIN_E2E_PORT — must match a redirect URI on the admin-app client)"
   else
     echo "== $pkg"
+  fi
+
+  # Install the browser from the package that declares @playwright/test — `pnpm exec playwright`
+  # at the workspace root cannot find it, because it is a dependency of the app, not of the root.
+  # `--with-deps` installs system libraries with sudo, which is right on a runner and rude on a
+  # laptop, so it is CI-only.
+  if [ -n "${CI:-}" ]; then
+    pnpm --filter "$pkg" exec playwright install --with-deps "$E2E_BROWSER"
+  else
+    pnpm --filter "$pkg" exec playwright install "$E2E_BROWSER"
   fi
 
   if [ "$has_e2e" = 'true' ]; then

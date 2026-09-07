@@ -15,24 +15,41 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-# Ask pnpm which packages exist rather than searching the tree for package.json files. A `find`
-# also turns up build output — apps/storefront-starter/.next/package.json is written by `next build`
-# and made this check fail on any machine that had run a build. A denylist of build directories
-# would just rot the next time a tool invents one; pnpm's own workspace list cannot.
+# Expand the globs in pnpm-workspace.yaml rather than searching the tree for package.json files.
+# A `find` also turns up build output — apps/storefront-starter/.next/package.json is written by
+# `next build` — and a denylist of build directories rots the next time a tool invents one.
+#
+# Reading the workspace file directly rather than asking `pnpm -r list`: this check runs in the
+# `images` job, which has no reason to install a package manager, and a guard that fails because a
+# tool is missing is a guard nobody trusts. Only node is needed, and node is everywhere here.
 mapfile -t expected < <(
-  pnpm -r list --depth -1 --json 2>/dev/null |
-    node -e '
-      const slash = (p) => p.split("\\").join("/");
-      let s = "";
-      process.stdin.on("data", (d) => (s += d)).on("end", () => {
-        const root = slash(process.cwd());
-        for (const p of JSON.parse(s)) {
-          const dir = slash(p.path);
-          if (dir === root) continue; // the workspace root is not an app or a package
-          console.log(dir.slice(root.length + 1) + "/package.json");
-        }
-      });
-    ' | sort
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const globs = fs
+      .readFileSync("pnpm-workspace.yaml", "utf8")
+      .split(/\r?\n/)
+      .map((l) => l.match(/^\s*-\s*["\x27]?([^"\x27#]+?)["\x27]?\s*$/))
+      .filter(Boolean)
+      .map((m) => m[1]);
+    const out = [];
+    for (const glob of globs) {
+      if (!glob.endsWith("/*")) continue;
+      const base = glob.slice(0, -2);
+      let entries = [];
+      try {
+        entries = fs.readdirSync(base, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        const manifest = path.posix.join(base, e.name, "package.json");
+        if (fs.existsSync(manifest)) out.push(manifest);
+      }
+    }
+    process.stdout.write(out.sort().join("\n") + "\n");
+  '
 )
 
 if [ "${#expected[@]}" -eq 0 ]; then
