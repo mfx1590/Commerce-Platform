@@ -30,6 +30,18 @@ Responses follow the contract's `Error` shape: `401 unauthorized` (no principal)
 `details: { relation, object }` (OpenFGA said no), `404 not_found`, `400 validation_error`, `503` when OpenFGA
 is unreachable (fail closed).
 
+### organization:hq ↔ uuid mapping
+
+The contract's `object_id` is always a **uuid** — for organization-level assignments it is the
+`organization` row's id (`SEED_IDS.organization` locally). OpenFGA's object ids are the ADR 0002 **slugs**
+(`organization:hq`). The mapping lives in exactly one place, `fgaObject()` in `@platform/auth-sdk`
+(`src/roles/service.ts`): for `object_type: organization` the uuid is resolved to the row's `slug` under the
+caller's tenant scope (`organization:<slug>` — `hq` for the single Phase 0–3 row); a uuid that is not the
+caller's organization is a `400`. For `object_type: store` the uuid is verified as a store of the
+organization and used directly (`store:<uuid>`). The HTTP API therefore stays uuid-only like every other
+route, OpenFGA keeps the frozen slug ids, the `role_assignment` mirror stores the uuid — and no reverse
+lookup exists anywhere because tuples are only ever built, never parsed.
+
 ## Wiring (for window 1)
 
 ```ts
@@ -58,3 +70,29 @@ unreachable. Typecheck: `pnpm --filter @platform/auth-sdk typecheck` (runs `tsc 
 
 `pnpm --filter @platform/auth-sdk roles assign|revoke <email> <relation> <store-code|hq>` and
 `roles list <email>` — same service functions, system actor, needs `fga:seed` first.
+
+## Scope middleware (task 1.4)
+
+```ts
+import { createStaffScopeMiddleware, toTenantContext } from './modules/hq-rbac/index.js';
+const scopeMw = createStaffScopeMiddleware({ pool, fga, organizationId: HQ_ORGANIZATION_ID });
+const rbac = createHqRbac({ pool, fga, onRoleChange: scopeMw.invalidate });
+// per admin request:
+const scope = await scopeMw.resolve(req.headers.authorization); // throws ApiError 401 / 503
+const ctx = toTenantContext(scope); // { organizationId, storeIds, actorId, scope: 'organization' | 'store' }
+const db =
+  ctx.scope === 'organization'
+    ? createOrganizationClient(pool, ctx)
+    : createTenantClient(pool, ctx); // throws when storeIds is empty → answer 403
+const principal = {
+  userId: scope.userId,
+  subject: scope.subject,
+  organizationId: scope.organizationId,
+};
+```
+
+Steps: verify the JWT against the staff realm JWKS (issuer + `aud: core-api`), `sub → staff_user`
+(`keycloak_subject`; unknown or disabled → 401), OpenFGA `ListObjects(store, viewer)` +
+`ListRelations(organization:hq)` (unreachable → 503, nothing cached), cache per subject ≤ 30 s, invalidated
+by `staff_user.id` on every role change through the tuple API. `last_login_at` is bumped best-effort on each
+cache miss. The organization id is deployment configuration (one HQ organization in Phases 0–3).

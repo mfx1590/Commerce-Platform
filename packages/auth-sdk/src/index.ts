@@ -43,3 +43,15 @@ export type {
   StaffUser,
   ObjectType,
 } from './roles/service.js';
+
+// JWT verification + scope resolution (ADR 0002 §4).
+export { createStaffTokenVerifier, bearerToken } from './jwt/verify.js';
+export type { StaffTokenVerifier, StaffTokenVerifierOptions, StaffClaims } from './jwt/verify.js';
+export {
+  resolveRelations,
+  toTenantContext,
+  ScopeCache,
+  ORGANIZATION_RELATIONS,
+  SCOPE_CACHE_MAX_TTL_MS,
+} from './scope/resolve.js';
+export type { StaffScope, ResolveScopeInput } from './scope/resolve.js';

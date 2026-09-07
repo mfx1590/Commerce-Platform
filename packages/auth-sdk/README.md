@@ -53,3 +53,16 @@ directly per `infra/openfga/model.fga` are accepted (`ASSIGNABLE_RELATIONS`). HT
 CLI: `pnpm --filter @platform/auth-sdk roles assign|revoke <email> <relation> <store-code|hq>`, `roles list <email>`.
 `audit(tx, entry)` writes the append-only audit row inside the caller's transaction (`organization_id` from the
 tenant context).
+
+## Tokens and scope (task 1.4)
+
+```ts
+const verifier = createStaffTokenVerifier(); // KEYCLOAK_URL + KEYCLOAK_REALM_STAFF, aud core-api
+const claims = await verifier.verify(req.headers.authorization); // 401 on any failure
+const rel = await resolveRelations(fga, { userId: staffUser.id }); // { storeIds, organizationRelations, scope }
+```
+
+`ScopeCache` keeps a `StaffScope` per Keycloak subject for at most 30 s; `invalidate(staffUserId)` is wired to
+the role API (`onRoleChange`). The full middleware (token → `staff_user` → OpenFGA → cache) lives in
+`apps/core/src/modules/hq-rbac` (`createStaffScopeMiddleware`); `toTenantContext(scope)` is what the core hands
+to `createTenantClient` / `createOrganizationClient`.
