@@ -135,6 +135,27 @@ sha before it knows the digest), `image.digest` for the latter. A floating tag l
 republished over a different manifest, so two syncs of the same commit could run different code — the same
 failure the `latest` guard prevents, arriving more slowly.
 
+**Migrations are a PreSync hook, not a runbook step.** `migrations.enabled` (core only) renders a Job that
+runs `@platform/db`'s CLI out of **the same image as the app** — the migrations that ship with a release are
+the ones that run for it. It uses the _owner_ role from its own Secret; the application never gets that
+credential, because the whole RLS design depends on the app being `platform_app`. A failed migration fails the
+sync, so code never rolls out against a schema that has not caught up. A runbook step, by contrast, gets
+skipped exactly once: on the deploy that needed it.
+
+**A rotated secret only reaches running pods if something restarts them.** `envFrom` reads a Secret once, when
+the container starts; Kubernetes does not restart anything when the Secret's contents change. Helm cannot help
+here — it never sees the value, which External Secrets writes at run time long after the chart is rendered. So
+the Deployment carries two different things:
+
+| annotation                   | covers                                                            | mechanism                                                      |
+| ---------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------- |
+| `checksum/config`            | configuration in git — `env` and which secret keys are referenced | the pod template changes, so Kubernetes rolls                  |
+| `reloader.stakater.com/auto` | the secret **values**, when they rotate                           | Reloader watches the referenced Secrets and triggers a rollout |
+
+Reloader is a cluster add-on (installed in the bootstrap runbook). Without it the annotation is inert and
+`kubectl rollout restart deploy/<app> -n commerce-<env>` is the manual equivalent — which is what the rotation
+runbook in task 2.6 will say.
+
 **`env:` is where the non-secret half of `.env.example` lives**, per app per environment. It is not optional:
 an app given no configuration falls back to its localhost defaults, which inside a pod means itself.
 
@@ -194,6 +215,16 @@ spec:
           serviceAccountRef: { name: external-secrets, namespace: external-secrets }
 EOF
 ```
+
+**3b. Install Reloader**, so a rotated credential actually reaches running pods:
+
+```bash
+helm repo add stakater https://stakater.github.io/stakater-charts
+helm install reloader stakater/reloader -n reloader --create-namespace --wait
+```
+
+Skip it and nothing breaks — the annotation is ignored, and rotations need
+`kubectl rollout restart deploy/<app> -n commerce-<env>` by hand.
 
 **4. Give the mocks their documents.** The Prism charts mount `contracts-openapi`. It is created from
 `packages/contracts/openapi` rather than copied into the chart, so the frozen contracts keep one home:
@@ -295,6 +326,62 @@ runner startup; the saving is the install, the test run and the image build.
   rather than making every other PR pay to export it.
 - Node jobs: `actions/setup-node` caches the pnpm store, and `actions/cache` keeps turbo's task
   output so an unchanged package skips its work entirely.
+
+## Deploying staging
+
+`.github/workflows/deploy-staging.yml`, on every push to `main` and on demand. It builds the three app images
+from the merged commit with the same bake definition CI uses, pushes them to ECR under the git sha, then points
+each staging Application at that tag and syncs it. The image tag is the **only** thing it changes; replicas,
+probes and configuration live in git and belong to ArgoCD.
+
+It is a **no-op until staging exists**, and says exactly what is missing rather than failing:
+
+| setting             | kind       | where the value comes from                              |
+| ------------------- | ---------- | ------------------------------------------------------- |
+| `AWS_ROLE_ARN`      | variable   | `terraform output ci_role_arn`                          |
+| `AWS_REGION`        | variable   | the environment's region                                |
+| `ECR_REGISTRY`      | variable   | the host part of `terraform output ecr_repository_urls` |
+| `ARGOCD_SERVER`     | variable   | the ArgoCD ingress hostname                             |
+| `ARGOCD_AUTH_TOKEN` | **secret** | `argocd account generate-token --account ci`            |
+
+A deploy workflow that goes red on every push to main teaches people to ignore a red main, which is worse than
+having no deploy workflow at all.
+
+`argocd app wait --health` at the end means the job is only green once the pods are actually up — which for
+core includes its PreSync migration Job having succeeded.
+
+**Rolling back** is `argocd app rollback core-staging <revision>`; see the ArgoCD runbook above.
+
+## Branch protection
+
+Required status checks on `main`, by job name:
+
+```
+ownership check
+what changed
+lint + typecheck
+unit tests (with Postgres, RLS)
+contract tests (Prism)
+app images (build only, no push)
+terraform fmt + validate
+helm lint + template + kubeconform
+live auth + end-to-end (Keycloak, OpenFGA, Playwright)
+```
+
+Set on GitHub under _Settings → Branches → main_: require a pull request, require these checks, and require
+branches to be up to date before merging.
+
+Two things worth knowing about that list:
+
+- **Every job always runs**, even when it has nothing to do — its expensive steps are skipped instead. That is
+  what makes this list safe to require: a job skipped by a job-level `if:` reports a conclusion branch
+  protection treats differently from success, and a required check that never reports blocks the PR forever.
+- **`live auth + end-to-end` is required deliberately**, per the manager's note on [auth] 1.7. It is the only
+  check that exercises the real realms and a real browser; the unit matrix covers the same behaviour but not
+  the path through Keycloak.
+
+`preview deploy (placeholder)` is intentionally **not** required — it is a placeholder that will become the
+per-PR preview environment.
 
 ## Terraform
 

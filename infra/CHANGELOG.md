@@ -188,6 +188,31 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   mock values files pin `sha256:3f6d29e…`, and the chart supports `image.digest` (validated to start
   `sha256:`) alongside `image.tag` for our own git-sha-tagged images.
 
+### Added (task 2.4b — deploy-staging and branch protection, issue #34)
+
+- `.github/workflows/deploy-staging.yml` — builds the three app images from the merged commit with the same
+  bake definition CI uses, pushes them to ECR under the git sha, then points each staging Application at that
+  tag and syncs it. `argocd app wait --health` means the job is green only once the pods are up, which for core
+  includes its migration hook having succeeded. The image tag is the only thing it changes.
+  Until the five settings exist it is a **no-op that names what is missing and exits 0** — a deploy workflow
+  that goes red on every push to main teaches people to ignore a red main.
+- Branch-protection documentation: the nine required checks by job name, why every job always runs (a job
+  skipped by a job-level `if:` reports a conclusion branch protection treats differently from success), and why
+  the end-to-end job is required while the preview placeholder is not.
+
+### Fixed (follow-ups from the #95 review)
+
+- **Migrations were a manual runbook step using the owner credential.** They are now an ArgoCD PreSync hook
+  Job (`migrations.enabled`, core only) that runs `@platform/db`'s CLI out of _the same image as the app_, so
+  the migrations that ship with a release are the ones that run for it. The owner role comes from its own
+  ExternalSecret — the application still connects as `platform_app`, because RLS depends on it. A failed
+  migration fails the sync instead of letting code roll out against a schema that has not caught up.
+- **`checksum/env` claimed to roll pods on a secret rotation and could not.** It hashed only `.Values.env`, and
+  Helm never sees a secret value — External Secrets writes it at run time. The annotation is now
+  `checksum/config` and is honest about covering configuration in git; the actual rotation path is
+  `reloader.stakater.com/auto`, with Reloader added to the bootstrap runbook and
+  `kubectl rollout restart` documented as the manual equivalent.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

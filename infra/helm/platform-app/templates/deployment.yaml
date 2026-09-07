@@ -14,9 +14,19 @@ spec:
     metadata:
       labels: {{- include "platform-app.selectorLabels" . | nindent 8 }}
       annotations:
-        # Roll the pods when the projected secret changes. Without this a rotated credential
-        # (task 2.6) sits in the Secret while the running pods keep the old one.
-        checksum/env: {{ toYaml .Values.env | sha256sum }}
+        # Rolls the pods when the CONFIGURATION in git changes. It hashes .Values.env and the list of
+        # secret keys — not the secret values, which Helm never sees: they are written into the
+        # Secret by External Secrets at run time, long after this is rendered.
+        checksum/config: {{ toYaml (dict "env" .Values.env "secrets" .Values.externalSecrets) | sha256sum }}
+        {{- if and .Values.externalSecrets.enabled .Values.reloader.enabled }}
+        # And this is what covers a ROTATED value. `envFrom` captures env vars when the container
+        # starts; Kubernetes does not restart anything when a Secret's contents change, so without a
+        # watcher a rotated credential sits in the Secret while every running pod keeps the old one —
+        # until something unrelated happens to restart them. Reloader watches the Secrets a
+        # Deployment references and triggers a rollout. It is a cluster add-on (see the bootstrap
+        # runbook); `kubectl rollout restart` is the manual equivalent if it is not installed.
+        reloader.stakater.com/auto: 'true'
+        {{- end }}
     spec:
       serviceAccountName: {{ include "platform-app.serviceAccountName" . }}
       securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}

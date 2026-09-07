@@ -70,6 +70,37 @@ externalSecrets:
   secretName: ''
   remoteKeys: [] # e.g. [{ key: dev/platform/database/app }]
 
+# Schema migrations. Only the app that owns the schema sets this (core); everything else leaves it
+# off. The Job runs the same image as the app, as an ArgoCD PreSync hook, with the OWNER database
+# role — which the application itself must never have.
+migrations:
+  enabled: false
+  # @platform/db ships its CLI and its .sql files inside the app image, so the migrations that run
+  # for a release are the ones that shipped with it.
+  command:
+    - node
+    - node_modules/@platform/db/dist/cli.js
+    - migrate
+  ownerSecret:
+    # The Secrets Manager entry holding the owner role, from the terraform output
+    # database_secret_arns.owner.
+    remoteKey: ''
+    # Which key inside it holds the connection string.
+    key: DATABASE_URL
+  backoffLimit: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Stakater Reloader restarts a Deployment when a Secret or ConfigMap it references changes. Without
+# it, a rotated credential never reaches a running pod: `envFrom` reads the Secret once, at start.
+# Harmless when the controller is not installed — the annotation is simply ignored.
+reloader:
+  enabled: true
+
 serviceAccount:
   create: true
   # IRSA: filled from the Terraform output when an app needs AWS access (S3 media, for example).

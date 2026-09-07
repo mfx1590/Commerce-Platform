@@ -50,6 +50,14 @@ env:
   AUTH_CORS: 'https://shop.staging.example.com,https://admin.staging.example.com'
   S3_MEDIA_BUCKET: 'REPLACED_BY_DEPLOY-staging-media'
 
+# Only core owns the schema, so only core runs the migrations. They run as an ArgoCD
+# PreSync hook out of this same image, with the OWNER role — which the application
+# itself never gets: it connects as platform_app and is subject to RLS.
+migrations:
+  enabled: true
+  ownerSecret:
+    remoteKey: staging/platform/database/owner
+
 externalSecrets:
   enabled: true
   remoteKeys:

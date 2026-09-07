@@ -1,0 +1,174 @@
+name: deploy-staging
+
+# Staging is released by this workflow, not by ArgoCD noticing a merge. The staging Applications
+# deliberately do not self-sync (infra/argocd/applications/*-staging.yaml): a release should be
+# something someone can point at, with a run URL and a log, rather than a side effect of a merge
+# landing while nobody was looking.
+#
+# Until the owner configures the variables and secrets listed below, this is a NO-OP that says
+# exactly what is missing and exits 0. That is deliberate: a deploy workflow that fails red on every
+# push to main teaches people to ignore a red main.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Commit to deploy (defaults to the current HEAD of main)'
+        required: false
+
+# One deploy at a time, and never cancel one half-way through: a cancelled `argocd app sync` leaves
+# the cluster mid-rollout.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # AWS OIDC — there are no long-lived keys anywhere (infra/terraform/modules/ci-oidc)
+
+jobs:
+  deploy:
+    name: build, push, and sync staging
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      # The three apps that are ours. The Prism mocks are pinned by digest and are not redeployed by
+      # a code change (infra/helm/values/mock-*/).
+      APPS: core admin storefront-starter
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.sha || github.sha }}
+
+      # Everything below is skipped until staging actually exists. Secrets cannot be read in a
+      # job-level `if:`, so the gate is a step that publishes an output.
+      - name: is staging configured?
+        id: gate
+        env:
+          AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          ARGOCD_SERVER: ${{ vars.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for v in AWS_ROLE_ARN AWS_REGION ECR_REGISTRY ARGOCD_SERVER ARGOCD_AUTH_TOKEN; do
+            eval "value=\${$v:-}"
+            [ -z "$value" ] && missing="$missing $v"
+          done
+
+          if [ -n "$missing" ]; then
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            {
+              echo '### deploy-staging did nothing'
+              echo
+              echo 'Staging is not configured yet. Missing:'
+              for v in $missing; do echo "- \`$v\`"; done
+              echo
+              echo 'The first four are repository *variables*, the last is a *secret*.'
+              echo 'Their values come from `terraform output` in `infra/terraform/envs/staging`'
+              echo 'and from the ArgoCD bootstrap — see the runbook in `infra/README.md`.'
+              echo
+              echo 'This is a no-op, not a failure: main stays green.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "deploy-staging: not configured (missing:$missing) — nothing to do."
+            exit 0
+          fi
+
+          echo 'configured=true' >> "$GITHUB_OUTPUT"
+          echo 'deploy-staging: configured, proceeding.'
+
+      - name: short sha
+        if: steps.gate.outputs.configured == 'true'
+        id: sha
+        run: echo "value=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.gate.outputs.configured == 'true'
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        if: steps.gate.outputs.configured == 'true'
+        id: ecr
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.gate.outputs.configured == 'true'
+
+      # The same bake definition CI builds with, so a staging image is built exactly the way the
+      # pull-request build was. It reads the cache main wrote; it does not write one.
+      - name: build the app images
+        if: steps.gate.outputs.configured == 'true'
+        uses: docker/bake-action@v5
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.value }}
+        with:
+          workdir: infra/docker
+          files: |
+            docker-compose.build.yml
+            docker-bake.hcl
+          targets: core admin storefront-starter
+          load: true
+          push: false
+          allow: fs=*
+
+      - name: push them to ECR
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          IMAGE_TAG: ${{ steps.sha.outputs.value }}
+        run: |
+          set -euo pipefail
+          for app in $APPS; do
+            remote="$ECR_REGISTRY/staging/commerce-platform/$app:$IMAGE_TAG"
+            docker tag "commerce-platform/$app:$IMAGE_TAG" "$remote"
+            docker push "$remote"
+            echo "pushed $remote"
+          done
+
+      - name: argocd cli
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          curl -sSL -o /usr/local/bin/argocd \
+            https://github.com/argoproj/argo-cd/releases/download/v2.13.2/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
+      # The image tag is the only thing this changes. Everything else about the release — replicas,
+      # probes, configuration — is in git and belongs to ArgoCD.
+      - name: point staging at this commit and sync
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          ARGOCD_SERVER: ${{ vars.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          IMAGE_TAG: ${{ steps.sha.outputs.value }}
+        run: |
+          set -euo pipefail
+          for app in $APPS; do
+            # The Helm release names drop the -starter suffix; the ArgoCD app adds -staging.
+            release="${app%-starter}"
+            argocd app set "$release-staging" --grpc-web \
+              --helm-set "image.repository=$ECR_REGISTRY/staging/commerce-platform/$app" \
+              --helm-set "image.tag=$IMAGE_TAG"
+            argocd app sync "$release-staging" --grpc-web --timeout 600
+            # Sync means "the manifests are applied". Health means the pods actually came up, which
+            # for core includes the PreSync migration Job having succeeded.
+            argocd app wait "$release-staging" --grpc-web --health --timeout 600
+            echo "$release-staging is healthy at $IMAGE_TAG"
+          done
+
+      - name: what was deployed
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          IMAGE_TAG: ${{ steps.sha.outputs.value }}
+        run: |
+          {
+            echo '### staging deployed'
+            echo
+            echo "Commit \`$IMAGE_TAG\`"
+            for app in $APPS; do echo "- ${app%-starter}-staging"; done
+          } >> "$GITHUB_STEP_SUMMARY"
