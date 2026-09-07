@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.6 merged (#39, #64, #66, #76, #96), 1.7 in PR, then 1.8 (#62) UTM capture closes Phase 1
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.6 merged (#39, #64, #66, #76, #96), 1.7 in PR #97, then 1.8 (#62) UTM capture closes Phase 1
 
 ## Identity (does not change)
 
@@ -80,7 +80,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       switchers server-rendered. Route handlers (`/health`, `/auth/*`) stay outside the locale tree.
       35 new unit tests → 124, plus two e2e specs; 8 Playwright specs green.
 
-- [x] **1.7 (#23) Playwright suite + Lighthouse config** — commit `<pending>`, PR `<pending>`.
+- [x] **1.7 (#23) Playwright suite + Lighthouse config** — commit `82a1e8a`, PR #97.
       Config and docs only: infra's job (#80/#87) already runs the journeys. `lighthouserc.json`
       with the budgets; REQUEST #84 (conditional Chrome channel); account specs required when `$CI`
       is set. **Measured (2026-09-07, median of 3, mobile, production build):**
