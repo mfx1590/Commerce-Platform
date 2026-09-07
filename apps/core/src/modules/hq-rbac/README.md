@@ -30,6 +30,18 @@ Responses follow the contract's `Error` shape: `401 unauthorized` (no principal)
 `details: { relation, object }` (OpenFGA said no), `404 not_found`, `400 validation_error`, `503` when OpenFGA
 is unreachable (fail closed).
 
+### organization:hq ↔ uuid mapping
+
+The contract's `object_id` is always a **uuid** — for organization-level assignments it is the
+`organization` row's id (`SEED_IDS.organization` locally). OpenFGA's object ids are the ADR 0002 **slugs**
+(`organization:hq`). The mapping lives in exactly one place, `fgaObject()` in `@platform/auth-sdk`
+(`src/roles/service.ts`): for `object_type: organization` the uuid is resolved to the row's `slug` under the
+caller's tenant scope (`organization:<slug>` — `hq` for the single Phase 0–3 row); a uuid that is not the
+caller's organization is a `400`. For `object_type: store` the uuid is verified as a store of the
+organization and used directly (`store:<uuid>`). The HTTP API therefore stays uuid-only like every other
+route, OpenFGA keeps the frozen slug ids, the `role_assignment` mirror stores the uuid — and no reverse
+lookup exists anywhere because tuples are only ever built, never parsed.
+
 ## Wiring (for window 1)
 
 ```ts
