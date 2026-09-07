@@ -219,9 +219,16 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
   the prefix and `assertStoreOffersLocale` 404s anything the store does not offer.
 - **`localePrefix: 'always'`** — one canonical URL shape, no duplicate content between `/products`
   and `/en-GB/products`, and `hreflang` alternates that all look the same.
+- **The cart is created in the request locale and the chosen currency**, not the store defaults —
+  the contract fixes both at creation, so a `/de-DE` shopper paying in GBP must get a `de-DE`/`GBP`
+  cart. `country` stays the store's: it is the market, not a preference.
 - **Formatting follows the URL locale, not `store.default_locale`.** Using the store default meant
   `/de-DE` rendered `€19.99`; the acceptance criterion is exactly this, and it was wrong until the
   live check caught it.
+- **Anything derived from a cookie must be *read back* from the cookie, not re-derived from the
+  store.** The switcher and the footer showed `store.default_currency` while the cookie and the cart
+  held the customer's actual choice: every layer was individually correct and the UI still lied.
+  Review of #96 caught it; `test/currency-roundtrip.test.ts` now walks switcher → cookie → cart.
 - **Currency is a cookie, not a path segment.** The same URL priced in EUR or GBP is the same page,
   so it does not belong in the URL; it is validated against `store.currencies` before use and fixed
   on the cart at `POST /store/carts`, as the contract requires.
@@ -241,6 +248,18 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **A conflicted branch means GitHub runs no CI at all** — PR #96 sat with zero checks, not failing
+  ones, because `pnpm-lock.yaml` conflicted with main. Merge main *before* asking for review, or the
+  greens being reported are from a stale commit. Resolve the lockfile with `git checkout --theirs
+  pnpm-lock.yaml && pnpm install`, never by hand.
+- Layout/component slots are React Server Components and one may be `async` (the footer reads a
+  cookie), which `ComponentType` cannot express — `src/lib/slots.ts` types them as
+  `(props) => ReactNode | Promise<ReactNode>`.
+- The app's `tsconfig` sets `jsx: preserve` for Next, so Vitest needs `esbuild: { jsx: 'automatic' }`
+  or importing a component in a test fails with "React is not defined".
+- An async server component can be tested by calling it directly and walking the returned element
+  tree — no DOM, no RSC renderer. That is how the switcher's selected value is covered.
 
 - **next-intl logs `MISSING_MESSAGE` and renders the key name — it does not throw.** A typo ships as
   visible rubbish and every end-to-end assertion still passes; `checkout.confirmation.deliveryAddress`

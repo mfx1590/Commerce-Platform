@@ -1,3 +1,4 @@
+import { getLocale } from 'next-intl/server';
 import { cookies } from 'next/headers';
 import { cache } from 'react';
 import { getCurrency } from './i18n';
@@ -45,19 +46,22 @@ export const getCart = cache(async (): Promise<Cart | null> => {
 
 /**
  * The cart to mutate. Server actions only — it writes the cookie.
- * The currency and country come from the store, so the cart is created in the market it belongs to.
+ *
+ * Currency and locale are the customer's own choices, not the store's defaults: the contract fixes
+ * both at creation, so a `/de-DE` shopper paying in GBP must have that cart created as `de-DE`/`GBP`
+ * rather than the store's `en-GB`/`EUR`. Country stays the store's — it is the market, not a
+ * preference, and the delivery address decides where it actually ships.
  */
 export async function getOrCreateCart(): Promise<Cart> {
   const existing = await getCart();
   if (existing) return existing;
 
   const store = await getStoreOrNull();
-  // The currency is the customer's choice reconciled against what the store sells in; the contract
-  // fixes it at creation, so it has to be right here rather than patched later.
-  const currency = await getCurrency(store);
+  const [currency, locale] = await Promise.all([getCurrency(store), getLocale()]);
   const cart = await storeApi().createCart({
     currency,
-    ...(store === null ? {} : { country: store.default_country, locale: store.default_locale }),
+    locale,
+    ...(store === null ? {} : { country: store.default_country }),
   });
 
   (await cookies()).set(CART_COOKIE, cart.id, {

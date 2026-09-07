@@ -1,8 +1,8 @@
-import { getTranslations } from 'next-intl/server';
-import { getLocale } from 'next-intl/server';
-import { setCurrencyAction } from '@/lib/i18n-actions';
+import { getLocale, getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
+import { getCurrency } from '@/lib/i18n';
+import { setCurrencyAction } from '@/lib/i18n-actions';
 import type { Store } from '@/lib/store-api';
 
 /**
@@ -16,13 +16,19 @@ import type { Store } from '@/lib/store-api';
  * locale or currency the store does not sell in never shows it.
  */
 export async function MarketSwitcher({ store }: { store: Store | null }) {
-  const [t, currentLocale] = await Promise.all([getTranslations('common'), getLocale()]);
+  // The selected currency is the customer's cookie reconciled against the store — NOT
+  // `store.default_currency`, which would snap the control back to the default on every render
+  // while the cookie and the cart quietly stayed on the currency they actually chose.
+  const [t, currentLocale, currentCurrency] = await Promise.all([
+    getTranslations('common'),
+    getLocale(),
+    getCurrency(store),
+  ]);
 
   const locales = routing.locales.filter((locale) =>
     store === null ? true : store.locales.includes(locale),
   );
   const currencies = store?.currencies ?? [];
-  const currentCurrency = store?.default_currency;
 
   if (locales.length <= 1 && currencies.length <= 1) return null;
 
@@ -63,7 +69,7 @@ export async function MarketSwitcher({ store }: { store: Store | null }) {
             ))}
           </select>
           <button type="submit" className="underline">
-            {t('currency')}
+            {t('change')}
           </button>
         </form>
       ) : null}

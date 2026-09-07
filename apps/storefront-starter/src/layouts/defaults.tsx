@@ -1,5 +1,7 @@
 import { useTranslations } from 'next-intl';
+import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
+import { getCurrency } from '@/lib/i18n';
 import { getComponents, type LayoutSlots } from '@/lib/slots';
 import type { Store } from '@/lib/store-api';
 
@@ -39,8 +41,10 @@ function Header({ store }: { store: Store | null }) {
   );
 }
 
-function Footer({ store }: { store: Store | null }) {
-  const t = useTranslations('nav');
+async function Footer({ store }: { store: Store | null }) {
+  // The currency the customer actually chose, not the store default — otherwise the footer
+  // contradicts the switcher and the cart for anyone who changed it.
+  const [t, currency] = await Promise.all([getTranslations('nav'), getCurrency(store)]);
 
   return (
     <footer className="mt-16 border-t border-border">
@@ -51,7 +55,7 @@ function Footer({ store }: { store: Store | null }) {
         <p>
           {t('shipsTo', {
             country: store?.default_country ?? '—',
-            currency: store?.default_currency ?? '—',
+            currency,
           })}
         </p>
       </div>

@@ -9,7 +9,9 @@ principal's relations; every API call is re-checked server-side against the oper
 
 ## Owner
 
-window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
+window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only). src/app/(hq)/marketing/** and
+src/app/(store)/[storeId]/marketing/** are window 17 from Phase 2 — placeholders only today; keep
+them self-contained (no shared components inside them, no API calls until contracts-v0.3).
 
 ## Run / test
 
@@ -22,8 +24,19 @@ window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
 - `pnpm --filter @platform/admin test:contract` — suites in test-contract/ that boot Prism
   themselves; kept out of `pnpm test` so the unit suite stays fast and hermetic.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before finishing any task.
-- Playwright (from issue #30 onward): scripted against `pnpm mock`; CI wiring is requested from
-  window 5 via a `REQUEST:` issue, because `.github/workflows/**` is not owned by this window.
+- `pnpm --filter @platform/admin e2e` — Playwright, the store-admin journey (sign in → switch
+  store → products). `e2e:ui` opens the runner.
+  - Needs **Keycloak up** (`pnpm compose:up`): signing in is the point, so it uses the real staff
+    realm. `playwright.config.ts` starts the Prism mock and a **production build** of the app itself
+    (`next dev` differs enough around caching and server actions that a green dev run proves little).
+  - Honours `$PORT` (default 3000), like the app itself since REQUEST #68 — but the port is not
+    free to choose: the `admin-app` client registers `http://localhost:3000/*` as its **only**
+    redirect URI, so Keycloak sends the callback there whatever port the app listens on. REQUEST #82
+    asks window 2 to register `http://localhost:3200/*` too; once it lands,
+    `PORT=3200 pnpm --filter @platform/admin e2e` works when something else holds 3000.
+  - `channel: 'chrome'` uses the Chrome on the machine instead of downloading Playwright's browsers,
+    matching window 3's storefront setup.
+  - CI wiring is REQUEST #80 — `.github/workflows/**` is not this window's to edit.
 
 ## Public API
 

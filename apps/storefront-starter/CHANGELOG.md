@@ -4,6 +4,12 @@
 
 Task [storefront] 1.6 (issue #22), contracts `0.2.0`.
 
+Review fixes from PR #96: the currency switcher and the footer read the chosen currency from the
+cookie rather than `store.default_currency` (they snapped back to the default on every render while
+the cookie and cart stayed correct), and the cart is created in the **request** locale, so a
+`/de-DE` shopper no longer gets an `en-GB` cart. `test/currency-roundtrip.test.ts` walks the whole
+path — switcher → cookie → `POST /store/carts` — and was verified by reintroducing both bugs.
+
 - Locale routing with **next-intl 4**: every page moves under `src/app/[locale]/`, `/` redirects to
   the default locale, and the choice is remembered in a cookie. Message catalogues for `en-GB` and
   `de-DE`; supported locales are build config (`SUPPORTED_LOCALES`) validated at render against
