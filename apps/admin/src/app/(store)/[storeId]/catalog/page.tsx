@@ -55,6 +55,11 @@ export default async function CatalogPage({
             rows={result.ok ? result.data.items : []}
             total={result.ok ? result.data.total : 0}
             query={query}
+            emptyAction={
+              <Link href={`/${storeId}/catalog/new`}>
+                <Button>Create the first product</Button>
+              </Link>
+            }
             error={result.ok ? undefined : { status: result.status, error: result.error }}
           />
         </CardBody>

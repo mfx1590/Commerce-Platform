@@ -1,12 +1,20 @@
+import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import type { AdminError } from '@/lib/api/admin-client';
+import { RetryButton } from './retry-button';
 
 /**
- * The seed of the shared 401/403/404/empty/error pattern. Issue #29 grows this into the full set
- * and wires it into the data-table and form primitives; what matters already is the rule it
- * encodes — a refused request renders a panel *in place*, with a heading and a next action, and
- * never a blank page or a thrown error.
+ * The one pattern for every way a screen can fail to show what was asked for.
+ *
+ * Two rules hold across all of them:
+ *
+ * 1. **A refusal renders in place.** Never a blank page, never a thrown error — the panel appears
+ *    where the content would have been, with the surrounding shell and navigation intact, so the
+ *    user can go somewhere else instead of hitting a dead end.
+ * 2. **Every panel has a heading and a next action.** "Access denied" tells an administrator
+ *    nothing; "you need `finance` on `organization:hq`, ask an owner" tells them who to ask.
  */
 export function StatePanel({
   title,
@@ -30,27 +38,55 @@ export function StatePanel({
   );
 }
 
+function detail(error: AdminError | undefined, key: string): string | null {
+  const details = error?.details as Record<string, unknown> | undefined;
+  const value = details?.[key];
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
 /**
- * `403 { code: forbidden, details: { relation, object } }` — say which relation on which object is
- * missing, because "access denied" tells an admin nothing about who to ask.
+ * `401` — the token was rejected after the middleware let the request through (it expired mid-flight,
+ * or the realm revoked the session). Signing in again is the only thing that helps, so that is the
+ * action rather than a retry that would fail identically.
+ */
+export function UnauthorizedPanel() {
+  return (
+    <StatePanel
+      title="Your session has ended"
+      description="The Admin API no longer accepts this session."
+      action={
+        <Link href="/api/auth/login">
+          <Button>Sign in again</Button>
+        </Link>
+      }
+    >
+      <p className="text-muted text-sm">Nothing was lost — signing in again returns you here.</p>
+    </StatePanel>
+  );
+}
+
+/**
+ * `403 { code: forbidden, details: { relation, object } }` — name the relation and the object, so
+ * the reader knows exactly what to ask an owner for.
  */
 export function ForbiddenPanel({ error, hint }: { error?: AdminError; hint?: string }) {
-  const details = (error?.details ?? {}) as { relation?: unknown; object?: unknown };
-  const relation = typeof details.relation === 'string' ? details.relation : null;
-  const object = typeof details.object === 'string' ? details.object : null;
+  const relation = detail(error, 'relation');
+  const object = detail(error, 'object');
+  const known = relation !== null && object !== null;
 
   return (
     <StatePanel
       title="You do not have access to this"
       description={
-        relation !== null && object !== null
+        known
           ? `You need the ${relation} relation on ${object}.`
           : 'Your account does not hold a relation that grants this.'
       }
     >
       {hint !== undefined && <p className="text-muted text-sm">{hint}</p>}
       <p className="text-muted text-sm">
-        Ask an organization owner to grant it, then reload this page.
+        Ask an organization owner to grant it{known ? '' : ' — Roles, in the HQ view'}, then reload
+        this page.
       </p>
     </StatePanel>
   );
@@ -73,6 +109,47 @@ export function StoreForbiddenPanel({ storeId }: { storeId: string }) {
   );
 }
 
+/**
+ * `404` — scoped to the current store on purpose. The Admin API answers "not found in the caller's
+ * scope", so a missing product may equally be a product that belongs to a store you cannot see; the
+ * panel says which store was searched rather than implying the thing does not exist anywhere.
+ */
+export function NotFoundPanel({
+  what = 'This',
+  storeId,
+  backHref,
+  backLabel,
+}: {
+  what?: string;
+  storeId?: string;
+  backHref?: string;
+  backLabel?: string;
+}) {
+  return (
+    <StatePanel
+      title={`${what} was not found`}
+      description={
+        storeId === undefined
+          ? 'It may have been archived, or it may never have existed.'
+          : 'It may have been archived, or it may belong to a store you cannot see.'
+      }
+      action={
+        backHref === undefined ? undefined : (
+          <Link href={backHref}>
+            <Button variant="secondary">{backLabel ?? 'Go back'}</Button>
+          </Link>
+        )
+      }
+    >
+      {storeId !== undefined && (
+        <p className="text-muted text-sm">
+          Searched in store <span className="font-mono">{storeId}</span>.
+        </p>
+      )}
+    </StatePanel>
+  );
+}
+
 /** An account with no relations at all — real on day one of onboarding. */
 export function NoAccessPanel() {
   return (
@@ -87,17 +164,86 @@ export function NoAccessPanel() {
   );
 }
 
-/** Non-403 failures: the mock is down, the API 500s, the network dropped. */
-export function RequestErrorPanel({ status, error }: { status: number; error: AdminError }) {
+/**
+ * An empty list. Distinct from an error, and distinct again from "your filter matched nothing" —
+ * an empty catalog wants a "create your first product" button, a filter that matched nothing wants
+ * the filter cleared.
+ */
+export function EmptyPanel({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
   return (
     <StatePanel
-      title={status === 0 ? 'Could not reach the Admin API' : `Admin API returned ${status}`}
+      title={title}
+      {...(description === undefined ? {} : { description })}
+      {...(action === undefined ? {} : { action })}
+    />
+  );
+}
+
+/**
+ * Network failure or `5xx` — the one case where trying again is genuinely reasonable, so it is the
+ * only panel with a retry.
+ */
+export function RequestErrorPanel({ status, error }: { status: number; error: AdminError }) {
+  const unreachable = status === 0;
+  return (
+    <StatePanel
+      title={unreachable ? 'Could not reach the Admin API' : `Admin API returned ${status}`}
       description={error.message}
+      action={<RetryButton />}
     >
       <p className="text-muted text-sm">
-        In Phase 1 this app talks to the Prism mock — start it with{' '}
-        <span className="font-mono">pnpm mock</span> — then reload.
+        {unreachable
+          ? 'In Phase 1 this app talks to the Prism mock — start it with `pnpm mock`, then retry.'
+          : 'This is usually temporary. If it keeps happening, the API is the place to look.'}
       </p>
     </StatePanel>
   );
+}
+
+/**
+ * The single entry point: hand it any failed `ApiResult` and it picks the right panel.
+ *
+ * Screens should call this rather than branching on status themselves — that is what keeps the
+ * pattern one pattern.
+ */
+export function ApiStatePanel({
+  status,
+  error,
+  what,
+  storeId,
+  backHref,
+  backLabel,
+  hint,
+}: {
+  status: number;
+  error: AdminError;
+  what?: string;
+  storeId?: string;
+  backHref?: string;
+  backLabel?: string;
+  hint?: string;
+}) {
+  if (status === 401) return <UnauthorizedPanel />;
+  if (status === 403) {
+    return <ForbiddenPanel error={error} {...(hint === undefined ? {} : { hint })} />;
+  }
+  if (status === 404) {
+    return (
+      <NotFoundPanel
+        {...(what === undefined ? {} : { what })}
+        {...(storeId === undefined ? {} : { storeId })}
+        {...(backHref === undefined ? {} : { backHref })}
+        {...(backLabel === undefined ? {} : { backLabel })}
+      />
+    );
+  }
+  return <RequestErrorPanel status={status} error={error} />;
 }

@@ -9,7 +9,7 @@ const SECRET = 'test-session-secret-at-least-32-characters';
 const refreshTokens = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/oidc', () => ({ refreshTokens }));
 
-const { middleware } = await import('@/middleware');
+const { middleware, config } = await import('@/middleware');
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -151,5 +151,19 @@ describe('refresh', () => {
 
     expect(refreshTokens).toHaveBeenCalled();
     expect(response.headers.get('location')).toBeNull();
+  });
+});
+
+describe('the container liveness probe', () => {
+  it('is outside the matcher, so it is never redirected to sign-in', () => {
+    // A probe that gets a 307 to /api/auth/login never reports healthy, so the pod would never
+    // become ready and the deploy would roll back (apps/admin/Dockerfile, REQUEST #68).
+    const pattern = new RegExp(`^${config.matcher[0] as string}$`);
+
+    expect(pattern.test('/health')).toBe(false);
+    expect(pattern.test('/api/auth/login')).toBe(false);
+    // ...while a real page still is gated.
+    expect(pattern.test('/stores')).toBe(true);
+    expect(pattern.test('/00000000-0000-4000-8000-000000000031/catalog')).toBe(true);
   });
 });

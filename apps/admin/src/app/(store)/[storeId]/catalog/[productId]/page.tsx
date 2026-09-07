@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
-import { RequestErrorPanel } from '@/components/states/state-panel';
+import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { updateProductAction } from '@/app/actions/catalog';
 import { VariantsPanel } from './variants-panel';
@@ -25,7 +25,14 @@ export default async function ProductDetailPage({
   if (!product.ok) {
     return (
       <StoreSectionGuard storeId={storeId} id="catalog">
-        <RequestErrorPanel status={product.status} error={product.error} />
+        <ApiStatePanel
+          status={product.status}
+          error={product.error}
+          what="This product"
+          storeId={storeId}
+          backHref={`/${storeId}/catalog`}
+          backLabel="All products"
+        />
       </StoreSectionGuard>
     );
   }
