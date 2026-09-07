@@ -15,9 +15,41 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-# The workspace globs in pnpm-workspace.yaml are packages/*, apps/* and apps/storefronts/*.
+# Expand the globs in pnpm-workspace.yaml rather than searching the tree for package.json files.
+# A `find` also turns up build output — apps/storefront-starter/.next/package.json is written by
+# `next build` — and a denylist of build directories rots the next time a tool invents one.
+#
+# Reading the workspace file directly rather than asking `pnpm -r list`: this check runs in the
+# `images` job, which has no reason to install a package manager, and a guard that fails because a
+# tool is missing is a guard nobody trusts. Only node is needed, and node is everywhere here.
 mapfile -t expected < <(
-  find apps packages -mindepth 2 -maxdepth 3 -name package.json -not -path '*/node_modules/*' | sort
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const globs = fs
+      .readFileSync("pnpm-workspace.yaml", "utf8")
+      .split(/\r?\n/)
+      .map((l) => l.match(/^\s*-\s*["\x27]?([^"\x27#]+?)["\x27]?\s*$/))
+      .filter(Boolean)
+      .map((m) => m[1]);
+    const out = [];
+    for (const glob of globs) {
+      if (!glob.endsWith("/*")) continue;
+      const base = glob.slice(0, -2);
+      let entries = [];
+      try {
+        entries = fs.readdirSync(base, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        const manifest = path.posix.join(base, e.name, "package.json");
+        if (fs.existsSync(manifest)) out.push(manifest);
+      }
+    }
+    process.stdout.write(out.sort().join("\n") + "\n");
+  '
 )
 
 if [ "${#expected[@]}" -eq 0 ]; then
