@@ -185,6 +185,9 @@ jobs:
         uses: docker/bake-action@v5
         env:
           IMAGE_TAG: ${{ github.sha }}
+          # Pull requests read the build cache; only pushes to main write it. Exporting cost more
+          # than the build saved — see the CACHE_TO comment in infra/docker/docker-bake.hcl.
+          CACHE_TO: ${{ github.event_name == 'push' && '1' || '' }}
         with:
           workdir: infra/docker
           files: |
@@ -192,6 +195,11 @@ jobs:
             docker-bake.hcl
           load: true
           push: false
+      # The COPY list in each Dockerfile's `deps` stage is what makes the install layer cacheable;
+      # this fails the build if a workspace package was added or removed without updating it.
+      - name: the image manifest lists are complete
+        if: needs.changes.outputs.images == 'true'
+        run: bash infra/ci/check-image-manifests.sh
       - name: smoke — non-root, build output present, scaffolds healthy
         if: needs.changes.outputs.images == 'true'
         env:

@@ -194,6 +194,15 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **The `images` job takes ~12 minutes on a clean runner** now that three real apps are built (it was 2m23s
   with six scaffolds). Nothing is cached between runs yet — task 2.4 (#34) should add a registry or GHA build
   cache for the `pnpm install` and `pnpm build` layers, or this becomes the slowest required check by far.
+- **A remote build cache does not match `COPY --from=<stage>` on content — it matches on the producing
+  stage's cache key.** A `manifests` stage that does `COPY . .` to find the package.json files therefore gets a
+  new key on any repo change, and the `pnpm install` layer beneath it misses every time, even though the
+  manifests are byte-identical. It caches perfectly with a LOCAL cache, which is exactly how it passed local
+  testing and then failed in CI. Copy manifests straight from the build context, one `COPY` per package, and
+  guard the list with a script.
+- **Exporting a `mode=max` GHA cache is expensive**: measured 60–145s "preparing build cache for export" plus
+  14–37s "sending", per image, six images. It was the largest component of a 14-minute run. Export on pushes to
+  main only; let pull requests read.
 - **`docker buildx bake` resolves a target's `context` relative to the working directory, not to the file
   that declares it.** `context: ../..` in `infra/docker/docker-compose.build.yml` therefore means the repo root
   only when bake runs from `infra/docker`; from the repo root it looks for `../../apps` and fails with

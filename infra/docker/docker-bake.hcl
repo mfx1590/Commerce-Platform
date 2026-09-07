@@ -18,6 +18,8 @@
 # a third-party action to export them into the environment; docker/bake-action is Docker's own and
 # does it directly. That is the whole reason CI does not simply call `docker compose build`.
 #
+# Pull requests read the cache; only pushes to main write it (see CACHE_TO below).
+#
 # One scope per image, deliberately. The `manifests` and `deps` stages are identical across the six
 # Dockerfiles, so a single shared scope would store them once — but the six builds run concurrently
 # and the GitHub cache is last-write-wins per scope, so they would clobber each other's exports and
@@ -29,42 +31,53 @@ variable "CACHE_SCOPE" {
   default = "images"
 }
 
-# mode=max exports every stage, not just the final one. That is the point here: the expensive layers
-# are `deps` (the pnpm install) and `build`, neither of which appears in the runtime image.
-function "gha" {
+# Empty on pull requests, set on pushes to main. Exporting the cache cost 60-145s of "preparing
+# build cache for export" plus 14-37s of "sending" PER IMAGE — measured on PR #81, where it was the
+# largest single component of a 14-minute run. Pull requests therefore only READ the cache; main
+# writes it. A PR that changes a dependency pays a slow install once and does not make every other
+# PR pay for exporting it.
+variable "CACHE_TO" {
+  default = ""
+}
+
+# mode=max exports every stage, not just the final one. That is the point: the expensive layer is
+# `deps` (the pnpm install), which does not appear in the runtime image at all.
+function "cache_from" {
   params = [name]
-  result = {
-    cache-from = ["type=gha,scope=${CACHE_SCOPE}-${name}"]
-    cache-to   = ["type=gha,scope=${CACHE_SCOPE}-${name},mode=max"]
-  }
+  result = ["type=gha,scope=${CACHE_SCOPE}-${name}"]
+}
+
+function "cache_to" {
+  params = [name]
+  result = equal(CACHE_TO, "") ? [] : ["type=gha,scope=${CACHE_SCOPE}-${name},mode=max"]
 }
 
 target "core" {
-  cache-from = gha("core").cache-from
-  cache-to   = gha("core").cache-to
+  cache-from = cache_from("core")
+  cache-to   = cache_to("core")
 }
 
 target "admin" {
-  cache-from = gha("admin").cache-from
-  cache-to   = gha("admin").cache-to
+  cache-from = cache_from("admin")
+  cache-to   = cache_to("admin")
 }
 
 target "storefront-starter" {
-  cache-from = gha("storefront-starter").cache-from
-  cache-to   = gha("storefront-starter").cache-to
+  cache-from = cache_from("storefront-starter")
+  cache-to   = cache_to("storefront-starter")
 }
 
 target "accounting" {
-  cache-from = gha("accounting").cache-from
-  cache-to   = gha("accounting").cache-to
+  cache-from = cache_from("accounting")
+  cache-to   = cache_to("accounting")
 }
 
 target "analytics-ingest" {
-  cache-from = gha("analytics-ingest").cache-from
-  cache-to   = gha("analytics-ingest").cache-to
+  cache-from = cache_from("analytics-ingest")
+  cache-to   = cache_to("analytics-ingest")
 }
 
 target "notifications" {
-  cache-from = gha("notifications").cache-from
-  cache-to   = gha("notifications").cache-to
+  cache-from = cache_from("notifications")
+  cache-to   = cache_to("notifications")
 }

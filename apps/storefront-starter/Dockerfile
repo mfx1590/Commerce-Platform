@@ -26,21 +26,6 @@
 ARG NODE_VERSION=20.19-alpine
 ARG PNPM_VERSION=10.34.5
 
-# ---------- manifests: every package.json, and nothing else ----------
-# The install layer must not depend on source files. Extracting the manifests in their own stage
-# means BuildKit checksums only what `COPY --from` actually copies, so `pnpm install` is re-run when
-# a dependency changes and cached when a source file changes. Doing it with `find` rather than one
-# `COPY apps/<name>/package.json` line per package means a new workspace package needs no Dockerfile
-# edit — the thing a hand-maintained list always gets wrong eventually.
-FROM node:${NODE_VERSION} AS manifests
-WORKDIR /src
-COPY . .
-RUN set -eu; mkdir -p /manifests; \
-    find . -name package.json -not -path '*/node_modules/*' | while read -r f; do \
-      mkdir -p "/manifests/$(dirname "$f")"; cp "$f" "/manifests/$f"; \
-    done; \
-    cp pnpm-lock.yaml pnpm-workspace.yaml /manifests/
-
 # ---------- deps: the workspace install, cached on the manifests alone ----------
 # corepack is safe here: /repo/package.json pins `packageManager` and the build runs as root.
 FROM node:${NODE_VERSION} AS deps
@@ -51,7 +36,26 @@ ENV PNPM_HOME=/pnpm \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 WORKDIR /repo
-COPY --from=manifests /manifests/ ./
+
+# Only the manifests, listed one by one on purpose. Collecting them in a `find` stage reads better
+# and works with a local cache, but a REMOTE cache (type=gha) matches `COPY --from=<stage>` on the
+# producing stage's cache key rather than on the content it produced — and that stage has to copy
+# the whole context to search it, so any change anywhere in the repo invalidated the install layer.
+# Copying from the build context instead makes the cache key the file contents themselves.
+# infra/ci/check-image-manifests.sh fails the build if this list ever goes stale.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/accounting/package.json apps/accounting/
+COPY apps/admin/package.json apps/admin/
+COPY apps/analytics-ingest/package.json apps/analytics-ingest/
+COPY apps/core/package.json apps/core/
+COPY apps/notifications/package.json apps/notifications/
+COPY apps/storefront-starter/package.json apps/storefront-starter/
+COPY packages/auth-sdk/package.json packages/auth-sdk/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/db/package.json packages/db/
+COPY packages/events/package.json packages/events/
+COPY packages/test-utils/package.json packages/test-utils/
+COPY packages/ui/package.json packages/ui/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
 
 # ---------- build: add the sources and build the app ----------

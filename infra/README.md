@@ -93,8 +93,9 @@
 - `ci/` — the pieces of `.github/workflows/ci.yml` that are worth testing on their own.
   `changes.sh` decides which job groups a change needs (`code`, `images`, `terraform`) and
   `changes.test.sh` is its self-test, which the `changes` job runs before trusting it — the same
-  arrangement `scripts/check-ownership.sh` and its `.test.sh` use. Keeping the rules in a script
-  rather than inline YAML is what makes them testable:
+  arrangement `scripts/check-ownership.sh` and its `.test.sh` use. `check-image-manifests.sh` keeps
+  the per-package `COPY` lists in the Dockerfiles complete. Keeping the rules in scripts rather than
+  inline YAML is what makes them testable:
 
   ```bash
   bash infra/ci/changes.test.sh                                  # 18 cases
@@ -130,10 +131,17 @@ runner startup; the saving is the install, the test run and the image build.
   `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_CACHE_URL`, which GitHub gives to an action but not to a
   plain `run:` step. Locally, `docker compose build` is unchanged and needs no flags.
 - The Dockerfiles install dependencies in a `deps` stage that copies **only** the `package.json`
-  files and the lockfile, extracted by a `manifests` stage. Sources arrive afterwards, so a
-  source-only change reuses the install layer instead of redoing `pnpm install`. Using `find` to
-  collect the manifests rather than one `COPY apps/<name>/package.json` line per package means a new
-  workspace package needs no Dockerfile edit.
+  files and the lockfile, straight from the build context. Sources arrive afterwards, so a
+  source-only change reuses the install layer instead of redoing `pnpm install`.
+  The manifests are listed one `COPY` per package rather than collected by a `find` stage, which
+  reads better but does not survive a remote cache: `type=gha` matches `COPY --from=<stage>` on the
+  producing stage's cache key, and that stage has to copy the whole context in order to search it,
+  so any repo change invalidated the install. `infra/ci/check-image-manifests.sh` fails the build if
+  a workspace package is added or removed without updating the list.
+- **Pull requests read the image cache; only pushes to main write it.** Exporting cost 60–145s of
+  "preparing build cache for export" plus 14–37s of "sending" per image — measured, it was the
+  largest single component of the run. A PR that changes a dependency pays for one slow install
+  rather than making every other PR pay to export it.
 - Node jobs: `actions/setup-node` caches the pnpm store, and `actions/cache` keeps turbo's task
   output so an unchanged package skips its work entirely.
 
