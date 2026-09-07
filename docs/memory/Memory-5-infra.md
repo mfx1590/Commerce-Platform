@@ -191,6 +191,15 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **The `images` job takes ~12 minutes on a clean runner** now that three real apps are built (it was 2m23s
   with six scaffolds). Nothing is cached between runs yet — task 2.4 (#34) should add a registry or GHA build
   cache for the `pnpm install` and `pnpm build` layers, or this becomes the slowest required check by far.
+- **`docker buildx bake` resolves a target's `context` relative to the working directory, not to the file
+  that declares it.** `context: ../..` in `infra/docker/docker-compose.build.yml` therefore means the repo root
+  only when bake runs from `infra/docker`; from the repo root it looks for `../../apps` and fails with
+  `ERROR: resolve : lstat ../../apps: no such file or directory`. `docker compose build` uses the opposite
+  rule (relative to the compose file), which is why the local command never noticed. Fix:
+  `workdir: infra/docker` in `docker/bake-action`.
+- **`bake --print` does not resolve contexts**, so it happily prints a configuration that cannot build. It
+  validates merging and syntax, nothing more — only a real build validates the context. Caught in CI after a
+  green `--print` locally.
 - **`pnpm deploy` drops dot-directories.** It packs like npm, and npm's rules skip them — so `.medusa/server`
   and `.next` never reach the deployed package and the container dies with MODULE_NOT_FOUND (core) or serves
   nothing (Next.js). Every real app needs an explicit `cp -r` after the deploy step. `dist/` is unaffected.

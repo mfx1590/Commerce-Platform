@@ -1,6 +1,12 @@
 # Cache wiring for CI. Used together with docker-compose.build.yml, never instead of it:
 #
-#   docker buildx bake -f infra/docker/docker-compose.build.yml -f infra/docker/docker-bake.hcl
+#   cd infra/docker && docker buildx bake --allow fs=* -f docker-compose.build.yml -f docker-bake.hcl
+#
+# Run it from THIS directory. bake resolves a target's `context` relative to the working directory,
+# not to the file that declares it, so `context: ../..` only points at the repo root from here —
+# from the repo root it looks for `../../apps` and fails. (`docker compose build` resolves the
+# context relative to the compose file, which is why the local command needs no such care.)
+# `--allow fs=*` is needed because the context escapes this directory; docker/bake-action passes it.
 #
 # The compose file stays the single source of truth for WHICH images exist and how they are built —
 # contexts, Dockerfiles, build args, tags. Bake merges same-named targets across files, so this file

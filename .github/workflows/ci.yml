@@ -175,15 +175,21 @@ jobs:
       # ACTIONS_RUNTIME_TOKEN and ACTIONS_CACHE_URL, which are available to an action but not to a
       # plain `run:` step. docker-compose.build.yml still defines every image; docker-bake.hcl only
       # adds the cache wiring. See the comments in that file.
+      # workdir matters: bake resolves a target's `context` relative to the working directory, not to
+      # the file that declares it, so `context: ../..` only means the repo root when bake runs from
+      # infra/docker. (`docker compose build` resolves it relative to the compose file, which is why
+      # the local command needs no equivalent.) `bake --print` does not resolve contexts at all, so
+      # it cannot catch this — only a real build can.
       - name: build every app image (cached, no push)
         if: needs.changes.outputs.images == 'true'
         uses: docker/bake-action@v5
         env:
           IMAGE_TAG: ${{ github.sha }}
         with:
+          workdir: infra/docker
           files: |
-            infra/docker/docker-compose.build.yml
-            infra/docker/docker-bake.hcl
+            docker-compose.build.yml
+            docker-bake.hcl
           load: true
           push: false
       - name: smoke — non-root, build output present, scaffolds healthy
