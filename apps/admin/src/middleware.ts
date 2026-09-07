@@ -71,6 +71,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  // Everything except the auth endpoints themselves, the error page they redirect to, and assets.
-  matcher: ['/((?!api/auth|auth/error|_next/static|_next/image|favicon.ico).*)'],
+  // Everything except the auth endpoints themselves, the error page they redirect to, the
+  // container's liveness probe, and assets. A probe that gets redirected to sign-in never
+  // reports healthy, so the pod would never become ready.
+  matcher: ['/((?!api/auth|auth/error|health|_next/static|_next/image|favicon.ico).*)'],
 };

@@ -19,6 +19,8 @@ window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
 - `pnpm --filter @platform/admin build` — `next build`
 - `pnpm --filter @platform/admin typecheck`
 - `pnpm --filter @platform/admin test` — Vitest (tests live in test/)
+- `pnpm --filter @platform/admin test:contract` — suites in test-contract/ that boot Prism
+  themselves; kept out of `pnpm test` so the unit suite stays fast and hermetic.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before finishing any task.
 - Playwright (from issue #30 onward): scripted against `pnpm mock`; CI wiring is requested from
   window 5 via a `REQUEST:` issue, because `.github/workflows/**` is not owned by this window.
@@ -39,4 +41,7 @@ window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
   actions and route handlers. Never `fetch` the Admin API from the browser.
 - `src/lib/api/admin-client.ts` and `src/lib/auth/{crypto,session,jwt}.ts` must stay free of
   `next/*` imports — they also run in the Edge middleware and in unit tests.
+- A screen that cannot show what was asked for renders `ApiStatePanel`, never a blank page and
+  never a thrown error. Every state panel needs a heading and a next action; `/states` (dev only)
+  shows the whole set.
 - Update README.md and CHANGELOG.md with every change.

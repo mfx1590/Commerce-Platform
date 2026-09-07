@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/data-table';
 import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
+import type { ReactNode } from 'react';
 import type { TableQuery } from '@/lib/table/query-state';
 import { PRODUCTS_SORTABLE_COLUMNS, PRODUCTS_TABLE_DEFAULTS } from './products-table.config';
 
@@ -27,12 +28,15 @@ export function ProductsTable({
   rows,
   total,
   query,
+  emptyAction,
   error,
 }: {
   storeId: string;
   rows: readonly Product[];
   total: number;
   query: TableQuery;
+  /** Shown when the store has no products at all — not when a filter matched nothing. */
+  emptyAction?: ReactNode;
   error?: { status: number; error: AdminError } | undefined;
 }) {
   const columns: ColumnDef<Product, unknown>[] = [
@@ -94,6 +98,7 @@ export function ProductsTable({
       sortableColumns={PRODUCTS_SORTABLE_COLUMNS}
       searchKey="q"
       searchPlaceholder="Title or handle"
+      emptyAction={emptyAction}
       error={error}
     />
   );

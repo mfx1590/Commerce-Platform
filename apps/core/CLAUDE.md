@@ -26,7 +26,10 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `seed-finance`, `seed-operations`, `seed-store-admin`, `seed-store-staff`, `seed-support`, `seed-analyst`);
   accepted only when `CORE_DEV_TOKENS=1` is set in `.env` (explicit opt-in), and never in production (`NODE_ENV=production` refuses before the flag). Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`.
 - `pnpm --filter @platform/core build` — `medusa build` → `.medusa/server`; `pnpm --filter @platform/core start`.
-- Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core` before finishing any task.
+- Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core` before finishing any task. Running the
+  package scripts directly (`pnpm --filter @platform/core typecheck|test`) needs the workspace packages built first
+  (`pnpm turbo run build --filter=@platform/auth-sdk --filter=@platform/db --filter=@platform/events --filter=@platform/contracts`);
+  turbo does that for the root commands. Remove `apps/core/.medusa` before the root gates until #72 lands.
 
 ## Public API
 
@@ -50,10 +53,21 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   bodies are validated against the spec's `requestBody` schema (`src/http/openapi.ts`, yaml + ajv at runtime).
 - `src/bootstrap` (issue #8, verifier only): never writes; the Medusa mirror of stores/keys is deferred to the
   Phase 2 cart task (owner decision 2026-09-05).
-- Modules so far: `registry` (stores, domains, locales, currencies, sales channels, API keys — emits
-  `store.created`, `store.updated`); `catalog` (categories, products, options, variants, media, Store API read
-  model with price + availability — emits `product.updated`, `product.published`, `product.archived`). Shared helpers: `src/lib/errors.ts` (`AppError`), `src/lib/audit.ts`
-  (`writeAudit`), `src/outbox` (`withEvents`, `buildEvent`, `eventActor` — import from the index; README lists the guarantees; `INSERT INTO outbox` anywhere else fails lint).
+- Modules and helpers. Modules, `outbox`, `bootstrap` and `http` expose an `index.ts` public API and have their own
+  tests; `lib` is a plain helper folder (imported by path, covered through the module and HTTP tests). Every folder
+  has a `README.md`:
+
+  | Folder                 | Purpose                                                                                          | Events                                                     | README                           |
+  | ---------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------- |
+  | `src/modules/registry` | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read) | `store.created`, `store.updated`                           | `src/modules/registry/README.md` |
+  | `src/modules/catalog`  | categories, products, options, variants, media; Store API read model (price + availability)      | `product.updated`, `product.published`, `product.archived` | `src/modules/catalog/README.md`  |
+  | `src/modules/hq-rbac`  | window 2 (auth) — do not edit                                                                    | —                                                          | theirs                           |
+  | `src/outbox`           | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                        | —                                                          | `src/outbox/README.md`           |
+  | `src/bootstrap`        | read-only readiness verifier (CLI + server start)                                                | —                                                          | `src/bootstrap/README.md`        |
+  | `src/http`             | middleware chain + Store/Admin API routes, permissions, OpenAPI validation                       | —                                                          | `src/http/README.md`             |
+  | `src/lib`              | `db.ts` (only pool), `errors.ts` (`AppError`), `audit.ts` (`writeAudit`)                         | —                                                          | `src/lib/README.md`              |
+
+  Admin route permissions per operation are listed in the registry and catalog READMEs and come from `admin-api.yaml`.
 
 ## Constraints
 

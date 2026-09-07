@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/data-table';
 import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
+import type { ReactNode } from 'react';
 import type { TableQuery } from '@/lib/table/query-state';
 import { STORES_SORTABLE_COLUMNS, STORES_TABLE_DEFAULTS } from './stores-table.config';
 
@@ -73,11 +74,13 @@ export function StoresTable({
   rows,
   total,
   query,
+  emptyAction,
   error,
 }: {
   rows: readonly Store[];
   total: number;
   query: TableQuery;
+  emptyAction?: ReactNode;
   error?: { status: number; error: AdminError } | undefined;
 }) {
   return (
@@ -90,6 +93,7 @@ export function StoresTable({
       getRowId={(store) => store.id}
       caption="Stores"
       sortableColumns={STORES_SORTABLE_COLUMNS}
+      emptyAction={emptyAction}
       error={error}
     />
   );

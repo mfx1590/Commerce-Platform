@@ -34,12 +34,22 @@ function revalidateProduct(storeId: string, productId?: string): void {
   if (productId !== undefined) revalidatePath(`/${storeId}/catalog/${productId}`);
 }
 
-/** `media` is a list of objects with optional fields, and `compact` is shallow — hence the split. */
+/**
+ * `media` is a list of objects with optional fields and `compact` is shallow, hence the split — and
+ * `position` is renumbered from the array order rather than trusted.
+ *
+ * The form assigns a position when a row is appended and never revisits it, so removing the first of
+ * three images used to send positions 1 and 2 with no 0, and appending afterwards reused a number
+ * that was already taken. Whatever orders images downstream would then be working from duplicates.
+ * The array order is the only thing the user actually sees, so it is what gets sent.
+ */
 function toProductBody(values: ProductCreateValues) {
   const { media, ...rest } = values;
   return {
     ...compact(rest),
-    ...(media === undefined ? {} : { media: compactList(media) }),
+    ...(media === undefined
+      ? {}
+      : { media: compactList(media).map((item, index) => ({ ...item, position: index })) }),
   };
 }
 
