@@ -186,7 +186,8 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - Nothing. **Phase 1's Next list is complete.** Two PRs are queued behind #78 (one open PR per
   branch): 1.7 (#30) then 1.8 (#63).
 - Outstanding, not blocking: the Playwright journey has never been executed — it needs port 3000,
-  which an unrelated project holds. REQUEST #80 covers its CI job.
+  which an unrelated project holds. REQUEST #82 (a second registered redirect URI) unblocks
+  running it on 3200; REQUEST #80 covers its CI job.
 
 <!-- superseded -->
 - Previously: waiting for the manager to merge PR #67 (BLOCK items addressed in
@@ -339,9 +340,11 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 
 ## Gotchas learned
 - **The Playwright journey cannot run while another process holds port 3000.** `admin-app` registers
-  `http://localhost:3000/*` as its only redirect URI, so the callback lands on whatever owns 3000.
-  `E2E_BASE_URL` can move the listening port only if `ADMIN_APP_URL` stays 3000, and then the browser
-  still gets redirected to 3000 — so for the e2e run specifically, 3000 must actually be free.
+  `http://localhost:3000/*` as its only redirect URI, so Keycloak sends the callback there whatever
+  port the app listens on — moving `$PORT` alone does not help. `playwright.config.ts` honours
+  `$PORT` (default 3000) and derives `ADMIN_APP_URL` from it, so **REQUEST #82** (register
+  `http://localhost:3200/*` on the dev realm) is all that stands between this and
+  `PORT=3200 pnpm --filter @platform/admin e2e`.
 - **Re-importing the staff realm after window 2 changes it:** `node infra/keycloak/reimport.mjs staff`
   deletes and recreates the realm through the admin API without touching any volume, then restart
   just Keycloak (`docker compose -f infra/docker/docker-compose.yml restart keycloak`). **Do not use

@@ -29,9 +29,11 @@ them self-contained (no shared components inside them, no API calls until contra
   - Needs **Keycloak up** (`pnpm compose:up`): signing in is the point, so it uses the real staff
     realm. `playwright.config.ts` starts the Prism mock and a **production build** of the app itself
     (`next dev` differs enough around caching and server actions that a green dev run proves little).
-  - **Must be on port 3000.** The `admin-app` client registers `http://localhost:3000/*` as its only
-    redirect URI. If something else holds 3000, run the app elsewhere and set
-    `ADMIN_APP_URL=http://localhost:3000` plus `E2E_BASE_URL`, so the `redirect_uri` still matches.
+  - Honours `$PORT` (default 3000), like the app itself since REQUEST #68 — but the port is not
+    free to choose: the `admin-app` client registers `http://localhost:3000/*` as its **only**
+    redirect URI, so Keycloak sends the callback there whatever port the app listens on. REQUEST #82
+    asks window 2 to register `http://localhost:3200/*` too; once it lands,
+    `PORT=3200 pnpm --filter @platform/admin e2e` works when something else holds 3000.
   - `channel: 'chrome'` uses the Chrome on the machine instead of downloading Playwright's browsers,
     matching window 3's storefront setup.
   - CI wiring is REQUEST #80 — `.github/workflows/**` is not this window's to edit.

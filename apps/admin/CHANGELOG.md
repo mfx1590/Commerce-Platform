@@ -27,7 +27,10 @@
   routes, the encrypted session cookie, the permission-driven navigation and the catalog screen
   together — everything else stubs at least one of them.
 - `playwright.config.ts` starts the Prism mock and a production build of the app; Keycloak must
-  already be up. Documented in CLAUDE.md as #30 asks. CI wiring is REQUEST #80.
+  already be up. It honours `$PORT` (default 3000) like the app does since #68, and derives both
+  the base URL and `ADMIN_APP_URL` from it — though the port is not yet free to choose, because
+  `admin-app` registers only `http://localhost:3000/*` as a redirect URI (REQUEST #82 asks for
+  3200 as well). Documented in CLAUDE.md as #30 asks. CI wiring is REQUEST #80.
 
 ### Changed — REQUEST #68 and a media fix
 
