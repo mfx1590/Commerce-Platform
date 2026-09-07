@@ -1,0 +1,56 @@
+# mock-store in staging. See infra/README.md "Helm" for how these files are used.
+#
+# Nothing secret belongs here: credentials reach the pod through the ExternalSecret below,
+# which names a key in AWS Secrets Manager and never carries a value.
+
+# Prism serving the frozen OpenAPI document. Same container in both environments and no
+# state, so one replica everywhere. The document comes from the `contracts-openapi`
+# ConfigMap, which the deploy creates from packages/contracts/openapi — copying those
+# files into this chart would give the frozen contracts a second home.
+image:
+  repository: stoplight/prism
+  tag: '5'
+
+replicaCount: 1
+
+# --no-multiprocess: the Prism 5.15 image crashes on cluster.isPrimary (infra/README.md).
+args:
+  - mock
+  - --host
+  - 0.0.0.0
+  - --port
+  - '4010'
+  - --errors
+  - --no-multiprocess
+  - /specs/store-api.yaml
+
+extraVolumes:
+  - name: specs
+    configMap:
+      name: contracts-openapi
+extraVolumeMounts:
+  - name: specs
+    mountPath: /specs
+    readOnly: true
+
+service:
+  port: 80
+  targetPort: 4010
+  # Prism serves the paths in the document and nothing else, so there is no /health.
+  # `/store` without a publishable key answers 401 — still proof the process is serving the
+  # contract, which is all a probe has to establish.
+  healthPath: /store
+
+ingress:
+  enabled: true
+  className: alb
+  # example.com is a placeholder; the deploy substitutes the environment's base_domain.
+  host: mock-store.staging.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /store
+
+# No credentials to project: Prism serves a static document.
+externalSecrets:
+  enabled: false

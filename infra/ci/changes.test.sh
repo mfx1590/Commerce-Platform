@@ -26,11 +26,14 @@ check() {
   fi
 }
 
-NONE='code=false images=false terraform=false e2e=false'
-CODE_IMG='code=true images=true terraform=false e2e=true'
-IMG_E2E='code=false images=true terraform=false e2e=true'
+NONE='code=false images=false terraform=false e2e=false helm=false'
+CODE_IMG='code=true images=true terraform=false e2e=true helm=false'
+# infra/docker/** rebuilds images and is what the e2e stack boots from, but says nothing about charts.
+DOCKER_CHG='code=false images=true terraform=false e2e=true helm=false'
+# infra/ci/** is the pipeline itself, so every job that uses those scripts has to re-run.
+CI_SCRIPT_CHG='code=false images=true terraform=false e2e=true helm=true'
 # Source changes no longer rebuild the images on a PR — a push to main does that.
-CODE_ONLY='code=true images=false terraform=false e2e=true'
+CODE_ONLY='code=true images=false terraform=false e2e=true helm=false'
 
 check 'docs only'           $'docs/memory/Memory-5-infra.md\ndocs/ownership.md'  "$NONE"
 check 'a single README'     'README.md'                                         "$NONE"
@@ -46,24 +49,29 @@ check 'the lockfile'        'pnpm-lock.yaml'                                    
 check 'root package.json'   'package.json'                                      "$CODE_IMG"
 check 'the .dockerignore'   '.dockerignore'                                     "$CODE_IMG"
 check 'mixed docs + app'    $'docs/x.md\napps/admin/src/page.tsx'               "$CODE_ONLY"
-check 'compose build file'  'infra/docker/docker-compose.build.yml'             "$IMG_E2E"
-check 'the bake overlay'    'infra/docker/docker-bake.hcl'                      "$IMG_E2E"
-check 'terraform'           'infra/terraform/modules/network/main.tf'           'code=false images=false terraform=true e2e=false'
-check 'the bootstrap job'   'infra/kubernetes/bootstrap-db/job.yaml'            'code=false images=false terraform=true e2e=false'
-check 'a root script'       'scripts/dev.mjs'                                   'code=true images=false terraform=false e2e=true'
-check 'the workflow itself' '.github/workflows/ci.yml'                          'code=true images=true terraform=true e2e=true'
+check 'compose build file'  'infra/docker/docker-compose.build.yml'             "$DOCKER_CHG"
+check 'the bake overlay'    'infra/docker/docker-bake.hcl'                      "$DOCKER_CHG"
+check 'terraform'           'infra/terraform/modules/network/main.tf'           'code=false images=false terraform=true e2e=false helm=false'
+check 'the bootstrap job'   'infra/kubernetes/bootstrap-db/job.yaml'            'code=false images=false terraform=true e2e=false helm=false'
+check 'a root script'       'scripts/dev.mjs'                                   'code=true images=false terraform=false e2e=true helm=false'
+check 'the workflow itself' '.github/workflows/ci.yml'                          'code=true images=true terraform=true e2e=true helm=true'
 # infra/ci/*.sh are the pipeline itself: a change to them must be exercised by the jobs that use them.
-check 'the classifier'      'infra/ci/changes.sh'                               "$IMG_E2E"
-check 'the manifest guard'  'infra/ci/check-image-manifests.sh'                 "$IMG_E2E"
-check 'the e2e runner'      'infra/ci/run-e2e.sh'                               "$IMG_E2E"
+check 'the classifier'      'infra/ci/changes.sh'                               "$CI_SCRIPT_CHG"
+check 'the manifest guard'  'infra/ci/check-image-manifests.sh'                 "$CI_SCRIPT_CHG"
+check 'the e2e runner'      'infra/ci/run-e2e.sh'                               "$CI_SCRIPT_CHG"
 # The realms and the authorization model are what the live auth suites run against.
-check 'a keycloak realm'    'infra/keycloak/staff-realm.json'                   'code=false images=false terraform=false e2e=true'
-check 'the openfga model'   'infra/openfga/model.fga'                           'code=false images=false terraform=false e2e=true'
+check 'a keycloak realm'    'infra/keycloak/staff-realm.json'                   'code=false images=false terraform=false e2e=true helm=false'
+check 'the openfga model'   'infra/openfga/model.fga'                           'code=false images=false terraform=false e2e=true helm=false'
+# The charts and the ArgoCD manifests are their own group: nothing else needs re-checking for them.
+check 'the chart'           'infra/helm/platform-app/values.yaml'                'code=false images=false terraform=false e2e=false helm=true'
+check 'a chart template'    'infra/helm/platform-app/templates/deployment.yaml'  'code=false images=false terraform=false e2e=false helm=true'
+check 'an app values file'  'infra/helm/values/core/values-staging.yaml'         'code=false images=false terraform=false e2e=false helm=true'
+check 'an argocd app'       'infra/argocd/applications/core-dev.yaml'            'code=false images=false terraform=false e2e=false helm=true'
 
 # CHANGES_ALL wins over everything: a push to main runs the lot.
 got="$(CHANGES_ALL=1 CHANGED_FILES='docs/x.md' bash "$SUT" 2>/dev/null | tr '\n' ' ')"
 got="${got% }"
-if [ "$got" = 'code=true images=true terraform=true e2e=true' ]; then
+if [ "$got" = 'code=true images=true terraform=true e2e=true helm=true' ]; then
   printf 'ok   %-34s %s\n' 'CHANGES_ALL overrides' "$got"
 else
   printf 'FAIL %-34s got [%s]\n' 'CHANGES_ALL overrides' "$got"

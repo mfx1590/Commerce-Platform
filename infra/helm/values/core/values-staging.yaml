@@ -1,0 +1,43 @@
+# core in staging. See infra/README.md "Helm" for how these files are used.
+#
+# Nothing secret belongs here: credentials reach the pod through the ExternalSecret below,
+# which names a key in AWS Secrets Manager and never carries a value.
+
+image:
+  # From the terraform output `ecr_repository_urls`. The account id differs per
+  # environment, so the deploy workflow overrides this with --set rather than
+  # committing an account number.
+  repository: REPLACED_BY_DEPLOY/staging/commerce-platform/core
+  # A git sha, always. The placeholder is what `helm template` renders in CI; the chart
+  # refuses `latest`, because a moving tag means the cluster and the repo disagree.
+  tag: '0000000000000000000000000000000000000000'
+
+replicaCount: 2
+
+service:
+  port: 80
+  targetPort: 9000
+  healthPath: /health
+
+ingress:
+  enabled: true
+  className: alb
+  # example.com is a placeholder; the deploy substitutes the environment's base_domain.
+  host: api.staging.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+externalSecrets:
+  enabled: true
+  remoteKeys:
+    - key: staging/platform/database/app
+    - key: staging/platform/redis
+    - key: staging/platform/app

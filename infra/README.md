@@ -90,6 +90,135 @@
 - `kubernetes/` — raw manifests that are not part of a chart. Today: `bootstrap-db/`, the Job that creates the
   `platform_app` database role. See `kubernetes/README.md`.
 - `terraform/` — AWS `dev` and `staging`. Window 5.
+- `helm/` — one chart, instantiated per app per environment. `argocd/` — the Applications that do it.
+
+## Helm
+
+```
+helm/
+  platform-app/            the chart: Deployment, Service, Ingress, ServiceAccount, ExternalSecret, HPA
+  values/<app>/values-<env>.yaml   what differs: image, port, hostname, replicas, which secrets
+  check.sh                 helm lint + helm template + kubeconform, no cluster needed
+argocd/
+  projects/commerce-platform.yaml  the AppProject — the blast radius
+  app-of-apps.yaml                 the one Application an operator creates by hand
+  applications/<app>-<env>.yaml    one per app per environment, created by the app-of-apps
+```
+
+**One chart, not five.** `core`, `admin`, `storefront` and the two Prism mocks are the same shape: a stateless
+container that serves `$PORT` and answers a health path — the contract the images already keep. Five charts
+that start identical drift; one chart plus ten values files cannot. What genuinely differs (the mocks take
+their document as an argument and mount it from a ConfigMap) is expressed in values, not in a fork of the
+chart.
+
+```bash
+bash infra/helm/check.sh            # lint, render all ten combinations, validate with kubeconform
+bash infra/helm/check.sh --render   # and print the manifests, for reading a diff by hand
+```
+
+Like `infra/terraform/check.sh`, it uses local binaries when they exist and the official images through Docker
+otherwise, so a laptop with neither helm nor kubeconform installed can still run it. CI runs the same script.
+
+**kubeconform is given the CRD catalogue**, not just the built-in Kubernetes schemas. Without it, the
+`ExternalSecret` and ArgoCD `Application` objects would be "missing schema" and skipped — the check would pass
+while saying nothing about the two object types most likely to be wrong. `-strict` also rejects unknown fields,
+which is what catches a typo'd key.
+
+**The chart refuses to render** without an image repository, an image tag, or an ingress host, and refuses the
+tag `latest` outright: ArgoCD syncs a tag, so a moving tag means the cluster and the repository disagree about
+what is running. Tags are git shas, set by the deploy workflow (task 2.4b).
+
+**Secrets are never in a values file.** Terraform generates them into AWS Secrets Manager (task 2.2); the
+chart's `ExternalSecret` names the remote key; External Secrets Operator projects it into a Kubernetes Secret
+that the Deployment consumes with `envFrom`. A values file lists _which_ secrets an app needs, never what they
+are. An app with none sets `externalSecrets.enabled: false` rather than projecting an empty Secret — the chart
+fails the render if that is inconsistent.
+
+**dev self-syncs, staging does not.** dev is disposable and a drifting dev cluster teaches nobody anything.
+staging is released by the deploy workflow bumping an image tag and triggering a sync, so a release is
+something someone did and can point at, rather than a side effect of a merge landing while nobody was looking.
+
+## Runbook: bootstrapping ArgoCD on a fresh cluster
+
+Continues from the Terraform runbook below, once `terraform apply` has produced a cluster. Nothing here has
+been run against a real account yet — there is no account.
+
+**1. Point kubectl at the cluster.**
+
+```bash
+cd infra/terraform/envs/dev
+aws eks update-kubeconfig --name "$(terraform output -raw cluster_name)"
+```
+
+**2. Install ArgoCD.**
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.2/manifests/install.yaml
+kubectl -n argocd rollout status deploy/argocd-server --timeout=5m
+```
+
+**3. Install External Secrets Operator and point it at Secrets Manager.** The charts assume a
+`ClusterSecretStore` named `aws-secrets-manager`; it is cluster-scoped, so it is bootstrap, not something a
+sync may create (the AppProject forbids cluster-scoped objects deliberately).
+
+```bash
+helm repo add external-secrets https://charts.external-secrets.io
+helm install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace --wait
+# The store authenticates with the cluster's IRSA provider — terraform output oidc_provider_arn.
+kubectl apply -f - <<'EOF'
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterSecretStore
+metadata: { name: aws-secrets-manager }
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: eu-central-1
+      auth:
+        jwt:
+          serviceAccountRef: { name: external-secrets, namespace: external-secrets }
+EOF
+```
+
+**4. Give the mocks their documents.** The Prism charts mount `contracts-openapi`. It is created from
+`packages/contracts/openapi` rather than copied into the chart, so the frozen contracts keep one home:
+
+```bash
+kubectl create namespace commerce-dev
+kubectl create configmap contracts-openapi -n commerce-dev \
+  --from-file=packages/contracts/openapi/ --dry-run=client -o yaml | kubectl apply -f -
+```
+
+**5. Create the project and the app-of-apps.** These two are the only manual `kubectl apply`s; everything
+else is a file in this repository from here on.
+
+```bash
+kubectl apply -f infra/argocd/projects/commerce-platform.yaml
+kubectl apply -f infra/argocd/app-of-apps.yaml
+kubectl -n argocd get applications
+```
+
+**6. First sync.** dev syncs itself. staging is deliberately manual:
+
+```bash
+argocd app sync core-staging          # or the Sync button in the UI
+```
+
+**Rolling back a deploy.** ArgoCD keeps the history; roll back to the previous synced revision, which is a
+previous image tag:
+
+```bash
+argocd app history core-staging
+argocd app rollback core-staging <revision>
+```
+
+**Getting the admin password** (change it, then delete the secret):
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+```
+
 - `ci/` — the pieces of `.github/workflows/ci.yml` that are worth testing on their own.
   `changes.sh` decides which job groups a change needs (`code`, `images`, `terraform`) and
   `changes.test.sh` is its self-test, which the `changes` job runs before trusting it — the same
@@ -110,12 +239,13 @@ belongs to the main window.
 | job              | runs when   | what it does                                                                                              |
 | ---------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
 | `ownership`      | always      | `check-ownership.sh` + its self-test                                                                      |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e`                                          |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm`                                 |
 | `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                             |
 | `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                            |
 | `contract`       | `code`      | `pnpm test:contract` against Prism                                                                        |
 | `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                  |
 | `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA and Postgres from compose; the live auth suites; every Playwright journey |
+| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                           |
 | `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                |
 | `preview`        | PRs         | placeholder until 2.4b                                                                                    |
 

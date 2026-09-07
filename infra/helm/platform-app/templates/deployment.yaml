@@ -1,0 +1,79 @@
+{{- include "platform-app.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "platform-app.name" . }}
+  labels: {{- include "platform-app.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "platform-app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "platform-app.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pods when the projected secret changes. Without this a rotated credential
+        # (task 2.6) sits in the Secret while the running pods keep the old one.
+        checksum/env: {{ toYaml .Values.env | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "platform-app.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ toString .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.args }}
+          args: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+          env:
+            # The image reads $PORT; keep the container and the Service in step from one value.
+            - name: PORT
+              value: {{ .Values.service.targetPort | quote }}
+            {{- range $k, $v := .Values.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          {{- if .Values.externalSecrets.enabled }}
+          envFrom:
+            - secretRef:
+                name: {{ include "platform-app.secretName" . }}
+          {{- end }}
+          # Three probes, because they answer three different questions. Startup covers a slow first
+          # boot (Medusa runs migrations checks) without making the liveness timeout generous
+          # forever; readiness takes a pod out of the Service while it is busy; liveness restarts it
+          # only when it is genuinely wedged.
+          startupProbe:
+            httpGet: { path: {{ .Values.service.healthPath }}, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: {{ .Values.service.healthPath }}, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: { path: {{ .Values.service.healthPath }}, port: http }
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts: {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,79 @@
+# Defaults for every app. A values file under infra/helm/values/<app>/values-<env>.yaml overrides
+# what differs; anything not overridden is deliberate shared policy, so change it here once.
+
+# Image. `tag` is always a git sha, never `latest`: ArgoCD syncs a tag, and a moving tag means the
+# cluster and the repository disagree about what is running. CI sets it (task 2.4b).
+image:
+  repository: '' # required, e.g. 123456789012.dkr.ecr.eu-central-1.amazonaws.com/dev/commerce-platform/core
+  tag: '' # required, a git sha
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# The port the container serves and the health path it answers. Both come from the image contract.
+service:
+  port: 80
+  targetPort: 9000
+  healthPath: /health
+
+ingress:
+  enabled: true
+  className: alb
+  host: '' # required, e.g. api.dev.example.com
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi # no CPU limit on purpose: throttling a latency-sensitive service is worse than bursting
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# Plain configuration, rendered into the Deployment as env vars. Names match .env.example, so the
+# same variable means the same thing locally, in an image and in the cluster.
+env: {}
+
+# Only the Prism mocks need these: their image takes the document to serve as an argument and mounts
+# it from a ConfigMap. The apps use their image's own entrypoint.
+args: []
+extraVolumes: []
+extraVolumeMounts: []
+
+# Secrets never appear here. External Secrets Operator (task 2.6) projects an AWS Secrets Manager
+# entry into a Kubernetes Secret, and the Deployment consumes it with envFrom. `secretName` is that
+# Kubernetes Secret; `remoteRef` is what task 2.6 fills in.
+externalSecrets:
+  enabled: true
+  secretStoreRef: aws-secrets-manager
+  refreshInterval: 1h
+  # secretName defaults to <release>-env
+  secretName: ''
+  remoteKeys: [] # e.g. [{ key: dev/platform/database/app }]
+
+serviceAccount:
+  create: true
+  # IRSA: filled from the Terraform output when an app needs AWS access (S3 media, for example).
+  roleArn: ''
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false # Next.js writes a cache; core writes nothing but is not worth splitting
+  capabilities:
+    drop: ['ALL']
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
