@@ -48,3 +48,6 @@
   (`HqRbacRequest.scope` carries the middleware's StaffScope; a `store_id` filter re-checks `viewer` on that
   store). Tests: redaction units; live: redaction at rest, `UPDATE`/`DELETE audit_log` denied for
   platform_app, HQ sees NULL-store rows, store scope never does, 403 on a foreign store filter.
+- REQUEST #82 (manager decision, shipped with task 1.5): `admin-app` registers a second local redirect URI and
+  web origin, `http://localhost:3200/*` — window 4's Playwright journey can run with `PORT=3200` when 3000 is
+  taken. Dev realm only; production keeps exactly one redirect URI (README dev-only table).
