@@ -1,0 +1,55 @@
+# Build-only compose file: it builds one image per app scaffold from the repo root.
+# It intentionally publishes no ports and starts nothing — the local runtime stack is
+# infra/docker/docker-compose.yml (`pnpm dev`). Run it from anywhere in the repo:
+#
+#   docker compose -f infra/docker/docker-compose.build.yml build            # all six
+#   docker compose -f infra/docker/docker-compose.build.yml build core       # one
+#   IMAGE_TAG=$(git rev-parse --short HEAD) docker compose -f infra/docker/docker-compose.build.yml build
+#
+# The Dockerfiles live next to the app they build (apps/<app>/Dockerfile, owned by window 5)
+# and take the workspace root as their build context, so a change in packages/** invalidates
+# the image cache exactly like it invalidates a local `pnpm build`.
+name: commerce-platform-build
+
+x-app-build: &app-build
+  context: ../..
+  args:
+    NODE_VERSION: 20.19-alpine
+    PNPM_VERSION: 10.34.5
+
+services:
+  core:
+    image: commerce-platform/core:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/core/Dockerfile
+
+  admin:
+    image: commerce-platform/admin:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/admin/Dockerfile
+
+  storefront-starter:
+    image: commerce-platform/storefront-starter:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/storefront-starter/Dockerfile
+
+  accounting:
+    image: commerce-platform/accounting:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/accounting/Dockerfile
+
+  analytics-ingest:
+    image: commerce-platform/analytics-ingest:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/analytics-ingest/Dockerfile
+
+  notifications:
+    image: commerce-platform/notifications:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/notifications/Dockerfile

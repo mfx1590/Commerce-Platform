@@ -81,13 +81,36 @@
     },
     {
       "alias": "browser-mfa forms",
-      "description": "Username + password, then TOTP (REQUIRED, not conditional).",
+      "description": "Username + password, then TOTP only for users who have one enrolled (CONDITIONAL, dev-only relaxation of ADR 0002 — see README and issue #43).",
       "providerId": "basic-flow",
       "topLevel": false,
       "builtIn": false,
       "authenticationExecutions": [
         {
           "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "flowAlias": "browser-mfa otp",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "browser-mfa otp",
+      "description": "TOTP challenge for users with an enrolled authenticator. Production realms replace the CONDITIONAL wiring with REQUIRED (forced enrolment).",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
           "authenticatorFlow": false,
           "requirement": "REQUIRED",
           "priority": 10,
@@ -303,7 +326,19 @@
       "firstName": "Olivia",
       "lastName": "Owner",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "owner", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "owner",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "dev-totp (secret documented in infra/keycloak/README.md)",
+          "secretData": "{\"value\":\"owner-dev-totp-secret-20260905\"}",
+          "credentialData": "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+        }
+      ]
     },
     {
       "id": "seed-finance",
@@ -314,7 +349,13 @@
       "firstName": "Fin",
       "lastName": "Finance",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "finance", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "finance",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "seed-operations",
@@ -325,7 +366,13 @@
       "firstName": "Otto",
       "lastName": "Operations",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "operations", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "operations",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "seed-store-admin",
@@ -336,7 +383,13 @@
       "firstName": "Sam",
       "lastName": "StoreAdmin",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "store-admin", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "store-admin",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "seed-store-staff",
@@ -347,7 +400,13 @@
       "firstName": "Stef",
       "lastName": "StoreStaff",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "store-staff", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "store-staff",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "seed-support",
@@ -358,7 +417,13 @@
       "firstName": "Sue",
       "lastName": "Support",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "support", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "support",
+          "temporary": false
+        }
+      ]
     },
     {
       "id": "seed-analyst",
@@ -369,11 +434,17 @@
       "firstName": "Ana",
       "lastName": "Analyst",
       "requiredActions": [],
-      "credentials": [{ "type": "password", "value": "analyst", "temporary": false }]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "analyst",
+          "temporary": false
+        }
+      ]
     }
   ],
   "attributes": {
-    "_comment": "Staff realm (window 2, Phase 1). Users mirror packages/db SEED_IDS.users; user id == staff_user.keycloak_subject (seed-<key>). Roles live in OpenFGA, never here. Dev-only settings are listed in infra/keycloak/README.md.",
+    "_comment": "Staff realm (window 2, Phase 1). Users mirror packages/db SEED_IDS.users; user id == staff_user.keycloak_subject (seed-<key>). Roles live in OpenFGA, never here. DEV ONLY: the OTP step is CONDITIONAL (issue #43) and owner is pre-enrolled with a documented TOTP secret; production realms make OTP REQUIRED. Details in infra/keycloak/README.md.",
     "frontendUrl": "http://localhost:8180"
   }
 }

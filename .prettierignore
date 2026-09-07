@@ -2,6 +2,7 @@ node_modules
 dist
 .turbo
 **/.next/
+**/.medusa/
 **/.terraform/
 **/next-env.d.ts
 pnpm-lock.yaml
