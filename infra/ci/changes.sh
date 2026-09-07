@@ -8,7 +8,7 @@
 #   CHANGES_ALL=1 infra/ci/changes.sh     # everything runs (pushes to main)
 #   CHANGED_FILES=$'a\nb' infra/ci/changes.sh   # test mode, no git needed
 #
-# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…` to stdout, and to $GITHUB_OUTPUT when set.
+# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…`, `helm=…` to stdout, and to $GITHUB_OUTPUT.
 #
 # Groups:
 #   code       lint, typecheck, format, unit tests, contract tests
@@ -70,7 +70,11 @@ terraform=false
 e2e=false
 helm=false
 
-if match '^(apps/|packages/|scripts/|cms/|data/)' || match "$ROOT_FILES"; then code=true; fi
+# Any workflow file counts as code, not just ci.yml: prettier formats .github/workflows/**, so a
+# workflow that lands unformatted would pass its own PR and then break `format:check` on somebody
+# else's unrelated one. Found by this very PR, which changed only deploy-staging.yml and classified
+# as nothing at all.
+if match '^(apps/|packages/|scripts/|cms/|data/)' || match "$ROOT_FILES" || match '^\.github/workflows/'; then code=true; fi
 # Deliberately narrower than `code`: see the note at the top of this file.
 if match '(^|/)Dockerfile$' || match '^\.dockerignore$' || match '^infra/docker/' || match "$CI_SCRIPTS" ||
   match '^(pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json)$' || match '^\.github/workflows/ci\.yml$'; then

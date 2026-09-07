@@ -213,6 +213,14 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   `reloader.stakater.com/auto`, with Reloader added to the bootstrap runbook and
   `kubectl rollout restart` documented as the manual equivalent.
 
+### Fixed
+
+- The classifier treated only `ci.yml` as a workflow. Prettier formats every file under
+  `.github/workflows/`, so a change to any other one — `deploy-staging.yml`, added in this task —
+  classified as _nothing_, meaning `format:check` never saw it and an unformatted workflow would have landed
+  green and then broken `format:check` on somebody else's unrelated PR. Found by watching this PR's own
+  `what changed` output. Any workflow file now counts as `code`.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).
