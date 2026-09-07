@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.8 — issue #63 Reserve the Marketing section** · commit `SHA9`
+- **1.8 — issue #63 Reserve the Marketing section** · commit `e20a5c7`
   - HQ Marketing gated on `analyst` (owner implies it); Store Marketing on `store_staff`
     (store_admin implies it) — so finance and operations see neither, as the issue asks.
   - A placeholder page each, self-contained on purpose: one file, no components of their own, no API
