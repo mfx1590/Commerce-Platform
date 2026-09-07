@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 1 (window 1, contracts-v0.2)
 
+### 2026-09-07 · customer PII gate proven for window 1 (contracts 0.2.1, issue #77)
+
+- `test/admin-api.test.ts`: the frozen spec gates `listCustomers` / `getCustomer` / `updateCustomer` with
+  `support` (not `viewer`); an `analyst` gets **403** on a route carrying that permission while keeping the
+  viewer-gated aggregates (products) — and `hasPermission` denies `analyst` `support` on every store, including
+  `store:*`. The customers routes themselves belong to window 13 and stay on the Prism mock in Phase 1; the probe
+  route mounts the spec permission on our guard so the gate is proven for everything window 1 owns.
+
 ### 2026-09-07 · follow-up — `sort` / `order` on Admin API list handlers (contracts 0.2.0)
 
 - `GET /admin/stores` (`sort`: code | name | status | created_at, default `created_at`) and

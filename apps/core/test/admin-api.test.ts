@@ -6,7 +6,15 @@ import request from 'supertest';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DevTokenVerifier } from '../src/http';
+import {
+  coreErrorHandler,
+  DevTokenVerifier,
+  hasPermission,
+  loadSpec,
+  requirePermission,
+  resolveObject,
+  resolveStaffPrincipal,
+} from '../src/http';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -28,6 +36,8 @@ const as = (subject: string) => ({
   delete: (path: string) => request(app).delete(path).set('Authorization', `Bearer dev:${subject}`),
 });
 const owner = as('seed-owner');
+const analyst = as('seed-analyst');
+const support = as('seed-support');
 const finance = as('seed-finance');
 const storeAdmin = as('seed-store-admin');
 const storeStaff = as('seed-store-staff');
@@ -40,6 +50,18 @@ beforeAll(async () => {
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier());
+  // The Admin API customers routes belong to window 13 and stay on the Prism mock in Phase 1; this probe
+  // mounts the frozen `listCustomers` x-permission (support since contracts 0.2.1, issue #77) on our guard so
+  // the PII gate is proven for everything window 1 owns.
+  const customersPermission = loadSpec('admin-api.yaml').permission('listCustomers');
+  app.get(
+    '/admin/_probe/stores/:storeId/customers',
+    requirePermission(customersPermission.relation, (req) =>
+      resolveObject(customersPermission.object, { storeId: req.params.storeId }),
+    ),
+    (_req, res) => res.json({ items: [] }),
+  );
+  app.use(coreErrorHandler);
 }, 180_000);
 
 afterAll(async () => {
@@ -343,5 +365,49 @@ describe('catalog routes', () => {
       (await storeStaff.post(`/admin/stores/${A}/categories`, { handle: 'tank-tops', name: 'dup' }))
         .status,
     ).toBe(409);
+  });
+});
+
+describe('customer PII gate (contracts 0.2.1, issue #77)', () => {
+  const customersPath = `/admin/_probe/stores/${A}/customers`;
+
+  it('the frozen spec gates the customer reads with `support`, not `viewer`', () => {
+    const spec = loadSpec('admin-api.yaml');
+    for (const op of ['listCustomers', 'getCustomer', 'updateCustomer']) {
+      expect(spec.permission(op)).toEqual({ relation: 'support', object: 'store:{storeId}' });
+    }
+    expect(spec.permission('listProducts').relation).toBe('viewer');
+  });
+
+  it('analyst gets 403 on the customers routes but keeps the viewer-gated aggregates', async () => {
+    const denied = await analyst.get(customersPath);
+    expect(denied.status).toBe(403);
+    spec.assertSchema('Error', denied.body);
+    expect(denied.body).toEqual({ code: 'forbidden', message: `requires support on store:${A}` });
+
+    // …while the same analyst is a viewer on every store: aggregates stay readable (ADR 0002 data minimisation).
+    const products = await analyst.get(`/admin/stores/${A}/products?limit=1`);
+    expect(products.status).toBe(200);
+    spec.assertPage('Product', products.body);
+  });
+
+  it('support, store_admin and owner may read customers; finance may not', async () => {
+    expect((await support.get(customersPath)).status).toBe(200);
+    expect((await storeAdmin.get(customersPath)).status).toBe(200);
+    expect((await owner.get(customersPath)).status).toBe(200);
+    expect((await finance.get(customersPath)).status).toBe(403);
+  });
+
+  it('the permission stub itself denies analyst `support` on every store', async () => {
+    const principal = await resolveStaffPrincipal(
+      'Bearer dev:seed-analyst',
+      new DevTokenVerifier(),
+      'test',
+    );
+    expect(principal.organizationRelations).toEqual(['analyst']);
+    expect(hasPermission(principal, 'viewer', `store:${A}`)).toBe(true);
+    expect(hasPermission(principal, 'support', `store:${A}`)).toBe(false);
+    expect(hasPermission(principal, 'support', `store:${B}`)).toBe(false);
+    expect(hasPermission(principal, 'support', 'store:*')).toBe(false);
   });
 });

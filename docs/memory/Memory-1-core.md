@@ -1,6 +1,6 @@
 # Memory 1 — Core commerce
 Window: 1 · Key: `core` · Branch prefix: `core/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-05 · Contracts: contracts-v0.2 (0.2.0 = additive sort/order on Admin list operations) · Branch: `core/phase1` only (folded back) · Status: 1.1 merged (#49); 1.2–1.7 in ONE PR from `core/phase1` (manager reviews 1.7 there); then 1.8 (verifier), 1.9, sort/order follow-up
+Last updated: 2026-09-07 · Contracts: contracts-v0.2 (admin-api 0.2.1) · Branch: `core/phase1` · Status: **Phase 1 complete (1.1–1.9 + sort/order follow-up)**; nothing in flight. Next work comes from Memory-main (Integration 1, then Phase 2).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -20,6 +20,7 @@ Never touches:
 Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant-scoped data access through packages/db with RLS enforced on every query, outbox write on every state change, seed brands loading. Implement Store API and Admin API routes for registry and catalog exactly as in packages/contracts; everything else stays on the mock server.
 
 ## Done
+- [x] **Follow-up: `sort`/`order` on Admin API list handlers + customer PII gate test (contracts 0.2.0/0.2.1, issues #77 context)** — 2026-09-07, commit `11bdaba` (replayed from the parked `core-sort-order`) + the PII-gate test commit; final Phase 1 PR. `listStores` (code|name|status|created_at) and `listProducts` (title|handle|status|created_at|updated_at) accept `sort` + `order` (asc|desc, default desc, ignored without `sort`), whitelisted ORDER BY, 400 on unknown values; `sortParams`/`enumParam` in `src/http/query.ts`. Analyst → 403 on the `support`-gated customer reads, still 200 on viewer-gated aggregates.
 - [x] **1.9 READMEs + CLAUDE.md + tests green (issue #9)** — 2026-09-07, commits `b31eba8` + the #79 review fix-up (module-boundary lint/guard, CLAUDE.md wording, memory cleanup), PR #79. `src/http/README.md`, `src/lib/README.md`, CLAUDE.md module table + build-first note; 65 tests green on the merged tree.
 - [x] **1.8 Bootstrap verifier (issue #8, re-scoped) + ts-node (#60)** — 2026-09-06, on `core/phase1` after #61 (`e9b5970`) merged; commit `fc55006` (+ follow-up for the `.medusa` lint ignore), PR #71. Read-only readiness checks + CLI + server-start hook; no Medusa-side rows. `medusa build` verified on this tree.
 - [x] **1.7 Admin API routes (issue #7)** — 2026-09-05, commit `a1c39ee` on `core/phase1` (replayed from `b719c0a`; memory follow-up `d124fa1`; originally PR #58, closed for the single-branch flow). Delivered: `src/http/{admin-routes,permissions,openapi,query}.ts`, registry `listWarehouses`/`listLegalEntities`, `@platform/auth-sdk` workspace dep (#48), `test/admin-api.test.ts` (6 cases, spec-validated). Verified live through Medusa: `/admin/me`, finance 403, store-staff 400/201/403.
@@ -31,10 +32,11 @@ Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49 **merged** (merge commit `a0c02c9`). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
-- **Phase 1 tasks 1.1–1.9 delivered** (2026-09-07). Only the sort/order follow-up remains (implemented and green locally, tag `core-sort-order`; pushed as one PR after #79 merges). Then Phase 2 waits for Memory-main.
+- (nothing — Phase 1 is complete and merged/PR-open; window 1 is idle until Memory-main opens Integration 1 or Phase 2)
 
-## Next — Phase 1
-- [ ] Follow-up (manager, contracts 0.2.0): `sort` + `order` query params on Admin API list handlers — `listStores` (code|name|status|created_at), `listProducts` (title|handle|status|created_at|updated_at); validate enum → 400; default per spec; `order` ignored without `sort`; tests + spec validation
+## Next — from Memory-main, not started
+- Integration 1 (main window drives): first checkout end to end; core answers the Store/Admin API routes it owns, the rest still on the mocks.
+- Phase 2 (my part, in order per Memory-main): cart module against the contracts, order state machine + workflows with compensation, inventory levels/reservations/backorders, returns and exchanges, an event per transition + replay test. The deferred Medusa decision lands in the cart task: carts through Medusa's cart module behind our contract routes, or bypass Medusa's Store API entirely.
 
 ## Decisions made (with reasons)
 - 2026-09-04 · Medusa's own tables go in Postgres schema `medusa` (`projectConfig.databaseSchema`): Medusa's core modules declare `product`, `store`, `sales_channel`, `cart`, `order`… — the same names as our frozen schema in `public`. Our data stays in `packages/db` tables under RLS; Medusa's built-in tables carry no contract data in Phase 1.
@@ -75,6 +77,8 @@ Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant
 - `medusa build` evaluates `medusa-config.ts` through ts-node without a database: keep the config throw-free (loud placeholders) and enforce env in `src/server.ts`.
 - Keycloak realm JSON changes (e.g. #65, conditional OTP) need `node infra/keycloak/reimport.mjs staff` + a Keycloak container restart, or `pnpm dev --reset` (wipes the shared Postgres volume — avoid while other windows run). Core Phase 1 tests do not touch Keycloak (dev tokens).
 - Package-local `pnpm --filter @platform/core typecheck|test` fails with "Cannot find module @platform/auth-sdk" until the workspace packages are built (`pnpm turbo run build --filter=...`); the root turbo commands and CI build them first.
+- After the manager merges another window's work into main, `git merge main` alone is not enough: run `pnpm install` (new deps of THEIR packages, e.g. auth-sdk's `jose`) and rebuild the workspace packages, or `apps/core` typecheck/tests fail inside their modules (`hq-rbac`) with "has no exported member" / "X is not a constructor".
+- `apps/core` tests now include window 2's `src/modules/hq-rbac/test/**`, which need a live Keycloak + OpenFGA (docker stack) and the current staff realm. After a realm JSON change: `node infra/keycloak/reimport.mjs staff` + restart the Keycloak container, or `pnpm dev --reset`.
 - `tsx watch` keeps running after a boot crash; stop it before starting another `pnpm dev` (port 9000).
 - pnpm installed two peer-variants of most `@medusajs/*` packages under `node_modules/.pnpm` (`…_9c4…` and `…_62c…`); Medusa resolves one; watch for duplicate-module bugs.
 - Tenant middleware (1.3) chicken-and-egg: `store_api_key` is under RLS, so looking up a key needs an organization context before any context is known. Phase 1–3 has exactly one organization: resolve it from `CORE_ORGANIZATION_ID` (default `SEED_IDS.organization`) and look the key up with an organization-scoped client; the request then proceeds store-scoped.
