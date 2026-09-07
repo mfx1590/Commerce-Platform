@@ -16,7 +16,7 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
-- **1.8 — issue #63 Reserve the Marketing section** · commit `e20a5c7`
+- **1.8 — issue #63 Reserve the Marketing section** · commit `422a7fb`
   - HQ Marketing gated on `analyst` (owner implies it); Store Marketing on `store_staff`
     (store_admin implies it) — so finance and operations see neither, as the issue asks.
   - A placeholder page each, self-contained on purpose: one file, no components of their own, no API
@@ -25,7 +25,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     record both folders as reserved for window 17.
   - 302 tests. **This completes the Phase 1 Next list.**
 
-- **1.7 — issue #30 Tests per role fixture** · commit `e45eb8e`
+- **1.7 — issue #30 Tests per role fixture** · commit `09522a2`
   - `test/role-access.test.ts`: what each role may *open*, next to `navigation.test.ts`'s what each
     role *sees*. A URL can be typed, so the two only agree if the guards and the navigation come from
     the same rules — and every section is now decided for all seven seeded roles, so adding one
