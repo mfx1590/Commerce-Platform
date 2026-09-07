@@ -60,3 +60,10 @@ details: { relation, object } }`, 503 fail closed), `resolvePermissionObject` fo
   `x-permission` in admin-api.yaml and asserts each is resolvable; unit tests run on a mocked OpenFGA
   client; integration against docker OpenFGA (seeded tuples) and Keycloak. Dev realm: the customers
   `test-cli` client now stamps `store_code=brand-a` so the binding has a live positive path.
+- Task 1.7 (#16): PHASE 1 GATE proven end to end. `apps/core/src/modules/hq-rbac/test/gate.test.ts` — real
+  Keycloak tokens → scope middleware → x-permission guards: the two-store `store-admin` gets the exact 403 on
+  EVERY finance-gated operation of the contract (swept from the spec) and on the new `/admin/finance/ping`
+  test-double route (finance on organization:hq, stands in for Phase 4 accounting; finance user gets 200);
+  `analyst` keeps viewer reads but is denied customer PII under the `support` gate proposed in
+  CONTRACT CHANGE #77 (frozen contract has listCustomers at viewer, which the analyst-PII criterion of #16
+  contradicts — support/store_admin/owner keep access, analyst/finance/operations lose it).

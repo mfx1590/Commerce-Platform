@@ -57,7 +57,8 @@ export interface HqRbacRoute {
   method: 'GET' | 'POST' | 'DELETE';
   /** Contract path, `{param}` placeholders as in admin-api.yaml. */
   path: string;
-  operationId: 'listUsers' | 'listUserRoles' | 'assignRole' | 'revokeRole' | 'listAuditLog';
+  operationId:
+    'listUsers' | 'listUserRoles' | 'assignRole' | 'revokeRole' | 'listAuditLog' | 'financePing';
   /** null = the handler checks dynamically (listAuditLog: viewer on store:{store_id} when given). */
   permission: Permission | null;
 }
@@ -93,6 +94,14 @@ export const HQ_RBAC_ROUTES: readonly HqRbacRoute[] = [
     path: '/admin/audit-log',
     operationId: 'listAuditLog',
     permission: null, // x-permission: viewer on store:{store_id} — checked in the handler (query-dependent)
+  },
+  {
+    // NOT in the contract: Phase 1 gate test double (#16) standing in for the Phase 4 accounting routes.
+    // Guarded exactly like GET /admin/legal-entities: finance on organization:hq.
+    method: 'GET',
+    path: '/admin/finance/ping',
+    operationId: 'financePing',
+    permission: { relation: 'finance', object: 'organization:hq' },
   },
 ];
 
@@ -199,6 +208,10 @@ export function createHqRbac(deps: HqRbacDeps) {
       return { status: 204 };
     },
 
+    async financePing(): Promise<HqRbacResponse> {
+      return { status: 200, body: { ok: true } };
+    },
+
     async listAuditLog(
       req: HqRbacRequest & { principal: StaffPrincipal },
     ): Promise<HqRbacResponse> {
@@ -301,6 +314,8 @@ export function createHqRbac(deps: HqRbacDeps) {
             principal: p,
             params: { userId: params.userId! },
           });
+        case 'financePing':
+          return await handlers.financePing();
         case 'listAuditLog':
           return await handlers.listAuditLog({ ...req, principal: p });
         case 'revokeRole':

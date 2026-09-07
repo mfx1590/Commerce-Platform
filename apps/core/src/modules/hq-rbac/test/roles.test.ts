@@ -74,9 +74,16 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       'POST /admin/users/{userId}/roles',
       'DELETE /admin/users/{userId}/roles/{assignmentId}',
       'GET /admin/audit-log', // task 1.5; its permission is query-dependent (null here, checked in the handler)
+      'GET /admin/finance/ping', // task 1.7 gate test double (not in the contract): finance on organization:hq
     ]);
-    for (const r of HQ_RBAC_ROUTES.filter((x) => x.operationId !== 'listAuditLog'))
+    for (const r of HQ_RBAC_ROUTES.filter(
+      (x) => x.operationId !== 'listAuditLog' && x.operationId !== 'financePing',
+    ))
       expect(r.permission).toEqual({ relation: 'owner', object: 'organization:hq' });
+    expect(HQ_RBAC_ROUTES.find((x) => x.operationId === 'financePing')?.permission).toEqual({
+      relation: 'finance',
+      object: 'organization:hq',
+    });
   });
 
   it('returns null for paths it does not own and 401 without a principal', async () => {

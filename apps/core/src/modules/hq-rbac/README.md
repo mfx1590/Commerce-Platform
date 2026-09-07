@@ -108,3 +108,12 @@ RLS through the caller's own scope — organization scope sees everything includ
 `store_id`, `entity_type`, `entity_id`, `actor_id`, `from`, `to`, `sort=created_at`, `order`, `page`,
 `limit`. Snapshots come back redacted because they are redacted at write time (`@platform/auth-sdk`
 `redactPii`).
+
+## GET /admin/finance/ping (task 1.7 — NOT in the contract)
+
+Phase 1 gate test double standing in for the Phase 4 accounting routes: guarded exactly like
+`GET /admin/legal-entities` (`finance` on `organization:hq`), answers `{ ok: true }`. Keep it — Phase 4 can
+replace it; it costs one routing-table row and proves the finance gate without accounting existing yet.
+The gate itself: `test/gate.test.ts` (real Keycloak tokens through the scope middleware; store-admin of two
+stores 403 on every finance-gated operation swept from the contract; analyst denied customer PII under the
+`support` gate proposed in CONTRACT CHANGE #77).
