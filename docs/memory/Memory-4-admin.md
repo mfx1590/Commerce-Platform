@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: `pending` (this memory commit; the work it describes is `f83e36e` and earlier) · Status: 1.1–1.5 merged; 1.6 in review (PR #78); 1.7 and 1.8 committed locally, queued behind it — **Phase 1 complete**
+Last updated: 2026-09-08 · Contracts: **Admin API 0.2.1** (customer reads need `support`) · Last commit: `pending` (this memory commit; the work is `c41e731` and earlier) · Status: 1.1–1.6 merged; **1.7 + 1.8 + the 0.2.1 gating in PR #94** — Phase 1 Next list complete
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,20 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **Admin API 0.2.1 — Customers gated on `support`** · commit `c41e731` · PR #94
+  - `listCustomers`/`getCustomer` moved from `viewer` to `support`, so the section follows: an
+    organization `support`, a `store_admin` or an `owner` — no longer `store_staff`, `finance`,
+    `operations` or `analyst`. Customer records are personal data; reading them is not implied by
+    merely holding a relation on the store.
+  - **The Playwright journey ran for the first time and passes 8/8** (`PORT=3200`, after window 2
+    registered `http://localhost:3200/*` live). It found three real bugs, all in the test:
+    `getByLabel(/password/i)` matched Keycloak's "Show password" toggle as well as the input;
+    the shell shows `display_name` from `GET /admin/me` ("Store Admin") rather than the ID token's
+    `name` ("Sam StoreAdmin"); and the sign-out check raced the logout chain and leaned on Keycloak's
+    SSO policy — it now pins that the app's own session cookies are gone, which is the part this app
+    owns.
+  - 304 unit + 6 contract + 8 e2e.
+
 - **1.8 — issue #63 Reserve the Marketing section** · commit `422a7fb`
   - HQ Marketing gated on `analyst` (owner implies it); Store Marketing on `store_staff`
     (store_admin implies it) — so finance and operations see neither, as the issue asks.
@@ -183,20 +197,22 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **Nothing is half-done.** Phase 1's Next list is complete; the working tree is clean and every
-  check is green (lint, format:check, typecheck, 302 unit + 6 contract tests, ownership).
-- **Exact next step when the window reopens:** check whether the manager merged **PR #78** (1.6 +
-  REQUEST #68). If merged → `git pull`, then `git push` and open the **1.7 PR** (#30) against `main`,
-  citing `test/role-access.test.ts` and the Playwright journey; when that merges, open the **1.8 PR**
-  (#63). One open PR per branch — never stack branches.
-- **Six local commits are queued** on `admin/phase1` ahead of `origin`:
-  `09522a2` 1.7 · `6e854bd` sha · `422a7fb` 1.8 · `61f3266` sha · `e9545ba` e2e `$PORT` + REQUEST #82
-  · `f83e36e` sha correction.
-- Files to open first next time: `docs/memory/Memory-4-admin.md`, then whatever the manager's review
-  of #78 asks for. No file is mid-edit.
-- Outstanding, not blocking: the Playwright journey has never been executed — it needs port 3000,
-  which an unrelated project holds. **REQUEST #82** (register `http://localhost:3200/*` on the dev
-  realm) unblocks running it on 3200; **REQUEST #80** covers its CI job.
+- **Nothing is half-done.** Working tree clean; lint, format:check, typecheck, 304 unit, 6 contract
+  and 8 e2e all green.
+- **Exact next step:** wait for the manager's review of **PR #94** (1.7 + 1.8 + the 0.2.1 Customers
+  gating). The PR opens by explaining why it is one PR rather than two — both tasks were already
+  committed before the instruction arrived, and splitting would have shipped a Playwright spec I now
+  know was broken. If the manager wants it split, redo as two.
+- Nothing is queued locally: `origin/admin/phase1` == `HEAD` apart from this memory commit.
+- **Phase 1's Next list is complete for this window.**
+
+### Open requests, none blocking
+- **#82** — 3200 is registered on the *running* realm but **not in `infra/keycloak/staff-realm.json`**,
+  which is the documented source of truth. Lost on the next fresh volume, and infra's CI e2e job
+  would fail because a runner starts from the JSON. Commented on the issue.
+- **#80** — CI job for the Playwright journeys (admin and storefront).
+- **#93** — Playwright's `test-results/` and `playwright-report/` trip `pnpm format:check`; delete
+  them before running it locally until the root `.prettierignore` covers them.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
@@ -205,10 +221,16 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27, merged (PR #42)
 - [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28, merged (PR #67)
 - [x] 1.6 403 / empty / error states pattern — #29, PR #78 (do not self-merge)
-- [x] 1.7 Tests: nav renders per role fixture — #30 (PR next)
-- [x] 1.8 Reserve the Marketing section — #63 (queued behind 1.7)
+- [x] 1.7 Tests: nav renders per role fixture — #30, PR #94 (e2e journey passes 8/8)
+- [x] 1.8 Reserve the Marketing section — #63, PR #94
 
 ## Decisions made (with reasons)
+- **Customers is gated on `support`, not `viewer`** (Admin API 0.2.1). Customer records are personal
+  data, so a relation on the store is no longer enough to read them — `store_staff`, `finance`,
+  `operations` and `analyst` all lose the section, while an organization `support` keeps it.
+- **The e2e sign-out test asserts the app's own cookies are gone, not the landing URL.** Whether the
+  realm then re-authenticates silently is Keycloak's SSO policy; asserting on it would be testing
+  someone else's configuration, and flakily.
 - **`pnpm dev --reset` is not used to refresh the staff realm.** It is `docker compose down -v`,
   which also wipes Postgres, OpenFGA and Redpanda — the other windows' migrated and seeded data,
   while they are building. `node infra/keycloak/reimport.mjs staff` plus a Keycloak-only restart
@@ -346,6 +368,11 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Keycloak's login form breaks `getByLabel`.** A "Show password" toggle carries
+  `aria-label="Show password"`, so `getByLabel(/password/i)` matches two elements and trips
+  Playwright strict mode. Use `getByRole('textbox', { name: 'Password', exact: true })`.
+- **The shell's display name comes from `GET /admin/me`, not the ID token.** The mock says
+  "Store Admin"; the DB seed and the token claim say "Sam StoreAdmin". Assert the API's value.
 - **A `cat > file` with no heredoc hangs forever waiting on stdin, and takes the rest of the `&&`
   chain with it.** One did, for hours. Worse, killing the stranded process let the chain *resume*:
   it re-ran `python docs7.py` (duplicating a CHANGELOG section) and `gh issue create` (filing #83, a
