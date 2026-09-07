@@ -52,8 +52,8 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified: `bash infra/terraform/check.sh` green (`fmt -check`, `init -backend=false`, `validate`, both envs).
   Nothing applied to a real AWS account — no credentials exist yet.
 
-- **2.4a — CI caching, path filters, and two review fold-ins (issue #34, first half)** — commits `e7fe27e`
-  + `3c1e50d`, PR #81 (https://github.com/mfx1590/Commerce-Platform/pull/81), all eight checks green.
+- **2.4a — CI caching, path filters, and two review fold-ins (issue #34, first half)** — commits `e7fe27e`,
+  `3c1e50d`, `aa86f8c`, `2660173`, PR #81 **merged** (https://github.com/mfx1590/Commerce-Platform/pull/81), all eight checks green.
   Measured on the PR — node jobs warm: `lint + typecheck` 1m47s → 49s, `unit` 2m28s → 58s, `contract` 50s → 40s.
   `images`: 13m02s before → 14m20s (first attempt, cache never hit and export cost more than it saved) →
   **9m38s** after the remote-cache fix. All three of those are COLD runs. **The ~4 min warm target is not
@@ -63,16 +63,26 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   that needs a registry to push to (ECR exists in 2.2; wiring it is 2.3/2.4b).
   `infra/ci/changes.sh` + self-test replacing the two inline `git diff` filters; `infra/docker/docker-bake.hcl`
   (GHA build cache, one scope per image) driven by `docker/bake-action`; turbo task cache in the three node
-  jobs; every Dockerfile split into `manifests` → `deps` → `build` so `pnpm install` no longer depends on
-  source files. Plus `backend.hcl` ignored by name, and the bootstrap Job's credentials moved out of argv into
+  jobs; every Dockerfile split into a `deps` stage (the manifests and the lockfile, nothing else) and a
+  `build` stage (the sources), so `pnpm install` no longer depends on source files. Plus `backend.hcl` ignored by name, and the bootstrap Job's credentials moved out of argv into
   the environment (`\getenv`).
   Verified locally: touching an app source file leaves `pnpm install --frozen-lockfile` `CACHED`; all six
   images rebuild and the smoke test passes; `changes.test.sh` 18/18; the bootstrap SQL was run twice against a
   real Postgres (create, then rotate) with a password containing a quote, and the test roles dropped after.
 
+- **#80 — one CI job for the live auth suites and the Playwright journeys** — commits `19675b1`, `a96b9ec`,
+  `5e995f3` (+ the review fixes below), PR #87
+  (https://github.com/mfx1590/Commerce-Platform/pull/87). `auth-e2e` boots
+  Keycloak (both realms), OpenFGA and Postgres from the compose file, asserts they are really up, runs
+  `turbo run test --filter=@platform/auth-sdk` (which covers apps/core hq-rbac too) and every
+  `apps/*/playwright.config.*`. Also adds the `e2e` group and `infra/ci/**` to the classifier.
+  Verified locally: 51/51 live auth tests against a freshly imported realm, and the storefront journey
+  6/6 through `infra/ci/run-e2e.sh`.
+
 ## In progress
 
-- Nothing being written. 2.4a is in its PR; 2.3 (#33, Helm charts + ArgoCD) is next, then 2.4b.
+- Nothing being written. #80 is in its PR. Then 2.3 (#33, Helm + ArgoCD — go-ahead given, one PR),
+  then 2.4b, 2.5, 2.6.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
@@ -149,10 +159,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   are authoritative and name them explicitly. The managed alternatives stay reachable as a values change
   because every consumer reads a `DATABASE_URL`/`REDIS_URL`, never a provider-specific resource.
 
-- **The install layer is split with a `manifests` stage, not a hand-written list of `COPY` lines.** One
-  `COPY apps/<name>/package.json` per package is the usual recipe and it rots the first time someone adds a
-  workspace package without touching six Dockerfiles. `find` + `COPY --from` is content-checksummed by
-  BuildKit, so it caches exactly as well and cannot go stale.
+- **The install layer copies each manifest explicitly; the `manifests` stage that used to collect them with
+  `find` is gone.** It read better and it cached fine locally, but a remote cache matches `COPY --from` on
+  the producing stage's key, so it never hit in CI (see Gotchas). The list of `COPY` lines is the thing
+  that rots, so `infra/ci/check-image-manifests.sh` fails the build when a workspace package is added or
+  removed without updating it.
 - **CI uses `docker/bake-action`, not `docker compose build`.** Not a preference: `type=gha` needs
   `ACTIONS_RUNTIME_TOKEN`/`ACTIONS_CACHE_URL`, which are available to an action but not to a `run:` step.
   The alternative was a third-party action exporting them into the environment of a required check.
@@ -164,6 +175,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **The `changes` classifier is a script with a self-test, not inline YAML.** Mirrors
   `scripts/check-ownership.sh` + `.test.sh`. A wrong answer is expensive both ways: a false negative skips
   the tests that would have caught a bug, a false positive gives back the 13-minute image build.
+
+- **On a PR, `images` fires only on what defines how an image is built, not on app source.** Rebuilding six
+  images because one source file moved was ~10 minutes of runner time per push, and it ran out the month's
+  GitHub Actions budget on 2026-09-07. A push to main still builds everything, so the coverage moves from
+  "every PR" to "at merge" rather than disappearing. Cost is a real constraint here, not an afterthought.
 
 ## Blocked / waiting
 
@@ -208,6 +224,31 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **Exporting a `mode=max` GHA cache is expensive**: measured 60–145s "preparing build cache for export" plus
   14–37s "sending", per image, six images. It was the largest component of a 14-minute run. Export on pushes to
   main only; let pull requests read.
+- **A playwright config's `webServer` builds the app, not the workspace packages it imports.** On a clean
+  runner the storefront build fails with "Can't resolve '@platform/ui'". Build the dependencies first with
+  turbo's dependencies-only filter, `--filter='<pkg>^...'` — the trailing `^...` means "the deps, not the
+  package". Third time this family of gotcha has bitten: `pnpm --filter <app> build` in the Dockerfiles,
+  `pnpm --filter <pkg> test` for vitest, and now the e2e web server.
+- **A local Keycloak keeps its realms in a volume and does NOT re-import them.** `KC_DB: dev-file` plus the
+  `keycloak-data` volume means edits to `infra/keycloak/*.json` are invisible until
+  `docker compose down -v`. Four live auth tests failed against my stale realm and all 51 passed after a
+  wipe — I nearly filed that as a broken suite. CI is unaffected: a runner always starts empty.
+- **The live auth suites skip themselves silently.** They are `describe.runIf(await reachable())`, which is
+  right on a laptop and dangerous in CI: a mis-wired URL yields a green job that asserts nothing. Hence
+  `infra/ci/wait-for-auth-stack.sh`, which fails the job before vitest gets to decide.
+- **`packages/auth-sdk/vitest.config.ts` also collects `apps/core/src/modules/hq-rbac/test/**`.** One
+  command runs both suites; do not add a second step for core.
+- **Run package tests through turbo, not `pnpm --filter <pkg> test`.** `dependsOn: ["^build"]` only applies
+  through turbo, so a direct filter run tests against workspace packages that have no `dist/`. Same trap as
+  `pnpm --filter <app> build` in the Dockerfiles.
+- **Prettier does not read nested `.gitignore` files.** `apps/*/test-results/` is git-ignored by the app's
+  own `.gitignore`, and `pnpm format:check` still fails on it after running the journeys (REQUEST #86).
+- **Do not discover workspace packages with `find ... -name package.json`.** It picks up build output —
+  `apps/storefront-starter/.next/package.json` is written by `next build` — and a denylist of build
+  directories rots. `pnpm -r list --depth -1 --json` is authoritative.
+- **`pnpm install --frozen-lockfile` after every `git pull`.** Three separate red herrings this phase
+  (`ajv`/`yaml`, `@playwright/test`, `jose`) were all a stale local store while other windows added
+  dependencies.
 - **`docker buildx bake` resolves a target's `context` relative to the working directory, not to the file
   that declares it.** `context: ../..` in `infra/docker/docker-compose.build.yml` therefore means the repo root
   only when bake runs from `infra/docker`; from the repo root it looks for `../../apps` and fails with

@@ -45,6 +45,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       images: ${{ steps.filter.outputs.images }}
       terraform: ${{ steps.filter.outputs.terraform }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -224,6 +225,70 @@ jobs:
       - name: fmt + validate (dev and staging)
         if: needs.changes.outputs.terraform == 'true'
         run: bash infra/terraform/check.sh
+
+  # Issue #80. One job for everything that needs a real Keycloak, a real OpenFGA and a browser:
+  # the live auth suites (packages/auth-sdk, apps/core hq-rbac) and the Playwright journeys.
+  #
+  # It uses `docker compose` rather than GitHub `services:` because the realms have to be imported
+  # from infra/keycloak, and a services container cannot mount a repository directory.
+  #
+  # The live suites gate themselves on reachability (`describe.runIf(live)`), which on a runner means
+  # a mis-wired service produces a green job that asserts nothing. wait-for-auth-stack.sh fails the
+  # job first if anything is missing, and run-e2e.sh fails if it finds no journeys at all.
+  auth-e2e:
+    name: live auth + end-to-end (Keycloak, OpenFGA, Playwright)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    env:
+      KEYCLOAK_URL: http://localhost:8180
+      OPENFGA_API_URL: http://localhost:8081
+      # The compose stack puts Postgres on 5433, unlike the `unit` job's service container on 5432.
+      DATABASE_URL: postgres://platform:platform@localhost:5433/platform
+      DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5433/platform
+      MOCK_API_URL: http://localhost:4010
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.e2e == 'true'
+      - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.e2e == 'true'
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.e2e == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.e2e == 'true'
+      - name: boot keycloak (staff + customers realms), openfga and postgres
+        if: needs.changes.outputs.e2e == 'true'
+        run: docker compose -f infra/docker/docker-compose.yml up -d postgres keycloak openfga
+      - name: the auth stack is really up (the live suites skip silently otherwise)
+        if: needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/wait-for-auth-stack.sh
+      # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
+      # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
+      # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and
+      # @platform/contracts first — the same reason the Dockerfiles use `--filter <app>...`.
+      - name: live auth suites (packages/auth-sdk + apps/core hq-rbac)
+        if: needs.changes.outputs.e2e == 'true'
+        run: pnpm exec turbo run test --filter=@platform/auth-sdk
+      # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
+      # `pnpm exec playwright` at the workspace root cannot find it.
+      - name: playwright journeys (every apps/*/playwright.config.*)
+        if: needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/run-e2e.sh
+      - name: keycloak and openfga logs on failure
+        if: failure() && needs.changes.outputs.e2e == 'true'
+        run: docker compose -f infra/docker/docker-compose.yml logs --tail=100 keycloak openfga
+      - uses: actions/upload-artifact@v4
+        if: failure() && needs.changes.outputs.e2e == 'true'
+        with:
+          name: playwright-report
+          path: apps/*/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: stop the stack
+        if: always() && needs.changes.outputs.e2e == 'true'
+        run: docker compose -f infra/docker/docker-compose.yml down -v
 
   preview:
     name: preview deploy (placeholder)
