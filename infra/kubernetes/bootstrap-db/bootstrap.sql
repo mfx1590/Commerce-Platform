@@ -10,14 +10,21 @@
 -- The migrations own every GRANT on tables and sequences (0009_rls_policies.sql) and that is
 -- deliberately not repeated here, so the application role's privileges have exactly one home.
 --
---   psql -v ON_ERROR_STOP=1 -v app_username="$APP_USERNAME" -v app_password="$APP_PASSWORD" \
---        -f bootstrap.sql
+--   APP_USERNAME=... APP_PASSWORD=... MEDUSA_USERNAME=... MEDUSA_PASSWORD=... \
+--     psql -v ON_ERROR_STOP=1 -f bootstrap.sql
 --
--- The values arrive as psql variables and are handed to Postgres through set_config + format(%I/%L),
--- never pasted into a SQL string, so a password containing a quote cannot break or rewrite the
--- statement.
+-- The credentials are read from the ENVIRONMENT with \getenv, never passed as command-line
+-- arguments: a `-v app_password=...` argument lands in the container's argv, where `ps` inside the
+-- pod — or anything that dumps a process list — can read it. From there they reach Postgres through
+-- set_config + format(%I/%L), never pasted into a SQL string, so a password containing a quote
+-- cannot break or rewrite the statement.
 
 \set ON_ERROR_STOP on
+
+\getenv app_username APP_USERNAME
+\getenv app_password APP_PASSWORD
+\getenv medusa_username MEDUSA_USERNAME
+\getenv medusa_password MEDUSA_PASSWORD
 
 SELECT set_config('bootstrap.app_username', :'app_username', false);
 SELECT set_config('bootstrap.app_password', :'app_password', false);
