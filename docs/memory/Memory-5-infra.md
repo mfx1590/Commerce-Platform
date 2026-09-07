@@ -52,7 +52,10 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified: `bash infra/terraform/check.sh` green (`fmt -check`, `init -backend=false`, `validate`, both envs).
   Nothing applied to a real AWS account — no credentials exist yet.
 
-- **2.4a — CI caching, path filters, and two review fold-ins (issue #34, first half)** — this PR.
+- **2.4a — CI caching, path filters, and two review fold-ins (issue #34, first half)** — commits `e7fe27e`
+  + `3c1e50d`, PR #81 (https://github.com/mfx1590/Commerce-Platform/pull/81), all eight checks green.
+  Measured on the PR: `lint + typecheck` 1m47s → 49s, `unit` 2m28s → 58s, `contract` 50s → 40s once the turbo
+  cache was warm.
   `infra/ci/changes.sh` + self-test replacing the two inline `git diff` filters; `infra/docker/docker-bake.hcl`
   (GHA build cache, one scope per image) driven by `docker/bake-action`; turbo task cache in the three node
   jobs; every Dockerfile split into `manifests` → `deps` → `build` so `pnpm install` no longer depends on
