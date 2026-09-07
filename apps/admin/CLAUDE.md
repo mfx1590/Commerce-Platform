@@ -22,8 +22,17 @@ window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
 - `pnpm --filter @platform/admin test:contract` — suites in test-contract/ that boot Prism
   themselves; kept out of `pnpm test` so the unit suite stays fast and hermetic.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before finishing any task.
-- Playwright (from issue #30 onward): scripted against `pnpm mock`; CI wiring is requested from
-  window 5 via a `REQUEST:` issue, because `.github/workflows/**` is not owned by this window.
+- `pnpm --filter @platform/admin e2e` — Playwright, the store-admin journey (sign in → switch
+  store → products). `e2e:ui` opens the runner.
+  - Needs **Keycloak up** (`pnpm compose:up`): signing in is the point, so it uses the real staff
+    realm. `playwright.config.ts` starts the Prism mock and a **production build** of the app itself
+    (`next dev` differs enough around caching and server actions that a green dev run proves little).
+  - **Must be on port 3000.** The `admin-app` client registers `http://localhost:3000/*` as its only
+    redirect URI. If something else holds 3000, run the app elsewhere and set
+    `ADMIN_APP_URL=http://localhost:3000` plus `E2E_BASE_URL`, so the `redirect_uri` still matches.
+  - `channel: 'chrome'` uses the Chrome on the machine instead of downloading Playwright's browsers,
+    matching window 3's storefront setup.
+  - CI wiring is REQUEST #80 — `.github/workflows/**` is not this window's to edit.
 
 ## Public API
 

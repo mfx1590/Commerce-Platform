@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: `b132628` · Status: 1.1–1.5 merged (PR #42, PR #67); 1.6 in review (PR #78)
+Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.5 merged; 1.6 in review (PR #78); 1.7 next in the PR queue, then 1.8
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,19 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.7 — issue #30 Tests per role fixture** · commit `SHA8`
+  - `test/role-access.test.ts`: what each role may *open*, next to `navigation.test.ts`'s what each
+    role *sees*. A URL can be typed, so the two only agree if the guards and the navigation come from
+    the same rules — and every section is now decided for all seven seeded roles, so adding one
+    without deciding who reaches it fails a test.
+  - Playwright store-admin journey (sign in → switch store → products), plus the foreign store's 403
+    with the switcher intact, an HQ section refused, and sign-out ending the realm session. 8 tests,
+    all discovered by `playwright test --list`.
+  - **Not yet executed**: the journey needs port 3000 (the only redirect URI `admin-app` registers)
+    and an unrelated project still holds it. Everything it asserts is duplicated at the unit level.
+  - CI wiring filed as REQUEST #80 — `.github/workflows/**` is not this window's.
+  - 299 unit tests.
+
 - **REQUEST #68 — `$PORT`, `/health`, and media position renumbering** · commit `b132628` · PR #78
   - `start` is plain `next start`, so the app honours `$PORT` (default 3000). A hard-coded `--port`
     beats `$PORT`, so the container would listen on one port while Docker and Kubernetes probed
@@ -161,8 +174,15 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- Nothing implementing. **PR #78 (1.6 + REQUEST #68) is open and green, waiting on the manager.**
-  One open PR per branch, so 1.7 (#30) goes up next, then 1.8 (#63).
+- Nothing implementing. 1.8 (#63, Marketing placeholder in both views) is the last Phase 1 task; it
+  changes the navigation fixtures, so `navigation.test.ts` and `role-access.test.ts` get new rows.
+
+<!-- superseded -->
+- Previously: waiting for the manager to merge PR #67 (BLOCK items addressed in
+  `a1b297a`). When it merges: push 1.6 and open its PR. Then 1.7 (#30) is the last Phase 1 task —
+  the per-role test matrix largely exists in `test/navigation.test.ts`, so what is left is the
+  Playwright store-admin journey against `pnpm mock` and a `REQUEST:` issue for its CI job, since
+  `.github/workflows/**` is not this window's.
 
 ## Next — Phase 1
 - [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
@@ -170,8 +190,9 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26, merged (PR #42)
 - [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27, merged (PR #42)
 - [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28, merged (PR #67)
-- [ ] 1.6 403 / empty / error states pattern — #29
-- [ ] 1.7 Tests: nav renders per role fixture — #30
+- [x] 1.6 403 / empty / error states pattern — #29, PR #78 (do not self-merge)
+- [x] 1.7 Tests: nav renders per role fixture — #30 (PR next)
+- [ ] 1.8 Reserve the Marketing section — #63
 
 ## Decisions made (with reasons)
 - **`ApiStatePanel` dispatches; screens do not branch on status.** One dispatcher is what makes the
@@ -306,6 +327,10 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **The Playwright journey cannot run while another process holds port 3000.** `admin-app` registers
+  `http://localhost:3000/*` as its only redirect URI, so the callback lands on whatever owns 3000.
+  `E2E_BASE_URL` can move the listening port only if `ADMIN_APP_URL` stays 3000, and then the browser
+  still gets redirected to 3000 — so for the e2e run specifically, 3000 must actually be free.
 - **Re-importing the staff realm after window 2 changes it:** `node infra/keycloak/reimport.mjs staff`
   deletes and recreates the realm through the admin API without touching any volume, then restart
   just Keycloak (`docker compose -f infra/docker/docker-compose.yml restart keycloak`). **Do not use

@@ -45,9 +45,16 @@ container probe. Keep it on 3000 for sign-in: the Keycloak client registers
 ```bash
 pnpm --filter @platform/admin test           # Vitest — fast, hermetic, no services
 pnpm --filter @platform/admin test:contract  # boots Prism itself and drives it with `Prefer: code=…`
+pnpm --filter @platform/admin e2e            # Playwright: the store-admin journey (needs Keycloak)
 pnpm --filter @platform/admin typecheck      # tsc --noEmit, including the test files
 pnpm --filter @platform/admin build          # next build
 ```
+
+Three layers on purpose. The unit suite stubs the network and runs in seconds. The contract suite
+boots Prism, so a change to the contract's documented examples breaks a test rather than a screen.
+The Playwright journey is the only one that touches the real realm, the real OIDC routes and the real
+session cookie end to end — everything else stubs at least one of those. It needs port 3000, because
+that is the only redirect URI the Keycloak client registers.
 
 From the repo root, `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before
 finishing a task. (Next's build output no longer trips the root lint and format checks — that was

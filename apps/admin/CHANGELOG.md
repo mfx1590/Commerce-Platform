@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added — task 1.7, issue #30 (Admin API 0.2.0)
+
+- `test/role-access.test.ts`: route access per role fixture, the other half of the navigation
+  matrix. `navigation.test.ts` asserts what each role _sees_; this asserts what each role may
+  _open_, because a URL can be typed and the two only agree if the section guards and the navigation
+  are derived from the same rules. Every section is decided for every one of the seven seeded roles,
+  so adding a section without deciding who reaches it fails a test rather than shipping.
+- Playwright: the store-admin journey (sign in → switch store → products), plus the store outside
+  `stores[]` getting the 403 panel with the switcher intact, an HQ section being refused, and sign-out
+  ending the realm session. It is the only test that exercises the real realm, the app's own OIDC
+  routes, the encrypted session cookie, the permission-driven navigation and the catalog screen
+  together — everything else stubs at least one of them.
+- `playwright.config.ts` starts the Prism mock and a production build of the app; Keycloak must
+  already be up. Documented in CLAUDE.md as #30 asks. CI wiring is REQUEST #80.
+
 ### Changed — REQUEST #68 and a media fix
 
 - `start` is now plain `next start`, so the app honours `$PORT` (default 3000). A hard-coded
