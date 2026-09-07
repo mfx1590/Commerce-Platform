@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.5 merged (#39, #64, #66, #76), 1.6 in PR, then 1.7 Playwright+Lighthouse config, 1.8 (#62) UTM capture
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.5 merged (#39, #64, #66, #76), 1.6 in PR #96, then 1.7 Playwright+Lighthouse config, 1.8 (#62) UTM capture
 
 ## Identity (does not change)
 
@@ -73,7 +73,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       16 new unit tests → 89. **Also REQUEST #68:** `next.config.mjs`, `start` honours `$PORT`,
       new `GET /health`.
 
-- [x] **1.6 (#22) i18n (next-intl) + multi-currency** — commit `<pending>`, PR `<pending>`.
+- [x] **1.6 (#22) i18n (next-intl) + multi-currency** — commit `126ff6d`, PR #96.
       Locale routing under `src/app/[locale]/` with next-intl 4; catalogues `en-GB`/`de-DE`;
       `hreflang` + per-locale canonical; money formatted in the request locale; currency cookie
       validated against `store.currencies` and fixed on the cart at creation; language/currency
