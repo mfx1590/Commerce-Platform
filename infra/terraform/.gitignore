@@ -1,0 +1,14 @@
+# Terraform state lives in the S3 remote backend (see infra/README.md), never in git.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+# Real variable values may contain account ids, CIDRs and secret ARNs. Only the examples are committed.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# Plan output is a readable copy of the state, including secrets.
+*.tfplan

@@ -15,7 +15,8 @@
 #
 # PORT is set to 3100 to match that hard-coded `--port`, so the HEALTHCHECK probes the port the app
 # actually listens on. REQUEST #68 asks window 3 to drop `--port` — `next start` honours $PORT —
-# after which this image goes back to the 900x allocation.#
+# after which this image goes back to the 900x allocation.
+#
 # KNOWN RUNTIME GAP (REQUEST #68): this app's config is next.config.ts, and `next start` loads it
 # at RUNTIME, which needs `typescript` — a devDependency, so `pnpm deploy --prod` drops it and the
 # container dies with "Failed to load next.config.ts". apps/admin already avoids this by using
@@ -39,8 +40,6 @@ WORKDIR /repo
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY packages ./packages
 COPY apps ./apps
-# A developer's build context carries workspace node_modules symlinks; the image installs its own.
-RUN find apps packages -maxdepth 3 -type d -name node_modules -prune -exec rm -rf {} +
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
 # The "..." suffix builds the app AND its workspace dependencies (@platform/db, events,
 # contracts) in topological order. Without it the app compiles against packages that have no
