@@ -1,0 +1,34 @@
+# mock-store-staging. Generated shape, reviewed content — infra/README.md "Helm" explains the layout.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mock-store-staging
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: commerce-platform
+    platform/environment: staging
+spec:
+  project: commerce-platform
+  source:
+    repoURL: https://github.com/mfx1590/Commerce-Platform.git
+    targetRevision: main
+    path: infra/helm/platform-app
+    helm:
+      releaseName: mock-store
+      valueFiles:
+        # Paths are relative to `path` above.
+        - ../values/mock-store/values-staging.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: commerce-staging
+  syncPolicy:
+    # staging does NOT self-sync. The deploy workflow (task 2.4b) bumps the image tag and
+    # triggers the sync, so a release is something someone did and can point at, rather than a
+    # side effect of a merge landing while nobody was looking.
+    syncOptions:
+      - CreateNamespace=true
+      # The namespace and the ClusterSecretStore come from Terraform and the bootstrap; a sync
+      # should never be the thing that invents them.
+      - ServerSideApply=true
