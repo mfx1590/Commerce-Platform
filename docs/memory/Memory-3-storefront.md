@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.7 merged (#39, #64, #66, #76, #96, #97), 1.8 in PR — **that is all of Phase 1 for this window**
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.7 merged (#39, #64, #66, #76, #96, #97), 1.8 in PR #101 — **that is all of Phase 1 for this window**
 
 ## Identity (does not change)
 
@@ -88,8 +88,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       PDP `/en-GB/products/classic-tee` perf **99**, a11y 100, LCP 2.05 s, TBT 30 ms, CLS 0.
       First run was 89/85 — see the client-message fix below.
 
-- [x] **1.8 (#62) UTM / referrer capture into `cart.metadata.attribution`** — commit `<pending>`,
-      PR `<pending>`. Captured in the middleware into `sf_attribution` (httpOnly, 30 days); first
+- [x] **1.8 (#62) UTM / referrer capture into `cart.metadata.attribution`** — commit `8e22664`, PR #101. Captured in the middleware into `sf_attribution` (httpOnly, 30 days); first
       touch never overwritten, last touch updated, no cookie without a marketing signal. Sent at
       `POST /store/carts` and via `PATCH` before `complete`. Verified live: campaign landing →
       cookie, second campaign → `last` only, ordinary visit → no cookie; Prism accepts the body on
