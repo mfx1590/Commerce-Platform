@@ -75,6 +75,37 @@ describe('registry routes', () => {
     expect(all.body).toMatchObject({ page: 2, limit: 2, total: 3 });
     expect(all.body.items).toHaveLength(1);
 
+    // contracts 0.2.0: sort + order (order ignored without sort)
+    const byCode = await owner.get('/admin/stores?sort=code&order=asc');
+    expect(byCode.body.items.map((s: { code: string }) => s.code)).toEqual([
+      'brand-a',
+      'brand-b',
+      'brand-c',
+    ]);
+    const byCodeDesc = await owner.get('/admin/stores?sort=code');
+    expect(byCodeDesc.body.items.map((s: { code: string }) => s.code)).toEqual([
+      'brand-c',
+      'brand-b',
+      'brand-a',
+    ]);
+    const byName = await owner.get('/admin/stores?sort=name&order=asc');
+    expect(byName.body.items.map((s: { name: string }) => s.name)).toEqual([
+      'Brand A',
+      'Brand B',
+      'Brand C',
+    ]);
+    const defaultOrder = await owner.get('/admin/stores');
+    const orderOnly = await owner.get('/admin/stores?order=asc');
+    expect(orderOnly.body.items.map((s: { id: string }) => s.id)).toEqual(
+      defaultOrder.body.items.map((s: { id: string }) => s.id),
+    );
+    const badSort = await owner.get('/admin/stores?sort=colour&order=up');
+    expect(badSort.status).toBe(400);
+    expect(badSort.body).toMatchObject({
+      code: 'validation_error',
+      details: { sort: 'one of code, name, status, created_at', order: 'one of asc, desc' },
+    });
+
     const denied = await storeStaff.post('/admin/stores', { code: 'brand-x' });
     expect(denied.status).toBe(403);
     spec.assertSchema('Error', denied.body);
@@ -281,6 +312,18 @@ describe('catalog routes', () => {
     expect(list.body.items[0].variants[0].inventory.length).toBeGreaterThan(0);
 
     expect((await storeStaff.get(`/admin/stores/${A}/products?status=bogus`)).status).toBe(400);
+
+    // contracts 0.2.0: sort + order on products
+    const byTitle = await storeStaff.get(
+      `/admin/stores/${A}/products?sort=title&order=asc&limit=100`,
+    );
+    const titles = byTitle.body.items.map((p: { title: string }) => p.title);
+    expect(titles).toEqual([...titles].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)));
+    const byHandleDesc = await storeStaff.get(`/admin/stores/${A}/products?sort=handle&limit=100`);
+    const handles = byHandleDesc.body.items.map((p: { handle: string }) => p.handle);
+    expect(handles).toEqual([...handles].sort((x, y) => (x < y ? 1 : x > y ? -1 : 0)));
+    expect((await storeStaff.get(`/admin/stores/${A}/products?sort=price`)).status).toBe(400);
+    spec.assertPage('Product', byTitle.body);
     expect(
       (await storeStaff.get(`/admin/stores/${A}/products/00000000-0000-4000-8000-0000000000ff`))
         .status,

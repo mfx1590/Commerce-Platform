@@ -14,8 +14,10 @@ import type {
   Domain,
   DomainInput,
   Page,
-  PageQuery,
   SalesChannel,
+  SortOrder,
+  StoreListQuery,
+  StoreSortField,
   SalesChannelInput,
   Store,
   StoreCurrency,
@@ -157,15 +159,30 @@ async function syncStoreSets(
 
 // ---------------------------------------------------------------------------------------------------- stores
 
-export async function listStores(client: ScopedClient, q: PageQuery = {}): Promise<Page<Store>> {
+/** Whitelisted ORDER BY per contract `sort` value (never interpolate user input into SQL). */
+const STORE_ORDER_BY: Record<StoreSortField, string> = {
+  code: 'code',
+  name: 'name',
+  status: 'status',
+  created_at: 'created_at',
+};
+
+export async function listStores(
+  client: ScopedClient,
+  q: StoreListQuery = {},
+): Promise<Page<Store>> {
   const page = Math.max(1, q.page ?? 1);
   const limit = Math.min(100, Math.max(1, q.limit ?? 20));
+  // Contract defaults: sort created_at, order desc; `order` only applies together with `sort`.
+  const sort: StoreSortField = q.sort ?? 'created_at';
+  const order: SortOrder = q.sort ? (q.order ?? 'desc') : 'desc';
+  const orderBy = `${STORE_ORDER_BY[sort]} ${order === 'asc' ? 'ASC' : 'DESC'}, id`;
   return client.transaction(async (tx) => {
     const total = await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM store');
-    const rows = await tx.query<StoreRow>('SELECT * FROM store ORDER BY code LIMIT $1 OFFSET $2', [
-      limit,
-      (page - 1) * limit,
-    ]);
+    const rows = await tx.query<StoreRow>(
+      `SELECT * FROM store ORDER BY ${orderBy} LIMIT $1 OFFSET $2`,
+      [limit, (page - 1) * limit],
+    );
     return { page, limit, total: Number(total.rows[0]?.n ?? 0), items: rows.rows.map(toStore) };
   });
 }

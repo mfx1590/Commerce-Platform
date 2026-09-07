@@ -17,18 +17,18 @@ explicit `storeId`.
 
 Admin (return the Admin API schemas; one transaction each; `Actor` optional, default `system`):
 
-| Function                                                                                        | Audit action              | Event                                                   |
-| ----------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------- |
-| `listCategories(client, storeId)` → `AdminCategory[]`                                           | —                         | —                                                       |
-| `createCategory(client, storeId, CategoryInput)`                                                | `product_category.create` | —                                                       |
-| `listProducts(client, storeId, { q, status, category_id, page, limit })` → `Page<AdminProduct>` | —                         | —                                                       |
-| `getProduct(client, storeId, productId)` → `AdminProduct`                                       | —                         | —                                                       |
-| `createProduct(client, storeId, ProductInput)` (draft)                                          | `product.create`          | `product.updated` (`changed_fields` = the fields given) |
-| `updateProduct(client, storeId, productId, ProductInput)`                                       | `product.update`          | `product.updated` (changed fields; none → no event)     |
-| `publishProduct(client, storeId, productId)`                                                    | `product.publish`         | `product.published`                                     |
-| `archiveProduct(client, storeId, productId)`                                                    | `product.archive`         | `product.archived`                                      |
-| `createVariant(client, storeId, productId, VariantInput)`                                       | `product_variant.create`  | `product.updated` (`["variants"]`)                      |
-| `updateVariant(client, storeId, variantId, VariantInput)`                                       | `product_variant.update`  | `product.updated` (`["variants"]`)                      |
+| Function                                                                                                                  | Audit action              | Event                                                   |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------- |
+| `listCategories(client, storeId)` → `AdminCategory[]`                                                                     | —                         | —                                                       |
+| `createCategory(client, storeId, CategoryInput)`                                                                          | `product_category.create` | —                                                       |
+| `listProducts(client, storeId, { q, status, category_id, sort, order, page, limit })` → `Page<AdminProduct>` (sort `title | handle                    | status                                                  | created_at | updated_at`, default `updated_at desc`; `order`only with`sort`) | —   | —   |
+| `getProduct(client, storeId, productId)` → `AdminProduct`                                                                 | —                         | —                                                       |
+| `createProduct(client, storeId, ProductInput)` (draft)                                                                    | `product.create`          | `product.updated` (`changed_fields` = the fields given) |
+| `updateProduct(client, storeId, productId, ProductInput)`                                                                 | `product.update`          | `product.updated` (changed fields; none → no event)     |
+| `publishProduct(client, storeId, productId)`                                                                              | `product.publish`         | `product.published`                                     |
+| `archiveProduct(client, storeId, productId)`                                                                              | `product.archive`         | `product.archived`                                      |
+| `createVariant(client, storeId, productId, VariantInput)`                                                                 | `product_variant.create`  | `product.updated` (`["variants"]`)                      |
+| `updateVariant(client, storeId, variantId, VariantInput)`                                                                 | `product_variant.update`  | `product.updated` (`["variants"]`)                      |
 
 Store read model (Store API schemas, published products only, prices from the store's **active default price list
 of the requested currency**, `min_quantity = 1`):
