@@ -73,8 +73,9 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       'GET /admin/users/{userId}/roles',
       'POST /admin/users/{userId}/roles',
       'DELETE /admin/users/{userId}/roles/{assignmentId}',
+      'GET /admin/audit-log', // task 1.5; its permission is query-dependent (null here, checked in the handler)
     ]);
-    for (const r of HQ_RBAC_ROUTES)
+    for (const r of HQ_RBAC_ROUTES.filter((x) => x.operationId !== 'listAuditLog'))
       expect(r.permission).toEqual({ relation: 'owner', object: 'organization:hq' });
   });
 

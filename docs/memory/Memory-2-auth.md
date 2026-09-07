@@ -1,7 +1,7 @@
 # Memory 2 — Auth & RBAC
 
 Window: 2 · Key: `auth` · Branch prefix: `auth/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: contracts-v0.1 · Branch `auth/phase1`, worktree `../wt-auth` · Merged PRs: #38 (1.1+1.2), #65 (#43 follow-up), #73 (1.3) · In review: #75 (1.4) · Open decisions: CONTRACT CHANGE #77
+Last updated: 2026-09-07 · Contracts: contracts-v0.1 · Branch `auth/phase1`, worktree `../wt-auth` · Merged PRs: #38 (1.1+1.2), #65 (#43 follow-up), #73 (1.3), #75 (1.4) · Admin API 0.2.1 (CONTRACT CHANGE #77 accepted: customer reads = support)
 
 ## Identity (does not change)
 
@@ -20,15 +20,17 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 - [x] #43 follow-up (manager decision 2026-09-05) — commit 1d2dd52 (PR #65, merged). Dev staff realm OTP step CONDITIONAL (`browser-mfa otp` sub-flow with `conditional-user-configured`); `owner` pre-enrolled with the documented dev TOTP secret (`owner-dev-totp-secret-20260905`, Base32 in the README); tests flipped (store-admin → straight to callback; owner → challenged, passes with a computed RFC 6238 code). Production restores REQUIRED (README dev-only table).
 - [x] 1.2 (#11) OpenFGA model — commit c97bbdf (PR #38, merged). `infra/openfga/model.fga` (ADR 0002 verbatim), `tuples.seed.json` (11 tuples, ids = `SEED_IDS`), README. auth-sdk: `loadAuthorizationModel`, `loadSeedTuples`, `modelFromDsl`, `createOpenFgaClient`, `seedOpenFga`; `pnpm --filter @platform/auth-sdk fga:seed` writes `OPENFGA_STORE_ID`/`OPENFGA_MODEL_ID` to the root `.env`. Tests: `test/openfga-model.test.ts` (static vs `RELATIONS`/`SEED_IDS` + live on a throw-away store).
 - [x] 1.3 (#12) Tuple management — commit c1ae889 + memory fa5755e + tsconfig follow-up fd07fbe (PR #73, merged). auth-sdk `src/roles/service.ts` (`assignRole`/`revokeRole`: OpenFGA tuple → `role_assignment` mirror + `audit_log` in one tx → tuple compensated on failure; idempotent; `ASSIGNABLE_RELATIONS` from model.fga; `listRoleAssignments`, `listStaffUsers`), `src/audit/write.ts` (`audit(tx, entry)`), `src/types.ts` (`StaffPrincipal`, `ApiError`, `forbidden()`), CLI `roles assign|revoke|list`. hq-rbac `http.ts`: framework-neutral `createHqRbac().handle(req)` for the four roles routes (owner on organization:hq, contract error bodies, 503 fail closed). `inviteUser` deferred to Phase 3 (needs a Keycloak service account). Tests: `test/roles.test.ts` (10, live).
+- [x] 1.5 (#14) Audit log — commits b92bbf8 + bf635bb + #82 5121bd7 (PR opening now, #75 merged). PII redaction at write time inside `audit(tx, entry)` (`redactPii`: email, phone, line1/line2, key_hash, first_name/last_name → "[redacted]", recursive, case-insensitive; ids and status stay readable); `listAuditLog(db, filters)` + 5th hq-rbac route `GET /admin/audit-log` (needs `HqRbacRequest.scope`, 401 without; `store_id` filter re-checks `viewer` via OpenFGA; org scope sees `store_id IS NULL` rows, store scope never, empty store scope 403). Includes REQUEST #82 (second redirect URI `http://localhost:3200/*` + web origin on `admin-app`, dev realm only — manager decision). Tests: 4 redaction units + 7 live (redaction at rest; `UPDATE`/`DELETE audit_log` as platform_app denied; HQ vs store visibility; foreign-store filter 403; filters/paging; 400s).
 - [x] 1.4 (#13) Scope middleware — commits 811bd85 + memory f9200dc + TOTP-test hardening 59707f9 + README/memory tidy ead0ba4 (PR #75). auth-sdk `src/jwt/verify.ts` (`createStaffTokenVerifier`: staff JWKS via jose, RS256, issuer + `aud: core-api`, 401 with `reason`), `src/scope/resolve.ts` (`resolveRelations` = ListObjects(store, viewer) + ListRelations(organization:hq) → `{storeIds, organizationRelations, scope}`, 503 on FGA failure; `StaffScope`, `toTenantContext`, `ScopeCache` TTL clamped ≤ 30 s, `invalidate(staffUserId)`). hq-rbac `scope.ts`: `createStaffScopeMiddleware().resolve(authHeader)` (claims → `staff_user` by `keycloak_subject`, unknown/disabled → 401 → OpenFGA → cache; `invalidate` wired as `onRoleChange`; best-effort `last_login_at`). Tests: `test/scope.test.ts` (7, live: store-admin → [brand-a, brand-b] no org relations; finance → org scope; owner → all 5; cache hit/invalidate/TTL; 401s; FGA down → 503, nothing cached).
 
 ## In progress
 
 - (nothing)
 
+<!-- Done entries continue here as each queued task's PR opens. -->
+
 ## Next — Phase 1
 
-- [ ] 1.5 (#14) Audit log: PII redaction in `audit()` (redact at write time), `listAuditLog` + `GET /admin/audit-log` in hq-rbac (RLS-scoped visibility, `viewer` re-check on a `store_id` filter), append-only proof (`UPDATE audit_log` denied for platform_app). Include REQUEST **#82** (second redirect URI `http://localhost:3200/*` + web origin on `admin-app`, dev realm only, README note) — manager decision. Built locally; PR when #75 merges.
 - [ ] 1.6 (#15) auth-sdk public API: `can` (`store:*` = any visible store), `allowedStores`, `resolveScope`, `requirePermission(relation, template|fn)` with the contract 403 body, `resolvePermissionObject`, `verifyStaffToken`/`verifyCustomerToken` (customers JWKS + `store_code` binding). Test sweeping every `x-permission` in admin-api.yaml; mocked-FGA units + live integration. Built locally; PR after 1.5.
 - [ ] 1.7 (#16) Phase 1 gate: real tokens → scope middleware → guards; store-admin 403 on every finance-gated operation + `/admin/finance/ping` test double; analyst viewer reads OK, customer PII denied under the `support` gate proposed in CONTRACT CHANGE #77. Built locally; PR after 1.6.
 
@@ -44,7 +46,8 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## Blocked / waiting
 
-- CONTRACT CHANGE #77 (manager decision pending): `listCustomers`/`getCustomer` `x-permission` viewer → support, so an analyst cannot read customer PII (task 1.7 criterion). `updateCustomer` is already support. Gate tests run against the proposed permission until decided.
+- Task 1.7's PR merges only after infra's #80 lands (CI must run the live suites); open the PR when its turn comes and keep documenting meanwhile (manager instruction 2026-09-07).
+- CONTRACT CHANGE #77: ACCEPTED — Admin API 0.2.1 gates `listCustomers`/`getCustomer` with `support` on the store. The gate tests now assert the real contract.
 
 ## Gotchas learned
 

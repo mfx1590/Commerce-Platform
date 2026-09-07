@@ -66,3 +66,12 @@ const rel = await resolveRelations(fga, { userId: staffUser.id }); // { storeIds
 the role API (`onRoleChange`). The full middleware (token → `staff_user` → OpenFGA → cache) lives in
 `apps/core/src/modules/hq-rbac` (`createStaffScopeMiddleware`); `toTenantContext(scope)` is what the core hands
 to `createTenantClient` / `createOrganizationClient`.
+
+## Audit log (task 1.5)
+
+`audit(tx, entry)` redacts PII in `before`/`after` at write time (`redactPii`; fields in `PII_FIELDS` —
+ids and status values stay readable) and writes inside the caller's transaction; `audit_log` is append-only
+for the app role (`UPDATE`/`DELETE` are denied by the grants in packages/db). `listAuditLog(db, filters)`
+backs `GET /admin/audit-log`: pass the CALLER's scoped client — RLS does the visibility (organization scope
+sees every row including `store_id IS NULL`; store scope only its stores). Route + permission handling:
+`apps/core/src/modules/hq-rbac`.
