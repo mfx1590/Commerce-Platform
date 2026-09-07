@@ -1,4 +1,5 @@
-import { redirect } from 'next/navigation';
+import { getLocale as getLocaleForFormatting } from 'next-intl/server';
+import { redirectLocalized } from './navigate';
 import { getCart } from './cart';
 import {
   isCheckoutable,
@@ -23,13 +24,16 @@ export interface CheckoutContext {
  */
 export async function requireCheckoutStep(step: CheckoutStep): Promise<CheckoutContext> {
   const cart = await getCart();
-  if (!isCheckoutable(cart)) redirect('/cart');
-  if (!isStepReachable(cart, step)) redirect(stepPath(nextIncompleteStep(cart)));
+  if (!isCheckoutable(cart)) return redirectLocalized('/cart');
+  if (!isStepReachable(cart, step)) {
+    return redirectLocalized(stepPath(nextIncompleteStep(cart)));
+  }
 
   const store = await getStoreOrNull();
   return {
+    // Formatting follows the locale the customer is reading, which is the one in the URL.
     cart,
-    locale: store?.default_locale ?? 'en-US',
+    locale: await getLocaleForFormatting(),
     country: store?.default_country ?? 'NL',
   };
 }

@@ -1,3 +1,5 @@
+import createNextIntlPlugin from 'next-intl/plugin';
+
 /**
  * Plain ESM on purpose, not TypeScript: `next start` loads this file at **runtime**, and loading a
  * `.ts` config needs the `typescript` package. That is a devDependency, so the production image
@@ -22,4 +24,6 @@ const config = {
   },
 };
 
-export default config;
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
+
+export default withNextIntl(config);

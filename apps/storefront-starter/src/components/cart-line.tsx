@@ -2,7 +2,8 @@
 
 import { Button, Price, cn } from '@platform/ui';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
+import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { updateLineItemAction, type ActionState } from '@/lib/actions';
 import type { LineItem } from '@/lib/store-api';
@@ -16,6 +17,7 @@ const EMPTY: ActionState = {};
  */
 export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
   const [state, formAction, pending] = useActionState(updateLineItemAction, EMPTY);
+  const t = useTranslations('cart');
 
   return (
     <li className="flex gap-4 border-b border-border py-6">
@@ -45,7 +47,7 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
           <input type="hidden" name="line_item_id" value={item.id} />
           <div className="flex flex-col gap-1">
             <label htmlFor={`quantity-${item.id}`} className="text-sm text-muted-foreground">
-              Quantity
+              {t('quantity')}
             </label>
             <input
               id={`quantity-${item.id}`}
@@ -62,7 +64,7 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
             />
           </div>
           <Button type="submit" variant="outline" loading={pending}>
-            Update
+            {t('update')}
           </Button>
           <Button
             type="submit"
@@ -71,7 +73,7 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
             value="0"
             className="text-muted-foreground"
           >
-            Remove
+            {t('remove')}
           </Button>
         </form>
 
@@ -86,12 +88,14 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
 }
 
 export function EmptyCart() {
+  const t = useTranslations('cart.empty');
+
   return (
     <div className="flex flex-col items-start gap-4 py-16">
-      <h2 className="text-xl font-semibold">Your cart is empty</h2>
-      <p className="text-muted-foreground">Nothing here yet — have a look at what is in stock.</p>
+      <h2 className="text-xl font-semibold">{t('title')}</h2>
+      <p className="text-muted-foreground">{t('body')}</p>
       <Link href="/products" className="underline">
-        Browse products
+        {t('action')}
       </Link>
     </div>
   );

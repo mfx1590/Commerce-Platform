@@ -1,6 +1,6 @@
-import { Button, Input, buttonVariants } from '@platform/ui';
-import Link from 'next/link';
-import { cn } from '@platform/ui';
+import { Button, Input, buttonVariants, cn } from '@platform/ui';
+import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import {
   listHref,
   SORT_OPTIONS,
@@ -9,22 +9,17 @@ import {
   type Sort,
 } from '@/lib/catalog';
 
-const SORT_LABELS: Record<Sort, string> = {
-  relevance: 'Relevance',
-  price_asc: 'Price: low to high',
-  price_desc: 'Price: high to low',
-  newest: 'Newest',
-};
-
 /**
  * Filters are links and a GET form — no client component, no JavaScript needed, and every filtered
  * view has its own URL that can be shared, bookmarked and crawled.
  */
 export function SortLinks({ basePath, params }: { basePath: string; params: ListParams }) {
+  const t = useTranslations('plp');
+
   return (
-    <nav aria-label="Sort by" className="flex flex-wrap items-center gap-2">
-      <span className="text-sm text-muted-foreground">Sort</span>
-      {SORT_OPTIONS.map((sort) => (
+    <nav aria-label={t('sort')} className="flex flex-wrap items-center gap-2">
+      <span className="text-sm text-muted-foreground">{t('sort')}</span>
+      {SORT_OPTIONS.map((sort: Sort) => (
         <Link
           key={sort}
           href={listHref(basePath, { ...params, sort, page: 1 })}
@@ -34,7 +29,7 @@ export function SortLinks({ basePath, params }: { basePath: string; params: List
             size: 'sm',
           })}
         >
-          {SORT_LABELS[sort]}
+          {t(`sortOptions.${sort}`)}
         </Link>
       ))}
     </nav>
@@ -42,6 +37,8 @@ export function SortLinks({ basePath, params }: { basePath: string; params: List
 }
 
 export function SearchForm({ basePath, params }: { basePath: string; params: ListParams }) {
+  const t = useTranslations('plp');
+
   return (
     <form method="get" action={basePath} role="search" className="flex gap-2">
       {params.category === undefined ? null : (
@@ -52,12 +49,12 @@ export function SearchForm({ basePath, params }: { basePath: string; params: Lis
         type="search"
         name="q"
         defaultValue={params.q ?? ''}
-        placeholder="Search products"
-        aria-label="Search products"
+        placeholder={t('search')}
+        aria-label={t('search')}
         className="max-w-xs"
       />
       <Button type="submit" variant="outline">
-        Search
+        {t('searchAction')}
       </Button>
     </form>
   );
@@ -74,16 +71,17 @@ export function CategoryFilter({
   categories: CategoryNode[];
   activeHandle?: string | undefined;
 }) {
+  const t = useTranslations('plp');
   if (categories.length === 0) return null;
 
   return (
-    <nav aria-label="Categories" className="flex flex-col gap-2 text-sm">
-      <h2 className="font-semibold">Categories</h2>
+    <nav aria-label={t('categories')} className="flex flex-col gap-2 text-sm">
+      <h2 className="font-semibold">{t('categories')}</h2>
       <Link
         href={listHref(basePath, { ...params, category: undefined, page: 1 })}
         className={cn('hover:underline', activeHandle === undefined && 'font-medium underline')}
       >
-        All products
+        {t('allProducts')}
       </Link>
       <ul className="flex flex-col gap-2">
         {categories.map((category) => (

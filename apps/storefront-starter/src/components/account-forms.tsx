@@ -140,7 +140,7 @@ export function AddAddressForm() {
 
 export function SignOutButton() {
   return (
-    <form action="/account/sign-out" method="post">
+    <form action="/auth/sign-out" method="post">
       <Button type="submit" variant="outline">
         Sign out
       </Button>

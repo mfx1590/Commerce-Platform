@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { cache } from 'react';
+import { getCurrency } from './i18n';
 import { getStoreOrNull } from './store';
 import { isNotFound, storeApi, type Cart } from './store-api';
 
@@ -51,14 +52,12 @@ export async function getOrCreateCart(): Promise<Cart> {
   if (existing) return existing;
 
   const store = await getStoreOrNull();
+  // The currency is the customer's choice reconciled against what the store sells in; the contract
+  // fixes it at creation, so it has to be right here rather than patched later.
+  const currency = await getCurrency(store);
   const cart = await storeApi().createCart({
-    ...(store === null
-      ? {}
-      : {
-          currency: store.default_currency,
-          country: store.default_country,
-          locale: store.default_locale,
-        }),
+    currency,
+    ...(store === null ? {} : { country: store.default_country, locale: store.default_locale }),
   });
 
   (await cookies()).set(CART_COOKIE, cart.id, {
