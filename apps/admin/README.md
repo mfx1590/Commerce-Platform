@@ -320,28 +320,33 @@ message may contain whatever the server was holding, and this app handles tokens
 
 ## Layout
 
-| Path                     | What lives there                                                     |
-| ------------------------ | -------------------------------------------------------------------- |
-| `src/app/(hq)/`          | HQ routes (`/stores`, `/finance`, …)                                 |
-| `src/app/(store)/`       | Store routes (`/{storeId}/catalog`, …)                               |
-| `src/app/api/auth/`      | The OIDC endpoints                                                   |
-| `src/app/actions/`       | Server actions (the store switcher's submit handler)                 |
-| `src/middleware.ts`      | The auth gate and the only place that refreshes tokens               |
-| `src/lib/env.ts`         | Server-side configuration and defaults                               |
-| `src/lib/auth/`          | PKCE, discovery, token exchange, session sealing                     |
-| `src/lib/api/`           | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
-| `src/lib/nav/`           | Sections, the relation algebra, and the selected-store cookie        |
-| `src/lib/table/`         | URL table state and the row-selection model (both pure)              |
-| `src/lib/forms/`         | Contract schemas, server-error mapping, money parsing (all pure)     |
-| `src/components/form/`   | `useContractForm`, field chrome, `MoneyField`                        |
-| `src/components/table/`  | The `DataTable` primitive                                            |
-| `src/components/shell/`  | The frame: header, side nav, store switcher, section guards          |
-| `src/components/states/` | Every state panel plus the `ApiStatePanel` dispatcher                |
-| `src/components/ui/`     | Presentational primitives (`cn`, Button, Card, Badge)                |
-| `test/`                  | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |
+| Path                                   | What lives there                                                     |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| `src/app/(hq)/`                        | HQ routes (`/stores`, `/finance`, …)                                 |
+| `src/app/(hq)/marketing/`              | **Reserved for window 17** from Phase 2 (`docs/ownership.md`)        |
+| `src/app/(store)/`                     | Store routes (`/{storeId}/catalog`, …)                               |
+| `src/app/(store)/[storeId]/marketing/` | **Reserved for window 17** from Phase 2                              |
+| `src/app/api/auth/`                    | The OIDC endpoints                                                   |
+| `src/app/actions/`                     | Server actions (the store switcher's submit handler)                 |
+| `src/middleware.ts`                    | The auth gate and the only place that refreshes tokens               |
+| `src/lib/env.ts`                       | Server-side configuration and defaults                               |
+| `src/lib/auth/`                        | PKCE, discovery, token exchange, session sealing                     |
+| `src/lib/api/`                         | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
+| `src/lib/nav/`                         | Sections, the relation algebra, and the selected-store cookie        |
+| `src/lib/table/`                       | URL table state and the row-selection model (both pure)              |
+| `src/lib/forms/`                       | Contract schemas, server-error mapping, money parsing (all pure)     |
+| `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
+| `src/components/table/`                | The `DataTable` primitive                                            |
+| `src/components/shell/`                | The frame: header, side nav, store switcher, section guards          |
+| `src/components/states/`               | Every state panel plus the `ApiStatePanel` dispatcher                |
+| `src/components/ui/`                   | Presentational primitives (`cn`, Button, Card, Badge)                |
+| `test/`                                | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |
 
 `src/lib/api/admin-client.ts`, `src/lib/auth/session.ts` and everything in `src/lib/nav/` except
 `selected-store.ts` avoid `next/*` imports on purpose, so they run unchanged in the Node runtime,
 the Edge middleware, and unit tests.
 
-Owner: window 4 (admin). `src/app/(hq)/bi/**` is window 12 (embed only). See CLAUDE.md.
+Owner: window 4 (admin). `src/app/(hq)/bi/**` is window 12 (embed only), and
+`src/app/(hq)/marketing/**` plus `src/app/(store)/[storeId]/marketing/**` are window 17 from
+Phase 2 — they hold a placeholder each today, deliberately self-contained (one file, no shared
+components inside them, no API calls) so window 17 inherits a clean folder. See CLAUDE.md.

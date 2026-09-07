@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added — task 1.8, issue #63 (no contract change)
+
+- **Marketing** reserved in both views: HQ gated on `analyst` (owner implies it), Store gated on
+  `store_staff` (store_admin implies it), matching `docs/marketing-scope.md`. finance and operations
+  see neither, which is what the issue asks.
+- A placeholder page each, listing what will live there (Overview, Campaigns, Segments, Feeds,
+  Referrals, Reviews, Consent) and pointing at the scope doc. Deliberately self-contained — one file,
+  no components of their own, and no API calls, since there is no marketing contract until
+  contracts-v0.3 — so window 17 inherits a clean folder in Phase 2.
+- Navigation and route-access fixtures updated for all seven seeded roles, and README and CLAUDE.md
+  record both folders as reserved.
+
 ### Added — task 1.7, issue #30 (Admin API 0.2.0)
 
 - `test/role-access.test.ts`: route access per role fixture, the other half of the navigation

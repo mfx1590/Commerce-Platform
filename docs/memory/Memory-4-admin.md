@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.5 merged; 1.6 in review (PR #78); 1.7 next in the PR queue, then 1.8
+Last updated: 2026-09-05 · Contracts: **Admin API 0.2.0** (CONTRACT CHANGE #56 accepted; store/events still v0.1) · Last commit: see the newest entry under Done · Status: 1.1–1.5 merged; 1.6 in review (PR #78); 1.7 and 1.8 queued behind it — **Phase 1 complete**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,15 @@ Never touches:
 Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
 
 ## Done
+- **1.8 — issue #63 Reserve the Marketing section** · commit `SHA9`
+  - HQ Marketing gated on `analyst` (owner implies it); Store Marketing on `store_staff`
+    (store_admin implies it) — so finance and operations see neither, as the issue asks.
+  - A placeholder page each, self-contained on purpose: one file, no components of their own, no API
+    calls (no marketing contract until contracts-v0.3), so window 17 inherits a clean folder.
+  - Fixtures updated in both `navigation.test.ts` and `role-access.test.ts`; README and CLAUDE.md
+    record both folders as reserved for window 17.
+  - 302 tests. **This completes the Phase 1 Next list.**
+
 - **1.7 — issue #30 Tests per role fixture** · commit `e45eb8e`
   - `test/role-access.test.ts`: what each role may *open*, next to `navigation.test.ts`'s what each
     role *sees*. A URL can be typed, so the two only agree if the guards and the navigation come from
@@ -174,8 +183,10 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- Nothing implementing. 1.8 (#63, Marketing placeholder in both views) is the last Phase 1 task; it
-  changes the navigation fixtures, so `navigation.test.ts` and `role-access.test.ts` get new rows.
+- Nothing. **Phase 1's Next list is complete.** Two PRs are queued behind #78 (one open PR per
+  branch): 1.7 (#30) then 1.8 (#63).
+- Outstanding, not blocking: the Playwright journey has never been executed — it needs port 3000,
+  which an unrelated project holds. REQUEST #80 covers its CI job.
 
 <!-- superseded -->
 - Previously: waiting for the manager to merge PR #67 (BLOCK items addressed in
@@ -192,7 +203,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28, merged (PR #67)
 - [x] 1.6 403 / empty / error states pattern — #29, PR #78 (do not self-merge)
 - [x] 1.7 Tests: nav renders per role fixture — #30 (PR next)
-- [ ] 1.8 Reserve the Marketing section — #63
+- [x] 1.8 Reserve the Marketing section — #63 (queued behind 1.7)
 
 ## Decisions made (with reasons)
 - **`ApiStatePanel` dispatches; screens do not branch on status.** One dispatcher is what makes the

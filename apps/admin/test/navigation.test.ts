@@ -18,11 +18,11 @@ const ids = (sections: readonly { id: string }[]) => sections.map((section) => s
 
 describe('HQ navigation per role fixture', () => {
   const cases: Array<[PrincipalKey, string[]]> = [
-    ['owner', ['stores', 'warehouse', 'finance', 'bi', 'roles', 'onboarding']],
+    ['owner', ['stores', 'warehouse', 'finance', 'bi', 'marketing', 'roles', 'onboarding']],
     ['finance', ['stores', 'finance']],
     ['operations', ['stores', 'warehouse']],
     ['support', ['stores']],
-    ['analyst', ['stores', 'bi']],
+    ['analyst', ['stores', 'bi', 'marketing']],
     ['storeAdmin', []],
     ['storeStaff', []],
     ['unassigned', []],
@@ -49,7 +49,15 @@ describe('HQ navigation per role fixture', () => {
     expect(hqNavItems(principals.analyst)).toEqual([
       { id: 'stores', label: 'Stores', href: '/stores' },
       { id: 'bi', label: 'BI', href: '/bi' },
+      { id: 'marketing', label: 'Marketing', href: '/marketing' },
     ]);
+  });
+
+  it('reserves Marketing for analyst and owner — #63', () => {
+    // finance and operations must not see it, per the issue's acceptance criteria.
+    for (const key of ['finance', 'operations', 'support'] as const) {
+      expect(ids(visibleHqSections(principals[key]))).not.toContain('marketing');
+    }
   });
 });
 
@@ -57,11 +65,14 @@ describe('store navigation per role fixture', () => {
   const brandA = SEED.stores.brandA;
   const cases: Array<[PrincipalKey, string[]]> = [
     // owner is store_admin everywhere (owner from organization)
-    ['owner', ['catalog', 'orders', 'customers', 'promotions', 'content', 'settings']],
-    // store_admin implies store_staff, so Content and Settings are both there
-    ['storeAdmin', ['catalog', 'orders', 'customers', 'promotions', 'content', 'settings']],
-    // store_staff authors content but does not administer the store
-    ['storeStaff', ['catalog', 'orders', 'customers', 'promotions', 'content']],
+    ['owner', ['catalog', 'orders', 'customers', 'promotions', 'content', 'marketing', 'settings']],
+    // store_admin implies store_staff, so Content, Marketing and Settings are all there
+    [
+      'storeAdmin',
+      ['catalog', 'orders', 'customers', 'promotions', 'content', 'marketing', 'settings'],
+    ],
+    // store_staff authors content and marketing but does not administer the store
+    ['storeStaff', ['catalog', 'orders', 'customers', 'promotions', 'content', 'marketing']],
     // organization relations only ever imply store viewer, never staff or admin
     ['finance', ['catalog', 'orders', 'customers', 'promotions']],
     ['operations', ['catalog', 'orders', 'customers', 'promotions']],

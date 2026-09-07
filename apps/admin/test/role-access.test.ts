@@ -51,11 +51,11 @@ function allowedStore(role: PrincipalKey, storeId: string): string[] {
 
 describe('HQ route access, per role', () => {
   const expected: Record<PrincipalKey, string[]> = {
-    owner: ['stores', 'warehouse', 'finance', 'bi', 'roles', 'onboarding'],
+    owner: ['stores', 'warehouse', 'finance', 'bi', 'marketing', 'roles', 'onboarding'],
     finance: ['stores', 'finance'],
     operations: ['stores', 'warehouse'],
     support: ['stores'],
-    analyst: ['stores', 'bi'],
+    analyst: ['stores', 'bi', 'marketing'],
     storeAdmin: [],
     storeStaff: [],
     unassigned: [],
@@ -86,6 +86,10 @@ describe('HQ route access, per role', () => {
     expect(ROLES.filter((role) => canOpenHq(role, 'bi'))).toEqual(['owner', 'analyst']);
   });
 
+  it('Marketing is analyst and owner — reserved for window 17 (#63)', () => {
+    expect(ROLES.filter((role) => canOpenHq(role, 'marketing'))).toEqual(['owner', 'analyst']);
+  });
+
   it('a pure store user has no HQ view to open at all', () => {
     for (const role of ['storeAdmin', 'storeStaff'] as const) {
       expect(hasHqView(principals[role])).toBe(false);
@@ -96,14 +100,15 @@ describe('HQ route access, per role', () => {
 
 describe('store route access, per role', () => {
   const viewerOnly = ['catalog', 'orders', 'customers', 'promotions'];
-  const everything = [...viewerOnly, 'content', 'settings'];
+  const staff = [...viewerOnly, 'content', 'marketing'];
+  const everything = [...viewerOnly, 'content', 'marketing', 'settings'];
 
   const expected: Record<PrincipalKey, string[]> = {
     // owner is store_admin everywhere (owner from organization)
     owner: everything,
     storeAdmin: everything,
-    // store_staff authors content but does not administer the store
-    storeStaff: [...viewerOnly, 'content'],
+    // store_staff authors content and marketing but does not administer the store
+    storeStaff: staff,
     // organization relations imply store viewer, never staff or admin
     finance: viewerOnly,
     operations: viewerOnly,
@@ -114,6 +119,11 @@ describe('store route access, per role', () => {
 
   it.each(ROLES)('%s may open exactly their sections on brand-a', (role) => {
     expect(allowedStore(role, SEED.stores.brandA)).toEqual(expected[role]);
+  });
+
+  it('store Marketing is store_staff and up — reserved for window 17 (#63)', () => {
+    const reachable = ROLES.filter((role) => canOpenStore(role, SEED.stores.brandA, 'marketing'));
+    expect(reachable).toEqual(['owner', 'storeAdmin', 'storeStaff']);
   });
 
   it('Settings is store_admin, so no organization relation short of owner reaches it', () => {

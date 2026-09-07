@@ -9,7 +9,9 @@ principal's relations; every API call is re-checked server-side against the oper
 
 ## Owner
 
-window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only).
+window 4 (admin). src/app/(hq)/bi/** is window 12 (embed only). src/app/(hq)/marketing/** and
+src/app/(store)/[storeId]/marketing/** are window 17 from Phase 2 — placeholders only today; keep
+them self-contained (no shared components inside them, no API calls until contracts-v0.3).
 
 ## Run / test
 
