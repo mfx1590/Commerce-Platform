@@ -9,8 +9,11 @@ import { expect, test, type Page } from '@playwright/test';
  *
  * Keycloak is not started by this config: it is a container, not a `pnpm` script. Start it with
  * `docker compose -f infra/docker/docker-compose.yml up -d keycloak` (or `pnpm compose:up`).
- * When it is missing these tests skip — unless `E2E_REQUIRE_KEYCLOAK=1`, which CI sets so a missing
- * dependency there is a failure rather than a quiet pass.
+ *
+ * Missing locally, these tests skip — a laptop without the stack should not fail the suite. **On CI
+ * they are required**: the workflow boots Keycloak, so an unreachable one is a real failure, and a
+ * silent skip there would quietly stop covering sign-in altogether. `E2E_REQUIRE_KEYCLOAK=1` forces
+ * the same strictness anywhere.
  */
 
 /**
@@ -23,6 +26,8 @@ test.describe.configure({ mode: 'serial' });
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
 const REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
 const CUSTOMER = { username: 'jane@example.com', password: 'jane' };
+
+const REQUIRE_KEYCLOAK = process.env.E2E_REQUIRE_KEYCLOAK === '1' || Boolean(process.env.CI);
 
 let keycloakReachable = false;
 
@@ -37,7 +42,7 @@ test.beforeAll(async ({ request }) => {
     keycloakReachable = false;
   }
 
-  if (!keycloakReachable && process.env.E2E_REQUIRE_KEYCLOAK === '1') {
+  if (!keycloakReachable && REQUIRE_KEYCLOAK) {
     throw new Error(
       `Keycloak is not reachable at ${KEYCLOAK_URL}. Start it with: docker compose -f infra/docker/docker-compose.yml up -d keycloak`,
     );
@@ -46,7 +51,7 @@ test.beforeAll(async ({ request }) => {
 
 test.beforeEach(() => {
   test.skip(
-    !keycloakReachable,
+    !keycloakReachable && !REQUIRE_KEYCLOAK,
     `Keycloak not reachable at ${KEYCLOAK_URL} — start it with \`docker compose -f infra/docker/docker-compose.yml up -d keycloak\``,
   );
 });

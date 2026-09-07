@@ -7,11 +7,16 @@ import { defineConfig, devices } from '@playwright/test';
  * build of the app. The build matters — `next dev` behaves differently enough around caching and
  * server actions that a green dev run would not tell us much.
  *
- * `channel: 'chrome'` uses the Chrome already on the machine instead of downloading Playwright's
- * bundled browsers. Task 1.7 decides what CI does (a `REQUEST:` issue owns the workflow file).
+ * Browser choice (REQUEST #84): locally the Chrome already on the machine, so nothing is
+ * downloaded; on CI Playwright's own chromium, which is version-matched to `@playwright/test` in the
+ * lockfile and lighter to install. `infra/ci/run-e2e.sh` decides what to install by grepping this
+ * file for a pinned `channel`, so the value must stay out of the literal source when CI runs.
+ * `E2E_CHANNEL` overrides both ways.
  */
 const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3100';
 const MOCK_URL = process.env.MOCK_API_URL ?? 'http://localhost:4010';
+const CHANNEL = process.env.E2E_CHANNEL ?? (process.env.CI ? undefined : 'chrome');
+const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 
 export default defineConfig({
   testDir: './e2e',
@@ -22,12 +27,12 @@ export default defineConfig({
 
   use: {
     baseURL: APP_URL,
-    channel: 'chrome',
+    ...browser,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
 
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], ...browser } }],
 
   webServer: [
     {

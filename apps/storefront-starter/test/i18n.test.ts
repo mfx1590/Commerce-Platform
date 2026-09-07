@@ -171,6 +171,48 @@ describe('every translation key used in the code exists', () => {
 });
 
 /**
+ * The root layout hands `NextIntlClientProvider` only the namespaces client components need, so the
+ * whole catalogue is not serialised into every page (it cost enough blocking time to put PLP and PDP
+ * under the Lighthouse budget). That list has to stay in step with the components, or a client
+ * component renders `MISSING_MESSAGE` — which next-intl logs rather than throws.
+ */
+describe('client message namespaces', () => {
+  const layout = readFileSync(join(process.cwd(), 'src', 'app', '[locale]', 'layout.tsx'), 'utf8');
+  const declared = new Set(
+    [
+      ...(layout.match(/const CLIENT_NAMESPACES = \[([^\]]*)\]/)?.[1] ?? '').matchAll(/'([^']+)'/g),
+    ].map((m) => m[1] ?? ''),
+  );
+
+  function clientComponents(dir: string): string[] {
+    let out: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) out = out.concat(clientComponents(full));
+      else if (entry.endsWith('.tsx') && readFileSync(full, 'utf8').startsWith("'use client'")) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  it('covers every namespace a client component asks for', () => {
+    expect(declared.size).toBeGreaterThan(0);
+    const missing: string[] = [];
+
+    for (const file of clientComponents(join(process.cwd(), 'src'))) {
+      for (const match of readFileSync(file, 'utf8').matchAll(/useTranslations\('([^']+)'\)/g)) {
+        // `checkout.address` is served by shipping the `checkout` namespace.
+        const root = (match[1] ?? '').split('.')[0] ?? '';
+        if (!declared.has(root)) missing.push(`${file.split(/[\\/]/).pop()}: ${root}`);
+      }
+    }
+
+    expect(missing).toEqual([]);
+  });
+});
+
+/**
  * The acceptance criterion for task 1.6: no hard-coded copy in `(shop)` or `(checkout)`.
  *
  * A lint rule would need the root ESLint config, which this window does not own, so the check is a
