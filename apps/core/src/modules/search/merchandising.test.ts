@@ -259,8 +259,11 @@ describe('publish → Algolia rules, relevance search with rules applied', () =>
     await storeAdmin.patch(`${base}/rules/${disabled.body.id}`, { enabled: true });
     const again = await storeAdmin.post(`${base}/publish`);
     expect(again.body).toEqual({ index: name, published: 2, skipped: 0 });
+    // deterministic (#166 review): the fake promotes a pinned record even into an otherwise empty
+    // category listing, so the result is never empty and the pin is always first
     const cat = await searchRelevance(storeA, fake, { category_id: categoryA, limit: 5 });
-    if (cat.ids.length > 0) expect(cat.ids[0]).toBe(productsA[2]);
+    expect(cat.ids.length).toBeGreaterThan(0);
+    expect(cat.ids[0]).toBe(productsA[2]);
   });
 
   it('publish answers 409 when the store has no index backend', async () => {

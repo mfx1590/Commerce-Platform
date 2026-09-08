@@ -1,6 +1,6 @@
 # PROPOSED (CONTRACT CHANGE, window 9, task 2.2): additions to packages/contracts/openapi/admin-api.yaml.
 # Kept here verbatim until the main window applies it; the search module's router validates bodies against the
-# same schemas (src/modules/search/merchandising-schema.ts) and mounts under these paths.
+# same schemas (src/modules/search/merchandising-types.ts) and mounts under these paths.
 #
 # ---- paths (insert after /admin/stores/{storeId}/shipping-options) ------------------------------------------
 paths:
