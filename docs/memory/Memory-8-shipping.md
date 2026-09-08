@@ -16,7 +16,7 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.3 (#131) — labels, shipments and tracking webhooks** · commit `SHA_23` · PR pending
+- **2.3 (#131) — labels, shipments and tracking webhooks** · commit `6f69b97` · PR pending
   `shipments.ts` (plan a shipment against what the order still owes, buy its label, the status machine and its
   outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
   on the carrier's clock), `webhook-events.ts` (shared idempotency record + the proposed table SQL),
