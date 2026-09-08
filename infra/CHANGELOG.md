@@ -300,6 +300,22 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - Two README nits: the orphaned `helm/ … argocd/` bullet stranded after the Observability section, and the
   OTel snippet's `store_id`, which was a slug where `app.outbox_lag()` returns a uuid.
 
+### Fixed (close-out of the #156 review)
+
+- `infra/ci/run-e2e.sh` decides the browser channel **once, before the loop**. It used to decide per app, and
+  the `unset E2E_CHANNEL` for one app changed what the next one saw: with an explicit `E2E_CHANNEL=''` and no
+  `CI`, the first app got bundled chromium and the second silently fell back to Chrome. Verified both before
+  and after — every app now gets the same answer.
+- The External Secrets IAM role no longer grants `secretsmanager:ListSecrets` on `*`. The comment claimed
+  `ListSecretVersionIds`, but neither is needed: every ExternalSecret in the charts uses `dataFrom.extract`
+  with a named key, and `ListSecrets` is only required for `dataFrom.find`. An account-wide grant has no place
+  on a role whose entire purpose is two prefixes — if a later window wants find-based discovery, that is a
+  REQUEST and a deliberate decision.
+- `zricethezav/gitleaks` pinned to `v8.30.1`. On `latest`, a new upstream rule turns a green `main` red
+  overnight with no change of ours.
+- `.github/workflows/ci.yml` declares `permissions: contents: read` at the workflow level. Nothing in it
+  writes; `deploy-staging.yml` raises its own.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

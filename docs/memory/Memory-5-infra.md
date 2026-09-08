@@ -2,7 +2,8 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1, 2.1b, 2.2, 2.3, 2.4a, 2.4b, 2.5 (#151, main 8941f1e) merged · 2.6 (#36) + #99 in PR · Phase 2 complete after this
+Status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
+this window is quiet until the manager reopens it with REQUEST issues.
 
 ## Identity (does not change)
 
@@ -92,37 +93,37 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   `deploy-staging.yml` (no-op until five settings exist), the nine required checks documented, migrations as an
   ArgoCD PreSync hook running the app's own image, and the rotation path fixed with Reloader.
 
-- **2.5 — observability (issue #35)** — this PR. `--profile observability` adds collector + Prometheus +
-  Loki + Tempo + Grafana on 4317/4318, 9090, 3410, 3420, 3400; provisioned datasources and a four-panel
-  dashboard; `infra/observability/check.sh` + CI job; the OTel snippet, Sentry wiring and the trace runbook.
+- **2.5 — observability (issue #35)** — PR #151, main `8941f1e`. `--profile observability` adds the OTel
+  collector, Prometheus, Loki, Tempo and Grafana on 4317/4318, 9090, 3410, 3420, 3400; provisioned
+  datasources and a four-panel dashboard; `infra/observability/check.sh` + CI job; the OTel snippet, Sentry
+  wiring and the trace runbook.
   Verified by running it: all five up, four datasources healthy, a span posted to the collector read back out
   of Tempo, span metrics reaching Prometheus with a `store_id` label, and the panel expressions returning
   real values (0.025 req/s, p95 15.6 ms for brand-a).
-
-- **2.5 — observability (issue #35)** — merged as PR #151, main `8941f1e`.
-- **2.6 — secret injection + runbook index (issue #36), and #99** — this PR. External Secrets IRSA module,
+- **2.6 — secret injection + runbook index (issue #36), and #99** — PR #156, main `6931293`. External
+  Secrets IRSA module,
   ClusterSecretStore, the `<env>/platform` + `<env>/stores/<store_code>` naming scheme, gitleaks over history,
   the six-flow runbook index, and run-e2e.sh no longer grepping app configs for a browser channel.
 
 ## In progress
 
-- Nothing being written. 2.6 is in its PR and closes Phase 2 for this window.
+- The close-out PR for #156's review nits. Nothing else in flight.
 
-## Next — Phase 2 (order = GitHub issues, authoritative)
+## Next — reopened by REQUEST, not by a phase
 
-- [ ] **#33 · 2.3** Helm charts (core, admin, storefront, Prism mocks) + ArgoCD app-of-apps; `helm lint`,
-      `helm template`, `kubeconform` in CI; `values-dev.yaml` / `values-staging.yaml`; image tag = git sha.
-- [ ] **#34 · 2.4b** (after 2.3) Playwright job hooks — `apps/storefront-starter` already has
-      `playwright.config.ts` and `e2e/checkout.spec.ts` and nothing runs them; `deploy-staging.yml` on main
-      (no-op with a clear log line until the ArgoCD secret exists); required-status-check documentation for
-      branch protection. Depends on 2.3 for the charts and the ArgoCD app names.
-- [ ] **#35 · 2.5** Observability: OTel collector + Grafana/Prometheus/Loki/Tempo as a
-      `docker compose --profile observability` overlay, provisioned dashboards (per-store request rate, error
-      rate, p95, outbox lag), Sentry DSN via env. Needs a `CONTRACT CHANGE:` issue for the read-only Postgres
-      role the outbox-lag panel queries (do not write the migration).
-- [ ] **#36 · 2.6** Vault / AWS Secrets Manager + External Secrets Operator, `secret/stores/<store_code>/…`
-      naming scheme, `gitleaks` step in CI, `REQUEST:` issue for a new ADR, `infra/README.md` runbook covering
-      bootstrap → dev → staging, rotate a secret, roll back a deploy.
+Phase 2 is complete. The manager reopens this window with issues; three are already signalled:
+
+- a CI variant running the storefront journey against a real `apps/core` instead of the Prism mock, once
+  core 2.2 lands;
+- images for `apps/feeds` and the brand-a storefront (`infra/ci/check-image-manifests.sh` will fail the build
+  until the new workspace packages are listed in every Dockerfile — that failure is the intended prompt);
+- a Lighthouse job for window 3.
+
+Standing debts, whenever this window is next open:
+
+- **REQUEST #154** — once the Playwright configs honour `E2E_CHANNEL`, `run-e2e.sh` stops installing both
+  browsers on CI and installs `"$channel"` alone. Supersedes #84.
+- **REQUEST #60** — once `apps/core` declares `ts-node`, delete the two workaround lines from its Dockerfile.
 
 ## Decisions made (with reasons)
 
