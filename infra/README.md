@@ -334,6 +334,25 @@ from the merged commit with the same bake definition CI uses, pushes them to ECR
 each staging Application at that tag and syncs it. The image tag is the **only** thing it changes; replicas,
 probes and configuration live in git and belong to ArgoCD.
 
+**The deployed image goes into git, not onto the live Application.** `argocd app set --helm-set` writes
+`spec.source.helm.parameters` onto the Application CR — but the app-of-apps manages those CRs with automated
+sync and `selfHeal`, so ArgoCD reconciles them straight back to what `infra/argocd/applications` says and
+strips the parameters again. Staging would sit permanently OutOfSync against the `0000…` placeholder, and the
+next Sync anyone clicked would roll it onto an unpullable image. So the workflow commits `image.repository` and
+`image.tag` into the staging values file — both, because a correct tag on a placeholder repository is just as
+unpullable — and then simply syncs. Git stays the only source of truth, which is the reason to run ArgoCD at
+all.
+
+`infra/ci/set-image.mjs` does that edit by replacing two lines rather than re-emitting the YAML, so the
+committed file still matches what prettier produces. (`yq -i` drops blank lines; the deploy commit carries
+`[skip ci]`, so nothing would notice until `format:check` failed on somebody else's unrelated PR.) It refuses
+any tag that is not a 40-character git sha, and the workflow renders the chart with `infra/helm/check.sh`
+before the commit reaches main.
+
+The commit is made with `GITHUB_TOKEN` and marked `[skip ci]`: GitHub raises no workflow events for pushes made
+with that token, so the deploy cannot trigger itself, and the marker covers the case where someone later swaps
+in a PAT.
+
 It is a **no-op until staging exists**, and says exactly what is missing rather than failing:
 
 | setting             | kind       | where the value comes from                              |
@@ -370,6 +389,15 @@ live auth + end-to-end (Keycloak, OpenFGA, Playwright)
 
 Set on GitHub under _Settings → Branches → main_: require a pull request, require these checks, and require
 branches to be up to date before merging.
+
+**Not available on this repository today.** It is private on the free plan, and the branch-protection API
+answers `403 Upgrade to GitHub Pro or make this repository public`. The list above is what to apply the moment
+the plan allows it; until then "nobody merges their own PR" is enforced by the Reviewer session rather than by
+GitHub.
+
+When protection is enabled, `deploy-staging.yml` needs a **bypass allowance** — it pushes the deployed image
+tag to `main`. Add `github-actions[bot]` to the bypass list for the rule. Without it the workflow fails on the
+push with a message pointing here, rather than silently leaving git and the cluster disagreeing.
 
 Two things worth knowing about that list:
 

@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1 (#31), 2.1b (#59), 2.2 (#32), 2.4a and 2.3 (#33, PR #95) merged · 2.4b in PR · next 2.5 (#35), 2.6 (#36)
+Status: 2.1, 2.1b, 2.2, 2.3, 2.4a merged · 2.4b in PR #98 (review fix pushed) · next 2.5 (#35, approved), 2.6 (#36)
 
 ## Identity (does not change)
 
@@ -225,6 +225,17 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   manual `kubectl rollout restart`. The previous comment claimed otherwise, which is worse than no comment.
 - **A deploy workflow that fails when it is not configured teaches people to ignore a red main.** The staging
   deploy is a no-op that names the five missing settings and exits 0.
+
+- **An app-of-apps with selfHeal makes `argocd app set` pointless.** It writes helm parameters onto the live
+  Application CR, which ArgoCD then reconciles back to git and strips. Anything that must survive a sync has to
+  be in git — for the deployed image that means committing `image.repository` and `image.tag`, not just the
+  tag: a correct tag on a placeholder repository is equally unpullable.
+- **Machine edits to committed YAML must preserve formatting.** `yq -i` re-emits the document and drops blank
+  lines; a `[skip ci]` deploy commit then breaks `format:check` on somebody else's PR. Replace the lines
+  (`infra/ci/set-image.mjs`) and assert nothing else moved.
+- **Branch protection is unavailable on this repo** (private, free plan; the API returns 403). The nine
+  required checks are documented for when it can be enabled, and `deploy-staging.yml` will then need a bypass
+  allowance because it pushes to main.
 
 ## Blocked / waiting
 

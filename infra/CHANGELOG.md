@@ -221,6 +221,23 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   green and then broken `format:check` on somebody else's unrelated PR. Found by watching this PR's own
   `what changed` output. Any workflow file now counts as `code`.
 
+### Fixed (review of #98)
+
+- **The image-tag bump was imperative and the app-of-apps would have undone it.** `argocd app set --helm-set`
+  writes `spec.source.helm.parameters` onto the live Application, and the app-of-apps manages those CRs with
+  automated sync and `selfHeal` — ArgoCD reconciles them back to git and strips the parameters. Staging would
+  have sat permanently OutOfSync against the `0000…` placeholder, and the next Sync would have rolled it onto
+  an unpullable image. The workflow now commits `image.repository` **and** `image.tag` into the staging values
+  file and then syncs; git stays the source of truth.
+- `infra/ci/set-image.mjs` performs that edit by replacing two lines instead of re-emitting the document.
+  `yq -i` drops blank lines, and since the deploy commit carries `[skip ci]` nothing would have noticed until
+  `format:check` failed on an unrelated PR. It refuses a tag that is not a 40-character git sha, verifies the
+  two fields afterwards, and refuses to write if any other line changed. The workflow then renders the chart
+  with `infra/helm/check.sh` before the commit reaches main.
+- Documented that branch protection cannot be enabled on this repository yet (private, free plan — the API
+  returns 403), and that `deploy-staging.yml` will need a bypass allowance for `github-actions[bot]` when it
+  can be.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).
