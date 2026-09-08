@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed — REQUEST #154: `playwright.config.ts` honours `E2E_CHANNEL`
+
+- The config no longer pins `channel: 'chrome'`. `infra/ci/run-e2e.sh` decides the browser and
+  exports `E2E_CHANNEL`; the config obeys it exactly: `chrome` uses the machine's Chrome, an empty
+  but set value means Playwright's bundled chromium, and only an absent variable falls back to
+  Chrome locally and chromium on CI. Window 3's conditional, plus the one-word fix from the request
+  (`CHANNEL ? { channel } : {}`) so that `''` is not mistaken for a channel name.
+- Nothing changes for a local `pnpm --filter @platform/admin e2e` run without the variable. On CI
+  the double browser install can now collapse to one (window 5's follow-up).
+
 ### Changed — Integration 1: point the app at the real core with `ADMIN_API_URL`
 
 - `env.adminApiUrl` now resolves `ADMIN_API_URL` first, then `MOCK_ADMIN_API_URL`, then

@@ -132,4 +132,100 @@ describe('AlgoliaIndexClient', () => {
     expect(calls.map((x) => x.method)).toEqual(['PUT', 'GET', 'GET', 'GET']);
     expect(calls[1]!.url).toBe('https://APP1.algolia.net/1/indexes/idx/task/42');
   });
+
+  it('retries 5xx and 429 with backoff, then surfaces the last error; 4xx is final', async () => {
+    const flaky = fakeFetch((_call, n) =>
+      n === 1
+        ? { status: 503, body: { message: 'unavailable' } }
+        : n === 2
+          ? { status: 429, body: { message: 'slow down' } }
+          : { body: { taskID: 9 } },
+    );
+    const c = new AlgoliaIndexClient({
+      appId: 'APP1',
+      apiKey: KEY,
+      fetch: flaky.fetch,
+      retryBaseMs: 0,
+    });
+    await c.deleteObjects('idx', ['a']);
+    expect(flaky.calls).toHaveLength(3);
+
+    const dead = fakeFetch(() => ({ status: 502, body: { message: 'bad gateway' } }));
+    const d = new AlgoliaIndexClient({
+      appId: 'APP1',
+      apiKey: KEY,
+      fetch: dead.fetch,
+      retries: 2,
+      retryBaseMs: 0,
+    });
+    await expect(d.clearRules('idx')).rejects.toMatchObject({ status: 502 });
+    expect(dead.calls).toHaveLength(3); // 1 + 2 retries
+
+    const denied = fakeFetch(() => ({ status: 400, body: { message: 'nope' } }));
+    const e = new AlgoliaIndexClient({
+      appId: 'APP1',
+      apiKey: KEY,
+      fetch: denied.fetch,
+      retryBaseMs: 0,
+    });
+    await expect(e.clearRules('idx')).rejects.toMatchObject({ status: 400 });
+    expect(denied.calls).toHaveLength(1);
+
+    const down = fakeFetch(() => {
+      throw new Error(`ECONNRESET ${KEY}`);
+    });
+    const f = new AlgoliaIndexClient({
+      appId: 'APP1',
+      apiKey: KEY,
+      fetch: down.fetch,
+      retries: 1,
+      retryBaseMs: 0,
+    });
+    const err = await f.clearRules('idx').catch((x: unknown) => x);
+    expect(err).toBeInstanceOf(AlgoliaError);
+    expect((err as AlgoliaError).message).not.toContain(KEY);
+    expect(down.calls).toHaveLength(2);
+  });
+
+  it('masks every occurrence of the key in an error message', async () => {
+    const { fetch } = fakeFetch(() => ({
+      status: 403,
+      body: { message: `${KEY} and again ${KEY}` },
+    }));
+    const c = new AlgoliaIndexClient({ appId: 'APP1', apiKey: KEY, fetch, retryBaseMs: 0 });
+    const err = (await c.clearRules('idx').catch((x: unknown) => x)) as AlgoliaError;
+    expect(err.message).not.toContain(KEY);
+    expect(err.message.match(/\*\*\*/g)).toHaveLength(2);
+  });
+
+  it('saveRules replaces the set with clearExistingRules; search asks for objectIDs only', async () => {
+    const { fetch, calls } = fakeFetch((call) =>
+      call.url.endsWith('/query')
+        ? { body: { hits: [{ objectID: 'p1', title: 'x' }], nbHits: 1, page: 0, hitsPerPage: 5 } }
+        : { body: { taskID: 1 } },
+    );
+    const c = new AlgoliaIndexClient({ appId: 'APP1', apiKey: KEY, fetch, retryBaseMs: 0 });
+    const rule = { objectID: 'merch_1', enabled: true, conditions: [], consequence: {} };
+    await c.saveRules('idx', [rule], { clearExisting: true });
+    expect(calls[0]!.url).toBe(
+      'https://APP1.algolia.net/1/indexes/idx/rules/batch?clearExistingRules=true',
+    );
+    expect(calls[0]!.body).toEqual([rule]);
+    await c.clearRules('idx');
+    expect(calls[1]!.url).toBe('https://APP1.algolia.net/1/indexes/idx/rules/clear');
+    const res = await c.search('idx', {
+      query: 'tee',
+      filters: 'category_id:c1',
+      page: 0,
+      hitsPerPage: 5,
+    });
+    expect(calls[2]!.body).toEqual({
+      query: 'tee',
+      filters: 'category_id:c1',
+      page: 0,
+      hitsPerPage: 5,
+      attributesToRetrieve: ['objectID'],
+    });
+    expect(res).toEqual({ hits: [{ objectID: 'p1' }], nbHits: 1, page: 0, hitsPerPage: 5 });
+  });
 });
