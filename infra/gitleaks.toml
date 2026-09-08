@@ -50,4 +50,11 @@ regexes = [
   # "analyst/finance/operations". Anchoring on the match silently allowlists nothing — worth
   # checking the `Secret` field of a JSON report rather than the human-readable output.
   '''^analyst/finance/operations$''',
+
+  # Test-only idempotency keys in apps/core/src/modules/payments/payments.test.ts (window 7, PR #183):
+  # 'placement-key-12345678' and friends are the literal strings a test sends as an Idempotency-Key so
+  # the assertions can name them. They trip `generic-api-key` on entropy alone. Anchored to the exact
+  # four literals, so any other secret-shaped string in that file still fails. Added by the manager
+  # 2026-09-08: the scan covers every branch's history, so one such literal reddens every PR at once.
+  '''^(placement-key|refund-key|refund-fail|refund-unknown)-12345678$''',
 ]
