@@ -1,9 +1,40 @@
 import { getLocale } from 'next-intl/server';
 import { cookies } from 'next/headers';
 import { cache } from 'react';
+import {
+  ATTRIBUTION_COOKIE,
+  metadataFor,
+  parseAttribution,
+  type CartMetadata,
+} from './attribution';
 import { getCurrency } from './i18n';
 import { getStoreOrNull } from './store';
-import { isNotFound, storeApi, type Cart } from './store-api';
+import { isNotFound, storeApi, type Body, type Cart } from './store-api';
+
+/** The attribution captured by the middleware, ready for `cart.metadata`. */
+export async function cartMetadata(): Promise<CartMetadata | undefined> {
+  const raw = (await cookies()).get(ATTRIBUTION_COOKIE)?.value;
+  return metadataFor(parseAttribution(raw));
+}
+
+/**
+ * Re-send the attribution just before the order is placed, so the last touch is the campaign that
+ * closed the sale rather than the one that created the cart. `POST …/complete` takes no body, so
+ * the cart is where it has to go.
+ *
+ * Never fatal: losing a marketing attribute must not cost the order.
+ */
+export async function refreshCartAttribution(cartId: string): Promise<void> {
+  const metadata = await cartMetadata();
+  if (metadata === undefined) return;
+
+  const body: Body<'updateCart'> = { metadata };
+  try {
+    await storeApi().updateCart(cartId, body);
+  } catch (error) {
+    console.warn('[storefront] could not refresh cart attribution:', error);
+  }
+}
 
 /**
  * Cart session. The cart lives in the API; the browser only carries its id in an httpOnly cookie,
@@ -57,12 +88,18 @@ export async function getOrCreateCart(): Promise<Cart> {
   if (existing) return existing;
 
   const store = await getStoreOrNull();
-  const [currency, locale] = await Promise.all([getCurrency(store), getLocale()]);
-  const cart = await storeApi().createCart({
+  const [currency, locale, metadata] = await Promise.all([
+    getCurrency(store),
+    getLocale(),
+    cartMetadata(),
+  ]);
+  const body: Body<'createCart'> = {
     currency,
     locale,
     ...(store === null ? {} : { country: store.default_country }),
-  });
+    ...(metadata === undefined ? {} : { metadata }),
+  };
+  const cart = await storeApi().createCart(body);
 
   (await cookies()).set(CART_COOKIE, cart.id, {
     ...COOKIE_OPTIONS,

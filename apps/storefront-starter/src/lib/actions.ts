@@ -2,7 +2,7 @@
 
 import { cookies } from 'next/headers';
 import { redirectLocalized } from './navigate';
-import { clearCart, getCart, getOrCreateCart } from './cart';
+import { clearCart, getCart, getOrCreateCart, refreshCartAttribution } from './cart';
 import { mapCheckoutError, parseAddressForm, stepPath } from './checkout';
 import { checkoutIdempotencyKey, clearIdempotencyKey } from './idempotency';
 import { storeApi } from './store-api';
@@ -173,6 +173,12 @@ export async function placeOrderAction(
 
   let orderId: string;
   try {
+    // Refresh the attribution before placing the order, so the *last* touch reflects the campaign
+    // that actually closed the sale rather than the one that created the cart, which may be days
+    // old. It goes on the cart because `POST …/complete` has no request body at all — see
+    // CONTRACT CHANGE #100.
+    await refreshCartAttribution(cart.id);
+
     // The session is created here rather than gating the review step on it: it is a PSP artifact
     // with its own lifetime, and one that expired between steps must not strand the customer.
     if (cart.payment_session === null || cart.payment_session.status === 'failed') {
