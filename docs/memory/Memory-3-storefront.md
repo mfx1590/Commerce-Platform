@@ -98,7 +98,9 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 - [x] **Follow-up to #100** — the local `metadata` type extension in `src/lib/cart.ts` is deleted;
       the bodies now come straight from the contract (Store API 0.2.0). `CartMetadata` had to become
       a type alias: the contract declares `metadata` with an index signature, and only a type alias
-      gets the implicit index signature that satisfies it. No behaviour change.
+      gets the implicit index signature that satisfies it. No behaviour change. Commit `b8c613d` —
+      it landed **inside PR #101**, which was still open when it was pushed, rather than the separate
+      small PR the manager asked for: one branch means one open PR.
 
 ## In progress
 
