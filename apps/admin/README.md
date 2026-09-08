@@ -60,6 +60,27 @@ E2E and the contract suite ignore all of this on purpose: `playwright.config.ts`
 `vitest.contract.config.ts` force `ADMIN_API_URL` to the Prism they start, so a `.env` pointing at
 the core does not make an e2e run depend on whatever the core is currently serving.
 
+**The one journey that does talk to the core** is `e2e/catalog-core.spec.ts`, and it is opt-in:
+it writes real rows into the shared local database, so it never runs by accident. Start the app
+yourself against the core (the config reuses a server that already answers `/health` instead of
+starting one pinned to the mock), then run it with `E2E_API=core`:
+
+```bash
+PORT=3200 ADMIN_API_URL=http://localhost:9000 ADMIN_APP_URL=http://localhost:3200 ADMIN_SESSION_SECRET=… pnpm --filter @platform/admin start
+```
+
+```bash
+E2E_API=core PORT=3200 pnpm --filter @platform/admin e2e catalog-core
+```
+
+It signs in as the seeded `store-admin`, creates a product with a fresh handle on brand-a, creates
+its two variants from the matrix, publishes it (confirmation included) and checks the list agrees.
+Every step asserts what the core returned — the id in the URL, `draft` then `published`, the
+variant rows — and screenshots each state into `test-results/`. The run recorded for task 2.1
+(2026-09-08, core 2.2 on :9000, real Keycloak token, OpenFGA permissions) is in
+[`docs/real-core-run/`](./docs/real-core-run/): created as draft, variants created, published,
+listed as published.
+
 ## Checks
 
 ```bash
@@ -238,6 +259,13 @@ is a cent lost in the ledger. It is currency-aware — JPY takes no decimals, EU
 accepts a comma as the decimal point while rejecting group separators rather than guessing at
 `1,234`.
 
+**A refused principal is not a form error.** `toActionResult` puts a 401/403 on the result as
+`refusal: { status, error }` alongside the (empty) field errors, `useContractForm` exposes it, and
+`ActionRefusal` — used in place of `FormError` — renders the same `ApiStatePanel` a screen renders
+when it cannot load. "You need `store_staff` on `store:brand-a`" is a different kind of message
+from "handle must be kebab-case": one names a control, the other names a person, and nothing about
+pressing Save again helps with the second.
+
 **Optimistic UI is opt-in.** `useContractForm` takes an `optimistic` callback and runs it only when
 one is passed. An admin form that shows a save as done before the server agreed is a form that lies
 about whether a price changed.
@@ -259,10 +287,20 @@ why the reveal carries a warning and a copy button rather than a "show again" co
 (`q`, `status`) and sort; `/{storeId}/catalog/new` and `/{storeId}/catalog/{id}` are the same form,
 which previews the variant matrix as options are typed — `variantMatrix` is a pure function with its
 own tests, because 3 sizes × 2 colours must be 6 variants and quietly producing 3 would corrupt a
-catalog. Publish and archive render what the server returned (`status`, `published_at`); archive is
-behind a confirmation, since `DELETE` is the verb even though the contract archives rather than
-hard-deletes. `/{storeId}/catalog/categories` assembles the tree from the flat list, showing an
-orphan at the root rather than dropping it.
+catalog. Media is an ordered list of URLs (row 1 is the thumbnail) with move up / move down; the
+server action renumbers `position` from the array order, so the form never sets one. Publish and
+archive each sit behind an inline confirmation — publish because it emits `product.published` and
+makes the product visible to shoppers, archive because `DELETE` is the verb even though the
+contract archives rather than hard-deletes — and both render what the server returned (`status`,
+`published_at`). Variants are created deliberately from the gap between the option matrix and what
+exists (one button per row, or "Create all N"), and edited inline (SKU, title, price per currency).
+`/{storeId}/catalog/categories` assembles the tree from the flat list, showing an orphan at the root
+rather than dropping it, and is the source of the category picker.
+
+Every catalog mutation is a server action that calls the Admin API, which re-checks the operation's
+`x-permission`; a 401/403 comes back as `refusal` on the `ActionResult` and `ActionRefusal` renders
+the same `ApiStatePanel` a screen would — never a one-line message that reads as "try again", and
+never a silent no-op. A 400 or 409 names a field and lands under that input.
 
 ## When a screen cannot show what was asked for
 

@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (REQUEST #154 done, 2.1 next)
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,26 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.1 — issue #113 Catalog editor** · commit: see the 2.1 PR (two commits: `ded75d4` part 1 +
+  the docs/real-core commit) · Admin API 0.3.0, no contract change
+  - Refusals render the state panel: `ActionResult` error carries `refusal: {status, error}` for
+    401/403, `ActionRefusal` renders `ApiStatePanel` in the product form, publish controls,
+    variants and categories panels. Publish behind a confirmation (emits `product.published`).
+    Media move up/down; `position` renumbered server-side only. Category picker sends `null` for
+    "none" (the empty string silently failed validation with no error slot — a real 1.5 bug).
+  - `test-contract/catalog.test.tsx` (14): wrappers, the spec's 400/409 examples under the Handle
+    input, and the screens through the *real* server actions against Prism (`prism.ts` spawns
+    per suite on :4212; `states.test.tsx` keeps :4211). **CONTRACT CHANGE #180**: no catalog
+    operation documents 401/403, so Prism cannot produce one there.
+  - e2e on the mock 11/11 (create → editor, publish asks first, media reorder). **Real core:**
+    `e2e/catalog-core.spec.ts` (opt-in `E2E_API=core`) passed against core 2.2 on :9000 —
+    create → 2 variants → publish → listed, screenshots in `apps/admin/docs/real-core-run/`.
+  - Unit 336, contract 20. README/CLAUDE.md/CHANGELOG updated.
+  - **Incident:** the Phase 1 admin session ("Window 4 Admin app phase 1 setup") was also given
+    2.1 and edited this worktree in parallel for ~25 minutes; it built steps 1–4 of the plan and
+    filed #180. Its uncommitted work was reviewed, formatted and taken over here (commit
+    `ded75d4`); it was told to stop via a session message and is no longer running.
+
 - **REQUEST #154 — `playwright.config.ts` honours `E2E_CHANNEL`** · commit `a34e583` · PR #171 (in review)
   - `const CHANNEL = process.env.E2E_CHANNEL ?? (CI ? undefined : 'chrome')` and
     `const browser = CHANNEL ? { channel: CHANNEL } : {}` spread into `use` and the chromium
@@ -206,45 +226,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#113 · 2.1 Catalog editor** — plan written 2026-09-08, awaiting the owner's confirmation before
-  implementation (the task is well over the ~20-tool-call budget). Building locally while #171 is
-  in review; nothing pushed until #171 is merged.
-
-  **What 1.5 already delivered (not redone):** product create/edit form (RHF + Zod, category
-  picker, options with inline values, media as ordered URL rows), variants panel with matrix
-  reconciliation + inline SKU/title/price edit, publish, archive with confirmation, categories tree.
-
-  **The gap, in order:**
-  1. **Refusals become the state panel.** `ActionResult` error variant gains an optional
-     `refusal: { status, error }` for 401/403 (set in `toActionResult`); a small client component
-     `ActionRefusal` renders `ApiStatePanel` from it. `ProductForm`, `PublishControls`,
-     `VariantsPanel` and `CategoriesPanel` render it instead of a one-line `FormError`, so a 403
-     from any catalog mutation is the same panel a screen shows — never a silent no-op.
-  2. **Publish behind a confirmation** (archive already is), same inline yes/cancel pattern.
-  3. **Media ordering:** move up / move down per row (`useFieldArray.move`); position is already
-     renumbered from array order server-side (#68). Still URL-based (Cloudinary pipeline is
-     window 9's later work).
-  4. **Contract tests `test-contract/catalog.test.tsx`** against the spawned Prism: list, detail,
-     categories 200 through the real wrappers (mock `server-only` + `getSession`); `createProduct`
-     `Prefer: code=400` → `toActionResult` → `fieldErrors.handle = 'handle must be kebab-case'`
-     → rendered `ProductForm` shows it under the Handle input; 409 → same for the conflict
-     example; `publishProduct` 200; `createVariant` 201; 403 on `updateProduct` → `ActionRefusal`
-     renders the relation-naming panel.
-  5. **e2e:** extend `e2e/store-admin.spec.ts` with sign in → New product → fill title/handle →
-     Create → lands on `/catalog/{id}` → the status control shows what the API returned.
-     Limitation to state in the PR: Prism's only product example is already `published`, so the
-     Publish *click* cannot be exercised on the mock; it is exercised in the contract test (200
-     chain) and in the documented real-core run.
-  6. **Real-core run:** a core is already listening on :9000 (`/health` OK, shared stack up);
-     run the app on a free port with `ADMIN_API_URL=http://localhost:9000` +
-     `ADMIN_APP_URL=http://localhost:3000` (3000 is held by another project), sign in as
-     `store-admin`, create → add variant → publish on brand-a; screenshot + steps in the PR and
-     README. If the core refuses any step, record the exact response and file an issue for
-     window 1 rather than working around it.
-  7. README (catalog section + real-API run), CHANGELOG, memory; `pnpm lint && pnpm typecheck &&
-     pnpm test --filter @platform/admin` + `test:contract`; PR with the acceptance criteria.
-  **Estimated: ~45–60 tool calls.** Not in scope (contract has them, no screen asks): `attributes`,
-  `seo`, per-variant `dimensions_mm`/`hs_code`/`origin_country` — noted for 2.6 if wanted.
+- (nothing — 2.1 is in PR; 2.2 starts locally once it is opened)
 
 ### Open requests, none blocking
 - ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
@@ -256,7 +238,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [ ] **#113 · 2.1** Catalog editor: product, variants, options, media, publish
+- [x] **#113 · 2.1** Catalog editor — in PR
 - [ ] **#114 · 2.2** Orders: list, detail, actions
 - [ ] **#115 · 2.3** Customers and consent (support-gated)
 - [ ] **#116 · 2.4** Promotions and price lists screens
@@ -264,6 +246,21 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
 
 ## Decisions made (with reasons)
+- **A 401/403 from a mutation is a `refusal`, not a `formError`.** A relation you do not hold is
+  not a validation message; rendering the same `ApiStatePanel` the screen would render makes the
+  refusal look identical whether it came from loading or from Save, and it can never be a silent
+  no-op.
+- **Publish asks first.** It emits `product.published` and is the moment shoppers see the product;
+  that is not a mis-click away from Archive.
+- **The form never sets media `position`.** The server action renumbers from the array order, so
+  a client-side number was only a second source of truth that could disagree.
+- **Contract tests drive the real server actions.** `server-only`, the session and `next/cache`
+  are the only stubs, so a click on `PublishControls` in `test-contract/` is a real POST to Prism.
+  Error codes the wrappers cannot ask for go through `adminCall` with `Prefer` — no test-only
+  door in shipped code.
+- **The real-core journey is opt-in (`E2E_API=core`) and reuses a server you started.** It writes
+  real rows; the default run stays hermetic on Prism. The config's `reuseExistingServer` is what
+  makes this work without a second config.
 - **Customers is gated on `support`, not `viewer`** (Admin API 0.2.1). Customer records are personal
   data, so a relation on the store is no longer enough to read them — `store_staff`, `finance`,
   `operations` and `analyst` all lose the section, while an organization `support` keeps it.
@@ -407,6 +404,24 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Two sessions on one worktree corrupt each other silently.** A resumed Phase 1 session and this
+  one both received "go on 2.1" and both edited `apps/admin`; `git status` showing files you did
+  not touch is the tell. Check `list_sessions` for another running session with the same `cwd`
+  before editing, and message it to stop rather than racing it.
+- **No catalog operation in Admin API 0.3.0 documents 401/403**, so `Prefer: code=403` on those
+  paths makes Prism answer 404/normally, not 403 — a contract test that expects the refusal there
+  passes for the wrong reason or fails confusingly. Drive refusals on a registry operation
+  (`createStore` documents 403) until #180 lands.
+- **`listProducts` has no example in the spec**, so Prism generates the page from the schema:
+  assert on shape (row → link to its own id), never on "Classic Tee".
+- **The mock's only product example is already `published`**, so a Publish click cannot be
+  exercised on Prism; the contract suite overrides the status to `draft` before rendering, and the
+  real-core journey does the actual click.
+- **Playwright `getByLabel('Title', { exact: false })` also matches "Subtitle"** (strict-mode
+  violation). Anchor it: `getByLabel(/^Title/)`.
+- **Async form submits in tests:** the action runs inside `startTransition`, so assert with
+  `findBy*`/`waitFor` after the click; `getBy*` right after `user.click` is a race that only
+  sometimes loses.
 - **Check `origin/main`, not your branch, before reporting that a shared file is missing something.**
   I told window 2 the realm JSON lacked the 3200 redirect URI; it did not — their #85 had landed on
   `main` and I was reading this branch's older copy. `git fetch && git show origin/main:<path>`

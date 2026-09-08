@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 /**
  * The store-admin journey from issue #30: sign in → switch store → products.
@@ -12,27 +12,7 @@ import { expect, test, type Page } from '@playwright/test';
  * are started by `playwright.config.ts`.
  */
 
-const STORE_ADMIN = { username: 'store-admin', password: 'store-admin' };
-/** From `packages/db` SEED_IDS — store-admin holds `store_admin` on brand-a and brand-b only. */
-const BRAND_A = '00000000-0000-4000-8000-000000000031';
-const BRAND_C = '00000000-0000-4000-8000-000000000033';
-
-/** The app's session cookie, chunked across `admin_session.N`. */
-async function sessionCookies(page: Page) {
-  const cookies = await page.context().cookies();
-  return cookies.filter((cookie) => cookie.name.startsWith('admin_session'));
-}
-
-async function signIn(page: Page, to = '/'): Promise<void> {
-  await page.goto(to);
-  // The middleware bounces an unauthenticated request to the realm's own sign-in form.
-  await page.waitForURL(/\/realms\/staff\/protocol\/openid-connect\/auth/);
-  // Role-based, not getByLabel: Keycloak renders a "Show password" toggle whose aria-label also
-  // contains "password", so a label regex matches two elements and trips strict mode.
-  await page.getByRole('textbox', { name: /username/i }).fill(STORE_ADMIN.username);
-  await page.getByRole('textbox', { name: 'Password', exact: true }).fill(STORE_ADMIN.password);
-  await page.getByRole('button', { name: /sign in|log in/i }).click();
-}
+import { BRAND_A, BRAND_C, sessionCookies, signIn } from './staff';
 
 test.describe('store-admin', () => {
   test('signs in with a password alone and lands on their own store', async ({ page }) => {

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Added — task 2.1, issue #113 (Admin API 0.3.0, no contract change)
+
+- **A refused mutation renders the state panel, never a silent no-op.** `ActionResult`'s error
+  variant now carries `refusal: { status, error }` for 401/403 (set by `toActionResult`), and the
+  new `ActionRefusal` component renders `ApiStatePanel` from it — the same "you need `store_staff`
+  on `store:…`" panel a screen shows when it cannot load. The product form, publish controls,
+  variants panel and categories panel all use it; a 400 still lands under the field it names.
+- **Publish asks first.** It emits `product.published` and is the moment a product becomes visible
+  to shoppers, so it gets the same inline confirmation archive already had. Both render what the
+  server returned (`status`, `published_at`), never an assumed outcome.
+- **Media rows can be reordered** (move up / move down, thumbnail is row 1). `position` is no
+  longer set by the form at all: the server action renumbers from the array order (REQUEST #68),
+  so a number set client-side was only a second source of truth. Still URL-based until window 9's
+  Cloudinary pipeline (CONTRACT CHANGE #168).
+- **Category picker fix.** "— none —" is `value=""`, which is neither a uuid nor `null`, so the
+  schema rejected every submit with no category — and because the field had no error slot, Save
+  simply did nothing. It now sends `null`, and every product field shows its own error.
+- **Contract tests** (`test-contract/catalog.test.tsx`, 14 tests): every catalog wrapper against
+  Prism with `--errors`; the spec's own 400 and 409 examples mapped through `toActionResult` and
+  rendered under the Handle input, wired through `aria-describedby`; and the screens driven through
+  the _real_ server actions — list rows link to their product, detail shows status and offers the
+  five missing variants, the Publish click is a real `POST …/publish`, Create variant gets its 201,
+  creating a category resets the form. Prism is spawned per suite on its own port (`prism.ts`).
+- **CONTRACT CHANGE #180** filed: no catalog operation documents 401/403 although every one carries
+  an `x-permission`, so Prism cannot produce a refusal there; the refusal chain is proven on a
+  registry operation (`states.test.tsx`) and with synthesized results (`test/catalog-refusals.test.tsx`).
+- **e2e** extended: sign in → New product → editor (the id in the URL is the API's, not the
+  form's), publishing asks first, media reorder in the editor.
+- **Real-core journey** `e2e/catalog-core.spec.ts`, opt-in with `E2E_API=core` against an app
+  started with `ADMIN_API_URL=http://localhost:9000`: sign in as `store-admin` → create a product
+  with a fresh handle → create its two variants from the matrix → publish (confirmed) → the list
+  shows it published. Passed on 2026-09-08 against core 2.2 with a real Keycloak token and OpenFGA
+  permissions; screenshots in `docs/real-core-run/`. The sign-in helper moved to `e2e/staff.ts`
+  and both journeys share it.
+- Unit: 336 (was 304). Contract: 20 (was 6). E2E on the mock: 11 (was 8), plus 1 against the core.
+
 ### Changed — REQUEST #154: `playwright.config.ts` honours `E2E_CHANNEL`
 
 - The config no longer pins `channel: 'chrome'`. `infra/ci/run-e2e.sh` decides the browser and
