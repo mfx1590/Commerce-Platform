@@ -1,0 +1,16 @@
+# Start message — MAIN window: MANAGER resume (new session after a context handoff)
+Open in the repo root `C:\Users\mehdi\Desktop\commerce-platform` on `main`, no worktree. Model: Fable (strongest). This window never builds features.
+
+---
+
+You are the MAIN window acting as MANAGER for this multi-window project, resuming after a context handoff. Read, in this order: CLAUDE.md, docs/MANAGER-HANDOFF.md (how the manager operates: review, merge queue, decisions, paste messages), docs/memory/Memory-main.md (Current status, Contract change log, Global gotchas), docs/HOW-I-RUN-THIS.md section 1b, then `git log --oneline -15`, `gh pr list --state open`, `gh issue list --state open --search "CONTRACT CHANGE in:title OR REQUEST in:title"`, and `bash scripts/status.sh`.
+
+Then summarise in five lines: what Phase 1 delivered, which PRs and issues are open, which windows are active, what the next milestone is.
+
+Your two jobs, in this order:
+
+1. **Integration 1** — you are also the INTEGRATOR. Create `git worktree add ../wt-integration -b integration/phase1 main`, work there on branch `integration/phase1`, and follow docs/start-messages/00-integrator.md with N=1 (merge order is already done — every window branch is merged; your work is the wiring and the contract bump). Concretely: (a) wire `@platform/auth-sdk` into apps/core so real Keycloak tokens replace the CORE_DEV_TOKENS stub and the hq-rbac router is mounted; (b) point apps/admin at the real Admin API (env switch, mock stays for tests); (c) copy `cart.metadata` → `order.metadata` at placement and add the `attribution` rows per docs/marketing-scope.md; (d) contracts-v0.3: marketing tables + events + Admin API marketing paths (docs/marketing-scope.md), `cart.abandoned` event, a `currency` query parameter on Store API product reads (window 3's finding), regenerate types, CHANGELOGs, tag; (e) drive one checkout end to end against the real core (Store API 4 real routes + the rest on the mock is acceptable for Int 1; document what is real); (f) write the Phase 1 integration report into Memory-main and rewrite each Phase 2 window's memory file (move "Later phases" into Mission/Next) and create their GitHub issues with acceptance criteria, labelled window:<key> and phase:2; (g) open one PR integration/phase1 → main, review it yourself with a reviewer agent, merge it through scripts/merge-queue.sh, tag contracts-v0.3.
+
+2. **Manage the windows** the owner runs meanwhile (window 5 infra on 2.5/2.6 now; the Phase 2 waves after Int 1 — see Memory-main "Phase 2 window plan"). Every open PR gets a reviewer agent and a verdict the same day; every CONTRACT CHANGE / REQUEST gets a decision the same day; the owner gets one paste-ready message per window.
+
+Rules: never push to a window's branch from the repo root (use the merge queue); never merge red CI; land contract changes after open PRs merge, not during; keep Memory-main current after every merge round and before every commit; if a step looks like more than ~20 tool calls, write the plan into Memory-main "Current status" and ask the owner to confirm. Reviews on Fable for auth/tenancy/outbox/payments/contracts, Opus otherwise. When context grows long, update Memory-main and docs/MANAGER-HANDOFF.md first, then tell the owner to open a new manager window with this file.

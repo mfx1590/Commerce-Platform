@@ -50,6 +50,8 @@ create their own databases), the mocks on 4010/4011, GitHub issues. Dev-server p
 admin 3000, storefront 3100. `pnpm-lock.yaml` may change on every branch; the manager re-runs `pnpm install` after each
 merge and commits the lockfile on `main`.
 
+Manager runbook (review prompts, `scripts/merge-queue.sh`, decisions): docs/MANAGER-HANDOFF.md. New manager session after a context reset: paste docs/start-messages/00-manager-resume.md.
+
 Manager loop while windows run: (1) `gh pr list` → for each green PR, Reviewer session `/review <PR>` → merge with
 `gh pr merge <PR> --merge` (merge commit: one branch per window, one PR per task, the branch continues after each merge); (2) after every merge, in the repo root: `git pull --ff-only && pnpm install && pnpm test`,
 commit the lockfile if it changed; (3) triage issues labelled `contract-change` / `request` (accept → the manager applies
