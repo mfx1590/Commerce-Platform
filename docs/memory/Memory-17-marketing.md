@@ -20,7 +20,7 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **2.1 (#145) campaigns + attribution report** — commit `<sha>`, PR `<pr>` (2026-09-08). New module
+- **2.1 (#145) campaigns + attribution report** — commit `ca83a70`, PR #182 (2026-09-08). New module
   `apps/core/src/modules/marketing/` (types, campaigns, reports, routes, index, README, CHANGELOG) + 23 tests.
   Campaign CRUD, `launch`/`end` with `campaign.launched`/`campaign.ended` through the outbox in the same
   transaction, and `GET .../marketing/reports/attribution` computed from `attribution` joined to `"order"`.
