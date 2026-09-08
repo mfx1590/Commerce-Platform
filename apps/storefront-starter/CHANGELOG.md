@@ -1,5 +1,25 @@
 # Changelog — @platform/storefront-starter
 
+## 0.7.0 — 2026-09-07
+
+Task [storefront] 1.7 (issue #23) and REQUEST #84, contracts `0.2.0`. Config and docs only — infra
+already landed the CI job that runs these journeys (#80/#87), so no workflow change is needed.
+
+- `lighthouserc.json`: performance and accessibility ≥ 90, LCP ≤ 2.5 s, CLS ≤ 0.1, mobile emulation
+  over PLP and PDP, median of three runs. `pnpm --filter @platform/storefront-starter lighthouse`.
+- **Performance fix found by that budget.** PLP scored 89 and PDP 85, entirely on blocking time: the
+  root layout handed `NextIntlClientProvider` the whole message catalogue, so every page serialised
+  and hydrated strings it never used. It now passes only the namespaces the `'use client'` components
+  need. PLP 89 → **96**, PDP 85 → **99**; PDP total blocking time 530 ms → 30 ms. A test keeps the
+  namespace list in step with the components.
+- **REQUEST #84:** the Playwright Chrome channel is conditional — the installed Chrome locally,
+  Playwright's bundled chromium on CI (version-matched to the lockfile, lighter to install).
+  `E2E_CHANNEL` overrides either way.
+- The account journeys are now **required** when `$CI` is set instead of skipping: CI boots Keycloak,
+  so an unreachable one is a real failure, and a silent skip would quietly stop covering sign-in.
+- `CLAUDE.md` documents the e2e and Lighthouse commands; the README records the measured run and
+  drops the stale pre-i18n numbers from task 1.3.
+
 ## 0.6.0 — 2026-09-07
 
 Task [storefront] 1.6 (issue #22), contracts `0.2.0`.

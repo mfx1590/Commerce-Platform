@@ -95,12 +95,12 @@ dependency.
 
 ## Routes
 
-| Route group  | Routes                                                                      | Owner                          |
-| ------------ | --------------------------------------------------------------------------- | ------------------------------ |
-| `(shop)`     | `/`, `/products`, `/categories/[handle]`, `/products/[handle]`              | window 3                       |
-| `(checkout)` | `/cart`, `/checkout/{address,shipping,payment,review}`, `/orders/[orderId]` | window 3                       |
-| `(account)`  | `/account`, `/account/orders`, `/account/{sign-in,callback,sign-out}`       | window 3 → window 13 (Phase 3) |
-| `(content)`  | `/pages/[slug]`                                                             | window 6 (placeholder only)    |
+| Route group  | Routes                                                                           | Owner                          |
+| ------------ | -------------------------------------------------------------------------------- | ------------------------------ |
+| `(shop)`     | `/`, `/products`, `/categories/[handle]`, `/products/[handle]`                   | window 3                       |
+| `(checkout)` | `/cart`, `/checkout/{address,shipping,payment,review}`, `/orders/[orderId]`      | window 3                       |
+| `(account)`  | `/account`, `/account/orders` (plus `/auth/*` and `/health`, outside `[locale]`) | window 3 → window 13 (Phase 3) |
+| `(content)`  | `/pages/[slug]`                                                                  | window 6 (placeholder only)    |
 
 `(checkout)` deliberately has its own chrome: no navigation, nothing that invites the customer out of
 the funnel.
@@ -209,6 +209,33 @@ docker compose -f infra/docker/docker-compose.yml up -d keycloak   # or pnpm com
 
 Seeded customer: **jane@example.com** / `jane` (the realm seeds the email as the username).
 
+## Performance budget
+
+`lighthouserc.json` holds the budget task 1.7 asks for: **performance and accessibility ≥ 90**,
+LCP ≤ 2.5 s, CLS ≤ 0.1, measured on mobile emulation over the PLP and the PDP, median of three runs.
+
+```bash
+pnpm --filter @platform/storefront-starter build
+PORT=3100 MOCK_API_URL=http://localhost:4010 pnpm --filter @platform/storefront-starter start &
+pnpm --filter @platform/storefront-starter lighthouse
+```
+
+Measure a **production build**: `next dev` is unoptimised and the numbers mean nothing. Two audits
+are skipped because they only fail by virtue of being localhost (`uses-http2`, `uses-long-cache-ttl`);
+nothing that reflects on the app is skipped.
+
+Latest local run (2026-09-07, median of 3):
+
+| Page                   | Perf | A11y | Best practices | SEO | LCP    | TBT    | CLS |
+| ---------------------- | ---- | ---- | -------------- | --- | ------ | ------ | --- |
+| `/en-GB/products`      | 96   | 100  | 96             | 91  | 2.08 s | 187 ms | 0   |
+| `/en-GB/products/…tee` | 99   | 100  | 96             | 92  | 2.05 s | 30 ms  | 0   |
+
+The first measurement came in at 89 and 85, entirely on blocking time: the root layout was handing
+`NextIntlClientProvider` the whole message catalogue, so every page serialised and hydrated strings
+it never used. It now passes only the namespaces the `'use client'` components need, and a test keeps
+that list honest.
+
 ## Test
 
 ```bash
@@ -222,28 +249,17 @@ pnpm --filter @platform/storefront-starter typecheck
 pnpm --filter @platform/storefront-starter e2e         # Playwright: catalog, checkout, account
 ```
 
+Playwright uses the Chrome already installed locally and its own bundled chromium on CI, which is
+version-matched to the lockfile (REQUEST #84); `E2E_CHANNEL` overrides either way.
+
 Playwright starts both servers itself (the Prism mock and a **production** build — `next dev`
 behaves differently enough around caching and server actions that a green dev run proves little) and
 drives the system Chrome, so no browser download is needed. The mock keeps no state and answers from
 the contract's examples, so the cart it returns already carries an address and a delivery option and
 the journey enters checkout at the payment step; every step is still exercised for real.
 
-The account specs need Keycloak running (command above). Without it they **skip** — unless
-`E2E_REQUIRE_KEYCLOAK=1`, which CI should set so a missing dependency there fails loudly instead of
-passing quietly. They also run serially: they share one Keycloak user, and the sign-out test ends
-that SSO session.
-
-### Lighthouse
-
-Measure the production build, never `dev` — `next dev` is unoptimised and scores meaninglessly low:
-
-```bash
-pnpm mock
-pnpm --filter @platform/storefront-starter build
-pnpm --filter @platform/storefront-starter start
-npx lighthouse http://localhost:3100/products --only-categories=performance --chrome-flags="--headless=new"
-```
-
-Latest run (mobile emulation, production build, against the mock): PLP performance 99–100, PDP 100;
-LCP 1.5–2.0 s, CLS 0, accessibility 100. The budgeted, repeatable version of this lands with task 1.7
-(`lighthouserc`).
+The account specs need Keycloak running (command above). Locally they **skip** without it — a laptop
+without the stack should not fail the suite. **On CI they are required**: the workflow boots Keycloak,
+so an unreachable one is a real failure and a silent skip would quietly stop covering sign-in at all.
+`E2E_REQUIRE_KEYCLOAK=1` forces the same strictness anywhere. They also run serially: they share one
+Keycloak user, and the sign-out test ends that SSO session.

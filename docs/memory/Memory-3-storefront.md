@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.5 merged (#39, #64, #66, #76), 1.6 in PR #96, then 1.7 Playwright+Lighthouse config, 1.8 (#62) UTM capture
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.6 merged (#39, #64, #66, #76, #96), 1.7 in PR #97, then 1.8 (#62) UTM capture closes Phase 1
 
 ## Identity (does not change)
 
@@ -80,6 +80,14 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       switchers server-rendered. Route handlers (`/health`, `/auth/*`) stay outside the locale tree.
       35 new unit tests → 124, plus two e2e specs; 8 Playwright specs green.
 
+- [x] **1.7 (#23) Playwright suite + Lighthouse config** — commit `82a1e8a`, PR #97.
+      Config and docs only: infra's job (#80/#87) already runs the journeys. `lighthouserc.json`
+      with the budgets; REQUEST #84 (conditional Chrome channel); account specs required when `$CI`
+      is set. **Measured (2026-09-07, median of 3, mobile, production build):**
+      PLP `/en-GB/products` perf **96**, a11y 100, LCP 2.08 s, TBT 187 ms, CLS 0;
+      PDP `/en-GB/products/classic-tee` perf **99**, a11y 100, LCP 2.05 s, TBT 30 ms, CLS 0.
+      First run was 89/85 — see the client-message fix below.
+
 ## In progress
 
 - (nothing — 1.4 next, after the 1.3 PR merges)
@@ -106,7 +114,6 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] 1.7 (#23) Playwright smoke suite + `lighthouserc` budgets; CI job only via a `REQUEST:` issue (workflows belong to window 5 / main). Much of the suite already exists from 1.4/1.5 — 1.7 adds the budgets, the CI job YAML and `E2E_REQUIRE_KEYCLOAK=1`.
 - [ ] 1.8 (#62) UTM / referrer capture into `cart.metadata.attribution` (added by the manager 2026-09-07).
 
 ## Decisions made (with reasons)
@@ -235,6 +242,14 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 - **Route handlers stay outside `[locale]`**: `/health` must answer the probe without a redirect and
   `/auth/*` has a callback URL registered with Keycloak. Everything else redirects through
   `redirectLocalized`.
+
+- **`NextIntlClientProvider` ships the whole catalogue unless told otherwise**, and that alone kept
+  PLP and PDP under the Lighthouse budget (89/85, on blocking time — LCP and CLS were always fine).
+  Passing only the namespaces the `'use client'` components use took PDP TBT from 530 ms to 30 ms.
+  The budget earned its place immediately: nothing else would have surfaced this.
+- **Playwright browser choice is conditional** (REQUEST #84): local Chrome, CI chromium.
+  `infra/ci/run-e2e.sh` decides what to install by grepping the config for a pinned
+  `channel: 'chrome'`, so that literal must not appear in the source when CI runs — it is computed.
 
 ## Blocked / waiting
 

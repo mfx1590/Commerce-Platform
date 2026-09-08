@@ -1,6 +1,6 @@
 import { ThemeProvider } from '@platform/ui';
 import { hasLocale, NextIntlClientProvider } from 'next-intl';
-import { setRequestLocale } from 'next-intl/server';
+import { getMessages, setRequestLocale } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -9,6 +9,23 @@ import { routing } from '@/i18n/routing';
 import { assertStoreOffersLocale } from '@/lib/i18n';
 import { getStoreOrNull } from '@/lib/store';
 import './globals.css';
+
+/**
+ * Namespaces the `'use client'` components need: `variant-picker` (pdp), `cart-line` (cart),
+ * `checkout-forms` (checkout). Everything else renders on the server and never reaches the browser.
+ * Keep this in step with the components — `test/i18n.test.ts` fails if a client component asks for a
+ * namespace that is not listed here.
+ */
+const CLIENT_NAMESPACES = ['common', 'pdp', 'cart', 'checkout', 'totals'] as const;
+
+function pickNamespaces(
+  messages: Record<string, unknown>,
+  namespaces: readonly string[],
+): Record<string, unknown> {
+  return Object.fromEntries(
+    namespaces.filter((name) => name in messages).map((name) => [name, messages[name]]),
+  );
+}
 
 /** The locale is in the path, so every route is generated per locale. */
 export function generateStaticParams(): { locale: string }[] {
@@ -54,9 +71,14 @@ export default async function LocaleLayout({
   // Lets the static parts of the tree render without opting the whole route into dynamic rendering.
   setRequestLocale(locale);
 
-  const store = await getStoreOrNull();
+  const [store, messages] = await Promise.all([getStoreOrNull(), getMessages()]);
   // A locale this build supports but the store does not offer is a 404, not a half-translated page.
   assertStoreOffersLocale(store, locale);
+
+  // Only the namespaces the `'use client'` components actually ask for. Handing the provider the
+  // whole catalogue serialises every string into the HTML and hydrates it on pages that use none of
+  // it — measurable in total blocking time, which is what kept PLP and PDP under the 90 budget.
+  const clientMessages = pickNamespaces(messages, CLIENT_NAMESPACES);
 
   return (
     <html lang={locale}>
@@ -66,7 +88,7 @@ export default async function LocaleLayout({
         tokens={brandTokens}
         className="min-h-screen bg-background text-foreground antialiased"
       >
-        <NextIntlClientProvider>{children}</NextIntlClientProvider>
+        <NextIntlClientProvider messages={clientMessages}>{children}</NextIntlClientProvider>
       </ThemeProvider>
     </html>
   );
