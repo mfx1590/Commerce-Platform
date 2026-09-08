@@ -1,7 +1,14 @@
 // Algolia REST client over Node's global fetch (no SDK: apps/core/package.json belongs to window 1 and the REST
 // surface we need is five endpoints). Errors never carry the API key. Credentials come from env/Vault
 // (config.ts), never from code.
-import type { IndexClient, IndexSettings, SearchRecord } from './types';
+import type {
+  AlgoliaRule,
+  IndexClient,
+  IndexSettings,
+  SearchParams,
+  SearchRecord,
+  SearchResponse,
+} from './types';
 
 export interface AlgoliaClientOptions {
   appId: string;
@@ -16,6 +23,10 @@ export interface AlgoliaClientOptions {
   batchSize?: number;
   /** Per-request timeout in ms. */
   timeoutMs?: number;
+  /** Retries on 429 / 5xx / network failure (default 3; 0 disables). */
+  retries?: number;
+  /** First backoff delay in ms, doubled per attempt (default 500; tests pass 0). */
+  retryBaseMs?: number;
 }
 
 export class AlgoliaError extends Error {
@@ -41,6 +52,8 @@ export class AlgoliaIndexClient implements IndexClient {
   private readonly waitForTasks: boolean;
   private readonly batchSize: number;
   private readonly timeoutMs: number;
+  private readonly retries: number;
+  private readonly retryBaseMs: number;
 
   constructor(opts: AlgoliaClientOptions) {
     if (!opts.appId || !opts.apiKey) throw new Error('AlgoliaIndexClient needs appId and apiKey');
@@ -51,21 +64,46 @@ export class AlgoliaIndexClient implements IndexClient {
     this.waitForTasks = opts.waitForTasks ?? false;
     this.batchSize = opts.batchSize ?? 1000;
     this.timeoutMs = opts.timeoutMs ?? 30_000;
+    this.retries = Math.max(0, opts.retries ?? 3);
+    this.retryBaseMs = Math.max(0, opts.retryBaseMs ?? 500);
   }
 
+  /** Never echo the key: the path and Algolia's message are enough (every occurrence masked). */
+  private redact(message: string): string {
+    return message.replaceAll(this.apiKey, '***');
+  }
+
+  /**
+   * One HTTP call with retries: 429 and 5xx (and a network / timeout failure) are retried `retries` times with
+   * exponential backoff (`retryBaseMs` × 2^attempt) so a transient Algolia error does not fail a store's run.
+   * 4xx other than 429 is final.
+   */
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.fetchImpl(`${this.host}${path}`, {
-      method,
-      headers: {
-        'X-Algolia-Application-Id': this.appId,
-        'X-Algolia-API-Key': this.apiKey,
-        'Content-Type': 'application/json',
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
-    const text = await res.text();
-    if (!res.ok) {
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      try {
+        res = await this.fetchImpl(`${this.host}${path}`, {
+          method,
+          headers: {
+            'X-Algolia-Application-Id': this.appId,
+            'X-Algolia-API-Key': this.apiKey,
+            'Content-Type': 'application/json',
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (err) {
+        if (attempt >= this.retries)
+          throw new AlgoliaError(
+            0,
+            path,
+            this.redact(err instanceof Error ? err.message : String(err)),
+          );
+        await this.backoff(attempt);
+        continue;
+      }
+      const text = await res.text();
+      if (res.ok) return (text ? JSON.parse(text) : {}) as T;
       let message = text.slice(0, 300);
       try {
         const parsed = JSON.parse(text) as { message?: string };
@@ -73,10 +111,15 @@ export class AlgoliaIndexClient implements IndexClient {
       } catch {
         // keep the raw (truncated) body
       }
-      // never echo the key: the path and Algolia's message are enough
-      throw new AlgoliaError(res.status, path, message.replace(this.apiKey, '***'));
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable || attempt >= this.retries)
+        throw new AlgoliaError(res.status, path, this.redact(message));
+      await this.backoff(attempt);
     }
-    return (text ? JSON.parse(text) : {}) as T;
+  }
+
+  private async backoff(attempt: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, this.retryBaseMs * 2 ** attempt));
   }
 
   private async waitTask(indexName: string, r: TaskResponse): Promise<void> {
@@ -162,5 +205,41 @@ export class AlgoliaIndexClient implements IndexClient {
       `/1/indexes/${encodeURIComponent(indexName)}`,
     );
     await this.waitTask(indexName, r);
+  }
+
+  async saveRules(
+    indexName: string,
+    rules: AlgoliaRule[],
+    opts: { clearExisting?: boolean } = {},
+  ): Promise<void> {
+    const qs = opts.clearExisting ? '?clearExistingRules=true' : '';
+    const r = await this.request<TaskResponse>(
+      'POST',
+      `/1/indexes/${encodeURIComponent(indexName)}/rules/batch${qs}`,
+      rules,
+    );
+    await this.waitTask(indexName, r);
+  }
+
+  async clearRules(indexName: string): Promise<void> {
+    const r = await this.request<TaskResponse>(
+      'POST',
+      `/1/indexes/${encodeURIComponent(indexName)}/rules/clear`,
+    );
+    await this.waitTask(indexName, r);
+  }
+
+  async search(indexName: string, params: SearchParams): Promise<SearchResponse> {
+    const res = await this.request<Partial<SearchResponse>>(
+      'POST',
+      `/1/indexes/${encodeURIComponent(indexName)}/query`,
+      { ...params, attributesToRetrieve: ['objectID'] },
+    );
+    return {
+      hits: (res.hits ?? []).map((h) => ({ objectID: h.objectID })),
+      nbHits: res.nbHits ?? 0,
+      page: res.page ?? params.page ?? 0,
+      hitsPerPage: res.hitsPerPage ?? params.hitsPerPage ?? 20,
+    };
   }
 }

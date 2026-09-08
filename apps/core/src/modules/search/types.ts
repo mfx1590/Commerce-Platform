@@ -64,6 +64,44 @@ export interface IndexSettings {
   [key: string]: unknown;
 }
 
+/** An Algolia Rule as sent to `/1/indexes/<name>/rules/batch` (subset this module produces; task 2.2). */
+export interface AlgoliaRule {
+  objectID: string;
+  description?: string;
+  enabled: boolean;
+  conditions: {
+    pattern?: string;
+    anchoring?: 'is' | 'startsWith' | 'endsWith' | 'contains';
+    filters?: string;
+    context?: string;
+  }[];
+  consequence: {
+    promote?: { objectID: string; position: number }[];
+    hide?: { objectID: string }[];
+    params?: { optionalFilters?: string[] };
+  };
+  validity?: { from: number; until: number }[];
+}
+
+/** Query parameters of one search (Algolia `/query` subset). */
+export interface SearchParams {
+  query: string;
+  /** Algolia filter expression, e.g. `category_id:<uuid>`; the fake understands `category_id:` only. */
+  filters?: string;
+  /** 0-based page. */
+  page?: number;
+  hitsPerPage?: number;
+  /** Rule contexts to activate (unused by the fake). */
+  ruleContexts?: string[];
+}
+
+export interface SearchResponse {
+  hits: { objectID: string }[];
+  nbHits: number;
+  page: number;
+  hitsPerPage: number;
+}
+
 /**
  * What the sync logic needs from an index backend. `AlgoliaIndexClient` talks to the REST API; `FakeIndexClient`
  * keeps everything in memory. All operations are idempotent (save = upsert by objectID, delete = no-op when
@@ -81,6 +119,15 @@ export interface IndexClient {
     opts?: { forwardToReplicas?: boolean },
   ): Promise<void>;
   deleteIndex(indexName: string): Promise<void>;
+  /** Upserts rules; `clearExisting` replaces the whole rule set of the index (publish semantics). */
+  saveRules(
+    indexName: string,
+    rules: AlgoliaRule[],
+    opts?: { clearExisting?: boolean },
+  ): Promise<void>;
+  clearRules(indexName: string): Promise<void>;
+  /** One query with rules applied (Store API `sort=relevance`). */
+  search(indexName: string, params: SearchParams): Promise<SearchResponse>;
 }
 
 /** The store fields the module needs (read from `store` by the caller or the job). */
