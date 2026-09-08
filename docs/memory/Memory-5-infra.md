@@ -230,6 +230,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Application CR, which ArgoCD then reconciles back to git and strips. Anything that must survive a sync has to
   be in git — for the deployed image that means committing `image.repository` and `image.tag`, not just the
   tag: a correct tag on a placeholder repository is equally unpullable.
+- **Never write a CI-skip token in prose in a commit message.** GitHub matches `[skip ci]` anywhere in the
+  commit message, body included — so a commit that *explains* the marker skips its own pipeline. My fix for
+  #98 did exactly that: the push landed, no run was created, and `gh pr checks` said "no checks reported",
+  which reads like an outage rather than a self-inflicted skip. Refer to it as "the skip marker" in prose, or
+  break the token up.
 - **Machine edits to committed YAML must preserve formatting.** `yq -i` re-emits the document and drops blank
   lines; a `[skip ci]` deploy commit then breaks `format:check` on somebody else's PR. Replace the lines
   (`infra/ci/set-image.mjs`) and assert nothing else moved.
