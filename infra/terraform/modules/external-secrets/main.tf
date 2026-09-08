@@ -100,13 +100,12 @@ data "aws_iam_policy_document" "this" {
     resources = local.secret_prefixes
   }
 
-  # ListSecretVersionIds is account-wide in the API but harmless: it returns version ids, not values.
-  statement {
-    sid       = "ListVersions"
-    effect    = "Allow"
-    actions   = ["secretsmanager:ListSecrets"]
-    resources = ["*"]
-  }
+  # There is deliberately no `secretsmanager:ListSecrets` here. It cannot be scoped — the API is
+  # account-wide, so the only possible resource is `*` — and an account-wide grant has no place on a
+  # role whose entire purpose is two prefixes. Nothing needs it: every ExternalSecret in the charts
+  # uses `dataFrom.extract` with a named key. If a later window wants `dataFrom.find` (regex
+  # discovery, which does require ListSecrets), that is a REQUEST and a deliberate decision, not
+  # something this role should already permit.
 }
 
 resource "aws_iam_role_policy" "this" {
