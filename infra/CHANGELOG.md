@@ -283,7 +283,7 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - The secret naming scheme, documented in `infra/README.md`: `<env>` first so the IAM policy is a prefix and
   not a pattern, per-store paths for anything a store owns, and the store _code_ rather than its UUID so a
   human granting access can read the path. ADR requested in #155 (`docs/adr/**` is main's).
-- CI job `secrets`: `gitleaks` over the repository **and its history**, unconditionally — a path filter on a
+- CI job `secrets`: the `gitleaks` **CLI in a container**, over the repository **and its history**, unconditionally — a path filter on a
   secret scan only guarantees that the PR adding a key to an unwatched directory is the one not scanned.
   `infra/gitleaks.toml` extends the default ruleset and only adds allowlists, each with a stated reason.
 - Runbook index at the top of `infra/README.md` covering the six flows, with **rotating a secret** and

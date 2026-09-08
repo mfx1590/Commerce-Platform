@@ -268,6 +268,10 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **`<env>` is the first path segment of every secret.** It turns the IAM policy into a prefix rather than a
   pattern, so the External Secrets role in staging is structurally unable to read dev's secrets. The cost is
   duplicating anything genuinely shared across environments, which is the right trade for a blast radius.
+- **Use the gitleaks CLI, not gitleaks/gitleaks-action.** The action needs `pull-requests: write` to post
+  findings as a comment and dies with `403 Resource not accessible by integration` without it — and a PR
+  comment quoting a finding republishes the very credential that leaked. The container CLI needs no API
+  access at all. `gitleaks git .` scans history; `gitleaks dir .` scans files.
 - **A secret scan must not be path-filtered.** A filter only guarantees that the one PR adding a key to an
   unwatched directory is the one that is not scanned. It also has to scan history: a credential committed and
   then "removed" later is still in every clone.
