@@ -5,6 +5,33 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
+### 2026-09-08 · 2.3 Labels, shipments and tracking webhooks (#131)
+
+- `shipments.ts` (new): `createShipment` (validates against what the order still owes, inserts `shipment` +
+  `shipment_item`, consumes reservations, refreshes the order's fulfilment status, emits `shipment.created` — one
+  transaction), `buyShipmentLabel` (idempotent; a carrier failure is a 502 and the shipment stays `pending`),
+  `updateShipment` / `applyTransition` (the only writer of a shipment's status), `getShipment`,
+  `listOrderShipments`, `renderShipment` (the Admin API `Shipment` shape; Postgres timestamps rendered as ISO).
+- Status machine: `pending` to `label_created` to `shipped` to `in_transit` to `delivered`, forward only, with
+  `delivered` / `failed` / `cancelled` terminal. An illegal transition on the admin route is a 409; the same one
+  from a carrier scan is ignored. A shipment that jumps straight to `delivered` still emits `shipment.shipped`
+  first, because accounting derives shipping cost and COGS timing from it.
+- `tracking.ts` (new): `handleEasyPostWebhook` — verify the HMAC over the **raw** body (timing-safe, 401 on
+  anything wrong), record the provider event id, then apply. `applyTrackingEvent` is the provider-independent
+  half; `parseEasyPostWebhook` reads the tracker's current state rather than the last detail, since EasyPost
+  resends the whole history. Results are `applied` / `duplicate` / `ignored`.
+- `webhook-events.ts` (new): the shared idempotency record. `UNIQUE (provider, external_id)` — not a global
+  unique id — and a nullable `occurred_at` separate from `received_at`, so out-of-order scans are ordered by the
+  carrier's clock. The table is window 7's CONTRACT CHANGE (#125) and is not in db 0.2.0 yet:
+  `PROPOSED_WEBHOOK_EVENT_SQL` is what this module builds and tests against meanwhile.
+- `ports.ts` (new): `OrdersPort` and `InventoryPort` mirror core 2.3's order transition and 2.4's reservation
+  functions (REQUEST #191). Interim: the orders port writes `order.fulfillment_status` directly, the inventory
+  port does nothing. `setOrdersPort` / `setInventoryPort` swap in the real functions at boot.
+- Events: `shipment.created`, `shipment.shipped`, `shipment.delivered` v1, all through `withEvents` in the same
+  transaction as the state change, all carrying ids, amounts and a destination country — never an address.
+- Tests: 21 unit tests (signatures, parsing, transitions) and 15 on a seeded database, including duplicate
+  deliveries, delivered-before-shipped, partial shipments and a cancel releasing the reservation.
+
 ### 2026-09-08 · 2.2 Rate shopping at checkout (#130)
 
 - `rate-shopping.ts` (new): `createCarrierRateProvider()` implements the cart module's `ShippingRateProvider`.

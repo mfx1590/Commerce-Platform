@@ -16,7 +16,13 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.2 (#130) — rate shopping at checkout** · commit `7de8158` · PR pending (push held until #175 merges)
+- **2.3 (#131) — labels, shipments and tracking webhooks** · commit `SHA_23` · PR pending
+  `shipments.ts` (plan a shipment against what the order still owes, buy its label, the status machine and its
+  outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
+  on the carrier's clock), `webhook-events.ts` (shared idempotency record + the proposed table SQL),
+  `ports.ts` (OrdersPort / InventoryPort mirroring core 2.3 and 2.4, REQUEST #191). 21 unit tests + 15 database
+  tests; core suite 317 green. Admin API routes already exist in the contract — no CONTRACT CHANGE needed.
+- **2.2 (#130) — rate shopping at checkout** · commit `7de8158` · PR #186
   `rate-shopping.ts`: the cart module's `ShippingRateProvider`. `shipping_option` rows decide which options
   exist and who is eligible (ids stay real rows so checkout can freeze them); a row with `rules.live` + `service`
   is priced by the carrier. Fallback to flat table prices on any carrier failure. 60 s quote cache keyed on a
@@ -31,16 +37,30 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- (nothing — 2.3 is next; hold the push until the manager confirms #175 merged)
+- (nothing — 2.4 is next: `apps/core/src/modules/fulfillment`, FulfillmentProvider + per-warehouse routing)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
-- [x] **#130 · 2.2** Rate shopping at checkout — done, PR pending push
-- [ ] **#131 · 2.3** Labels and tracking webhooks
+- [x] **#130 · 2.2** Rate shopping at checkout — done, PR #186 in review
+- [x] **#131 · 2.3** Labels and tracking webhooks — done, PR pending
 - [ ] **#132 · 2.4** 3PL adapter interface + in-memory implementation
 - [ ] **#133 · 2.5** Pick/pack state machine and events
 
 ## Decisions made (with reasons)
+- **Verify, record, then apply** (2.3): the webhook checks its HMAC against the raw body before parsing, writes
+  the provider event id, and only then moves a shipment — all in one transaction. A carrier retry conflicts on
+  the unique row and changes nothing.
+- **A carrier scan never errors, it is ignored** (2.3): an illegal transition on the admin route is a 409, but
+  the same one from a carrier is a no-op. Carriers deliver scans out of order; a late `in_transit` after
+  `delivered` is normal and must not move the shipment back.
+- **A shipment that jumps to `delivered` still emits `shipment.shipped` first** (2.3): accounting derives
+  shipping cost and COGS timing from that event and would otherwise never see the parcel leave.
+- **Ports instead of guesses for core 2.3 / 2.4** (2.3): `OrdersPort` and `InventoryPort` with interim
+  implementations — the orders port writes `order.fulfillment_status` directly (the admin and storefront must be
+  truthful about a part-shipped order), the inventory port does nothing (a wrong decrement is worse than a late
+  one). REQUEST #191 names both shapes; swapping them in is one call at boot.
+- **Timestamps are rendered, not passed through** (2.3): node-postgres returns `timestamptz` as a Date, and both
+  the Admin API schema and the event schemas want an ISO string. `iso()` is applied at every boundary.
 - **The option table owns identity, the carrier owns price** (2.2): a live rate is always attached to a real
   `shipping_option` row. Checkout builds `order.shipping_method` from that row, so a rate invented by this module
   could never be placed. This is the constraint the whole design hangs on.
@@ -84,6 +104,11 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   it myself if window 7 has not started. Check #125 before starting 2.3.
 
 ## Gotchas learned
+- Postgres `timestamptz` reaches the app as a JS `Date`, not a string. A row typed `string | null` that goes
+  straight into a contract response or an event payload will fail schema validation or produce `[]` in a test —
+  render it with `iso()` at the boundary.
+- Heredocs in the Bash tool break on longer scripts (the shell reports "unexpected EOF"): write the script with
+  the Write tool into the scratchpad and run `python <path>`. Same finding as the earlier note in this file.
 - `PricingContext` carries no store code, warehouse or line weights: read them through `ctx.tx` inside the same
   transaction (RLS keeps it in the store). `completeCart` needs an `actor` in its input — a missing one fails
   deep inside the outbox helper with "Cannot read properties of undefined".

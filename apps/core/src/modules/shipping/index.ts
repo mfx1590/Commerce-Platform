@@ -19,7 +19,39 @@ export {
   manualCarrierProvider,
 } from './manual-provider';
 export { currencyExponent, fromMinorUnits, toMinorUnits } from './money';
+export {
+  currentInventoryPort,
+  currentOrdersPort,
+  directOrdersPort,
+  noopInventoryPort,
+  setInventoryPort,
+  setOrdersPort,
+} from './ports';
 export { createCarrierRateProvider, parseRules, registerCarrierProviders } from './rate-shopping';
+export {
+  applyTransition,
+  buyShipmentLabel,
+  canTransition,
+  createShipment,
+  getShipment,
+  iso,
+  listOrderShipments,
+  renderShipment,
+  updateShipment,
+} from './shipments';
+export {
+  applyTrackingEvent,
+  handleEasyPostWebhook,
+  parseEasyPostWebhook,
+  verifyEasyPostSignature,
+} from './tracking';
+export {
+  createMemoryWebhookEventStore,
+  currentWebhookEventStore,
+  PROPOSED_WEBHOOK_EVENT_SQL,
+  setWebhookEventStore,
+  sqlWebhookEventStore,
+} from './webhook-events';
 export { CarrierError, isRetryableStatus, redactAddress, toCarrierAddress } from './redact';
 export {
   carrierProvider,
@@ -38,6 +70,18 @@ export type {
   RateShoppingOptions,
   ShippingOptionRules,
 } from './rate-shopping';
+export type { FulfillmentStatus, InventoryPort, OrdersPort, ShipmentLineRef } from './ports';
+export type {
+  CreateShipmentInput,
+  ShipmentItem,
+  ShipmentRow,
+  ShipmentStatus,
+  StoreShipment,
+  TransitionInput,
+  UpdateShipmentInput,
+} from './shipments';
+export type { ApplyTrackingInput, WebhookRequest, WebhookResult } from './tracking';
+export type { WebhookEventRecord, WebhookEventStatus, WebhookEventStore } from './webhook-events';
 export type {
   AddressValidation,
   BuyLabelRequest,

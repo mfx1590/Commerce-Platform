@@ -1,9 +1,9 @@
 # shipping (window 8)
 
 Carrier abstraction of the commerce core: rates, labels, voids, tracking and address validation behind one
-interface, with an in-memory `manual` provider and an EasyPost provider (test mode), plus the rate shopping the
-cart calls at checkout. Task 2.3 (labels and tracking webhooks) builds on this module; the 3PL side is
-`apps/core/src/modules/fulfillment` (task 2.4).
+interface, with an in-memory `manual` provider and an EasyPost provider (test mode); the rate shopping the cart
+calls at checkout; and shipments — planning them from an order, buying labels, and the tracking webhook that
+moves them. The 3PL side is `apps/core/src/modules/fulfillment` (task 2.4).
 
 ## Owner
 
@@ -110,6 +110,61 @@ window 1) and it installs the provider through `setShippingRateProvider`. This m
 no credentials and no store settings the behaviour is exactly today's flat table rates, so the call is safe
 before any store opts in.
 
+## Shipments (task 2.3)
+
+`createShipment` plans one from an order: it checks the requested quantities against what the order still owes
+(earlier live shipments counted), inserts `shipment` + `shipment_item`, consumes the reservations, refreshes the
+order's fulfilment status and emits `shipment.created` — one transaction, so the rows and the event commit
+together or not at all (ADR 0003). `buyShipmentLabel` then asks the store's carrier for a label and moves the
+shipment to `label_created`; it is idempotent (a shipment that already has a label is returned unchanged) and a
+carrier failure is a 502 that leaves the shipment `pending` and retryable.
+
+### Status machine
+
+```
+pending -> label_created -> shipped -> in_transit -> delivered
+   |             |             \---------------------> delivered   (carrier skipped the scans)
+   \-------------/--> cancelled                \----> failed
+```
+
+Forward only, and `delivered` / `failed` / `cancelled` are final. An illegal transition through the admin route
+is a 409; the same transition arriving from a carrier scan is **ignored**, because carriers deliver events out of
+order and a late `in_transit` after `delivered` is normal, not an error.
+
+A shipment that jumps straight to `delivered` still emits `shipment.shipped` first: accounting derives shipping
+cost and COGS timing from that event and must never miss it.
+
+### Fulfilment status and reservations
+
+Shipping never encodes the order state machine or the reservation rules. It derives `unfulfilled` /
+`partially_fulfilled` / `fulfilled` from what live shipments cover and hands it to an `OrdersPort`, and it calls
+an `InventoryPort` to consume reservations on plan and release them on cancel. Core 2.3 and 2.4 deliver the real
+functions; until then the orders port writes `order.fulfillment_status` directly and the inventory port does
+nothing (REQUEST #191 names both shapes). Swapping them in is `setOrdersPort()` / `setInventoryPort()` at boot.
+
+## Tracking webhooks (task 2.3)
+
+`handleEasyPostWebhook` does three things in this order, and the order is the design:
+
+1. **Verify first.** HMAC-SHA256 over the **raw** body, compared timing-safely. A missing, malformed or wrong
+   signature is a 401 — anything else would let a stranger drive our shipment states.
+2. **Record before applying.** The provider's event id goes into `webhook_event` in the same transaction as the
+   state change. A carrier retry conflicts on `UNIQUE (provider, external_id)` and returns `duplicate` without
+   touching a shipment or emitting a second event.
+3. **Move forward only**, using the carrier's own timestamp rather than ours.
+
+The result is `applied`, `duplicate` or `ignored` (unknown tracking number, unmapped carrier status, or a scan
+the shipment is already past). The stored payload can contain a delivery address, so it stays on that row:
+events derived from it carry city, region and country only.
+
+### The shared `webhook_event` table
+
+It is shared with window 7 (payments) and **is not in db 0.2.0 yet** — window 7 files the CONTRACT CHANGE, and
+shipping's requirements are on issue #125. `PROPOSED_WEBHOOK_EVENT_SQL` in `webhook-events.ts` is the shape this
+module builds and tests against; the two requirements that matter are `UNIQUE (provider, external_id)` rather
+than a global unique id, and a nullable `occurred_at` separate from `received_at`. When the migration lands,
+that constant is deleted and `sqlWebhookEventStore` keeps working unchanged.
+
 ## Credentials (ADR 0006)
 
 `EASYPOST_API_KEY_<CODE>` for one store (`brand-a` → `BRAND_A`), else the global `EASYPOST_API_KEY`; neither set
@@ -159,6 +214,11 @@ and are resolved by the name in a store's settings; `carrierProviderOrManual` ne
 - `rate-shopping-db.test.ts` — the real SQL on a seeded database, and placement through the cart and checkout
   public APIs: the live price is frozen on the order as `shipping_method` (6 tests).
 - `bounded-map.test.ts` — expiry, cap and eviction order (6 tests).
+- `tracking.test.ts` — signature verification, webhook parsing and every transition rule (21 tests).
+- `shipments-db.test.ts` — shipments on a seeded database: planning against a real placed order, over-shipping
+  refused, label purchase and its idempotency, one event per transition, delivered-before-shipped, duplicate
+  webhook deliveries, partial shipments moving the order's fulfilment status, cancel releasing the reservation
+  (15 tests).
 - `easypost-live.test.ts` — real round trip against EasyPost **test mode**: quote, buy, track, void, validate.
   Skips unless `EASYPOST_API_KEY` is set, and refuses a non-test key. Uses EasyPost's documentation addresses,
   so no customer data ever leaves the machine.
@@ -168,6 +228,7 @@ and are resolved by the name in a store's settings; `carrierProviderOrManual` ne
 
 ## Next in this module
 
-2.3 writes `shipment` / `shipment_item` rows and their outbox events and receives tracking webhooks (the shared
-`webhook_event` table is being coordinated with window 7 on issue #125); 2.4 adds the 3PL adapter and real
-per-warehouse routing, which replaces the origin-warehouse pick used here.
+2.4 adds the 3PL adapter in `apps/core/src/modules/fulfillment` and real per-warehouse routing, which replaces
+the single origin-warehouse pick used here; 2.5 adds the pick/pack lifecycle in front of `shipped`. The Admin API
+routes for `createShipment` / `updateShipment` exist in `admin-api.yaml` (operations `createShipment` and
+`updateShipment`, both `x-permission: operations on organization:hq`) and are mounted by window 1's HTTP layer.
