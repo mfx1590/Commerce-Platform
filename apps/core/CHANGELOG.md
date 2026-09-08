@@ -2,6 +2,34 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-08 · 2.3 order state machine, wrappers for windows 7/8, edits, Admin API order routes (issue #105)
+
+- `src/modules/orders` (new): `transitions.ts` (one map per status field — the README tables are asserted equal),
+  `transition(tx, orderId, change)` (locks the row, validates against the tables, applies, writes exactly one
+  event: `order.confirmed` / `order.cancelled` / `order.completed` for `status`, `order.updated` with
+  `changed_fields` otherwise; illegal → 409 `conflict` `{ field, from, to }`), wrappers `confirmOrder`,
+  `markPaymentAuthorized/Captured/Failed/PartiallyRefunded/Refunded`, `markShipmentCreated`, `markShipped`,
+  `markDelivered`, `markReturned` (scoped client + ids, idempotent on the target state), `cancelOrder` (only while
+  unfulfilled; voids authorised payments through `PaymentProvider.void`, payment row → `cancelled`), order edits
+  `decreaseLineQuantity` / `cancelLine` (totals via the cart's `TaxCalculator`, delta on `order.metadata.edits`,
+  no money moved; CONTRACT CHANGE #172 filed for the Admin API endpoint), read models (Store order read moved here
+  from checkout; Admin `listAdminOrders` with filters / `q` / sort / pagination, `getAdminOrder` with payments,
+  refunds, shipments, returns), pure projection `projectOrder` for replay. Guard: no `UPDATE "order"` outside
+  the module.
+- Admin API routes: `GET /admin/stores/{storeId}/orders` (filters, `q`, `sort`/`order`, `placed_from/to`),
+  `GET …/orders/{orderId}`, `POST …/orders/{orderId}/cancel` with the spec's `x-permission` through the real
+  `requirePermission`; one order route in the live suite (real token, OpenFGA). `dateParam` in `src/http/query.ts`.
+- `src/http/module-routers.ts` + `mountCoreMiddleware({ moduleRouters })`: the named mount point for other
+  modules' Admin routers (window 9's `merchandisingRouter`, #162 part 3), after `adminRouter()`.
+- Checkout (#165 review fold-ins): `PaymentProvider.void` (manual no-op); `GET /store/orders/{orderId}` → 404 for
+  a malformed id or email; idempotency keys are per store — stored as `<store_id>:<key>` because
+  `payment.idempotency_key` is UNIQUE table-wide while RLS hides other stores' rows from the replay lookup (the
+  new per-store test caught the unique-violation 500 before the fix).
+- #159 part 2: window 9's `src/modules/search` row in CLAUDE.md's module table (Algolia index per store, outbox
+  sync, `src/jobs/index-products.ts`; reads `product.*` from the outbox).
+- Tests: `src/modules/orders/orders.test.ts` (9), `test/admin-api.test.ts` +3, `test/auth-live.test.ts` +1,
+  `checkout.test.ts` +1 (per-store key), `store-api.test.ts` (404 on malformed lookups), guards +1.
+
 ### 2026-09-08 · 2.2 checkout completion: shipping options, payment session, placement, order read (issue #104)
 
 - `src/modules/checkout` (new): `listShippingOptions` (cart module's `ShippingRateProvider.list`),
