@@ -1,6 +1,6 @@
 # Memory 17 — Marketing
 Window: 17 · Key: `marketing` · Branch prefix: `marketing/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `marketing/phase2` · Status: 2.1 in review, 2.2 (feeds) next
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `marketing/phase2` · Status: 2.1 in review (PR #182), 2.2 feeds built and green, awaiting the 2.1 merge before pushing
 
 ## Identity (does not change)
 Owned paths (write):
@@ -28,17 +28,39 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — 2.1 is in review; 2.2 feeds starts on confirmation that #145's PR merged, per the no-push-before-merge rule)
+- **2.2 (#146) product feeds — code complete and green locally, NOT yet committed/pushed.** Holding until the
+  manager confirms #182 (2.1) merged, then `git merge main`, commit, push, open the 2.2 PR.
+  Delivered: `apps/core/src/modules/marketing/{feed-types,feed-items,feed-validation,feed-render,storage,feeds}.ts`
+  + 7 routes; `apps/feeds/**` (server, storage reader, config, README/CLAUDE/CHANGELOG, 13 tests).
+  Gates green: lint, typecheck 19/19, format:check, core 220 passed / 1 skipped, feeds 13 passed.
+  `infra/ci/check-image-manifests.sh` is RED on purpose (4 Dockerfiles missing `apps/feeds/package.json`) — the
+  intended prompt; REQUEST #195 to window 5. To call out in the PR so it is not read as a regression.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
-- [ ] **#146 · 2.2** Product feeds for Google Merchant and Meta
+- [~] **#146 · 2.2** Product feeds for Google Merchant and Meta — built and green, PR pending #182's merge
 - [ ] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract
 - [ ] **#148 · 2.4** Abandoned-cart recovery
 - [ ] **#149 · 2.5** Admin Marketing section v1
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
 
 ## Decisions made (with reasons)
+- 2026-09-08 (manager, 2.2) · **The core renders and stores feed files; `apps/feeds` only serves them.** A core
+  module and an app cannot import each other, so the writers live in exactly one place. Chose the core because
+  the publish job needs bytes to hash for idempotency, and because the process on the public URL then has no
+  database at all. Cost: ~25 duplicated lines of filesystem read in the app plus a shared key convention
+  `<store_code>/<feed_id>.<ext>`, documented in both READMEs.
+- 2026-09-08 (manager, 2.2) · `FeedStorage` seam: local filesystem now, S3-style later (window 5 provisions the
+  bucket, REQUEST #195). The app serves only its own store-code prefix (`FEEDS_STORE_CODES`, production refuses
+  to boot without it) and **never lists** the store.
+- 2026-09-08 (manager, 2.2) · Idempotency per content hash stays in the core: identical bytes write no artifact
+  and emit no `feed.published`. Consequence I chose and documented: `last_published_at` means "when the file last
+  changed"; `status`/`url`/`item_count`/`errors` still refresh on every run so the admin never sees a stale verdict.
+- 2026-09-08 (me, 2.2) · Both renderers are deterministic — no timestamps, no generated ids, stable ordering.
+  A `lastBuildDate` element would make every publish look like a change and defeat the hash entirely.
+- 2026-09-08 (me, 2.2) · A row failing validation is reported (item `errors` + `product_feed.errors` with the
+  product id) and kept out of the file; a missing GTIN is an advisory that does not block the row. `item_count`
+  counts what was actually written.
 - 2026-09-08 (manager, on my 2.1 plan) · `budget` maps between the contract's `Money` object and the table's
   `budget_minor` + `currency` **in the service**; no contract change. Reason: the mismatch is presentational.
 - 2026-09-08 (manager, on my 2.1 plan) · The attribution report aggregates in the store's **default currency** and
@@ -55,6 +77,14 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
+- **#182 (2.1) merge confirmation** — no pushes until the manager says it landed; then `git merge main` first.
+- **CONTRACT CHANGE #194** — Admin API 0.3.0's `ProductFeed` is `allOf[ProductFeedInput, …]` and
+  `ProductFeedInput.status` excludes `error`, so the document rejects the status `publishFeed` produces and the
+  generated type will not compile with it. Working against `proposed/product-feed.schema.json` + a local read
+  type; a test asserts the frozen document *still rejects* the error response, so it fails loudly when #194
+  lands and tells me to delete the workaround.
+- **REQUEST #195 (window 5)** — `apps/feeds/Dockerfile`, `apps/feeds/package.json` in all four images' deps
+  stages (image-manifests guard is red until then, by design), and the artifact bucket to plan.
 - **REQUEST #181 (window 1)** — the one line that mounts `marketingAdminRouter()` in `src/http`, plus exporting
   `enumParam`/`sortParams` from `src/http/index.ts` (I carry a local copy of `enumParam` until then). Not blocking:
   `routes.test.ts` mounts the router behind the real middleware chain, so the contract shapes are proven. Delete
@@ -63,6 +93,17 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   fails the build as soon as `apps/feeds` exists until every Dockerfile's deps stage lists it (intended prompt).
 
 ## Gotchas learned
+- 2.2: `apps/feeds` is ESM (`"type": "module"`) under `nodenext`, so **relative imports need the `.js`
+  extension** (`./server.js`) even in TypeScript. The core does not, because it is CommonJS — do not copy its
+  import style into a new app.
+- 2.2: an OpenAPI `allOf` that *overrides* an enum does not widen it, it **intersects** it. That is how #194
+  slipped through review: the document reads as if `error` is allowed and neither ajv nor tsc agrees. Check any
+  `allOf[XInput, {...}]` pair where both branches declare the same property.
+- 2.2: root `lint` runs `no-console` with only `warn`/`error`/`info` allowed — `console.log` in a new app fails
+  the gate at `--max-warnings 0`.
+- 2.2: a feed file must contain **no timestamp** or content-hash idempotency is worthless. Same trap for any
+  future generated artifact.
+- 2.2: bigint/`sum()` from node-postgres are strings; `count(*)::int` is a number (also hit in 2.1).
 - 2.1: `src/http/index.ts` does **not** export `enumParam` / `sortParams` even though `src/http/query.ts` has them
   (asked for in #181). Do not import `../../http/query` to get at them — that is exactly the public-API rule the
   module layout forbids; copy the few lines with a pointer to the issue instead.
@@ -80,6 +121,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 ## How to run & test this package
 ```
 pnpm --filter @platform/core exec vitest run src/modules/marketing   # fast loop (~15 s, own throwaway DB)
+pnpm --filter @platform/feeds test                                   # the feed server, no DB at all (~2 s)
 pnpm lint && pnpm typecheck && pnpm test --filter @platform/core     # the gates, before every PR
 pnpm exec prettier --write apps/core/src/modules/marketing/          # format:check is part of CI
 ```
