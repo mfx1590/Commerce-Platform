@@ -533,3 +533,94 @@ describe('orders (task 2.3): listOrders, getOrder, cancelOrder', () => {
     expect(list.body.items.map((o: { id: string }) => o.id)).toContain(orderId);
   });
 });
+
+describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () => {
+  const operations = as('seed-operations');
+
+  it('GET /admin/inventory/levels: with store_id → that store (viewer); without → visible stores; sort/filters; 403 for a foreign store', async () => {
+    const res = await storeStaff.get(
+      `/admin/inventory/levels?store_id=${A}&sort=available&order=asc&limit=5`,
+    );
+    expect(res.status).toBe(200);
+    spec.assertPage('InventoryLevel', res.body);
+    expect(res.body.items).toHaveLength(5);
+    for (const i of res.body.items) expect(i.store_id).toBe(A);
+    const avail = res.body.items.map((i: { available: number }) => i.available);
+    expect([...avail].sort((x, y) => x - y)).toEqual(avail);
+
+    // no store_id: store:* → the caller's visible stores only (store-staff = brand-a and brand-b)
+    const mine = await storeStaff.get(
+      '/admin/inventory/levels?limit=100&warehouse_id=' + SEED_IDS.warehouses.eu,
+    );
+    expect(mine.status).toBe(200);
+    const stores = new Set(mine.body.items.map((i: { store_id: string }) => i.store_id));
+    expect(stores.has(SEED_IDS.stores.brandC)).toBe(false);
+    // HQ operations sees every store
+    const all = await operations.get(
+      '/admin/inventory/levels?limit=100&warehouse_id=' + SEED_IDS.warehouses.eu,
+    );
+    expect(all.status).toBe(200);
+    expect(all.body.total).toBeGreaterThan(mine.body.total);
+
+    const foreign = await storeStaff.get(
+      `/admin/inventory/levels?store_id=${SEED_IDS.stores.brandC}`,
+    );
+    expect(foreign.status).toBe(403);
+    const badStore = await storeStaff.get(`/admin/inventory/levels?store_id=nope`);
+    expect(badStore.status).toBe(400);
+    expect(badStore.body.details).toEqual({ store_id: 'uuid' });
+    const bad = await storeStaff.get(
+      `/admin/inventory/levels?store_id=${A}&sort=price&below_available=x`,
+    );
+    expect(bad.status).toBe(400);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['below_available', 'sort']);
+  });
+
+  it('POST /admin/inventory/movements: operations only; body validated; 201 InventoryLevel; stock.moved written', async () => {
+    const levels = await operations.get(
+      `/admin/inventory/levels?store_id=${A}&limit=1&sort=sku&order=asc`,
+    );
+    const lvl = levels.body.items[0] as {
+      variant_id: string;
+      warehouse_id: string;
+      on_hand: number;
+      sku: string;
+    };
+    const forbidden = await storeAdmin.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: 1,
+      reason: 'receipt',
+    });
+    expect(forbidden.status).toBe(403);
+    const badReason = await operations.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: 1,
+      reason: 'sale',
+    });
+    expect(badReason.status).toBe(400);
+    const res = await operations.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: 5,
+      reason: 'receipt',
+      note: 'PO-42',
+    });
+    expect(res.status).toBe(201);
+    spec.assertSchema('InventoryLevel', res.body);
+    expect(res.body).toMatchObject({
+      variant_id: lvl.variant_id,
+      sku: lvl.sku,
+      on_hand: lvl.on_hand + 5,
+    });
+    const negative = await operations.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: -(lvl.on_hand + 100),
+      reason: 'adjustment',
+    });
+    expect(negative.status).toBe(409);
+    spec.assertSchema('Error', negative.body);
+  });
+});
