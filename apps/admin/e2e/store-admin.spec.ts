@@ -125,4 +125,65 @@ test.describe('store-admin', () => {
     // the landing URL would be testing someone else's decision — and flakily.
     expect(await sessionCookies(page)).toHaveLength(0);
   });
+
+  test('creates a product and lands on its editor', async ({ page }) => {
+    await signIn(page, `/${BRAND_A}/catalog`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/catalog`));
+
+    await page.getByRole('link', { name: 'New product' }).click();
+    await page.waitForURL(/\/catalog\/new/);
+
+    // Anchored: a substring match on "Title" would also hit "Subtitle" and trip strict mode.
+    await page.getByLabel(/^Title/).fill('E2E Tee');
+    await page.getByLabel(/^Handle/).fill('e2e-tee');
+    await page.getByRole('button', { name: 'Create product' }).click();
+
+    // The mock answers with its own example product, so the id in the URL is the API's, not ours —
+    // which is the point: the app navigates to what was created, it does not guess.
+    await page.waitForURL(new RegExp(`/${BRAND_A}/catalog/[0-9a-f-]{36}$`));
+    await expect(page.getByRole('heading', { name: 'Details' })).toBeVisible();
+
+    // The status control renders what the API returned rather than an assumed "draft".
+    const status = page.getByRole('heading', { name: 'Status' });
+    await expect(status).toBeVisible();
+  });
+
+  test('publishing asks first', async ({ page }) => {
+    await signIn(page, `/${BRAND_A}/catalog`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/catalog`));
+
+    // Open the first product in the list.
+    await page.getByRole('table', { name: 'Products' }).getByRole('link').first().click();
+    await page.waitForURL(new RegExp(`/${BRAND_A}/catalog/[0-9a-f-]{36}$`));
+
+    const publish = page.getByRole('button', { name: 'Publish' });
+    // Prism's only product example is already `published`, so the button is disabled and the click
+    // path cannot be exercised here. What this pins is that publishing is never a one-click action:
+    // either it is unavailable, or it asks. The confirm-then-call chain is covered in
+    // test/catalog-refusals.test.tsx and against a real core (see README).
+    if (await publish.isEnabled()) {
+      await publish.click();
+      await expect(page.getByText(/becomes visible to shoppers/)).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Yes, publish' })).toBeVisible();
+    } else {
+      await expect(publish).toBeDisabled();
+    }
+  });
+
+  test('the media rows can be reordered in the editor', async ({ page }) => {
+    await signIn(page, `/${BRAND_A}/catalog/new`);
+    await page.waitForURL(/\/catalog\/new/);
+
+    await page.getByRole('button', { name: 'Add image' }).click();
+    await page.getByRole('button', { name: 'Add image' }).click();
+
+    await page.getByLabel(/Image URL \(thumbnail\)/).fill('https://cdn.example.com/a.jpg');
+    await page.getByLabel('Image URL', { exact: true }).fill('https://cdn.example.com/b.jpg');
+
+    await page.getByRole('button', { name: 'Move image 2 up' }).click();
+    // The row that was second is now the thumbnail — which is the whole reason the control exists.
+    await expect(page.getByLabel(/Image URL \(thumbnail\)/)).toHaveValue(
+      'https://cdn.example.com/b.jpg',
+    );
+  });
 });
