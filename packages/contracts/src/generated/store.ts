@@ -473,6 +473,10 @@ export interface components {
             totals: components["schemas"]["Totals"];
             /** Format: uuid */
             order_id: string | null;
+            /** @description Free-form, storefront-owned. Written at createCart/updateCart and copied to order.metadata at placement. No PII. The storefront writes `attribution` (first and last marketing touch); see apps/storefront-starter README and docs/marketing-scope.md. */
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         OrderSummary: {
             /** Format: uuid */
@@ -487,6 +491,10 @@ export interface components {
             total: components["schemas"]["Money"];
             /** Format: date-time */
             placed_at: string;
+            /** @description Copied from cart.metadata when the order is placed. */
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         Order: components["schemas"]["OrderSummary"] & {
             email: string;
@@ -723,6 +731,9 @@ export interface operations {
                     /** @description Must be enabled for the store */
                     currency?: string;
                     locale?: string;
+                    metadata?: {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -782,6 +793,9 @@ export interface operations {
                     shipping_option_id?: string;
                     promotion_codes?: string[];
                     country?: string;
+                    metadata?: {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
