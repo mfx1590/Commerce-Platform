@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
     routes additionally send a Keycloak customers-realm JWT as a Bearer token.
-    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1.
+    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional cart/order `metadata` (additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -175,6 +175,7 @@ paths:
                     description: Must be enabled for the store,
                   }
                 locale: { type: string }
+                metadata: { type: object, additionalProperties: true }
       responses:
         '201':
           description: Created
@@ -217,6 +218,7 @@ paths:
                 shipping_option_id: { type: string, format: uuid }
                 promotion_codes: { type: array, items: { type: string } }
                 country: { type: string, pattern: '^[A-Z]{2}$' }
+                metadata: { type: object, additionalProperties: true }
       responses:
         '200':
           description: OK
@@ -980,6 +982,14 @@ components:
             - type: 'null'
         totals: { $ref: '#/components/schemas/Totals' }
         order_id: { type: [string, 'null'], format: uuid }
+        metadata:
+          type: object
+          additionalProperties: true
+          description: >-
+            Free-form, storefront-owned. Written at createCart/updateCart and copied to
+            order.metadata at placement. No PII. The storefront writes `attribution`
+            (first and last marketing touch); see apps/storefront-starter README and
+            docs/marketing-scope.md.
 
     OrderSummary:
       type: object
@@ -1000,6 +1010,10 @@ components:
           }
         total: { $ref: '#/components/schemas/Money' }
         placed_at: { type: string, format: date-time }
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Copied from cart.metadata when the order is placed.
 
     Order:
       allOf:
