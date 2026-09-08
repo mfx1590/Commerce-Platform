@@ -1,12 +1,15 @@
 // Store API handlers for the routes window 1 owns (packages/contracts/openapi/store-api.yaml 0.3.0):
 // GET /store, GET /store/categories, GET /store/products, GET /store/products/{handle} (Phase 1, `currency`
 // query since 0.3.0) and the cart operations POST /store/carts, GET/PATCH /store/carts/{cartId},
-// POST /store/carts/{cartId}/line-items, PATCH/DELETE /store/carts/{cartId}/line-items/{lineItemId} (task 2.1).
+// POST /store/carts/{cartId}/line-items, PATCH/DELETE /store/carts/{cartId}/line-items/{lineItemId} (task 2.1),
+// GET /store/carts/{cartId}/shipping-options, POST …/payment-session, POST …/complete, GET /store/orders/{orderId}
+// (task 2.2, src/modules/checkout).
 // Plain Express handlers over `req.tenant` (set by storeContextMiddleware), wrapped in `handle()` so errors render
 // as the contract `Error`. Mounted by src/server.ts (mountCoreMiddleware) AHEAD of Medusa: Medusa registers its
 // own routes at these paths and its publishable-key gate on /store, so a Medusa file route could not be guaranteed
 // to win — ours answer first. Everything else on the Store API falls through to the fallback proxy / Medusa.
 import express, { type RequestHandler } from 'express';
+import { verifyCustomerToken } from '@platform/auth-sdk';
 import type { StoreComponents } from '@platform/contracts';
 import {
   addLineItem,
@@ -18,6 +21,13 @@ import {
   type CreateCartInput,
   type UpdateCartInput,
 } from '../modules/cart';
+import {
+  completeCart,
+  createPaymentSession,
+  customerIdForSubject,
+  getStoreOrder,
+  listShippingOptions,
+} from '../modules/checkout';
 import {
   getStoreProduct,
   listStoreCategories,
@@ -184,6 +194,64 @@ export const removeLineItemRoute: RequestHandler = handle(async (req, res) => {
   res.json(await removeLineItem(t.client, cartId, lineItemId));
 });
 
+// ---- checkout (task 2.2) ----
+
+export const listShippingOptionsRoute: RequestHandler = handle(async (req, res) => {
+  const t = requireTenant(req);
+  res.json({ items: await listShippingOptions(t.client, uuidParam(req.params, 'cartId')) });
+});
+
+export const createPaymentSessionRoute: RequestHandler = handle(async (req, res) => {
+  const t = requireTenant(req);
+  const cartId = uuidParam(req.params, 'cartId');
+  const input = body<{ provider: string }>('createPaymentSession', req.body);
+  res.json(await createPaymentSession(t.client, cartId, input));
+});
+
+const IDEMPOTENCY_HEADER = 'idempotency-key';
+
+export const completeCartRoute: RequestHandler = handle(async (req, res) => {
+  const t = requireTenant(req);
+  const cartId = uuidParam(req.params, 'cartId');
+  const raw = req.headers[IDEMPOTENCY_HEADER];
+  const idempotencyKey = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+  if (!idempotencyKey || idempotencyKey.length < 8) {
+    throw validationError('Idempotency-Key header is required', {
+      'Idempotency-Key': 'required, at least 8 characters',
+    });
+  }
+  const { order } = await completeCart(t.client, { cartId, idempotencyKey, actor: t.actor });
+  res.status(201).json(order);
+});
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * `GET /store/orders/{orderId}`: a customers-realm bearer token (verified against the store code of the key)
+ * or the guest `?email=`. Any failure — bad token, unknown customer, wrong email, other store — is a 404 exactly
+ * like the contract says (never 401/403): an order id must not be confirmable. Nothing here logs the email or
+ * the query string.
+ */
+export const getOrderRoute: RequestHandler = handle(async (req, res) => {
+  const t = requireTenant(req);
+  const orderId = uuidParam(req.params, 'orderId');
+  const emailRaw = one(req.query.email);
+  if (emailRaw !== undefined && !EMAIL.test(emailRaw.trim())) {
+    throw validationError('invalid query', { email: 'email address' });
+  }
+  let customerId: string | null = null;
+  const authorization = req.headers.authorization;
+  if (authorization) {
+    try {
+      const claims = await verifyCustomerToken(authorization, t.storeCode);
+      customerId = await customerIdForSubject(t.client, t.storeId, claims.subject);
+    } catch {
+      customerId = null; // invalid or foreign token → same 404 as no credentials
+    }
+  }
+  res.json(await getStoreOrder(t.client, orderId, { customerId, email: emailRaw }));
+});
+
 /** The Store API paths the core answers itself (README "What is real"; the fallback proxy covers the rest). */
 export const REAL_STORE_PATHS = [
   'GET /store',
@@ -196,6 +264,10 @@ export const REAL_STORE_PATHS = [
   'POST /store/carts/{cartId}/line-items',
   'PATCH /store/carts/{cartId}/line-items/{lineItemId}',
   'DELETE /store/carts/{cartId}/line-items/{lineItemId}',
+  'GET /store/carts/{cartId}/shipping-options',
+  'POST /store/carts/{cartId}/payment-session',
+  'POST /store/carts/{cartId}/complete',
+  'GET /store/orders/{orderId}',
 ] as const;
 
 /** Mounts the Store API routes (src/server.ts and the HTTP tests use the same function). */
@@ -213,4 +285,8 @@ export function mountStoreRoutes(app: express.Express): void {
   app.post('/store/carts/:cartId/line-items', addLineItemRoute);
   app.patch('/store/carts/:cartId/line-items/:lineItemId', updateLineItemRoute);
   app.delete('/store/carts/:cartId/line-items/:lineItemId', removeLineItemRoute);
+  app.get('/store/carts/:cartId/shipping-options', listShippingOptionsRoute);
+  app.post('/store/carts/:cartId/payment-session', createPaymentSessionRoute);
+  app.post('/store/carts/:cartId/complete', completeCartRoute);
+  app.get('/store/orders/:orderId', getOrderRoute);
 }

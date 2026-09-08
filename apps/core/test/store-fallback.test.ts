@@ -50,12 +50,33 @@ beforeAll(async () => {
   mockUrl = `http://127.0.0.1:${(mock.address() as AddressInfo).port}/`; // trailing slash tolerated
   app = express();
   app.get('/store/products', (_req, res) => res.json({ real: true }));
+  // Same shape as src/server.ts since 2.1: a JSON body parser sits on /store/carts ahead of the proxy.
+  app.use('/store/carts', express.json());
   app.use('/store', storeApiFallbackProxy(mockUrl, { log: (l) => lines.push(l) }));
   app.use(coreErrorHandler);
 });
 
 afterAll(async () => {
   await new Promise<void>((r) => mock.close(() => r()));
+});
+
+describe('body already parsed by express.json (review nit, #157)', () => {
+  it('re-serialises req.body so the mock receives the same JSON document and content-type', async () => {
+    seen = [];
+    const payload = { provider: 'manual', nested: { n: 1, list: ['a', 'b'] }, note: 'ünïcödé' };
+    const res = await request(app)
+      .post('/store/carts/00000000-0000-4000-8000-000000000001/payment-session')
+      .set('X-Publishable-Key', 'pk')
+      .set('Content-Type', 'application/json')
+      .send(payload);
+    expect(res.status).toBe(201);
+    const up = seen[0]!;
+    expect(up.method).toBe('POST');
+    expect(up.url).toBe('/store/carts/00000000-0000-4000-8000-000000000001/payment-session');
+    expect(JSON.parse(up.body)).toEqual(payload);
+    expect(up.headers['content-type']).toBe('application/json');
+    expect(up.headers['x-publishable-key']).toBe('pk');
+  });
 });
 
 describe('storeApiFallbackProxy', () => {

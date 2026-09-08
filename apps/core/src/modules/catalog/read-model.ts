@@ -229,6 +229,11 @@ export async function getStoreProduct(
     if (!row) throw notFound('product', handle);
     const [a] = await loadAggregates(tx, [row]);
     const lists = await defaultListIds(tx, storeId, currency);
+    const variants = a!.variants
+      .map((v) => toStoreVariant(v, a!, currency, lists))
+      .filter((v): v is StoreVariant => v !== null);
+    // Not sold in this currency (#157 review): the same 404 as an unknown handle, never a product without variants.
+    if (variants.length === 0) throw notFound('product', handle);
     let category: StoreCategory | null = null;
     if (row.category_id) {
       const c = await tx.query<CategoryRow>(
@@ -258,9 +263,7 @@ export async function getStoreProduct(
       attributes: row.attributes ?? {},
       seo: (row.seo ?? {}) as StoreProduct['seo'],
       options: a!.options.map((o) => ({ name: o.name, values: o.values })),
-      variants: a!.variants
-        .map((v) => toStoreVariant(v, a!, currency, lists))
-        .filter((v): v is StoreVariant => v !== null),
+      variants,
       media: a!.media.map((m) => ({
         url: m.url,
         alt: m.alt,
