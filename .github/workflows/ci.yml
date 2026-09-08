@@ -329,6 +329,26 @@ jobs:
         if: needs.changes.outputs.observ == 'true'
         run: bash infra/observability/check.sh
 
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans history, not just the diff: a credential committed and then "removed" in
+          # a later commit is still in the repository and still leaked.
+          fetch-depth: 0
+      # Unconditional, on every change, no path filter. A path filter on a secret scan only means
+      # the one PR that adds a key to an unwatched directory is the one that is not scanned.
+      - name: scan the repository and its history
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+          # The free licence covers public repos and personal accounts; this repo is private under a
+          # personal account, so no GITLEAKS_LICENSE is required.
+          GITLEAKS_CONFIG: infra/gitleaks.toml
+
   preview:
     name: preview deploy (placeholder)
     if: github.event_name == 'pull_request'

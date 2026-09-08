@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1, 2.1b, 2.2, 2.3, 2.4a, 2.4b (#98) merged · 2.5 (#35) in PR · next 2.6 (#36, last of Phase 2)
+Status: 2.1, 2.1b, 2.2, 2.3, 2.4a, 2.4b, 2.5 (#151, main 8941f1e) merged · 2.6 (#36) + #99 in PR · Phase 2 complete after this
 
 ## Identity (does not change)
 
@@ -99,10 +99,14 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   of Tempo, span metrics reaching Prometheus with a `store_id` label, and the panel expressions returning
   real values (0.025 req/s, p95 15.6 ms for brand-a).
 
+- **2.5 — observability (issue #35)** — merged as PR #151, main `8941f1e`.
+- **2.6 — secret injection + runbook index (issue #36), and #99** — this PR. External Secrets IRSA module,
+  ClusterSecretStore, the `<env>/platform` + `<env>/stores/<store_code>` naming scheme, gitleaks over history,
+  the six-flow runbook index, and run-e2e.sh no longer grepping app configs for a browser channel.
+
 ## In progress
 
-- Nothing being written. 2.5 is in its PR; 2.6 (#36, Vault + secret injection + the runbook index) is the last
-  task of Phase 2.
+- Nothing being written. 2.6 is in its PR and closes Phase 2 for this window.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
@@ -261,6 +265,16 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   five services; `infra/observability/check.sh` asserts it, because "pnpm dev unchanged" is an acceptance
   criterion that a stray edit could quietly break.
 
+- **`<env>` is the first path segment of every secret.** It turns the IAM policy into a prefix rather than a
+  pattern, so the External Secrets role in staging is structurally unable to read dev's secrets. The cost is
+  duplicating anything genuinely shared across environments, which is the right trade for a blast radius.
+- **A secret scan must not be path-filtered.** A filter only guarantees that the one PR adding a key to an
+  unwatched directory is the one that is not scanned. It also has to scan history: a credential committed and
+  then "removed" later is still in every clone.
+- **gitleaks allowlist regexes match the extracted SECRET, not the reported MATCH.** They differ — match
+  "access, analyst/finance/operations ", secret "analyst/finance/operations". Anchoring on the match
+  allowlists nothing and looks like the config is being ignored. Read the `Secret` field of a JSON report.
+
 ## Blocked / waiting
 
 - **REQUEST #92** (main) — `.prettierignore` must skip `infra/helm/*/templates/`. **Blocking 2.3**: Helm
@@ -279,6 +293,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   stop at `terraform validate` / `helm template` / runbooks. Never commit credentials.
 
 ## Gotchas learned
+
+- **NEVER `docker compose down` or recreate containers in this worktree.** The docker stack is SHARED with
+  every other window and with the integrator. During 2.5 I ran `down -v` to test a clean Keycloak import and
+  took the stack out from under the integrator mid-test; the manager had to restore it with `pnpm dev`. Adding
+  a profile's services with `up -d` is fine — it does not touch what is already running. If a test genuinely
+  needs a clean volume, ask first. `--force-recreate` on a single service is the most that is ever acceptable,
+  and only for a service no one else uses.
 
 - **A `str.replace()` that finds nothing fails silently, and that is how the memory header went three updates
   out of date** before the #69 review caught it — each edit targeted wording a previous edit had already
