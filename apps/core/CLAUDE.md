@@ -93,7 +93,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   lock order variant → warehouse priority → code), released by the orders module's cancel, consumed by window 8 via
   `consumeForShipment`. A reservation is never a movement.
 - Other modules' Admin routers mount through `src/http/module-routers.ts` (`moduleAdminRouters()`, after
-  `adminRouter()`) — the named mount point for window 9's `merchandisingRouter` (#162 part 3).
+  `adminRouter()`): window 9's `merchandisingRouter` (#162) and window 17's `marketingAdminRouter` (#181) are
+  mounted; add one `routers.push(...)` line per new router (`mediaRouter`, `pricingRouter`). `completeCart` emits
+  `payment.authorized` next to `order.placed` (#176 part 2).
 - Modules and helpers. Modules, `outbox`, `bootstrap` and `http` expose an `index.ts` public API and have their own
   tests; `lib` is a plain helper folder (imported by path, covered through the module and HTTP tests). Every folder
   has a `README.md`:

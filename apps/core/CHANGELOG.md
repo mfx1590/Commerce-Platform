@@ -20,6 +20,12 @@
   visible stores; filters, `below_available`, sort/order), `POST /admin/inventory/movements` (`operations`;
   reasons receipt | adjustment | transfer_in | transfer_out | cycle_count) → 201 `InventoryLevel`; one levels route
   in the live suite.
+- Wiring batch (#176 / #179 / #181, manager decision — travels with 2.4): `src/http/module-routers.ts` mounts window 9's
+  `merchandisingRouter({ repository: new PgRulesRepository(), indexFor })` (#162 part 3) and window 17's
+  `marketingAdminRouter()` (#181 part 1); `completeCart` emits `payment.authorized` v1 next to `order.placed` (#176
+  part 2); `enumParam` / `sortParams` exported from `src/http/index.ts` (#181 part 2). Not yet mountable (module not on
+  main): `registerPaymentProviders()` (#176 part 1), `mediaRouter()` (#168), `pricingRouter()` + the cart's
+  `resolvePrices` call site (#179 parts 2/3); #179 part 1 (catalog media functions) = a later core PR.
 - Tests: `src/modules/inventory/inventory.test.ts` (9: movement + event + append-only, greedy allocation, 409 +
   rollback + void, backorder negative, 8 parallel placements on shared variants in shuffled order, last-unit race,
   release/consume, Store availability, admin list/RLS across the shared warehouse, adjust), `test/admin-api.test.ts`

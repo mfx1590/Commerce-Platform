@@ -311,10 +311,10 @@ export async function completeCart(
       });
 
       // ---- payment row (the one money movement; carries the Idempotency-Key) ----
-      await tx.query(
+      const paymentRow = await tx.query<{ id: string; authorized_at: Date }>(
         `INSERT INTO payment (organization_id, store_id, order_id, provider, provider_payment_id, amount_minor, currency,
          status, authorized_at, idempotency_key, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'authorized', now(), $8, $9::jsonb)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'authorized', now(), $8, $9::jsonb) RETURNING id, authorized_at`,
         [
           cart.organization_id,
           cart.store_id,
@@ -341,7 +341,27 @@ export async function completeCart(
         `SELECT legal_entity_id FROM store WHERE id = $1`,
         [cart.store_id],
       );
+      const paymentId = paymentRow.rows[0]!.id;
       await withEvents(tx, [
+        // #176 (window 7): the payment row is created here, so only this transaction can emit its baseline event.
+        await buildEvent({
+          topic: 'payment.authorized',
+          organizationId: cart.organization_id,
+          storeId: cart.store_id,
+          aggregateType: 'payment',
+          aggregateId: paymentId,
+          actor: eventActor(input.actor),
+          payload: {
+            payment_id: paymentId,
+            order_id: order.id,
+            legal_entity_id: legal.rows[0]!.legal_entity_id,
+            provider: provider.name,
+            provider_payment_id: auth.providerPaymentId,
+            amount_minor: Number(cart.total_minor),
+            currency: cart.currency,
+            authorized_at: paymentRow.rows[0]!.authorized_at.toISOString(),
+          },
+        }),
         await buildEvent({
           topic: 'order.placed',
           organizationId: cart.organization_id,
