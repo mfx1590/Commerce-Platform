@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -9,6 +9,8 @@ info:
     UI gating is a convenience; these checks are the security boundary. Every mutation writes `audit_log`.
     Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional sort/order to list operations (additive);
     0.3.0 adds the marketing surface under `/admin/stores/{storeId}/marketing/…` and `/admin/marketing/…` (docs/marketing-scope.md, additive).
+    0.4.0 adds search merchandising rules under `/admin/stores/{storeId}/merchandising/…` (CONTRACT CHANGE #162, additive) and
+    documents `401` and `403` on every operation (#180): every `x-permission` can fail, and Prism can only mock what is written down.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -27,6 +29,7 @@ tags:
   - name: roles
   - name: audit
   - name: marketing
+  - name: search
 
 paths:
   # ---------------------------------------------------------------- me
@@ -117,6 +120,7 @@ paths:
                       updated_at: '2026-09-04T00:00:00Z',
                     }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [registry]
       operationId: createStore
@@ -136,6 +140,7 @@ paths:
               examples:
                 brandA: { $ref: '#/components/examples/StoreBrandA' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -154,6 +159,7 @@ paths:
               schema: { $ref: '#/components/schemas/Store' }
               examples:
                 brandA: { $ref: '#/components/examples/StoreBrandA' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
@@ -174,6 +180,7 @@ paths:
               examples:
                 brandA: { $ref: '#/components/examples/StoreBrandA' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/domains:
@@ -201,6 +208,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [registry]
       operationId: addDomain
@@ -228,6 +237,8 @@ paths:
                   is_primary: true,
                   verified_at: null,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/sales-channels:
@@ -260,6 +271,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [registry]
       operationId: createSalesChannel
@@ -289,6 +302,8 @@ paths:
                   type: app,
                   is_active: true,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/api-keys:
@@ -323,6 +338,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [registry]
       operationId: createApiKey
@@ -362,6 +379,8 @@ paths:
                   created_at: '2026-09-04T00:00:00Z',
                   key: pk_branda_mock_0000000000000000,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/warehouses:
     get:
@@ -396,6 +415,8 @@ paths:
                       is_active: true,
                       priority: 20,
                     }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/legal-entities:
     get:
@@ -426,6 +447,7 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- catalog
@@ -460,6 +482,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [catalog]
       operationId: createCategory
@@ -484,6 +508,8 @@ paths:
                   position: 0,
                   is_active: true,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/products:
@@ -522,6 +548,8 @@ paths:
                     required: [items]
                     properties:
                       items: { type: array, items: { $ref: '#/components/schemas/Product' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [catalog]
       operationId: createProduct
@@ -540,6 +568,8 @@ paths:
               examples:
                 classicTee: { $ref: '#/components/examples/ProductClassicTee' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/products/{productId}:
@@ -558,6 +588,8 @@ paths:
               schema: { $ref: '#/components/schemas/Product' }
               examples:
                 classicTee: { $ref: '#/components/examples/ProductClassicTee' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [catalog]
@@ -577,6 +609,8 @@ paths:
               examples:
                 classicTee: { $ref: '#/components/examples/ProductClassicTee' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [catalog]
@@ -585,6 +619,8 @@ paths:
       x-permission: { relation: store_admin, object: 'store:{storeId}' }
       responses:
         '204': { description: Archived }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/products/{productId}/publish:
@@ -605,6 +641,8 @@ paths:
               examples:
                 classicTee: { $ref: '#/components/examples/ProductClassicTee' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/products/{productId}/variants:
     parameters:
@@ -627,6 +665,8 @@ paths:
               schema: { $ref: '#/components/schemas/Variant' }
               examples:
                 mRed: { $ref: '#/components/examples/VariantMRed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/variants/{variantId}:
@@ -650,6 +690,8 @@ paths:
               schema: { $ref: '#/components/schemas/Variant' }
               examples:
                 mRed: { $ref: '#/components/examples/VariantMRed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- pricing
@@ -689,6 +731,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [pricing]
       operationId: createPriceList
@@ -718,6 +762,8 @@ paths:
                   status: active,
                   priority: 10,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/price-lists/{priceListId}/prices:
@@ -759,6 +805,8 @@ paths:
                   upserted: { type: integer }
               example: { upserted: 3 }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/promotions:
     parameters:
@@ -817,6 +865,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [pricing]
       operationId: createPromotion
@@ -848,6 +898,8 @@ paths:
                   ends_at: null,
                   status: active,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   # ---------------------------------------------------------------- orders
@@ -906,6 +958,8 @@ paths:
                       total: { amount_minor: 2918, currency: EUR },
                       placed_at: '2026-09-04T10:00:00Z',
                     }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/orders/{orderId}:
     parameters:
@@ -923,6 +977,8 @@ paths:
               schema: { $ref: '#/components/schemas/Order' }
               examples:
                 order: { $ref: '#/components/examples/OrderDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/orders/{orderId}/cancel:
@@ -951,6 +1007,8 @@ paths:
               schema: { $ref: '#/components/schemas/Order' }
               examples:
                 order: { $ref: '#/components/examples/OrderDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/orders/{orderId}/refunds:
@@ -1000,6 +1058,7 @@ paths:
                   provider_refund_id: re_mock,
                   created_at: '2026-09-04T11:00:00Z',
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1054,6 +1113,8 @@ paths:
                   requested_at: '2026-09-05T10:00:00Z',
                   received_at: null,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/returns/{returnId}/receive:
     parameters:
@@ -1107,6 +1168,8 @@ paths:
                   requested_at: '2026-09-05T10:00:00Z',
                   received_at: '2026-09-08T10:00:00Z',
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- inventory
   /admin/inventory/levels:
@@ -1166,6 +1229,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/inventory/movements:
     post:
@@ -1209,6 +1274,7 @@ paths:
                   available: 21,
                 }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- fulfillment
@@ -1247,6 +1313,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [fulfillment]
       operationId: createShippingOption
@@ -1275,7 +1343,154 @@ paths:
                   rules: {},
                   is_active: true,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  # ---------------------------------------------------------------- search (contracts-v0.4, CONTRACT CHANGE #162: merchandising rules)
+  /admin/stores/{storeId}/merchandising/rules:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [search]
+      operationId: listMerchandisingRules
+      summary: Pin / boost / bury rules of the store (all scopes)
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/MerchandisingRule' } }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 30000000-0000-4000-8000-000000000501,
+                        scope:
+                          { type: category, category_id: 00000000-0000-4000-8000-000000000201 },
+                        pins: [00000000-0000-4000-8000-000000000301],
+                        boosts: [{ product_id: 00000000-0000-4000-8000-000000000302, weight: 50 }],
+                        buries: [],
+                        enabled: true,
+                        starts_at: null,
+                        ends_at: null,
+                        published_at: null,
+                        created_at: '2026-09-08T12:00:00Z',
+                        updated_at: '2026-09-08T12:00:00Z',
+                      },
+                    ],
+                }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [search]
+      operationId: createMerchandisingRule
+      summary: Create the rule of a scope (one rule per store + scope; product ids must belong to the store)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchandisingRuleInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchandisingRule' }
+              examples:
+                category: { $ref: '#/components/examples/MerchandisingRuleCategory' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/merchandising/rules/{ruleId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: ruleId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [search]
+      operationId: getMerchandisingRule
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchandisingRule' }
+              examples:
+                category: { $ref: '#/components/examples/MerchandisingRuleCategory' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [search]
+      operationId: updateMerchandisingRule
+      summary: Partial update (scope is immutable; pins/boosts/buries replace the whole list when given)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchandisingRulePatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchandisingRule' }
+              examples:
+                category: { $ref: '#/components/examples/MerchandisingRuleCategory' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [search]
+      operationId: deleteMerchandisingRule
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '204': { description: Deleted (unpublished from the index on the next publish) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/merchandising/publish:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    post:
+      tags: [search]
+      operationId: publishMerchandisingRules
+      summary: Replace the Algolia rules of the store's index with every enabled rule; stamps published_at
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [index, published, skipped]
+                properties:
+                  index: { type: string, description: Algolia index name }
+                  published: { type: integer, minimum: 0 }
+                  skipped:
+                    { type: integer, minimum: 0, description: disabled or out-of-window rules }
+              example: { index: brand-a_products, published: 3, skipped: 1 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The store has no search credentials / index (conflict)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /admin/stores/{storeId}/orders/{orderId}/shipments:
     parameters:
@@ -1314,6 +1529,8 @@ paths:
               schema: { $ref: '#/components/schemas/Shipment' }
               examples:
                 pending: { $ref: '#/components/examples/ShipmentPending' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/shipments/{shipmentId}:
@@ -1348,6 +1565,8 @@ paths:
               schema: { $ref: '#/components/schemas/Shipment' }
               examples:
                 pending: { $ref: '#/components/examples/ShipmentPending' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1407,6 +1626,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/customers/{customerId}:
     parameters:
@@ -1439,6 +1660,8 @@ paths:
                     },
                   created_at: '2026-09-04T10:00:00Z',
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [customers]
@@ -1475,6 +1698,8 @@ paths:
                   consent: {},
                   created_at: '2026-09-04T10:00:00Z',
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/customers/{customerId}/erase:
@@ -1488,6 +1713,8 @@ paths:
       x-permission: { relation: store_admin, object: 'store:{storeId}' }
       responses:
         '202': { description: Erasure scheduled }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- roles
@@ -1534,6 +1761,7 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [roles]
@@ -1564,6 +1792,7 @@ paths:
                   status: active,
                   last_login_at: null,
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1597,6 +1826,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [roles]
       operationId: assignRole
@@ -1628,6 +1859,7 @@ paths:
                   created_at: '2026-09-04T00:00:00Z',
                 }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/users/{userId}/roles/{assignmentId}:
@@ -1640,6 +1872,8 @@ paths:
       x-permission: { relation: owner, object: 'organization:hq' }
       responses:
         '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- audit
@@ -1698,6 +1932,8 @@ paths:
                       },
                     ],
                 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- marketing (contracts-v0.3, docs/marketing-scope.md)
   # Store-scoped: reads need store_staff, writes store_admin; reports use `viewer` (any relation on the store) so
@@ -1770,6 +2006,7 @@ paths:
                     metadata: {}
                     created_at: '2026-09-08T00:00:00Z'
                     updated_at: '2026-09-08T00:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [marketing]
@@ -1790,6 +2027,7 @@ paths:
               examples:
                 autumn: { $ref: '#/components/examples/CampaignAutumn' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/marketing/campaigns/{campaignId}:
@@ -1808,6 +2046,8 @@ paths:
               schema: { $ref: '#/components/schemas/Campaign' }
               examples:
                 autumn: { $ref: '#/components/examples/CampaignAutumn' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [marketing]
@@ -1827,6 +2067,8 @@ paths:
               examples:
                 autumn: { $ref: '#/components/examples/CampaignAutumn' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [marketing]
@@ -1835,6 +2077,8 @@ paths:
       x-permission: { relation: store_admin, object: 'store:{storeId}' }
       responses:
         '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1855,6 +2099,8 @@ paths:
               schema: { $ref: '#/components/schemas/Campaign' }
               examples:
                 autumn: { $ref: '#/components/examples/CampaignAutumnActive' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1894,6 +2140,8 @@ paths:
                 metadata: {}
                 created_at: '2026-09-08T00:00:00Z'
                 updated_at: '2026-10-15T00:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -1948,6 +2196,8 @@ paths:
                     last_materialised_at: '2026-09-08T03:00:00Z'
                     created_at: '2026-09-08T00:00:00Z'
                     updated_at: '2026-09-08T03:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [marketing]
       operationId: createSegment
@@ -1967,6 +2217,8 @@ paths:
               examples:
                 vip: { $ref: '#/components/examples/SegmentVip' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/marketing/segments/{segmentId}:
@@ -1985,6 +2237,8 @@ paths:
               schema: { $ref: '#/components/schemas/Segment' }
               examples:
                 vip: { $ref: '#/components/examples/SegmentVip' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [marketing]
@@ -2004,6 +2258,8 @@ paths:
               examples:
                 vip: { $ref: '#/components/examples/SegmentVip' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [marketing]
@@ -2012,6 +2268,8 @@ paths:
       x-permission: { relation: store_admin, object: 'store:{storeId}' }
       responses:
         '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -2044,6 +2302,8 @@ paths:
                   count: { type: integer, minimum: 0 }
               example: { count: 128 }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/marketing/segments/{segmentId}/materialize:
@@ -2063,6 +2323,8 @@ paths:
               schema: { $ref: '#/components/schemas/Segment' }
               examples:
                 vip: { $ref: '#/components/examples/SegmentVip' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/marketing/feeds:
@@ -2122,6 +2384,8 @@ paths:
                         }
                     created_at: '2026-09-08T00:00:00Z'
                     updated_at: '2026-09-08T06:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [marketing]
       operationId: createFeed
@@ -2140,6 +2404,8 @@ paths:
               examples:
                 google: { $ref: '#/components/examples/FeedGoogleDraft' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/marketing/feeds/{feedId}:
@@ -2158,6 +2424,8 @@ paths:
               schema: { $ref: '#/components/schemas/ProductFeed' }
               examples:
                 google: { $ref: '#/components/examples/FeedGoogle' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [marketing]
@@ -2177,6 +2445,8 @@ paths:
               examples:
                 google: { $ref: '#/components/examples/FeedGoogle' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [marketing]
@@ -2185,6 +2455,8 @@ paths:
       x-permission: { relation: store_admin, object: 'store:{storeId}' }
       responses:
         '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/marketing/feeds/{feedId}/publish:
@@ -2204,6 +2476,8 @@ paths:
               schema: { $ref: '#/components/schemas/ProductFeed' }
               examples:
                 google: { $ref: '#/components/examples/FeedGoogle' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -2251,6 +2525,8 @@ paths:
                     sale_price: null
                     item_group_id: classic-tee
                     errors: []
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/marketing/referral-programs:
@@ -2300,6 +2576,8 @@ paths:
                       }
                     created_at: '2026-09-08T00:00:00Z'
                     updated_at: '2026-09-08T00:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [marketing]
       operationId: createReferralProgram
@@ -2318,6 +2596,8 @@ paths:
               examples:
                 friends: { $ref: '#/components/examples/ReferralProgramFriends' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/marketing/referral-programs/{programId}:
     parameters:
@@ -2335,6 +2615,8 @@ paths:
               schema: { $ref: '#/components/schemas/ReferralProgram' }
               examples:
                 friends: { $ref: '#/components/examples/ReferralProgramFriends' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [marketing]
@@ -2354,6 +2636,8 @@ paths:
               examples:
                 friends: { $ref: '#/components/examples/ReferralProgramFriends' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [marketing]
@@ -2362,6 +2646,8 @@ paths:
       x-permission: { relation: store_admin, object: 'store:{storeId}' }
       responses:
         '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -2418,6 +2704,8 @@ paths:
                     rewarded_at: null
                     created_at: '2026-09-08T00:00:00Z'
                     updated_at: '2026-09-08T00:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/marketing/reviews:
     parameters:
@@ -2475,6 +2763,8 @@ paths:
                     published_at: null
                     created_at: '2026-09-08T18:00:00Z'
                     updated_at: '2026-09-08T18:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/marketing/reviews/{reviewId}/moderate:
     parameters:
@@ -2522,6 +2812,8 @@ paths:
                 created_at: '2026-09-08T18:00:00Z'
                 updated_at: '2026-09-09T09:00:00Z'
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -2563,6 +2855,7 @@ paths:
                     orders_count: 12
                     revenue: { amount_minor: 35016, currency: EUR }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/stores/{storeId}/marketing/reports/promotions:
@@ -2593,6 +2886,7 @@ paths:
                     discount_given: { amount_minor: 2400, currency: EUR }
                     revenue: { amount_minor: 21600, currency: EUR }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   # Organization level: the cross-brand dashboard (analyst) and segment templates (owner writes).
@@ -2628,6 +2922,7 @@ paths:
                     revenue: { amount_minor: 41300, currency: GBP }
                     top_campaign_id: null
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /admin/marketing/segment-templates:
@@ -2669,6 +2964,8 @@ paths:
                     last_materialised_at: null
                     created_at: '2026-09-08T00:00:00Z'
                     updated_at: '2026-09-08T00:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [marketing]
       operationId: createSegmentTemplate
@@ -2687,6 +2984,8 @@ paths:
               examples:
                 vip: { $ref: '#/components/examples/SegmentTemplateVip' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/marketing/segment-templates/{templateId}:
@@ -2704,6 +3003,8 @@ paths:
               schema: { $ref: '#/components/schemas/Segment' }
               examples:
                 vip: { $ref: '#/components/examples/SegmentTemplateVip' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [marketing]
@@ -2723,6 +3024,8 @@ paths:
               examples:
                 vip: { $ref: '#/components/examples/SegmentTemplateVip' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [marketing]
@@ -2731,6 +3034,8 @@ paths:
       x-permission: { relation: owner, object: 'organization:hq' }
       responses:
         '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
 components:
@@ -4006,6 +4311,83 @@ components:
                   description: Campaign with the most last-touch revenue in the window,
                 }
 
+    MerchandisingScope:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [category, query] }
+        category_id:
+          { type: [string, 'null'], format: uuid, description: required when type = category }
+        query:
+          {
+            type: [string, 'null'],
+            minLength: 1,
+            maxLength: 200,
+            description: required when type = query; matched case-insensitively as the whole query,
+          }
+    MerchandisingBoost:
+      type: object
+      required: [product_id, weight]
+      properties:
+        product_id: { type: string, format: uuid }
+        weight: { type: integer, minimum: 1, maximum: 100 }
+    MerchandisingRuleInput:
+      type: object
+      required: [scope]
+      properties:
+        scope: { $ref: '#/components/schemas/MerchandisingScope' }
+        pins:
+          {
+            type: array,
+            maxItems: 50,
+            items: { type: string, format: uuid },
+            description: ordered; shown first,
+          }
+        boosts:
+          { type: array, maxItems: 200, items: { $ref: '#/components/schemas/MerchandisingBoost' } }
+        buries: { type: array, maxItems: 200, items: { type: string, format: uuid } }
+        enabled: { type: boolean, default: true }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+    MerchandisingRulePatch:
+      type: object
+      properties:
+        pins: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+        boosts:
+          { type: array, maxItems: 200, items: { $ref: '#/components/schemas/MerchandisingBoost' } }
+        buries: { type: array, maxItems: 200, items: { type: string, format: uuid } }
+        enabled: { type: boolean }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+    MerchandisingRule:
+      type: object
+      required:
+        [
+          id,
+          scope,
+          pins,
+          boosts,
+          buries,
+          enabled,
+          starts_at,
+          ends_at,
+          published_at,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        scope: { $ref: '#/components/schemas/MerchandisingScope' }
+        pins: { type: array, items: { type: string, format: uuid } }
+        boosts: { type: array, items: { $ref: '#/components/schemas/MerchandisingBoost' } }
+        buries: { type: array, items: { type: string, format: uuid } }
+        enabled: { type: boolean }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+        published_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
   examples:
     StoreBrandA:
       value:
@@ -4358,3 +4740,16 @@ components:
         published_at: null
         created_at: '2026-09-08T18:00:00Z'
         updated_at: '2026-09-08T18:00:00Z'
+    MerchandisingRuleCategory:
+      value:
+        id: 30000000-0000-4000-8000-000000000501
+        scope: { type: category, category_id: 00000000-0000-4000-8000-000000000201 }
+        pins: [00000000-0000-4000-8000-000000000301]
+        boosts: [{ product_id: 00000000-0000-4000-8000-000000000302, weight: 50 }]
+        buries: []
+        enabled: true
+        starts_at: null
+        ends_at: null
+        published_at: null
+        created_at: '2026-09-08T12:00:00Z'
+        updated_at: '2026-09-08T12:00:00Z'
