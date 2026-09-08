@@ -15,6 +15,7 @@
     "lighthouse": "npx -y @lhci/cli@0.14 autorun --config=lighthouserc.json"
   },
   "dependencies": {
+    "@platform/cms": "workspace:*",
     "@platform/contracts": "workspace:*",
     "@platform/ui": "workspace:*",
     "next": "^15.5.4",
