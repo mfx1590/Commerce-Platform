@@ -1,6 +1,6 @@
 # Memory 6 — CMS & landing pages
 Window: 6 · Key: `cms` · Branch prefix: `cms/` · Model: Sonnet
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 = 583b407 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0) · Branch: `cms/phase2` · Status: 2.1 in PR, 2.2 next
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 = 583b407 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0) · Branch: `cms/phase2` · Status: 2.1 merged, 2.2 in PR #177, 2.3 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,10 +17,14 @@ Never touches:
 Headless CMS with one workspace per brand: schemas (page, hero, blocks, campaign landing, nav, footer, legal, product-story block), fetch layer with preview + revalidate-on-publish, content routes, Builder.io/Framer embed under /campaign/*, media via Cloudinary. cms/README explains how a marketer builds a landing page alone. Wave A — starts right after contracts-v0.3 is tagged; nothing to wait for.
 
 ## Done
-- **#119 · 2.1 Sanity workspace and schemas per brand** — 2026-09-08, commit bc919ea, PR #163 (in review). `@platform/cms` 0.1.0: Studio config (one workspace per brand dataset), 10 object + 5 document schemas, `define.ts` structural mirror, `validateDocument`, fixtures, `datasets.ts`, seed script + manual steps, README, CHANGELOG. 35 tests (incl. compiling the registry with Sanity's own `createSchema`). Root config came from REQUEST #158 (main 94f1de3).
+- **#119 · 2.1 Sanity workspace and schemas per brand** — 2026-09-08, commit bc919ea, PR #163 merged (main a58c3da).
+- **#120 · 2.2 Fetch layer, preview mode, revalidate-on-publish** — 2026-09-08, commit b4ccd1f (+ merge a479403), PR #177 (in review; unblocks wave C). `apps/storefront-starter/src/lib/cms/` (plain-fetch GROQ client, reader that never throws, three-level tags, HMAC preview cookie, Sanity webhook verification, pure handlers) + `src/app/api/cms/{preview,preview/exit,revalidate}/route.ts`; 4 test suites / 28 tests; cms 0.1.1 with the #163 nits folded. Root config via REQUESTs #164, #167, #170 (main b9baf84). `@platform/cms` 0.1.0: Studio config (one workspace per brand dataset), 10 object + 5 document schemas, `define.ts` structural mirror, `validateDocument`, fixtures, `datasets.ts`, seed script + manual steps, README, CHANGELOG. 35 tests (incl. compiling the registry with Sanity's own `createSchema`). Root config came from REQUEST #158 (main 94f1de3).
 
 ## In progress
-- **#120 · 2.2 Fetch layer, preview mode, revalidate-on-publish** — BUILT and green locally (2026-09-08: storefront typecheck, 184 tests incl. 4 new cms suites, root lint + format). Committed as b4ccd1f (pushed, no PR yet). Waiting for TWO requests on main: #167 (`@platform/cms` dependency line in `apps/storefront-starter/package.json`, window 3's file — the local copy of that line is uncommitted, do not `git add` package.json or pnpm-lock.yaml until it lands) and the ownership REQUEST for `apps/storefront-starter/test/cms-*` (the four test files are in window 3's `test/` folder; `check-ownership.sh` flags them). Then `git merge main && pnpm install`, commit the lockfile, `bash scripts/check-ownership.sh` must say OK, open the PR. #164 (ownership for `src/app/api/cms/**`) was accepted on main a58c3da. Folded #163 nits: CHANGELOG count, `_validation` assertion (cms 0.1.1). Original plan for reference:
+- (nothing — 2.3 (#121) is next; plan it, write the plan here, ask for confirmation if > ~20 tool calls, build locally while PR #177 is in review)
+
+## Archived plan — 2.2 (delivered in PR #177; kept for the file layout it describes)
+- Original plan for reference:
   1. `apps/storefront-starter/package.json`: add `"@platform/cms": "workspace:*"` (types, `datasetForStore`, `SANITY_API_VERSION`, fixtures for tests) and `transpilePackages` is not needed (dist is plain ESM). Nothing else outside `src/lib/cms/**` — the `(content)` routes stay on the placeholder until 2.3.
   2. `src/lib/cms/config.ts`: `cmsConfigFromEnv()` → `{ projectId, apiVersion, readToken?, previewSecret?, webhookSecret? }` from `SANITY_*`; server-only guard like `store-api/config.ts`; `isConfigured()` false when `SANITY_PROJECT_ID` is empty.
   3. `src/lib/cms/client.ts`: **plain `fetch` GROQ client, no `@sanity/client`** (same reasoning as store-api: one module knows the URL/headers, mockable `fetchImpl`, no extra dependency). `https://<pid>.apicdn.sanity.io/v<ver>/data/query/<dataset>` for published (CDN, `perspective=published`), `https://<pid>.api.sanity.io` with `Authorization: Bearer <readToken>` and `perspective=previewDrafts` for preview. Dataset = `datasetForStore(store.code)` from `getStore()`. `fetch` options carry `next: { tags, revalidate }`; preview requests `cache: 'no-store'`.
@@ -35,7 +39,7 @@ Headless CMS with one workspace per brand: schemas (page, hero, blocks, campaign
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#119 · 2.1** Sanity workspace and schemas per brand (PR #163, bc919ea)
-- [ ] **#120 · 2.2** Fetch layer, preview mode, revalidate-on-publish — `apps/storefront-starter/src/lib/cms/`: GROQ client per dataset (`datasetForStore(store.code)`), signed preview cookie, `revalidateTag` webhook verified by `SANITY_WEBHOOK_SECRET`, tags per document type, empty results + one warning without credentials. Storefront gets `@platform/cms` as a workspace dep (types, `SANITY_API_VERSION`, fixtures for tests). Unblocks windows 10 and 3 — open early.
+- [x] **#120 · 2.2** Fetch layer, preview mode, revalidate-on-publish (PR #177, b4ccd1f)
 - [ ] **#163 review "later" nits (fold into 2.3, cms package):** (a) `navigation` (key, locale) and `footer` (locale) have no uniqueness rule although README assumes one per pair — add `custom` validators like `uniqueLocaleSlug`; (b) `uri({ allowRelative: true })` also admits `http://` and `//host` while the description promises "starts with /" — tighten the `href` rule (regex `^/(?!/)` or `https://`) and its tests.
 - [ ] **#121 · 2.3** Content routes in the starter and (content) localisation
 - [ ] **#122 · 2.4** Campaign landing pattern under /campaign/*
