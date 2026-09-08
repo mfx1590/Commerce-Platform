@@ -20,6 +20,7 @@ import {
   DevTokenVerifier,
   hqRbacAdapter,
   KeycloakStaffTokenVerifier,
+  moduleAdminRouters,
   mountStoreRoutes,
   requestIdMiddleware,
   staffAuthMiddleware,
@@ -51,6 +52,8 @@ export interface CoreMiddlewareOptions {
   onRoleChange?: (staffUserId: string) => void;
   /** Non-production only: base URL every unhandled `/store/*` request is proxied to (Integration 1). */
   storeApiFallbackUrl?: string;
+  /** Admin routers of other windows' modules, mounted after adminRouter(); default `moduleAdminRouters()`. */
+  moduleRouters?: express.Router[];
 }
 
 /** The staff auth src/server.ts runs: real Keycloak tokens by default, `dev:` tokens only with CORE_DEV_TOKENS=1. */
@@ -164,6 +167,8 @@ export function mountCoreMiddleware(
   // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): x-permission from the spec (OpenFGA
   // for real tokens), then the module services. Every other /admin path falls through to Medusa.
   app.use(adminRouter());
+  // Admin routers other modules export (src/http/module-routers.ts — the named mount point, #162 part 3).
+  for (const router of opts.moduleRouters ?? moduleAdminRouters()) app.use(router);
   // Renders AppError as the contract's { code, message, details } for everything above.
   app.use(coreErrorHandler);
 }
