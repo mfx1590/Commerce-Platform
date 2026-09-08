@@ -225,7 +225,45 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- (nothing — 2.1 is PR #184; 2.2 (#114) starts next, locally, against the mock until core 2.3 lands)
+- **#114 · 2.2 Orders** — plan written 2026-09-08, awaiting confirmation. Building locally while
+  #184 is in review; no push until the manager confirms. Contracts 0.4.0 (#185, 401/403 on every
+  operation) lands today: merge main and retarget the refusal contract tests at the spec's examples.
+  1. **Wrappers** in `src/lib/api/admin.ts`: `listOrders` (filters status, payment_status,
+     fulfillment_status, q, placed_from/to; sort placed_at/display_id/total/status), `getOrder`,
+     `cancelOrder`, `createRefund` (**`Idempotency-Key` header** via `adminCall.headers`),
+     `createReturn`, `createShipment`, `updateShipment`, `receiveReturn`; `listWarehouses` exists.
+  2. **List** `/{storeId}/orders`: data-table, URL-driven filters + sort from the contract enums
+     (`orders-table.config.ts`), money from `{amount_minor, currency}` with the store's
+     `default_locale` (`getStore` in parallel, fails alone), status/payment/fulfilment badges,
+     empty vs filter-matched-nothing, `ApiStatePanel` on failure.
+  3. **Detail** `/{storeId}/orders/{orderId}` (server component renders the PII: email, addresses):
+     header + three badges, lines (qty, unit, discount, tax, total, fulfilled/returned), totals
+     block, shipping method, payments/refunds/shipments/returns as one timeline sorted by time,
+     `cancel_reason` when set.
+  4. **Actions panel** (client, each behind a confirmation, each gated in the UI by the relation
+     from `/admin/me` via `src/lib/nav/relations.ts`, always re-checked by the API → `ActionRefusal`):
+     Cancel (`store_admin`, reason required) · Fulfil = `createShipment` (`operations` on
+     organization:hq: warehouse picker from `listWarehouses`, per-line quantity ≤ remaining,
+     carrier/service) · Refund (`support`: `MoneyField` ≤ captured − refunded, reason enum,
+     optional payment) · Request return (`support`: per-line quantity ≤ shipped − returned, reason).
+  5. **Idempotency**: the refund form mints `crypto.randomUUID()` when it opens and keeps it until a
+     success; a retry after a network error (status 0) or 5xx reuses it, a success mints a new one.
+     Unit test: action fails with status 0 then succeeds → both calls carry the same key; the next
+     refund carries a different one.
+  6. **Server actions** `src/app/actions/orders.ts` + Zod schemas (`MatchesContract` where the
+     contract has a named input; the inline bodies get hand-written schemas).
+  7. **Tests**: unit (table config, money rendering never via floats, gating per role fixture,
+     idempotency, confirmations), contract `test-contract/orders.test.tsx` (list/detail/cancel/
+     refund 201 + documented 403/409, return 201, shipment 201; after #185: 401/403 examples on the
+     order operations), 403/empty/error through `ApiStatePanel`; e2e: orders list → detail on the mock.
+  8. **Real core at the end** (core 2.3 / PR #174 merges within the hour): merge main, run
+     list/detail (+ whichever actions the core implements) against :9000, document; refusals →
+     issue for window 1 with exact request/response.
+  9. README (orders section), CHANGELOG, memory; `pnpm lint && pnpm typecheck && pnpm test --filter
+     @platform/admin` + `test:contract`; PR with the acceptance criteria.
+  **Estimate: 50–70 tool calls.** Not in scope: shipment status updates UI beyond `updateShipment`
+  wrapper (window 8's labels/tracking), `receiveReturn` UI (HQ warehouse, Phase 3 window 11) —
+  wrappers only.
 
 ### Open requests, none blocking
 - ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
