@@ -232,8 +232,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
      existing semantic names (canvas→ground `#0B0F14`, surface, surface-2, line, ink, muted→stone,
      accent→verdigris, accent-ink `#06201A`, danger→critical, warning→warn, success→ok) plus
      `--color-gold` (serpent eyes only) and font tokens; `color-scheme: dark`. Verified contrast:
-     stone/ground 7.3:1, ink/ground 16.3:1, verdigris/surface 9.6:1, button text on verdigris
-     10.4:1. Existing primitives (Button, Badge, Card, DataTable, fields, state panels) already use
+     stone/ground 6.3:1, stone/surface 5.8:1, ink/ground 16.0:1, verdigris/surface 9.6:1,
+     critical/surface 4.8:1, button text on verdigris 9.4:1 (all ≥ 4.5:1). Existing primitives (Button, Badge, Card, DataTable, fields, state panels) already use
      the semantic classes, so they restyle through the variables — no rewrites; the few places
      with `bg-accent/10`-style alphas are re-checked in dark. Fonts via `next/font/google`
      (Cinzel display, IBM Plex Sans body, IBM Plex Mono numbers) — self-hosted at build, no
