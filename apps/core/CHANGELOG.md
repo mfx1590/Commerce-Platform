@@ -28,7 +28,7 @@
 - `src/http/hq-rbac-adapter.ts`: window 2's `createHqRbac({ pool, fga, onRoleChange }).handle(...)` mounted ahead
   of `adminRouter()` with the principal/scope the middleware resolved (dev-token principals get a synthesised
   scope); `null` → `next()`. `/admin/users*`, `/admin/audit-log`, `/admin/finance/ping` are live.
-- `src/http/store-fallback.ts` + `CORE_STORE_API_FALLBACK_URL` (non-production only, refused in production):
+- `src/http/store-fallback.ts` + `CORE_STORE_API_FALLBACK=1` (explicit opt-in, same pattern as `CORE_DEV_TOKENS`) with `CORE_STORE_API_FALLBACK_URL`; refused unconditionally in production before either variable is read (owner requirement, Int 1 review):
   every `/store/*` request the four real routes do not answer is proxied verbatim to the Prism mock with Node's
   `fetch`; one log line per request (method + path). `mountCoreMiddleware(app, verifier?, { fga, onRoleChange,
 storeApiFallbackUrl })`.

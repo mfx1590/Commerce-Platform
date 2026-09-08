@@ -137,24 +137,59 @@ describe('storeApiFallbackProxy', () => {
     expect(res.body).toMatchObject({ code: 'internal' });
   });
 
-  it('is refused in production, both from the environment and as a mount option', () => {
+  it('is refused in production unconditionally, before the opt-in flag is consulted', () => {
+    const prod = { NODE_ENV: 'production' } as const;
+    // flag alone, url alone, both: every combination refuses; nothing set is simply off.
+    expect(() => storeApiFallbackUrlFromEnv({ ...prod, CORE_STORE_API_FALLBACK: '1' })).toThrow(
+      /must not be set in production/,
+    );
+    expect(() =>
+      storeApiFallbackUrlFromEnv({ ...prod, CORE_STORE_API_FALLBACK_URL: 'http://localhost:4010' }),
+    ).toThrow(/must not be set in production/);
+    expect(() =>
+      storeApiFallbackUrlFromEnv({
+        ...prod,
+        CORE_STORE_API_FALLBACK: '1',
+        CORE_STORE_API_FALLBACK_URL: 'http://localhost:4010',
+      }),
+    ).toThrow(/must not be set in production/);
+    expect(storeApiFallbackUrlFromEnv({ ...prod })).toBeUndefined();
+    // the mount option is refused too, independently of the environment variables
     const prevEnv = process.env.NODE_ENV;
-    const prevUrl = process.env.CORE_STORE_API_FALLBACK_URL;
     process.env.NODE_ENV = 'production';
-    process.env.CORE_STORE_API_FALLBACK_URL = 'http://localhost:4010';
     try {
-      expect(() => storeApiFallbackUrlFromEnv()).toThrow(/CORE_STORE_API_FALLBACK_URL/);
       expect(() =>
         mountCoreMiddleware(express(), undefined, { storeApiFallbackUrl: 'http://localhost:4010' }),
-      ).toThrow(/CORE_STORE_API_FALLBACK_URL/);
-      process.env.NODE_ENV = 'test';
-      expect(storeApiFallbackUrlFromEnv()).toBe('http://localhost:4010');
-      delete process.env.CORE_STORE_API_FALLBACK_URL;
-      expect(storeApiFallbackUrlFromEnv()).toBeUndefined();
+      ).toThrow(/must not be set in production/);
     } finally {
       process.env.NODE_ENV = prevEnv;
-      if (prevUrl === undefined) delete process.env.CORE_STORE_API_FALLBACK_URL;
-      else process.env.CORE_STORE_API_FALLBACK_URL = prevUrl;
     }
+  });
+
+  it('outside production it needs the explicit CORE_STORE_API_FALLBACK=1 opt-in AND the url', () => {
+    const dev = { NODE_ENV: 'test' } as const;
+    expect(storeApiFallbackUrlFromEnv({ ...dev })).toBeUndefined();
+    // the url alone does not switch the proxy on
+    expect(
+      storeApiFallbackUrlFromEnv({ ...dev, CORE_STORE_API_FALLBACK_URL: 'http://localhost:4010' }),
+    ).toBeUndefined();
+    expect(
+      storeApiFallbackUrlFromEnv({
+        ...dev,
+        CORE_STORE_API_FALLBACK: 'yes',
+        CORE_STORE_API_FALLBACK_URL: 'http://localhost:4010',
+      }),
+    ).toBeUndefined();
+    // the flag without a target is a configuration error, not a silent no-op
+    expect(() => storeApiFallbackUrlFromEnv({ ...dev, CORE_STORE_API_FALLBACK: '1' })).toThrow(
+      /requires CORE_STORE_API_FALLBACK_URL/,
+    );
+    expect(
+      storeApiFallbackUrlFromEnv({
+        ...dev,
+        CORE_STORE_API_FALLBACK: '1',
+        CORE_STORE_API_FALLBACK_URL: 'http://localhost:4010',
+      }),
+    ).toBe('http://localhost:4010');
   });
 });
