@@ -14,3 +14,40 @@ export {
   type ResolveQuery,
 } from './pricing';
 export { pricingRouter } from './pricing-http';
+// ---- promotions / coupon rule engine (task 2.5, #138; contract change #189) ----
+export {
+  allocateAcrossLines,
+  eligibleLines,
+  evaluatePromotions,
+  type AppliedPromotion,
+  type CartLineInput,
+  type EvaluationContext,
+  type EvaluationResult,
+  type RejectedPromotion,
+  type RejectReason,
+} from './engine';
+export {
+  createPromotion,
+  getPromotion,
+  listPromotions,
+  loadCandidatePromotions,
+  promotionReportData,
+  recordPromotionUse,
+  updatePromotion,
+  type PromotionListQuery,
+  type PromotionReportItem,
+} from './promotions';
+export {
+  normalizeCode,
+  parsePromotionInput,
+  parsePromotionPatch,
+  PROMOTION_INPUT_SCHEMA,
+  PROMOTION_PATCH_SCHEMA,
+  type Promotion,
+  type PromotionInput,
+  type PromotionPatch,
+  type PromotionRules,
+  type PromotionStatus,
+  type PromotionType,
+} from './promotions-types';
+export { promotionsRouter } from './promotions-http';

@@ -1,8 +1,7 @@
 # promotions (window 9)
 
-Pricing and promotions of one store. Phase 2 task 2.4 (#137) delivers the **price-list half**; task 2.5 (#138)
-adds the promotion / coupon rule engine to this same module. Window 1's cart consumes both halves through
-`index.ts` only.
+Pricing and promotions of one store: task 2.4 (#137) the **price lists**, task 2.5 (#138) the **promotion /
+coupon rule engine**. Window 1's cart consumes both through `index.ts` only.
 
 ## Owner and placement
 
@@ -52,6 +51,37 @@ The catalog read model and the search index still price from the default list on
 for PLP/PDP sale prices is window 1's call site (REQUEST issue) — the module deliberately does not reach into
 catalog code.
 
+## Promotions and coupons (task 2.5 — contract change #189, "jsonb" decision)
+
+Types `percentage` (value = basis points), `fixed_amount` (value = minor units, needs an enabled currency),
+`free_shipping` (flag for the cart's shipping line), `buy_x_get_y` (`rules.buy_quantity` / `get_quantity` /
+`get_discount_bp`, 10000 = free; the CHEAPEST eligible units are the discounted ones). `stackable` /
+`exclusive` and the buy-X-get-Y numbers are stored **inside the `rules` jsonb column** (no migration; the API
+lifts the first two to top level); the one db statement #189 needs — widening the `type` CHECK — lives at
+`proposed/0131_promotion_type_buy_x_get_y.sql` and is applied by the tests until it lands.
+
+- **Admin operations**: `listPromotions` / `createPromotion` are contracts-v0.3 (spec permission); `GET` /
+  `PATCH …/promotions/{promotionId}` are #189 (viewer / store_admin, local validation; `code` and `type`
+  immutable). Codes are stored and matched upper-case trimmed, unique per store (409). Every rule id
+  (products, categories, groups, channels) must belong to the store (400 with the offending list). Audit
+  `promotion.create` / `promotion.update`.
+- **Engine** (`engine.ts`, pure — no db, no clock): `evaluatePromotions(lines, promotions, ctx)` →
+  applied/rejected (machine-readable reasons), total discount, free-shipping flag, and per-line allocations
+  that **sum exactly** to each promotion's discount (largest-remainder). Conditions: status/window, usage and
+  per-customer limits, min subtotal, product/category eligibility, customer group, sales channel, first order,
+  code matching (case-insensitive; unknown code → `not_found`). **Stacking**: the best applicable `exclusive`
+  wins over everything and applies alone; otherwise the better of (best non-stackable alone) vs (all
+  stackables combined); total capped at the cart subtotal, trimming the least valuable applications first.
+- **Usage** (`recordPromotionUse(tx, storeId, promotionId)`): atomic increment refusing past `usage_limit`
+  with 409 `conflict` — the cart calls it inside its placement transaction, once per applied promotion, so a
+  failed placement never burns a use. Per-customer counts come from the caller (`ctx.customerUses`); the
+  module stores no per-customer table.
+- **Report provider** (`promotionReportData(client, storeId, from, to)`, the `getPromotionReport` shape):
+  uses / discount given / revenue per code over non-cancelled orders in the window, read from the `"order"`
+  read model (`promotion_codes`, `discount_minor`, `total_minor` — window 1's table, reads allowed). Caveat:
+  an order with several codes counts its full discount and revenue under each (per-code attribution of a
+  shared discount is not stored). Window 17 owns the route and calls this through the public API.
+
 ## Tests
 
 `pricing.test.ts` (5): routes with spec-driven permissions (analyst lists, store_staff 403 on create, spec 400s),
@@ -61,9 +91,22 @@ matrix (sale beats default and group, priority wins within a rank, expired + dra
 group list needs the group, tiers at quantity 5 vs 4, `ends_at` exclusive, unknown currency → absent, fallback
 to the seeded default), RLS isolation for brand-b.
 
-Run: `cd apps/core && pnpm exec vitest run src/modules/promotions` (Postgres 5433; creates `core_pricing_*`).
+`engine.test.ts` (7, pure): allocation sums exactly for arbitrary totals, percentage/fixed/free-shipping/
+buy-X-get-Y discounts, every condition gate (with the passing counterpart), code matching + per-customer
+limit, stacking matrix (stackables combine, better single wins, exclusive beats everything), subtotal cap.
+
+`promotions.test.ts` (6, DB + routes): jsonb round trip of stackable/exclusive, seeded-WELCOME10 duplicate
+409, type/rule validation incl. foreign ids, list/sort/patch (code immutable, RLS 404), candidate loading,
+atomic usage counting to the limit (409 `conflict`), the report over fixture orders (cancelled and
+out-of-window excluded).
+
+Run: `cd apps/core && pnpm exec vitest run src/modules/promotions` (Postgres 5433; creates `core_pricing_*` /
+`core_promo_*`).
 
 ## Public API (`index.ts`)
 
-`listPriceLists`, `createPriceList`, `upsertPrices`, `resolvePrices`, `pricingRouter`, and the types
-`PriceList`, `PriceListInput`, `PriceUpsertRow`, `ResolveQuery`, `ResolvedPrice`.
+Pricing: `listPriceLists`, `createPriceList`, `upsertPrices`, `resolvePrices`, `pricingRouter` (+ types).
+Promotions: `evaluatePromotions`, `allocateAcrossLines`, `eligibleLines`, `listPromotions`, `getPromotion`,
+`createPromotion`, `updatePromotion`, `loadCandidatePromotions`, `recordPromotionUse`, `promotionReportData`,
+`promotionsRouter` (+ types `Promotion`, `PromotionInput`, `PromotionPatch`, `CartLineInput`,
+`EvaluationContext`, `EvaluationResult`).

@@ -5,6 +5,21 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-08 · 2.5 Promotions and coupon rule engine (#138, CONTRACT CHANGE #189 "jsonb")
+
+- `promotions-types.ts`: types + ajv (contract PromotionInput + #189 additions: `buy_x_get_y`, `stackable`,
+  `exclusive`, buy/get rule numbers, `PromotionPatch`); cross-field checks (bp range, fixed needs currency,
+  buy/get required and only for buy_x_get_y, window, stackable⊕exclusive); codes upper-cased.
+- `engine.ts` (pure): `evaluatePromotions` — condition gates with machine-readable reject reasons, per-type
+  discounts (cheapest units for buy-X-get-Y), stacking (best exclusive alone > best-of(non-stackable alone vs
+  stackables combined)), subtotal cap, largest-remainder allocation summing exactly per promotion and in total.
+- `promotions.ts`: CRUD (`stackable`/`exclusive` and buy/get inside the `rules` jsonb column — no migration;
+  the type-CHECK widening lives at `proposed/0131_promotion_type_buy_x_get_y.sql` and the tests apply it),
+  rule-id ownership checks, `loadCandidatePromotions`, `recordPromotionUse` (atomic, 409 at the limit),
+  `promotionReportData` (per code over non-cancelled orders — the `getPromotionReport` provider for window 17).
+- `promotions-http.ts`: `promotionsRouter()` — list/create spec-driven; get/patch per #189 until it lands.
+- Tests: `engine.test.ts` (7), `promotions.test.ts` (6).
+
 ### 2026-09-08 · 2.4 Price lists (#137)
 
 - Module created (placement decision in README.md: the pricing half of promotions, consumed by the cart
