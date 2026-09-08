@@ -1,0 +1,211 @@
+# PROPOSED (CONTRACT CHANGE, window 9, task 2.2): additions to packages/contracts/openapi/admin-api.yaml.
+# Kept here verbatim until the main window applies it; the search module's router validates bodies against the
+# same schemas (src/modules/search/merchandising-schema.ts) and mounts under these paths.
+#
+# ---- paths (insert after /admin/stores/{storeId}/shipping-options) ------------------------------------------
+paths:
+  /admin/stores/{storeId}/merchandising/rules:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [search]
+      operationId: listMerchandisingRules
+      summary: Pin / boost / bury rules of the store (all scopes)
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/MerchandisingRule' } }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 30000000-0000-4000-8000-000000000501,
+                        scope:
+                          { type: category, category_id: 00000000-0000-4000-8000-000000000201 },
+                        pins: [00000000-0000-4000-8000-000000000301],
+                        boosts: [{ product_id: 00000000-0000-4000-8000-000000000302, weight: 50 }],
+                        buries: [],
+                        enabled: true,
+                        starts_at: null,
+                        ends_at: null,
+                        published_at: null,
+                        created_at: '2026-09-08T12:00:00Z',
+                        updated_at: '2026-09-08T12:00:00Z',
+                      },
+                    ],
+                }
+    post:
+      tags: [search]
+      operationId: createMerchandisingRule
+      summary: Create the rule of a scope (one rule per store + scope; product ids must belong to the store)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchandisingRuleInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchandisingRule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/merchandising/rules/{ruleId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: ruleId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [search]
+      operationId: getMerchandisingRule
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchandisingRule' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [search]
+      operationId: updateMerchandisingRule
+      summary: Partial update (scope is immutable; pins/boosts/buries replace the whole list when given)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MerchandisingRulePatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchandisingRule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [search]
+      operationId: deleteMerchandisingRule
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '204': { description: Deleted (unpublished from the index on the next publish) }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/merchandising/publish:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    post:
+      tags: [search]
+      operationId: publishMerchandisingRules
+      summary: Replace the Algolia rules of the store's index with every enabled rule; stamps published_at
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [index, published, skipped]
+                properties:
+                  index: { type: string, description: Algolia index name }
+                  published: { type: integer, minimum: 0 }
+                  skipped:
+                    { type: integer, minimum: 0, description: disabled or out-of-window rules }
+              example: { index: brand-a_products, published: 3, skipped: 1 }
+        '409':
+          description: The store has no search credentials / index (conflict)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+# ---- components/schemas ------------------------------------------------------------------------------------
+components:
+  schemas:
+    MerchandisingScope:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [category, query] }
+        category_id:
+          { type: [string, 'null'], format: uuid, description: required when type = category }
+        query:
+          {
+            type: [string, 'null'],
+            minLength: 1,
+            maxLength: 200,
+            description: required when type = query; matched case-insensitively as the whole query,
+          }
+    MerchandisingBoost:
+      type: object
+      required: [product_id, weight]
+      properties:
+        product_id: { type: string, format: uuid }
+        weight: { type: integer, minimum: 1, maximum: 100 }
+    MerchandisingRuleInput:
+      type: object
+      required: [scope]
+      properties:
+        scope: { $ref: '#/components/schemas/MerchandisingScope' }
+        pins:
+          {
+            type: array,
+            maxItems: 50,
+            items: { type: string, format: uuid },
+            description: ordered; shown first,
+          }
+        boosts:
+          { type: array, maxItems: 200, items: { $ref: '#/components/schemas/MerchandisingBoost' } }
+        buries: { type: array, maxItems: 200, items: { type: string, format: uuid } }
+        enabled: { type: boolean, default: true }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+    MerchandisingRulePatch:
+      type: object
+      properties:
+        pins: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+        boosts:
+          { type: array, maxItems: 200, items: { $ref: '#/components/schemas/MerchandisingBoost' } }
+        buries: { type: array, maxItems: 200, items: { type: string, format: uuid } }
+        enabled: { type: boolean }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+    MerchandisingRule:
+      type: object
+      required:
+        [
+          id,
+          scope,
+          pins,
+          boosts,
+          buries,
+          enabled,
+          starts_at,
+          ends_at,
+          published_at,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        scope: { $ref: '#/components/schemas/MerchandisingScope' }
+        pins: { type: array, items: { type: string, format: uuid } }
+        boosts: { type: array, items: { $ref: '#/components/schemas/MerchandisingBoost' } }
+        buries: { type: array, items: { type: string, format: uuid } }
+        enabled: { type: boolean }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+        published_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
