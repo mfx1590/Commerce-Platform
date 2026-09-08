@@ -8,6 +8,15 @@ export {
   updateCart,
   updateLineItem,
 } from './service';
+// Cart internals the checkout module (window 1) builds placement on: same tables, same transaction.
+export {
+  assertLinesInStock,
+  loadCart,
+  loadLines,
+  lockActiveCart,
+  recalculate,
+  renderCart,
+} from './service';
 // Pricing providers: windows 7 (tax, #127) and 8 (shipping rates, #130) replace the table-backed defaults at boot.
 export {
   currentShippingRateProvider,
@@ -20,6 +29,8 @@ export {
 } from './providers';
 export type {
   Address,
+  CartLineRow,
+  CartRow,
   CartStatus,
   CartStoreContext,
   CreateCartInput,

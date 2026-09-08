@@ -5,7 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DevTokenVerifier } from '../src/http';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
@@ -216,14 +216,15 @@ describe('Store API 0.3.0 `currency` query (products)', () => {
         currency: 'USD',
       });
     }
-    // a product without a USD price is a 200 in EUR but exposes no sellable variant in USD
+    // a product without a USD price is a 200 in EUR but "not sold" in USD → 404 (#157 review nit)
     const other = await asA('/store/products?limit=1&page=9');
     const unpriced = other.body.items[0].handle as string;
-    if (!usdHandles.includes(unpriced)) {
-      const u = await asA(`/store/products/${unpriced}?currency=USD`);
-      expect(u.status).toBe(200);
-      expect(u.body.variants).toEqual([]);
-    }
+    expect(usdHandles).not.toContain(unpriced);
+    const u = await asA(`/store/products/${unpriced}?currency=USD`);
+    expect(u.status).toBe(404);
+    spec.assertSchema('Error', u.body);
+    expect(u.body.code).toBe('not_found');
+    expect((await asA(`/store/products/${unpriced}`)).status).toBe(200);
   });
 
   it('an unsupported or malformed currency → 400 validation_error', async () => {
@@ -441,5 +442,202 @@ describe('cart routes (contract replay, task 2.1)', () => {
     expect(res.status).toBe(409);
     spec.assertSchema('Error', res.body);
     expect(res.body).toMatchObject({ code: 'cart_completed', details: { cart_id: cart.id } });
+  });
+});
+
+describe('checkout routes (contract replay, task 2.2)', () => {
+  const json = (method: 'post' | 'patch', path: string, key = KEY_A) =>
+    request(app)
+      [method](path)
+      .set('X-Publishable-Key', key)
+      .set('Content-Type', 'application/json');
+  const address = {
+    first_name: 'Jane',
+    last_name: 'Doe',
+    line1: 'Keizersgracht 1',
+    city: 'Amsterdam',
+    postal_code: '1015 CJ',
+    country: 'NL',
+  };
+
+  /** A brand-a cart with one in-stock line, email, addresses and the standard shipping option. */
+  async function readyCart(
+    metadata?: Record<string, unknown>,
+  ): Promise<{ id: string; email: string }> {
+    const created = await json('post', '/store/carts').send(metadata ? { metadata } : {});
+    const list = await asA('/store/products?limit=1&sort=price_asc');
+    const product = await asA(`/store/products/${list.body.items[0].handle}`);
+    const v = product.body.variants.find((x: { in_stock: boolean }) => x.in_stock);
+    await json('post', `/store/carts/${created.body.id}/line-items`).send({
+      variant_id: v.id,
+      quantity: 1,
+    });
+    const options = await asA(`/store/carts/${created.body.id}/shipping-options`);
+    const email = `Jane.Doe+${created.body.id.slice(0, 8)}@Example.com`;
+    await json('patch', `/store/carts/${created.body.id}`).send({
+      email,
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: options.body.items[0].id,
+    });
+    return { id: created.body.id, email };
+  }
+
+  it('GET /store/carts/{cartId}/shipping-options lists the options for the destination', async () => {
+    const cart = (await request(app).post('/store/carts').set('X-Publishable-Key', KEY_A)).body;
+    const res = await asA(`/store/carts/${cart.id}/shipping-options`);
+    expect(res.status).toBe(200);
+    spec.assertItems('ShippingOption', res.body);
+    expect(res.body.items.map((o: { code: string }) => o.code)).toEqual(['standard', 'express']);
+    await json('patch', `/store/carts/${cart.id}`).send({ country: 'US' });
+    expect((await asA(`/store/carts/${cart.id}/shipping-options`)).body.items).toEqual([]);
+    const foreign = await request(app)
+      .get(`/store/carts/${cart.id}/shipping-options`)
+      .set('X-Publishable-Key', KEY_B);
+    expect(foreign.status).toBe(404);
+  });
+
+  it('POST /store/carts/{cartId}/payment-session with the manual provider', async () => {
+    const cart = await readyCart();
+    const res = await json('post', `/store/carts/${cart.id}/payment-session`).send({
+      provider: 'manual',
+    });
+    expect(res.status).toBe(200);
+    spec.assertSchema('PaymentSession', res.body);
+    const current = await asA(`/store/carts/${cart.id}`);
+    expect(res.body).toMatchObject({
+      provider: 'manual',
+      client_secret: null,
+      status: 'pending',
+      amount: current.body.totals.total,
+    });
+    expect(current.body.payment_session).toEqual(res.body);
+    const bad = await json('post', `/store/carts/${cart.id}/payment-session`).send({
+      provider: 'paypal',
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe('validation_error');
+  });
+
+  it('POST /store/carts/{cartId}/complete → 201 Order; replay with the same key; 409 with another key', async () => {
+    const meta = {
+      attribution: {
+        first: { utm_source: 'google', utm_medium: 'cpc', at: '2026-09-01T10:00:00.000Z' },
+        last: { utm_source: 'newsletter', utm_medium: 'email', at: '2026-09-07T09:00:00.000Z' },
+      },
+      ab: 'B',
+    };
+    const cart = await readyCart(meta);
+    await json('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+
+    const noKey = await json('post', `/store/carts/${cart.id}/complete`).send();
+    expect(noKey.status).toBe(400);
+    expect(noKey.body.details).toEqual({ 'Idempotency-Key': 'required, at least 8 characters' });
+
+    const key = `idem-${cart.id}`;
+    const placed = await json('post', `/store/carts/${cart.id}/complete`)
+      .set('Idempotency-Key', key)
+      .send();
+    expect(placed.status).toBe(201);
+    spec.assertSchema('Order', placed.body);
+    expect(placed.body).toMatchObject({
+      status: 'pending',
+      payment_status: 'authorized',
+      fulfillment_status: 'unfulfilled',
+      email: cart.email,
+      currency: 'EUR',
+      shipping_address: address,
+      shipping_method: { code: 'standard', carrier: 'manual' },
+      shipments: [],
+      metadata: meta,
+    });
+    expect(placed.body.display_id).toBeGreaterThanOrEqual(1000);
+    expect(placed.body.items).toHaveLength(1);
+    expect(placed.body.total.amount_minor).toBe(placed.body.totals.total.amount_minor);
+
+    const cartAfter = await asA(`/store/carts/${cart.id}`);
+    expect(cartAfter.body).toMatchObject({ status: 'completed', order_id: placed.body.id });
+
+    const replay = await json('post', `/store/carts/${cart.id}/complete`)
+      .set('Idempotency-Key', key)
+      .send();
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(placed.body.id);
+    expect(replay.body.display_id).toBe(placed.body.display_id);
+
+    const other = await json('post', `/store/carts/${cart.id}/complete`)
+      .set('Idempotency-Key', `${key}-second`)
+      .send();
+    expect(other.status).toBe(409);
+    spec.assertSchema('Error', other.body);
+    expect(other.body).toMatchObject({
+      code: 'cart_completed',
+      details: { order_id: placed.body.id },
+    });
+  });
+
+  it('complete refuses a cart that is not ready (400 with the missing fields)', async () => {
+    const cart = (await request(app).post('/store/carts').set('X-Publishable-Key', KEY_A)).body;
+    const res = await json('post', `/store/carts/${cart.id}/complete`)
+      .set('Idempotency-Key', 'not-ready-12345')
+      .send();
+    expect(res.status).toBe(400);
+    spec.assertSchema('Error', res.body);
+    expect(Object.keys(res.body.details).sort()).toEqual([
+      'billing_address',
+      'email',
+      'items',
+      'payment_session',
+      'shipping_address',
+      'shipping_option_id',
+    ]);
+  });
+
+  it('GET /store/orders/{orderId}: guest email (trimmed, case-insensitive) → 200, anything else → 404, no PII logged', async () => {
+    const cart = await readyCart();
+    await json('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+    const placed = await json('post', `/store/carts/${cart.id}/complete`)
+      .set('Idempotency-Key', `idem-orders-${cart.id}`)
+      .send();
+    expect(placed.status).toBe(201);
+    const id = placed.body.id as string;
+
+    const logged: string[] = [];
+    const spies = (['info', 'warn', 'error', 'log'] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        logged.push(args.map(String).join(' '));
+      }),
+    );
+    try {
+      const ok = await asA(
+        `/store/orders/${id}?email=${encodeURIComponent(`  ${cart.email.toUpperCase()} `)}`,
+      );
+      expect(ok.status).toBe(200);
+      spec.assertSchema('Order', ok.body);
+      expect(ok.body.id).toBe(id);
+
+      const wrong = await asA(`/store/orders/${id}?email=someone.else%40example.com`);
+      expect(wrong.status).toBe(404);
+      spec.assertSchema('Error', wrong.body);
+      const none = await asA(`/store/orders/${id}`);
+      expect(none.status).toBe(404);
+      const badToken = await request(app)
+        .get(`/store/orders/${id}`)
+        .set('X-Publishable-Key', KEY_A)
+        .set('Authorization', 'Bearer not-a-jwt');
+      expect(badToken.status).toBe(404);
+      const foreign = await request(app)
+        .get(`/store/orders/${id}?email=${encodeURIComponent(cart.email)}`)
+        .set('X-Publishable-Key', KEY_B);
+      expect(foreign.status).toBe(404);
+      const malformed = await asA(`/store/orders/${id}?email=nope`);
+      expect(malformed.status).toBe(400);
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+    const all = logged.join('\n').toLowerCase();
+    expect(all).not.toContain(cart.email.toLowerCase());
+    expect(all).not.toContain('email=');
+    expect(all).not.toContain('?');
   });
 });
