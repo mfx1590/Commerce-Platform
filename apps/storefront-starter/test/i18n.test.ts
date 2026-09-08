@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { resolveCurrency } from '@/lib/i18n';
 import type { Store } from '@/lib/store-api';
+import { DIRECTIVE_FIXTURES } from './fixtures/directives';
 
 const MESSAGES_DIR = join(process.cwd(), 'messages');
 const catalogues = readdirSync(MESSAGES_DIR).filter((f) => f.endsWith('.json'));
@@ -171,6 +172,21 @@ describe('every translation key used in the code exists', () => {
 });
 
 /**
+ * A directive is only a directive at the top of the module, but comments and blank lines may precede
+ * it — so `startsWith("'use client'")` misses a file that opens with a licence header or a doc
+ * comment, and that file would then be silently exempt from the namespace check.
+ */
+function isClientComponent(source: string): boolean {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n')
+    .trimStart();
+  return /^['"]use client['"]/.test(withoutComments);
+}
+
+/**
  * The root layout hands `NextIntlClientProvider` only the namespaces client components need, so the
  * whole catalogue is not serialised into every page (it cost enough blocking time to put PLP and PDP
  * under the Lighthouse budget). That list has to stay in step with the components, or a client
@@ -189,12 +205,19 @@ describe('client message namespaces', () => {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
       if (statSync(full).isDirectory()) out = out.concat(clientComponents(full));
-      else if (entry.endsWith('.tsx') && readFileSync(full, 'utf8').startsWith("'use client'")) {
+      else if (entry.endsWith('.tsx') && isClientComponent(readFileSync(full, 'utf8'))) {
         out.push(full);
       }
     }
     return out;
   }
+
+  it.each(DIRECTIVE_FIXTURES.map((f) => [f.name, f] as const))(
+    'recognises a client component: %s',
+    (_name, fixture) => {
+      expect(isClientComponent(fixture.source)).toBe(fixture.isClient);
+    },
+  );
 
   it('covers every namespace a client component asks for', () => {
     expect(declared.size).toBeGreaterThan(0);

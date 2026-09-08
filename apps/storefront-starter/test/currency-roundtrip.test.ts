@@ -24,6 +24,10 @@ let requestLocale = 'en-GB';
 
 const createCart = vi.fn(async (body: unknown) => ({ id: 'cart-1', ...(body as object) }));
 const getCartApi = vi.fn();
+const updateCart = vi.fn(async (_id: string, body: unknown) => ({
+  id: 'cart-1',
+  ...(body as object),
+}));
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({
@@ -51,12 +55,14 @@ vi.mock('@/lib/store', () => ({
 
 vi.mock('@/lib/store-api', async (importOriginal) => {
   const actual = await importOriginal<typeof StoreApi>();
-  return { ...actual, storeApi: () => ({ createCart, getCart: getCartApi }) };
+  return { ...actual, storeApi: () => ({ createCart, getCart: getCartApi, updateCart }) };
 });
 
 const { setCurrencyAction } = await import('@/lib/i18n-actions');
 const { getOrCreateCart } = await import('@/lib/cart');
 const { getCurrency, readCurrencyCookie } = await import('@/lib/i18n');
+const { refreshCartAttribution } = await import('@/lib/cart');
+const { ATTRIBUTION_COOKIE, mergeAttribution, readTouch } = await import('@/lib/attribution');
 const { MarketSwitcher } = await import('@/components/market-switcher');
 
 /** Walk a rendered element tree for the first node matching `type`. */
@@ -85,6 +91,56 @@ beforeEach(() => {
   requestLocale = 'en-GB';
   createCart.mockClear();
   getCartApi.mockClear();
+  updateCart.mockClear();
+});
+
+/** The attribution the middleware would have written for a campaign landing. */
+function storedAttribution(): string {
+  const touch = readTouch(new URLSearchParams('utm_source=newsletter&utm_medium=email'), {
+    referrer: null,
+    path: '/en-GB/products',
+    siteOrigin: 'https://brand-a.example.com',
+    now: new Date('2026-09-07T10:00:00.000Z'),
+  })!;
+  return JSON.stringify(mergeAttribution(null, touch));
+}
+
+describe('attribution reaches the Store API', () => {
+  it('goes on the cart at creation, under metadata.attribution', async () => {
+    cookieJar.set(ATTRIBUTION_COOKIE, storedAttribution());
+    await getOrCreateCart();
+
+    const body = createCart.mock.calls[0]?.[0] as { metadata?: unknown };
+    expect(body.metadata).toEqual({
+      attribution: {
+        first: expect.objectContaining({ utm_source: 'newsletter', utm_medium: 'email' }),
+        last: expect.objectContaining({ utm_source: 'newsletter' }),
+        captured_at: '2026-09-07T10:00:00.000Z',
+      },
+    });
+  });
+
+  it('is left off entirely when nothing was captured', async () => {
+    await getOrCreateCart();
+    expect(createCart.mock.calls[0]?.[0]).not.toHaveProperty('metadata');
+  });
+
+  it('is refreshed onto the cart before the order is placed', async () => {
+    // `POST …/complete` has no request body, so the last touch has to go on the cart first.
+    cookieJar.set(ATTRIBUTION_COOKIE, storedAttribution());
+    await refreshCartAttribution('cart-1');
+
+    expect(updateCart).toHaveBeenCalledTimes(1);
+    expect(updateCart.mock.calls[0]?.[1]).toHaveProperty('metadata.attribution');
+  });
+
+  it('never fails the order when the refresh call fails', async () => {
+    cookieJar.set(ATTRIBUTION_COOKIE, storedAttribution());
+    updateCart.mockRejectedValueOnce(new Error('network'));
+
+    // Losing a marketing attribute must not cost the sale.
+    await expect(refreshCartAttribution('cart-1')).resolves.toBeUndefined();
+  });
 });
 
 describe('currency round trip', () => {

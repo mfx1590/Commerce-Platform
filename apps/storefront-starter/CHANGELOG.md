@@ -1,5 +1,36 @@
 # Changelog — @platform/storefront-starter
 
+## 0.8.1 — 2026-09-08
+
+CONTRACT CHANGE #100 accepted (Store API 0.2.0): `metadata` is now specified on `Cart`, `Order`,
+`createCart` and `updateCart`, so the local type extension in `src/lib/cart.ts` is deleted and the
+bodies use `Body<'createCart'>` / `Body<'updateCart'>` straight from the contract. No behaviour
+change — the same JSON is sent.
+
+`CartMetadata` becomes a type alias rather than an interface: the contract declares `metadata` with
+an index signature, and only a type alias gets the implicit index signature that satisfies it.
+
+## 0.8.0 — 2026-09-07
+
+Task [storefront] 1.8 (issue #62), contracts `0.2.0`. Closes Phase 1 for this window.
+
+- Marketing attribution captured first-party in the middleware into an httpOnly cookie
+  (`sf_attribution`, 30 days, SameSite=Lax): UTM parameters, `?ref=`, the referrer's **origin** and
+  the landing path. First touch is never overwritten, last touch updates on a new campaign, and a
+  visit with no marketing signal writes no cookie at all.
+- Sent to our own Store API only, as `cart.metadata.attribution`, at `POST /store/carts` and again
+  with `PATCH /store/carts/{id}` immediately before completing — `POST …/complete` has no request
+  body, so the cart is the only place it can go. No third-party pixels.
+- **`metadata` does not exist in contracts-v0.1** (the issue assumed it was free-form). The field is
+  sent anyway, which the mock accepts, behind a one-line local type extension;
+  **CONTRACT CHANGE #100** asks for it to be specified on `Cart`, `createCart`, `updateCart` and
+  `Order`.
+- Documented in the README under "Attribution" for window 17.
+- Review nits from #97: `CLAUDE.md` had two `e2e` bullets, the older one describing the pre-#84
+  browser behaviour; and the client-namespace test only recognised `'use client'` when it was the
+  literal first characters of a file, so a directive after a comment was silently exempt.
+- 20 new unit tests (157 in total).
+
 ## 0.7.0 — 2026-09-07
 
 Task [storefront] 1.7 (issue #23) and REQUEST #84, contracts `0.2.0`. Config and docs only — infra
