@@ -2,7 +2,7 @@
 // and records what it received; the proxy must forward method, path + query, headers and body verbatim and
 // return the upstream status, headers and body verbatim. No database: the proxy is mounted on a bare app.
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo } from 'node:net';
 import express from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -104,6 +104,28 @@ describe('storeApiFallbackProxy', () => {
     const real = await request(app).get('/store/products');
     expect(real.body).toEqual({ real: true });
     expect(seen).toHaveLength(1);
+  });
+
+  it('rejects dot segments so nothing outside /store can be reached through the proxy', async () => {
+    const before = seen.length;
+    // supertest normalises the path, so send the raw request line ourselves.
+    const server = http.createServer(app);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    const status = await new Promise<number>((resolve, reject) => {
+      const socket = net.connect(port, '127.0.0.1', () => {
+        socket.write(
+          ['GET /store/../admin/me HTTP/1.1', 'Host: x', 'Connection: close', '', ''].join('\r\n'),
+        );
+      });
+      let data = '';
+      socket.on('data', (c: Buffer) => (data += c.toString()));
+      socket.on('end', () => resolve(Number(data.split(' ')[1])));
+      socket.on('error', reject);
+    });
+    await new Promise<void>((r) => server.close(() => r()));
+    expect(status).toBe(400);
+    expect(seen.length).toBe(before);
   });
 
   it('answers 502 internal when the fallback is unreachable', async () => {

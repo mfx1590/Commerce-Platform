@@ -64,6 +64,12 @@ export function storeApiFallbackProxy(
   const log = opts.log ?? ((line: string) => console.info(line));
   return (req, res, next) => {
     const path = req.originalUrl.split('?')[0] ?? req.originalUrl;
+    // Only `/store/...` may leave through the proxy: a dot segment (`/store/../admin`) would otherwise reach
+    // another path on the upstream. Non-production and a fixed target, but a proxy is a proxy.
+    if (!path.startsWith('/store') || path.split('/').some((seg) => seg === '..' || seg === '.')) {
+      next(new AppError('validation_error', 'invalid store api path', undefined, 400));
+      return;
+    }
     readRawBody(req)
       .then(async (raw) => {
         const headers = new Headers();
