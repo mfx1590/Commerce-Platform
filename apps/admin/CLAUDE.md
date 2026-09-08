@@ -34,8 +34,9 @@ them self-contained (no shared components inside them, no API calls until contra
     redirect URI, so Keycloak sends the callback there whatever port the app listens on. REQUEST #82
     asks window 2 to register `http://localhost:3200/*` too; once it lands,
     `PORT=3200 pnpm --filter @platform/admin e2e` works when something else holds 3000.
-  - `channel: 'chrome'` uses the Chrome on the machine instead of downloading Playwright's browsers,
-    matching window 3's storefront setup.
+  - Browser: `E2E_CHANNEL` decides (REQUEST #154) — `chrome` uses the Chrome on the machine, an
+    empty-but-set value means Playwright's bundled chromium, and only an absent variable falls
+    back to Chrome locally / chromium on CI. `infra/ci/run-e2e.sh` exports it; never pin a channel.
   - CI wiring is REQUEST #80 — `.github/workflows/**` is not this window's to edit.
 
 ## Public API

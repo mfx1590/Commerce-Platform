@@ -53,6 +53,44 @@ product.updated, product.archived)` and `seq > cursor` for the store (`seq` is t
 The relay that publishes outbox rows to the bus is window 14's (Phase 4); this module only reads the table and
 never sets `published_at`.
 
+Known limits (reviewer notes on #160):
+
+- **`--full` is the safety net for the READ COMMITTED `seq` gap.** `seq` is assigned at insert, not at commit: a
+  transaction that inserted an outbox row with a lower `seq` but committed _after_ an incremental run read past
+  it is never seen by the incremental path. Rare (two concurrent catalog writes straddling a sync), and the
+  next full reindex repairs it — schedule one (nightly is plenty) and after any reindex-worthy incident.
+- **Two concurrent full reindexes of one store race on the cursor**: each writes its own snapshot position last,
+  so the earlier one may overwrite the later one's cursor and the next sync replays a few events (harmless:
+  upserts are idempotent) or, if the older run's `browse + delete` lands after the newer run's upserts, drops
+  records the newer run had just written until the next sync/full run. Run one full reindex per store at a time
+  (the job is single-process per invocation; do not start two `--full` jobs on the same store).
+
+## Merchandising rules (task 2.2, #135 — contract change #162)
+
+Pin / boost / bury per **category** or **search query**, one rule per store + scope, stored in the
+`merchandising_rule` table (`packages/db` migration 0130, landed with contracts-v0.4) or in
+`MemoryRulesRepository` for environments without the table. The Admin API operations are the `search` area of
+`admin-api.yaml` 0.4.0 (`store_staff` read, `store_admin` write); `merchandisingRouter({ repository, indexFor })`
+reads each operation's `x-permission` from the spec (`loadSpec`) and validates bodies against the same schemas
+(`merchandising-types.ts`). Window 1 mounts the router next to `adminRouter()` (REQUEST in #162).
+
+- Validation: schema (ajv), scope (`category_id` must be a category **of the store**, `query` is normalised:
+  trimmed, single-spaced, lower-cased), every product id in pins / boosts / buries must belong to the store
+  (400 `validation_error` with `details.product_ids`; the tenant client makes foreign ids "not found"), no
+  duplicates, a pinned product cannot be buried (also checked on the merged rule when patching), `ends_at >
+starts_at`, boost weight 1–100, at most 50 pins / 200 boosts / 200 buries. Duplicate scope → 409.
+- Publish (`POST …/merchandising/publish`): every **active** rule (enabled and inside its window) is mapped to an
+  Algolia Rule (`algolia-rules.ts`: category → `condition.filters = category_id:<id>`, query → `pattern` +
+  `anchoring: is`; pins → `consequence.promote`, buries → `consequence.hide`, boosts →
+  `params.optionalFilters` `objectID:<id><score=weight>`, window → `validity`) and pushed as the index's
+  complete rule set (`clearExistingRules`), so disabled or deleted rules disappear on the next publish;
+  `published_at` is stamped. Rules live on the primary index only (relevance); replicas are untouched.
+- Store API `sort=relevance`: `searchRelevance(store, index, { q, category_id, page, limit })` runs one index
+  query (category listings pass the same `category_id:<id>` filter the rules condition on) and returns product
+  ids in ranking order + total; the store route (window 1) hydrates them through the catalog read model and
+  keeps the ILIKE stub when the store has no credentials. `FakeIndexClient.search` applies saved rules
+  deterministically so this path is tested without Algolia.
+
 ## Credentials
 
 From the environment only (Vault-injected in deployed environments, ADR 0006; repo-root `.env` locally):
@@ -102,5 +140,13 @@ store is one batch; `--batch <n>` tunes it.
 - `algolia-client.test.ts` — REST shaping against a fake fetch (batches of 1000, headers, URL encoding, browse
   cursor loop, 404 settings → `{}`, task polling, key never in errors).
 - `search-live.test.ts` — real Algolia round trip on a throwaway index; skips without credentials.
+- `merchandising.test.ts` — seeded database (migration 0130): router with dev-token principals
+  (store_staff read / store_admin write, 403), validation (foreign category / product ids, pinned+buried,
+  weights), one rule per scope (409), get/patch/delete, brand-b never sees brand-a's rule, publish → fake
+  Algolia rules (active only, `published_at`), relevance search with pin/bury applied, 409 without an index,
+  `toAlgoliaRule` mapping, in-memory repository.
+
+Merchandising public API: `listRules`, `getRule`, `createRule`, `updateRule`, `deleteRule`, `publishRules`,
+`searchRelevance`, `merchandisingRouter`, `toAlgoliaRule`, `PgRulesRepository`, `MemoryRulesRepository`.
 
 Run: `pnpm test --filter @platform/core` (root, builds workspace deps) or `pnpm --filter @platform/core test`.
