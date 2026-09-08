@@ -1,5 +1,44 @@
 # Changelog — @platform/core
 
+## Unreleased — Integration 1 (integration/phase1)
+
+### 2026-09-08 · attribution at placement (`src/lib/attribution.ts`)
+
+- `parseCartAttribution`, `orderMetadataFromCart`, `recordAttribution(tx, …)`: `cart.metadata.attribution` →
+  `order.metadata` copy + one `attribution` row per touch (`first`/`last`, migration 0120) + one
+  `attribution.recorded` v1 event per row through the outbox, on the placement transaction. Referrers are reduced
+  to their origin, values capped at 200 chars, malformed metadata yields no rows (never fails a placement).
+  Window 1 calls it from `POST /store/carts/{id}/complete` in Phase 2 task 2.2 (#104). Tests: `test/attribution.test.ts` (8).
+
+### 2026-09-08 · real staff auth, OpenFGA permissions, hq-rbac mounted, Store API fallback
+
+- `src/http/staff-auth.ts`: `KeycloakStaffTokenVerifier` — staff-realm JWT (JWKS, `aud: core-api`) →
+  `staff_user` → OpenFGA scope through hq-rbac's `createStaffScopeMiddleware` (`@platform/auth-sdk`); the
+  principal carries `scope: StaffScope` (`storeIds`, `organizationRelations`, `scope`) and `stores[]` lists every
+  visible store with its direct `role_assignment` relations, so `storeClientFor` / `visibleStoresClientFor` keep
+  working. `composeStaffTokenVerifier`: `dev:<subject>` → `DevTokenVerifier` only with `CORE_DEV_TOKENS=1` outside
+  production; any other bearer → Keycloak. `src/server.ts` `buildStaffAuth()` builds it by default from
+  `KEYCLOAK_URL`, `KEYCLOAK_REALM_STAFF`, `OPENFGA_API_URL`, `OPENFGA_STORE_ID`, `OPENFGA_MODEL_ID`; a missing
+  `OPENFGA_STORE_ID` aborts the boot in production and logs a warning locally. Real tokens are the default; dev
+  tokens are opt-in.
+- `src/http/permissions.ts`: `requirePermission` asks OpenFGA (auth-sdk `can()`, `store:*` via ListObjects) for
+  principals with a scope; the `role_assignment` stub stays for dev-token principals. 403 carries
+  `details: { relation, object }` for real tokens; OpenFGA unreachable → 503 `internal` (`AppError` gained a
+  status override, `fromApiError` maps auth-sdk's `ApiError`).
+- `src/http/hq-rbac-adapter.ts`: window 2's `createHqRbac({ pool, fga, onRoleChange }).handle(...)` mounted ahead
+  of `adminRouter()` with the principal/scope the middleware resolved (dev-token principals get a synthesised
+  scope); `null` → `next()`. `/admin/users*`, `/admin/audit-log`, `/admin/finance/ping` are live.
+- `src/http/store-fallback.ts` + `CORE_STORE_API_FALLBACK_URL` (non-production only, refused in production):
+  every `/store/*` request the four real routes do not answer is proxied verbatim to the Prism mock with Node's
+  `fetch`; one log line per request (method + path). `mountCoreMiddleware(app, verifier?, { fga, onRoleChange,
+storeApiFallbackUrl })`.
+- Tests: `test/auth-live.test.ts` (real Keycloak tokens, throw-away OpenFGA store; skips without the stack) and
+  `test/store-fallback.test.ts` (local http server as the mock, production refusal). Existing dev-token suites
+  unchanged and green.
+- Known blocker for `pnpm dev` (not for tests): `@platform/auth-sdk`'s export map has no `default`/`require`
+  condition, so the CommonJS core cannot `require()` it (`ERR_PACKAGE_PATH_NOT_EXPORTED`) — needs the same
+  one-line change `@platform/db` got in #40.
+
 ## Unreleased — Phase 1 (window 1, contracts-v0.2)
 
 ### 2026-09-07 · customer PII gate proven for window 1 (contracts 0.2.1, issue #77)

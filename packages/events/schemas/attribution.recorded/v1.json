@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/attribution.recorded/v1.json",
+  "title": "attribution.recorded v1",
+  "description": "The core stored one attribution touch (first or last) for an order at placement, from cart.metadata.attribution. Emitted once per touch, in the same transaction as order.placed (which stays at v1). `referrer` is an origin, never a full URL.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attribution_id",
+    "order_id",
+    "cart_id",
+    "touch",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "referrer",
+    "landing_path",
+    "campaign_id",
+    "captured_at",
+    "recorded_at"
+  ],
+  "properties": {
+    "attribution_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "cart_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "touch": {
+      "type": "string",
+      "enum": ["first", "last"]
+    },
+    "utm_source": {
+      "type": ["string", "null"]
+    },
+    "utm_medium": {
+      "type": ["string", "null"]
+    },
+    "utm_campaign": {
+      "type": ["string", "null"]
+    },
+    "utm_term": {
+      "type": ["string", "null"]
+    },
+    "utm_content": {
+      "type": ["string", "null"]
+    },
+    "referrer": {
+      "type": ["string", "null"],
+      "description": "Origin only (scheme + host), e.g. https://www.google.com"
+    },
+    "landing_path": {
+      "type": ["string", "null"]
+    },
+    "campaign_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "captured_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    },
+    "recorded_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

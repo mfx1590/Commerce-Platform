@@ -4,9 +4,10 @@
 
 The event contract: one versioned JSON Schema per domain event (`schemas/<topic>/v<N>.json`), the shared envelope,
 generated TypeScript types, an Ajv validator, envelope helpers, and the `outbox` table migration (ADR 0003).
-24 topics in v1: store.{created,updated}, product.{published,updated,archived}, customer.{created,updated,erased},
+31 topics in v1: store.{created,updated}, product.{published,updated,archived}, customer.{created,updated,erased},
 order.{placed,confirmed,cancelled,completed,updated}, payment.{authorized,captured,failed}, refund.{issued,failed},
-shipment.{created,shipped,delivered}, return.{requested,received}, stock.moved.
+shipment.{created,shipped,delivered}, return.{requested,received}, stock.moved, and since 0.2.0 (marketing)
+campaign.{launched,ended}, feed.published, attribution.recorded, referral.converted, review.published, cart.abandoned.
 
 ## Owner
 

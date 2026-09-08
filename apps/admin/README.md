@@ -26,19 +26,39 @@ openssl rand -base64 32
 Everything else has a working default matching the repo-root `.env.example`; set those only to point
 somewhere else.
 
-| Variable               | Default                 | Meaning                                                                     |
-| ---------------------- | ----------------------- | --------------------------------------------------------------------------- |
-| `KEYCLOAK_URL`         | `http://localhost:8180` | Keycloak base URL                                                           |
-| `KEYCLOAK_REALM_STAFF` | `staff`                 | Staff realm (customers live in another one)                                 |
-| `ADMIN_OIDC_CLIENT_ID` | `admin-app`             | Public PKCE client                                                          |
-| `ADMIN_APP_URL`        | `http://localhost:3000` | Origin used to build the redirect URI                                       |
-| `MOCK_ADMIN_API_URL`   | `http://localhost:4011` | Admin API base URL                                                          |
-| `ADMIN_SESSION_SECRET` | **none — required**     | Encrypts the session cookie. Startup fails without it, in every environment |
+| Variable               | Default                 | Meaning                                                                      |
+| ---------------------- | ----------------------- | ---------------------------------------------------------------------------- |
+| `KEYCLOAK_URL`         | `http://localhost:8180` | Keycloak base URL                                                            |
+| `KEYCLOAK_REALM_STAFF` | `staff`                 | Staff realm (customers live in another one)                                  |
+| `ADMIN_OIDC_CLIENT_ID` | `admin-app`             | Public PKCE client                                                           |
+| `ADMIN_APP_URL`        | `http://localhost:3000` | Origin used to build the redirect URI                                        |
+| `ADMIN_API_URL`        | _unset_                 | Admin API base URL. Wins over `MOCK_ADMIN_API_URL`; set it to reach the core |
+| `MOCK_ADMIN_API_URL`   | `http://localhost:4011` | Admin API base URL when `ADMIN_API_URL` is unset                             |
+| `ADMIN_SESSION_SECRET` | **none — required**     | Encrypts the session cookie. Startup fails without it, in every environment  |
 
 The app honours `$PORT` (default 3000, REQUEST #68) and answers `GET /health` with 200 for the
 container probe. Keep it on 3000 for sign-in: the Keycloak client registers
 `http://localhost:3000/*` as its only redirect URI. To run it elsewhere locally, set
 `ADMIN_APP_URL=http://localhost:3000` so the `redirect_uri` still matches.
+
+### Against the real core
+
+`ADMIN_API_URL=http://localhost:9000` with `pnpm --filter @platform/core dev` running points the app
+at the core instead of Prism; unset, it falls back to `MOCK_ADMIN_API_URL` and then to the contracts
+package's `http://localhost:4011`. Nothing else changes: the same real Keycloak staff token is
+forwarded as the bearer, because the core validates staff tokens from the same realm the app signs
+into.
+
+The core answers the registry and catalog routes — `/admin/me`, `/admin/stores`,
+`/admin/stores/{id}/products` and the users, roles and audit-log routes. **Every other screen still
+needs the mock**, so expect 404s across the rest of the app; they render `ApiStatePanel` rather than
+breaking, which is the point of the state pattern — a half-implemented backend gives you a page that
+says what is missing, not a stack trace. Run the mock when you need those screens, and switch back to
+`ADMIN_API_URL` when you are working on the ones the core serves.
+
+E2E and the contract suite ignore all of this on purpose: `playwright.config.ts` and
+`vitest.contract.config.ts` force `ADMIN_API_URL` to the Prism they start, so a `.env` pointing at
+the core does not make an e2e run depend on whatever the core is currently serving.
 
 ## Checks
 

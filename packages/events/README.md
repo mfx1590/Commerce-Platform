@@ -13,6 +13,26 @@ migrations/0100_outbox.sql    outbox table + RLS, applied by packages/db
 scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 ```
 
+## Topics (31, all v1)
+
+| Aggregate      | Topics                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| store          | `store.created`, `store.updated`                                                         |
+| product        | `product.published`, `product.updated`, `product.archived`                               |
+| customer       | `customer.created`, `customer.updated`, `customer.erased`                                |
+| order          | `order.placed`, `order.confirmed`, `order.cancelled`, `order.completed`, `order.updated` |
+| payment        | `payment.authorized`, `payment.captured`, `payment.failed`                               |
+| refund         | `refund.issued`, `refund.failed`                                                         |
+| shipment       | `shipment.created`, `shipment.shipped`, `shipment.delivered`                             |
+| return         | `return.requested`, `return.received`                                                    |
+| stock_movement | `stock.moved`                                                                            |
+| campaign       | `campaign.launched`, `campaign.ended` (0.2.0)                                            |
+| feed           | `feed.published` (0.2.0)                                                                 |
+| attribution    | `attribution.recorded` (0.2.0, one per touch, emitted by the core at placement)          |
+| referral       | `referral.converted` (0.2.0)                                                             |
+| review         | `review.published` (0.2.0)                                                               |
+| cart           | `cart.abandoned` (0.2.0, emitted by the core's abandoned-cart job)                       |
+
 ## Producing an event (apps/core)
 
 ```ts

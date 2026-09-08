@@ -22,6 +22,14 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const PORT = process.env.PORT ?? '3000';
 const APP_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
+/**
+ * The Prism mock this run starts, and the only Admin API the app under test is allowed to see.
+ * Deliberately **not** derived from `ADMIN_API_URL`: that variable points a developer's app at the
+ * real core, and an e2e run that silently followed it would stop being hermetic — the journey would
+ * pass or fail on whatever the core happened to be serving. The webServer block below forces
+ * `ADMIN_API_URL` to this value for the same reason, so a `.env` carrying
+ * `ADMIN_API_URL=http://localhost:9000` changes nothing here.
+ */
 const MOCK_URL = process.env.MOCK_ADMIN_API_URL ?? 'http://localhost:4011';
 
 /**
@@ -69,6 +77,9 @@ export default defineConfig({
       env: {
         // `next start` takes the port from here (REQUEST #68 dropped the hard-coded --port).
         PORT: new URL(APP_URL).port || '3000',
+        // Both names, highest-precedence one first: `ADMIN_API_URL` wins in the app, so setting it
+        // is what actually pins the run to Prism when the developer's .env points at the core.
+        ADMIN_API_URL: MOCK_URL,
         MOCK_ADMIN_API_URL: MOCK_URL,
         ADMIN_APP_URL: APP_ORIGIN,
         // Required in every environment; a throwaway value is right for a test run.

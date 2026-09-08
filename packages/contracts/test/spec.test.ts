@@ -67,13 +67,24 @@ describe('store-api.yaml', () => {
     expect(text).toMatch(/X-Publishable-Key/);
     expect(text).not.toMatch(/card_number|cvc|pan\b/i);
   });
+
+  it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
+    expect(text).toMatch(/version: 0\.3\.0/);
+    expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
+    expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
+    for (const id of ['listProducts', 'getProduct']) {
+      const op = ops.find((o) => o.id === id)!;
+      expect(op.body, id).toMatch(/\$ref: '#\/components\/parameters\/Currency'/);
+      expect(op.body, id).toMatch(/'400': \{ \$ref: '#\/components\/responses\/BadRequest' \}/);
+    }
+  });
 });
 
 describe('admin-api.yaml', () => {
   const text = read('admin-api.yaml');
   const ops = operations(text);
 
-  it('covers the nine areas from the Phase 0 brief', () => {
+  it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0)', () => {
     for (const tag of [
       'registry',
       'catalog',
@@ -84,10 +95,77 @@ describe('admin-api.yaml', () => {
       'customers',
       'roles',
       'audit',
+      'marketing',
     ]) {
       expect(text, tag).toMatch(new RegExp(`tags: \\[[^\\]]*\\b${tag}\\b`));
     }
     expect(ops.length).toBeGreaterThanOrEqual(45);
+  });
+
+  it('marketing (0.3.0): every path from docs/marketing-scope.md exists with the agreed permissions', () => {
+    const ids = ops.map((o) => o.id);
+    for (const id of [
+      'listCampaigns',
+      'createCampaign',
+      'getCampaign',
+      'updateCampaign',
+      'deleteCampaign',
+      'launchCampaign',
+      'endCampaign',
+      'listSegments',
+      'createSegment',
+      'getSegment',
+      'updateSegment',
+      'deleteSegment',
+      'previewSegment',
+      'materializeSegment',
+      'listFeeds',
+      'createFeed',
+      'getFeed',
+      'updateFeed',
+      'deleteFeed',
+      'publishFeed',
+      'listFeedItems',
+      'listReferralPrograms',
+      'createReferralProgram',
+      'getReferralProgram',
+      'updateReferralProgram',
+      'deleteReferralProgram',
+      'listReferrals',
+      'listReviews',
+      'moderateReview',
+      'getAttributionReport',
+      'getPromotionReport',
+      'getMarketingDashboard',
+      'listSegmentTemplates',
+      'createSegmentTemplate',
+      'getSegmentTemplate',
+      'updateSegmentTemplate',
+      'deleteSegmentTemplate',
+    ]) {
+      expect(ids, id).toContain(id);
+    }
+    expect(ops.length).toBeGreaterThanOrEqual(87);
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!;
+    // reads: store_staff; writes, launch and publish: store_admin; reports: any relation (analyst included)
+    expect(permission('listCampaigns').slice(1)).toEqual(['store_staff', 'store:{storeId}']);
+    expect(permission('createCampaign').slice(1)).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('launchCampaign').slice(1)).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('publishFeed').slice(1)).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('moderateReview').slice(1)).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('previewSegment').slice(1)).toEqual(['store_staff', 'store:{storeId}']);
+    expect(permission('getAttributionReport').slice(1)).toEqual(['viewer', 'store:{storeId}']);
+    expect(permission('getPromotionReport').slice(1)).toEqual(['viewer', 'store:{storeId}']);
+    expect(permission('getMarketingDashboard').slice(1)).toEqual(['analyst', 'organization:hq']);
+    expect(permission('createSegmentTemplate').slice(1)).toEqual(['owner', 'organization:hq']);
+    expect(permission('deleteSegmentTemplate').slice(1)).toEqual(['owner', 'organization:hq']);
+    // the review text never leaves the API in an event, and the report money is always Money
+    expect(text).toMatch(/AttributionReport:/);
+    expect(text).toMatch(/PromotionReport:/);
+    expect(text).toMatch(/MarketingDashboard:/);
   });
 
   it('every operation except getMe declares x-permission with a known relation', () => {

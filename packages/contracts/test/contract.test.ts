@@ -205,4 +205,139 @@ describe('Admin API mock', () => {
     );
     expect(refund.status).toBe(201);
   });
+
+  it('marketing (0.3.0): create campaign → launch → attribution report; feed publish; review moderation', async () => {
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/marketing`;
+
+    const created = await fetch(`${base}/campaigns`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        name: 'Autumn launch',
+        type: 'paid_social',
+        utm_source: 'meta',
+        utm_medium: 'paid_social',
+        utm_campaign: 'autumn-2026',
+        budget: { amount_minor: 250000, currency: 'EUR' },
+      }),
+    });
+    expect(created.status).toBe(201);
+    const campaign = await json(created);
+    expect(campaign.status).toBe('draft');
+    expect(campaign.budget).toEqual({ amount_minor: 250000, currency: 'EUR' });
+
+    const badType = await fetch(`${base}/campaigns`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ name: 'x', type: 'carrier_pigeon' }),
+    });
+    expect(badType.status).toBe(400);
+
+    const launched = await fetch(`${base}/campaigns/${campaign.id}/launch`, {
+      method: 'POST',
+      headers: adminHeaders,
+    });
+    expect(launched.status).toBe(200);
+    expect((await json(launched)).status).toBe('active');
+
+    const report = await fetch(
+      `${base}/reports/attribution?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z&touch=last`,
+      { headers: adminHeaders },
+    );
+    expect(report.status).toBe(200);
+    const attribution = await json(report);
+    expect(attribution.touch).toBe('last');
+    const rows = attribution.items as Array<{
+      campaign_id: string | null;
+      revenue: { amount_minor: number; currency: string };
+    }>;
+    expect(rows[0]?.campaign_id).toBe(campaign.id);
+    expect(rows[0]?.revenue.currency).toBe('EUR');
+    const badTouch = await fetch(
+      `${base}/reports/attribution?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z&touch=mid`,
+      { headers: adminHeaders },
+    );
+    expect(badTouch.status).toBe(400);
+    const promotions = await fetch(
+      `${base}/reports/promotions?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z`,
+      { headers: adminHeaders },
+    );
+    expect(promotions.status).toBe(200);
+
+    const feed = await fetch(`${base}/feeds`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        name: 'Google Shopping NL',
+        channel: 'google_merchant',
+        locale: 'en-GB',
+        currency: 'EUR',
+      }),
+    });
+    expect(feed.status).toBe(201);
+    const feedBody = await json(feed);
+    expect(feedBody.status).toBe('draft');
+    const published = await fetch(`${base}/feeds/${feedBody.id}/publish`, {
+      method: 'POST',
+      headers: adminHeaders,
+    });
+    expect(published.status).toBe(200);
+    const publishedBody = await json(published);
+    expect(publishedBody.status).toBe('active');
+    expect(typeof publishedBody.url).toBe('string');
+    const items = await json(
+      await fetch(`${base}/feeds/${feedBody.id}/items?limit=20`, { headers: adminHeaders }),
+    );
+    expect(Array.isArray(items.items)).toBe(true);
+
+    const queue = await json(
+      await fetch(`${base}/reviews?status=pending`, { headers: adminHeaders }),
+    );
+    const pending = (queue.items as Array<{ id: string; status: string }>)[0]!;
+    expect(pending.status).toBe('pending');
+    const moderated = await fetch(`${base}/reviews/${pending.id}/moderate`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ status: 'published' }),
+    });
+    expect(moderated.status).toBe(200);
+    expect((await json(moderated)).status).toBe('published');
+    const badModeration = await fetch(`${base}/reviews/${pending.id}/moderate`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ status: 'deleted' }),
+    });
+    expect(badModeration.status).toBe(400);
+
+    const preview = await fetch(`${base}/segments/70000000-0000-4000-8000-000000000721/preview`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ rules: { consent: ['email'] } }),
+    });
+    expect(preview.status).toBe(200);
+    expect(typeof (await json(preview)).count).toBe('number');
+
+    for (const p of [
+      `/admin/marketing/dashboard?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z`,
+      `/admin/marketing/segment-templates`,
+      `/admin/stores/${STORE_ID}/marketing/referral-programs`,
+      `/admin/stores/${STORE_ID}/marketing/referrals`,
+      `/admin/stores/${STORE_ID}/marketing/segments`,
+    ]) {
+      const res = await fetch(`${ADMIN}${p}`, { headers: adminHeaders });
+      expect(res.status, p).toBe(200);
+      await json(res);
+    }
+  });
+});
+
+describe('Store API mock (0.3.0 currency query)', () => {
+  it('accepts a valid currency and rejects a malformed one', async () => {
+    const ok = await fetch(`${STORE}/store/products/classic-tee?currency=EUR`, {
+      headers: storeHeaders,
+    });
+    expect(ok.status).toBe(200);
+    const bad = await fetch(`${STORE}/store/products?currency=euros`, { headers: storeHeaders });
+    expect(bad.status).toBe(400);
+  });
 });

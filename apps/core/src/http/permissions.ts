@@ -1,12 +1,17 @@
 // Permission guard for the Admin API (packages/contracts admin-api.yaml `x-permission`).
 //
-// Signature aligned with packages/auth-sdk/CLAUDE.md: `requirePermission(relation, objectFactory)` is a route
-// middleware that throws 403 (`{ code: "forbidden" }`), `can(principal, relation, object)` answers the question.
-// Phase 1 STUB: `can` evaluates `role_assignment` following the OpenFGA model in docs/adr/0002-auth-model.md;
-// `@platform/auth-sdk` (window 2) replaces the body of `can` with the real OpenFGA check behind the same shapes.
+// `requirePermission(relation, objectFactory)` is an Express route middleware that throws 403
+// (`{ code: "forbidden" }`); `can(principal, relation, object)` answers the question. Two evaluators behind it:
+// - a principal from a REAL token carries the OpenFGA-resolved `StaffScope` → `@platform/auth-sdk` `can()`
+//   asks OpenFGA (`store:*` = any visible store via ListObjects); OpenFGA unreachable → 503, fail closed;
+// - a dev-token principal (no scope) → the Phase 1 stub over `role_assignment`, following the OpenFGA model in
+//   docs/adr/0002-auth-model.md.
+// auth-sdk's own `requirePermission` returns a callable guard `(subject, params, opts) => Promise<void>`, not an
+// Express handler; this file is the adapter that keeps the route files unchanged.
 import type { Request, RequestHandler } from 'express';
 import type { Relation } from '@platform/contracts';
-import { AppError } from '../lib/errors';
+import { can as fgaCan } from '@platform/auth-sdk';
+import { AppError, fromApiError } from '../lib/errors';
 import { requirePrincipal, type StaffPrincipal } from './staff-auth';
 
 /** `viewer` = any relation on the object (ADR 0002). */
@@ -66,17 +71,23 @@ function storeSatisfies(
 }
 
 /**
- * Does the principal hold `relation` on `object`? (auth-sdk: `can(principal, relation, object)`; there it is
- * async because it asks OpenFGA — kept sync-compatible here by returning a resolved promise.)
+ * Does the principal hold `relation` on `object`? Real tokens: one OpenFGA check through auth-sdk (throws 503
+ * `internal` when OpenFGA is unreachable). Dev tokens: the `role_assignment` stub.
  */
 export async function can(
   p: StaffPrincipal,
   relation: PermissionRelation,
   object: PermissionObject,
 ): Promise<boolean> {
-  return hasPermission(p, relation, object);
+  if (!p.scope) return hasPermission(p, relation, object);
+  try {
+    return await fgaCan(p.scope, relation, object, p.fga ? { fga: p.fga } : undefined);
+  } catch (err) {
+    throw fromApiError(err);
+  }
 }
 
+/** The Phase 1 stub (dev tokens): ADR 0002 evaluated over the principal's `role_assignment` rows. */
 export function hasPermission(
   p: StaffPrincipal,
   relation: PermissionRelation,
@@ -97,7 +108,7 @@ export function hasPermission(
   return false;
 }
 
-/** Throws `403 { code: "forbidden" }` unless the principal holds `relation` on `object`. */
+/** Throws `403 { code: "forbidden" }` unless the stub says the principal holds `relation` on `object`. */
 export function assertPermission(
   p: StaffPrincipal,
   relation: PermissionRelation,
@@ -109,20 +120,36 @@ export function assertPermission(
 }
 
 /**
- * Route middleware (auth-sdk signature): `requirePermission('store_staff', (req) => \`store:${req.params.storeId}\`)`.
- * Needs `req.principal` (staffAuthMiddleware ran); 401 without it, 403 without the relation.
+ * Async check for both kinds of principal. Real tokens answer the contract 403 with
+ * `details: { relation, object }` (auth-sdk's `forbidden()` shape); dev tokens keep the Phase 1 body.
+ */
+export async function ensurePermission(
+  p: StaffPrincipal,
+  relation: PermissionRelation,
+  object: PermissionObject,
+): Promise<void> {
+  if (!p.scope) {
+    assertPermission(p, relation, object);
+    return;
+  }
+  if (!(await can(p, relation, object))) {
+    throw new AppError('forbidden', `requires ${relation} on ${object}`, { relation, object });
+  }
+}
+
+/**
+ * Route middleware: `requirePermission('store_staff', (req) => \`store:${req.params.storeId}\`)`.
+ * Needs `req.principal` (staffAuthMiddleware ran); 401 without it, 403 without the relation, 503 when the
+ * authorization service is unreachable.
  */
 export function requirePermission(
   relation: PermissionRelation,
   objectFactory: ObjectFactory,
 ): RequestHandler {
   return (req, _res, next) => {
-    try {
-      assertPermission(requirePrincipal(req), relation, objectFactory(req));
-      next();
-    } catch (err) {
-      next(err);
-    }
+    Promise.resolve()
+      .then(() => ensurePermission(requirePrincipal(req), relation, objectFactory(req)))
+      .then(() => next(), next);
   };
 }
 

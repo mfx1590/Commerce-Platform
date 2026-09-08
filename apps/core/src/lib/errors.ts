@@ -22,10 +22,12 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly details?: Record<string, unknown>,
+    /** Overrides the status the code implies (503 `internal` when OpenFGA is unreachable, 502 for the proxy). */
+    status?: number,
   ) {
     super(message);
     this.name = 'AppError';
-    this.status = STATUS[code];
+    this.status = status ?? STATUS[code];
   }
 
   toBody(): { code: ErrorCode; message: string; details?: Record<string, unknown> } {
@@ -59,4 +61,26 @@ export function mapPgError(err: unknown, what: string): never {
     });
   }
   throw err;
+}
+
+/**
+ * `@platform/auth-sdk` throws its own `ApiError` (`{ status, code, message, details }`, same contract codes).
+ * Turned into an `AppError` so `coreErrorHandler` renders it — status kept as is (401, 403, 503 fail-closed),
+ * empty details dropped. Anything else passes through unchanged.
+ */
+export function fromApiError(err: unknown): unknown {
+  const e = err as { status?: unknown; code?: unknown; message?: unknown; details?: unknown };
+  if (
+    err instanceof Error &&
+    typeof e.status === 'number' &&
+    typeof e.code === 'string' &&
+    e.code in STATUS
+  ) {
+    const details =
+      e.details && typeof e.details === 'object' && Object.keys(e.details).length > 0
+        ? (e.details as Record<string, unknown>)
+        : undefined;
+    return new AppError(e.code as ErrorCode, String(e.message), details, e.status);
+  }
+  return err;
 }

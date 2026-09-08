@@ -6,6 +6,7 @@
 import loaders from '@medusajs/medusa/loaders/index';
 import { ContainerRegistrationKeys, GracefulShutdownServer } from '@medusajs/framework/utils';
 import type { Logger } from '@medusajs/framework/types';
+import { createOpenFgaClient, type OpenFgaClient } from '@platform/auth-sdk';
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
@@ -13,10 +14,17 @@ import {
   aliasPublishableKeyHeader,
   coreErrorHandler,
   adminRouter,
+  composeStaffTokenVerifier,
+  DEV_TOKENS_FLAG,
+  devTokensEnabled,
   DevTokenVerifier,
+  hqRbacAdapter,
+  KeycloakStaffTokenVerifier,
   mountStoreRoutes,
   requestIdMiddleware,
   staffAuthMiddleware,
+  STORE_API_FALLBACK_ENV,
+  storeApiFallbackProxy,
   storeContextMiddleware,
   type StaffTokenVerifier,
 } from './http';
@@ -32,8 +40,63 @@ export interface CoreServer {
 export interface CreateServerOptions {
   /** Project root Medusa scans (medusa-config.ts, src/api, …): apps/core in dev, .medusa/server after build. */
   directory?: string;
-  /** Staff token verifier; @platform/auth-sdk replaces the Phase 1 dev-token verifier here. */
+  /** Staff token verifier override; default `buildStaffAuth()` (Keycloak + OpenFGA, dev tokens opt-in). */
   staffTokenVerifier?: StaffTokenVerifier;
+}
+
+export interface CoreMiddlewareOptions {
+  /** OpenFGA client for hq-rbac's own checks; default `createOpenFgaClient()` from `OPENFGA_*`. */
+  fga?: OpenFgaClient;
+  /** Scope-cache invalidation on role changes (`KeycloakStaffTokenVerifier.invalidate`). */
+  onRoleChange?: (staffUserId: string) => void;
+  /** Non-production only: base URL every unhandled `/store/*` request is proxied to (Integration 1). */
+  storeApiFallbackUrl?: string;
+}
+
+/** The staff auth src/server.ts runs: real Keycloak tokens by default, `dev:` tokens only with CORE_DEV_TOKENS=1. */
+export interface StaffAuth {
+  verifier: StaffTokenVerifier;
+  fga: OpenFgaClient;
+  onRoleChange: (staffUserId: string) => void;
+}
+
+/**
+ * Builds the default verifier from the environment (KEYCLOAK_URL, KEYCLOAK_REALM_STAFF, OPENFGA_API_URL,
+ * OPENFGA_STORE_ID, OPENFGA_MODEL_ID — auth-sdk defaults). Without OPENFGA_STORE_ID no real token can be
+ * authorised: production refuses to boot, local dev logs a warning (real tokens → 503, dev tokens keep working).
+ */
+export function buildStaffAuth(): StaffAuth {
+  const production = process.env.NODE_ENV === 'production';
+  if (!process.env.OPENFGA_STORE_ID) {
+    if (production) {
+      throw new Error(
+        'OPENFGA_STORE_ID is required in production: staff tokens cannot be authorised without OpenFGA',
+      );
+    }
+    console.warn(
+      `[core] OPENFGA_STORE_ID is not set: real staff tokens are refused with 503 until OpenFGA is configured ` +
+        `(pnpm --filter @platform/auth-sdk fga:seed, then OPENFGA_STORE_ID in .env)` +
+        (devTokensEnabled()
+          ? '; dev tokens (CORE_DEV_TOKENS=1) keep working'
+          : `; set ${DEV_TOKENS_FLAG}=1 for local dev tokens`),
+    );
+  }
+  const keycloak = new KeycloakStaffTokenVerifier();
+  return {
+    verifier: composeStaffTokenVerifier(keycloak, new DevTokenVerifier()),
+    fga: keycloak.fga,
+    onRoleChange: keycloak.invalidate,
+  };
+}
+
+/** `CORE_STORE_API_FALLBACK_URL`, refused in production (the proxy is an Integration 1 stand-in only). */
+export function storeApiFallbackUrlFromEnv(): string | undefined {
+  const url = process.env[STORE_API_FALLBACK_ENV]?.trim();
+  if (!url) return undefined;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`${STORE_API_FALLBACK_ENV} must not be set in production`);
+  }
+  return url;
 }
 
 /**
@@ -43,7 +106,13 @@ export interface CreateServerOptions {
 export function mountCoreMiddleware(
   app: express.Express,
   verifier: StaffTokenVerifier = new DevTokenVerifier(),
+  opts: CoreMiddlewareOptions = {},
 ): void {
+  if (opts.storeApiFallbackUrl && process.env.NODE_ENV === 'production') {
+    throw new Error(`${STORE_API_FALLBACK_ENV} must not be set in production`);
+  }
+  const fga = opts.fga ?? createOpenFgaClient();
+
   app.use(requestIdMiddleware);
 
   // Liveness probe: answers before any session/auth middleware, no database round trip.
@@ -57,15 +126,24 @@ export function mountCoreMiddleware(
   app.use('/store', storeContextMiddleware);
   // The Store API routes window 1 owns (contracts store-api.yaml: GET /store, /store/categories,
   // /store/products, /store/products/{handle}) answer here, ahead of Medusa's own routes of the same paths and
-  // of its publishable-key gate — our tenant middleware is the contract's key check. Every other Store API path
-  // falls through to Medusa (and, in Phase 1, stays on the Prism mock for clients).
+  // of its publishable-key gate — our tenant middleware is the contract's key check.
   mountStoreRoutes(app);
+  // Integration 1 (non-production): every other /store/* request goes verbatim to the Prism mock instead of
+  // Medusa. Without the variable it falls through to Medusa as before.
+  if (opts.storeApiFallbackUrl) {
+    app.use('/store', storeApiFallbackProxy(opts.storeApiFallbackUrl));
+  }
   // Admin API: 401 without a valid staff token; req.principal otherwise. Our admin route files opt out of
   // Medusa's auth (`export const AUTHENTICATE = false`).
   app.use('/admin', staffAuthMiddleware(verifier));
-  // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): JSON bodies parsed here, x-permission
-  // from the spec, then the module services. Every other /admin path falls through to Medusa.
   app.use('/admin', express.json({ limit: '1mb' }));
+  // hq-rbac (window 2): /admin/users, /admin/users/{id}/roles, /admin/audit-log, /admin/finance/ping — gets the
+  // principal + scope resolved above, checks permissions against OpenFGA itself; null → next().
+  app.use(
+    hqRbacAdapter({ fga, ...(opts.onRoleChange ? { onRoleChange: opts.onRoleChange } : {}) }),
+  );
+  // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): x-permission from the spec (OpenFGA
+  // for real tokens), then the module services. Every other /admin path falls through to Medusa.
   app.use(adminRouter());
   // Renders AppError as the contract's { code, message, details } for everything above.
   app.use(coreErrorHandler);
@@ -87,8 +165,25 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
   } else {
     console.info(`[core] bootstrap check: ready (${readiness.stores.length} store(s))`);
   }
+  const storeApiFallbackUrl = storeApiFallbackUrlFromEnv();
+  if (storeApiFallbackUrl) {
+    console.info(
+      `[core] store api fallback: unhandled /store/* requests go to ${storeApiFallbackUrl}`,
+    );
+  }
   const app = express();
-  mountCoreMiddleware(app, opts.staffTokenVerifier);
+  if (opts.staffTokenVerifier) {
+    mountCoreMiddleware(app, opts.staffTokenVerifier, {
+      ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
+    });
+  } else {
+    const auth = buildStaffAuth();
+    mountCoreMiddleware(app, auth.verifier, {
+      fga: auth.fga,
+      onRoleChange: auth.onRoleChange,
+      ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
+    });
+  }
 
   const { container, shutdown } = await loaders({ directory, expressApp: app });
   const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);

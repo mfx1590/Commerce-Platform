@@ -590,6 +590,11 @@ export interface components {
         CartId: string;
         Page: number;
         Limit: number;
+        /**
+         * @description Prices in this currency; must be one of the store's currencies (GET /store lists them);
+         *     400 validation_error otherwise; default = the store's default currency.
+         */
+        Currency: string;
     };
     requestBodies: never;
     headers: never;
@@ -670,6 +675,11 @@ export interface operations {
                 category?: string;
                 tag?: string;
                 sort?: "relevance" | "price_asc" | "price_desc" | "newest";
+                /**
+                 * @description Prices in this currency; must be one of the store's currencies (GET /store lists them);
+                 *     400 validation_error otherwise; default = the store's default currency.
+                 */
+                currency?: components["parameters"]["Currency"];
                 page?: components["parameters"]["Page"];
                 limit?: components["parameters"]["Limit"];
             };
@@ -690,12 +700,19 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };
     getProduct: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description Prices in this currency; must be one of the store's currencies (GET /store lists them);
+                 *     400 validation_error otherwise; default = the store's default currency.
+                 */
+                currency?: components["parameters"]["Currency"];
+            };
             header?: never;
             path: {
                 handle: string;
@@ -713,6 +730,7 @@ export interface operations {
                     "application/json": components["schemas"]["Product"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
         };
     };

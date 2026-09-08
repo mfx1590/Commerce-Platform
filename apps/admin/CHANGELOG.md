@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Changed — Integration 1: point the app at the real core with `ADMIN_API_URL`
+
+- `env.adminApiUrl` now resolves `ADMIN_API_URL` first, then `MOCK_ADMIN_API_URL`, then
+  `MOCK_URLS.admin` from `@platform/contracts` (`http://localhost:4011`). The root `.env.example` has
+  defined `ADMIN_API_URL` all along and the app was quietly ignoring it, so a developer who set it
+  kept talking to Prism with no sign anything was wrong. The mock variable stays as the fallback, so
+  nothing changes for anyone who has not set the new one.
+- The resolved value is validated as an absolute http(s) URL and throws naming the offending
+  variable, the same bargain `sessionSecret()` makes — a bad base URL otherwise fails deep inside
+  `new URL(base + path)` in a message that names neither the variable nor the value.
+- `playwright.config.ts` and `vitest.contract.config.ts` now force `ADMIN_API_URL` to the Prism they
+  start. Without that, adding the variable would have made every e2e and contract run inherit
+  whatever the developer's `.env` pointed at — `ADMIN_API_URL=http://localhost:9000` would have
+  silently turned a hermetic suite into a test of the running core.
+- `test/env.test.ts`: the resolution order, the empty-string cases, trailing-slash normalisation and
+  the validation failures.
+- README documents running against the core: which routes it serves today (`/admin/me`,
+  `/admin/stores`, `/admin/stores/{id}/products`, users/roles/audit-log), that real staff tokens are
+  forwarded unchanged, and that every other screen 404s into `ApiStatePanel` rather than breaking.
+
 ### Added — task 1.8, issue #63 (no contract change)
 
 - **Marketing** reserved in both views: HQ gated on `analyst` (owner implies it), Store gated on

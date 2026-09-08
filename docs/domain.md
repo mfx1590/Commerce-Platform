@@ -720,6 +720,156 @@ Owner: window 1 (inventory).
 
 ---
 
+## 2b. Marketing (store level unless noted; migration 0120, contracts-v0.3)
+
+Spec: docs/marketing-scope.md. Marketing reads events and writes its own tables; no campaign ever mutates an order.
+Module owner for all of them is window 17 (marketing) except where noted.
+
+### campaign
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| name | text | |
+| type | text | `email` / `sms` / `paid_social` / `paid_search` / `affiliate` / `referral` / `landing` |
+| status | text | `draft` / `scheduled` / `active` / `paused` / `ended` |
+| starts_at / ends_at | timestamptz NULL | `ends_at >= starts_at` |
+| budget_minor | bigint NULL | requires `currency` when set |
+| currency | char(3) NULL | |
+| utm_source / utm_medium / utm_campaign | text NULL | `utm_campaign` links `attribution` rows to the campaign |
+| promotion_id | uuid NULL FK promotion | |
+| segment_id | uuid NULL FK segment | |
+| landing_path | text NULL | |
+| external_ref | text NULL | Klaviyo flow id, Meta campaign id |
+| launched_at / ended_at | timestamptz NULL | |
+| metadata | jsonb | |
+
+Owner: window 17. Events: `campaign.launched`, `campaign.ended`.
+
+### segment (organization level with optional store)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id | uuid | |
+| store_id | uuid NULL FK store | NULL = organization template, visible only in organization scope (RLS `store_nullable`) |
+| template_id | uuid NULL FK segment | the template a store segment was copied from; NULL for templates |
+| name | text | unique per store; templates unique per organization |
+| description | text NULL | |
+| rules | jsonb | `{orders_count, last_order_at, total_spent_minor, tags, consent, country, customer_group_ids, …}`; grammar frozen by window 17 in Phase 2.3 |
+| materialised_count | int | refreshed by the materialise job |
+| last_materialised_at | timestamptz NULL | |
+
+Owner: window 17. Events: none.
+
+### segment_member
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| segment_id | uuid FK segment | cascade |
+| customer_id | uuid FK customer | cascade |
+| materialised_at | timestamptz | |
+| UNIQUE | | (segment_id, customer_id) |
+
+Owner: window 17 (materialise job). Events: none. No `updated_at`: rows are replaced, not edited.
+
+### product_feed
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| name | text | |
+| channel | text | `google_merchant` / `meta` / `tiktok` / `pinterest` |
+| locale | text | |
+| currency | char(3) | one of the store's currencies |
+| filters | jsonb | `{category_ids, tags, in_stock_only, …}` |
+| mapping | jsonb | channel attribute → product field overrides |
+| url | text NULL | public URL once published |
+| status | text | `draft` / `active` / `paused` / `error` |
+| last_published_at | timestamptz NULL | |
+| item_count | int | |
+| errors | jsonb | `[{code, message, product_id?}]` |
+
+Owner: window 17 (apps/feeds). Events: `feed.published`. Feed items are computed, not stored.
+
+### attribution
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| order_id | uuid FK order | cascade |
+| cart_id | uuid NULL FK cart | |
+| touch | text | `first` / `last` |
+| utm_source / utm_medium / utm_campaign / utm_term / utm_content | text NULL | |
+| referrer | text NULL | origin only (scheme + host), never a full URL |
+| landing_path | text NULL | |
+| campaign_id | uuid NULL FK campaign | matched on `utm_campaign` at placement |
+| captured_at | timestamptz | when the storefront captured the touch |
+| created_at | timestamptz | when the core recorded it (order placement); no `updated_at`, rows are immutable |
+| UNIQUE | | (order_id, touch) |
+
+Owner: written by window 1 (core) at order placement from `cart.metadata.attribution`, read by window 17. Events: `attribution.recorded` (one per touch, same transaction as `order.placed`).
+
+### referral_program
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| name | text | |
+| status | text | `draft` / `active` / `paused` / `ended` |
+| referrer_reward_promotion_id / referee_reward_promotion_id | uuid NULL FK promotion | |
+| rules | jsonb | `{min_order_minor, reward_after, max_rewards_per_referrer, …}` |
+
+Owner: window 17. Events: none.
+
+### referral
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| program_id | uuid FK referral_program | cascade |
+| referrer_customer_id | uuid FK customer | |
+| code | text | unique per store; shared as `/r/{code}`; events carry only `sha256(code)` |
+| referee_customer_id | uuid NULL FK customer | |
+| order_id | uuid NULL FK order | |
+| status | text | `created` / `clicked` / `converted` / `rewarded` |
+| clicked_at / converted_at / rewarded_at | timestamptz NULL | |
+
+Owner: window 17. Events: `referral.converted`.
+
+### review
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| product_id | uuid FK product | cascade |
+| order_line_item_id | uuid NULL FK order_line_item | at most one review per line item |
+| customer_id | uuid NULL FK customer | |
+| rating | int | CHECK 1–5 |
+| title / body | text NULL | customer text: API only, never in events |
+| status | text | `pending` / `published` / `rejected` |
+| moderated_by | uuid NULL FK staff_user | |
+| moderated_at | timestamptz NULL | |
+| moderation_reason | text NULL | staff-only |
+| published_at | timestamptz NULL | |
+
+Owner: window 17. Events: `review.published`.
+
+### abandoned carts (no table)
+
+Derived from `cart` with `status = 'active'` and no activity for the store's abandonment window; the core job flips
+`cart.status` to `abandoned` and emits `cart.abandoned` (window 1); window 17 and window 16 consume it.
+
+---
+
 ## 3. Shared value objects (JSON, not tables)
 
 ### Address
@@ -768,4 +918,6 @@ every mutation ─► outbox ─► bus ─► ledger_entry (Phase 4)
 | 13 customers | customer, customer_address, customer_identity |
 | 14 events | outbox relay |
 | 15 accounting | ledger_entry, legal_entity.odoo_company_id |
+| 17 marketing | campaign, segment (+ templates), segment_member, product_feed, referral_program, referral, review; reads attribution |
+| 1 core (marketing) | attribution (written at order placement from cart.metadata.attribution), `cart.abandoned` job |
 | main | the schema itself (`packages/db`), this document |

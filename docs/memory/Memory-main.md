@@ -72,7 +72,7 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | 4 | admin | Admin application | 1 | docs/memory/Memory-4-admin.md | Opus |
 | 5 | infra | Infra & DevOps | 2 | docs/memory/Memory-5-infra.md | Opus |
 | 6 | cms | CMS & landing pages | 2 | docs/memory/Memory-6-cms.md | Sonnet |
-| 7 | payments | Payments, tax, fraud | 2 | docs/memory/Memory-7-payments.md | Sonnet (strongest for webhook idempotency design) |
+| 7 | payments | Payments, tax, fraud | 2 | docs/memory/Memory-7-payments.md | Fable (manager decision 2026-09-08: money) |
 | 8 | shipping | Shipping & fulfillment | 2 | docs/memory/Memory-8-shipping.md | Sonnet |
 | 9 | search | Search, media, promotions | 2 | docs/memory/Memory-9-search.md | Sonnet |
 | 10 | brands | Brand storefronts (A, B, C…) | 2 | docs/memory/Memory-10-brands.md | Sonnet |
@@ -82,7 +82,7 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | 14 | events | Event bus & outbox relay | 4 | docs/memory/Memory-14-events.md | strongest |
 | 15 | accounting | Automatic accounting | 4 | docs/memory/Memory-15-accounting.md | strongest |
 | 16 | engagement | CRM, notifications & support | 4 | docs/memory/Memory-16-engagement.md | Sonnet |
-| 17 | marketing | Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | 2 | docs/memory/Memory-17-marketing.md | Opus |
+| 17 | marketing | Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | 2 | docs/memory/Memory-17-marketing.md | Fable (manager decision 2026-09-08: attribution) |
 
 Start messages for every window: docs/start-messages/ · Ownership map (CI-enforced): docs/ownership.md
 
@@ -93,7 +93,17 @@ Start messages for every window: docs/start-messages/ · Ownership map (CI-enfor
 - 2026-09-05 · CONTRACT CHANGE #56 (admin list sort/order, additive) · accepted, Admin API 0.2.0 on main · tag contracts-v0.2 to be created by the owner after the current merge round · producer: window 1 follow-up task; consumer: window 4 [admin] 1.3
 
 ## Integration reports
-- (none yet)
+### Phase 1 → Integration 1 (in progress, started 2026-09-08 on `integration/phase1`, worktree `../wt-integration`)
+Merge order: nothing to merge — every Phase 1 branch (core, auth, storefront, admin) and infra 2.1–2.4b (#98) are already on main. Int 1 is wiring + contracts-v0.3.
+Findings from the survey (what is real today): core implements 4 Store API routes (`GET /store`, `/store/categories`, `/store/products`, `/store/products/{handle}`) and the registry/catalog Admin API routes; **no cart, checkout or order code exists in apps/core** (Phase 2 core task) — the storefront's cart/checkout runs against Prism. `hq-rbac` (users, roles, audit-log routes, scope middleware) is built and tested but **never mounted** in `src/server.ts`; the core's `requirePermission` is a `role_assignment` stub (auth-sdk's returns a callable, not a RequestHandler). The admin app reads its base URL from `MOCK_ADMIN_API_URL` only. `order.placed/v1` has `additionalProperties:false` and no attribution field.
+Plan (steps, in order; each committed on integration/phase1):
+1. **contracts-v0.3 (d)** — packages/db `0120_marketing.sql`: campaign, segment, segment_member, product_feed, attribution, referral_program, referral, review (+ RLS via `app.apply_rls`, `segment` is `store_nullable`); packages/events v1 schemas `campaign.launched`, `campaign.ended`, `feed.published`, `attribution.recorded`, `referral.converted`, `review.published`, `cart.abandoned`; Admin API 0.3.0 marketing paths per docs/marketing-scope.md; Store API 0.3.0 `currency` query on `listProducts`/`getProduct` (400 `validation_error` when the store does not sell it); regenerate, tests, CHANGELOGs, docs/domain.md section 2b. Decision: **`attribution.recorded` is its own event** (order.placed v1 stays; consumers 12/15/16 subscribe separately; payload = ids + utm strings + touch, no PII).
+2. **auth (a)** — `src/http/staff-auth.ts` gets a `KeycloakStaffTokenVerifier` over auth-sdk (`createStaffScopeMiddleware` → principal + `StaffScope`); dev tokens stay opt-in (`CORE_DEV_TOKENS=1`, never in production); `requirePermission` asks OpenFGA through auth-sdk `can()` when the principal carries a scope, the `role_assignment` stub otherwise; `hq-rbac` mounted ahead of `adminRouter` via a thin Express adapter around `createHqRbac().handle()`. Live tests skip without Keycloak/OpenFGA (same convention as auth-sdk) and run in the `auth-e2e` CI job.
+3. **admin (b)** — `ADMIN_API_URL` (already in `.env.example`) wins over `MOCK_ADMIN_API_URL`; default stays the mock; Playwright/contract tests keep the mock. README note on running against the core.
+4. **attribution at placement (c)** — `apps/core/src/lib/attribution.ts`: pure mapping `cart.metadata.attribution` → `order.metadata` + two `attribution` rows (first/last) + `attribution.recorded` event, with DB tests. The call site is window 1's Phase 2 cart/order task (issue AC), because placement does not exist yet.
+5. **checkout end to end (e)** — core gets a non-production `CORE_STORE_API_FALLBACK_URL` (proxy unimplemented `/store/*` paths to Prism); storefront runs with `STORE_API_URL=http://localhost:9000` so PLP/PDP are real and cart/checkout still answer from the mock through the core. Documented as "what is real" in the report.
+6. **report + Phase 2 (f)** — Phase 1 report here; rewrite memory files 1, 3, 4, 6, 7, 8, 9, 10, 17 (5 keeps its issues); create the Phase 2 issues (`window:<key>`, `phase:2`) with acceptance criteria.
+7. **PR (g)** — integration/phase1 → main, reviewer agent, merge queue, tag contracts-v0.3.
 
 ## Global gotchas (things every window must know)
 - Local ports (other projects own the defaults on this machine): Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081 (playground 3001), Redpanda 19092/18081, mocks 4010/4011. `.env.example` is the truth; `pnpm dev` copies it to `.env`.

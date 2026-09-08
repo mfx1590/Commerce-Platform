@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/referral.converted/v1.json",
+  "title": "referral.converted v1",
+  "description": "A referred customer placed an order with a referral code (referral status -> converted). Rewards are issued by the marketing module afterwards. `code_hash` is sha256 of the code, never the code itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "referral_id",
+    "program_id",
+    "referrer_customer_id",
+    "referee_customer_id",
+    "order_id",
+    "code_hash",
+    "converted_at"
+  ],
+  "properties": {
+    "referral_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "program_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "referrer_customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "referee_customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "code_hash": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/sha256"
+    },
+    "converted_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

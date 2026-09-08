@@ -33,3 +33,5 @@ To change the schema: add a new file, never edit an applied one. Feature windows
 `test/rls.test.ts` creates a throwaway database, migrates it, seeds two stores, and proves with the `platform_app`
 role that store A cannot read, filter, insert, or move store B rows; that organization scope sees all; that a
 foreign organization and a context-less connection see nothing; and that per-store order numbers are sequential.
+Since 0.2.0 it also covers the marketing tables (0120): campaign and attribution rows stay per store, and segment
+templates (`store_id NULL`) are visible only in organization scope.

@@ -1,6 +1,6 @@
 # Memory 1 — Core commerce
 Window: 1 · Key: `core` · Branch prefix: `core/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: contracts-v0.2 (admin-api 0.2.1) · Branch: `core/phase1` · Status: **Phase 1 complete (1.1–1.9 + sort/order follow-up)**; nothing in flight. Next work comes from Memory-main (Integration 1, then Phase 2).
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `core/phase2` · Status: Phase 2 not started (Phase 1 complete)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,8 +16,8 @@ Never touches:
 - cms/
 - infra/
 
-## Mission — Phase 1 (Isolated modules)
-Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant-scoped data access through packages/db with RLS enforced on every query, outbox write on every state change, seed brands loading. Implement Store API and Admin API routes for registry and catalog exactly as in packages/contracts; everything else stays on the mock server.
+## Mission — Phase 2 (Commerce complete, brand 1 live)
+Full order lifecycle (place, edit, cancel, split shipment, return, exchange), stock locations with reservations and backorders, as Medusa modules/workflows with compensation on failure, every transition emitting its event through the outbox. Wave A — starts right after contracts-v0.3 is tagged; nothing to wait for.
 
 ## Done
 - [x] **Follow-up: `sort`/`order` on Admin API list handlers + customer PII gate test (contracts 0.2.0/0.2.1, issues #77 context)** — 2026-09-07, commit `11bdaba` (replayed from the parked `core-sort-order`) + the PII-gate test commit; final Phase 1 PR. `listStores` (code|name|status|created_at) and `listProducts` (title|handle|status|created_at|updated_at) accept `sort` + `order` (asc|desc, default desc, ignored without `sort`), whitelisted ORDER BY, 400 on unknown values; `sortParams`/`enumParam` in `src/http/query.ts`. Analyst → 403 on the `support`-gated customer reads, still 200 on viewer-gated aggregates.
@@ -32,11 +32,15 @@ Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49 **merged** (merge commit `a0c02c9`). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
-- (nothing — Phase 1 is complete and merged/PR-open; window 1 is idle until Memory-main opens Integration 1 or Phase 2)
+- (nothing — Phase 2 starts with the first item under Next)
 
-## Next — from Memory-main, not started
-- Integration 1 (main window drives): first checkout end to end; core answers the Store/Admin API routes it owns, the rest still on the mocks.
-- Phase 2 (my part, in order per Memory-main): cart module against the contracts, order state machine + workflows with compensation, inventory levels/reservations/backorders, returns and exchanges, an event per transition + replay test. The deferred Medusa decision lands in the cart task: carts through Medusa's cart module behind our contract routes, or bypass Medusa's Store API entirely.
+## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+- [ ] **#103 · 2.1** Cart module against the Store API contract (+ `currency` on product reads)
+- [ ] **#104 · 2.2** Checkout completion: order placement, display id, attribution, `order.placed`
+- [ ] **#105 · 2.3** Order state machine, workflows with compensation, Admin API order routes
+- [ ] **#106 · 2.4** Inventory: levels per warehouse, reservations at placement, backorders
+- [ ] **#107 · 2.5** Returns and exchanges
+- [ ] **#108 · 2.6** `cart.abandoned` job, event replay suite, module docs
 
 ## Decisions made (with reasons)
 - 2026-09-04 · Medusa's own tables go in Postgres schema `medusa` (`projectConfig.databaseSchema`): Medusa's core modules declare `product`, `store`, `sales_channel`, `cart`, `order`… — the same names as our frozen schema in `public`. Our data stays in `packages/db` tables under RLS; Medusa's built-in tables carry no contract data in Phase 1.
@@ -84,6 +88,8 @@ Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant
 - Tenant middleware (1.3) chicken-and-egg: `store_api_key` is under RLS, so looking up a key needs an organization context before any context is known. Phase 1–3 has exactly one organization: resolve it from `CORE_ORGANIZATION_ID` (default `SEED_IDS.organization`) and look the key up with an organization-scoped client; the request then proceeds store-scoped.
 - `@platform/contracts` `ErrorCode` includes `cart_completed` (not listed in the Error schema description); `src/lib/errors.ts` maps every code to a status.
 - The local `platform` DB is shared with the other windows' worktrees: never `pnpm dev --reset` while they run; remove only what you created (schema `medusa` can be dropped and rebuilt safely).
+- Integration 1 (2026-09-08): real Keycloak staff tokens are the default on the core's Admin API; `CORE_DEV_TOKENS=1` keeps `Bearer dev:<subject>` working locally. The storefront can run against the core with `STORE_API_URL=http://localhost:9000` (+ `CORE_STORE_API_FALLBACK_URL=http://localhost:4010` on the core so unimplemented Store routes still answer from Prism). The admin uses `ADMIN_API_URL`.
+- `apps/core/src/lib/attribution.ts` (Integration 1) maps `cart.metadata.attribution` → `order.metadata` + `attribution` rows + `attribution.recorded`; task 2.2 calls it at placement.
 
 ## How to run & test this package
 - Once per machine: `pnpm dev` (root; docker + `db:migrate` + `db:seed`), then `pnpm --filter @platform/core db:medusa:migrate`.
@@ -92,14 +98,6 @@ Stand up Medusa 2 in apps/core: store & channel registry, catalog module, tenant
 - Formatting: `pnpm prettier --write "apps/core/**/*.{ts,md,json}"` (docs/** is excluded from prettier).
 
 ## Later phases (do not start until Memory-main says so)
-### Phase 2 — Commerce complete, brand 1 live
-Full order lifecycle (place, edit, cancel, split shipment, return, exchange), stock locations with reservations and backorders, as Medusa modules/workflows with compensation on failure, every transition emitting its event through the outbox.
-- [ ] Cart module against contracts
-- [ ] Order state machine + workflows with compensation
-- [ ] Inventory levels per warehouse, reservations, backorders
-- [ ] Returns and exchanges
-- [ ] Events for every transition; replay test
-
 ### Phase 3 — Multi-store & HQ
 Multi-store at scale: N stores with separate domains/settings, and the brand onboarding workflow (store, domain, CMS space, PSP account, search index, theme repo, default roles).
 - [ ] Store settings per domain/locale/currency matrix

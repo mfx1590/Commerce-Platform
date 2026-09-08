@@ -1,13 +1,14 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.2.1
+  version: 0.3.0
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
     in each operation's `x-permission` against `store:{storeId}` (or `organization:hq`) before doing anything.
     UI gating is a convenience; these checks are the security boundary. Every mutation writes `audit_log`.
-    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional sort/order to list operations (additive).
+    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional sort/order to list operations (additive);
+    0.3.0 adds the marketing surface under `/admin/stores/{storeId}/marketing/…` and `/admin/marketing/…` (docs/marketing-scope.md, additive).
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -25,6 +26,7 @@ tags:
   - name: customers
   - name: roles
   - name: audit
+  - name: marketing
 
 paths:
   # ---------------------------------------------------------------- me
@@ -1697,6 +1699,1040 @@ paths:
                     ],
                 }
 
+  # ---------------------------------------------------------------- marketing (contracts-v0.3, docs/marketing-scope.md)
+  # Store-scoped: reads need store_staff, writes store_admin; reports use `viewer` (any relation on the store) so
+  # analysts can read them next to store staff. Launching a campaign and publishing a feed are store_admin.
+  /admin/stores/{storeId}/marketing/campaigns:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: listCampaigns
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      parameters:
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [draft, scheduled, active, paused, ended] },
+          }
+        - {
+            name: type,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [email, sms, paid_social, paid_search, affiliate, referral, landing],
+              },
+          }
+        - {
+            name: sort,
+            in: query,
+            schema:
+              { type: string, enum: [name, status, starts_at, created_at], default: created_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Campaign' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 70000000-0000-4000-8000-000000000701
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    name: Autumn launch
+                    type: paid_social
+                    status: draft
+                    starts_at: '2026-09-15T00:00:00Z'
+                    ends_at: '2026-10-15T00:00:00Z'
+                    budget: { amount_minor: 250000, currency: EUR }
+                    utm_source: meta
+                    utm_medium: paid_social
+                    utm_campaign: autumn-2026
+                    promotion_id: 50000000-0000-4000-8000-000000000101
+                    segment_id: null
+                    landing_path: /collections/autumn
+                    external_ref: '120210000000000001'
+                    launched_at: null
+                    ended_at: null
+                    metadata: {}
+                    created_at: '2026-09-08T00:00:00Z'
+                    updated_at: '2026-09-08T00:00:00Z'
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [marketing]
+      operationId: createCampaign
+      summary: Create a campaign in status draft
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CampaignInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+              examples:
+                autumn: { $ref: '#/components/examples/CampaignAutumn' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/stores/{storeId}/marketing/campaigns/{campaignId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: campaignId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketing]
+      operationId: getCampaign
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+              examples:
+                autumn: { $ref: '#/components/examples/CampaignAutumn' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [marketing]
+      operationId: updateCampaign
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CampaignInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+              examples:
+                autumn: { $ref: '#/components/examples/CampaignAutumn' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [marketing]
+      operationId: deleteCampaign
+      summary: Delete a draft campaign (409 once launched; end it instead)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/campaigns/{campaignId}/launch:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: campaignId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [marketing]
+      operationId: launchCampaign
+      summary: draft/scheduled/paused → active (emits campaign.launched)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+              examples:
+                autumn: { $ref: '#/components/examples/CampaignAutumnActive' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/campaigns/{campaignId}/end:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: campaignId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [marketing]
+      operationId: endCampaign
+      summary: active/paused → ended (emits campaign.ended)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+              example:
+                id: 70000000-0000-4000-8000-000000000701
+                store_id: 00000000-0000-4000-8000-000000000031
+                name: Autumn launch
+                type: paid_social
+                status: ended
+                starts_at: '2026-09-15T00:00:00Z'
+                ends_at: '2026-10-15T00:00:00Z'
+                budget: { amount_minor: 250000, currency: EUR }
+                utm_source: meta
+                utm_medium: paid_social
+                utm_campaign: autumn-2026
+                promotion_id: 50000000-0000-4000-8000-000000000101
+                segment_id: null
+                landing_path: /collections/autumn
+                external_ref: '120210000000000001'
+                launched_at: '2026-09-15T00:00:00Z'
+                ended_at: '2026-10-15T00:00:00Z'
+                metadata: {}
+                created_at: '2026-09-08T00:00:00Z'
+                updated_at: '2026-10-15T00:00:00Z'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/segments:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: listSegments
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      parameters:
+        - {
+            name: sort,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [name, materialised_count, last_materialised_at, created_at],
+                default: created_at,
+              },
+          }
+        - { $ref: '#/components/parameters/Order' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Segment' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 70000000-0000-4000-8000-000000000721
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    name: VIP
+                    description: Spent 500+ in the last year and opted in to email
+                    rules:
+                      total_spent_minor: { gte: 50000 }
+                      last_order_at: { after: '2025-09-01T00:00:00Z' }
+                      consent: [email]
+                    template_id: 70000000-0000-4000-8000-000000000711
+                    materialised_count: 128
+                    last_materialised_at: '2026-09-08T03:00:00Z'
+                    created_at: '2026-09-08T00:00:00Z'
+                    updated_at: '2026-09-08T03:00:00Z'
+    post:
+      tags: [marketing]
+      operationId: createSegment
+      summary: Create a segment (optionally from an organization template via template_id)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SegmentInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Segment' }
+              examples:
+                vip: { $ref: '#/components/examples/SegmentVip' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/segments/{segmentId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: segmentId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketing]
+      operationId: getSegment
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Segment' }
+              examples:
+                vip: { $ref: '#/components/examples/SegmentVip' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [marketing]
+      operationId: updateSegment
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SegmentInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Segment' }
+              examples:
+                vip: { $ref: '#/components/examples/SegmentVip' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [marketing]
+      operationId: deleteSegment
+      summary: Delete a segment and its members (409 while a campaign references it)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/segments/{segmentId}/preview:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: segmentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [marketing]
+      operationId: previewSegment
+      summary: Count the customers the saved rules (or the rules in the body) match right now; writes nothing
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rules: { $ref: '#/components/schemas/SegmentRules' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count: { type: integer, minimum: 0 }
+              example: { count: 128 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/marketing/segments/{segmentId}/materialize:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: segmentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [marketing]
+      operationId: materializeSegment
+      summary: Refresh segment_member from the rules (async job; materialised_count updates when it finishes)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Segment' }
+              examples:
+                vip: { $ref: '#/components/examples/SegmentVip' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/marketing/feeds:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: listFeeds
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      parameters:
+        - {
+            name: channel,
+            in: query,
+            schema: { type: string, enum: [google_merchant, meta, tiktok, pinterest] },
+          }
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [draft, active, paused, error] },
+          }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/ProductFeed' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 70000000-0000-4000-8000-000000000731
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    name: Google Shopping NL
+                    channel: google_merchant
+                    locale: en-GB
+                    currency: EUR
+                    filters: { in_stock_only: true }
+                    mapping: { brand: Brand A }
+                    url: https://feeds.brand-a.example/google_merchant/en-GB.xml
+                    status: active
+                    last_published_at: '2026-09-08T06:00:00Z'
+                    item_count: 120
+                    errors:
+                      - {
+                          code: missing_gtin,
+                          message: 'GTIN missing; Google requires it for branded goods',
+                          product_id: 30000000-0000-4000-8000-000000000201,
+                        }
+                    created_at: '2026-09-08T00:00:00Z'
+                    updated_at: '2026-09-08T06:00:00Z'
+    post:
+      tags: [marketing]
+      operationId: createFeed
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductFeedInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductFeed' }
+              examples:
+                google: { $ref: '#/components/examples/FeedGoogleDraft' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/feeds/{feedId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: feedId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketing]
+      operationId: getFeed
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductFeed' }
+              examples:
+                google: { $ref: '#/components/examples/FeedGoogle' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [marketing]
+      operationId: updateFeed
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductFeedInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductFeed' }
+              examples:
+                google: { $ref: '#/components/examples/FeedGoogle' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [marketing]
+      operationId: deleteFeed
+      summary: Delete the feed definition; the published file stops being served
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/marketing/feeds/{feedId}/publish:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: feedId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [marketing]
+      operationId: publishFeed
+      summary: Generate the feed file and serve it at `url` (emits feed.published; status → active or error)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductFeed' }
+              examples:
+                google: { $ref: '#/components/examples/FeedGoogle' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/feeds/{feedId}/items:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: feedId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketing]
+      operationId: listFeedItems
+      summary: The rows the feed emits (computed from filters + mapping; last published or current)
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/FeedItem' } }
+              example:
+                page: 1
+                limit: 20
+                total: 120
+                items:
+                  - id: TEE-M-RED
+                    product_id: 30000000-0000-4000-8000-000000000201
+                    variant_id: 30000000-0000-4000-8000-000000000301
+                    sku: TEE-M-RED
+                    title: Classic Tee - M / Red
+                    description: Heavyweight cotton tee.
+                    link: https://shop.brand-a.example/products/classic-tee?variant=30000000-0000-4000-8000-000000000301
+                    image_link: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg
+                    gtin: null
+                    brand: Brand A
+                    availability: in_stock
+                    price: { amount_minor: 1999, currency: EUR }
+                    sale_price: null
+                    item_group_id: classic-tee
+                    errors: []
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/marketing/referral-programs:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: listReferralPrograms
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      parameters:
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [draft, active, paused, ended] },
+          }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        { type: array, items: { $ref: '#/components/schemas/ReferralProgram' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 70000000-0000-4000-8000-000000000741
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    name: Refer a friend
+                    status: active
+                    referrer_reward_promotion_id: 50000000-0000-4000-8000-000000000101
+                    referee_reward_promotion_id: 50000000-0000-4000-8000-000000000101
+                    rules:
+                      {
+                        min_order_minor: 2500,
+                        reward_after: delivered,
+                        max_rewards_per_referrer: 10,
+                      }
+                    created_at: '2026-09-08T00:00:00Z'
+                    updated_at: '2026-09-08T00:00:00Z'
+    post:
+      tags: [marketing]
+      operationId: createReferralProgram
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralProgramInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferralProgram' }
+              examples:
+                friends: { $ref: '#/components/examples/ReferralProgramFriends' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /admin/stores/{storeId}/marketing/referral-programs/{programId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: programId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketing]
+      operationId: getReferralProgram
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferralProgram' }
+              examples:
+                friends: { $ref: '#/components/examples/ReferralProgramFriends' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [marketing]
+      operationId: updateReferralProgram
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReferralProgramInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferralProgram' }
+              examples:
+                friends: { $ref: '#/components/examples/ReferralProgramFriends' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [marketing]
+      operationId: deleteReferralProgram
+      summary: Delete a program that has no referrals yet (409 otherwise; end it instead)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/referrals:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: listReferrals
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      parameters:
+        - { name: program_id, in: query, schema: { type: string, format: uuid } }
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [created, clicked, converted, rewarded] },
+          }
+        - { name: referrer_customer_id, in: query, schema: { type: string, format: uuid } }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [status, converted_at, created_at], default: created_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Referral' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 70000000-0000-4000-8000-000000000751
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    program_id: 70000000-0000-4000-8000-000000000741
+                    referrer_customer_id: 30000000-0000-4000-8000-000000000a01
+                    code: JANE-7F3K
+                    referee_customer_id: null
+                    order_id: null
+                    status: created
+                    clicked_at: null
+                    converted_at: null
+                    rewarded_at: null
+                    created_at: '2026-09-08T00:00:00Z'
+                    updated_at: '2026-09-08T00:00:00Z'
+
+  /admin/stores/{storeId}/marketing/reviews:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: listReviews
+      summary: Moderation queue and history (status=pending by default in the UI, all when omitted)
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      parameters:
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [pending, published, rejected] },
+          }
+        - { name: product_id, in: query, schema: { type: string, format: uuid } }
+        - { name: rating, in: query, schema: { type: integer, minimum: 1, maximum: 5 } }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [rating, status, created_at], default: created_at },
+          }
+        - { $ref: '#/components/parameters/Order' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Review' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 70000000-0000-4000-8000-000000000761
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    product_id: 30000000-0000-4000-8000-000000000201
+                    order_line_item_id: 30000000-0000-4000-8000-000000000901
+                    customer_id: 30000000-0000-4000-8000-000000000a01
+                    rating: 5
+                    title: Great tee
+                    body: Fits true to size, still soft after ten washes.
+                    status: pending
+                    moderated_by: null
+                    moderated_at: null
+                    moderation_reason: null
+                    published_at: null
+                    created_at: '2026-09-08T18:00:00Z'
+                    updated_at: '2026-09-08T18:00:00Z'
+
+  /admin/stores/{storeId}/marketing/reviews/{reviewId}/moderate:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: reviewId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [marketing]
+      operationId: moderateReview
+      summary: Publish or reject a review (publishing emits review.published)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [published, rejected] }
+                reason:
+                  {
+                    type: [string, 'null'],
+                    description: Shown to staff only; required when rejecting,
+                  }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Review' }
+              example:
+                id: 70000000-0000-4000-8000-000000000761
+                store_id: 00000000-0000-4000-8000-000000000031
+                product_id: 30000000-0000-4000-8000-000000000201
+                order_line_item_id: 30000000-0000-4000-8000-000000000901
+                customer_id: 30000000-0000-4000-8000-000000000a01
+                rating: 5
+                title: Great tee
+                body: Fits true to size, still soft after ten washes.
+                status: published
+                moderated_by: 00000000-0000-4000-8000-000000000044
+                moderated_at: '2026-09-09T09:00:00Z'
+                moderation_reason: null
+                published_at: '2026-09-09T09:00:00Z'
+                created_at: '2026-09-08T18:00:00Z'
+                updated_at: '2026-09-09T09:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/marketing/reports/attribution:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: getAttributionReport
+      summary: Orders and revenue by utm source/medium/campaign for one touch model; revenue in the store's default currency
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: touch, in: query, schema: { type: string, enum: [first, last], default: last } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttributionReport' }
+              example:
+                from: '2026-09-01T00:00:00Z'
+                to: '2026-10-01T00:00:00Z'
+                touch: last
+                currency: EUR
+                totals: { orders_count: 42, revenue: { amount_minor: 122556, currency: EUR } }
+                items:
+                  - utm_source: meta
+                    utm_medium: paid_social
+                    utm_campaign: autumn-2026
+                    campaign_id: 70000000-0000-4000-8000-000000000701
+                    orders_count: 30
+                    revenue: { amount_minor: 87540, currency: EUR }
+                  - utm_source: google
+                    utm_medium: organic
+                    utm_campaign: null
+                    campaign_id: null
+                    orders_count: 12
+                    revenue: { amount_minor: 35016, currency: EUR }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/stores/{storeId}/marketing/reports/promotions:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: getPromotionReport
+      summary: Per promotion code — uses, discount given and revenue of the orders that used it
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromotionReport' }
+              example:
+                from: '2026-09-01T00:00:00Z'
+                to: '2026-10-01T00:00:00Z'
+                currency: EUR
+                items:
+                  - promotion_id: 50000000-0000-4000-8000-000000000101
+                    code: WELCOME10
+                    uses: 12
+                    discount_given: { amount_minor: 2400, currency: EUR }
+                    revenue: { amount_minor: 21600, currency: EUR }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # Organization level: the cross-brand dashboard (analyst) and segment templates (owner writes).
+  /admin/marketing/dashboard:
+    get:
+      tags: [marketing]
+      operationId: getMarketingDashboard
+      summary: One row per store — orders, revenue in the store currency, top campaign — for HQ comparison
+      x-permission: { relation: analyst, object: 'organization:hq' }
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarketingDashboard' }
+              example:
+                from: '2026-09-01T00:00:00Z'
+                to: '2026-10-01T00:00:00Z'
+                items:
+                  - store_id: 00000000-0000-4000-8000-000000000031
+                    store_code: brand-a
+                    currency: EUR
+                    orders_count: 42
+                    revenue: { amount_minor: 122556, currency: EUR }
+                    top_campaign_id: 70000000-0000-4000-8000-000000000701
+                  - store_id: 00000000-0000-4000-8000-000000000032
+                    store_code: brand-b
+                    currency: GBP
+                    orders_count: 17
+                    revenue: { amount_minor: 41300, currency: GBP }
+                    top_campaign_id: null
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/marketing/segment-templates:
+    get:
+      tags: [marketing]
+      operationId: listSegmentTemplates
+      summary: Organization-level segments (store_id null) every brand can copy
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/Segment' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 70000000-0000-4000-8000-000000000711
+                    store_id: null
+                    name: VIP
+                    description: Spent 500+ in the last year and opted in to email
+                    rules:
+                      total_spent_minor: { gte: 50000 }
+                      last_order_at: { after: '2025-09-01T00:00:00Z' }
+                      consent: [email]
+                    template_id: null
+                    materialised_count: 0
+                    last_materialised_at: null
+                    created_at: '2026-09-08T00:00:00Z'
+                    updated_at: '2026-09-08T00:00:00Z'
+    post:
+      tags: [marketing]
+      operationId: createSegmentTemplate
+      x-permission: { relation: owner, object: 'organization:hq' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SegmentInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Segment' }
+              examples:
+                vip: { $ref: '#/components/examples/SegmentTemplateVip' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/marketing/segment-templates/{templateId}:
+    parameters:
+      - { name: templateId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [marketing]
+      operationId: getSegmentTemplate
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Segment' }
+              examples:
+                vip: { $ref: '#/components/examples/SegmentTemplateVip' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [marketing]
+      operationId: updateSegmentTemplate
+      x-permission: { relation: owner, object: 'organization:hq' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SegmentInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Segment' }
+              examples:
+                vip: { $ref: '#/components/examples/SegmentTemplateVip' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [marketing]
+      operationId: deleteSegmentTemplate
+      summary: Delete a template; store segments created from it keep their copied rules
+      x-permission: { relation: owner, object: 'organization:hq' }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   securitySchemes:
     staffToken:
@@ -2567,6 +3603,409 @@ components:
         request_id: { type: [string, 'null'] }
         created_at: { type: string, format: date-time }
 
+    # ---------------------------------------------------------------- marketing (contracts-v0.3)
+    CampaignInput:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string }
+        type:
+          {
+            type: string,
+            enum: [email, sms, paid_social, paid_search, affiliate, referral, landing],
+          }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+        budget:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        utm_source: { type: [string, 'null'] }
+        utm_medium: { type: [string, 'null'] }
+        utm_campaign:
+          {
+            type: [string, 'null'],
+            description: Matched against attribution.utm_campaign to link orders to this campaign,
+          }
+        promotion_id: { type: [string, 'null'], format: uuid }
+        segment_id: { type: [string, 'null'], format: uuid }
+        landing_path: { type: [string, 'null'] }
+        external_ref:
+          { type: [string, 'null'], description: 'Klaviyo flow id, Meta campaign id, …' }
+        metadata: { type: object, additionalProperties: true }
+    Campaign:
+      allOf:
+        - $ref: '#/components/schemas/CampaignInput'
+        - type: object
+          required:
+            [
+              id,
+              store_id,
+              status,
+              starts_at,
+              ends_at,
+              budget,
+              utm_source,
+              utm_medium,
+              utm_campaign,
+              promotion_id,
+              segment_id,
+              landing_path,
+              external_ref,
+              launched_at,
+              ended_at,
+              metadata,
+              created_at,
+              updated_at,
+            ]
+          properties:
+            id: { type: string, format: uuid }
+            store_id: { type: string, format: uuid }
+            status: { type: string, enum: [draft, scheduled, active, paused, ended] }
+            launched_at: { type: [string, 'null'], format: date-time }
+            ended_at: { type: [string, 'null'], format: date-time }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    SegmentRules:
+      type: object
+      description: |
+        Rule set evaluated against the store's customers when previewing or materialising. Keys are documented
+        loosely here; window 17 freezes the grammar in Phase 2.3. Unknown keys are kept, not rejected.
+      additionalProperties: true
+      properties:
+        orders_count: { type: object, additionalProperties: true, description: '{ gte?, lte? }' }
+        last_order_at:
+          {
+            type: object,
+            additionalProperties: true,
+            description: '{ after?, before? } (RFC-3339)',
+          }
+        total_spent_minor:
+          { type: object, additionalProperties: true, description: '{ gte?, lte? } in minor units' }
+        tags: { type: array, items: { type: string } }
+        consent:
+          {
+            type: array,
+            items: { type: string, enum: [email, sms] },
+            description: opted-in channels,
+          }
+        country: { type: array, items: { type: string, pattern: '^[A-Z]{2}$' } }
+        customer_group_ids: { type: array, items: { type: string, format: uuid } }
+    SegmentInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        rules: { $ref: '#/components/schemas/SegmentRules' }
+        template_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: Store segments only — copy rules from this organization template at creation,
+          }
+    Segment:
+      allOf:
+        - $ref: '#/components/schemas/SegmentInput'
+        - type: object
+          required:
+            [
+              id,
+              store_id,
+              description,
+              rules,
+              template_id,
+              materialised_count,
+              last_materialised_at,
+              created_at,
+              updated_at,
+            ]
+          properties:
+            id: { type: string, format: uuid }
+            store_id:
+              { type: [string, 'null'], format: uuid, description: null = organization template }
+            materialised_count: { type: integer, minimum: 0 }
+            last_materialised_at: { type: [string, 'null'], format: date-time }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    ProductFeedInput:
+      type: object
+      required: [name, channel, locale, currency]
+      properties:
+        name: { type: string }
+        channel: { type: string, enum: [google_merchant, meta, tiktok, pinterest] }
+        locale: { type: string }
+        currency:
+          {
+            type: string,
+            pattern: '^[A-Z]{3}$',
+            description: Must be one of the store's currencies,
+          }
+        filters:
+          type: object
+          additionalProperties: true
+          properties:
+            category_ids: { type: array, items: { type: string, format: uuid } }
+            tags: { type: array, items: { type: string } }
+            in_stock_only: { type: boolean }
+        mapping:
+          type: object
+          additionalProperties: true
+          description: 'Channel attribute → product field overrides (e.g. { brand: Brand A })'
+        status: { type: string, enum: [draft, active, paused] }
+    ProductFeed:
+      allOf:
+        - $ref: '#/components/schemas/ProductFeedInput'
+        - type: object
+          required:
+            [
+              id,
+              store_id,
+              filters,
+              mapping,
+              url,
+              status,
+              last_published_at,
+              item_count,
+              errors,
+              created_at,
+              updated_at,
+            ]
+          properties:
+            id: { type: string, format: uuid }
+            store_id: { type: string, format: uuid }
+            url: { type: [string, 'null'], description: Public feed URL once published }
+            status: { type: string, enum: [draft, active, paused, error] }
+            last_published_at: { type: [string, 'null'], format: date-time }
+            item_count: { type: integer, minimum: 0 }
+            errors:
+              type: array
+              items:
+                type: object
+                required: [code, message]
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+                  product_id: { type: [string, 'null'], format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    FeedItem:
+      type: object
+      description: One row of a product feed — channel-neutral names; the file writer maps them per channel
+      required:
+        [
+          id,
+          product_id,
+          variant_id,
+          sku,
+          title,
+          description,
+          link,
+          image_link,
+          gtin,
+          brand,
+          availability,
+          price,
+          sale_price,
+          item_group_id,
+          errors,
+        ]
+      properties:
+        id: { type: string, description: Channel item id (the sku) }
+        product_id: { type: string, format: uuid }
+        variant_id: { type: string, format: uuid }
+        sku: { type: string }
+        title: { type: string }
+        description: { type: [string, 'null'] }
+        link: { type: string }
+        image_link: { type: [string, 'null'] }
+        gtin: { type: [string, 'null'] }
+        brand: { type: [string, 'null'] }
+        availability: { type: string, enum: [in_stock, out_of_stock, preorder, backorder] }
+        price: { $ref: '#/components/schemas/Money' }
+        sale_price:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        item_group_id: { type: [string, 'null'], description: Product handle grouping variants }
+        errors: { type: array, items: { type: string } }
+    ReferralProgramInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        status: { type: string, enum: [draft, active, paused, ended] }
+        referrer_reward_promotion_id: { type: [string, 'null'], format: uuid }
+        referee_reward_promotion_id: { type: [string, 'null'], format: uuid }
+        rules:
+          type: object
+          additionalProperties: true
+          properties:
+            min_order_minor: { type: integer }
+            reward_after: { type: string, enum: [placed, paid, delivered] }
+            max_rewards_per_referrer: { type: [integer, 'null'] }
+    ReferralProgram:
+      allOf:
+        - $ref: '#/components/schemas/ReferralProgramInput'
+        - type: object
+          required:
+            [
+              id,
+              store_id,
+              status,
+              referrer_reward_promotion_id,
+              referee_reward_promotion_id,
+              rules,
+              created_at,
+              updated_at,
+            ]
+          properties:
+            id: { type: string, format: uuid }
+            store_id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    Referral:
+      type: object
+      required:
+        [
+          id,
+          store_id,
+          program_id,
+          referrer_customer_id,
+          code,
+          referee_customer_id,
+          order_id,
+          status,
+          clicked_at,
+          converted_at,
+          rewarded_at,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        store_id: { type: string, format: uuid }
+        program_id: { type: string, format: uuid }
+        referrer_customer_id: { type: string, format: uuid }
+        code:
+          {
+            type: string,
+            description: 'Shared by the referrer as /r/<code>; events carry only sha256(code)',
+          }
+        referee_customer_id: { type: [string, 'null'], format: uuid }
+        order_id: { type: [string, 'null'], format: uuid }
+        status: { type: string, enum: [created, clicked, converted, rewarded] }
+        clicked_at: { type: [string, 'null'], format: date-time }
+        converted_at: { type: [string, 'null'], format: date-time }
+        rewarded_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Review:
+      type: object
+      required:
+        [
+          id,
+          store_id,
+          product_id,
+          order_line_item_id,
+          customer_id,
+          rating,
+          title,
+          body,
+          status,
+          moderated_by,
+          moderated_at,
+          moderation_reason,
+          published_at,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        store_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        order_line_item_id: { type: [string, 'null'], format: uuid }
+        customer_id: { type: [string, 'null'], format: uuid }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        title: { type: [string, 'null'] }
+        body: { type: [string, 'null'] }
+        status: { type: string, enum: [pending, published, rejected] }
+        moderated_by: { type: [string, 'null'], format: uuid }
+        moderated_at: { type: [string, 'null'], format: date-time }
+        moderation_reason: { type: [string, 'null'] }
+        published_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    AttributionReport:
+      type: object
+      description: Aggregated from `attribution` rows joined to placed orders (cancelled orders excluded). Revenue = order total in the store's default currency.
+      required: [from, to, touch, currency, totals, items]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        touch: { type: string, enum: [first, last] }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        totals:
+          type: object
+          required: [orders_count, revenue]
+          properties:
+            orders_count: { type: integer, minimum: 0 }
+            revenue: { $ref: '#/components/schemas/Money' }
+        items:
+          type: array
+          items:
+            type: object
+            required: [utm_source, utm_medium, utm_campaign, campaign_id, orders_count, revenue]
+            properties:
+              utm_source: { type: [string, 'null'] }
+              utm_medium: { type: [string, 'null'] }
+              utm_campaign: { type: [string, 'null'] }
+              campaign_id: { type: [string, 'null'], format: uuid }
+              orders_count: { type: integer, minimum: 0 }
+              revenue: { $ref: '#/components/schemas/Money' }
+    PromotionReport:
+      type: object
+      required: [from, to, currency, items]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        items:
+          type: array
+          items:
+            type: object
+            required: [promotion_id, code, uses, discount_given, revenue]
+            properties:
+              promotion_id: { type: string, format: uuid }
+              code: { type: [string, 'null'], description: null for automatic promotions }
+              uses: { type: integer, minimum: 0 }
+              discount_given: { $ref: '#/components/schemas/Money' }
+              revenue: { $ref: '#/components/schemas/Money' }
+    MarketingDashboard:
+      type: object
+      description: Organization scope; one row per store, each in its own currency (no FX in v0.3)
+      required: [from, to, items]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            required: [store_id, store_code, currency, orders_count, revenue, top_campaign_id]
+            properties:
+              store_id: { type: string, format: uuid }
+              store_code: { type: string }
+              currency: { type: string, pattern: '^[A-Z]{3}$' }
+              orders_count: { type: integer, minimum: 0 }
+              revenue: { $ref: '#/components/schemas/Money' }
+              top_campaign_id:
+                {
+                  type: [string, 'null'],
+                  format: uuid,
+                  description: Campaign with the most last-touch revenue in the window,
+                }
+
   examples:
     StoreBrandA:
       value:
@@ -2778,3 +4217,144 @@ components:
         returns: []
         cancel_reason: null
         metadata: {}
+    CampaignAutumn:
+      value:
+        id: 70000000-0000-4000-8000-000000000701
+        store_id: 00000000-0000-4000-8000-000000000031
+        name: Autumn launch
+        type: paid_social
+        status: draft
+        starts_at: '2026-09-15T00:00:00Z'
+        ends_at: '2026-10-15T00:00:00Z'
+        budget: { amount_minor: 250000, currency: EUR }
+        utm_source: meta
+        utm_medium: paid_social
+        utm_campaign: autumn-2026
+        promotion_id: 50000000-0000-4000-8000-000000000101
+        segment_id: null
+        landing_path: /collections/autumn
+        external_ref: '120210000000000001'
+        launched_at: null
+        ended_at: null
+        metadata: {}
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-08T00:00:00Z'
+    CampaignAutumnActive:
+      value:
+        id: 70000000-0000-4000-8000-000000000701
+        store_id: 00000000-0000-4000-8000-000000000031
+        name: Autumn launch
+        type: paid_social
+        status: active
+        starts_at: '2026-09-15T00:00:00Z'
+        ends_at: '2026-10-15T00:00:00Z'
+        budget: { amount_minor: 250000, currency: EUR }
+        utm_source: meta
+        utm_medium: paid_social
+        utm_campaign: autumn-2026
+        promotion_id: 50000000-0000-4000-8000-000000000101
+        segment_id: null
+        landing_path: /collections/autumn
+        external_ref: '120210000000000001'
+        launched_at: '2026-09-15T00:00:00Z'
+        ended_at: null
+        metadata: {}
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-15T00:00:00Z'
+    SegmentVip:
+      value:
+        id: 70000000-0000-4000-8000-000000000721
+        store_id: 00000000-0000-4000-8000-000000000031
+        name: VIP
+        description: Spent 500+ in the last year and opted in to email
+        rules:
+          total_spent_minor: { gte: 50000 }
+          last_order_at: { after: '2025-09-01T00:00:00Z' }
+          consent: [email]
+        template_id: 70000000-0000-4000-8000-000000000711
+        materialised_count: 128
+        last_materialised_at: '2026-09-08T03:00:00Z'
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-08T03:00:00Z'
+    SegmentTemplateVip:
+      value:
+        id: 70000000-0000-4000-8000-000000000711
+        store_id: null
+        name: VIP
+        description: Spent 500+ in the last year and opted in to email
+        rules:
+          total_spent_minor: { gte: 50000 }
+          last_order_at: { after: '2025-09-01T00:00:00Z' }
+          consent: [email]
+        template_id: null
+        materialised_count: 0
+        last_materialised_at: null
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-08T00:00:00Z'
+    FeedGoogleDraft:
+      value:
+        id: 70000000-0000-4000-8000-000000000731
+        store_id: 00000000-0000-4000-8000-000000000031
+        name: Google Shopping NL
+        channel: google_merchant
+        locale: en-GB
+        currency: EUR
+        filters: { in_stock_only: true }
+        mapping: { brand: Brand A }
+        url: null
+        status: draft
+        last_published_at: null
+        item_count: 0
+        errors: []
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-08T00:00:00Z'
+    FeedGoogle:
+      value:
+        id: 70000000-0000-4000-8000-000000000731
+        store_id: 00000000-0000-4000-8000-000000000031
+        name: Google Shopping NL
+        channel: google_merchant
+        locale: en-GB
+        currency: EUR
+        filters: { in_stock_only: true }
+        mapping: { brand: Brand A }
+        url: https://feeds.brand-a.example/google_merchant/en-GB.xml
+        status: active
+        last_published_at: '2026-09-08T06:00:00Z'
+        item_count: 120
+        errors:
+          - {
+              code: missing_gtin,
+              message: 'GTIN missing; Google requires it for branded goods',
+              product_id: 30000000-0000-4000-8000-000000000201,
+            }
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-08T06:00:00Z'
+    ReferralProgramFriends:
+      value:
+        id: 70000000-0000-4000-8000-000000000741
+        store_id: 00000000-0000-4000-8000-000000000031
+        name: Refer a friend
+        status: active
+        referrer_reward_promotion_id: 50000000-0000-4000-8000-000000000101
+        referee_reward_promotion_id: 50000000-0000-4000-8000-000000000101
+        rules: { min_order_minor: 2500, reward_after: delivered, max_rewards_per_referrer: 10 }
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-08T00:00:00Z'
+    ReviewPending:
+      value:
+        id: 70000000-0000-4000-8000-000000000761
+        store_id: 00000000-0000-4000-8000-000000000031
+        product_id: 30000000-0000-4000-8000-000000000201
+        order_line_item_id: 30000000-0000-4000-8000-000000000901
+        customer_id: 30000000-0000-4000-8000-000000000a01
+        rating: 5
+        title: Great tee
+        body: Fits true to size, still soft after ten washes.
+        status: pending
+        moderated_by: null
+        moderated_at: null
+        moderation_reason: null
+        published_at: null
+        created_at: '2026-09-08T18:00:00Z'
+        updated_at: '2026-09-08T18:00:00Z'

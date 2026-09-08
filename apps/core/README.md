@@ -20,8 +20,20 @@ Configuration comes from the repo-root `.env` (created from `.env.example` by `p
 server, `DATABASE_URL` (owner) only to create the Medusa role and schema, `REDIS_URL`, optional `PORT` (9000),
 `JWT_SECRET`, `COOKIE_SECRET`, `STORE_CORS`, `ADMIN_CORS`, `AUTH_CORS`, `MEDUSA_DB_SCHEMA` (`medusa`),
 `MEDUSA_DB_OWNER_PASSWORD` / `DATABASE_URL_MEDUSA_OWNER` (dev default `medusa_owner`; rotated from Vault elsewhere),
-`CORE_DEV_TOKENS=1` to accept `Authorization: Bearer dev:<keycloak_subject>` on the Admin API (local only; add it to
-your `.env` — the Phase 1 stand-in for Keycloak tokens until `@platform/auth-sdk` verifies real JWTs).
+`KEYCLOAK_URL` / `KEYCLOAK_REALM_STAFF` and `OPENFGA_API_URL` / `OPENFGA_STORE_ID` / `OPENFGA_MODEL_ID` for the
+Admin API's real staff auth (auth-sdk defaults: `http://localhost:8180`, `staff`, `http://localhost:8081`;
+`OPENFGA_STORE_ID` is required in production and warns locally when missing), optional `CORE_DEV_TOKENS=1` to
+also accept `Authorization: Bearer dev:<keycloak_subject>` (local only, never in production), and optional
+`CORE_STORE_API_FALLBACK_URL` (non-production only) to proxy the Store API paths the core does not implement yet to
+the Prism mock.
+
+## What is real (Integration 1)
+
+| Surface          | Real in `@platform/core`                                                                                                                                                                                       | Proxied / elsewhere                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Store API        | `GET /store`, `GET /store/categories`, `GET /store/products`, `GET /store/products/{handle}` — tenant from `X-Publishable-Key`, prices in the store currency                                                   | every other `/store/*` path → `CORE_STORE_API_FALLBACK_URL` verbatim (Prism mock, `:4010`); without the variable → Medusa |
+| Admin API auth   | real Keycloak staff tokens (JWKS, `aud: core-api`) → `staff_user` → OpenFGA scope; `x-permission` decided by OpenFGA; dev tokens only with `CORE_DEV_TOKENS=1`                                                 | —                                                                                                                         |
+| Admin API routes | `/admin/me`, stores, domains, sales channels, api keys, warehouses, legal entities, categories, products, variants (window 1) + `/admin/users*`, `/admin/audit-log`, `/admin/finance/ping` (hq-rbac, window 2) | every other `/admin/*` path → Medusa (clients use the Prism mock `:4011`)                                                 |
 
 ## One database, two schemas
 
@@ -55,24 +67,40 @@ ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
 5. Store API routes window 1 owns (`src/http/store-routes.ts`, `mountStoreRoutes`): `GET /store`,
    `GET /store/categories`, `GET /store/products`, `GET /store/products/{handle}` — exactly the contract shapes,
    prices in the store default currency, query params validated (400 `validation_error`), 404 for a handle outside
-   the store. They answer here, ahead of Medusa's routes of the same paths and of its publishable-key gate; every
-   other Store API path falls through to Medusa (clients use the Prism mock for those in Phase 1).
-6. `/admin` → `staffAuthMiddleware`: bearer token → `staff_user` → `role_assignment` → `req.principal`
-   (`organizationRelations`, `stores[].relations`). Phase 1 verifier accepts `dev:<keycloak_subject>` **only when
-   `CORE_DEV_TOKENS=1` is set, and never in production** (explicit opt-in; `NODE_ENV=production` refuses first); `@platform/auth-sdk` replaces it behind
-   `StaffTokenVerifier`. Handlers take a client from
+   the store. They answer here, ahead of Medusa's routes of the same paths and of its publishable-key gate.
+6. Store API fallback (`src/http/store-fallback.ts`, only with `CORE_STORE_API_FALLBACK_URL`, refused in
+   production): every other `/store/*` request is proxied verbatim — method, path + query, headers
+   (`X-Publishable-Key`, `Authorization`, `Idempotency-Key`, `Content-Type`, …), body — to that base URL with
+   Node's `fetch`, and the upstream status, headers and body come back unchanged; one log line per request (method
+   - path only). Unreachable upstream → 502 `internal`. Without the variable those paths fall through to Medusa.
+7. `/admin` → `staffAuthMiddleware(verifier)`: bearer token → `req.principal` (`user`, `subject`,
+   `organizationRelations`, `stores[]`, and for real tokens `scope: StaffScope` + the OpenFGA client). The default
+   verifier (`buildStaffAuth()`): `composeStaffTokenVerifier(new KeycloakStaffTokenVerifier())` — a real
+   staff-realm JWT goes through hq-rbac's `createStaffScopeMiddleware` (`@platform/auth-sdk`: JWKS of the staff
+   realm, issuer + `aud: core-api`, `sub → staff_user`, OpenFGA `ListObjects(store, viewer)` +
+   `ListRelations(organization:hq)`, cached ≤ 30 s and invalidated on role changes); unknown/disabled user or bad
+   token → 401, OpenFGA unreachable → 503 (fail closed). `dev:<keycloak_subject>` reaches the Phase 1
+   `DevTokenVerifier` **only when `CORE_DEV_TOKENS=1` is set and never in production**; any other bearer — a
+   `dev:` token without the opt-in included — goes to Keycloak. Handlers take a client from
    `storeClientFor(principal, storeId)` (403 outside scope), `organizationClientFor` or `visibleStoresClientFor`.
-7. Admin API routes window 1 owns (`src/http/admin-routes.ts`, `adminRouter`): `/admin/me`, `/admin/stores`
+8. hq-rbac adapter (`src/http/hq-rbac-adapter.ts`, window 2's module): `/admin/users`,
+   `/admin/users/{userId}/roles`, `/admin/audit-log`, `/admin/finance/ping` — `createHqRbac(...).handle()` gets
+   the principal and scope resolved in step 7 (no second token verification) and re-checks its permissions
+   against OpenFGA itself; `null` means "not mine" and the request continues.
+9. Admin API routes window 1 owns (`src/http/admin-routes.ts`, `adminRouter`): `/admin/me`, `/admin/stores`
    (list/create/get/patch), domains, sales channels, api keys, `/admin/warehouses`, `/admin/legal-entities`,
    categories, products (list/create/get/patch/archive/publish), variants. Each handler: JSON body validated against
    the operation's `requestBody` schema **read from `admin-api.yaml` at runtime** (400 `validation_error`, per-field
-   `details`) → `requirePermission(relation, objectFactory)` middleware (auth-sdk signature) with the operation's
-   `x-permission` (403 `forbidden`) → scoped client → module service → contract shape. Every other `/admin` path falls through to
-   Medusa (Prism mock for clients in Phase 1).
-8. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
-9. Medusa loaders.
+   `details`) → `requirePermission(relation, objectFactory)` middleware with the operation's `x-permission` —
+   OpenFGA through auth-sdk's `can()` for real tokens (403 `forbidden` with `details: { relation, object }`, 503
+   when OpenFGA is down), the `role_assignment` stub for dev tokens → scoped client → module service → contract
+   shape. Every other `/admin` path falls through to Medusa (Prism mock for clients).
+10. `coreErrorHandler` — renders `AppError` as `{ code, message, details }`; handlers wrap in `handle()`.
+11. Medusa loaders.
 
-`mountCoreMiddleware(app)` exports exactly this chain so tests run it on a bare Express app (`test/tenant-http.test.ts`).
+`mountCoreMiddleware(app, verifier?, { fga?, onRoleChange?, storeApiFallbackUrl? })` exports exactly this chain
+so tests run it on a bare Express app (`test/tenant-http.test.ts` with dev tokens, `test/auth-live.test.ts` with
+real Keycloak tokens and a throw-away OpenFGA store).
 
 `pnpm build` (`medusa build`) compiles to `.medusa/server` and works on a clean checkout (`ts-node` dev dependency,
 #60; `medusa-config.ts` tolerates missing connection settings at build time); `pnpm start` runs the compiled entry.
@@ -85,8 +113,11 @@ src/
   lib/db.ts                 the ONLY place that opens a database pool; exports tenantClient / organizationClient
   http/                     cross-cutting Express middleware (header alias, tenant context, errors)
   http/store-routes.ts      Store API handlers (contract routes), mounted ahead of Medusa by mountCoreMiddleware
+  http/store-fallback.ts    non-production proxy of unimplemented /store/* paths to CORE_STORE_API_FALLBACK_URL
+  http/staff-auth.ts        KeycloakStaffTokenVerifier (auth-sdk + hq-rbac scope), DevTokenVerifier (opt-in), composition
+  http/hq-rbac-adapter.ts   Express adapter of window 2's hq-rbac routes (principal + scope handed over, no re-verification)
   http/admin-routes.ts      Admin API router (contract routes): validate → requirePermission → client → service
-  http/permissions.ts       requirePermission(relation, objectFactory) middleware + can() — Phase 1 stub over role_assignment
+  http/permissions.ts       requirePermission(relation, objectFactory) middleware + can() — OpenFGA for real tokens, role_assignment stub for dev tokens
   http/openapi.ts           runtime loader of the frozen OpenAPI docs: request-body validation, x-permission lookup
   modules/<name>/
     index.ts                public API of the module — the only file other code may import

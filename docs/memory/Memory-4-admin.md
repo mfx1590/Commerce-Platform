@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-08 · Contracts: **Admin API 0.2.1** (customer reads need `support`) · Last commit: `pending` (this memory commit; the work is `c41e731` and earlier) · Status: 1.1–1.6 merged; **1.7 + 1.8 + the 0.2.1 gating in PR #94, main merged in** — Phase 1 Next list complete
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 not started (Phase 1 complete)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -12,8 +12,8 @@ Never touches:
 - apps/core internals
 - packages/*
 
-## Mission — Phase 1 (Isolated modules)
-Single admin app with two permission-driven views. Shell: layout, nav rendering only allowed sections (HQ: Stores, Warehouse, Finance, BI, Roles, Onboarding; Store: Catalog, Orders, Customers, Promotions, Content, Settings), store switcher limited to allowedStores(user), auth hook, data-table and form primitives, working registry + catalog screens against the mock Admin API. Every screen handles 403 gracefully.
+## Mission — Phase 2 (Commerce complete, brand 1 live)
+Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
 - **Admin API 0.2.1 — Customers gated on `support`** · commit `c41e731` · PR #94
@@ -197,16 +197,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **Nothing is half-done.** Working tree clean; lint, format:check, typecheck, 304 unit, 6 contract
-  and 8 e2e all green.
-- **Exact next step:** wait for the manager's review of **PR #94** (1.7 + 1.8 + the 0.2.1 Customers
-  gating). The PR opens by explaining why it is one PR rather than two — both tasks were already
-  committed before the instruction arrived, and splitting would have shipped a Playwright spec I now
-  know was broken. If the manager wants it split, redo as two.
-- Merged `origin/main` into the branch (window 2 and 5 work, plus #85 and #93). Everything still
-  green afterwards: lint, format:check, typecheck, 304 unit, 6 contract, and the e2e journey
-  re-run at 8/8 on `PORT=3200`.
-- **Phase 1's Next list is complete for this window.**
+- (nothing — Phase 2 starts with the first item under Next)
 
 ### Open requests, none blocking
 - ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
@@ -217,15 +208,13 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - ~~**#93**~~ — **applied on main**: `**/test-results/` and `**/playwright-report/` are in the root
   `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
 
-## Next — Phase 1
-- [x] 1.1 App skeleton, auth hook (Keycloak OIDC), session — #24, merged (PR #42)
-- [x] 1.2 Permission-driven navigation + store switcher — #25, merged (PR #42)
-- [x] 1.3 Data-table primitive (TanStack Table): sort, filter, paginate, bulk — #26, merged (PR #42)
-- [x] 1.4 Form primitive (RHF + Zod) with server-error mapping — #27, merged (PR #42)
-- [x] 1.5 Stores screen (HQ) and Catalog screens (Store view) against mock — #28, merged (PR #67)
-- [x] 1.6 403 / empty / error states pattern — #29, PR #78 (do not self-merge)
-- [x] 1.7 Tests: nav renders per role fixture — #30, PR #94 (e2e journey passes 8/8)
-- [x] 1.8 Reserve the Marketing section — #63, PR #94
+## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+- [ ] **#113 · 2.1** Catalog editor: product, variants, options, media, publish
+- [ ] **#114 · 2.2** Orders: list, detail, actions
+- [ ] **#115 · 2.3** Customers and consent (support-gated)
+- [ ] **#116 · 2.4** Promotions and price lists screens
+- [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
+- [ ] **#118 · 2.6** Real-API hardening and e2e against the core
 
 ## Decisions made (with reasons)
 - **Customers is gated on `support`, not `viewer`** (Admin API 0.2.1). Customer records are personal
@@ -451,6 +440,7 @@ Single admin app with two permission-driven views. Shell: layout, nav rendering 
 - This window introduced `next`/`react` to the lockfile (allowed on every branch by the manager,
   Memory-main 2026-09-04). Window 3 will hit the same peer-dependency resolutions.
 - `tsconfig.base.json` is `module: NodeNext` + `verbatimModuleSyntax`; a Next app cannot extend it unchanged.
+- Integration 1 (2026-09-08): real Keycloak staff tokens are the default on the core's Admin API; `CORE_DEV_TOKENS=1` keeps `Bearer dev:<subject>` working locally. The storefront can run against the core with `STORE_API_URL=http://localhost:9000` (+ `CORE_STORE_API_FALLBACK_URL=http://localhost:4010` on the core so unimplemented Store routes still answer from Prism). The admin uses `ADMIN_API_URL`.
 
 ## How to run & test this package
 ```bash
@@ -485,14 +475,6 @@ panel for a store-only principal; `/{brand-a}/catalog` renders with the full sto
 and brand-b; a cookie naming brand-c is dropped in favour of brand-a; no server errors.
 
 ## Later phases (do not start until Memory-main says so)
-### Phase 2 — Commerce complete, brand 1 live
-Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings.
-- [ ] Catalog editor
-- [ ] Order detail + actions
-- [ ] Customers
-- [ ] Promotions
-- [ ] Settings
-
 ### Phase 3 — Multi-store & HQ
 HQ view: all-store dashboard, role management UI, finance section gated, onboarding wizard.
 - [ ] HQ dashboard

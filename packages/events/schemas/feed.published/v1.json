@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/feed.published/v1.json",
+  "title": "feed.published v1",
+  "description": "A product feed was (re)generated and is available at `url` for the channel to fetch. Aggregate: product_feed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["feed_id", "channel", "locale", "currency", "item_count", "url", "published_at"],
+  "properties": {
+    "feed_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "channel": {
+      "type": "string",
+      "enum": ["google_merchant", "meta", "tiktok", "pinterest"]
+    },
+    "locale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "item_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "url": {
+      "type": "string",
+      "format": "uri"
+    },
+    "published_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

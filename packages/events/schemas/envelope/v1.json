@@ -47,7 +47,14 @@
         "shipment.delivered",
         "return.requested",
         "return.received",
-        "stock.moved"
+        "stock.moved",
+        "campaign.launched",
+        "campaign.ended",
+        "feed.published",
+        "attribution.recorded",
+        "referral.converted",
+        "review.published",
+        "cart.abandoned"
       ]
     },
     "version": {
@@ -81,7 +88,13 @@
         "refund",
         "shipment",
         "return",
-        "stock_movement"
+        "stock_movement",
+        "campaign",
+        "feed",
+        "attribution",
+        "referral",
+        "review",
+        "cart"
       ]
     },
     "aggregate_id": {

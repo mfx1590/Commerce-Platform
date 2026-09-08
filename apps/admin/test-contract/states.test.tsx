@@ -26,8 +26,13 @@ const prism = resolve(
 );
 const spec = resolve(here, '../../../packages/contracts/openapi/admin-api.yaml');
 
-const PORT = 4211;
-const BASE = `http://127.0.0.1:${PORT}`;
+/**
+ * `vitest.contract.config.ts` forces `ADMIN_API_URL` to the URL this suite spawns Prism on, so a
+ * developer's `.env` pointing the app at the real core cannot drag these assertions off the spec.
+ * The fallback keeps the file runnable on its own.
+ */
+const BASE = process.env.ADMIN_API_URL ?? 'http://127.0.0.1:4211';
+const PORT = Number(new URL(BASE).port);
 const STORE_ID = '00000000-0000-4000-8000-000000000031';
 
 let child: ChildProcess | undefined;
@@ -37,7 +42,7 @@ beforeAll(
     new Promise<void>((ready, fail) => {
       child = spawn(
         process.execPath,
-        [prism, 'mock', spec, '--port', String(PORT), '--host', '127.0.0.1', '--errors'],
+        [prism, 'mock', spec, '--port', String(PORT), '--host', new URL(BASE).hostname, '--errors'],
         { stdio: ['ignore', 'pipe', 'pipe'] },
       );
       let log = '';

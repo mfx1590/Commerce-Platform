@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/campaign.ended/v1.json",
+  "title": "campaign.ended v1",
+  "description": "A marketing campaign ended (status -> ended), by schedule or by a staff action. Same shape as campaign.launched so consumers close what they opened.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["campaign_id", "name", "type", "utm_source", "utm_medium", "utm_campaign"],
+  "properties": {
+    "campaign_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "enum": ["email", "sms", "paid_social", "paid_search", "affiliate", "referral", "landing"]
+    },
+    "utm_source": {
+      "type": ["string", "null"]
+    },
+    "utm_medium": {
+      "type": ["string", "null"]
+    },
+    "utm_campaign": {
+      "type": ["string", "null"]
+    },
+    "promotion_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "segment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount_minor", "currency"],
+      "properties": {
+        "amount_minor": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+        },
+        "currency": {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+        }
+      }
+    },
+    "starts_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    },
+    "ends_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}
