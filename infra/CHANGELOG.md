@@ -188,6 +188,56 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   mock values files pin `sha256:3f6d29e…`, and the chart supports `image.digest` (validated to start
   `sha256:`) alongside `image.tag` for our own git-sha-tagged images.
 
+### Added (task 2.4b — deploy-staging and branch protection, issue #34)
+
+- `.github/workflows/deploy-staging.yml` — builds the three app images from the merged commit with the same
+  bake definition CI uses, pushes them to ECR under the git sha, then points each staging Application at that
+  tag and syncs it. `argocd app wait --health` means the job is green only once the pods are up, which for core
+  includes its migration hook having succeeded. The image tag is the only thing it changes.
+  Until the five settings exist it is a **no-op that names what is missing and exits 0** — a deploy workflow
+  that goes red on every push to main teaches people to ignore a red main.
+- Branch-protection documentation: the nine required checks by job name, why every job always runs (a job
+  skipped by a job-level `if:` reports a conclusion branch protection treats differently from success), and why
+  the end-to-end job is required while the preview placeholder is not.
+
+### Fixed (follow-ups from the #95 review)
+
+- **Migrations were a manual runbook step using the owner credential.** They are now an ArgoCD PreSync hook
+  Job (`migrations.enabled`, core only) that runs `@platform/db`'s CLI out of _the same image as the app_, so
+  the migrations that ship with a release are the ones that run for it. The owner role comes from its own
+  ExternalSecret — the application still connects as `platform_app`, because RLS depends on it. A failed
+  migration fails the sync instead of letting code roll out against a schema that has not caught up.
+- **`checksum/env` claimed to roll pods on a secret rotation and could not.** It hashed only `.Values.env`, and
+  Helm never sees a secret value — External Secrets writes it at run time. The annotation is now
+  `checksum/config` and is honest about covering configuration in git; the actual rotation path is
+  `reloader.stakater.com/auto`, with Reloader added to the bootstrap runbook and
+  `kubectl rollout restart` documented as the manual equivalent.
+
+### Fixed
+
+- The classifier treated only `ci.yml` as a workflow. Prettier formats every file under
+  `.github/workflows/`, so a change to any other one — `deploy-staging.yml`, added in this task —
+  classified as _nothing_, meaning `format:check` never saw it and an unformatted workflow would have landed
+  green and then broken `format:check` on somebody else's unrelated PR. Found by watching this PR's own
+  `what changed` output. Any workflow file now counts as `code`.
+
+### Fixed (review of #98)
+
+- **The image-tag bump was imperative and the app-of-apps would have undone it.** `argocd app set --helm-set`
+  writes `spec.source.helm.parameters` onto the live Application, and the app-of-apps manages those CRs with
+  automated sync and `selfHeal` — ArgoCD reconciles them back to git and strips the parameters. Staging would
+  have sat permanently OutOfSync against the `0000…` placeholder, and the next Sync would have rolled it onto
+  an unpullable image. The workflow now commits `image.repository` **and** `image.tag` into the staging values
+  file and then syncs; git stays the source of truth.
+- `infra/ci/set-image.mjs` performs that edit by replacing two lines instead of re-emitting the document.
+  `yq -i` drops blank lines, and since the deploy commit carries `[skip ci]` nothing would have noticed until
+  `format:check` failed on an unrelated PR. It refuses a tag that is not a 40-character git sha, verifies the
+  two fields afterwards, and refuses to write if any other line changed. The workflow then renders the chart
+  with `infra/helm/check.sh` before the commit reaches main.
+- Documented that branch protection cannot be enabled on this repository yet (private, free plan — the API
+  returns 403), and that `deploy-staging.yml` will need a bypass allowance for `github-actions[bot]` when it
+  can be.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

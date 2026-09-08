@@ -66,6 +66,9 @@ which is how this was found, on a placeholder tag of all zeroes.
 {{- if and .Values.service.probe (not (has .Values.service.probe (list "httpGet" "tcpSocket"))) -}}
 {{- fail "service.probe must be httpGet or tcpSocket" -}}
 {{- end -}}
+{{- if and .Values.migrations.enabled (not .Values.migrations.ownerSecret.remoteKey) -}}
+{{- fail "migrations.enabled is true but migrations.ownerSecret.remoteKey is empty — the Job would start with no database credential and fail the sync at the worst possible moment" -}}
+{{- end -}}
 {{- if and .Values.ingress.enabled (not .Values.ingress.host) -}}
 {{- fail "ingress.host is required when ingress.enabled is true" -}}
 {{- end -}}
@@ -100,4 +103,8 @@ httpGet:
   path: {{ .Values.service.healthPath }}
   port: http
 {{- end -}}
+{{- end -}}
+
+{{- define "platform-app.migrationSecretName" -}}
+{{- printf "%s-migrate" (include "platform-app.name" .) -}}
 {{- end -}}

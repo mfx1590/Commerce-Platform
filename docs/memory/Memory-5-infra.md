@@ -2,8 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1 (#31), 2.1b (#59), 2.2 (#32) and 2.4a (#34, first half) merged · 2.3 (#33) in PR #95, review fixes pushed
-· next up 2.4b, then 2.5 (#35) and 2.6 (#36)
+Status: 2.1, 2.1b, 2.2, 2.3, 2.4a merged · 2.4b in PR #98 (review fix pushed) · next 2.5 (#35, approved), 2.6 (#36)
 
 ## Identity (does not change)
 
@@ -85,10 +84,17 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Verified locally: `helm lint`, `helm template` for all ten app/environment combinations, `kubeconform -strict`
   with the CRD catalogue over everything rendered and over `infra/argocd`.
 
+- **2.3 — Helm charts + ArgoCD (issue #33)** — merged as PR #95 (commits `8b7b78b`, `c92e757`). The review
+  caught three real defects, all of which would have rendered, validated and then not worked: mock probes that
+  answer 401 (Kubernetes counts only 200-399 as success), no `env:` anywhere so apps would fall back to
+  localhost, and `stoplight/prism:5` as a moving tag.
+- **2.4b — deploy-staging + branch protection, and the two #95 follow-ups** — this PR.
+  `deploy-staging.yml` (no-op until five settings exist), the nine required checks documented, migrations as an
+  ArgoCD PreSync hook running the app's own image, and the rotation path fixed with Reloader.
+
 ## In progress
 
-- Nothing being written. 2.3 is in its PR, blocked on REQUEST #92 (`.prettierignore` must skip
-  `infra/helm/*/templates/`, or `pnpm format:check` fails on Go templating). Then 2.4b, 2.5, 2.6.
+- Nothing being written. 2.4b is in its PR. Then 2.5 (#35, observability) and 2.6 (#36, Vault + runbook).
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
@@ -210,6 +216,31 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **A values file with no `env:` is not "no configuration", it is localhost.** Every app falls back to its
   local defaults, which inside a pod means itself. The non-secret half of `.env.example` has to be filled in
   per app per environment; only the secret half comes from the ExternalSecret.
+
+- **Migrations belong to the deploy, not to a runbook.** A runbook step gets skipped exactly once — on the
+  deploy that needed it. As an ArgoCD PreSync hook it runs every sync, from the same image as the app, and a
+  failure stops the rollout rather than letting code meet a schema that has not caught up.
+- **Helm cannot hash a secret it never sees.** `checksum/<x>` over values covers configuration in git and
+  nothing else; External Secrets writes the actual value at run time. Rotation needs a watcher (Reloader) or a
+  manual `kubectl rollout restart`. The previous comment claimed otherwise, which is worse than no comment.
+- **A deploy workflow that fails when it is not configured teaches people to ignore a red main.** The staging
+  deploy is a no-op that names the five missing settings and exits 0.
+
+- **An app-of-apps with selfHeal makes `argocd app set` pointless.** It writes helm parameters onto the live
+  Application CR, which ArgoCD then reconciles back to git and strips. Anything that must survive a sync has to
+  be in git — for the deployed image that means committing `image.repository` and `image.tag`, not just the
+  tag: a correct tag on a placeholder repository is equally unpullable.
+- **Never write a CI-skip token in prose in a commit message.** GitHub matches `[skip ci]` anywhere in the
+  commit message, body included — so a commit that *explains* the marker skips its own pipeline. My fix for
+  #98 did exactly that: the push landed, no run was created, and `gh pr checks` said "no checks reported",
+  which reads like an outage rather than a self-inflicted skip. Refer to it as "the skip marker" in prose, or
+  break the token up.
+- **Machine edits to committed YAML must preserve formatting.** `yq -i` re-emits the document and drops blank
+  lines; a `[skip ci]` deploy commit then breaks `format:check` on somebody else's PR. Replace the lines
+  (`infra/ci/set-image.mjs`) and assert nothing else moved.
+- **Branch protection is unavailable on this repo** (private, free plan; the API returns 403). The nine
+  required checks are documented for when it can be enabled, and `deploy-staging.yml` will then need a bypass
+  allowance because it pushes to main.
 
 ## Blocked / waiting
 

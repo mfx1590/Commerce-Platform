@@ -1,0 +1,50 @@
+{{- if .Values.migrations.enabled }}
+{{- include "platform-app.validate" . -}}
+# Schema migrations, as an ArgoCD PreSync hook rather than a step in a runbook.
+#
+# A runbook step is a migration that someone has to remember, from a laptop, with the owner
+# credentials in their shell — and that gets skipped exactly once, on the deploy that needed it.
+# As a hook it runs before the new pods start, every sync, and a failure stops the sync instead of
+# rolling out code against a schema that has not caught up.
+#
+# It runs THE SAME IMAGE as the application. That is the point: the migrations that ship with a
+# release are the ones that run for it, because both come out of one `pnpm deploy --prod` — the
+# image carries @platform/db with its dist/cli.js and its .sql files.
+#
+# The owner credential is deliberately a different Secret from the application's. Migrations need
+# the role that owns the schema; the app must never have it (docs/ownership.md and the RLS design
+# both depend on the app being `platform_app`). Nothing else in this chart mounts it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "platform-app.name" . }}-migrate
+  labels: {{- include "platform-app.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: {{- include "platform-app.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "platform-app.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "platform-app.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          command: {{ toYaml .Values.migrations.command | nindent 12 }}
+          env:
+            # The owner role, and only here. `migrate` reads DATABASE_URL; the application reads
+            # DATABASE_URL_APP and never sees this Secret.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "platform-app.migrationSecretName" . }}
+                  key: {{ .Values.migrations.ownerSecret.key }}
+          resources: {{- toYaml .Values.migrations.resources | nindent 12 }}
+{{- end }}

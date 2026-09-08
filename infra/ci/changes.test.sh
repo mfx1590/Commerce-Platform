@@ -55,6 +55,8 @@ check 'terraform'           'infra/terraform/modules/network/main.tf'           
 check 'the bootstrap job'   'infra/kubernetes/bootstrap-db/job.yaml'            'code=false images=false terraform=true e2e=false helm=false'
 check 'a root script'       'scripts/dev.mjs'                                   'code=true images=false terraform=false e2e=true helm=false'
 check 'the workflow itself' '.github/workflows/ci.yml'                          'code=true images=true terraform=true e2e=true helm=true'
+# Any other workflow is still code: prettier formats them, so format:check has to run.
+check 'another workflow'    '.github/workflows/deploy-staging.yml'              'code=true images=false terraform=false e2e=true helm=false'
 # infra/ci/*.sh are the pipeline itself: a change to them must be exercised by the jobs that use them.
 check 'the classifier'      'infra/ci/changes.sh'                               "$CI_SCRIPT_CHG"
 check 'the manifest guard'  'infra/ci/check-image-manifests.sh'                 "$CI_SCRIPT_CHG"
