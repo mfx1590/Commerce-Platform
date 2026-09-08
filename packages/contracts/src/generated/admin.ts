@@ -650,6 +650,428 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/marketing/campaigns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listCampaigns"];
+        put?: never;
+        /** Create a campaign in status draft */
+        post: operations["createCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/campaigns/{campaignId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getCampaign"];
+        put?: never;
+        post?: never;
+        /** Delete a draft campaign (409 once launched; end it instead) */
+        delete: operations["deleteCampaign"];
+        options?: never;
+        head?: never;
+        patch: operations["updateCampaign"];
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/campaigns/{campaignId}/launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** draft/scheduled/paused → active (emits campaign.launched) */
+        post: operations["launchCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/campaigns/{campaignId}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** active/paused → ended (emits campaign.ended) */
+        post: operations["endCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/segments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listSegments"];
+        put?: never;
+        /** Create a segment (optionally from an organization template via template_id) */
+        post: operations["createSegment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/segments/{segmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getSegment"];
+        put?: never;
+        post?: never;
+        /** Delete a segment and its members (409 while a campaign references it) */
+        delete: operations["deleteSegment"];
+        options?: never;
+        head?: never;
+        patch: operations["updateSegment"];
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/segments/{segmentId}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Count the customers the saved rules (or the rules in the body) match right now; writes nothing */
+        post: operations["previewSegment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/segments/{segmentId}/materialize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh segment_member from the rules (async job; materialised_count updates when it finishes) */
+        post: operations["materializeSegment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/feeds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listFeeds"];
+        put?: never;
+        post: operations["createFeed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/feeds/{feedId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getFeed"];
+        put?: never;
+        post?: never;
+        /** Delete the feed definition; the published file stops being served */
+        delete: operations["deleteFeed"];
+        options?: never;
+        head?: never;
+        patch: operations["updateFeed"];
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/feeds/{feedId}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate the feed file and serve it at `url` (emits feed.published; status → active or error) */
+        post: operations["publishFeed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/feeds/{feedId}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        /** The rows the feed emits (computed from filters + mapping; last published or current) */
+        get: operations["listFeedItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/referral-programs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listReferralPrograms"];
+        put?: never;
+        post: operations["createReferralProgram"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/referral-programs/{programId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                programId: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getReferralProgram"];
+        put?: never;
+        post?: never;
+        /** Delete a program that has no referrals yet (409 otherwise; end it instead) */
+        delete: operations["deleteReferralProgram"];
+        options?: never;
+        head?: never;
+        patch: operations["updateReferralProgram"];
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/referrals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listReferrals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /** Moderation queue and history (status=pending by default in the UI, all when omitted) */
+        get: operations["listReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/reviews/{reviewId}/moderate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish or reject a review (publishing emits review.published) */
+        post: operations["moderateReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/reports/attribution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /** Orders and revenue by utm source/medium/campaign for one touch model; revenue in the store's default currency */
+        get: operations["getAttributionReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/marketing/reports/promotions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /** Per promotion code — uses, discount given and revenue of the orders that used it */
+        get: operations["getPromotionReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/marketing/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One row per store — orders, revenue in the store currency, top campaign — for HQ comparison */
+        get: operations["getMarketingDashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/marketing/segment-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Organization-level segments (store_id null) every brand can copy */
+        get: operations["listSegmentTemplates"];
+        put?: never;
+        post: operations["createSegmentTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/marketing/segment-templates/{templateId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getSegmentTemplate"];
+        put?: never;
+        post?: never;
+        /** Delete a template; store segments created from it keep their copied rules */
+        delete: operations["deleteSegmentTemplate"];
+        options?: never;
+        head?: never;
+        patch: operations["updateSegmentTemplate"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1271,6 +1693,306 @@ export interface components {
             request_id: string | null;
             /** Format: date-time */
             created_at: string;
+        };
+        CampaignInput: {
+            name: string;
+            /** @enum {string} */
+            type: "email" | "sms" | "paid_social" | "paid_search" | "affiliate" | "referral" | "landing";
+            /** Format: date-time */
+            starts_at?: string | null;
+            /** Format: date-time */
+            ends_at?: string | null;
+            budget?: components["schemas"]["Money"] | null;
+            utm_source?: string | null;
+            utm_medium?: string | null;
+            /** @description Matched against attribution.utm_campaign to link orders to this campaign */
+            utm_campaign?: string | null;
+            /** Format: uuid */
+            promotion_id?: string | null;
+            /** Format: uuid */
+            segment_id?: string | null;
+            landing_path?: string | null;
+            /** @description Klaviyo flow id, Meta campaign id, … */
+            external_ref?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        Campaign: components["schemas"]["CampaignInput"] & {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            store_id: string;
+            /** @enum {string} */
+            status: "draft" | "scheduled" | "active" | "paused" | "ended";
+            /** Format: date-time */
+            launched_at: string | null;
+            /** Format: date-time */
+            ended_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description Rule set evaluated against the store's customers when previewing or materialising. Keys are documented
+         *     loosely here; window 17 freezes the grammar in Phase 2.3. Unknown keys are kept, not rejected.
+         */
+        SegmentRules: {
+            /** @description { gte?, lte? } */
+            orders_count?: {
+                [key: string]: unknown;
+            };
+            /** @description { after?, before? } (RFC-3339) */
+            last_order_at?: {
+                [key: string]: unknown;
+            };
+            /** @description { gte?, lte? } in minor units */
+            total_spent_minor?: {
+                [key: string]: unknown;
+            };
+            tags?: string[];
+            /** @description opted-in channels */
+            consent?: ("email" | "sms")[];
+            country?: string[];
+            customer_group_ids?: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        SegmentInput: {
+            name: string;
+            description?: string | null;
+            rules?: components["schemas"]["SegmentRules"];
+            /**
+             * Format: uuid
+             * @description Store segments only — copy rules from this organization template at creation
+             */
+            template_id?: string | null;
+        };
+        Segment: components["schemas"]["SegmentInput"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description null = organization template
+             */
+            store_id: string | null;
+            materialised_count: number;
+            /** Format: date-time */
+            last_materialised_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ProductFeedInput: {
+            name: string;
+            /** @enum {string} */
+            channel: "google_merchant" | "meta" | "tiktok" | "pinterest";
+            locale: string;
+            /** @description Must be one of the store's currencies */
+            currency: string;
+            filters?: {
+                category_ids?: string[];
+                tags?: string[];
+                in_stock_only?: boolean;
+            } & {
+                [key: string]: unknown;
+            };
+            /** @description Channel attribute → product field overrides (e.g. { brand: Brand A }) */
+            mapping?: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            status?: "draft" | "active" | "paused";
+        };
+        ProductFeed: components["schemas"]["ProductFeedInput"] & {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            store_id: string;
+            /** @description Public feed URL once published */
+            url: string | null;
+            /** @enum {string} */
+            status: "draft" | "active" | "paused" | "error";
+            /** Format: date-time */
+            last_published_at: string | null;
+            item_count: number;
+            errors: {
+                code: string;
+                message: string;
+                /** Format: uuid */
+                product_id?: string | null;
+            }[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One row of a product feed — channel-neutral names; the file writer maps them per channel */
+        FeedItem: {
+            /** @description Channel item id (the sku) */
+            id: string;
+            /** Format: uuid */
+            product_id: string;
+            /** Format: uuid */
+            variant_id: string;
+            sku: string;
+            title: string;
+            description: string | null;
+            link: string;
+            image_link: string | null;
+            gtin: string | null;
+            brand: string | null;
+            /** @enum {string} */
+            availability: "in_stock" | "out_of_stock" | "preorder" | "backorder";
+            price: components["schemas"]["Money"];
+            sale_price: components["schemas"]["Money"] | null;
+            /** @description Product handle grouping variants */
+            item_group_id: string | null;
+            errors: string[];
+        };
+        ReferralProgramInput: {
+            name: string;
+            /** @enum {string} */
+            status?: "draft" | "active" | "paused" | "ended";
+            /** Format: uuid */
+            referrer_reward_promotion_id?: string | null;
+            /** Format: uuid */
+            referee_reward_promotion_id?: string | null;
+            rules?: {
+                min_order_minor?: number;
+                /** @enum {string} */
+                reward_after?: "placed" | "paid" | "delivered";
+                max_rewards_per_referrer?: number | null;
+            } & {
+                [key: string]: unknown;
+            };
+        };
+        ReferralProgram: components["schemas"]["ReferralProgramInput"] & {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            store_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        Referral: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            store_id: string;
+            /** Format: uuid */
+            program_id: string;
+            /** Format: uuid */
+            referrer_customer_id: string;
+            /** @description Shared by the referrer as /r/<code>; events carry only sha256(code) */
+            code: string;
+            /** Format: uuid */
+            referee_customer_id: string | null;
+            /** Format: uuid */
+            order_id: string | null;
+            /** @enum {string} */
+            status: "created" | "clicked" | "converted" | "rewarded";
+            /** Format: date-time */
+            clicked_at: string | null;
+            /** Format: date-time */
+            converted_at: string | null;
+            /** Format: date-time */
+            rewarded_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        Review: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            store_id: string;
+            /** Format: uuid */
+            product_id: string;
+            /** Format: uuid */
+            order_line_item_id: string | null;
+            /** Format: uuid */
+            customer_id: string | null;
+            rating: number;
+            title: string | null;
+            body: string | null;
+            /** @enum {string} */
+            status: "pending" | "published" | "rejected";
+            /** Format: uuid */
+            moderated_by: string | null;
+            /** Format: date-time */
+            moderated_at: string | null;
+            moderation_reason: string | null;
+            /** Format: date-time */
+            published_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description Aggregated from `attribution` rows joined to placed orders (cancelled orders excluded). Revenue = order total in the store's default currency. */
+        AttributionReport: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** @enum {string} */
+            touch: "first" | "last";
+            currency: string;
+            totals: {
+                orders_count: number;
+                revenue: components["schemas"]["Money"];
+            };
+            items: {
+                utm_source: string | null;
+                utm_medium: string | null;
+                utm_campaign: string | null;
+                /** Format: uuid */
+                campaign_id: string | null;
+                orders_count: number;
+                revenue: components["schemas"]["Money"];
+            }[];
+        };
+        PromotionReport: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            currency: string;
+            items: {
+                /** Format: uuid */
+                promotion_id: string;
+                /** @description null for automatic promotions */
+                code: string | null;
+                uses: number;
+                discount_given: components["schemas"]["Money"];
+                revenue: components["schemas"]["Money"];
+            }[];
+        };
+        /** @description Organization scope; one row per store, each in its own currency (no FX in v0.3) */
+        MarketingDashboard: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            items: {
+                /** Format: uuid */
+                store_id: string;
+                store_code: string;
+                currency: string;
+                orders_count: number;
+                revenue: components["schemas"]["Money"];
+                /**
+                 * Format: uuid
+                 * @description Campaign with the most last-touch revenue in the window
+                 */
+                top_campaign_id: string | null;
+            }[];
         };
     };
     responses: {
@@ -3380,6 +4102,1382 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    listCampaigns: {
+        parameters: {
+            query?: {
+                status?: "draft" | "scheduled" | "active" | "paused" | "ended";
+                type?: "email" | "sms" | "paid_social" | "paid_search" | "affiliate" | "referral" | "landing";
+                sort?: "name" | "status" | "starts_at" | "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "70000000-0000-4000-8000-000000000701",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "name": "Autumn launch",
+                     *           "type": "paid_social",
+                     *           "status": "draft",
+                     *           "starts_at": "2026-09-15T00:00:00Z",
+                     *           "ends_at": "2026-10-15T00:00:00Z",
+                     *           "budget": {
+                     *             "amount_minor": 250000,
+                     *             "currency": "EUR"
+                     *           },
+                     *           "utm_source": "meta",
+                     *           "utm_medium": "paid_social",
+                     *           "utm_campaign": "autumn-2026",
+                     *           "promotion_id": "50000000-0000-4000-8000-000000000101",
+                     *           "segment_id": null,
+                     *           "landing_path": "/collections/autumn",
+                     *           "external_ref": "120210000000000001",
+                     *           "launched_at": null,
+                     *           "ended_at": null,
+                     *           "metadata": {},
+                     *           "created_at": "2026-09-08T00:00:00Z",
+                     *           "updated_at": "2026-09-08T00:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["Campaign"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    launchCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    endCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                campaignId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "70000000-0000-4000-8000-000000000701",
+                     *       "store_id": "00000000-0000-4000-8000-000000000031",
+                     *       "name": "Autumn launch",
+                     *       "type": "paid_social",
+                     *       "status": "ended",
+                     *       "starts_at": "2026-09-15T00:00:00Z",
+                     *       "ends_at": "2026-10-15T00:00:00Z",
+                     *       "budget": {
+                     *         "amount_minor": 250000,
+                     *         "currency": "EUR"
+                     *       },
+                     *       "utm_source": "meta",
+                     *       "utm_medium": "paid_social",
+                     *       "utm_campaign": "autumn-2026",
+                     *       "promotion_id": "50000000-0000-4000-8000-000000000101",
+                     *       "segment_id": null,
+                     *       "landing_path": "/collections/autumn",
+                     *       "external_ref": "120210000000000001",
+                     *       "launched_at": "2026-09-15T00:00:00Z",
+                     *       "ended_at": "2026-10-15T00:00:00Z",
+                     *       "metadata": {},
+                     *       "created_at": "2026-09-08T00:00:00Z",
+                     *       "updated_at": "2026-10-15T00:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Campaign"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listSegments: {
+        parameters: {
+            query?: {
+                sort?: "name" | "materialised_count" | "last_materialised_at" | "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "70000000-0000-4000-8000-000000000721",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "name": "VIP",
+                     *           "description": "Spent 500+ in the last year and opted in to email",
+                     *           "rules": {
+                     *             "total_spent_minor": {
+                     *               "gte": 50000
+                     *             },
+                     *             "last_order_at": {
+                     *               "after": "2025-09-01T00:00:00Z"
+                     *             },
+                     *             "consent": [
+                     *               "email"
+                     *             ]
+                     *           },
+                     *           "template_id": "70000000-0000-4000-8000-000000000711",
+                     *           "materialised_count": 128,
+                     *           "last_materialised_at": "2026-09-08T03:00:00Z",
+                     *           "created_at": "2026-09-08T00:00:00Z",
+                     *           "updated_at": "2026-09-08T03:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["Segment"][];
+                    };
+                };
+            };
+        };
+    };
+    createSegment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Segment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getSegment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Segment"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteSegment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateSegment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Segment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    previewSegment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    rules?: components["schemas"]["SegmentRules"];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "count": 128
+                     *     }
+                     */
+                    "application/json": {
+                        count: number;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    materializeSegment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                segmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Segment"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listFeeds: {
+        parameters: {
+            query?: {
+                channel?: "google_merchant" | "meta" | "tiktok" | "pinterest";
+                status?: "draft" | "active" | "paused" | "error";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "70000000-0000-4000-8000-000000000731",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "name": "Google Shopping NL",
+                     *           "channel": "google_merchant",
+                     *           "locale": "en-GB",
+                     *           "currency": "EUR",
+                     *           "filters": {
+                     *             "in_stock_only": true
+                     *           },
+                     *           "mapping": {
+                     *             "brand": "Brand A"
+                     *           },
+                     *           "url": "https://feeds.brand-a.example/google_merchant/en-GB.xml",
+                     *           "status": "active",
+                     *           "last_published_at": "2026-09-08T06:00:00Z",
+                     *           "item_count": 120,
+                     *           "errors": [
+                     *             {
+                     *               "code": "missing_gtin",
+                     *               "message": "GTIN missing; Google requires it for branded goods",
+                     *               "product_id": "30000000-0000-4000-8000-000000000201"
+                     *             }
+                     *           ],
+                     *           "created_at": "2026-09-08T00:00:00Z",
+                     *           "updated_at": "2026-09-08T06:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["ProductFeed"][];
+                    };
+                };
+            };
+        };
+    };
+    createFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductFeedInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductFeed"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductFeed"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductFeedInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductFeed"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    publishFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductFeed"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listFeedItems: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                feedId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 120,
+                     *       "items": [
+                     *         {
+                     *           "id": "TEE-M-RED",
+                     *           "product_id": "30000000-0000-4000-8000-000000000201",
+                     *           "variant_id": "30000000-0000-4000-8000-000000000301",
+                     *           "sku": "TEE-M-RED",
+                     *           "title": "Classic Tee - M / Red",
+                     *           "description": "Heavyweight cotton tee.",
+                     *           "link": "https://shop.brand-a.example/products/classic-tee?variant=30000000-0000-4000-8000-000000000301",
+                     *           "image_link": "https://res.cloudinary.com/demo/image/upload/classic-tee.jpg",
+                     *           "gtin": null,
+                     *           "brand": "Brand A",
+                     *           "availability": "in_stock",
+                     *           "price": {
+                     *             "amount_minor": 1999,
+                     *             "currency": "EUR"
+                     *           },
+                     *           "sale_price": null,
+                     *           "item_group_id": "classic-tee",
+                     *           "errors": []
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["FeedItem"][];
+                    };
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listReferralPrograms: {
+        parameters: {
+            query?: {
+                status?: "draft" | "active" | "paused" | "ended";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "70000000-0000-4000-8000-000000000741",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "name": "Refer a friend",
+                     *           "status": "active",
+                     *           "referrer_reward_promotion_id": "50000000-0000-4000-8000-000000000101",
+                     *           "referee_reward_promotion_id": "50000000-0000-4000-8000-000000000101",
+                     *           "rules": {
+                     *             "min_order_minor": 2500,
+                     *             "reward_after": "delivered",
+                     *             "max_rewards_per_referrer": 10
+                     *           },
+                     *           "created_at": "2026-09-08T00:00:00Z",
+                     *           "updated_at": "2026-09-08T00:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["ReferralProgram"][];
+                    };
+                };
+            };
+        };
+    };
+    createReferralProgram: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReferralProgramInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralProgram"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
+    getReferralProgram: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                programId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralProgram"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteReferralProgram: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                programId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateReferralProgram: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                programId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReferralProgramInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralProgram"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listReferrals: {
+        parameters: {
+            query?: {
+                program_id?: string;
+                status?: "created" | "clicked" | "converted" | "rewarded";
+                referrer_customer_id?: string;
+                sort?: "status" | "converted_at" | "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "70000000-0000-4000-8000-000000000751",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "program_id": "70000000-0000-4000-8000-000000000741",
+                     *           "referrer_customer_id": "30000000-0000-4000-8000-000000000a01",
+                     *           "code": "JANE-7F3K",
+                     *           "referee_customer_id": null,
+                     *           "order_id": null,
+                     *           "status": "created",
+                     *           "clicked_at": null,
+                     *           "converted_at": null,
+                     *           "rewarded_at": null,
+                     *           "created_at": "2026-09-08T00:00:00Z",
+                     *           "updated_at": "2026-09-08T00:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["Referral"][];
+                    };
+                };
+            };
+        };
+    };
+    listReviews: {
+        parameters: {
+            query?: {
+                status?: "pending" | "published" | "rejected";
+                product_id?: string;
+                rating?: number;
+                sort?: "rating" | "status" | "created_at";
+                /** @description Sort direction. Ignored unless `sort` is present. */
+                order?: components["parameters"]["Order"];
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "70000000-0000-4000-8000-000000000761",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "product_id": "30000000-0000-4000-8000-000000000201",
+                     *           "order_line_item_id": "30000000-0000-4000-8000-000000000901",
+                     *           "customer_id": "30000000-0000-4000-8000-000000000a01",
+                     *           "rating": 5,
+                     *           "title": "Great tee",
+                     *           "body": "Fits true to size, still soft after ten washes.",
+                     *           "status": "pending",
+                     *           "moderated_by": null,
+                     *           "moderated_at": null,
+                     *           "moderation_reason": null,
+                     *           "published_at": null,
+                     *           "created_at": "2026-09-08T18:00:00Z",
+                     *           "updated_at": "2026-09-08T18:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["Review"][];
+                    };
+                };
+            };
+        };
+    };
+    moderateReview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                reviewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    status: "published" | "rejected";
+                    /** @description Shown to staff only; required when rejecting */
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "70000000-0000-4000-8000-000000000761",
+                     *       "store_id": "00000000-0000-4000-8000-000000000031",
+                     *       "product_id": "30000000-0000-4000-8000-000000000201",
+                     *       "order_line_item_id": "30000000-0000-4000-8000-000000000901",
+                     *       "customer_id": "30000000-0000-4000-8000-000000000a01",
+                     *       "rating": 5,
+                     *       "title": "Great tee",
+                     *       "body": "Fits true to size, still soft after ten washes.",
+                     *       "status": "published",
+                     *       "moderated_by": "00000000-0000-4000-8000-000000000044",
+                     *       "moderated_at": "2026-09-09T09:00:00Z",
+                     *       "moderation_reason": null,
+                     *       "published_at": "2026-09-09T09:00:00Z",
+                     *       "created_at": "2026-09-08T18:00:00Z",
+                     *       "updated_at": "2026-09-09T09:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getAttributionReport: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                touch?: "first" | "last";
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-09-01T00:00:00Z",
+                     *       "to": "2026-10-01T00:00:00Z",
+                     *       "touch": "last",
+                     *       "currency": "EUR",
+                     *       "totals": {
+                     *         "orders_count": 42,
+                     *         "revenue": {
+                     *           "amount_minor": 122556,
+                     *           "currency": "EUR"
+                     *         }
+                     *       },
+                     *       "items": [
+                     *         {
+                     *           "utm_source": "meta",
+                     *           "utm_medium": "paid_social",
+                     *           "utm_campaign": "autumn-2026",
+                     *           "campaign_id": "70000000-0000-4000-8000-000000000701",
+                     *           "orders_count": 30,
+                     *           "revenue": {
+                     *             "amount_minor": 87540,
+                     *             "currency": "EUR"
+                     *           }
+                     *         },
+                     *         {
+                     *           "utm_source": "google",
+                     *           "utm_medium": "organic",
+                     *           "utm_campaign": null,
+                     *           "campaign_id": null,
+                     *           "orders_count": 12,
+                     *           "revenue": {
+                     *             "amount_minor": 35016,
+                     *             "currency": "EUR"
+                     *           }
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AttributionReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getPromotionReport: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-09-01T00:00:00Z",
+                     *       "to": "2026-10-01T00:00:00Z",
+                     *       "currency": "EUR",
+                     *       "items": [
+                     *         {
+                     *           "promotion_id": "50000000-0000-4000-8000-000000000101",
+                     *           "code": "WELCOME10",
+                     *           "uses": 12,
+                     *           "discount_given": {
+                     *             "amount_minor": 2400,
+                     *             "currency": "EUR"
+                     *           },
+                     *           "revenue": {
+                     *             "amount_minor": 21600,
+                     *             "currency": "EUR"
+                     *           }
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PromotionReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getMarketingDashboard: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-09-01T00:00:00Z",
+                     *       "to": "2026-10-01T00:00:00Z",
+                     *       "items": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "store_code": "brand-a",
+                     *           "currency": "EUR",
+                     *           "orders_count": 42,
+                     *           "revenue": {
+                     *             "amount_minor": 122556,
+                     *             "currency": "EUR"
+                     *           },
+                     *           "top_campaign_id": "70000000-0000-4000-8000-000000000701"
+                     *         },
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000032",
+                     *           "store_code": "brand-b",
+                     *           "currency": "GBP",
+                     *           "orders_count": 17,
+                     *           "revenue": {
+                     *             "amount_minor": 41300,
+                     *             "currency": "GBP"
+                     *           },
+                     *           "top_campaign_id": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MarketingDashboard"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listSegmentTemplates: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "70000000-0000-4000-8000-000000000711",
+                     *           "store_id": null,
+                     *           "name": "VIP",
+                     *           "description": "Spent 500+ in the last year and opted in to email",
+                     *           "rules": {
+                     *             "total_spent_minor": {
+                     *               "gte": 50000
+                     *             },
+                     *             "last_order_at": {
+                     *               "after": "2025-09-01T00:00:00Z"
+                     *             },
+                     *             "consent": [
+                     *               "email"
+                     *             ]
+                     *           },
+                     *           "template_id": null,
+                     *           "materialised_count": 0,
+                     *           "last_materialised_at": null,
+                     *           "created_at": "2026-09-08T00:00:00Z",
+                     *           "updated_at": "2026-09-08T00:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["Segment"][];
+                    };
+                };
+            };
+        };
+    };
+    createSegmentTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Segment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getSegmentTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Segment"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteSegmentTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateSegmentTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                templateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Segment"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

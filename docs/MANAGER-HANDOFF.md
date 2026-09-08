@@ -84,7 +84,17 @@ mocks 4010/4011, observability (2.5) Grafana 3400 / Loki 3410 / Tempo 3420 / Pro
 
 - State: `docs/memory/Memory-main.md` (Current status, Contract change log, Global gotchas — read all three first).
 - Per window: `docs/memory/Memory-<n>-<key>.md` on that window's branch (the copy on main lags until merged).
-- Contracts: `packages/contracts/openapi/*.yaml` (Store 0.2.0, Admin 0.2.1), events `packages/events/schemas`,
-  schema `packages/db/migrations` (0001–0009 + events 0100 + 0110 metrics), domain `docs/domain.md`, ADRs `docs/adr/`,
+- Contracts: `packages/contracts/openapi/*.yaml` (Store 0.3.0, Admin 0.3.0 since contracts-v0.3), events `packages/events/schemas` (31 topics),
+  schema `packages/db/migrations` (0001–0009 + events 0100 + 0110 metrics + 0120 marketing), domain `docs/domain.md`, ADRs `docs/adr/`,
   marketing scope `docs/marketing-scope.md`.
 - Owner-facing guide: `docs/HOW-I-RUN-THIS.md`. Start messages: `docs/start-messages/`.
+
+## 9. Integration periods (learned at Int 1, 2026-09-08)
+
+- The integrator is this window in `../wt-integration` on `integration/phaseN`; delegate the three independent chunks
+  (contracts, core wiring, app switches) to parallel agents on distinct paths, keep git in your own hands, commit once.
+- Bring the stack up yourself (`pnpm dev` is idempotent: compose up, migrate, seed); windows must not `compose down`.
+- Phase N+1 issues: write one spec file (`### <n> <key> <task> <title>` + Task + `- [ ]` criteria), create with a script,
+  then rewrite the memory files from the issue map. `./scripts/new-window.sh <n> <phase>` now switches an existing worktree
+  to the new phase branch.
+

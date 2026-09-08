@@ -1,12 +1,13 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
     routes additionally send a Keycloak customers-realm JWT as a Bearer token.
-    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional cart/order `metadata` (additive).
+    Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional cart/order `metadata` (additive);
+    0.3.0 adds the optional `currency` query on listProducts/getProduct (additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -100,6 +101,7 @@ paths:
                 default: relevance,
               },
           }
+        - { $ref: '#/components/parameters/Currency' }
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Limit' }
       responses:
@@ -131,6 +133,7 @@ paths:
                         compare_at_price: null
                         category_handle: t-shirts
                         tags: [basics]
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /store/products/{handle}:
@@ -140,6 +143,7 @@ paths:
       summary: One published product with variants, options, media and prices
       parameters:
         - { name: handle, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/Currency' }
       responses:
         '200':
           description: OK
@@ -148,6 +152,7 @@ paths:
               schema: { $ref: '#/components/schemas/Product' }
               examples:
                 classicTee: { $ref: '#/components/examples/ProductClassicTee' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /store/carts:
@@ -645,6 +650,13 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+    Currency:
+      name: currency
+      in: query
+      description: |
+        Prices in this currency; must be one of the store's currencies (GET /store lists them);
+        400 validation_error otherwise; default = the store's default currency.
+      schema: { type: string, pattern: '^[A-Z]{3}$' }
 
   responses:
     BadRequest:

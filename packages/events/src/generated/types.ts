@@ -5,12 +5,12 @@
  */
 export interface EventEnvelopeV1Base {
 event_id: string
-topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.shipped" | "shipment.delivered" | "return.requested" | "return.received" | "stock.moved")
+topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.shipped" | "shipment.delivered" | "return.requested" | "return.received" | "stock.moved" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
 version: number
 occurred_at: string
 organization_id: string
 store_id: (string | null)
-aggregate_type: ("store" | "product" | "customer" | "order" | "payment" | "refund" | "shipment" | "return" | "stock_movement")
+aggregate_type: ("store" | "product" | "customer" | "order" | "payment" | "refund" | "shipment" | "return" | "stock_movement" | "campaign" | "feed" | "attribution" | "referral" | "review" | "cart")
 aggregate_id: string
 actor: {
 type: ("staff" | "customer" | "system")
@@ -25,6 +25,92 @@ causation_id?: (string | null)
 payload: {
 
 }
+}
+/**
+ * The core stored one attribution touch (first or last) for an order at placement, from cart.metadata.attribution. Emitted once per touch, in the same transaction as order.placed (which stays at v1). `referrer` is an origin, never a full URL.
+ */
+export interface AttributionRecordedV1 {
+attribution_id: string
+order_id: string
+cart_id: (string | null)
+touch: ("first" | "last")
+utm_source: (string | null)
+utm_medium: (string | null)
+utm_campaign: (string | null)
+utm_term: (string | null)
+utm_content: (string | null)
+/**
+ * Origin only (scheme + host), e.g. https://www.google.com
+ */
+referrer: (string | null)
+landing_path: (string | null)
+campaign_id: (string | null)
+captured_at: string
+recorded_at: string
+}
+/**
+ * A marketing campaign ended (status -> ended), by schedule or by a staff action. Same shape as campaign.launched so consumers close what they opened.
+ */
+export interface CampaignEndedV1 {
+campaign_id: string
+name: string
+type: ("email" | "sms" | "paid_social" | "paid_search" | "affiliate" | "referral" | "landing")
+utm_source: (string | null)
+utm_medium: (string | null)
+utm_campaign: (string | null)
+promotion_id?: string
+segment_id?: string
+budget?: {
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+amount_minor: number
+currency: string
+}
+starts_at?: string
+ends_at?: string
+}
+/**
+ * A marketing campaign went live (status -> active). Consumers: messaging (window 16) starts flows, marts (window 12), accounting (window 15) opens the spend line.
+ */
+export interface CampaignLaunchedV1 {
+campaign_id: string
+name: string
+type: ("email" | "sms" | "paid_social" | "paid_search" | "affiliate" | "referral" | "landing")
+utm_source: (string | null)
+utm_medium: (string | null)
+utm_campaign: (string | null)
+promotion_id?: string
+segment_id?: string
+budget?: {
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+amount_minor: number
+currency: string
+}
+starts_at?: string
+ends_at?: string
+}
+/**
+ * An active cart with items saw no activity for the store's abandonment window (cart status -> abandoned). Emitted by the core's abandoned-cart job (window 1); consumed by messaging flows (window 16) and marketing (window 17). `email_hash` is sha256 of the lowercased email, never the email.
+ */
+export interface CartAbandonedV1 {
+cart_id: string
+customer_id: (string | null)
+email_hash: (string | null)
+currency: string
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+total_minor: number
+line_item_count: number
+last_activity_at: string
+abandoned_at: string
+/**
+ * True when cart.metadata.attribution was captured, so the recovery flow can be attributed
+ */
+has_attribution: boolean
 }
 /**
  * A customer record was created for a store.
@@ -62,6 +148,18 @@ status: ("guest" | "registered" | "disabled" | "erased")
 customer_group_id: (string | null)
 marketing_consent: boolean
 changed_fields: string[]
+}
+/**
+ * A product feed was (re)generated and is available at `url` for the channel to fetch. Aggregate: product_feed.
+ */
+export interface FeedPublishedV1 {
+feed_id: string
+channel: ("google_merchant" | "meta" | "tiktok" | "pinterest")
+locale: string
+currency: string
+item_count: number
+url: string
+published_at: string
 }
 /**
  * Order cancelled before completion. Reverses sales accounting.
@@ -286,6 +384,21 @@ title: string
 }[]
 }
 /**
+ * A referred customer placed an order with a referral code (referral status -> converted). Rewards are issued by the marketing module afterwards. `code_hash` is sha256 of the code, never the code itself.
+ */
+export interface ReferralConvertedV1 {
+referral_id: string
+program_id: string
+referrer_customer_id: string
+referee_customer_id: string
+order_id: string
+/**
+ * sha256 of the lowercased value; never the raw PII
+ */
+code_hash: string
+converted_at: string
+}
+/**
  * Refund failed at the PSP; needs manual action.
  */
 export interface RefundFailedV1 {
@@ -344,6 +457,17 @@ order_line_item_id: string
 quantity: number
 }[]
 requested_at: string
+}
+/**
+ * A product review passed moderation (status -> published). Title and body are free text written by a customer and never travel on the bus; consumers read them through the API.
+ */
+export interface ReviewPublishedV1 {
+review_id: string
+product_id: string
+order_line_item_id?: string
+customer_id?: string
+rating: number
+published_at: string
 }
 /**
  * A shipment was planned for part or all of an order.
@@ -427,9 +551,14 @@ changed_fields: string[]
 }
 
 export interface EventPayloads {
+  'attribution.recorded@1': AttributionRecordedV1;
+  'campaign.ended@1': CampaignEndedV1;
+  'campaign.launched@1': CampaignLaunchedV1;
+  'cart.abandoned@1': CartAbandonedV1;
   'customer.created@1': CustomerCreatedV1;
   'customer.erased@1': CustomerErasedV1;
   'customer.updated@1': CustomerUpdatedV1;
+  'feed.published@1': FeedPublishedV1;
   'order.cancelled@1': OrderCancelledV1;
   'order.completed@1': OrderCompletedV1;
   'order.confirmed@1': OrderConfirmedV1;
@@ -441,10 +570,12 @@ export interface EventPayloads {
   'product.archived@1': ProductArchivedV1;
   'product.published@1': ProductPublishedV1;
   'product.updated@1': ProductUpdatedV1;
+  'referral.converted@1': ReferralConvertedV1;
   'refund.failed@1': RefundFailedV1;
   'refund.issued@1': RefundIssuedV1;
   'return.received@1': ReturnReceivedV1;
   'return.requested@1': ReturnRequestedV1;
+  'review.published@1': ReviewPublishedV1;
   'shipment.created@1': ShipmentCreatedV1;
   'shipment.delivered@1': ShipmentDeliveredV1;
   'shipment.shipped@1': ShipmentShippedV1;
@@ -454,9 +585,14 @@ export interface EventPayloads {
 }
 
 export interface LatestPayloads {
+  'attribution.recorded': AttributionRecordedV1;
+  'campaign.ended': CampaignEndedV1;
+  'campaign.launched': CampaignLaunchedV1;
+  'cart.abandoned': CartAbandonedV1;
   'customer.created': CustomerCreatedV1;
   'customer.erased': CustomerErasedV1;
   'customer.updated': CustomerUpdatedV1;
+  'feed.published': FeedPublishedV1;
   'order.cancelled': OrderCancelledV1;
   'order.completed': OrderCompletedV1;
   'order.confirmed': OrderConfirmedV1;
@@ -468,10 +604,12 @@ export interface LatestPayloads {
   'product.archived': ProductArchivedV1;
   'product.published': ProductPublishedV1;
   'product.updated': ProductUpdatedV1;
+  'referral.converted': ReferralConvertedV1;
   'refund.failed': RefundFailedV1;
   'refund.issued': RefundIssuedV1;
   'return.received': ReturnReceivedV1;
   'return.requested': ReturnRequestedV1;
+  'review.published': ReviewPublishedV1;
   'shipment.created': ShipmentCreatedV1;
   'shipment.delivered': ShipmentDeliveredV1;
   'shipment.shipped': ShipmentShippedV1;

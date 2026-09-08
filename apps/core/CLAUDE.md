@@ -22,9 +22,18 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - `pnpm --filter @platform/core typecheck` — `tsc --noEmit` (CommonJS app, `module: NodeNext`).
 - `pnpm --filter @platform/core test` — Vitest; DB tests create their own database via `@platform/db/testing`.
 - `pnpm --filter @platform/core lint` — root rules + this app's `no-restricted-imports` guard on `pg`.
-- Local Admin API calls in Phase 1: `Authorization: Bearer dev:<keycloak_subject>` (seeded subjects `seed-owner`,
-  `seed-finance`, `seed-operations`, `seed-store-admin`, `seed-store-staff`, `seed-support`, `seed-analyst`);
-  accepted only when `CORE_DEV_TOKENS=1` is set in `.env` (explicit opt-in), and never in production (`NODE_ENV=production` refuses before the flag). Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`.
+- Local Admin API calls (Integration 1): **real Keycloak staff tokens are the default** — a staff-realm JWT
+  (`aud: core-api`; locally `POST http://localhost:8180/realms/staff/protocol/openid-connect/token` with
+  `client_id=test-cli&grant_type=password&username=store-admin&password=store-admin`; `owner` also needs
+  `otp=<TOTP>`, see infra/keycloak/README.md) verified against JWKS, `staff_user` looked up, scope and every
+  `x-permission` decided by OpenFGA (`OPENFGA_STORE_ID` from `pnpm --filter @platform/auth-sdk fga:seed`; missing
+  → production refuses to boot, locally real tokens answer 503 until set). Dev tokens are **opt-in**:
+  `Authorization: Bearer dev:<keycloak_subject>` (seeded subjects `seed-owner`, `seed-finance`, `seed-operations`,
+  `seed-store-admin`, `seed-store-staff`, `seed-support`, `seed-analyst`) only when `CORE_DEV_TOKENS=1` is set in
+  `.env`, never in production (`NODE_ENV=production` refuses before the flag); they use the `role_assignment` stub
+  and need no OpenFGA. Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`; with
+  `CORE_STORE_API_FALLBACK_URL=http://localhost:4010` (non-production) every Store API path the core does not
+  implement is proxied to the Prism mock.
 - `pnpm --filter @platform/core build` — `medusa build` → `.medusa/server`; `pnpm --filter @platform/core start`.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core` before finishing any task. Running the
   package scripts directly (`pnpm --filter @platform/core typecheck|test`) needs the workspace packages built first
@@ -43,29 +52,40 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - Module layout: `src/modules/<name>/{index.ts,service.ts,README.md,*.test.ts}`; cross-module imports only via
   `index.ts`. See README.md "How a module gets a tenant client".
 - HTTP layer (`src/http`, mounted by `mountCoreMiddleware` ahead of Medusa): request id → header alias →
-  `/store` tenant context (`req.tenant`, 401) → `/admin` staff principal (`req.principal`, 401; `storeClientFor`
-  403 outside scope) → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
+  `/store` tenant context (`req.tenant`, 401) → Store API routes → optional Store API fallback proxy →
+  `/admin` staff principal (`req.principal`, 401/503; `storeClientFor` 403 outside scope) → hq-rbac adapter →
+  Admin API routes → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
   contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).
+- Staff auth (`src/http/staff-auth.ts`): `KeycloakStaffTokenVerifier` (default, built by `buildStaffAuth()` in
+  `src/server.ts`) = hq-rbac's `createStaffScopeMiddleware` over `@platform/auth-sdk`: JWT → `staff_user` →
+  OpenFGA scope; the principal carries `scope: StaffScope` (+ the `fga` client). `composeStaffTokenVerifier`
+  routes `dev:` tokens to `DevTokenVerifier` only with `CORE_DEV_TOKENS=1` outside production; everything else
+  goes to Keycloak. Tests pass an explicit verifier to `mountCoreMiddleware(app, verifier, { fga, onRoleChange })`.
 - Permissions: every Admin API route runs the `requirePermission(relation, objectFactory)` middleware
-  (`src/http/permissions.ts`, the `@platform/auth-sdk` signature; `can(principal, relation, object)` answers the
-  question) with the `x-permission` read from `admin-api.yaml`; Phase 1 stub over
-  `role_assignment` per ADR 0002 (owner ⊇ all; `viewer` = any relation; org relations reach every store). Request
-  bodies are validated against the spec's `requestBody` schema (`src/http/openapi.ts`, yaml + ajv at runtime).
+  (`src/http/permissions.ts`) with the `x-permission` read from `admin-api.yaml`. A principal with a `scope`
+  (real token) is answered by OpenFGA through auth-sdk's `can()` (`store:*` = ListObjects; unreachable → 503 fail
+  closed, 403 body carries `details: { relation, object }`); a dev-token principal uses the `role_assignment`
+  stub per ADR 0002 (owner ⊇ all; `viewer` = any relation; org relations reach every store). auth-sdk's own
+  `requirePermission` is a callable guard, not an Express handler — this file is the adapter. Request bodies are
+  validated against the spec's `requestBody` schema (`src/http/openapi.ts`, yaml + ajv at runtime).
+- hq-rbac (window 2, `src/modules/hq-rbac`, read-only for us) is mounted by `src/http/hq-rbac-adapter.ts`:
+  `createHqRbac({ pool, fga, onRoleChange }).handle({ method, path, principal, scope, query, body, requestId })`
+  with the principal/scope the middleware resolved (no second verification); `null` → `next()`.
 - `src/bootstrap` (issue #8, verifier only): never writes; the Medusa mirror of stores/keys is deferred to the
   Phase 2 cart task (owner decision 2026-09-05).
 - Modules and helpers. Modules, `outbox`, `bootstrap` and `http` expose an `index.ts` public API and have their own
   tests; `lib` is a plain helper folder (imported by path, covered through the module and HTTP tests). Every folder
   has a `README.md`:
 
-  | Folder                 | Purpose                                                                                          | Events                                                     | README                           |
-  | ---------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------- |
-  | `src/modules/registry` | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read) | `store.created`, `store.updated`                           | `src/modules/registry/README.md` |
-  | `src/modules/catalog`  | categories, products, options, variants, media; Store API read model (price + availability)      | `product.updated`, `product.published`, `product.archived` | `src/modules/catalog/README.md`  |
-  | `src/modules/hq-rbac`  | window 2 (auth) — do not edit                                                                    | —                                                          | theirs                           |
-  | `src/outbox`           | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                        | —                                                          | `src/outbox/README.md`           |
-  | `src/bootstrap`        | read-only readiness verifier (CLI + server start)                                                | —                                                          | `src/bootstrap/README.md`        |
-  | `src/http`             | middleware chain + Store/Admin API routes, permissions, OpenAPI validation                       | —                                                          | `src/http/README.md`             |
-  | `src/lib`              | `db.ts` (only pool), `errors.ts` (`AppError`), `audit.ts` (`writeAudit`)                         | —                                                          | `src/lib/README.md`              |
+  | Folder                 | Purpose                                                                                                                                                | Events                                                     | README                           |
+  | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------- |
+  | `src/modules/registry` | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read)                                                       | `store.created`, `store.updated`                           | `src/modules/registry/README.md` |
+  | `src/modules/catalog`  | categories, products, options, variants, media; Store API read model (price + availability)                                                            | `product.updated`, `product.published`, `product.archived` | `src/modules/catalog/README.md`  |
+  | `src/modules/hq-rbac`  | window 2 (auth) — do not edit                                                                                                                          | —                                                          | theirs                           |
+  | `src/outbox`           | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                                                                              | —                                                          | `src/outbox/README.md`           |
+  | `src/bootstrap`        | read-only readiness verifier (CLI + server start)                                                                                                      | —                                                          | `src/bootstrap/README.md`        |
+  | `src/http`             | middleware chain + Store/Admin API routes, staff auth (Keycloak + OpenFGA), permissions, hq-rbac adapter, Store API fallback proxy, OpenAPI validation | —                                                          | `src/http/README.md`             |
+  | `src/lib`              | `db.ts` (only pool), `errors.ts` (`AppError`), `audit.ts` (`writeAudit`)                                                                               | —                                                          | `src/lib/README.md`              |
 
   Admin route permissions per operation are listed in the registry and catalog READMEs and come from `admin-api.yaml`.
 
@@ -81,7 +101,13 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 
 ## Gotchas
 
-- Node `>= 20.19` required: this app is CommonJS (Medusa) and `require()`s the ESM `@platform/*` packages.
+- Node `>= 20.19` required: this app is CommonJS (Medusa) and `require()`s the ESM `@platform/*` packages. That
+  needs a `default` (or `require`) condition in each package's export map (`@platform/db` / `@platform/events`
+  have it since #40); a package with only `import` fails at runtime with `ERR_PACKAGE_PATH_NOT_EXPORTED` under
+  tsx/`pnpm dev` even though `tsc` and Vitest are happy.
+- `test/auth-live.test.ts` skips itself unless Keycloak (:8180) and OpenFGA (:8081) answer; it seeds a
+  throw-away OpenFGA store and drops it afterwards. Real tokens come from the staff realm's dev-only `test-cli`
+  password grant; `owner` needs the documented dev TOTP.
 - `medusa-config.ts` and `scripts/*` load the repo-root `.env` through `loadDotenv()`; there is no `apps/core/.env`.
   The config uses loud placeholders for missing `DATABASE_URL_APP` / `REDIS_URL` so `medusa build` works without a
   database; `src/server.ts` refuses to start without them.

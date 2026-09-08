@@ -6,7 +6,9 @@ import {
   LATEST_VERSION,
   makeEvent,
   toOutboxRow,
+  type AggregateType,
   type EventEnvelope,
+  type EventTopic,
   type OrderPlacedV1,
 } from '../src/index.js';
 
@@ -70,9 +72,17 @@ describe('event schemas', () => {
       'stock.moved',
       'customer.updated',
       'product.published',
+      'campaign.launched',
+      'campaign.ended',
+      'feed.published',
+      'attribution.recorded',
+      'referral.converted',
+      'review.published',
+      'cart.abandoned',
     ]) {
       expect(EVENT_TOPICS).toContain(t);
     }
+    expect(EVENT_TOPICS).toHaveLength(31);
   });
 
   it('compiles every schema and has a v1 for every topic', () => {
@@ -126,6 +136,138 @@ describe('event schemas', () => {
     expect(v.validatePayload('order.placed', 99, orderPlaced).ok).toBe(false);
     const bad = { topic: 'order.placed', payload: orderPlaced } as unknown as EventEnvelope;
     expect(v.validateEnvelope(bad).ok).toBe(false);
+  });
+
+  it('marketing topics (0.2.0) validate with sample envelopes and stay PII-free', () => {
+    const cases: Array<[EventTopic, AggregateType, Record<string, unknown>]> = [
+      [
+        'campaign.launched',
+        'campaign',
+        {
+          campaign_id: ID,
+          name: 'Autumn',
+          type: 'paid_social',
+          utm_source: 'meta',
+          utm_medium: 'paid_social',
+          utm_campaign: 'autumn',
+          promotion_id: ID,
+          budget: { amount_minor: 250000, currency: 'EUR' },
+          starts_at: '2026-09-15T00:00:00.000Z',
+        },
+      ],
+      [
+        'campaign.ended',
+        'campaign',
+        {
+          campaign_id: ID,
+          name: 'Autumn',
+          type: 'email',
+          utm_source: null,
+          utm_medium: null,
+          utm_campaign: null,
+        },
+      ],
+      [
+        'feed.published',
+        'feed',
+        {
+          feed_id: ID,
+          channel: 'google_merchant',
+          locale: 'en-GB',
+          currency: 'EUR',
+          item_count: 120,
+          url: 'https://feeds.brand-a.example/google/en-GB.xml',
+          published_at: '2026-09-04T10:00:00.000Z',
+        },
+      ],
+      [
+        'attribution.recorded',
+        'attribution',
+        {
+          attribution_id: ID,
+          order_id: ID,
+          cart_id: ID,
+          touch: 'first',
+          utm_source: 'meta',
+          utm_medium: 'paid_social',
+          utm_campaign: 'autumn',
+          utm_term: null,
+          utm_content: null,
+          referrer: 'https://www.instagram.com',
+          landing_path: '/collections/new',
+          campaign_id: ID,
+          captured_at: '2026-09-04T09:00:00.000Z',
+          recorded_at: '2026-09-04T10:00:00.000Z',
+        },
+      ],
+      [
+        'referral.converted',
+        'referral',
+        {
+          referral_id: ID,
+          program_id: ID,
+          referrer_customer_id: ID,
+          referee_customer_id: ID,
+          order_id: ID,
+          code_hash: HASH,
+          converted_at: '2026-09-04T10:00:00.000Z',
+        },
+      ],
+      [
+        'review.published',
+        'review',
+        {
+          review_id: ID,
+          product_id: ID,
+          order_line_item_id: ID,
+          rating: 5,
+          published_at: '2026-09-04T10:00:00.000Z',
+        },
+      ],
+      [
+        'cart.abandoned',
+        'cart',
+        {
+          cart_id: ID,
+          customer_id: null,
+          email_hash: HASH,
+          currency: 'EUR',
+          total_minor: 2918,
+          line_item_count: 1,
+          last_activity_at: '2026-09-04T08:00:00.000Z',
+          abandoned_at: '2026-09-04T10:00:00.000Z',
+          has_attribution: true,
+        },
+      ],
+    ];
+    for (const [topic, aggregateType, payload] of cases) {
+      const e = makeEvent({
+        topic,
+        organizationId: ORG,
+        storeId: STORE,
+        aggregateType,
+        aggregateId: ID,
+        payload: payload as never,
+      });
+      expect(v.validateEnvelope(e), topic).toEqual({ ok: true, errors: [] });
+    }
+
+    // PII guards: a review never carries its text, a referral never its plain code, a cart never its email.
+    expect(
+      v
+        .validatePayload('review.published', 1, { ...cases[5]![2], title: 'Great tee' })
+        .errors.join(),
+    ).toMatch(/additional properties/);
+    expect(
+      v.validatePayload('referral.converted', 1, { ...cases[4]![2], code_hash: 'JANE10' }).ok,
+    ).toBe(false);
+    expect(
+      v.validatePayload('cart.abandoned', 1, { ...cases[6]![2], email_hash: 'x@example.com' }).ok,
+    ).toBe(false);
+    expect(v.validatePayload('review.published', 1, { ...cases[5]![2], rating: 6 }).ok).toBe(false);
+    expect(v.validatePayload('attribution.recorded', 1, { ...cases[3]![2], touch: 'mid' }).ok).toBe(
+      false,
+    );
   });
 
   it('stock.moved and payment.captured validate with nullable fields', () => {

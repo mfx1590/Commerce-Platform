@@ -151,4 +151,85 @@ describe('row-level security (platform_app role)', () => {
       [STORE_B, 1000],
     ]);
   });
+
+  it('marketing: a store-A session sees only its own campaign and attribution rows (0120)', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    await hq.transaction(async (tx) => {
+      for (const store of [STORE_A, STORE_B]) {
+        const campaign = await tx.query<{ id: string }>(
+          `INSERT INTO campaign (organization_id, store_id, name, type, utm_source, utm_medium, utm_campaign)
+           VALUES ($1, $2, 'Autumn', 'paid_social', 'meta', 'paid_social', 'autumn') RETURNING id`,
+          [ORG, store],
+        );
+        const ch = await tx.query<{ id: string }>(
+          `INSERT INTO sales_channel (organization_id, store_id, code, name, type) VALUES ($1, $2, 'mkt-' || gen_random_uuid(), 'Web', 'web') RETURNING id`,
+          [ORG, store],
+        );
+        const order = await tx.query<{ id: string }>(
+          `INSERT INTO "order" (organization_id, store_id, sales_channel_id, email, currency, locale,
+             shipping_address, billing_address, subtotal_minor, total_minor)
+           VALUES ($1, $2, $3, 'x@example.com', 'EUR', 'en-GB', '{}', '{}', 1000, 1000) RETURNING id`,
+          [ORG, store, ch.rows[0]!.id],
+        );
+        await tx.query(
+          `INSERT INTO attribution (organization_id, store_id, order_id, touch, utm_source, campaign_id, captured_at)
+           VALUES ($1, $2, $3, 'first', 'meta', $4, now()), ($1, $2, $3, 'last', 'google', NULL, now())`,
+          [ORG, store, order.rows[0]!.id, campaign.rows[0]!.id],
+        );
+      }
+    });
+
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const campaigns = await a.query<{ store_id: string }>('SELECT store_id FROM campaign');
+    expect(campaigns.rows.map((r) => r.store_id)).toEqual([STORE_A]);
+    const attributions = await a.query<{ store_id: string; touch: string }>(
+      'SELECT store_id, touch FROM attribution ORDER BY touch',
+    );
+    expect(attributions.rows).toEqual([
+      { store_id: STORE_A, touch: 'first' },
+      { store_id: STORE_A, touch: 'last' },
+    ]);
+    expect(
+      (await a.query('SELECT id FROM attribution WHERE store_id = $1', [STORE_B])).rowCount,
+    ).toBe(0);
+    await expect(
+      a.query(
+        `INSERT INTO campaign (organization_id, store_id, name, type) VALUES ($1, $2, 'hack', 'email')`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // (order_id, touch) is unique: a second first-touch row for the same order is refused.
+    await expect(
+      a.query(
+        `INSERT INTO attribution (organization_id, store_id, order_id, touch, captured_at)
+         SELECT organization_id, store_id, order_id, 'first', now() FROM attribution WHERE touch = 'first' LIMIT 1`,
+      ),
+    ).rejects.toThrow(/attribution_order_id_touch_key/);
+    expect((await hq.query('SELECT id FROM campaign')).rowCount).toBe(2);
+    expect((await hq.query('SELECT id FROM attribution')).rowCount).toBe(4);
+  });
+
+  it('marketing: segment templates (store_id NULL) are visible only in organization scope (0120)', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    await hq.query(
+      `INSERT INTO segment (organization_id, store_id, name, rules)
+       VALUES ($1, NULL, 'VIP template', '{"total_spent_minor": {"gte": 50000}}'),
+              ($1, $2, 'VIP A', '{"total_spent_minor": {"gte": 50000}}'),
+              ($1, $3, 'VIP B', '{"total_spent_minor": {"gte": 50000}}')`,
+      [ORG, STORE_A, STORE_B],
+    );
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const mine = await a.query<{ name: string }>('SELECT name FROM segment ORDER BY name');
+    expect(mine.rows.map((r) => r.name)).toEqual(['VIP A']);
+    await expect(
+      a.query(
+        `INSERT INTO segment (organization_id, store_id, name) VALUES ($1, NULL, 'sneaky template')`,
+        [ORG],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    const all = await hq.query<{ name: string }>('SELECT name FROM segment ORDER BY name');
+    expect(all.rows.map((r) => r.name)).toEqual(['VIP A', 'VIP B', 'VIP template']);
+    const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
+    expect((await other.query('SELECT id FROM segment')).rowCount).toBe(0);
+  });
 });

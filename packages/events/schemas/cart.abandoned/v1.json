@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/cart.abandoned/v1.json",
+  "title": "cart.abandoned v1",
+  "description": "An active cart with items saw no activity for the store's abandonment window (cart status -> abandoned). Emitted by the core's abandoned-cart job (window 1); consumed by messaging flows (window 16) and marketing (window 17). `email_hash` is sha256 of the lowercased email, never the email.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cart_id",
+    "customer_id",
+    "email_hash",
+    "currency",
+    "total_minor",
+    "line_item_count",
+    "last_activity_at",
+    "abandoned_at",
+    "has_attribution"
+  ],
+  "properties": {
+    "cart_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "customer_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "email_hash": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "currency": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/currency"
+    },
+    "total_minor": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/minor"
+    },
+    "line_item_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "last_activity_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    },
+    "abandoned_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    },
+    "has_attribution": {
+      "type": "boolean",
+      "description": "True when cart.metadata.attribution was captured, so the recovery flow can be attributed"
+    }
+  }
+}

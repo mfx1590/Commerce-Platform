@@ -74,3 +74,8 @@ details: { relation, object } }`, 503 fail closed), `resolvePermissionObject` fo
 storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap entries. `resolvePermissionObject`'s
   comment no longer claims non-uuid values are rejected: only MISSING placeholders are 400, a malformed id becomes
   a failing OpenFGA check (403) — pinned by a new test so comment and behaviour cannot drift.
+
+## 0.1.3 — 2026-09-08 (Integration 1, main window)
+
+- `exports["."]` gains a `default` condition (same fix as `@platform/db`, issue #40) so the CommonJS core can
+  `require()` the package at runtime under `pnpm dev`; typecheck and vitest were unaffected, the Medusa server was not.

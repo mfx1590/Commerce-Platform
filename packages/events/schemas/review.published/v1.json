@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/review.published/v1.json",
+  "title": "review.published v1",
+  "description": "A product review passed moderation (status -> published). Title and body are free text written by a customer and never travel on the bus; consumers read them through the API.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["review_id", "product_id", "rating", "published_at"],
+  "properties": {
+    "review_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "product_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_line_item_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "rating": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "published_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

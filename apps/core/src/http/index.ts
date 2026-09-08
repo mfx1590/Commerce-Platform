@@ -12,24 +12,33 @@ export {
 } from './tenant';
 export type { StoreContext } from './tenant';
 export {
+  composeStaffTokenVerifier,
   DEV_TOKENS_FLAG,
   devTokensEnabled,
   DevTokenVerifier,
   hasOrganizationAccess,
+  KeycloakStaffTokenVerifier,
   organizationClientFor,
   parseBearer,
+  principalScope,
   requirePrincipal,
   resolveStaffPrincipal,
   staffAuthMiddleware,
   storeClientFor,
+  visibleStoreIds,
   visibleStoresClientFor,
 } from './staff-auth';
 export type {
+  KeycloakStaffTokenVerifierOptions,
   PrincipalStore,
   StaffIdentity,
   StaffPrincipal,
   StaffTokenVerifier,
 } from './staff-auth';
+export { hqRbacAdapter } from './hq-rbac-adapter';
+export type { HqRbacAdapterOptions } from './hq-rbac-adapter';
+export { STORE_API_FALLBACK_ENV, storeApiFallbackProxy } from './store-fallback';
+export type { StoreApiFallbackOptions } from './store-fallback';
 export {
   getProductRoute,
   getStoreRoute,
@@ -44,6 +53,7 @@ export type { Spec, SpecFile } from './openapi';
 export {
   assertPermission,
   can,
+  ensurePermission,
   hasPermission,
   requirePermission,
   resolveObject,

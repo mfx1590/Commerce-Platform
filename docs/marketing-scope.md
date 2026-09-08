@@ -34,7 +34,7 @@ Existing entities used: `promotion` (window 9), `customer.consent`, `cart.metada
 
 ## Events (packages/events v1 additions at Integration 1)
 
-`campaign.launched`, `campaign.ended`, `feed.published`, `attribution.recorded` (or `order.placed` v2 with an `attribution` object — decided at Int 1),
+`campaign.launched`, `campaign.ended`, `feed.published`, `attribution.recorded` (decided at Int 1: `attribution.recorded` is its own event; order.placed v1 unchanged),
 `referral.converted`, `review.published`, `cart.abandoned` (moved from Phase 4 to Phase 2; window 1 emits it).
 Consumers: window 16 (Klaviyo flows react to `cart.abandoned`, `referral.converted`), window 12 (marketing marts), window 15 (marketing spend as a cost line per legal entity).
 

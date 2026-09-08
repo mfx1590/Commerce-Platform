@@ -11,7 +11,18 @@ MEM="docs/memory/Memory-$N-$KEY.md"
 OWNED="$(grep -E "^\| \`$KEY/\` " "$ROOT/docs/ownership.md" | awk -F'|' '{print $4}' | sed 's/^ *//;s/ *$//')"
 BR="$KEY/phase$PH"; WT="$ROOT/../wt-$KEY"
 git -C "$ROOT" fetch -q origin main || true
-if [ ! -d "$WT" ]; then git -C "$ROOT" worktree add "$WT" -b "$BR" main; else echo "worktree exists: $WT"; fi
+if [ ! -d "$WT" ]; then
+  git -C "$ROOT" worktree add "$WT" -b "$BR" main
+else
+  echo "worktree exists: $WT"
+  # A window that ran an earlier phase: start the new phase branch from origin/main inside its own worktree.
+  if ! git -C "$WT" rev-parse --verify -q "$BR" >/dev/null; then
+    [ -z "$(git -C "$WT" status --porcelain)" ] || { echo "worktree has uncommitted changes; commit or stash first"; exit 1; }
+    git -C "$WT" checkout -q -b "$BR" origin/main && echo "created $BR from origin/main in $WT"
+  else
+    git -C "$WT" checkout -q "$BR"
+  fi
+fi
 mkdir -p "$WT/.claude"
 cat > "$WT/.claude/CLAUDE.local.md" <<EOF
 I am window $N ($KEY). I write only: $OWNED. Contracts are frozen at the tag named in docs/memory/Memory-main.md. My memory file is $MEM. Branch: $BR.

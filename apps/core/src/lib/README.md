@@ -10,3 +10,12 @@ Owner: window 1 (core). Small, dependency-free helpers every module and route us
 
 Tests: covered through the module and HTTP tests (every mutation asserts its `audit_log` row; `AppError` cases in
 `src/modules/registry/registry.test.ts`).
+
+## `attribution.ts` (Integration 1)
+
+`parseCartAttribution(cart.metadata)` → `{ first, last }` touches (trimmed, capped at 200 chars, referrer reduced
+to its origin, malformed blocks → no touches); `orderMetadataFromCart(cart.metadata)` → the JSON copy the contract
+promises on `order.metadata`; `recordAttribution(tx, { organizationId, storeId, orderId, cartId, cartMetadata })`
+inserts one `attribution` row per touch and one `attribution.recorded` v1 event per row through the outbox, on
+the caller's (placement) transaction. Window 1's checkout task calls it at `POST /store/carts/{id}/complete`;
+`campaign_id` is linked at report time by window 17. Tests: `test/attribution.test.ts`.

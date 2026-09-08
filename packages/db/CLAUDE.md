@@ -5,6 +5,8 @@
 Plain SQL migrations for every core entity (all rows carry organization_id, store-level rows also store_id),
 PostgreSQL row-level-security policies, the migration runner, the tenant-scoped client, the seed loader, and
 test helpers. Tests prove that a session for store A cannot read, insert, or move rows of store B.
+Migration 0120 (0.2.0) adds the marketing tables (campaign, segment [+ templates with `store_id NULL`],
+segment_member, product_feed, attribution, referral_program, referral, review); see docs/domain.md section 2b.
 
 ## Owner
 

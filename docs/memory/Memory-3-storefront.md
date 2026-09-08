@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: **Phase 1 complete** — 1.1-1.8 all merged (#39, #64, #66, #76, #96, #97, #101). Idle until Integration 1.
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `storefront/phase2` · Status: Phase 2 not started (Phase 1 complete)
 
 ## Identity (does not change)
 
@@ -22,13 +22,11 @@ Never touches:
 - apps/admin
 - cms/ schemas
 
-## Mission — Phase 1 (Isolated modules)
+## Mission — Phase 2 (Commerce complete, brand 1 live)
 
-Next.js App Router storefront template and shared UI kit with a brand override mechanism (tokens, layout slots, component overrides). Pages: home, PLP, PDP, search, cart, checkout steps, account, order history, content pages. All data from the mock Store API. i18n + multi-currency from day one. Lighthouse ≥ 90 on PLP/PDP. Playwright smoke tests.
+Storefront polish for real API, SEO, structured data, sitemap, performance budget.
 
-Parallel mode since 2026-09-04: windows 1, 2, 4, 5 build at the same time in their own worktrees.
-Never wait for them, never pull their branches. There is no real Store API — everything runs against
-the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value).
+Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
 
@@ -104,7 +102,7 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
 
 ## In progress
 
-- (nothing — 1.4 next, after the 1.3 PR merges)
+- (nothing — Phase 2 starts with the first item under Next)
 
 <!-- superseded plan, kept for the record:
 - **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
@@ -126,22 +124,12 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
   7. Tests for the resolver and the search-param parsing; README/CHANGELOG; PR.
 -->
 
-## Next — when this window next opens (nothing is urgent; Phase 1 is closed)
+## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **The attribution cookie has no size ceiling.** Six values × 200 characters × two touches plus
-      the referrer and paths could approach the 4 KB cookie limit, at which point the browser drops
-      it silently and attribution disappears with no error anywhere. Cap the serialised length in
-      `mergeAttribution` (or shrink `MAX_VALUE_LENGTH`) and add a test that a worst-case set of
-      values stays comfortably under. Raised by the manager reviewing #101.
-- [ ] **`cartMetadata()`'s cookie read sits outside the inner try/catch** in
-      `refreshCartAttribution`, so a failure reading or parsing the cookie would throw out of the
-      "never fatal" path and could cost the order it is supposed to protect. Move the read inside.
-      Raised by the manager reviewing #101.
-- [ ] `(account)` and `(content)` copy is still English-only — recorded for windows 13 and 6, not
-      this window's work.
-
-## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
-
+- [ ] **#109 · 2.1** Real Store API wiring (core first, mock only for what the core lacks) (includes #102)
+- [ ] **#110 · 2.2** SEO: metadata, structured data, sitemap, canonical/hreflang
+- [ ] **#111 · 2.3** Performance budget in CI and image pipeline
+- [ ] **#112 · 2.4** Marketing hooks: referral landing, review display, feed-friendly PDP data
 
 ## Decisions made (with reasons)
 
@@ -423,6 +411,11 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
   more — but if the root checks ever complain about generated files again, that is the cause.
 - After the manager applies a contract change, `pnpm install && pnpm --filter @platform/contracts build`
   before typechecking: the generated types are committed, but the local `dist/` the app resolves is not.
+- Integration 1 (2026-09-08): real Keycloak staff tokens are the default on the core's Admin API;
+  `CORE_DEV_TOKENS=1` keeps `Bearer dev:<subject>` working locally. The storefront can run against
+  the core with `STORE_API_URL=http://localhost:9000`
+  (+ `CORE_STORE_API_FALLBACK_URL=http://localhost:4010` on the core so unimplemented Store routes
+  still answer from Prism). The admin uses `ADMIN_API_URL`.
 
 ## How to run & test this package
 
@@ -442,13 +435,3 @@ pnpm --filter @platform/storefront-starter build   # next build, works offline
 
 pnpm lint && pnpm format:check         # from the repo root
 ```
-
-## Later phases (do not start until Memory-main says so)
-
-### Phase 2 — Commerce complete, brand 1 live
-
-Storefront polish for real API, SEO, structured data, sitemap, performance budget.
-
-- [ ] Real Store API wiring
-- [ ] SEO/metadata/sitemaps
-- [ ] Perf budget in CI

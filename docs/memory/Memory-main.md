@@ -1,7 +1,7 @@
 # Memory main — whole-project state
 Operating guide (how to open, resume, review, close windows): docs/HOW-I-RUN-THIS.md
 Owner: main window (Architect in Phase 0, Integrator in every integration period).
-Last updated: 2026-09-08 · Current phase: 1 complete → Integration 1 · Contracts tag: contracts-v0.1 (to be created by the owner, see Current status) · Events tag: (events-v0.1 = same commit) · main last commit: see Current status
+Last updated: 2026-09-08 · Current phase: Integration 1 in review → Phase 2 · Contracts tag: contracts-v0.3 (tagged when the integration/phase1 PR merges; v0.1 1293ae7, v0.2 68f67a4) · main last commit: see Current status
 
 ## What this project is
 A multi-brand commerce platform: one HQ control plane, one multi-tenant commerce core (Medusa 2, Postgres RLS on store_id),
@@ -17,6 +17,7 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 - Solo operator on Claude Max 5x: ONE build window active at a time, Reviewer session for merges, strongest model only for main window + events/accounting
 
 ## Current status
+- **2026-09-08: INTEGRATION 1 in PR (branch `integration/phase1`, worktree `../wt-integration`).** Delivered: contracts-v0.3 (Admin API 0.3.0 marketing paths, Store API 0.3.0 `currency`, events 0.2.0 with 7 new topics, db 0.2.0 migration 0120), real Keycloak staff tokens + OpenFGA permissions + hq-rbac mounted in the core, `ADMIN_API_URL` switch in the admin, `apps/core/src/lib/attribution.ts` for placement, `CORE_STORE_API_FALLBACK_URL` proxy, one checkout driven end to end through the core (report below). Phase 2 issues #103–#150 created; memory files 1, 3, 4, 6, 7, 8, 9, 10, 17 rewritten. **Next action (manager):** review the integration PR with a reviewer agent, merge it through `scripts/merge-queue.sh`, tag `contracts-v0.3`, then open Phase 2 wave A (windows 1, 9, 6; 5 continues 2.5/2.6) per the Phase 2 window plan — paste messages docs/start-messages/<nn>-<key>.md, worktrees via `./scripts/new-window.sh <n> 2` (it now creates the phase branch inside an existing worktree). Window 5 note: it recreated the whole docker stack during 2.5 (observability profile) while the integrator was running tests — remind it of the shared-stack rule; the manager restored the stack with `pnpm dev`.
 - **Phase 0 done — tag contracts-v0.1.** Owner runs `git tag contracts-v0.1 && git push --tags` on main (commit listed below), then the next action.
 - **Operating mode changed 2026-09-04: PARALLEL.** This window is the MANAGER (reviews, merges, integrates, contracts, Memory-main); it builds no features. Five build windows run at once in worktrees: `../wt-core` (core/phase1), `../wt-auth` (auth/phase1), `../wt-storefront` (storefront/phase1), `../wt-admin` (admin/phase1), `../wt-infra` (infra/phase2, Phase 2 tasks started early; cloud-account tasks stay at validate/plan until credentials exist). Procedure: docs/HOW-I-RUN-THIS.md section 1b.
 - **Next action (owner):** open five terminals, `cd ../wt-<key> && pnpm install && claude`, paste the window's start message. Issues: window:core #1–9, window:auth #10–16, window:storefront #17–23, window:admin #24–30, window:infra #31–36.
@@ -72,7 +73,7 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | 4 | admin | Admin application | 1 | docs/memory/Memory-4-admin.md | Opus |
 | 5 | infra | Infra & DevOps | 2 | docs/memory/Memory-5-infra.md | Opus |
 | 6 | cms | CMS & landing pages | 2 | docs/memory/Memory-6-cms.md | Sonnet |
-| 7 | payments | Payments, tax, fraud | 2 | docs/memory/Memory-7-payments.md | Sonnet (strongest for webhook idempotency design) |
+| 7 | payments | Payments, tax, fraud | 2 | docs/memory/Memory-7-payments.md | Fable (manager decision 2026-09-08: money) |
 | 8 | shipping | Shipping & fulfillment | 2 | docs/memory/Memory-8-shipping.md | Sonnet |
 | 9 | search | Search, media, promotions | 2 | docs/memory/Memory-9-search.md | Sonnet |
 | 10 | brands | Brand storefronts (A, B, C…) | 2 | docs/memory/Memory-10-brands.md | Sonnet |
@@ -82,20 +83,36 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | 14 | events | Event bus & outbox relay | 4 | docs/memory/Memory-14-events.md | strongest |
 | 15 | accounting | Automatic accounting | 4 | docs/memory/Memory-15-accounting.md | strongest |
 | 16 | engagement | CRM, notifications & support | 4 | docs/memory/Memory-16-engagement.md | Sonnet |
-| 17 | marketing | Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | 2 | docs/memory/Memory-17-marketing.md | Opus |
+| 17 | marketing | Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | 2 | docs/memory/Memory-17-marketing.md | Fable (manager decision 2026-09-08: attribution) |
 
 Start messages for every window: docs/start-messages/ · Ownership map (CI-enforced): docs/ownership.md
 
 ## Contract change log
+- 2026-09-08 · **contracts-v0.3** (Integration 1): Admin API 0.3.0 — `/admin/stores/{storeId}/marketing/**` (campaigns + launch/end, segments + preview/materialize, feeds + publish/items, referral-programs, referrals, reviews + moderate, reports/attribution, reports/promotions) and `/admin/marketing/{dashboard,segment-templates}` per docs/marketing-scope.md; Store API 0.3.0 — optional `currency` query on `listProducts`/`getProduct` (400 `validation_error` if the store does not sell it; window 3's finding); `CONTRACTS_VERSION` 0.3.0. Events 0.2.0 — v1 `campaign.launched`, `campaign.ended`, `feed.published`, `attribution.recorded` (own event; `order.placed` stays v1), `referral.converted`, `review.published`, `cart.abandoned` (envelope v1 enums widened in place, additive). db 0.2.0 — `0120_marketing.sql` (campaign, segment [store_nullable], segment_member, product_feed, attribution, referral_program, referral, review + RLS). Producers: window 1 (attribution at placement via `src/lib/attribution.ts`, `cart.abandoned` job), window 17 (the rest). Consumers: 17, 4, 12, 15, 16.
 - 2026-09-04 · baseline contracts-v0.1 (Store API 0.1.0, Admin API 0.1.0, events v1, db migrations 0001–0009 + 0100)
 - 2026-09-08 · CONTRACT CHANGE #100 (cart/order `metadata` exposed in the Store API, additive) · accepted, Store API 0.2.0 / CONTRACTS_VERSION 0.2.2 on main · window 3 deletes its local type extension; window 1 copies cart.metadata → order.metadata at placement (Integration 1)
 - 2026-09-07 · CONTRACT CHANGE #77 (customers read = support, not viewer; PII minimisation) · accepted, Admin API 0.2.1 on main (permission tightening; consumers: window 4 nav gating for Customers, window 1 permission table reads the spec at runtime) · tag contracts-v0.2.1 later with v0.3
 - 2026-09-05 · CONTRACT CHANGE #56 (admin list sort/order, additive) · accepted, Admin API 0.2.0 on main · tag contracts-v0.2 to be created by the owner after the current merge round · producer: window 1 follow-up task; consumer: window 4 [admin] 1.3
 
 ## Integration reports
-- (none yet)
+### Phase 1 → Integration 1 (2026-09-08, branch `integration/phase1`, integrator = manager)
+**Merge order:** nothing to merge — every Phase 1 branch and infra 2.1–2.4b were already on main. Int 1 was wiring + contracts-v0.3.
+**What changed in contracts:** see the Contract change log (v0.3). Decisions: `attribution.recorded` is its own event; marketing reports use `viewer` on the store (the spec's "any relation" convention) so store staff and HQ analysts both read them; template writes `owner`, dashboard `analyst` on `organization:hq`.
+**Wiring delivered:**
+- Core auth: `KeycloakStaffTokenVerifier` (auth-sdk JWKS + hq-rbac scope middleware) is the default; `Bearer dev:<subject>` only with `CORE_DEV_TOKENS=1` outside production. `requirePermission` asks OpenFGA through auth-sdk `can()` for real tokens and the `role_assignment` stub for dev tokens; 503 fail-closed. hq-rbac mounted (`/admin/users*`, `/admin/audit-log`, `/admin/finance/ping`). Live suite `apps/core/test/auth-live.test.ts` (7 tests: real store-admin token → 200 `/admin/me` and products, exact 403 body on finance-gated ops, owner 200 `/admin/users`, invalid JWT 401, OpenFGA down 503) runs in the `auth-e2e` CI job and skips without the stack.
+- Admin: `ADMIN_API_URL` (real core :9000) wins over `MOCK_ADMIN_API_URL`; Playwright and contract tests pin the mock.
+- Attribution: `apps/core/src/lib/attribution.ts` + 8 tests; window 1 calls `recordAttribution` at placement (#104).
+- `CORE_STORE_API_FALLBACK_URL` (non-production only): unimplemented `/store/*` paths are proxied verbatim to Prism so the storefront runs on one base URL.
+- `@platform/auth-sdk` gained the `default` export condition (the CommonJS core could not `require()` it under `pnpm dev`; tests and tsc never noticed).
+**Checkout end to end (what is real):** storefront production build with `STORE_API_URL=http://localhost:9000`, core with the fallback to :4010. Real from the core: `GET /store`, `/store/categories`, `/store/products` (200 seeded products, EUR prices from the default price list), `/store/products/alpine-backpack`. Proxied to Prism (core log `store api fallback →`): `POST /store/carts`, `POST …/line-items`, `GET …/carts/{id}` ×6, `POST …/payment-session` ×2, `POST …/complete`, `GET /store/orders/{id}` → "Thank you, order #1000 confirmed". PLP/PDP are real; cart, checkout and orders are the mock's examples until core 2.1/2.2 land. The Playwright checkout spec still targets the mock's fixture names (`Classic Tee`) and cannot run against the core yet — storefront 2.1 (#109) makes the journey data-independent.
+**Surprises:** (1) hq-rbac was complete but never mounted — "framework-neutral" code has no call site until integration; name the mount point in acceptance criteria. (2) auth-sdk `requirePermission` returns a callable, the core's returns an Express handler; the adapter lives in the core. (3) The admin had no real-API switch at all (only `MOCK_ADMIN_API_URL`). (4) Window 5 tore the docker stack down mid-integration (2.5 observability overlay); the manager restored it with `pnpm dev`. (5) `db:medusa:migrate` prints ts-node type errors from `medusa-config.ts` after the module migrations succeed — harmless (schema `medusa` has 145 tables, the server boots) but noisy: window 1 follow-up.
+**Gates on the branch:** `pnpm lint`, `typecheck` (17/17), `format:check`, `pnpm test` (17 packages green incl. core 16 files with the live suite), contracts `test:contract` 10 passed.
+**What Phase 2 must fix first:** core 2.1 cart + 2.2 placement (unblocks the real checkout, storefront 2.1, admin 2.2); window 1 also owns the `medusa-config.ts` ts-node noise. Window 5: #99, and a CI variant running the storefront against the core once 2.2 lands.
 
 ## Global gotchas (things every window must know)
+- **Integration 1 (2026-09-08):** the core's Admin API takes real Keycloak staff tokens by default (OpenFGA-backed permissions); `CORE_DEV_TOKENS=1` keeps `Bearer dev:<subject>` for local work. `OPENFGA_STORE_ID`/`OPENFGA_MODEL_ID` come from `pnpm --filter @platform/auth-sdk fga:seed` (memory datastore: re-seed after an OpenFGA restart). Storefront against the core: `STORE_API_URL=http://localhost:9000` + `CORE_STORE_API_FALLBACK_URL=http://localhost:4010` on the core. Admin against the core: `ADMIN_API_URL=http://localhost:9000`.
+- Contracts are now **contracts-v0.3** (Store 0.3.0, Admin 0.3.0, events 0.2.0, db 0.2.0). `docs/domain.md` section 2b lists the marketing tables. A window that needs more files `CONTRACT CHANGE:` as before.
+- A module with a "framework-neutral" API is not done until something mounts it: name the mount point in the acceptance criteria (hq-rbac lesson).
 - Local ports (other projects own the defaults on this machine): Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081 (playground 3001), Redpanda 19092/18081, mocks 4010/4011. `.env.example` is the truth; `pnpm dev` copies it to `.env`.
 - Apps connect as `platform_app` (`DATABASE_URL_APP`), never the owner URL. Raw `pool.query` returns zero rows by design: always use `createTenantClient` / `createOrganizationClient` from `@platform/db`.
 - SQL: quote `"order"` and `"return"` (reserved words). `audit_log` and `stock_movement` are append-only for the app role.
