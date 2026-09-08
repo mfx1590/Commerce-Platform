@@ -5,7 +5,7 @@
 Medusa 2 commerce core (modular monolith) over the tenant-scoped schema in `@platform/db`. Modules (planned):
 registry, catalog, pricing, checkout, orders, inventory, fulfillment, customers, hq-rbac, hq-warehouse, payments,
 tax, fraud, shipping, search, promotions. Phase 1 (window 1): registry + catalog, Store/Admin API routes for them.
-Phase 2 (window 1): cart (2.1, done), checkout/placement (2.2), orders (2.3), inventory (2.4), returns (2.5),
+Phase 2 (window 1): cart (2.1, done), checkout/placement (2.2, done), orders (2.3), inventory (2.4), returns (2.5),
 `cart.abandoned` job (2.6); the Store API paths not yet implemented stay on the Prism mock behind the fallback proxy.
 
 ## Owner
@@ -44,7 +44,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 ## Public API
 
 - HTTP: implements `packages/contracts/openapi/store-api.yaml` and `admin-api.yaml` exactly (registry + catalog
-  routes in Phase 1; Store API 0.3.0 `currency` query and the cart operations since 2.1). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
+  routes in Phase 1; Store API 0.3.0 `currency` query and the cart operations since 2.1; shipping options, payment
+  session, `POST …/complete` and `GET /store/orders/{orderId}` since 2.2 — the fallback proxy now covers only
+  `/store/customers*`). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
   mounted ahead of Medusa (they win over Medusa's same-path routes, its key gate and its admin auth).
   Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the
   OpenAPI components in tests (`test/helpers/openapi.ts`).
@@ -78,20 +80,24 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - Cart pricing seams (`src/modules/cart`): `setTaxCalculator()` (window 7, Stripe Tax #127) and
   `setShippingRateProvider()` (window 8, live rates #130) replace the `tax_rate` / `shipping_option` table defaults
   at boot; the module itself is never edited for that. Prices are tax-exclusive in Phase 2.
+- Payment seam (`src/modules/checkout`): `setPaymentProvider()` registers window 7's `stripe` (#127) next to the
+  built-in `manual` provider; `createSession` / `authorize` / `refund` exchange ids and amounts only (hosted
+  fields — card data never reaches this process). Placement is one transaction; idempotency = `payment.idempotency_key`.
 - Modules and helpers. Modules, `outbox`, `bootstrap` and `http` expose an `index.ts` public API and have their own
   tests; `lib` is a plain helper folder (imported by path, covered through the module and HTTP tests). Every folder
   has a `README.md`:
 
-  | Folder                 | Purpose                                                                                                                                                | Events                                                     | README                           |
-  | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------- |
-  | `src/modules/registry` | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read)                                                       | `store.created`, `store.updated`                           | `src/modules/registry/README.md` |
-  | `src/modules/catalog`  | categories, products, options, variants, media; Store API read model (price + availability)                                                            | `product.updated`, `product.published`, `product.archived` | `src/modules/catalog/README.md`  |
-  | `src/modules/cart`     | Store API cart: create/read/update, line items, promotion codes (stored), totals through the tax + shipping provider seams; bypasses Medusa's cart     | — (`cart.abandoned` in 2.6)                                | `src/modules/cart/README.md`     |
-  | `src/modules/hq-rbac`  | window 2 (auth) — do not edit                                                                                                                          | —                                                          | theirs                           |
-  | `src/outbox`           | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                                                                              | —                                                          | `src/outbox/README.md`           |
-  | `src/bootstrap`        | read-only readiness verifier (CLI + server start)                                                                                                      | —                                                          | `src/bootstrap/README.md`        |
-  | `src/http`             | middleware chain + Store/Admin API routes, staff auth (Keycloak + OpenFGA), permissions, hq-rbac adapter, Store API fallback proxy, OpenAPI validation | —                                                          | `src/http/README.md`             |
-  | `src/lib`              | `db.ts` (only pool), `errors.ts` (`AppError`), `audit.ts` (`writeAudit`)                                                                               | —                                                          | `src/lib/README.md`              |
+  | Folder                 | Purpose                                                                                                                                                                                    | Events                                                            | README                           |
+  | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------- |
+  | `src/modules/registry` | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read)                                                                                           | `store.created`, `store.updated`                                  | `src/modules/registry/README.md` |
+  | `src/modules/catalog`  | categories, products, options, variants, media; Store API read model (price + availability)                                                                                                | `product.updated`, `product.published`, `product.archived`        | `src/modules/catalog/README.md`  |
+  | `src/modules/cart`     | Store API cart: create/read/update, line items, promotion codes (stored), totals through the tax + shipping provider seams; bypasses Medusa's cart                                         | — (`cart.abandoned` in 2.6)                                       | `src/modules/cart/README.md`     |
+  | `src/modules/checkout` | shipping options, payment session (`PaymentProvider` seam, `manual` built in), placement as one transaction (order + lines + payment + attribution + cart completed), Store API order read | `order.placed` (+ `attribution.recorded` via src/lib/attribution) | `src/modules/checkout/README.md` |
+  | `src/modules/hq-rbac`  | window 2 (auth) — do not edit                                                                                                                                                              | —                                                                 | theirs                           |
+  | `src/outbox`           | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                                                                                                                  | —                                                                 | `src/outbox/README.md`           |
+  | `src/bootstrap`        | read-only readiness verifier (CLI + server start)                                                                                                                                          | —                                                                 | `src/bootstrap/README.md`        |
+  | `src/http`             | middleware chain + Store/Admin API routes, staff auth (Keycloak + OpenFGA), permissions, hq-rbac adapter, Store API fallback proxy, OpenAPI validation                                     | —                                                                 | `src/http/README.md`             |
+  | `src/lib`              | `db.ts` (only pool), `errors.ts` (`AppError`), `audit.ts` (`writeAudit`)                                                                                                                   | —                                                                 | `src/lib/README.md`              |
 
   Admin route permissions per operation are listed in the registry and catalog READMEs and come from `admin-api.yaml`.
 

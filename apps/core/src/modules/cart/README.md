@@ -16,6 +16,9 @@ HTTP routes live in `src/http/store-routes.ts`; this module never sees Express.
 | `removeLineItem(client, cartId, lineItemId)`               | `DELETE /store/carts/{cartId}/line-items/{lineItemId}` | 404 when the line is not in this cart                                                                                                                                                       |
 | `setTaxCalculator` / `setShippingRateProvider`             | —                                                      | pricing seams, see below                                                                                                                                                                    |
 
+Also exported for the checkout module (window 1, same tables, same transaction): `loadCart`, `lockActiveCart`,
+`loadLines`, `recalculate`, `renderCart`, `assertLinesInStock` and the row types — not for other windows.
+
 `ctx` is `{ organizationId, storeId, salesChannelId }` (the HTTP layer passes the fields of `req.tenant`). Every
 mutation on a cart whose `status` is not `active` → 409 `cart_completed` (`details: { cart_id, status, order_id }`).
 Reads keep working on completed carts (the storefront's confirmation page).

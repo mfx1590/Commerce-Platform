@@ -47,7 +47,8 @@ const cartCompleted = (cart: CartRow) =>
 
 // ---- loading ----
 
-async function loadCart(tx: Queryable, cartId: string, lock: boolean): Promise<CartRow> {
+/** The cart row (404 when invisible); `lock = true` takes `FOR UPDATE` for a mutation. */
+export async function loadCart(tx: Queryable, cartId: string, lock: boolean): Promise<CartRow> {
   const r = await tx.query<CartRow>(
     `SELECT ${CART_COLS} FROM cart WHERE id = $1${lock ? ' FOR UPDATE' : ''}`,
     [cartId],
@@ -59,13 +60,13 @@ async function loadCart(tx: Queryable, cartId: string, lock: boolean): Promise<C
 }
 
 /** Locks the cart row for the mutation and refuses completed/abandoned carts (409 `cart_completed`). */
-async function lockActiveCart(tx: Queryable, cartId: string): Promise<CartRow> {
+export async function lockActiveCart(tx: Queryable, cartId: string): Promise<CartRow> {
   const cart = await loadCart(tx, cartId, true);
   if (cart.status !== 'active') throw cartCompleted(cart);
   return cart;
 }
 
-async function loadLines(tx: Queryable, cartId: string): Promise<CartLineRow[]> {
+export async function loadLines(tx: Queryable, cartId: string): Promise<CartLineRow[]> {
   const r = await tx.query<CartLineRow>(
     `SELECT ${LINE_COLS} FROM cart_line_item li
      JOIN product_variant v ON v.id = li.variant_id
@@ -99,8 +100,8 @@ function toStoreLineItem(l: CartLineRow, currency: string): StoreLineItem {
   };
 }
 
-/** The contract `Cart` for a cart id (404 when invisible). */
-async function render(tx: Queryable, cartId: string): Promise<StoreCart> {
+/** The contract `Cart` for a cart id (404 when invisible). Exported as `renderCart` for the checkout module. */
+export async function render(tx: Queryable, cartId: string): Promise<StoreCart> {
   const cart = await loadCart(tx, cartId, false);
   const lines = await loadLines(tx, cartId);
   let option: ShippingOptionRow | undefined;
@@ -403,7 +404,7 @@ async function availableQuantity(tx: Queryable, variantId: string): Promise<numb
 }
 
 /** 409 `out_of_stock` when a tracked, non-backorderable variant cannot cover `quantity` (task 2.4 adds reservations). */
-async function assertStock(
+export async function assertStock(
   tx: Queryable,
   variant: Pick<VariantForCart, 'id' | 'manage_inventory' | 'allow_backorder'>,
   quantity: number,
@@ -535,4 +536,17 @@ export async function removeLineItem(
   });
 }
 
+/** Re-checks every line of a cart against current availability (placement, before the order is written). */
+export async function assertLinesInStock(tx: Queryable, cartId: string): Promise<void> {
+  const r = await tx.query<
+    Pick<VariantForCart, 'id' | 'manage_inventory' | 'allow_backorder'> & { quantity: number }
+  >(
+    `SELECT v.id, v.manage_inventory, v.allow_backorder, li.quantity FROM cart_line_item li
+     JOIN product_variant v ON v.id = li.variant_id WHERE li.cart_id = $1 ORDER BY li.created_at`,
+    [cartId],
+  );
+  for (const row of r.rows) await assertStock(tx, row, row.quantity);
+}
+
+export { render as renderCart };
 export type { Address };
