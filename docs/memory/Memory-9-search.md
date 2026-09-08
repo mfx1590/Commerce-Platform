@@ -45,7 +45,7 @@ Algolia index per brand synced from product.published events, merchandising rule
 - Module-level `CHANGELOG.md` because `apps/core/CHANGELOG.md` / `CLAUDE.md` rows are window 1's (#159).
 
 ## Blocked / waiting
-- Manager: push hold on `search/phase2` (2026-09-08, during the #160 merge) — 2.2 is committed locally; push + PR when released.
+- Manager: push hold on `search/phase2` (2026-09-08, during the #160 merge) — 2.2 is committed locally (`2fa93d9`); #160 merged to main as f2dbf54; the manager's merge of main into `origin/search/phase2` (5c4023e) is already merged into the local branch (38e4614, `pnpm install` + typecheck + module tests green afterwards). Local is a clean fast-forward of origin (ahead 3). When released: `git push origin search/phase2`, then open the PR "search 2.2: Merchandising rules API (#135)" with the acceptance criteria. Manager's recorded 2.2 decision (Memory-main merge round 5) matches: table `merchandising_rule`, migration 0130, path `/admin/stores/{storeId}/merchandising/rules`, index name = `store.search_index`.
 - #162 (CONTRACT CHANGE, main) and the mount line (window 1) — non-blocking, module works against the proposed table/mock.
 - #159 (REQUEST: `.env.example`, CLAUDE.md/CHANGELOG rows) — non-blocking.
 
