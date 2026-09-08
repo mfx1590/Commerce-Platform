@@ -16,7 +16,7 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **REQUEST #154 — `playwright.config.ts` honours `E2E_CHANNEL`** · commit: this PR's first commit (sha recorded below once pushed)
+- **REQUEST #154 — `playwright.config.ts` honours `E2E_CHANNEL`** · commit `a34e583` · PR #171 (in review)
   - `const CHANNEL = process.env.E2E_CHANNEL ?? (CI ? undefined : 'chrome')` and
     `const browser = CHANNEL ? { channel: CHANNEL } : {}` spread into `use` and the chromium
     project; no pinned channel anywhere. `E2E_CHANNEL=''` means bundled chromium,
@@ -206,7 +206,45 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#113 · 2.1 Catalog editor** — starting after the #154 PR is opened (building locally while it is in review).
+- **#113 · 2.1 Catalog editor** — plan written 2026-09-08, awaiting the owner's confirmation before
+  implementation (the task is well over the ~20-tool-call budget). Building locally while #171 is
+  in review; nothing pushed until #171 is merged.
+
+  **What 1.5 already delivered (not redone):** product create/edit form (RHF + Zod, category
+  picker, options with inline values, media as ordered URL rows), variants panel with matrix
+  reconciliation + inline SKU/title/price edit, publish, archive with confirmation, categories tree.
+
+  **The gap, in order:**
+  1. **Refusals become the state panel.** `ActionResult` error variant gains an optional
+     `refusal: { status, error }` for 401/403 (set in `toActionResult`); a small client component
+     `ActionRefusal` renders `ApiStatePanel` from it. `ProductForm`, `PublishControls`,
+     `VariantsPanel` and `CategoriesPanel` render it instead of a one-line `FormError`, so a 403
+     from any catalog mutation is the same panel a screen shows — never a silent no-op.
+  2. **Publish behind a confirmation** (archive already is), same inline yes/cancel pattern.
+  3. **Media ordering:** move up / move down per row (`useFieldArray.move`); position is already
+     renumbered from array order server-side (#68). Still URL-based (Cloudinary pipeline is
+     window 9's later work).
+  4. **Contract tests `test-contract/catalog.test.tsx`** against the spawned Prism: list, detail,
+     categories 200 through the real wrappers (mock `server-only` + `getSession`); `createProduct`
+     `Prefer: code=400` → `toActionResult` → `fieldErrors.handle = 'handle must be kebab-case'`
+     → rendered `ProductForm` shows it under the Handle input; 409 → same for the conflict
+     example; `publishProduct` 200; `createVariant` 201; 403 on `updateProduct` → `ActionRefusal`
+     renders the relation-naming panel.
+  5. **e2e:** extend `e2e/store-admin.spec.ts` with sign in → New product → fill title/handle →
+     Create → lands on `/catalog/{id}` → the status control shows what the API returned.
+     Limitation to state in the PR: Prism's only product example is already `published`, so the
+     Publish *click* cannot be exercised on the mock; it is exercised in the contract test (200
+     chain) and in the documented real-core run.
+  6. **Real-core run:** a core is already listening on :9000 (`/health` OK, shared stack up);
+     run the app on a free port with `ADMIN_API_URL=http://localhost:9000` +
+     `ADMIN_APP_URL=http://localhost:3000` (3000 is held by another project), sign in as
+     `store-admin`, create → add variant → publish on brand-a; screenshot + steps in the PR and
+     README. If the core refuses any step, record the exact response and file an issue for
+     window 1 rather than working around it.
+  7. README (catalog section + real-API run), CHANGELOG, memory; `pnpm lint && pnpm typecheck &&
+     pnpm test --filter @platform/admin` + `test:contract`; PR with the acceptance criteria.
+  **Estimated: ~45–60 tool calls.** Not in scope (contract has them, no screen asks): `attributes`,
+  `seo`, per-variant `dimensions_mm`/`hs_code`/`origin_country` — noted for 2.6 if wanted.
 
 ### Open requests, none blocking
 - ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
