@@ -24,7 +24,7 @@ server, `DATABASE_URL` (owner) only to create the Medusa role and schema, `REDIS
 Admin API's real staff auth (auth-sdk defaults: `http://localhost:8180`, `staff`, `http://localhost:8081`;
 `OPENFGA_STORE_ID` is required in production and warns locally when missing), optional `CORE_DEV_TOKENS=1` to
 also accept `Authorization: Bearer dev:<keycloak_subject>` (local only, never in production), and optional
-`CORE_STORE_API_FALLBACK_URL` (non-production only) to proxy the Store API paths the core does not implement yet to
+`CORE_STORE_API_FALLBACK=1` + `CORE_STORE_API_FALLBACK_URL` (explicit opt-in, refused in production) to proxy the Store API paths the core does not implement yet to
 the Prism mock.
 
 ## What is real (Integration 1)
@@ -68,7 +68,7 @@ ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
    `GET /store/categories`, `GET /store/products`, `GET /store/products/{handle}` — exactly the contract shapes,
    prices in the store default currency, query params validated (400 `validation_error`), 404 for a handle outside
    the store. They answer here, ahead of Medusa's routes of the same paths and of its publishable-key gate.
-6. Store API fallback (`src/http/store-fallback.ts`, only with `CORE_STORE_API_FALLBACK_URL`, refused in
+6. Store API fallback (`src/http/store-fallback.ts`, only with `CORE_STORE_API_FALLBACK=1` + `CORE_STORE_API_FALLBACK_URL`, refused unconditionally in
    production): every other `/store/*` request is proxied verbatim — method, path + query, headers
    (`X-Publishable-Key`, `Authorization`, `Idempotency-Key`, `Content-Type`, …), body — to that base URL with
    Node's `fetch`, and the upstream status, headers and body come back unchanged; one log line per request (method
@@ -113,7 +113,7 @@ src/
   lib/db.ts                 the ONLY place that opens a database pool; exports tenantClient / organizationClient
   http/                     cross-cutting Express middleware (header alias, tenant context, errors)
   http/store-routes.ts      Store API handlers (contract routes), mounted ahead of Medusa by mountCoreMiddleware
-  http/store-fallback.ts    non-production proxy of unimplemented /store/* paths to CORE_STORE_API_FALLBACK_URL
+  http/store-fallback.ts    opt-in (CORE_STORE_API_FALLBACK=1) proxy of unimplemented /store/* paths to CORE_STORE_API_FALLBACK_URL; never in production
   http/staff-auth.ts        KeycloakStaffTokenVerifier (auth-sdk + hq-rbac scope), DevTokenVerifier (opt-in), composition
   http/hq-rbac-adapter.ts   Express adapter of window 2's hq-rbac routes (principal + scope handed over, no re-verification)
   http/admin-routes.ts      Admin API router (contract routes): validate → requirePermission → client → service

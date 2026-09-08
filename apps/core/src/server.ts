@@ -89,13 +89,30 @@ export function buildStaffAuth(): StaffAuth {
   };
 }
 
-/** `CORE_STORE_API_FALLBACK_URL`, refused in production (the proxy is an Integration 1 stand-in only). */
-export function storeApiFallbackUrlFromEnv(): string | undefined {
-  const url = process.env[STORE_API_FALLBACK_ENV]?.trim();
-  if (!url) return undefined;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(`${STORE_API_FALLBACK_ENV} must not be set in production`);
+/** Explicit opt-in for the Store API fallback proxy, same pattern as `CORE_DEV_TOKENS`: `1` enables it. */
+export const STORE_API_FALLBACK_FLAG = 'CORE_STORE_API_FALLBACK';
+
+/**
+ * The Store API fallback proxy is an Integration 1 stand-in for the Store routes the core does not implement yet.
+ * It is on only when `CORE_STORE_API_FALLBACK=1` AND `CORE_STORE_API_FALLBACK_URL` is set, and it is refused
+ * unconditionally in production — checked before either variable is read, like the dev-token verifier — so a
+ * production environment that carries either variable refuses to boot instead of proxying.
+ */
+export function storeApiFallbackUrlFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string | undefined {
+  const flag = env[STORE_API_FALLBACK_FLAG]?.trim();
+  const url = env[STORE_API_FALLBACK_ENV]?.trim();
+  if (env.NODE_ENV === 'production') {
+    if (flag || url) {
+      throw new Error(
+        `${STORE_API_FALLBACK_FLAG} / ${STORE_API_FALLBACK_ENV} must not be set in production`,
+      );
+    }
+    return undefined;
   }
+  if (flag !== '1') return undefined;
+  if (!url) throw new Error(`${STORE_API_FALLBACK_FLAG}=1 requires ${STORE_API_FALLBACK_ENV}`);
   return url;
 }
 
@@ -109,7 +126,9 @@ export function mountCoreMiddleware(
   opts: CoreMiddlewareOptions = {},
 ): void {
   if (opts.storeApiFallbackUrl && process.env.NODE_ENV === 'production') {
-    throw new Error(`${STORE_API_FALLBACK_ENV} must not be set in production`);
+    throw new Error(
+      `${STORE_API_FALLBACK_FLAG} / ${STORE_API_FALLBACK_ENV} must not be set in production`,
+    );
   }
   const fga = opts.fga ?? createOpenFgaClient();
 
