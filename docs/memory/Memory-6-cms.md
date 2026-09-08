@@ -17,13 +17,13 @@ Never touches:
 Headless CMS with one workspace per brand: schemas (page, hero, blocks, campaign landing, nav, footer, legal, product-story block), fetch layer with preview + revalidate-on-publish, content routes, Builder.io/Framer embed under /campaign/*, media via Cloudinary. cms/README explains how a marketer builds a landing page alone. Wave A — starts right after contracts-v0.3 is tagged; nothing to wait for.
 
 ## Done
-- **#119 · 2.1 Sanity workspace and schemas per brand** — 2026-09-08, commit: see PR (cms/phase2, first PR of Phase 2). `@platform/cms` 0.1.0: Studio config (one workspace per brand dataset), 10 object + 5 document schemas, `define.ts` structural mirror, `validateDocument`, fixtures, `datasets.ts`, seed script + manual steps, README, CHANGELOG. 35 tests (incl. compiling the registry with Sanity's own `createSchema`). Root config came from REQUEST #158 (main 94f1de3).
+- **#119 · 2.1 Sanity workspace and schemas per brand** — 2026-09-08, commit bc919ea, PR #163 (in review). `@platform/cms` 0.1.0: Studio config (one workspace per brand dataset), 10 object + 5 document schemas, `define.ts` structural mirror, `validateDocument`, fixtures, `datasets.ts`, seed script + manual steps, README, CHANGELOG. 35 tests (incl. compiling the registry with Sanity's own `createSchema`). Root config came from REQUEST #158 (main 94f1de3).
 
 ## In progress
 - (nothing — 2.2 starts when the 2.1 PR is opened; keep building locally while it is in review)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [x] **#119 · 2.1** Sanity workspace and schemas per brand (PR open)
+- [x] **#119 · 2.1** Sanity workspace and schemas per brand (PR #163, bc919ea)
 - [ ] **#120 · 2.2** Fetch layer, preview mode, revalidate-on-publish — `apps/storefront-starter/src/lib/cms/`: GROQ client per dataset (`datasetForStore(store.code)`), signed preview cookie, `revalidateTag` webhook verified by `SANITY_WEBHOOK_SECRET`, tags per document type, empty results + one warning without credentials. Storefront gets `@platform/cms` as a workspace dep (types, `SANITY_API_VERSION`, fixtures for tests). Unblocks windows 10 and 3 — open early.
 - [ ] **#121 · 2.3** Content routes in the starter and (content) localisation
 - [ ] **#122 · 2.4** Campaign landing pattern under /campaign/*
