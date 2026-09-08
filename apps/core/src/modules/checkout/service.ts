@@ -1,0 +1,382 @@
+// Checkout module (issue #104): shipping options, payment session, and placement — ONE transaction on the locked
+// cart that writes "order" + order_line_item + payment, records attribution (src/lib/attribution.ts), emits
+// `order.placed` v1 through the outbox and marks the cart completed. Idempotency lives on
+// `payment.idempotency_key` (0006, UNIQUE): a replayed key returns the stored order without touching the
+// provider; a different key on a completed cart is 409 `cart_completed`. Integer minor units throughout.
+import { createHash } from 'node:crypto';
+import type { Queryable, ScopedClient } from '@platform/db';
+import { orderMetadataFromCart, recordAttribution } from '../../lib/attribution';
+import { AppError, notFound, validationError } from '../../lib/errors';
+import { buildEvent, eventActor, withEvents } from '../../outbox';
+import {
+  assertLinesInStock,
+  currentShippingRateProvider,
+  loadCart,
+  loadLines,
+  lockActiveCart,
+  recalculate,
+  taxOn,
+  type CartLineRow,
+  type CartRow,
+  type PricingContext,
+} from '../cart';
+import { renderOrder } from './orders-read';
+import { paymentProvider, registeredPaymentProviders } from './payment';
+import type {
+  CompleteCartInput,
+  CompleteCartResult,
+  PaymentCartRef,
+  StorePaymentSession,
+  StoreShippingOption,
+} from './types';
+
+/** `email_hash` of the events (common/v1 `sha256`): sha256 hex of the trimmed, lowercased email. Never the raw value. */
+export function emailHash(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+}
+
+function pricingContext(tx: Queryable, cart: CartRow, lines: CartLineRow[]): PricingContext {
+  return {
+    tx,
+    organizationId: cart.organization_id,
+    storeId: cart.store_id,
+    salesChannelId: cart.sales_channel_id,
+    currency: cart.currency,
+    country: cart.country,
+    shippingAddress: cart.shipping_address,
+    lines: lines.map((l) => ({
+      lineItemId: l.id,
+      variantId: l.variant_id,
+      productId: l.product_id,
+      categoryId: l.category_id,
+      quantity: l.quantity,
+      unitPriceMinor: Number(l.unit_price_minor),
+      discountMinor: Number(l.discount_minor),
+    })),
+  };
+}
+
+/** `GET /store/carts/{cartId}/shipping-options`: what the ShippingRateProvider offers for the cart's destination. */
+export async function listShippingOptions(
+  client: ScopedClient,
+  cartId: string,
+): Promise<StoreShippingOption[]> {
+  return client.transaction(async (tx) => {
+    const cart = await loadCart(tx, cartId, false);
+    const lines = await loadLines(tx, cartId);
+    const rates = await currentShippingRateProvider().list(pricingContext(tx, cart, lines));
+    return rates.map((r) => ({
+      id: r.optionId,
+      code: r.code,
+      name: r.name,
+      carrier: r.carrier,
+      price: { amount_minor: r.priceMinor, currency: r.currency },
+    }));
+  });
+}
+
+function cartRef(cart: CartRow): PaymentCartRef {
+  return {
+    cartId: cart.id,
+    organizationId: cart.organization_id,
+    storeId: cart.store_id,
+    currency: cart.currency,
+    amountMinor: Number(cart.total_minor),
+    email: cart.email ? cart.email.trim().toLowerCase() : null,
+  };
+}
+
+/**
+ * `POST /store/carts/{cartId}/payment-session`: creates a provider session for the cart's current total and stores
+ * it on `cart.payment_session` (contract `PaymentSession` shape — ids and amounts, never card data). Calling it
+ * again replaces the session (the storefront does so right before completing, when the total may have changed).
+ */
+export async function createPaymentSession(
+  client: ScopedClient,
+  cartId: string,
+  input: { provider: string },
+): Promise<StorePaymentSession> {
+  const provider = paymentProvider(input.provider);
+  if (!provider) {
+    throw validationError(`payment provider ${input.provider} is not available`, {
+      provider: `one of ${registeredPaymentProviders().join(', ')}`,
+    });
+  }
+  return client.transaction(async (tx) => {
+    const cart = await lockActiveCart(tx, cartId);
+    const created = await provider.createSession({ tx, cart: cartRef(cart) });
+    const session: StorePaymentSession = {
+      provider: provider.name,
+      session_id: created.sessionId,
+      client_secret: created.clientSecret,
+      status: created.status,
+      amount: { amount_minor: Number(cart.total_minor), currency: cart.currency },
+    };
+    await tx.query(
+      `UPDATE cart SET payment_session = $2::jsonb, updated_at = now() WHERE id = $1`,
+      [cartId, JSON.stringify(session)],
+    );
+    return session;
+  });
+}
+
+interface OrderInsertRow {
+  id: string;
+  display_id: string;
+  placed_at: Date;
+}
+
+interface LineInsertRow {
+  id: string;
+  variant_id: string | null;
+  sku: string;
+  title: string;
+  quantity: number;
+  unit_price_minor: string;
+  discount_minor: string;
+  tax_rate_bp: number;
+  tax_minor: string;
+  total_minor: string;
+}
+
+/**
+ * `POST /store/carts/{cartId}/complete` (Idempotency-Key required). Replay: a `payment` row with this key → the
+ * stored order (no provider call, no second transaction). Otherwise, on the locked active cart: preconditions
+ * (items, email, both addresses, shipping option, payment session) → totals refreshed → stock re-checked →
+ * provider `authorize` (failed → 402 `payment_failed`, nothing written) → "order" (display_id from the store-row
+ * trigger) → order_line_item → payment (carries the key) → attribution rows + `attribution.recorded` →
+ * `order.placed` v1 → cart completed. Any throw rolls all of it back.
+ */
+export async function completeCart(
+  client: ScopedClient,
+  input: CompleteCartInput,
+): Promise<CompleteCartResult> {
+  const { cartId, idempotencyKey } = input;
+  return client.transaction(async (tx) => {
+    // ---- replay ----
+    const replay = await tx.query<{ order_id: string; cart_id: string | null }>(
+      `SELECT p.order_id, o.cart_id FROM payment p JOIN "order" o ON o.id = p.order_id WHERE p.idempotency_key = $1`,
+      [idempotencyKey],
+    );
+    const prior = replay.rows[0];
+    if (prior) {
+      if (prior.cart_id !== cartId) {
+        throw new AppError('conflict', 'Idempotency-Key was already used for another cart', {
+          'Idempotency-Key': 'reuse across carts',
+        });
+      }
+      return { order: await renderOrder(tx, prior.order_id), replayed: true };
+    }
+
+    // ---- lock + preconditions ----
+    const locked = await lockActiveCart(tx, cartId); // 409 cart_completed carries the order id
+    const lines = await loadLines(tx, cartId);
+    const missing: Record<string, string> = {};
+    if (lines.length === 0) missing.items = 'cart is empty';
+    if (!locked.email?.trim()) missing.email = 'required';
+    if (!locked.shipping_address) missing.shipping_address = 'required';
+    if (!locked.billing_address) missing.billing_address = 'required';
+    if (!locked.shipping_option_id) missing.shipping_option_id = 'required';
+    if (!locked.payment_session) missing.payment_session = 'create one with POST …/payment-session';
+    if (Object.keys(missing).length)
+      throw validationError('cart is not ready for checkout', missing);
+
+    await recalculate(tx, locked, { explicitShippingOption: true });
+    const cart = await loadCart(tx, cartId, false);
+    if (!cart.shipping_option_id) {
+      throw validationError('cart is not ready for checkout', {
+        shipping_option_id: 'no longer available for this destination',
+      });
+    }
+    await assertLinesInStock(tx, cartId);
+
+    // ---- payment ----
+    const session = cart.payment_session!;
+    const provider = paymentProvider(session.provider);
+    if (!provider) {
+      throw validationError(`payment provider ${session.provider} is not available`, {
+        payment_session: 'provider not available; create a new session',
+      });
+    }
+    const auth = await provider.authorize({ tx, cart: cartRef(cart), session, idempotencyKey });
+    if (auth.status !== 'authorized' || !auth.providerPaymentId) {
+      throw new AppError('payment_failed', auth.failureReason ?? 'payment not authorized', {
+        provider: provider.name,
+      });
+    }
+
+    // ---- order ----
+    const option = await tx.query<{ code: string; name: string; carrier: string }>(
+      `SELECT code, name, carrier FROM shipping_option WHERE id = $1`,
+      [cart.shipping_option_id],
+    );
+    const optionRow = option.rows[0];
+    if (!optionRow) {
+      throw validationError('cart is not ready for checkout', {
+        shipping_option_id: 'unknown shipping option',
+      });
+    }
+    const shippingMethod = {
+      code: optionRow.code,
+      name: optionRow.name,
+      carrier: optionRow.carrier,
+      price_minor: Number(cart.shipping_minor),
+    };
+    const email = cart.email!.trim();
+    const metadata = orderMetadataFromCart(cart.metadata);
+    const inserted = await tx.query<OrderInsertRow>(
+      `INSERT INTO "order" (organization_id, store_id, sales_channel_id, cart_id, customer_id, email, currency, locale,
+         status, payment_status, shipping_address, billing_address, shipping_option_id, shipping_method,
+         promotion_codes, subtotal_minor, discount_minor, shipping_minor, tax_minor, total_minor, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', 'authorized', $9::jsonb, $10::jsonb, $11, $12::jsonb,
+         $13, $14, $15, $16, $17, $18, $19::jsonb)
+       RETURNING id, display_id::text, placed_at`,
+      [
+        cart.organization_id,
+        cart.store_id,
+        cart.sales_channel_id,
+        cart.id,
+        cart.customer_id,
+        email,
+        cart.currency,
+        cart.locale,
+        JSON.stringify(cart.shipping_address),
+        JSON.stringify(cart.billing_address),
+        cart.shipping_option_id,
+        JSON.stringify(shippingMethod),
+        cart.promotion_codes,
+        cart.subtotal_minor,
+        cart.discount_minor,
+        cart.shipping_minor,
+        cart.tax_minor,
+        cart.total_minor,
+        JSON.stringify(metadata),
+      ],
+    );
+    const order = inserted.rows[0]!;
+
+    const orderLines: LineInsertRow[] = [];
+    for (const l of lines) {
+      const unit = Number(l.unit_price_minor);
+      const discount = Number(l.discount_minor);
+      const base = l.quantity * unit - discount;
+      const tax = taxOn(base, l.tax_rate_bp);
+      const r = await tx.query<LineInsertRow>(
+        `INSERT INTO order_line_item (organization_id, store_id, order_id, variant_id, sku, title, variant_title,
+           thumbnail_url, quantity, unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
+         RETURNING id, variant_id, sku, title, quantity, unit_price_minor::text, discount_minor::text, tax_rate_bp,
+           tax_minor::text, total_minor::text`,
+        [
+          cart.organization_id,
+          cart.store_id,
+          order.id,
+          l.variant_id,
+          l.sku,
+          l.title,
+          l.variant_title,
+          l.thumbnail_url,
+          l.quantity,
+          unit,
+          discount,
+          l.tax_rate_bp,
+          tax,
+          base + tax,
+          JSON.stringify(l.metadata ?? {}),
+        ],
+      );
+      orderLines.push(r.rows[0]!);
+    }
+
+    // ---- payment row (the one money movement; carries the Idempotency-Key) ----
+    await tx.query(
+      `INSERT INTO payment (organization_id, store_id, order_id, provider, provider_payment_id, amount_minor, currency,
+         status, authorized_at, idempotency_key, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'authorized', now(), $8, $9::jsonb)`,
+      [
+        cart.organization_id,
+        cart.store_id,
+        order.id,
+        provider.name,
+        auth.providerPaymentId,
+        cart.total_minor,
+        cart.currency,
+        idempotencyKey,
+        JSON.stringify({ session_id: session.session_id }),
+      ],
+    );
+
+    // ---- attribution (Integration 1 helper) + order.placed ----
+    await recordAttribution(tx, {
+      organizationId: cart.organization_id,
+      storeId: cart.store_id,
+      orderId: order.id,
+      cartId: cart.id,
+      cartMetadata: cart.metadata,
+      actor: input.actor,
+    });
+    const legal = await tx.query<{ legal_entity_id: string }>(
+      `SELECT legal_entity_id FROM store WHERE id = $1`,
+      [cart.store_id],
+    );
+    await withEvents(tx, [
+      await buildEvent({
+        topic: 'order.placed',
+        organizationId: cart.organization_id,
+        storeId: cart.store_id,
+        aggregateType: 'order',
+        aggregateId: order.id,
+        actor: eventActor(input.actor),
+        payload: {
+          order_id: order.id,
+          display_id: Number(order.display_id),
+          legal_entity_id: legal.rows[0]!.legal_entity_id,
+          sales_channel_id: cart.sales_channel_id,
+          customer_id: cart.customer_id,
+          email_hash: emailHash(email),
+          currency: cart.currency,
+          locale: cart.locale,
+          totals: {
+            subtotal_minor: Number(cart.subtotal_minor),
+            discount_minor: Number(cart.discount_minor),
+            shipping_minor: Number(cart.shipping_minor),
+            tax_minor: Number(cart.tax_minor),
+            total_minor: Number(cart.total_minor),
+          },
+          line_items: orderLines.map((l) => ({
+            order_line_item_id: l.id,
+            variant_id: l.variant_id,
+            sku: l.sku,
+            title: l.title,
+            quantity: l.quantity,
+            unit_price_minor: Number(l.unit_price_minor),
+            discount_minor: Number(l.discount_minor),
+            tax_rate_bp: l.tax_rate_bp,
+            tax_minor: Number(l.tax_minor),
+            total_minor: Number(l.total_minor),
+          })),
+          shipping: { shipping_option_id: cart.shipping_option_id, ...shippingMethod },
+          shipping_country: cart.shipping_address!.country,
+          billing_country: cart.billing_address!.country,
+          promotion_codes: cart.promotion_codes,
+          placed_at: order.placed_at.toISOString(),
+        },
+      }),
+    ]);
+    if (input.hooks?.afterEvents) await input.hooks.afterEvents(tx);
+
+    // ---- cart completed ----
+    await tx.query(
+      `UPDATE cart SET status = 'completed', order_id = $2, completed_at = now(),
+         payment_session = $3::jsonb, updated_at = now() WHERE id = $1`,
+      [cartId, order.id, JSON.stringify({ ...session, status: 'authorized' })],
+    );
+    return { order: await renderOrder(tx, order.id), replayed: false };
+  });
+}
+
+/** 404 unless the cart is visible; used by routes that only need existence (e.g. before listing options). */
+export async function assertCartVisible(client: ScopedClient, cartId: string): Promise<void> {
+  const r = await client.query<{ id: string }>(`SELECT id FROM cart WHERE id = $1`, [cartId]);
+  if (!r.rows[0]) throw notFound('cart', cartId);
+}

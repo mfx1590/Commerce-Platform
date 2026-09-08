@@ -2,6 +2,31 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-08 · 2.2 checkout completion: shipping options, payment session, placement, order read (issue #104)
+
+- `src/modules/checkout` (new): `listShippingOptions` (cart module's `ShippingRateProvider.list`),
+  `createPaymentSession` (stored on `cart.payment_session` as the contract shape), `completeCart` — ONE transaction
+  on the locked cart: preconditions (400 with the missing fields), totals refreshed, stock re-checked (409
+  `out_of_stock`), `PaymentProvider.authorize` (402 `payment_failed`, nothing written), `"order"` (display_id from
+  the 0006 store-row trigger — serialises placements per store, never collides), `order_line_item` (exact
+  `tax_minor`/`total_minor`), `payment` (carries the `Idempotency-Key` — the idempotency record, no new table),
+  `recordAttribution` from `src/lib/attribution.ts`, `order.placed` v1 through `withEvents` (`email_hash` only),
+  cart `completed` + `order_id`. Replay with the same key returns the stored order without calling the provider;
+  another key on a completed cart → 409 `cart_completed` `{ order_id }`; the same key on another cart → 409
+  `conflict`. `getStoreOrder`: customer token (`verifyCustomerToken` + `customer.keycloak_subject`) or guest
+  `?email=` (trimmed, case-insensitive); 200 or 404 only. `PaymentProvider` interface + `setPaymentProvider`
+  (window 7's Stripe seam, #127) with the built-in `manual` provider (authorises immediately, `client_secret: null`).
+- Cart module: `loadCart`, `lockActiveCart`, `loadLines`, `recalculate`, `renderCart`, `assertLinesInStock` and the
+  row types are exported for the checkout module (same tables, same transaction).
+- Store API routes: `GET /store/carts/{cartId}/shipping-options`, `POST …/payment-session`, `POST …/complete` → 201,
+  `GET /store/orders/{orderId}`; the fallback proxy now only covers `/store/customers*`.
+- Review nits from #157: `GET /store/products/{handle}?currency=X` → 404 when no variant is priced in X;
+  `test/store-fallback.test.ts` proves a body parsed by `express.json` upstream reaches the mock intact.
+- Tests: `src/modules/checkout/checkout.test.ts` (10: placement contents, idempotency with the provider called
+  once, 402 + rollback-after-outbox with nothing written, 8 concurrent placements → consecutive display ids,
+  RLS, order access rule) and `test/store-api.test.ts` +5 (contract replay of every route, guest lookup, no PII
+  in log lines).
+
 ### 2026-09-08 · 2.1 cart module + `currency` on product reads (issue #103)
 
 - `src/modules/cart` (new): `createCart`, `getCart`, `updateCart`, `addLineItem`, `updateLineItem`,
