@@ -16,7 +16,7 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.2 (#130) — rate shopping at checkout** · commit `ee141a2` · PR pending (push held until #175 merges)
+- **2.2 (#130) — rate shopping at checkout** · commit `7de8158` · PR pending (push held until #175 merges)
   `rate-shopping.ts`: the cart module's `ShippingRateProvider`. `shipping_option` rows decide which options
   exist and who is eligible (ids stay real rows so checkout can freeze them); a row with `rules.live` + `service`
   is priced by the carrier. Fallback to flat table prices on any carrier failure. 60 s quote cache keyed on a
