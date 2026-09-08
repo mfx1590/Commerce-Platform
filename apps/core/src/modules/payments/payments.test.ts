@@ -378,19 +378,19 @@ describe('authorize', () => {
     expect(unconfirmed.status).toBe('failed');
   });
 
-  it('refuses an amount or currency mismatch instead of authorizing the wrong total', async () => {
-    const intent = await fake.createPaymentIntent({
+  it('refuses an amount or currency mismatch BEFORE confirming: no hold is ever placed for the wrong total', async () => {
+    const confirmed = await fake.createPaymentIntent({
       amount: 999,
       currency: 'eur',
       capture_method: 'manual',
     });
-    fake.clientConfirm(intent.id);
+    fake.clientConfirm(confirmed.id);
     const p = provider();
     const r = await a.transaction((tx) =>
       p.authorize({
         tx,
         cart: cartRef(500),
-        session: sessionFor(intent.id, 999),
+        session: sessionFor(confirmed.id, 999),
         idempotencyKey: 'k3-12345678',
       }),
     );
@@ -398,6 +398,29 @@ describe('authorize', () => {
       status: 'failed',
       failureReason: expect.stringContaining('amount mismatch'),
     });
+    // Unconfirmed intent with a stale amount: authorize must fail WITHOUT calling confirm — otherwise the
+    // customer's card would carry an authorization hold for a total the order does not have.
+    const stale = await fake.createPaymentIntent({
+      amount: 999,
+      currency: 'eur',
+      capture_method: 'manual',
+    });
+    fake.attachPaymentMethod(stale.id);
+    const before = fake.callsOf('confirmPaymentIntent').length;
+    const r2 = await a.transaction((tx) =>
+      p.authorize({
+        tx,
+        cart: cartRef(500),
+        session: sessionFor(stale.id, 999),
+        idempotencyKey: 'k4-12345678',
+      }),
+    );
+    expect(r2).toMatchObject({
+      status: 'failed',
+      failureReason: expect.stringContaining('amount mismatch'),
+    });
+    expect(fake.callsOf('confirmPaymentIntent')).toHaveLength(before);
+    expect(fake.intents.get(stale.id)!.status).toBe('requires_confirmation'); // untouched, no hold
   });
 
   it('places a full order through completeCart with the stripe provider; a decline places nothing', async () => {

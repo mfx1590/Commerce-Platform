@@ -140,10 +140,11 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
     },
 
     /**
-     * Inside the placement transaction: retrieve the intent, confirm it server-side only when it still awaits
-     * confirmation (Stripe idempotency key derived from the placement key: a retried placement can never create
-     * a second authorization), then verify amount and currency against the cart. Definitive declines → `failed`
-     * (402 upstream, nothing written); outages/5xx are rethrown so the placement aborts as retryable.
+     * Inside the placement transaction: retrieve the intent, verify amount and currency against the cart
+     * BEFORE any confirm — a stale session must never place an authorization hold for the wrong total — then
+     * confirm server-side only when the intent still awaits confirmation (Stripe idempotency key derived from
+     * the placement key: a retried placement can never create a second authorization). Definitive declines →
+     * `failed` (402 upstream, nothing written); outages/5xx are rethrown so the placement aborts as retryable.
      */
     async authorize({
       tx,
@@ -155,13 +156,6 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
       let intent: StripePaymentIntent;
       try {
         intent = await api.retrievePaymentIntent(session.session_id);
-        if (intent.status === 'requires_confirmation') {
-          intent = await api.confirmPaymentIntent(
-            intent.id,
-            {},
-            { idempotencyKey: confirmIdempotencyKey(idempotencyKey) },
-          );
-        }
       } catch (err) {
         if (err instanceof StripeError && err.definitive) {
           return {
@@ -171,6 +165,33 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
           };
         }
         throw err;
+      }
+      // The check runs on the retrieved intent, before confirming: an amount can only change while the intent
+      // is unconfirmed, so a mismatch caught here is caught before any money is held.
+      if (intent.amount !== cart.amountMinor || intent.currency !== cart.currency.toLowerCase()) {
+        return {
+          status: 'failed',
+          providerPaymentId: intent.id,
+          failureReason: 'amount mismatch: create a new payment session for the current total',
+        };
+      }
+      if (intent.status === 'requires_confirmation') {
+        try {
+          intent = await api.confirmPaymentIntent(
+            intent.id,
+            {},
+            { idempotencyKey: confirmIdempotencyKey(idempotencyKey) },
+          );
+        } catch (err) {
+          if (err instanceof StripeError && err.definitive) {
+            return {
+              status: 'failed',
+              providerPaymentId: intent.id,
+              failureReason: declineReason(err),
+            };
+          }
+          throw err;
+        }
       }
       if (!AUTHORIZED_STATUSES.includes(intent.status)) {
         const reason =
@@ -184,13 +205,6 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
                 ? 'payment is still processing'
                 : `payment intent is ${intent.status}`;
         return { status: 'failed', providerPaymentId: intent.id, failureReason: reason };
-      }
-      if (intent.amount !== cart.amountMinor || intent.currency !== cart.currency.toLowerCase()) {
-        return {
-          status: 'failed',
-          providerPaymentId: intent.id,
-          failureReason: 'amount mismatch: create a new payment session for the current total',
-        };
       }
       return { status: 'authorized', providerPaymentId: intent.id };
     },

@@ -25,11 +25,13 @@ loader. Test mode only in Phase 2 (decisions.md #10): live-mode keys are refused
   Payment Element stays valid; an intent that can no longer be updated is reused when it already matches the
   total, otherwise cancelled (best effort) and replaced. The storefront renders hosted fields with
   `client_secret`.
-- **`authorize`** (inside window 1's placement transaction): retrieves the intent; confirms it server-side only
-  when it is `requires_confirmation`, with Stripe idempotency key `confirmIdempotencyKey(placement key)` — a
-  retried placement can never create a second authorization. Then `requires_capture` / `succeeded` counts as
-  authorized **after** the intent's amount and currency are checked against the cart (mismatch → `failed`:
-  "create a new payment session"). Declines map to `failed` with `decline_code` (else `code`) as the reason →
+- **`authorize`** (inside window 1's placement transaction): retrieves the intent and checks its amount and
+  currency against the cart BEFORE anything else — a mismatch fails without confirming, so no authorization
+  hold is ever placed for a total the order does not have (mismatch → `failed`: "create a new payment
+  session"). Then it confirms server-side only when the intent is `requires_confirmation`, with Stripe
+  idempotency key `confirmIdempotencyKey(placement key)` — a retried placement can never create a second
+  authorization — and `requires_capture` / `succeeded` counts as authorized.
+  Declines map to `failed` with `decline_code` (else `code`) as the reason →
   402 upstream, nothing written. Stripe outages (5xx / 429 / network) are RETHROWN so the placement aborts as
   retryable instead of telling the shopper their card failed. `requires_action` and `processing` map to `failed`
   in Phase 2 (redirect-less card flows; documented trade-off, revisit with async payment methods).
