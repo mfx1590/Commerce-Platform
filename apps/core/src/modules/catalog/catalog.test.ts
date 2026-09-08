@@ -87,8 +87,10 @@ describe('store read model (seeded brand-a)', () => {
     }
     expect(product.media[0]!.url).toBe(first.thumbnail_url);
 
-    const usd = await getStoreProduct(a, A, 'USD', first.handle);
-    expect(usd.variants).toEqual([]);
+    // not sold in USD → the same 404 as an unknown handle (#157 review nit, task 2.2)
+    await expect(getStoreProduct(a, A, 'USD', first.handle)).rejects.toMatchObject({
+      code: 'not_found',
+    });
     expect((await listStoreProducts(a, A, 'USD')).total).toBe(0);
   });
 

@@ -41,8 +41,12 @@ export { STORE_API_FALLBACK_ENV, storeApiFallbackProxy } from './store-fallback'
 export type { StoreApiFallbackOptions } from './store-fallback';
 export {
   addLineItemRoute,
+  completeCartRoute,
   createCartRoute,
+  createPaymentSessionRoute,
   getCartRoute,
+  getOrderRoute,
+  listShippingOptionsRoute,
   getProductRoute,
   getStoreRoute,
   listCategoriesRoute,
