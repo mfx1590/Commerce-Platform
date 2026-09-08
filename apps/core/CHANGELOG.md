@@ -1,5 +1,33 @@
 # Changelog — @platform/core
 
+## Unreleased — Phase 2 (window 1, contracts-v0.3)
+
+### 2026-09-08 · 2.1 cart module + `currency` on product reads (issue #103)
+
+- `src/modules/cart` (new): `createCart`, `getCart`, `updateCart`, `addLineItem`, `updateLineItem`,
+  `removeLineItem` over `cart` / `cart_line_item` (packages/db 0006) on the store-scoped client — every row carries
+  `organization_id` + `store_id`, another store's cart is a 404. Totals recomputed on every change in the same
+  transaction (cart row locked): subtotal, discount (0 until window 9's promotions API; codes stored normalised),
+  shipping through a `ShippingRateProvider` (default: `shipping_option` table), tax through a `TaxCalculator`
+  (default: `tax_rate` table, tax-exclusive prices, per-line `tax_rate_bp` persisted), integer minor units.
+  409 `out_of_stock` when a tracked, non-backorderable variant cannot cover the quantity; 409 `cart_completed` for
+  mutations on a non-active cart; `metadata` round-trips unchanged (replaced whole on PATCH).
+  `setTaxCalculator` / `setShippingRateProvider` are the seams for windows 7 (#127) and 8 (#130).
+  **Decision:** carts bypass Medusa's cart module; no Medusa mirror of stores/keys is needed (README "Decisions").
+- Store API routes (`src/http/store-routes.ts`): `POST /store/carts`, `GET`/`PATCH /store/carts/{cartId}`,
+  `POST /store/carts/{cartId}/line-items`, `PATCH`/`DELETE /store/carts/{cartId}/line-items/{lineItemId}` mounted
+  ahead of Medusa and of the fallback proxy; JSON bodies validated against store-api.yaml 0.3.0 (`express.json` on
+  `/store/carts` only); `cartId` / `lineItemId` must be uuids (400). Store API 0.3.0 `currency` query on
+  `GET /store/products` and `/store/products/{handle}`: one of the store's currencies (`resolveCurrency`), default
+  the store default currency, 400 `validation_error` `{ currency: "one of …" }` otherwise; products without a price
+  in that currency are not listed. `coreErrorHandler` renders body-parser errors (malformed JSON) as 400
+  `validation_error` instead of 500.
+- `scripts/db-medusa-migrate.ts` sets `TS_NODE_TRANSPILE_ONLY=1`: Medusa's loaders register ts-node behind tsx and
+  ts-node type-checked tsx's transpiled `medusa-config.ts` (TS7006 noise + a reported failure after the migrations
+  had succeeded — Integration 1 finding). The script exits 0 again.
+- Tests: `src/modules/cart/cart.test.ts` (14) and `test/store-api.test.ts` +9 (currency fixture: USD added to
+  brand-a in the test database only; every cart operation replayed and spec-validated; RLS 404; 409s).
+
 ## Unreleased — Integration 1 (integration/phase1)
 
 ### 2026-09-08 · attribution at placement (`src/lib/attribution.ts`)
