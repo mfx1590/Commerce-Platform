@@ -17,7 +17,7 @@ Never touches:
 Algolia index per brand synced from product.published events, merchandising rules API, Cloudinary media pipeline, price lists and coupon rules with stacking/exclusion tests. Wave A — started 2026-09-08 right after contracts-v0.3.
 
 ## Done
-- [x] **#134 · 2.1** Algolia index per brand with full and incremental sync — commit `<sha set at commit>` (PR opened from `search/phase2`). Module `apps/core/src/modules/search` (types, algolia-client over fetch, fake-client, records, settings, sync, config, README, CHANGELOG) + `apps/core/src/jobs/index-products.ts`. Tests: search.test.ts (9, DB + fake), algolia-client.test.ts (7), search-live.test.ts (skips without ALGOLIA_APP_ID/ALGOLIA_ADMIN_API_KEY).
+- [x] **#134 · 2.1** Algolia index per brand with full and incremental sync — commit `d258257` (PR opened from `search/phase2`). Module `apps/core/src/modules/search` (types, algolia-client over fetch, fake-client, records, settings, sync, config, README, CHANGELOG) + `apps/core/src/jobs/index-products.ts`. Tests: search.test.ts (9, DB + fake), algolia-client.test.ts (7), search-live.test.ts (skips without ALGOLIA_APP_ID/ALGOLIA_ADMIN_API_KEY).
 
 ## In progress
 - (nothing — 2.2 starts next; 2.1 PR awaits the Reviewer)
