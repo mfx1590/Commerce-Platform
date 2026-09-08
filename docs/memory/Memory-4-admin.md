@@ -16,8 +16,7 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **2.1 — issue #113 Catalog editor** · commit: see the 2.1 PR (two commits: `ded75d4` part 1 +
-  the docs/real-core commit) · Admin API 0.3.0, no contract change
+- **2.1 — issue #113 Catalog editor** · commits `ded75d4` (part 1) + `0e5f308` (part 2) · **PR #184** (in review) · Admin API 0.3.0, no contract change
   - Refusals render the state panel: `ActionResult` error carries `refusal: {status, error}` for
     401/403, `ActionRefusal` renders `ApiStatePanel` in the product form, publish controls,
     variants and categories panels. Publish behind a confirmation (emits `product.published`).
@@ -226,7 +225,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- (nothing — 2.1 is in PR; 2.2 starts locally once it is opened)
+- (nothing — 2.1 is PR #184; 2.2 (#114) starts next, locally, against the mock until core 2.3 lands)
 
 ### Open requests, none blocking
 - ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
