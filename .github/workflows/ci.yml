@@ -47,6 +47,7 @@ jobs:
       terraform: ${{ steps.filter.outputs.terraform }}
       e2e: ${{ steps.filter.outputs.e2e }}
       helm: ${{ steps.filter.outputs.helm }}
+      observ: ${{ steps.filter.outputs.observ }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -313,6 +314,20 @@ jobs:
       - name: render and validate every chart and environment
         if: needs.changes.outputs.helm == 'true'
         run: bash infra/helm/check.sh
+
+  observability:
+    name: observability config
+    runs-on: ubuntu-latest
+    needs: [changes]
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.observ == 'true'
+      # Static only: the profile is off by default, the dashboards are valid JSON naming datasources
+      # that exist, no two services claim a host port, and Prometheus parses its config. Whether the
+      # pipeline actually carries a span is the smoke test in the runbook, which needs the stack up.
+      - name: validate the observability stack
+        if: needs.changes.outputs.observ == 'true'
+        run: bash infra/observability/check.sh
 
   preview:
     name: preview deploy (placeholder)

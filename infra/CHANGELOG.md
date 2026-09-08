@@ -238,6 +238,39 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   returns 403), and that `deploy-staging.yml` will need a bypass allowance for `github-actions[bot]` when it
   can be.
 
+### Added (task 2.5 — observability, issue #35)
+
+- `docker compose --profile observability` adds the OTel collector, Prometheus, Loki, Tempo and Grafana to the
+  local stack. `pnpm dev` and a plain `docker compose up` are unchanged — all five carry
+  `profiles: ['observability']`, so they cost nothing until asked for.
+- Ports chosen against `Get-NetTCPConnection`, not from the defaults: Grafana 3400 (3000 is another project),
+  Loki 3410 (3100 is the storefront), Tempo 3420 (3200 is the admin e2e port), Prometheus 9090. The collector
+  keeps the OTLP defaults 4317/4318, because every SDK ships pointing at them.
+- Apps export OTLP to the collector and know nothing about the backends, so moving traces or logs to Grafana
+  Cloud is a change in `otel-collector.yaml` rather than in application code.
+- Grafana datasources and the `Commerce platform — overview` dashboard are provisioned from files: request
+  rate, error rate and p95 latency per store from Tempo-derived span metrics, and outbox lag from
+  `SELECT * FROM app.outbox_lag()` as the read-only `platform_metrics` role (migration 0110) — aggregates
+  only, so no event payload can reach a dashboard.
+- Trace ⇄ log navigation both ways (`tracesToLogsV2` on Tempo, `derivedFields` on Loki) and exemplars from the
+  latency panel into a trace.
+- `infra/observability/check.sh` and CI job `observability`: the profile really is off by default, dashboards
+  are valid JSON naming datasources that exist, no two services claim a host port, Prometheus parses its
+  config. A `observ` group in the classifier so a dashboard edit re-checks only that.
+- The OTel setup snippet apps will import, Sentry DSN wiring, and a seven-step runbook for reading a trace end
+  to end, all in `infra/README.md`. No application source was touched — `apps/**` belongs to other windows.
+
+### Fixed
+
+- Tempo's span-metrics processor promotes `store_id` and `deployment.environment` as dimensions. Without that
+  the generated series carry only `service`, `span_name`, `span_kind` and `status_code`, and **every per-store
+  panel renders empty while looking perfectly healthy**. Found by sending a span and reading the label set back
+  out of Prometheus.
+- The dashboard queried `service_name`; Tempo's span metrics label is `service`. Same cause, same discovery.
+- The Grafana Postgres datasource used `${VAR:-default}`. Grafana's provisioning interpolation expands
+  environment variables but does not understand bash-style defaults, so it authenticated with a literal and
+  failed. Plain `$VAR`, with the default in the compose file.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

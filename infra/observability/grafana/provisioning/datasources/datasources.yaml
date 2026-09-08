@@ -1,0 +1,77 @@
+# Provisioned, not clicked. A datasource created in the UI lives in Grafana's own database and is
+# gone the moment the volume is wiped, which makes a dashboard that depends on it unshareable.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      # Lets a metric point jump straight to the trace it came from.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # The three links that make a trace useful: to the logs of the same request, to RED metrics
+      # for the service, and to the service graph.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: true
+        tags:
+          - key: service.name
+            value: service_name
+      tracesToMetrics:
+        datasourceUid: prometheus
+        tags:
+          - key: service.name
+            value: service
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # And back again: a log line carrying a trace_id becomes a link into Tempo.
+      derivedFields:
+        - name: trace_id
+          matcherRegex: '"trace_id":"([a-f0-9]+)"'
+          url: '$${__value.raw}'
+          datasourceUid: tempo
+
+  # The outbox-lag panel reads Postgres directly, as `platform_metrics`: a login role created by
+  # migration 0110 with EXECUTE on app.outbox_lag() and no table access at all. It cannot read an
+  # outbox payload, cannot touch a business table and cannot write — four tests in packages/db
+  # prove it. The password here is the local-development default from .env.example; in a cloud
+  # environment this datasource is provisioned from a Secret instead.
+  - name: Postgres (metrics)
+    type: postgres
+    uid: postgres-metrics
+    access: proxy
+    url: postgres:5432
+    user: platform_metrics
+    database: platform
+    secureJsonData:
+      # Plain $VAR: Grafana's provisioning interpolation expands environment variables but does NOT
+      # understand bash-style ${VAR:-default}, which it passes through as a literal and then fails
+      # to authenticate with. The default lives in the compose file instead.
+      password: $POSTGRES_METRICS_PASSWORD
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
