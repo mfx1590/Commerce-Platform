@@ -48,6 +48,7 @@ Rules learned the hard way:
 - Landing a contract change on main while a window's PR is open can break that PR at merge time (see #100 vs #101).
   Prefer: merge the PR first, then land the contract change, then have the window clean up in a small follow-up PR.
 - After merging: close the task issue with the PR number; reopen it if the merge was refused (don't close early).
+- **The queue cannot be stopped once it waits on CI** (learned at Int 1: a "stop" killed only the wrapper; the script pushed and merged anyway). Start it only when nothing else must land first. To abort a running queue, push any commit to the PR branch: the queue's own push is rejected and it exits without merging.
 
 ## 4. Deciding CONTRACT CHANGE / REQUEST issues
 
