@@ -1,6 +1,6 @@
 # Memory 8 — Shipping & fulfillment
 Window: 8 · Key: `shipping` · Branch prefix: `shipping/` · Model: Sonnet
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `shipping/phase2` · Status: 2.1 done (PR open), 2.2 next
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `shipping/phase2` · Status: 2.1 done (PR #175 in review), 2.2 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,7 +16,7 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.1 (#129) — carrier provider interface + manual and EasyPost providers** · commit `eed7fdf` · PR `PR_21`
+- **2.1 (#129) — carrier provider interface + manual and EasyPost providers** · commit `32788f7` · PR #175
   `apps/core/src/modules/shipping`: `CarrierProvider` (rates / buyLabel / voidLabel / track / validateAddress),
   in-memory deterministic `manual` provider, EasyPost provider over global fetch (test mode only), provider
   registry, per-store credentials + settings, address redaction, minor-unit conversion. 48 unit tests + a live
@@ -26,7 +26,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - (nothing — 2.2 starts next; the plan is under Next)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR open
+- [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
 - [ ] **#130 · 2.2** Rate shopping at checkout
 - [ ] **#131 · 2.3** Labels and tracking webhooks
 - [ ] **#132 · 2.4** 3PL adapter interface + in-memory implementation
