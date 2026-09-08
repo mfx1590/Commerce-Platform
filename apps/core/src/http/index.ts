@@ -40,12 +40,20 @@ export type { HqRbacAdapterOptions } from './hq-rbac-adapter';
 export { STORE_API_FALLBACK_ENV, storeApiFallbackProxy } from './store-fallback';
 export type { StoreApiFallbackOptions } from './store-fallback';
 export {
+  addLineItemRoute,
+  createCartRoute,
+  getCartRoute,
   getProductRoute,
   getStoreRoute,
   listCategoriesRoute,
   listProductsRoute,
   mountStoreRoutes,
+  REAL_STORE_PATHS,
+  removeLineItemRoute,
+  resolveCurrency,
   storeSummary,
+  updateCartRoute,
+  updateLineItemRoute,
 } from './store-routes';
 export { adminRouter } from './admin-routes';
 export { loadSpec, openApiDir } from './openapi';

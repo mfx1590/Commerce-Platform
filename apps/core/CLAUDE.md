@@ -4,8 +4,9 @@
 
 Medusa 2 commerce core (modular monolith) over the tenant-scoped schema in `@platform/db`. Modules (planned):
 registry, catalog, pricing, checkout, orders, inventory, fulfillment, customers, hq-rbac, hq-warehouse, payments,
-tax, fraud, shipping, search, promotions. Phase 1 (window 1): registry + catalog, Store/Admin API routes for them;
-everything else stays on the Prism mocks.
+tax, fraud, shipping, search, promotions. Phase 1 (window 1): registry + catalog, Store/Admin API routes for them.
+Phase 2 (window 1): cart (2.1, done), checkout/placement (2.2), orders (2.3), inventory (2.4), returns (2.5),
+`cart.abandoned` job (2.6); the Store API paths not yet implemented stay on the Prism mock behind the fallback proxy.
 
 ## Owner
 
@@ -43,7 +44,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 ## Public API
 
 - HTTP: implements `packages/contracts/openapi/store-api.yaml` and `admin-api.yaml` exactly (registry + catalog
-  routes in Phase 1). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
+  routes in Phase 1; Store API 0.3.0 `currency` query and the cart operations since 2.1). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
   mounted ahead of Medusa (they win over Medusa's same-path routes, its key gate and its admin auth).
   Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the
   OpenAPI components in tests (`test/helpers/openapi.ts`).
@@ -71,8 +72,12 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - hq-rbac (window 2, `src/modules/hq-rbac`, read-only for us) is mounted by `src/http/hq-rbac-adapter.ts`:
   `createHqRbac({ pool, fga, onRoleChange }).handle({ method, path, principal, scope, query, body, requestId })`
   with the principal/scope the middleware resolved (no second verification); `null` → `next()`.
-- `src/bootstrap` (issue #8, verifier only): never writes; the Medusa mirror of stores/keys is deferred to the
-  Phase 2 cart task (owner decision 2026-09-05).
+- `src/bootstrap` (issue #8, verifier only): never writes. The Medusa mirror of stores/keys is **not needed**:
+  carts bypass Medusa's cart module (decision 2026-09-08, `src/modules/cart/README.md`), so nothing of ours ever has
+  to exist in schema `medusa`.
+- Cart pricing seams (`src/modules/cart`): `setTaxCalculator()` (window 7, Stripe Tax #127) and
+  `setShippingRateProvider()` (window 8, live rates #130) replace the `tax_rate` / `shipping_option` table defaults
+  at boot; the module itself is never edited for that. Prices are tax-exclusive in Phase 2.
 - Modules and helpers. Modules, `outbox`, `bootstrap` and `http` expose an `index.ts` public API and have their own
   tests; `lib` is a plain helper folder (imported by path, covered through the module and HTTP tests). Every folder
   has a `README.md`:
@@ -81,6 +86,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | -------------------------------- |
   | `src/modules/registry` | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read)                                                       | `store.created`, `store.updated`                           | `src/modules/registry/README.md` |
   | `src/modules/catalog`  | categories, products, options, variants, media; Store API read model (price + availability)                                                            | `product.updated`, `product.published`, `product.archived` | `src/modules/catalog/README.md`  |
+  | `src/modules/cart`     | Store API cart: create/read/update, line items, promotion codes (stored), totals through the tax + shipping provider seams; bypasses Medusa's cart     | — (`cart.abandoned` in 2.6)                                | `src/modules/cart/README.md`     |
   | `src/modules/hq-rbac`  | window 2 (auth) — do not edit                                                                                                                          | —                                                          | theirs                           |
   | `src/outbox`           | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                                                                              | —                                                          | `src/outbox/README.md`           |
   | `src/bootstrap`        | read-only readiness verifier (CLI + server start)                                                                                                      | —                                                          | `src/bootstrap/README.md`        |
@@ -112,7 +118,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   The config uses loud placeholders for missing `DATABASE_URL_APP` / `REDIS_URL` so `medusa build` works without a
   database; `src/server.ts` refuses to start without them.
 - Medusa migrations run in-process (`scripts/db-medusa-migrate.ts`) as role `medusa_owner` (owns schema `medusa`,
-  no rights on ours). Two Medusa traps this script works around: raw-SQL migrations follow `search_path`, not
+  no rights on ours). The script sets `TS_NODE_TRANSPILE_ONLY=1`: Medusa's loaders register ts-node (installed since
+  #60) behind tsx, and without it ts-node type-checks tsx's transpiled `medusa-config.ts` and the run reports a
+  failure after the migrations succeeded (Integration 1 finding, fixed in 2.1). Two Medusa traps this script works around: raw-SQL migrations follow `search_path`, not
   `databaseSchema` (pinned via `databaseDriverOptions`); and module migrations probe `information_schema` for
   `public.product` / `public."order"` as a v1-upgrade check — a role that cannot see our tables skips it. The
   `medusa` CLI itself needs `ts-node` for a TypeScript config, which this project does not install (tsx only).

@@ -15,7 +15,6 @@ export default tseslint.config(
       '**/src/generated/**',
       'docs/**',
       'data/**',
-      'cms/**',
     ],
   },
   js.configs.recommended,

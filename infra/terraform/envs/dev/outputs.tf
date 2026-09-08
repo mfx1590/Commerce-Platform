@@ -55,6 +55,11 @@ output "app_secret_arn" {
   value       = module.environment.app_secret_arn
 }
 
+output "external_secrets_role_arn" {
+  description = "IRSA role for External Secrets Operator."
+  value       = module.environment.external_secrets_role_arn
+}
+
 output "cluster_name" {
   description = "EKS cluster name."
   value       = module.environment.cluster_name
