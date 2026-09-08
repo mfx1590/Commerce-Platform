@@ -92,6 +92,37 @@ starts_at`, boost weight 1–100, at most 50 pins / 200 boosts / 200 buries. Dup
   keeps the ILIKE stub when the store has no credentials. `FakeIndexClient.search` applies saved rules
   deterministically so this path is tested without Algolia.
 
+## Product media / Cloudinary (task 2.3, #136 — contract change #168, loader REQUEST #169)
+
+- **Signed direct upload** (`POST /admin/stores/{storeId}/media/upload-params`, `store_staff`): the browser
+  uploads straight to Cloudinary with parameters this server signed — `folder: products/<store_code>`, a
+  readable `public_id`, `timestamp` — SHA-1 over the sorted `k=v&…` string + api secret (`cloudinary.ts`
+  `signParams`). The response carries the public `api_key`, the signed params and the signature, never the
+  secret (test asserts it). No credentials for the store → 409 `conflict` (URL passthrough mode: media can
+  still be added by URL from any host). The product must belong to the store (404 otherwise).
+- **Per-item media operations** (`GET|POST …/products/{productId}/media`, `PATCH|DELETE …/media/{mediaId}`;
+  `viewer` read, `store_staff` write): `alt` is required (trimmed, non-blank) on add and on patch; `variant_id`
+  must be a variant of the product; positions are **owned by the server** — every add (append or insert at
+  `position`), move and delete renumbers the product's media 0..n-1 in the existing order (no gaps, no
+  duplicates, whatever the client sent — window 4's Phase 1 renumbering note); `product.thumbnail_url` follows
+  position 0. Each change writes `audit_log` (`product.media.add|update|delete`, before/after) and one
+  `product.updated` (`changed_fields: ["media"]`) event through the outbox on the same transaction — so the
+  search index picks it up on the next sync. `product_media.url` always stores the **original** URL.
+- **Renditions** (`ProductMedia.variants`, `renditionUrls`): `thumb` `c_fill,w_400,h_400,g_auto,q_auto,f_auto`,
+  `pdp` `c_limit,w_1200,q_auto,f_auto`, `zoom` `c_limit,w_2400,q_auto,f_auto`, inserted right after
+  `/image/upload/` and chained before any transformation already in the URL; non-Cloudinary URLs (unsplash,
+  picsum in the seed) pass through unchanged.
+- **`next/image` loader contract** (windows 3/6/10; `packages/ui` copies `cloudinaryImageLoader` — REQUEST
+  #169): `c_limit,w_<width>,q_<quality|auto>,f_auto`, passthrough for other hosts.
+- Credentials: `CLOUDINARY_CLOUD_NAME[_<CODE>]`, `CLOUDINARY_API_KEY[_<CODE>]`, `CLOUDINARY_API_SECRET[_<CODE>]`
+  (`cloudinaryCredentialsFor`; a store triple wins, a partial triple is ignored). `CLOUDINARY_CLOUD_NAME` is
+  shared with the cms rows in `.env.example`; the key/secret rows are requested in #168.
+- Router: `mediaRouter({ credentialsFor?, now? })` (`media-http.ts`), mounted by window 1 next to
+  `adminRouter()` (REQUEST inside #168); relations and body schemas come from the proposed YAML until it lands.
+- Tests: `cloudinary.test.ts` (7: credentials, signature, params without the secret, slugs, transformations,
+  passthrough, loader), `media.test.ts` (6: signed params / 409 / 404, alt required, variant check, 403 for a
+  read-only role, append / insert / move / delete positions, thumbnail, audit + events, foreign product 404).
+
 ## Credentials
 
 From the environment only (Vault-injected in deployed environments, ADR 0006; repo-root `.env` locally):

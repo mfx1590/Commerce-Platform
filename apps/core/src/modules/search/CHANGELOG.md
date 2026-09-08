@@ -5,6 +5,25 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-08 · 2.3 Cloudinary media pipeline for product media (#136, CONTRACT CHANGE #168, REQUEST #169)
+
+- `proposed/admin-api.media.yaml`: the exact contract change filed as #168 — `POST
+/admin/stores/{storeId}/media/upload-params` (signed direct upload), `GET|POST …/products/{productId}/media`,
+  `PATCH|DELETE …/media/{mediaId}`; schemas `MediaUploadRequest`, `MediaUploadParams`, `ProductMediaInput`
+  (alt required), `ProductMediaPatch`, `ProductMedia` (+ `variants: { thumb, pdp, zoom }`). No db change.
+- `cloudinary.ts`: `cloudinaryCredentialsFor` (per-store triple wins), `signParams` (SHA-1, sorted params +
+  secret), `buildUploadParams` (folder `products/<code>`, readable `public_id`; never the secret), `transformUrl`
+  / `renditionUrls` (thumb / pdp / zoom, chained before existing transformations, passthrough for other hosts),
+  `cloudinaryImageLoader` — the `next/image` loader reference for packages/ui (REQUEST #169).
+- `media-types.ts`: contract types + ajv validation (alt trimmed and non-blank; empty patch → 400).
+- `media.ts`: `listProductMedia`, `addProductMedia` (append or insert at position), `updateProductMedia` (alt /
+  variant / move), `deleteProductMedia` — positions renumbered 0..n-1 by the server after every change,
+  `product.thumbnail_url` = position 0, `audit_log` + `product.updated` (`changed_fields: ["media"]`) through the
+  outbox on the same transaction; `createUploadParams` (product must belong to the store; null without
+  credentials).
+- `media-http.ts`: `mediaRouter({ credentialsFor?, now? })` — mount line → window 1 (in #168).
+- Tests: `cloudinary.test.ts` (7), `media.test.ts` (6).
+
 ### 2026-09-08 · 2.2 Merchandising rules API (#135, CONTRACT CHANGE #162)
 
 - `proposed/admin-api.merchandising.yaml` + `proposed/0130_merchandising_rule.sql`: the exact contract change
