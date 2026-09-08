@@ -1,0 +1,166 @@
+{
+  "uid": "platform-overview",
+  "title": "Commerce platform — overview",
+  "description": "Request rate, error rate and p95 latency per store, plus outbox lag. The first three come from span metrics the Tempo metrics-generator derives from traces, so they work as soon as an app emits spans — before anyone writes a custom metric. Outbox lag comes from app.outbox_lag() over Postgres.",
+  "tags": ["commerce-platform", "overview"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "store",
+        "label": "Store",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(traces_spanmetrics_calls_total, store_id)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(traces_spanmetrics_calls_total, service)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Request rate per store",
+      "description": "Server spans per second, by store. `store_id` is a resource attribute the apps set; the collector keeps it as a label.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "expr": "sum by (store_id) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", store_id=~\"$store\", service=~\"$service\"}[5m]))",
+          "legendFormat": "{{store_id}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Error rate per store",
+      "description": "Share of server spans with status_code=STATUS_CODE_ERROR. A ratio rather than a count: a store doing ten times the traffic should not look ten times worse.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": { "fillOpacity": 10, "showPoints": "never" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "expr": "sum by (store_id) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", status_code=\"STATUS_CODE_ERROR\", store_id=~\"$store\", service=~\"$service\"}[5m])) / clamp_min(sum by (store_id) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\", store_id=~\"$store\", service=~\"$service\"}[5m])), 0.001)",
+          "legendFormat": "{{store_id}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "p95 latency per store",
+      "description": "95th percentile of server span duration. p95 rather than a mean, because a mean hides exactly the tail a customer notices.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "fillOpacity": 0, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.95, sum by (le, store_id) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_SERVER\", store_id=~\"$store\", service=~\"$service\"}[5m])))",
+          "legendFormat": "{{store_id}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Outbox lag",
+      "description": "Unpublished outbox rows per store and topic, with the age of the oldest and the highest retry count. Read through app.outbox_lag() as the platform_metrics role — aggregates only: the role has EXECUTE on that function and no table access, so no event payload can reach a dashboard. A growing `oldest` is the relay falling behind; a climbing `max_attempts` is a poison message.",
+      "datasource": { "type": "postgres", "uid": "postgres-metrics" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "oldest_occurred_at" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsIso" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "unpublished" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "gradient" }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "orange", "value": 100 },
+                    { "color": "red", "value": 1000 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "unpublished", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT * FROM app.outbox_lag();"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+# The one address every app sends to. Apps speak OTLP and know nothing about Prometheus, Loki or
+# Tempo — swapping any of those out is a change here, not in application code.
+#
+# Ports 4317/4318 are the OTLP defaults on purpose: every OpenTelemetry SDK ships pointing at them,
+# so remapping would push configuration into every app for no benefit.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Never let a burst of spans take the collector — and with it every app's exporter — down.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  # store_id is the dimension this platform is sliced by everywhere else, so it has to survive as a
+  # label. Anything the app puts in the resource attribute reaches the dashboards.
+  resource:
+    attributes:
+      - key: deployment.environment
+        from_attribute: deployment.environment
+        action: upsert
+
+exporters:
+  # Traces.
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  # Metrics: Prometheus scrapes the collector rather than each app, so an app that restarts does not
+  # leave a stale target behind.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+  # Logs.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlphttp/loki]
+  telemetry:
+    logs:
+      level: info

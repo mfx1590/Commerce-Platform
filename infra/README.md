@@ -90,6 +90,150 @@
 - `kubernetes/` — raw manifests that are not part of a chart. Today: `bootstrap-db/`, the Job that creates the
   `platform_app` database role. See `kubernetes/README.md`.
 - `terraform/` — AWS `dev` and `staging`. Window 5.
+- `observability/` — the OTel collector, Prometheus, Loki, Tempo and Grafana. Off unless asked for.
+
+## Observability
+
+```bash
+docker compose -f infra/docker/docker-compose.yml --profile observability up -d
+bash infra/observability/check.sh    # static checks, no stack needed
+```
+
+`pnpm dev` and a plain `docker compose up` are unchanged: all five services carry
+`profiles: ['observability']`, so they cost nothing until you ask for them.
+
+| service        | host port   | why not the default                                  |
+| -------------- | ----------- | ---------------------------------------------------- |
+| Grafana        | **3400**    | 3000 is held by an unrelated project on this machine |
+| Loki           | **3410**    | 3100 is the storefront                               |
+| Tempo          | **3420**    | 3200 is the admin end-to-end port                    |
+| Prometheus     | 9090        | free — this _is_ the default                         |
+| OTel collector | 4317 / 4318 | free, and deliberately the OTLP defaults             |
+
+Ports were chosen against `Get-NetTCPConnection`, not assumed. The collector keeps 4317/4318 because
+every OpenTelemetry SDK ships pointing at them — remapping would push configuration into every app for
+no benefit.
+
+**Apps talk to the collector and to nothing else.** They export OTLP; the collector fans out to Tempo
+(traces), Prometheus (metrics) and Loki (logs). Moving any of those to Grafana Cloud is a change in
+`infra/observability/otel-collector.yaml`, not in application code.
+
+### What an app has to do
+
+Nothing in this repository yet — `apps/**` belongs to other windows. When a window is ready, this is
+the whole of it:
+
+```bash
+pnpm --filter <app> add @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node \
+  @opentelemetry/exporter-trace-otlp-http
+```
+
+```ts
+// src/telemetry.ts — imported first, before anything else in the process
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { resourceFromAttributes } from '@opentelemetry/resources';
+
+new NodeSDK({
+  resource: resourceFromAttributes({
+    'service.name': process.env.OTEL_SERVICE_NAME ?? 'core',
+    'deployment.environment': process.env.NODE_ENV ?? 'development',
+    // The dimension this platform is sliced by. Without it every per-store panel is empty.
+    store_id: process.env.STORE_ID ?? 'unknown',
+  }),
+  instrumentations: [getNodeAutoInstrumentations()],
+}).start();
+```
+
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` locally, `http://otel-collector:4318` in the
+cluster. The SDK reads it from the environment, so the code above needs no exporter configuration.
+
+**`store_id` must be a resource attribute**, and Tempo must be told to promote it — see
+`overrides.defaults.metrics_generator.processor.span_metrics.dimensions` in
+`infra/observability/tempo.yaml`. Span metrics carry only `service`, `span_name`, `span_kind` and
+`status_code` by default, so without that promotion every per-store panel renders empty while looking
+perfectly healthy.
+
+### Sentry
+
+Sentry is error reporting, not tracing: OTel answers "what was slow", Sentry answers "what threw, with
+which stack, how often, and did it start after Tuesday's deploy". Wiring is one variable:
+
+```
+SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
+```
+
+Absent, the SDK is a no-op — which is why nothing here needs a Sentry account. Add `SENTRY_DSN` to the
+app's `env:` block in `infra/helm/values/<app>/values-<env>.yaml` once the owner creates a project;
+the DSN is not a secret (it only permits writes), so it belongs in values rather than in Secrets
+Manager.
+
+### Dashboards
+
+Provisioned from `infra/observability/grafana/dashboards/*.json` — files in this repository, not
+objects in Grafana's database. Editing one in the UI is fine for exploring; keeping it means exporting
+the JSON back here.
+
+`Commerce platform — overview` has four panels: request rate, error rate and p95 latency per store,
+all derived from span metrics Tempo's generator computes from traces (so they work as soon as an app
+emits spans, before anyone writes a custom metric), plus **outbox lag** read from Postgres.
+
+The outbox panel runs `SELECT * FROM app.outbox_lag()` as `platform_metrics` — a role created by
+migration `0110` with `EXECUTE` on that function and no table access at all. It returns aggregates
+only, so no event payload can reach a dashboard. Verified here, not assumed:
+
+```
+$ psql -U platform_metrics -c 'SELECT * FROM app.outbox_lag();'   ->  (0 rows)
+$ psql -U platform_metrics -c 'SELECT count(*) FROM outbox;'      ->  ERROR: permission denied for table outbox
+```
+
+A growing `oldest_occurred_at` means the relay is falling behind; a climbing `max_attempts` is a
+poison message.
+
+### Runbook: reading a trace end to end
+
+1. **Start the stack and generate traffic.**
+
+   ```bash
+   docker compose -f infra/docker/docker-compose.yml --profile observability up -d
+   ```
+
+2. **Check the pipeline itself before blaming the app.** This posts one span and reads it back:
+
+   ```bash
+   TRACE=$(node -e "process.stdout.write(require('crypto').randomBytes(16).toString('hex'))")
+   curl -s -X POST http://localhost:4318/v1/traces -H 'content-type: application/json' -d '{
+     "resourceSpans":[{"resource":{"attributes":[
+       {"key":"service.name","value":{"stringValue":"core"}},
+       {"key":"store_id","value":{"stringValue":"brand-a"}}]},
+       "scopeSpans":[{"spans":[{"traceId":"'$TRACE'","spanId":"'${TRACE:0:16}'",
+       "name":"smoke","kind":2,
+       "startTimeUnixNano":"'$(date +%s)'000000000","endTimeUnixNano":"'$(date +%s)'100000000"}]}]}]}'
+   curl -s "http://localhost:3420/api/traces/$TRACE" | head -c 200
+   ```
+
+   A span that comes back means collector → Tempo works. Span metrics take up to ~30s more to appear
+   in Prometheus, because the generator batches.
+
+3. **Find the request.** Grafana at <http://localhost:3400> → Explore → Tempo → Search, filter by
+   `service.name` and duration. Or paste a trace id straight in, if you have one from a log line.
+
+4. **Read the span tree.** Each span shows its duration and attributes. The slow one is usually
+   obvious; look for the database span under it, or a gap between spans, which is time nobody
+   instrumented.
+
+5. **Jump to the logs.** A span has a _Logs for this span_ link — that is the `tracesToLogsV2` block
+   in the Tempo datasource. It filters Loki by the trace id, so you get only that request's lines.
+
+6. **Jump back.** A Loki line containing `"trace_id":"…"` renders as a link into Tempo, via
+   `derivedFields` in the Loki datasource. Log → trace → log without copying an id by hand.
+
+7. **Zoom out.** The overview dashboard's p95 panel has exemplars: a dot on the latency line links to
+   a trace that took exactly that long. That is usually a faster route to a slow request than search.
+
+For this to produce anything, the apps must emit spans — which is the snippet above, and belongs to
+the app windows.
+
 - `helm/` — one chart, instantiated per app per environment. `argocd/` — the Applications that do it.
 
 ## Helm
@@ -284,7 +428,7 @@ belongs to the main window.
 | job              | runs when   | what it does                                                                                              |
 | ---------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
 | `ownership`      | always      | `check-ownership.sh` + its self-test                                                                      |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm`                                 |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ`                      |
 | `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                             |
 | `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                            |
 | `contract`       | `code`      | `pnpm test:contract` against Prism                                                                        |
