@@ -60,6 +60,7 @@ export {
   updateLineItemRoute,
 } from './store-routes';
 export { adminRouter } from './admin-routes';
+export { moduleAdminRouters } from './module-routers';
 export { loadSpec, openApiDir } from './openapi';
 export type { Spec, SpecFile } from './openapi';
 export {
@@ -76,4 +77,4 @@ export type {
   PermissionObject,
   PermissionRelation,
 } from './permissions';
-export { intParam, one, pageParams, throwIfProblems, uuidParam } from './query';
+export { dateParam, intParam, one, pageParams, throwIfProblems, uuidParam } from './query';

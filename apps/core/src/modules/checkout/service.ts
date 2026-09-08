@@ -20,7 +20,7 @@ import {
   type CartRow,
   type PricingContext,
 } from '../cart';
-import { renderOrder } from './orders-read';
+import { renderStoreOrder } from '../orders';
 import { paymentProvider, registeredPaymentProviders } from './payment';
 import type {
   CompleteCartInput,
@@ -153,10 +153,18 @@ export async function completeCart(
 ): Promise<CompleteCartResult> {
   const { cartId, idempotencyKey } = input;
   return client.transaction(async (tx) => {
-    // ---- replay ----
+    // ---- replay ---- Keys are per store: `payment.idempotency_key` is UNIQUE table-wide (0006) while RLS hides
+    // other stores' rows from this lookup, so the stored value is `<store_id>:<Idempotency-Key>` — the same key
+    // sent to two stores places two orders and never collides or replays across stores (README "Idempotency").
+    const cartStore = await tx.query<{ store_id: string }>(
+      `SELECT store_id FROM cart WHERE id = $1`,
+      [cartId],
+    );
+    if (!cartStore.rows[0]) throw notFound('cart', cartId);
+    const storedKey = `${cartStore.rows[0].store_id}:${idempotencyKey}`;
     const replay = await tx.query<{ order_id: string; cart_id: string | null }>(
       `SELECT p.order_id, o.cart_id FROM payment p JOIN "order" o ON o.id = p.order_id WHERE p.idempotency_key = $1`,
-      [idempotencyKey],
+      [storedKey],
     );
     const prior = replay.rows[0];
     if (prior) {
@@ -165,7 +173,7 @@ export async function completeCart(
           'Idempotency-Key': 'reuse across carts',
         });
       }
-      return { order: await renderOrder(tx, prior.order_id), replayed: true };
+      return { order: await renderStoreOrder(tx, prior.order_id), replayed: true };
     }
 
     // ---- lock + preconditions ----
@@ -301,7 +309,7 @@ export async function completeCart(
         auth.providerPaymentId,
         cart.total_minor,
         cart.currency,
-        idempotencyKey,
+        storedKey,
         JSON.stringify({ session_id: session.session_id }),
       ],
     );
@@ -371,7 +379,7 @@ export async function completeCart(
          payment_session = $3::jsonb, updated_at = now() WHERE id = $1`,
       [cartId, order.id, JSON.stringify({ ...session, status: 'authorized' })],
     );
-    return { order: await renderOrder(tx, order.id), replayed: false };
+    return { order: await renderStoreOrder(tx, order.id), replayed: false };
   });
 }
 
