@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: 2.1, 2.1b, 2.2, 2.3, 2.4a merged · 2.4b in PR #98 (review fix pushed) · next 2.5 (#35, approved), 2.6 (#36)
+Status: 2.1, 2.1b, 2.2, 2.3, 2.4a, 2.4b (#98) merged · 2.5 (#35) in PR · next 2.6 (#36, last of Phase 2)
 
 ## Identity (does not change)
 
@@ -92,9 +92,17 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   `deploy-staging.yml` (no-op until five settings exist), the nine required checks documented, migrations as an
   ArgoCD PreSync hook running the app's own image, and the rotation path fixed with Reloader.
 
+- **2.5 — observability (issue #35)** — this PR. `--profile observability` adds collector + Prometheus +
+  Loki + Tempo + Grafana on 4317/4318, 9090, 3410, 3420, 3400; provisioned datasources and a four-panel
+  dashboard; `infra/observability/check.sh` + CI job; the OTel snippet, Sentry wiring and the trace runbook.
+  Verified by running it: all five up, four datasources healthy, a span posted to the collector read back out
+  of Tempo, span metrics reaching Prometheus with a `store_id` label, and the panel expressions returning
+  real values (0.025 req/s, p95 15.6 ms for brand-a).
+
 ## In progress
 
-- Nothing being written. 2.4b is in its PR. Then 2.5 (#35, observability) and 2.6 (#36, Vault + runbook).
+- Nothing being written. 2.5 is in its PR; 2.6 (#36, Vault + secret injection + the runbook index) is the last
+  task of Phase 2.
 
 ## Next — Phase 2 (order = GitHub issues, authoritative)
 
@@ -241,6 +249,17 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **Branch protection is unavailable on this repo** (private, free plan; the API returns 403). The nine
   required checks are documented for when it can be enabled, and `deploy-staging.yml` will then need a bypass
   allowance because it pushes to main.
+
+- **A dashboard that renders is not a dashboard that works.** Tempo's span-metrics processor promotes no
+  resource attributes by default, so `store_id` was absent from every series and all three per-store panels
+  would have been empty while looking healthy. The label is also `service`, not `service_name`. Both found by
+  posting a span and reading the label set back out of Prometheus — nothing short of running it would have
+  caught either.
+- **Grafana provisioning does not understand `${VAR:-default}`.** It expands environment variables but not
+  bash-style defaults, and authenticates with the literal string. Plain `$VAR`; put the default in compose.
+- **The observability stack is off by default and must stay that way.** `profiles: ['observability']` on all
+  five services; `infra/observability/check.sh` asserts it, because "pnpm dev unchanged" is an acceptance
+  criterion that a stray edit could quietly break.
 
 ## Blocked / waiting
 

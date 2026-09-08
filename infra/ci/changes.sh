@@ -20,21 +20,22 @@
 #              own image is caught at merge rather than never.
 #   terraform  terraform fmt/validate, and the Kubernetes manifests that go with it
 #   helm       helm lint/template + kubeconform over the charts and the ArgoCD manifests
+#   observ     the observability stack: compose profile, collector/Prometheus config, dashboards
 #   e2e        the live auth suites and the Playwright journeys — anything `code` covers, plus the
 #              realms and authorization model those suites run against
 set -euo pipefail
 
 emit() {
-  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\n' "$1" "$2" "$3" "$4" "$5"
+  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\n' "$1" "$2" "$3" "$4" "$5" "$6"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\n' "$1" "$2" "$3" "$4" "$5" >> "$GITHUB_OUTPUT"
+    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$GITHUB_OUTPUT"
   fi
 }
 
 # A push to main is never a partial build.
 if [ -n "${CHANGES_ALL:-}" ]; then
   echo 'changes: CHANGES_ALL set — every group runs' >&2
-  emit true true true true true
+  emit true true true true true true
   exit 0
 fi
 
@@ -69,6 +70,7 @@ images=false
 terraform=false
 e2e=false
 helm=false
+observ=false
 
 # Any workflow file counts as code, not just ci.yml: prettier formats .github/workflows/**, so a
 # workflow that lands unformatted would pass its own PR and then break `format:check` on somebody
@@ -83,10 +85,13 @@ fi
 if match '^(infra/terraform/|infra/kubernetes/)' || match '^\.github/workflows/ci\.yml$'; then terraform=true; fi
 if [ "$code" = true ] || match '^(infra/keycloak/|infra/openfga/|infra/docker/)' || match "$CI_SCRIPTS"; then e2e=true; fi
 if match '^(infra/helm/|infra/argocd/)' || match "$CI_SCRIPTS" || match '^\.github/workflows/ci\.yml$'; then helm=true; fi
+# The compose file is shared: it defines both the dev stack and the observability profile.
+if match '^(infra/observability/|infra/docker/docker-compose\.yml$)' || match "$CI_SCRIPTS" ||
+  match '^\.github/workflows/ci\.yml$'; then observ=true; fi
 
 if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ] && [ "$e2e" = false ] &&
-  [ "$helm" = false ]; then
+  [ "$helm" = false ] && [ "$observ" = false ]; then
   echo 'changes: documentation-only change — the heavy jobs will no-op' >&2
 fi
 
-emit "$code" "$images" "$terraform" "$e2e" "$helm"
+emit "$code" "$images" "$terraform" "$e2e" "$helm" "$observ"

@@ -139,7 +139,92 @@ services:
     volumes:
       - ../../packages/contracts/openapi:/specs:ro
 
+  # ---------------------------------------------------------------------------------------------
+  # Observability. All five carry `profiles: [observability]`, so `pnpm dev` and a plain
+  # `docker compose up` do not start them: they cost nothing until you ask for them with
+  #
+  #     docker compose -f infra/docker/docker-compose.yml --profile observability up -d
+  #
+  # Ports were picked against `Get-NetTCPConnection`, not from the defaults: Grafana's own 3000 is
+  # held by an unrelated project on this machine, Loki's 3100 is the storefront, and Tempo's 3200 is
+  # the admin end-to-end port. The collector keeps 4317/4318 because every OpenTelemetry SDK ships
+  # pointing at them — remapping those would push configuration into every app.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    profiles: ['observability']
+    command: ['--config=/etc/otel/config.yaml']
+    volumes:
+      - ../observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - '4317:4317' # OTLP gRPC — OTEL_EXPORTER_OTLP_ENDPOINT
+      - '4318:4318' # OTLP HTTP
+    depends_on:
+      - tempo
+      - loki
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    profiles: ['observability']
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=24h'
+      # Tempo's metrics-generator remote-writes the span metrics the dashboards read.
+      - '--web.enable-remote-write-receiver'
+    volumes:
+      - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - '9090:9090'
+
+  loki:
+    image: grafana/loki:3.3.2
+    profiles: ['observability']
+    command: ['-config.file=/etc/loki/config.yaml']
+    volumes:
+      - ../observability/loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - '3410:3100' # 3100 in the container is Loki's default; 3100 on the host is the storefront
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    profiles: ['observability']
+    command: ['-config.file=/etc/tempo/config.yaml']
+    volumes:
+      - ../observability/tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - '3420:3200' # 3200 in the container is Tempo's default; 3200 on the host is the admin e2e port
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ['observability']
+    environment:
+      # Local only: this is a laptop dashboard, not an exposed service. Nothing here is a secret.
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: 'true'
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+      # The read-only metrics role from migration 0110. Overridable so the same provisioning file
+      # works against a cloud database.
+      POSTGRES_METRICS_PASSWORD: ${POSTGRES_METRICS_PASSWORD:-platform_metrics}
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - '3400:3000' # 3000 on this machine belongs to an unrelated project
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
 volumes:
   postgres-data:
   redpanda-data:
   keycloak-data:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
