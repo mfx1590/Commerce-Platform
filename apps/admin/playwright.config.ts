@@ -16,11 +16,16 @@ import { defineConfig, devices } from '@playwright/test';
  * `http://localhost:3200/*` as well; once that lands, `PORT=3200 pnpm --filter @platform/admin e2e`
  * runs cleanly when another project is holding 3000.
  *
- * `channel: 'chrome'` uses the Chrome already on the machine rather than downloading Playwright's
- * bundled browsers, matching what window 3 settled on for the storefront. CI wiring is REQUEST #80,
- * since `.github/workflows/**` is not this window's to edit.
+ * **Browser (REQUEST #154).** `infra/ci/run-e2e.sh` decides the browser and exports `E2E_CHANNEL`;
+ * this file obeys it exactly: `E2E_CHANNEL=chrome` uses the Chrome already on the machine,
+ * `E2E_CHANNEL=''` (empty, but set) means Playwright's bundled chromium. Only when the variable is
+ * absent does the config choose: Chrome locally so nothing is downloaded, bundled chromium on CI
+ * because it is version-matched to `@playwright/test` in the lockfile. The `?? …` then `? :` shape
+ * is what makes empty mean chromium — a bare `??` would treat `''` as a real channel name.
  */
 const PORT = process.env.PORT ?? '3000';
+const CHANNEL = process.env.E2E_CHANNEL ?? (process.env.CI ? undefined : 'chrome');
+const browser = CHANNEL ? { channel: CHANNEL } : {};
 const APP_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
 /**
  * The Prism mock this run starts, and the only Admin API the app under test is allowed to see.
@@ -51,12 +56,12 @@ export default defineConfig({
 
   use: {
     baseURL: APP_URL,
-    channel: 'chrome',
+    ...browser,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
 
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], ...browser } }],
 
   webServer: [
     {
