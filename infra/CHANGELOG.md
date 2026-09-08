@@ -271,6 +271,35 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   environment variables but does not understand bash-style defaults, so it authenticated with a literal and
   failed. Plain `$VAR`, with the default in the compose file.
 
+### Added (task 2.6 — secret injection and the runbook index, issue #36)
+
+- `infra/terraform/modules/external-secrets` — the IRSA role External Secrets Operator assumes. Read-only, and
+  scoped to one environment's `<env>/platform/*` and `<env>/stores/*`: it cannot read another environment's
+  secrets and cannot write, because an operator that can write can silently replace a credential nobody chose.
+  The operator itself stays a Helm release in the bootstrap runbook — a cluster add-on with CRDs, and
+  Terraform holding Kubernetes objects would make every `plan` need cluster credentials.
+- `infra/kubernetes/external-secrets/cluster-secret-store.yaml` — cluster-scoped, so a bootstrap step rather
+  than something an ArgoCD sync may create.
+- The secret naming scheme, documented in `infra/README.md`: `<env>` first so the IAM policy is a prefix and
+  not a pattern, per-store paths for anything a store owns, and the store _code_ rather than its UUID so a
+  human granting access can read the path. ADR requested in #155 (`docs/adr/**` is main's).
+- CI job `secrets`: the `gitleaks` **CLI in a container**, over the repository **and its history**, unconditionally — a path filter on a
+  secret scan only guarantees that the PR adding a key to an unwatched directory is the one not scanned.
+  `infra/gitleaks.toml` extends the default ruleset and only adds allowlists, each with a stated reason.
+- Runbook index at the top of `infra/README.md` covering the six flows, with **rotating a secret** and
+  **rolling back a deploy** written out: rotation is two steps and the second (making running pods notice) is
+  the one people forget, and a rollback is a git revert precisely so that the next ArgoCD sync does not undo
+  it.
+
+### Changed
+
+- `infra/ci/run-e2e.sh` no longer greps each app's Playwright config for `channel: 'chrome'` (#99). It exports
+  `E2E_CHANNEL` and installs what it asked for. On CI it installs both browsers for now, because
+  `apps/admin/playwright.config.ts` still pins the channel and ignores the variable (REQUEST #154) — removing
+  the grep without that would have broken the admin journey the first time it ran in CI.
+- Two README nits: the orphaned `helm/ … argocd/` bullet stranded after the Observability section, and the
+  OTel snippet's `store_id`, which was a slug where `app.outbox_lag()` returns a uuid.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).
