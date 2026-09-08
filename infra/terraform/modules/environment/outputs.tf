@@ -184,6 +184,16 @@ output "database_secret_arns" {
   }
 }
 
+output "external_secrets_role_arn" {
+  description = "Annotate the External Secrets service account with this (bootstrap runbook step 3)."
+  value       = module.external_secrets.role_arn
+}
+
+output "external_secrets_readable_prefixes" {
+  description = "The only Secrets Manager paths the operator can read — one environment, read-only."
+  value       = module.external_secrets.secret_prefixes
+}
+
 output "redis_secret_arn" {
   description = "Secrets Manager ARN for the Redis auth token and URL."
   value       = module.redis.secret_arn

@@ -329,6 +329,28 @@ jobs:
         if: needs.changes.outputs.observ == 'true'
         run: bash infra/observability/check.sh
 
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks scans history, not just the diff: a credential committed and then "removed" in
+          # a later commit is still in the repository and still in every clone.
+          fetch-depth: 0
+      # The CLI in a container rather than gitleaks/gitleaks-action, for two reasons. The action
+      # needs `pull-requests: write` to post its findings as a comment and fails the job with
+      # "Resource not accessible by integration" without it — and a comment quoting a finding is
+      # the last place a leaked credential should be republished. The job failing is signal enough;
+      # the log is redacted.
+      #
+      # Unconditional, on every change, no path filter. A path filter on a secret scan only means
+      # the one PR that adds a key to an unwatched directory is the one that is not scanned.
+      - name: scan the repository and its history
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo zricethezav/gitleaks:latest \
+            git . --config infra/gitleaks.toml --redact --no-banner --exit-code 1
+
   preview:
     name: preview deploy (placeholder)
     if: github.event_name == 'pull_request'

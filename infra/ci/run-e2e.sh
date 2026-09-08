@@ -46,28 +46,57 @@ for cfg in "${configs[@]}"; do
   echo "== $pkg: building workspace dependencies"
   pnpm exec turbo run build --filter="$pkg^..."
 
-  # Browser choice. On CI, Playwright's own chromium — smaller, and version-matched to the
-  # @playwright/test in the lockfile. Locally, the Chrome already on the machine, so nothing is
-  # downloaded. A config that still pins `channel: 'chrome'` forces the Chrome channel either way:
-  # installing chromium for it would fail at run time with "Chromium distribution 'chrome' is not
-  # found". REQUEST #84 asks windows 3 and 4 to make that conditional; this picks chromium up by
-  # itself the moment they do, with no change here.
-  if [ -n "${E2E_BROWSER:-}" ]; then
-    browser="$E2E_BROWSER"
-  elif [ -n "${CI:-}" ] && ! grep -Eq "channel: *['\"]chrome['\"]" "$cfg"; then
-    browser=chromium
+  # Browser choice, by intent rather than by inspection (REQUEST #99). The script says what it
+  # wants through E2E_CHANNEL and installs exactly that; it does not read anyone's config.
+  #
+  # Grepping the config for `channel: 'chrome'` was the previous mechanism and it failed silently
+  # in both directions — double quotes, a variable, or the string in a comment all changed the
+  # outcome without changing behaviour. `playwright test --list --reporter=json` was the suggested
+  # alternative, but this Playwright version does not report `use.channel` in that output (checked:
+  # the project object carries name, testDir, timeout and no `use`), so there is nothing to parse.
+  #
+  # On CI both browsers are installed. That is deliberate, and temporary: apps/storefront-starter
+  # honours E2E_CHANNEL, apps/admin still pins `channel: 'chrome'` in its config and ignores the
+  # variable (REQUEST #154). Installing only what this script intends would leave the admin journey
+  # failing at run time with "Chromium distribution 'chrome' is not found". Installing both costs
+  # one download and cannot be wrong. When every config honours E2E_CHANNEL this collapses back to
+  # a single install of "$channel".
+  if [ -n "${E2E_CHANNEL+x}" ]; then
+    channel="$E2E_CHANNEL" # caller was explicit; obey it exactly
+  elif [ -n "${CI:-}" ]; then
+    channel='' # bundled chromium: version-matched to @playwright/test, lighter to install
   else
-    browser=chrome
+    channel='chrome' # the Chrome already on the machine, so nothing is downloaded
+  fi
+  # UNSET rather than export empty for bundled chromium. The configs read
+  # `process.env.E2E_CHANNEL ?? (CI ? undefined : 'chrome')`, and `??` does not catch an empty
+  # string — exporting '' would hand Playwright `channel: ''`, which is not a channel. Unset lets
+  # their documented fallback apply. REQUEST #154 asks for a falsy check so that empty can mean
+  # "bundled chromium" explicitly, and this becomes a plain export.
+  if [ -z "$channel" ]; then
+    unset E2E_CHANNEL
+  else
+    export E2E_CHANNEL="$channel"
+  fi
+
+  if [ -n "${CI:-}" ]; then
+    browsers='chromium chrome'
+  elif [ -z "$channel" ]; then
+    browsers='chromium'
+  else
+    browsers="$channel"
   fi
 
   # Install from the package that declares @playwright/test — `pnpm exec playwright` at the
   # workspace root cannot find it, because it is a dependency of the app, not of the root.
   # `--with-deps` installs system libraries with sudo: right on a runner, rude on a laptop.
-  echo "== $pkg: installing browser '$browser'"
+  echo "== $pkg: E2E_CHANNEL='$channel', installing: $browsers"
   if [ -n "${CI:-}" ]; then
-    pnpm --filter "$pkg" exec playwright install --with-deps "$browser"
+    # shellcheck disable=SC2086 -- $browsers is a deliberate word list
+    pnpm --filter "$pkg" exec playwright install --with-deps $browsers
   else
-    pnpm --filter "$pkg" exec playwright install "$browser"
+    # shellcheck disable=SC2086
+    pnpm --filter "$pkg" exec playwright install $browsers
   fi
 
   run_env=()

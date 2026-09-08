@@ -92,6 +92,88 @@
 - `terraform/` — AWS `dev` and `staging`. Window 5.
 - `observability/` — the OTel collector, Prometheus, Loki, Tempo and Grafana. Off unless asked for.
 
+## Runbook index
+
+Six flows, each with literal commands. Nothing here has been run against a real AWS account — there
+is not one yet — so every step is written to be read by someone who has just been given credentials.
+
+| flow                                 | where                                                                               |
+| ------------------------------------ | ----------------------------------------------------------------------------------- |
+| Bootstrap an empty AWS account → dev | [An empty AWS account → dev → staging](#runbook-an-empty-aws-account--dev--staging) |
+| Bring up staging                     | same section, step 6                                                                |
+| Bootstrap ArgoCD on the cluster      | [Bootstrapping ArgoCD](#runbook-bootstrapping-argocd-on-a-fresh-cluster)            |
+| Deploy a commit to staging           | [Deploying staging](#deploying-staging)                                             |
+| Roll back a deploy                   | [Rolling back](#rolling-back-a-deploy)                                              |
+| Rotate a secret                      | [Rotating a secret](#rotating-a-secret)                                             |
+
+### Rotating a secret
+
+Rotation is two steps: change the value, then make the pods notice. The second is the one people
+forget — `envFrom` reads a Secret once, when the container starts.
+
+**A Terraform-generated secret** (the database roles, Redis, the app secrets). Terraform owns the
+value, so rotate by tainting the generator and applying:
+
+```bash
+cd infra/terraform/envs/staging
+terraform apply -replace='module.environment.module.postgres.random_password.app' -var-file=terraform.tfvars
+```
+
+The new value lands in Secrets Manager. The `platform_app` role's password is then re-applied by the
+bootstrap Job on the next sync — it is idempotent and does exactly this (`infra/kubernetes/bootstrap-db`).
+
+**A third-party credential** (a PSP key, a carrier login). Nothing generates it; replace the value:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id staging/stores/brand-a/stripe \
+  --secret-string '{"STRIPE_SECRET_KEY":"sk_live_…","STRIPE_WEBHOOK_SECRET":"whsec_…"}'
+```
+
+**Then make it reach the pods.** External Secrets refreshes the Kubernetes Secret within
+`refreshInterval` (1h by default); the running pods still hold the old value until they restart:
+
+```bash
+# If Reloader is installed (bootstrap step 3b), this happens by itself within the refresh interval.
+kubectl -n external-secrets annotate externalsecret core force-sync=$(date +%s) --overwrite  # refresh now
+kubectl -n commerce-staging rollout status deploy/core                                        # watch it land
+```
+
+Without Reloader, or to skip the wait:
+
+```bash
+kubectl -n commerce-staging rollout restart deploy/core
+```
+
+**Verify, then revoke the old credential** — in that order. A rotation that is only half applied is
+worse than one not started, because the old key gets revoked while half the pods still use it:
+
+```bash
+kubectl -n commerce-staging get pods -l app.kubernetes.io/name=core   # all Running, none old
+argocd app wait core-staging --health --timeout 300
+```
+
+### Rolling back a deploy
+
+The deployed image tag is in git (`infra/helm/values/<app>/values-staging.yaml`), so a rollback is a
+revert — which is also why it survives a subsequent ArgoCD sync:
+
+```bash
+git revert <the deploy commit>      # "deploy: staging -> abc123def456"
+git push origin main
+```
+
+For an urgent rollback, ArgoCD's own history is faster, but **it is undone by the next sync** unless
+the revert above follows:
+
+```bash
+argocd app history core-staging
+argocd app rollback core-staging <revision>
+```
+
+A rollback does **not** undo a migration. Schema changes must be backwards compatible for exactly this
+reason: the previous image has to run against the migrated schema.
+
 ## Observability
 
 ```bash
@@ -139,7 +221,8 @@ new NodeSDK({
     'service.name': process.env.OTEL_SERVICE_NAME ?? 'core',
     'deployment.environment': process.env.NODE_ENV ?? 'development',
     // The dimension this platform is sliced by. Without it every per-store panel is empty.
-    store_id: process.env.STORE_ID ?? 'unknown',
+    // A uuid: `app.outbox_lag()` returns `store_id uuid`, and the dashboard joins the two.
+    store_id: process.env.STORE_ID ?? '00000000-0000-4000-8000-000000000002',
   }),
   instrumentations: [getNodeAutoInstrumentations()],
 }).start();
@@ -233,8 +316,6 @@ poison message.
 
 For this to produce anything, the apps must emit spans — which is the snippet above, and belongs to
 the app windows.
-
-- `helm/` — one chart, instantiated per app per environment. `argocd/` — the Applications that do it.
 
 ## Helm
 
@@ -554,6 +635,88 @@ Two things worth knowing about that list:
 
 `preview deploy (placeholder)` is intentionally **not** required — it is a placeholder that will become the
 per-PR preview environment.
+
+## Secrets
+
+One rule: **a secret value never exists in git, in a values file, in a Helm chart, or in a terminal
+scrollback.** Everything below is machinery for keeping that true while still letting a pod read a
+credential.
+
+```
+Terraform generates it ──> AWS Secrets Manager ──> External Secrets ──> Kubernetes Secret ──> envFrom
+```
+
+Locally none of that runs: `.env` (copied from `.env.example` by `pnpm dev`) holds well-known
+development values, and every one of them is in `infra/gitleaks.toml`'s allowlist by name, so a _new_
+secret-shaped string still fails the scan.
+
+### The naming scheme
+
+```
+<env>/platform/<component>            platform-wide, one per environment
+<env>/platform/database/owner         the migration role      (Terraform)
+<env>/platform/database/app           the RLS-subject app role (Terraform)
+<env>/platform/database/medusa-owner  Medusa's migration role  (Terraform)
+<env>/platform/redis                  auth token + URL         (Terraform)
+<env>/platform/app                    JWT/COOKIE/ADMIN_SESSION (Terraform)
+
+<env>/stores/<store_code>/<provider>  per-store third-party credentials
+<env>/stores/brand-a/stripe           PSP keys for one store
+<env>/stores/brand-a/dhl              carrier credentials for one store
+```
+
+`<env>` first, not last. It is the only segment that must never be crossed, and putting it first makes
+the IAM policy a prefix rather than a pattern: the External Secrets role for `staging` can read
+`staging/*` and is structurally incapable of reading `dev/*`, let alone the other way round.
+
+`<store_code>` is the store's stable code (`brand-a`), not its UUID — a human granting or revoking
+access should be able to read the path and know what it is.
+
+**Per-store, not per-platform, for anything a store owns.** Stripe keys belong to a legal entity, and
+brand B's refund must not be able to use brand A's key. The wildcard in the IAM policy
+(`<env>/stores/*`) is what lets a new store be onboarded without a Terraform run; the _scoping_ is
+done by which ExternalSecret a chart declares, not by the role.
+
+### Adding a per-store credential
+
+```bash
+aws secretsmanager create-secret \
+  --name staging/stores/brand-a/stripe \
+  --secret-string '{"STRIPE_SECRET_KEY":"sk_live_…","STRIPE_WEBHOOK_SECRET":"whsec_…"}'
+```
+
+Then reference it from the app's values file — the name only, never the value:
+
+```yaml
+externalSecrets:
+  enabled: true
+  remoteKeys:
+    - key: staging/stores/brand-a/stripe
+```
+
+### Why External Secrets rather than Vault
+
+The fixed decision is managed-first, and AWS Secrets Manager is already there: Terraform writes to it,
+IAM already governs it, and rotation is an API call rather than another stateful service to run,
+unseal and back up. External Secrets Operator is the adapter — the charts would not change if a later
+phase swapped the backend for Vault, because they name a _key_, not a store.
+
+The naming scheme has an ADR pending in [REQUEST #155](https://github.com/mfx1590/Commerce-Platform/issues/155)
+— `docs/adr/**` belongs to the main window.
+
+The operator's IAM role (`infra/terraform/modules/external-secrets`) is read-only and scoped to one
+environment's two prefixes. It cannot write: an operator that can write is an operator that can
+silently replace a credential nobody chose.
+
+### Secret scanning
+
+CI runs `gitleaks` over the repository **and its history** on every change, with no path filter — a
+path filter on a secret scan only guarantees that the one PR adding a key to an unwatched directory is
+the one that is not scanned. History matters because a credential committed and then "removed" in a
+later commit is still in the clone.
+
+`infra/gitleaks.toml` extends the default ruleset and only _adds_ allowlists, each with a reason.
+Verified both ways: the tracked tree scans clean, and a planted `ghp_…` token is still caught.
 
 ## Terraform
 

@@ -13,6 +13,17 @@ export const coreErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
     res.status(err.status).json(err.toBody());
     return;
   }
+  // body-parser (express.json) errors: malformed JSON, wrong charset, too large. They carry `expose: true` and
+  // a 4xx status; rendered as the contract's validation_error instead of leaking as 500 `internal`.
+  const parse = err as { type?: string; status?: number; expose?: boolean; message?: string };
+  if (typeof parse?.type === 'string' && parse.type.startsWith('entity.') && parse.expose) {
+    res.status(parse.status ?? 400).json({
+      code: 'validation_error',
+      message: 'invalid request body',
+      details: { body: parse.type },
+    });
+    return;
+  }
   console.error(`[core] unhandled error on ${req.method} ${req.path}:`, err);
   res.status(500).json({ code: 'internal', message: 'internal error' });
 };

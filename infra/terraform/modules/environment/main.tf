@@ -336,6 +336,17 @@ resource "aws_secretsmanager_secret_version" "app" {
   })
 }
 
+# External Secrets Operator's IAM role. The operator itself is a Helm release from the bootstrap
+# runbook; only the AWS half belongs to Terraform.
+module "external_secrets" {
+  source = "../external-secrets"
+
+  name              = var.name
+  oidc_provider_arn = module.cluster.oidc_provider_arn
+  oidc_provider_url = module.cluster.oidc_provider_url
+  tags              = local.tags
+}
+
 module "ci_oidc" {
   source = "../ci-oidc"
 

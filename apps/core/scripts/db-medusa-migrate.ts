@@ -52,6 +52,12 @@ async function runMedusaMigrations(schema: string, medusaUrl: string): Promise<v
   process.env.DATABASE_URL_MEDUSA_OWNER = medusaUrl;
   process.env.MEDUSA_DB_SCHEMA = schema;
   process.env.MEDUSA_WORKER_MODE = 'server';
+  // This script runs under tsx, but Medusa's loaders also call ts-node's `register()` (present since #60) for
+  // TypeScript projects. ts-node then hooks `.ts` behind tsx and TYPE-CHECKS tsx's transpiled CommonJS output of
+  // medusa-config.ts (dozens of TS7006 "implicitly any" errors on line 2, and the run reports a failure after the
+  // module migrations have already succeeded — Integration 1 finding). Transpile-only turns that hook into a
+  // no-op pass-through; `pnpm typecheck` is where medusa-config.ts is type-checked.
+  process.env.TS_NODE_TRANSPILE_ONLY ??= '1';
   // Imported lazily so the env above is set before medusa-config.ts is evaluated.
   const { initializeContainer } = await import('@medusajs/medusa/loaders/index');
   const { migrate } = await import('@medusajs/medusa/commands/db/migrate');
