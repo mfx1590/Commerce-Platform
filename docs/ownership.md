@@ -10,7 +10,7 @@ Branch prefix → allowed write paths. Everything else is read-only for that bra
 | `storefront/` | 3 — Storefront starter & UI kit | `apps/storefront-starter/**`, `packages/ui/**` |
 | `admin/` | 4 — Admin application | `apps/admin/**` |
 | `infra/` | 5 — Infra & DevOps | `infra/**`, `.github/workflows/**`, `**/Dockerfile`, `.dockerignore` |
-| `cms/` | 6 — CMS & landing pages | `cms/**`, `apps/storefront-starter/src/app/(content)/**`, `apps/storefront-starter/src/lib/cms/**` |
+| `cms/` | 6 — CMS & landing pages | `cms/**`, `apps/storefront-starter/src/app/(content)/**`, `apps/storefront-starter/src/app/api/cms/**`, `apps/storefront-starter/src/lib/cms/**` |
 | `payments/` | 7 — Payments, tax, fraud | `apps/core/src/modules/payments/**`, `apps/core/src/modules/tax/**`, `apps/core/src/modules/fraud/**` |
 | `shipping/` | 8 — Shipping & fulfillment | `apps/core/src/modules/fulfillment/**`, `apps/core/src/modules/shipping/**` |
 | `search/` | 9 — Search, media, promotions | `apps/core/src/modules/search/**`, `apps/core/src/modules/promotions/**`, `apps/core/src/jobs/index-*.ts` |
