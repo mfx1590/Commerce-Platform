@@ -100,8 +100,8 @@ Objects (the pieces a marketer composes with) and documents (what has a URL or a
 | `footerColumn`    | object   | **heading**, **links** (1–10)                                                                               |
 | `page`            | document | **title**, **slug**, **locale**, hero, blocks, seo                                                          |
 | `campaignLanding` | document | **title**, **slug**, **locale**, campaignId, **hero**, blocks, startsAt, endsAt (after startsAt), seo       |
-| `navigation`      | document | **key** `main` / `utility`, **locale**, **items** (1–8 navItems)                                            |
-| `footer`          | document | **locale**, columns (≤4), legalLinks (≤6), socialLinks (≤6), copyright                                      |
+| `navigation`      | document | **key** `main` / `utility` (unique per locale), **locale**, **items** (1–8 navItems)                        |
+| `footer`          | document | **locale** (one footer per locale), columns (≤4), legalLinks (≤6), socialLinks (≤6), copyright              |
 | `legal`           | document | **title**, **slug**, **locale**, **kind** terms/privacy/imprint/cookies/returns, **body**, **lastReviewed** |
 
 Blocks available inside `page.blocks` and `campaignLanding.blocks`: hero, richText, imageBlock,
@@ -109,8 +109,8 @@ productStory, cta.
 
 **What is deliberately not in the CMS.** Prices, stock, variants and the buy button: a
 `productStory` names a product by its handle and the storefront loads the product live from the
-Store API (ADR 0004). Links are storefront paths or `https://` URLs only — `javascript:` and
-`mailto:` are rejected at the schema.
+Store API (ADR 0004). Links are storefront paths (one leading slash) or `https://` URLs only — `javascript:`,
+`mailto:`, `http://` and protocol-relative `//host` links are rejected at the schema.
 
 `campaignLanding.campaignId` is the id of a marketing campaign (Admin → Marketing → Campaigns,
 window 17): it lets reporting join a landing page to its campaign. It is plain text in Phase 2; the
@@ -143,6 +143,22 @@ Brand content for `de-DE` is a copy of the `en-GB` documents with the locale cha
    falls back to its static chrome when one is missing (task 2.3).
 4. Legal pages usually differ per market, not just per language: `legal.kind` stays the same,
    the body is the market's text.
+
+## How a marketer publishes a page
+
+1. Open the Studio, pick the brand workspace, **Page → New**. Title, slug and language; the slug
+   becomes the address: `about` in `en-GB` is `/en-GB/pages/about`.
+2. Add a hero (its headline is the page heading) and blocks: text, image (alt text required),
+   product story (the product handle from the shop URL — price and stock come from the shop), call
+   to action. SEO tab for the meta title, description and share image.
+3. **Publish.** The storefront shows the page within seconds; the header and footer come from the
+   **Navigation** and **Footer** documents for the same language (one of each per language), and
+   until those exist the storefront shows its built-in links.
+4. Legal pages are **Legal page** documents at `/<locale>/legal/<slug>` with a kind (terms,
+   privacy, imprint, cookies, returns) and a "last reviewed" date the page displays.
+5. A translation is a second document with the same slug and another language (see "Adding a
+   locale"). To preview drafts before publishing, use the Studio's preview link
+   (`/api/cms/preview?…`); a banner marks preview mode and offers the way out.
 
 ## How a marketer builds a landing page
 
