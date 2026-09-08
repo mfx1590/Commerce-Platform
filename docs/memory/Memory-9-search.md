@@ -18,7 +18,7 @@ Algolia index per brand synced from product.published events, merchandising rule
 
 ## Done
 - [x] **#134 · 2.1** Algolia index per brand with full and incremental sync — commit `d258257`, PR #160 (reviewed MERGE, manager merging 2026-09-08). Module `apps/core/src/modules/search` + `apps/core/src/jobs/index-products.ts`. Tests: search.test.ts (9), algolia-client.test.ts, search-live.test.ts (skips without credentials).
-- [x] **#135 · 2.2** Merchandising rules API — commit `<sha set at commit>` (local; PR to open when the manager lifts the push hold). CONTRACT CHANGE #162 filed with the exact YAML + SQL (`proposed/` folder in the module). Built against the proposed table (tests apply the SQL) + `MemoryRulesRepository` mock; `merchandisingRouter` awaits window 1's mount (REQUEST inside #162). Reviewer nits from #160 folded in (replaceAll masking, retry/backoff, README limits).
+- [x] **#135 · 2.2** Merchandising rules API — commit `2fa93d9` (local; PR to open when the manager lifts the push hold). CONTRACT CHANGE #162 filed with the exact YAML + SQL (`proposed/` folder in the module). Built against the proposed table (tests apply the SQL) + `MemoryRulesRepository` mock; `merchandisingRouter` awaits window 1's mount (REQUEST inside #162). Reviewer nits from #160 folded in (replaceAll masking, retry/backoff, README limits).
 
 ## In progress
 - (nothing — 2.3 starts next; 2.2 commit waits for "push ok" from the manager, then `git push` + PR titled "search 2.2: Merchandising rules API (#135)")
