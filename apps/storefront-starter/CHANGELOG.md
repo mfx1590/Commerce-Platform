@@ -1,5 +1,15 @@
 # Changelog — @platform/storefront-starter
 
+## 0.8.1 — 2026-09-08
+
+CONTRACT CHANGE #100 accepted (Store API 0.2.0): `metadata` is now specified on `Cart`, `Order`,
+`createCart` and `updateCart`, so the local type extension in `src/lib/cart.ts` is deleted and the
+bodies use `Body<'createCart'>` / `Body<'updateCart'>` straight from the contract. No behaviour
+change — the same JSON is sent.
+
+`CartMetadata` becomes a type alias rather than an interface: the contract declares `metadata` with
+an index signature, and only a type alias gets the implicit index signature that satisfies it.
+
 ## 0.8.0 — 2026-09-07
 
 Task [storefront] 1.8 (issue #62), contracts `0.2.0`. Closes Phase 1 for this window.

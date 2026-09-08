@@ -218,11 +218,10 @@ Sent at `POST /store/carts`, and again with `PATCH /store/carts/{id}` immediatel
 `POST …/complete`, so the last touch is the campaign that closed the sale rather than the one that
 created the cart days earlier. It goes on the _cart_ because `complete` takes no request body.
 
-**For window 17 (and window 1):** the core is expected to copy `cart.metadata` to `order.metadata` at
-placement, which is where reporting should read it. `metadata` does **not** exist in contracts-v0.1 —
-the storefront sends it anyway (the mock accepts it, since neither schema forbids extra properties)
-and **CONTRACT CHANGE #100** asks for the field to be specified. Until that lands, `src/lib/cart.ts`
-carries a one-line local type extension; delete it when #100 is accepted.
+**For window 17 (and window 1):** the core copies `cart.metadata` to `order.metadata` at placement,
+which is where reporting should read it. `metadata` is specified in the contract as of Store API
+0.2.0 (CONTRACT CHANGE #100), so the storefront types these bodies straight from
+`@platform/contracts/store`.
 
 ## Accounts
 

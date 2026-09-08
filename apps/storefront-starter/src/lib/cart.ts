@@ -11,15 +11,6 @@ import { getCurrency } from './i18n';
 import { getStoreOrNull } from './store';
 import { isNotFound, storeApi, type Body, type Cart } from './store-api';
 
-/**
- * `metadata` is not in contracts-v0.1 — it does not exist anywhere in the Store API spec
- * (CONTRACT CHANGE #100). The mock accepts it because neither schema sets
- * `additionalProperties: false`, and it is the field the core will read once the change lands.
- * Typed here so the gap is one declaration in one place; delete this when #100 is accepted.
- */
-type CreateCartBody = Body<'createCart'> & { metadata?: CartMetadata };
-type UpdateCartBody = Body<'updateCart'> & { metadata?: CartMetadata };
-
 /** The attribution captured by the middleware, ready for `cart.metadata`. */
 export async function cartMetadata(): Promise<CartMetadata | undefined> {
   const raw = (await cookies()).get(ATTRIBUTION_COOKIE)?.value;
@@ -37,7 +28,7 @@ export async function refreshCartAttribution(cartId: string): Promise<void> {
   const metadata = await cartMetadata();
   if (metadata === undefined) return;
 
-  const body: UpdateCartBody = { metadata };
+  const body: Body<'updateCart'> = { metadata };
   try {
     await storeApi().updateCart(cartId, body);
   } catch (error) {
@@ -102,7 +93,7 @@ export async function getOrCreateCart(): Promise<Cart> {
     getLocale(),
     cartMetadata(),
   ]);
-  const body: CreateCartBody = {
+  const body: Body<'createCart'> = {
     currency,
     locale,
     ...(store === null ? {} : { country: store.default_country }),

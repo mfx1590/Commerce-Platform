@@ -142,10 +142,16 @@ export function mergeAttribution(
   return { first: existing.first, last: touch, captured_at: touch.at };
 }
 
-/** What goes into `cart.metadata`. Kept as its own type so the API shape is one thing, not three. */
-export interface CartMetadata {
+/**
+ * What goes into `cart.metadata`. Kept as its own type so the API shape is one thing, not three.
+ *
+ * A `type` rather than an `interface` on purpose: the contract declares `metadata` with an index
+ * signature (`{ [key: string]: unknown }`), and only a type alias gets the implicit index signature
+ * that makes it assignable to one.
+ */
+export type CartMetadata = {
   attribution: Attribution;
-}
+};
 
 export function metadataFor(attribution: Attribution | null): CartMetadata | undefined {
   return attribution === null ? undefined : { attribution };

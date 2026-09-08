@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: 1.1-1.7 merged (#39, #64, #66, #76, #96, #97), 1.8 in PR #101 — **that is all of Phase 1 for this window**
+Last updated: 2026-09-07 · Contracts: **0.2.0** · Branch: `storefront/phase1` · Status: **Phase 1 complete** — 1.1-1.8 all merged (#39, #64, #66, #76, #96, #97, #101). Idle until Integration 1.
 
 ## Identity (does not change)
 
@@ -95,6 +95,11 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
       both endpoints (201/200). 20 new unit tests → 157. **CONTRACT CHANGE #100 filed:** `metadata`
       is absent from contracts-v0.1 entirely, contrary to the issue's premise.
 
+- [x] **Follow-up to #100** — the local `metadata` type extension in `src/lib/cart.ts` is deleted;
+      the bodies now come straight from the contract (Store API 0.2.0). `CartMetadata` had to become
+      a type alias: the contract declares `metadata` with an index signature, and only a type alias
+      gets the implicit index signature that satisfies it. No behaviour change.
+
 ## In progress
 
 - (nothing — 1.4 next, after the 1.3 PR merges)
@@ -118,6 +123,20 @@ the Prism mock on `http://localhost:4010` (header `X-Publishable-Key`, any value
      adding a dependency (the `lighthouserc` and `@lhci/cli` belong to task 1.7). Numbers recorded here.
   7. Tests for the resolver and the search-param parsing; README/CHANGELOG; PR.
 -->
+
+## Next — when this window next opens (nothing is urgent; Phase 1 is closed)
+
+- [ ] **The attribution cookie has no size ceiling.** Six values × 200 characters × two touches plus
+      the referrer and paths could approach the 4 KB cookie limit, at which point the browser drops
+      it silently and attribution disappears with no error anywhere. Cap the serialised length in
+      `mergeAttribution` (or shrink `MAX_VALUE_LENGTH`) and add a test that a worst-case set of
+      values stays comfortably under. Raised by the manager reviewing #101.
+- [ ] **`cartMetadata()`'s cookie read sits outside the inner try/catch** in
+      `refreshCartAttribution`, so a failure reading or parsing the cookie would throw out of the
+      "never fatal" path and could cost the order it is supposed to protect. Move the read inside.
+      Raised by the manager reviewing #101.
+- [ ] `(account)` and `(content)` copy is still English-only — recorded for windows 13 and 6, not
+      this window's work.
 
 ## Next — Phase 1 (GitHub issues; acceptance criteria there are authoritative)
 
