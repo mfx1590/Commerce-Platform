@@ -3,6 +3,7 @@
 // bought labels live in a Map for the lifetime of the process. It is the default provider of every store, the
 // fallback when a carrier is down (task 2.2) and the fixture every other test uses.
 import { createHash } from 'node:crypto';
+import { BoundedTtlMap } from './bounded-map';
 import { CarrierError } from './redact';
 import type {
   AddressValidation,
@@ -94,9 +95,19 @@ const totalWeightG = (parcels: Parcel[]): number =>
 /** Charge per *started* kilogram: 1 g and 1000 g both cost one unit, 1001 g costs two. */
 const startedKg = (weightG: number): number => Math.max(1, Math.ceil(weightG / 1000));
 
+export interface ManualProviderLimits {
+  /** Quotes kept for a later `buyLabel`, and for how long (default 500 entries, 30 minutes). */
+  rateIndexMaxEntries?: number;
+  rateIndexTtlMs?: number;
+  /** Bought labels kept for `track` and `voidLabel` (default 1000 entries, 24 hours). */
+  labelMaxEntries?: number;
+  labelTtlMs?: number;
+}
+
 export function createManualCarrierProvider(
   config: ManualCarrierConfig = DEFAULT_MANUAL_CONFIG,
   name = 'manual',
+  limits: ManualProviderLimits = {},
 ): CarrierProvider & {
   /** Records a carrier scan on a bought label. Tests and the local webhook fixture of task 2.3 use it. */
   advanceTracking(
@@ -107,8 +118,15 @@ export function createManualCarrierProvider(
   /** Forgets every bought label. Tests only. */
   reset(): void;
 } {
-  const labels = new Map<string, StoredLabel>();
-  const rateIndex = new Map<string, { rate: CarrierRate; request: RateRequest }>();
+  // Both indexes are bounded and expiring: this provider lives for the life of the process.
+  const labels = new BoundedTtlMap<StoredLabel>({
+    maxEntries: limits.labelMaxEntries ?? 1000,
+    ttlMs: limits.labelTtlMs ?? 24 * 60 * 60_000,
+  });
+  const rateIndex = new BoundedTtlMap<{ rate: CarrierRate; request: RateRequest }>({
+    maxEntries: limits.rateIndexMaxEntries ?? 500,
+    ttlMs: limits.rateIndexTtlMs ?? 30 * 60_000,
+  });
 
   const rates = async (request: RateRequest): Promise<CarrierRate[]> => {
     const currency = request.currency.toUpperCase();

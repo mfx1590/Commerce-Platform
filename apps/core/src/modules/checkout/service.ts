@@ -9,7 +9,6 @@ import { orderMetadataFromCart, recordAttribution } from '../../lib/attribution'
 import { AppError, notFound, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import {
-  assertLinesInStock,
   currentShippingRateProvider,
   loadCart,
   loadLines,
@@ -20,6 +19,7 @@ import {
   type CartRow,
   type PricingContext,
 } from '../cart';
+import { reserveForOrder } from '../inventory';
 import { renderStoreOrder } from '../orders';
 import { paymentProvider, registeredPaymentProviders } from './payment';
 import type {
@@ -196,7 +196,7 @@ export async function completeCart(
         shipping_option_id: 'no longer available for this destination',
       });
     }
-    await assertLinesInStock(tx, cartId);
+    // Stock is checked by the reservation below, under the level rows' locks (inventory module, task 2.4).
 
     // ---- payment ----
     const session = cart.payment_session!;
@@ -213,173 +213,218 @@ export async function completeCart(
       });
     }
 
-    // ---- order ----
-    const option = await tx.query<{ code: string; name: string; carrier: string }>(
-      `SELECT code, name, carrier FROM shipping_option WHERE id = $1`,
-      [cart.shipping_option_id],
-    );
-    const optionRow = option.rows[0];
-    if (!optionRow) {
-      throw validationError('cart is not ready for checkout', {
-        shipping_option_id: 'unknown shipping option',
-      });
-    }
-    const shippingMethod = {
-      code: optionRow.code,
-      name: optionRow.name,
-      carrier: optionRow.carrier,
-      price_minor: Number(cart.shipping_minor),
-    };
-    const email = cart.email!.trim();
-    const metadata = orderMetadataFromCart(cart.metadata);
-    const inserted = await tx.query<OrderInsertRow>(
-      `INSERT INTO "order" (organization_id, store_id, sales_channel_id, cart_id, customer_id, email, currency, locale,
+    // Everything after a successful authorisation runs under a guard: any throw (out_of_stock from the
+    // reservation, a shipping-option race, a database error) rolls the transaction back, and the provider's
+    // authorisation is voided before rethrowing so no dangling hold survives (Stripe depends on it; #174 review).
+    try {
+      // ---- order ----
+      const option = await tx.query<{ code: string; name: string; carrier: string }>(
+        `SELECT code, name, carrier FROM shipping_option WHERE id = $1`,
+        [cart.shipping_option_id],
+      );
+      const optionRow = option.rows[0];
+      if (!optionRow) {
+        throw validationError('cart is not ready for checkout', {
+          shipping_option_id: 'unknown shipping option',
+        });
+      }
+      const shippingMethod = {
+        code: optionRow.code,
+        name: optionRow.name,
+        carrier: optionRow.carrier,
+        price_minor: Number(cart.shipping_minor),
+      };
+      const email = cart.email!.trim();
+      const metadata = orderMetadataFromCart(cart.metadata);
+      const inserted = await tx.query<OrderInsertRow>(
+        `INSERT INTO "order" (organization_id, store_id, sales_channel_id, cart_id, customer_id, email, currency, locale,
          status, payment_status, shipping_address, billing_address, shipping_option_id, shipping_method,
          promotion_codes, subtotal_minor, discount_minor, shipping_minor, tax_minor, total_minor, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', 'authorized', $9::jsonb, $10::jsonb, $11, $12::jsonb,
          $13, $14, $15, $16, $17, $18, $19::jsonb)
        RETURNING id, display_id::text, placed_at`,
-      [
-        cart.organization_id,
-        cart.store_id,
-        cart.sales_channel_id,
-        cart.id,
-        cart.customer_id,
-        email,
-        cart.currency,
-        cart.locale,
-        JSON.stringify(cart.shipping_address),
-        JSON.stringify(cart.billing_address),
-        cart.shipping_option_id,
-        JSON.stringify(shippingMethod),
-        cart.promotion_codes,
-        cart.subtotal_minor,
-        cart.discount_minor,
-        cart.shipping_minor,
-        cart.tax_minor,
-        cart.total_minor,
-        JSON.stringify(metadata),
-      ],
-    );
-    const order = inserted.rows[0]!;
+        [
+          cart.organization_id,
+          cart.store_id,
+          cart.sales_channel_id,
+          cart.id,
+          cart.customer_id,
+          email,
+          cart.currency,
+          cart.locale,
+          JSON.stringify(cart.shipping_address),
+          JSON.stringify(cart.billing_address),
+          cart.shipping_option_id,
+          JSON.stringify(shippingMethod),
+          cart.promotion_codes,
+          cart.subtotal_minor,
+          cart.discount_minor,
+          cart.shipping_minor,
+          cart.tax_minor,
+          cart.total_minor,
+          JSON.stringify(metadata),
+        ],
+      );
+      const order = inserted.rows[0]!;
 
-    const orderLines: LineInsertRow[] = [];
-    for (const l of lines) {
-      const unit = Number(l.unit_price_minor);
-      const discount = Number(l.discount_minor);
-      const base = l.quantity * unit - discount;
-      const tax = taxOn(base, l.tax_rate_bp);
-      const r = await tx.query<LineInsertRow>(
-        `INSERT INTO order_line_item (organization_id, store_id, order_id, variant_id, sku, title, variant_title,
+      const orderLines: LineInsertRow[] = [];
+      for (const l of lines) {
+        const unit = Number(l.unit_price_minor);
+        const discount = Number(l.discount_minor);
+        const base = l.quantity * unit - discount;
+        const tax = taxOn(base, l.tax_rate_bp);
+        const r = await tx.query<LineInsertRow>(
+          `INSERT INTO order_line_item (organization_id, store_id, order_id, variant_id, sku, title, variant_title,
            thumbnail_url, quantity, unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor, metadata)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
          RETURNING id, variant_id, sku, title, quantity, unit_price_minor::text, discount_minor::text, tax_rate_bp,
            tax_minor::text, total_minor::text`,
+          [
+            cart.organization_id,
+            cart.store_id,
+            order.id,
+            l.variant_id,
+            l.sku,
+            l.title,
+            l.variant_title,
+            l.thumbnail_url,
+            l.quantity,
+            unit,
+            discount,
+            l.tax_rate_bp,
+            tax,
+            base + tax,
+            JSON.stringify(l.metadata ?? {}),
+          ],
+        );
+        orderLines.push(r.rows[0]!);
+      }
+
+      // ---- reservations: the stock check at placement (409 out_of_stock → whole placement rolls back) ----
+      await reserveForOrder(tx, {
+        organizationId: cart.organization_id,
+        storeId: cart.store_id,
+        orderId: order.id,
+        lines: orderLines
+          .filter((l) => l.variant_id !== null)
+          .map((l) => ({ variantId: l.variant_id!, quantity: l.quantity })),
+      });
+
+      // ---- payment row (the one money movement; carries the Idempotency-Key) ----
+      const paymentRow = await tx.query<{ id: string; authorized_at: Date }>(
+        `INSERT INTO payment (organization_id, store_id, order_id, provider, provider_payment_id, amount_minor, currency,
+         status, authorized_at, idempotency_key, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'authorized', now(), $8, $9::jsonb) RETURNING id, authorized_at`,
         [
           cart.organization_id,
           cart.store_id,
           order.id,
-          l.variant_id,
-          l.sku,
-          l.title,
-          l.variant_title,
-          l.thumbnail_url,
-          l.quantity,
-          unit,
-          discount,
-          l.tax_rate_bp,
-          tax,
-          base + tax,
-          JSON.stringify(l.metadata ?? {}),
+          provider.name,
+          auth.providerPaymentId,
+          cart.total_minor,
+          cart.currency,
+          storedKey,
+          JSON.stringify({ session_id: session.session_id }),
         ],
       );
-      orderLines.push(r.rows[0]!);
-    }
 
-    // ---- payment row (the one money movement; carries the Idempotency-Key) ----
-    await tx.query(
-      `INSERT INTO payment (organization_id, store_id, order_id, provider, provider_payment_id, amount_minor, currency,
-         status, authorized_at, idempotency_key, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'authorized', now(), $8, $9::jsonb)`,
-      [
-        cart.organization_id,
-        cart.store_id,
-        order.id,
-        provider.name,
-        auth.providerPaymentId,
-        cart.total_minor,
-        cart.currency,
-        storedKey,
-        JSON.stringify({ session_id: session.session_id }),
-      ],
-    );
-
-    // ---- attribution (Integration 1 helper) + order.placed ----
-    await recordAttribution(tx, {
-      organizationId: cart.organization_id,
-      storeId: cart.store_id,
-      orderId: order.id,
-      cartId: cart.id,
-      cartMetadata: cart.metadata,
-      actor: input.actor,
-    });
-    const legal = await tx.query<{ legal_entity_id: string }>(
-      `SELECT legal_entity_id FROM store WHERE id = $1`,
-      [cart.store_id],
-    );
-    await withEvents(tx, [
-      await buildEvent({
-        topic: 'order.placed',
+      // ---- attribution (Integration 1 helper) + order.placed ----
+      await recordAttribution(tx, {
         organizationId: cart.organization_id,
         storeId: cart.store_id,
-        aggregateType: 'order',
-        aggregateId: order.id,
-        actor: eventActor(input.actor),
-        payload: {
-          order_id: order.id,
-          display_id: Number(order.display_id),
-          legal_entity_id: legal.rows[0]!.legal_entity_id,
-          sales_channel_id: cart.sales_channel_id,
-          customer_id: cart.customer_id,
-          email_hash: emailHash(email),
-          currency: cart.currency,
-          locale: cart.locale,
-          totals: {
-            subtotal_minor: Number(cart.subtotal_minor),
-            discount_minor: Number(cart.discount_minor),
-            shipping_minor: Number(cart.shipping_minor),
-            tax_minor: Number(cart.tax_minor),
-            total_minor: Number(cart.total_minor),
+        orderId: order.id,
+        cartId: cart.id,
+        cartMetadata: cart.metadata,
+        actor: input.actor,
+      });
+      const legal = await tx.query<{ legal_entity_id: string }>(
+        `SELECT legal_entity_id FROM store WHERE id = $1`,
+        [cart.store_id],
+      );
+      const paymentId = paymentRow.rows[0]!.id;
+      await withEvents(tx, [
+        // #176 (window 7): the payment row is created here, so only this transaction can emit its baseline event.
+        await buildEvent({
+          topic: 'payment.authorized',
+          organizationId: cart.organization_id,
+          storeId: cart.store_id,
+          aggregateType: 'payment',
+          aggregateId: paymentId,
+          actor: eventActor(input.actor),
+          payload: {
+            payment_id: paymentId,
+            order_id: order.id,
+            legal_entity_id: legal.rows[0]!.legal_entity_id,
+            provider: provider.name,
+            provider_payment_id: auth.providerPaymentId,
+            amount_minor: Number(cart.total_minor),
+            currency: cart.currency,
+            authorized_at: paymentRow.rows[0]!.authorized_at.toISOString(),
           },
-          line_items: orderLines.map((l) => ({
-            order_line_item_id: l.id,
-            variant_id: l.variant_id,
-            sku: l.sku,
-            title: l.title,
-            quantity: l.quantity,
-            unit_price_minor: Number(l.unit_price_minor),
-            discount_minor: Number(l.discount_minor),
-            tax_rate_bp: l.tax_rate_bp,
-            tax_minor: Number(l.tax_minor),
-            total_minor: Number(l.total_minor),
-          })),
-          shipping: { shipping_option_id: cart.shipping_option_id, ...shippingMethod },
-          shipping_country: cart.shipping_address!.country,
-          billing_country: cart.billing_address!.country,
-          promotion_codes: cart.promotion_codes,
-          placed_at: order.placed_at.toISOString(),
-        },
-      }),
-    ]);
-    if (input.hooks?.afterEvents) await input.hooks.afterEvents(tx);
+        }),
+        await buildEvent({
+          topic: 'order.placed',
+          organizationId: cart.organization_id,
+          storeId: cart.store_id,
+          aggregateType: 'order',
+          aggregateId: order.id,
+          actor: eventActor(input.actor),
+          payload: {
+            order_id: order.id,
+            display_id: Number(order.display_id),
+            legal_entity_id: legal.rows[0]!.legal_entity_id,
+            sales_channel_id: cart.sales_channel_id,
+            customer_id: cart.customer_id,
+            email_hash: emailHash(email),
+            currency: cart.currency,
+            locale: cart.locale,
+            totals: {
+              subtotal_minor: Number(cart.subtotal_minor),
+              discount_minor: Number(cart.discount_minor),
+              shipping_minor: Number(cart.shipping_minor),
+              tax_minor: Number(cart.tax_minor),
+              total_minor: Number(cart.total_minor),
+            },
+            line_items: orderLines.map((l) => ({
+              order_line_item_id: l.id,
+              variant_id: l.variant_id,
+              sku: l.sku,
+              title: l.title,
+              quantity: l.quantity,
+              unit_price_minor: Number(l.unit_price_minor),
+              discount_minor: Number(l.discount_minor),
+              tax_rate_bp: l.tax_rate_bp,
+              tax_minor: Number(l.tax_minor),
+              total_minor: Number(l.total_minor),
+            })),
+            shipping: { shipping_option_id: cart.shipping_option_id, ...shippingMethod },
+            shipping_country: cart.shipping_address!.country,
+            billing_country: cart.billing_address!.country,
+            promotion_codes: cart.promotion_codes,
+            placed_at: order.placed_at.toISOString(),
+          },
+        }),
+      ]);
+      if (input.hooks?.afterEvents) await input.hooks.afterEvents(tx);
 
-    // ---- cart completed ----
-    await tx.query(
-      `UPDATE cart SET status = 'completed', order_id = $2, completed_at = now(),
+      // ---- cart completed ----
+      await tx.query(
+        `UPDATE cart SET status = 'completed', order_id = $2, completed_at = now(),
          payment_session = $3::jsonb, updated_at = now() WHERE id = $1`,
-      [cartId, order.id, JSON.stringify({ ...session, status: 'authorized' })],
-    );
-    return { order: await renderStoreOrder(tx, order.id), replayed: false };
+        [cartId, order.id, JSON.stringify({ ...session, status: 'authorized' })],
+      );
+      return { order: await renderStoreOrder(tx, order.id), replayed: false };
+    } catch (err) {
+      await provider
+        .void({
+          tx,
+          providerPaymentId: auth.providerPaymentId,
+          idempotencyKey: `${idempotencyKey}:void`,
+          reason: 'placement failed',
+        })
+        .catch(() => undefined); // the original error is what the caller must see
+      throw err;
+    }
   });
 }
 
