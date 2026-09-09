@@ -77,4 +77,13 @@ export type {
   PermissionObject,
   PermissionRelation,
 } from './permissions';
-export { dateParam, intParam, one, pageParams, throwIfProblems, uuidParam } from './query';
+export {
+  dateParam,
+  enumParam,
+  intParam,
+  one,
+  pageParams,
+  sortParams,
+  throwIfProblems,
+  uuidParam,
+} from './query';

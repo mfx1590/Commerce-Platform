@@ -5,6 +5,7 @@
 // The API key comes from the environment (`easyPostCredentialsFor`, ADR 0006) and is used as the Basic-auth user.
 // It is never logged, never embedded in an error and never returned. Addresses are sent to EasyPost (that is the
 // point) but never written to a log: `CarrierError` carries the status and EasyPost's message only.
+import { BoundedTtlMap } from './bounded-map';
 import { isTestModeKey } from './config';
 import { toMinorUnits } from './money';
 import { CarrierError, isRetryableStatus } from './redact';
@@ -34,6 +35,21 @@ export interface EasyPostOptions {
   fetch?: typeof globalThis.fetch;
   /** Per-request timeout in milliseconds (default 15 s). A timeout is a retryable `CarrierError` with status 0. */
   timeoutMs?: number;
+  /**
+   * How many times a *safe* call (rates, track, address validation) is attempted in total when EasyPost answers
+   * a retryable status — 0, 408, 429 or 5xx. Default 3, minimum 1. Buying and voiding a label are never retried:
+   * a 5xx can arrive after the label was created, and a second attempt would buy a second parcel.
+   */
+  maxAttempts?: number;
+  /** Delay before the first retry in milliseconds; doubles per attempt (default 200). */
+  retryBaseDelayMs?: number;
+  /** Injected in tests so backoff costs no wall-clock time. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Entries kept in the rate → shipment index, and how long (default 500 entries, 30 minutes). */
+  rateIndexMaxEntries?: number;
+  rateIndexTtlMs?: number;
+  /** Clock of the rate index; injected in tests so expiry is deterministic. */
+  now?: () => number;
   /** Set only to talk to a live EasyPost account. Phase 2 never does. */
   allowLiveKey?: boolean;
   /** Provider name in the registry (default `easypost`). */
@@ -133,6 +149,12 @@ export function createEasyPostProvider(options: EasyPostOptions): CarrierProvide
     baseUrl = EASYPOST_BASE_URL,
     fetch: fetchImpl = globalThis.fetch,
     timeoutMs = 15_000,
+    maxAttempts = 3,
+    retryBaseDelayMs = 200,
+    sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    rateIndexMaxEntries = 500,
+    rateIndexTtlMs = 30 * 60_000,
+    now,
     allowLiveKey = false,
     name = 'easypost',
   } = options;
@@ -144,9 +166,41 @@ export function createEasyPostProvider(options: EasyPostOptions): CarrierProvide
   }
   const authorization = `Basic ${Buffer.from(`${apiKey}:`).toString('base64')}`;
   // EasyPost buys a label on a *shipment*, not on a rate: remember which shipment each quote belongs to.
-  const shipmentOfRate = new Map<string, string>();
+  // Bounded and expiring — a quote is only useful until the storefront moves on.
+  const shipmentOfRate = new BoundedTtlMap<string>({
+    maxEntries: rateIndexMaxEntries,
+    ttlMs: rateIndexTtlMs,
+    ...(now ? { now } : {}),
+  });
 
+  /**
+   * Attempts a safe call up to `maxAttempts` times while EasyPost answers a retryable status, doubling the delay
+   * from `retryBaseDelayMs`. `retry: false` (buying and voiding a label) attempts exactly once.
+   */
   async function call<T>(
+    operation: string,
+    method: 'GET' | 'POST',
+    path: string,
+    body?: unknown,
+    retry = false,
+  ): Promise<T> {
+    const attempts = retry ? Math.max(1, maxAttempts) : 1;
+    let lastError: CarrierError | undefined;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return await callOnce<T>(operation, method, path, body);
+      } catch (error) {
+        if (!(error instanceof CarrierError) || !error.retryable || attempt === attempts)
+          throw error;
+        lastError = error;
+        await sleep(retryBaseDelayMs * 2 ** (attempt - 1));
+      }
+    }
+    /* istanbul ignore next — the loop either returns or throws */
+    throw lastError;
+  }
+
+  async function callOnce<T>(
     operation: string,
     method: 'GET' | 'POST',
     path: string,
@@ -198,16 +252,22 @@ export function createEasyPostProvider(options: EasyPostOptions): CarrierProvide
       throw new CarrierError(name, 400, 'rates', 'one parcel per rate request');
     }
     const currency = request.currency.toUpperCase();
-    const shipment = await call<EasyPostShipment>('rates', 'POST', '/shipments', {
-      shipment: {
-        to_address: toEasyPostAddress(request.to),
-        from_address: toEasyPostAddress(request.from),
-        parcel: toEasyPostParcel(request.parcels[0]!),
-        ...(request.carrierAccountIds && request.carrierAccountIds.length > 0
-          ? { carrier_accounts: request.carrierAccountIds.map((id) => ({ id })) }
-          : {}),
+    const shipment = await call<EasyPostShipment>(
+      'rates',
+      'POST',
+      '/shipments',
+      {
+        shipment: {
+          to_address: toEasyPostAddress(request.to),
+          from_address: toEasyPostAddress(request.from),
+          parcel: toEasyPostParcel(request.parcels[0]!),
+          ...(request.carrierAccountIds && request.carrierAccountIds.length > 0
+            ? { carrier_accounts: request.carrierAccountIds.map((id) => ({ id })) }
+            : {}),
+        },
       },
-    });
+      true,
+    );
     const shipmentId = shipment.id;
     const wanted = request.services ?? [];
     const out: CarrierRate[] = [];
@@ -295,6 +355,8 @@ export function createEasyPostProvider(options: EasyPostOptions): CarrierProvide
       'track',
       'GET',
       `/trackers?${query.toString()}`,
+      undefined,
+      true,
     );
     const tracker = (body.trackers ?? []).find(
       (candidate) => candidate.tracking_code === request.trackingNumber,
@@ -310,9 +372,13 @@ export function createEasyPostProvider(options: EasyPostOptions): CarrierProvide
   };
 
   const validateAddress = async (address: CarrierAddress): Promise<AddressValidation> => {
-    const body = await call<EasyPostAddress>('validateAddress', 'POST', '/addresses', {
-      address: { ...toEasyPostAddress(address), verify_strict: ['delivery'] },
-    });
+    const body = await call<EasyPostAddress>(
+      'validateAddress',
+      'POST',
+      '/addresses',
+      { address: { ...toEasyPostAddress(address), verify_strict: ['delivery'] } },
+      true,
+    );
     const delivery = body.verifications?.delivery;
     const messages = (delivery?.errors ?? [])
       .map((error) => error.message)

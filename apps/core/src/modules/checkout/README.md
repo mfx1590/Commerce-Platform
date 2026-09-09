@@ -29,12 +29,18 @@ module: `GET /store/carts/{cartId}/shipping-options`, `POST …/payment-session`
 3. Preconditions → 400 `validation_error` listing what is missing: items, `email`, `shipping_address`,
    `billing_address`, `shipping_option_id`, `payment_session`.
 4. Totals refreshed through the cart module (`recalculate`, providers included); a shipping option no longer
-   quotable → 400. Stock re-checked per line → 409 `out_of_stock` (reservations arrive with task 2.4).
+   quotable → 400. (The stock check is the reservation in step 6b since task 2.4.)
 5. `PaymentProvider.authorize()` for the session's provider; `failed` → 402 `payment_failed`, **nothing written**.
 6. `"order"` inserted with snapshots (addresses, `shipping_method {code,name,carrier,price_minor}`, totals frozen,
    `payment_status = 'authorized'`, `metadata = orderMetadataFromCart(cart.metadata)`), then `order_line_item`
    rows (`tax_minor` exact from the persisted `tax_rate_bp`, `total_minor = qty×unit − discount + tax`), then the
    `payment` row (provider, provider payment id, amount, `authorized`, the idempotency key).
+   6b. **Reservations** (`reserveForOrder`, inventory module): the stock check at placement under the level rows'
+   locks — greedy allocation across warehouses by priority; a non-backorderable shortfall → 409 `out_of_stock`
+   and the whole placement rolls back.
+   6c. **Void on failure**: every step after a successful `authorize` runs under a guard — any throw (out_of_stock,
+   a shipping-option race, a database error) rolls back AND calls `PaymentProvider.void` for the authorisation
+   before rethrowing, so no dangling hold survives (#174 review; tested on the manual provider's call log).
 7. `recordAttribution()` from `src/lib/attribution.ts` (Integration 1): one `attribution` row + one
    `attribution.recorded` per touch in `cart.metadata.attribution` — called, not reimplemented.
 8. `order.placed` v1 through `withEvents` (validated against `packages/events/schemas/order.placed/v1.json`;

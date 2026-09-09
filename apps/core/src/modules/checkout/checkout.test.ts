@@ -214,7 +214,17 @@ describe('completeCart — one transaction', () => {
       'attribution.recorded',
       'attribution.recorded',
       'order.placed',
+      'payment.authorized', // #176 (window 7): the payment row's baseline event, same transaction
     ]);
+    const authorized = events.rows.find((e) => e.topic === 'payment.authorized')!.payload;
+    expect(authorized).toMatchObject({
+      order_id: order.id,
+      legal_entity_id: SEED_IDS.legalEntities.brandA,
+      provider: 'manual',
+      amount_minor: order.totals.total.amount_minor,
+      currency: 'EUR',
+    });
+    expect(String(authorized.provider_payment_id)).toMatch(/^manpay_/);
     const placed = events.rows.find((e) => e.topic === 'order.placed')!.payload;
     expect(placed).toMatchObject({
       order_id: order.id,
