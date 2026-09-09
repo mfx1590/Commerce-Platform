@@ -1,5 +1,19 @@
 # Changelog — @platform/ui
 
+## 0.3.0 — 2026-09-09
+
+REQUEST #169 (from window 9, search), folded into task [storefront] 2.1. Contracts `contracts-v0.3`.
+
+- `cloudinaryImageLoader`, `transformUrl` and `isCloudinaryUrl` — a `next/image` loader for
+  Cloudinary-delivered media, so storefronts derive every size they need from the one URL the core
+  stores rather than the core minting a rendition per layout. Inserts
+  `c_limit,w_<width>,q_<quality|auto>,f_auto` after `/upload/`, **chained before** any transformation
+  already in the URL, so an art-directed crop stored with the asset still runs.
+- Deliberately **generic**: no cloud name, account or environment is baked in — the cloud name comes
+  from the delivery URL, so one function serves every brand. A `src` that is not a Cloudinary
+  delivery URL is returned unchanged, which is what makes it safe as a global `images.loader`:
+  `next.config` `remotePatterns` stays the thing that decides which hosts may be optimised.
+
 ## 0.2.1 — 2026-09-04
 
 Follow-up while wiring the starter (task [storefront] 1.2, issue #18).
