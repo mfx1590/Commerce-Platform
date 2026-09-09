@@ -134,13 +134,31 @@ order and a late `in_transit` after `delivered` is normal, not an error.
 A shipment that jumps straight to `delivered` still emits `shipment.shipped` first: accounting derives shipping
 cost and COGS timing from that event and must never miss it.
 
-### Fulfilment status and reservations
+### What the order hears, and reservations
 
-Shipping never encodes the order state machine or the reservation rules. It derives `unfulfilled` /
-`partially_fulfilled` / `fulfilled` from what live shipments cover and hands it to an `OrdersPort`, and it calls
-an `InventoryPort` to consume reservations on plan and release them on cancel. Core 2.3 and 2.4 deliver the real
-functions; until then the orders port writes `order.fulfillment_status` directly and the inventory port does
-nothing (REQUEST #191 names both shapes). Swapping them in is `setOrdersPort()` / `setInventoryPort()` at boot.
+Shipping encodes neither the order state machine nor the reservation rules. It reports facts to the **orders
+module** (window 1, core 2.3) through its public functions:
+
+| When                                            | Call                                   | Effect on the order                                            |
+| ----------------------------------------------- | -------------------------------------- | -------------------------------------------------------------- |
+| a shipment is planned                           | `markShipmentCreated`                  | `confirmed` to `processing`                                    |
+| a shipment reaches `shipped` (or jumps past it) | `markShipped` with the line quantities | `fulfilled_quantity`, then `partially_fulfilled` / `fulfilled` |
+| a shipment reaches `delivered`                  | `markDelivered`                        | `processing` to `completed`, once the order is fulfilled       |
+
+Two rules make that safe:
+
+- **They run inside shipping's transaction.** Those functions take a `ScopedClient` and open their own
+  transaction; `clientOn(tx, client)` presents the in-flight transaction as one, so the shipment rows, their
+  events and the order's status commit together. Passing the outer client instead would deadlock — our insert
+  holds a key-share lock on the order row that their `SELECT ... FOR UPDATE` would wait for, on a connection we
+  are waiting for.
+- **Each call is advisory.** An order nobody has confirmed refuses `processing`, and delivery before every line
+  has shipped refuses `completed`. That is a 409 from the orders module, and it must not fail the shipment or
+  make a carrier retry its webhook for ever: `conflict` is reported in the outcome, anything else propagates.
+
+Reservations are still a mirror: **core 2.4 (inventory) has not merged** — there is no `modules/inventory` on
+main. `InventoryPort` keeps its no-op default and `setInventoryPort` swaps in the real functions the day they
+land (REQUEST #191).
 
 ## Tracking webhooks (task 2.3)
 

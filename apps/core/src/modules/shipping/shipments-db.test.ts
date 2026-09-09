@@ -9,6 +9,7 @@ import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@p
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { addLineItem, createCart, updateCart } from '../cart';
+import { confirmOrder } from '../orders';
 import { completeCart, createPaymentSession } from '../checkout';
 import { createManualCarrierProvider } from './manual-provider';
 import { setInventoryPort, noopInventoryPort, type InventoryPort } from './ports';
@@ -93,8 +94,12 @@ afterEach(() => {
   setInventoryPort(noopInventoryPort);
 });
 
-/** Places a real order with `lines` line items of 2 units each and returns it with its line ids. */
-async function placedOrder(lines = 1) {
+/**
+ * Places a real order with `lines` line items of 2 units each and confirms it, because the orders module
+ * (core 2.3) only allows `confirmed → processing`: a shipment on an unconfirmed order is legal but leaves the
+ * status alone. `confirm: false` exercises exactly that.
+ */
+async function placedOrder(lines = 1, confirm = true) {
   const n = counter++;
   const cart = await createCart(a, scopeA);
   for (let i = 0; i < lines; i += 1) {
@@ -112,6 +117,7 @@ async function placedOrder(lines = 1) {
     idempotencyKey: `ship-2-3-${n}-${cart.id}`,
     actor: { id: null, type: 'customer', requestId: 'req-place' },
   });
+  if (confirm) await confirmOrder(a, placed.order.id, actor);
   const items = await owner.query<{ id: string; quantity: number }>(
     `SELECT id, quantity FROM order_line_item WHERE order_id = $1 ORDER BY created_at, id`,
     [placed.order.id],
@@ -126,13 +132,13 @@ const eventsFor = (shipmentId: string) =>
     [shipmentId],
   );
 
-const fulfillmentStatus = async (orderId: string) =>
+const orderState = async (orderId: string) =>
   (
-    await owner.query<{ fulfillment_status: string }>(
-      `SELECT fulfillment_status FROM "order" WHERE id = $1`,
+    await owner.query<{ status: string; fulfillment_status: string }>(
+      `SELECT status, fulfillment_status FROM "order" WHERE id = $1`,
       [orderId],
     )
-  ).rows[0]!.fulfillment_status;
+  ).rows[0]!;
 
 /** A signed EasyPost webhook for a tracking number at a given status. */
 function webhook(trackingNumber: string, status: string, eventId: string, at: string) {
@@ -187,7 +193,26 @@ describe('shipments', () => {
     });
     // No address anywhere in the event.
     expect(JSON.stringify(events.rows[0]!.payload)).not.toContain('Keizersgracht');
-    expect(await fulfillmentStatus(order.orderId)).toBe('partially_fulfilled');
+    // Planning is not fulfilment: the order moves `confirmed → processing`, nothing is fulfilled yet.
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'processing',
+      fulfillment_status: 'unfulfilled',
+    });
+  });
+
+  it('still plans a shipment for an order nobody confirmed, leaving its status alone', async () => {
+    const order = await placedOrder(1, false);
+    const shipment = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    expect(shipment.status).toBe('pending');
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'pending',
+      fulfillment_status: 'unfulfilled',
+    });
   });
 
   it('refuses more than the order still owes, an unknown line and an unknown warehouse', async () => {
@@ -222,16 +247,15 @@ describe('shipments', () => {
     ).rejects.toMatchObject({ code: 'validation_error' });
   });
 
-  it('counts what earlier shipments already cover and fulfils the order when nothing is left', async () => {
+  it('counts what earlier shipments already cover, and each despatch moves the order', async () => {
     const order = await placedOrder();
     const line = order.lines[0]!.id;
-    await createShipment(a, {
+    const first = await createShipment(a, {
       orderId: order.orderId,
       warehouseId: WH,
       items: [{ order_line_item_id: line, quantity: 1 }],
       actor,
     });
-    expect(await fulfillmentStatus(order.orderId)).toBe('partially_fulfilled');
     await expect(
       createShipment(a, {
         orderId: order.orderId,
@@ -240,14 +264,23 @@ describe('shipments', () => {
         actor,
       }),
     ).rejects.toMatchObject({ code: 'conflict', details: { outstanding: 1 } });
-    await createShipment(a, {
+    const second = await createShipment(a, {
       orderId: order.orderId,
       warehouseId: WH,
       items: [{ order_line_item_id: line, quantity: 1 }],
       actor,
     });
-    expect(await fulfillmentStatus(order.orderId)).toBe('fulfilled');
     expect(await listOrderShipments(a, order.orderId)).toHaveLength(2);
+
+    // Half the line leaves: partially fulfilled. Then the rest: fulfilled, and delivery completes the order.
+    await updateShipment(a, first.id, { status: 'shipped', actor });
+    expect((await orderState(order.orderId)).fulfillment_status).toBe('partially_fulfilled');
+    await updateShipment(a, second.id, { status: 'shipped', actor });
+    expect((await orderState(order.orderId)).fulfillment_status).toBe('fulfilled');
+
+    await updateShipment(a, first.id, { status: 'delivered', actor });
+    await updateShipment(a, second.id, { status: 'delivered', actor });
+    expect((await orderState(order.orderId)).status).toBe('completed');
   });
 
   it('buys a label once and is idempotent on a second call', async () => {
@@ -347,6 +380,11 @@ describe('shipments', () => {
     const row = await getShipment(a, planned.id);
     expect(row.shipped_at).not.toBeNull();
     expect(row.delivered_at).not.toBeNull();
+    // The order hears both facts even though the carrier reported only one.
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'completed',
+      fulfillment_status: 'fulfilled',
+    });
   });
 
   it('releases the reservation when a planned shipment is cancelled', async () => {
@@ -367,8 +405,15 @@ describe('shipments', () => {
     expect(released).toHaveBeenCalledWith(planned.id, [
       { orderLineItemId: order.lines[0]!.id, quantity: 2 },
     ]);
-    // A cancelled shipment no longer covers the line: the order is unfulfilled again.
-    expect(await fulfillmentStatus(order.orderId)).toBe('unfulfilled');
+    // Nothing had shipped, so nothing was fulfilled to undo; the line is free to be planned again.
+    expect((await orderState(order.orderId)).fulfillment_status).toBe('unfulfilled');
+    const again = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    expect(again.status).toBe('pending');
   });
 
   it('consumes the reservation through the inventory port when a shipment is planned', async () => {

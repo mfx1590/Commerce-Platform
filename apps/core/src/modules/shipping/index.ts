@@ -20,9 +20,10 @@ export {
 } from './manual-provider';
 export { currencyExponent, fromMinorUnits, toMinorUnits } from './money';
 export {
+  clientOn,
+  coreOrdersPort,
   currentInventoryPort,
   currentOrdersPort,
-  directOrdersPort,
   noopInventoryPort,
   setInventoryPort,
   setOrdersPort,
@@ -70,7 +71,13 @@ export type {
   RateShoppingOptions,
   ShippingOptionRules,
 } from './rate-shopping';
-export type { FulfillmentStatus, InventoryPort, OrdersPort, ShipmentLineRef } from './ports';
+export type {
+  InventoryPort,
+  OrdersCall,
+  OrdersOutcome,
+  OrdersPort,
+  ShipmentLineRef,
+} from './ports';
 export type {
   CreateShipmentInput,
   ShipmentItem,

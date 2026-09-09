@@ -18,7 +18,7 @@ import { carrierConfigFor, easyPostCredentialsFor } from './config';
 import { createEasyPostProvider } from './easypost-provider';
 import { carrierProvider } from './registry';
 import { CarrierError, toCarrierAddress } from './redact';
-import { currentInventoryPort, currentOrdersPort, type FulfillmentStatus } from './ports';
+import { currentInventoryPort, currentOrdersPort } from './ports';
 import type { CarrierProvider, ContractAddress, Parcel } from './types';
 
 export type ShipmentStatus =
@@ -127,7 +127,7 @@ export function renderShipment(row: ShipmentRow, items: ShipmentItem[]): StoreSh
 /**
  * `POST /admin/stores/{storeId}/orders/{orderId}/shipments` — plans a shipment for some or all line items.
  * One transaction: validate against what the order still owes, insert `shipment` + `shipment_item`, consume the
- * reservations (core 2.4's port), refresh `order.fulfillment_status` (core 2.3's port), emit `shipment.created`.
+ * reservations (core 2.4's port), tell the orders module a shipment exists, emit `shipment.created`.
  */
 export async function createShipment(
   client: ScopedClient,
@@ -209,7 +209,14 @@ export async function createShipment(
         quantity: item.quantity,
       })),
     });
-    await refreshFulfillmentStatus(tx, order);
+    // A shipment exists for this order: `confirmed → processing` (orders module, core 2.3). Advisory — an
+    // order nobody confirmed yet keeps its status and still gets its shipment.
+    await currentOrdersPort().shipmentCreated({
+      tx,
+      client,
+      orderId: order.id,
+      actor: input.actor,
+    });
 
     await withEvents(tx, [
       await buildEvent({
@@ -360,6 +367,7 @@ export async function updateShipment(
       });
     }
     return applyTransition(tx, shipment, items, {
+      client,
       status: input.status,
       trackingNumber: input.trackingNumber,
       trackingUrl: input.trackingUrl,
@@ -380,6 +388,8 @@ export function canTransition(from: ShipmentStatus, to: ShipmentStatus): boolean
 }
 
 export interface TransitionInput {
+  /** The scoped client the caller is transacting on; the orders module is called through it. */
+  client: ScopedClient;
   status?: ShipmentStatus | undefined;
   trackingNumber?: string | undefined;
   trackingUrl?: string | undefined;
@@ -501,8 +511,21 @@ export async function applyTransition(
       })),
     });
   }
-  const order = await loadOrder(tx, row.order_id);
-  await refreshFulfillmentStatus(tx, order);
+
+  // What the order should know: these quantities left the warehouse, and later that they arrived. The orders
+  // module owns `fulfilled_quantity`, `fulfillment_status` and `status` — shipping only reports the facts.
+  const orders = currentOrdersPort();
+  const call = { tx, client: input.client, orderId: row.order_id, actor: input.actor };
+  if (passesShipped) {
+    await orders.shipped({
+      ...call,
+      items: items.map((item) => ({
+        orderLineItemId: item.order_line_item_id,
+        quantity: item.quantity,
+      })),
+    });
+  }
+  if (reachesDelivered) await orders.delivered(call);
   return renderShipment(row, items);
 }
 
@@ -540,12 +563,11 @@ interface OrderRow {
   currency: string;
   shipping_address: ContractAddress | null;
   shipping_method: { carrier?: string } | null;
-  fulfillment_status: FulfillmentStatus;
 }
 
 async function loadOrder(tx: Queryable, orderId: string): Promise<OrderRow> {
   const r = await tx.query<OrderRow>(
-    `SELECT id, organization_id, store_id, currency, shipping_address, shipping_method, fulfillment_status
+    `SELECT id, organization_id, store_id, currency, shipping_address, shipping_method
        FROM "order" WHERE id = $1`,
     [orderId],
   );
@@ -586,32 +608,6 @@ async function outstandingQuantities(tx: Queryable, orderId: string): Promise<Ma
     [orderId],
   );
   return new Map(r.rows.map((row) => [row.id, row.quantity - Number(row.shipped)]));
-}
-
-/** `unfulfilled` / `partially_fulfilled` / `fulfilled` from what live shipments cover. Returns are core 2.5's. */
-async function refreshFulfillmentStatus(tx: Queryable, order: OrderRow): Promise<void> {
-  if (
-    order.fulfillment_status === 'partially_returned' ||
-    order.fulfillment_status === 'returned'
-  ) {
-    return;
-  }
-  const outstanding = await outstandingQuantities(tx, order.id);
-  const left = [...outstanding.values()].reduce((sum, value) => sum + value, 0);
-  const total = await tx.query<{ total: string }>(
-    `SELECT coalesce(sum(quantity), 0)::text AS total FROM order_line_item WHERE order_id = $1`,
-    [order.id],
-  );
-  const ordered = Number(total.rows[0]!.total);
-  const status: FulfillmentStatus =
-    left <= 0 && ordered > 0 ? 'fulfilled' : left < ordered ? 'partially_fulfilled' : 'unfulfilled';
-  await currentOrdersPort().setFulfillmentStatus({
-    tx,
-    organizationId: order.organization_id,
-    storeId: order.store_id,
-    orderId: order.id,
-    status,
-  });
 }
 
 async function warehouseAddress(tx: Queryable, warehouseId: string) {

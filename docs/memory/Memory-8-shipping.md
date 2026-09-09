@@ -16,12 +16,15 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.3 (#131) — labels, shipments and tracking webhooks** · commit `6f69b97` · PR pending
+- **2.3 (#131) — labels, shipments and tracking webhooks** · commits `6f69b97` + `SHA_PORTS` · PR pending
   `shipments.ts` (plan a shipment against what the order still owes, buy its label, the status machine and its
   outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
   on the carrier's clock), `webhook-events.ts` (shared idempotency record + the proposed table SQL),
-  `ports.ts` (OrdersPort / InventoryPort mirroring core 2.3 and 2.4, REQUEST #191). 21 unit tests + 15 database
-  tests; core suite 317 green. Admin API routes already exist in the contract — no CONTRACT CHANGE needed.
+  `ports.ts`. 21 unit tests + 15 database tests. Admin API routes already exist in the contract — no CONTRACT
+  CHANGE needed. **Follow-up commit `SHA_PORTS`:** the orders mirror is replaced by the real core 2.3 functions
+  (`markShipmentCreated` / `markShipped` / `markDelivered`), so planning a shipment advances the order to
+  `processing` and fulfilment is recorded on despatch, not on plan. Inventory stays a mirror — core 2.4 has NOT
+  merged (no `modules/inventory` on main), contrary to the merge note.
 - **2.2 (#130) — rate shopping at checkout** · commit `7de8158` · PR #186
   `rate-shopping.ts`: the cart module's `ShippingRateProvider`. `shipping_option` rows decide which options
   exist and who is eligible (ids stay real rows so checkout can freeze them); a row with `rules.live` + `service`
@@ -47,6 +50,15 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - [ ] **#133 · 2.5** Pick/pack state machine and events
 
 ## Decisions made (with reasons)
+- **Orders functions run inside shipping's transaction via `clientOn(tx, client)`** (2.3 follow-up): they take a
+  `ScopedClient` and open their own transaction, and handing them the outer client deadlocks — our shipment
+  insert holds a key-share lock on the order row that their `SELECT … FOR UPDATE` waits for, on a connection we
+  are waiting for. The adapter makes `transaction(fn)` run `fn(tx)`, so everything commits together.
+- **Calls to the orders module are advisory** (2.3 follow-up): a 409 from its state machine (shipment planned
+  before anyone confirmed the order; delivery before every line shipped) is reported in the outcome, not thrown.
+  A carrier webhook must not fail for ever because an operator has not confirmed an order.
+- **Fulfilment is recorded on despatch, not on plan** (2.3 follow-up): `markShipped` takes the quantities that
+  actually left. Planning only moves the order to `processing`.
 - **Verify, record, then apply** (2.3): the webhook checks its HMAC against the raw body before parsing, writes
   the provider event id, and only then moves a shipment — all in one transaction. A carrier retry conflicts on
   the unique row and changes nothing.

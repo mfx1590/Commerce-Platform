@@ -24,9 +24,14 @@ file is the module's own history (linked from the PRs).
   unique id — and a nullable `occurred_at` separate from `received_at`, so out-of-order scans are ordered by the
   carrier's clock. The table is window 7's CONTRACT CHANGE (#125) and is not in db 0.2.0 yet:
   `PROPOSED_WEBHOOK_EVENT_SQL` is what this module builds and tests against meanwhile.
-- `ports.ts` (new): `OrdersPort` and `InventoryPort` mirror core 2.3's order transition and 2.4's reservation
-  functions (REQUEST #191). Interim: the orders port writes `order.fulfillment_status` directly, the inventory
-  port does nothing. `setOrdersPort` / `setInventoryPort` swap in the real functions at boot.
+- `ports.ts` (new): how shipping reaches the modules it does not own. **Orders (core 2.3, merged) is wired to the
+  real functions** — `markShipmentCreated` on plan, `markShipped` with the line quantities on despatch,
+  `markDelivered` on delivery — so shipping no longer derives `fulfillment_status` itself. They run inside
+  shipping's transaction through `clientOn(tx, client)` (handing them the outer client would deadlock on the
+  order row's key-share lock), and each call is advisory: a 409 from the order's own state machine is reported,
+  never thrown, so an unconfirmed order still gets its shipment and a carrier does not retry for ever.
+  **Inventory (core 2.4) has not merged**, so `InventoryPort` keeps its no-op default; `setInventoryPort` swaps
+  in the real functions when they land (REQUEST #191).
 - Events: `shipment.created`, `shipment.shipped`, `shipment.delivered` v1, all through `withEvents` in the same
   transaction as the state change, all carrying ids, amounts and a destination country — never an address.
 - Tests: 21 unit tests (signatures, parsing, transitions) and 15 on a seeded database, including duplicate
