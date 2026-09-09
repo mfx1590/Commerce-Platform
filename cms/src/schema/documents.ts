@@ -6,7 +6,7 @@
 
 import { ALL_LOCALES, LOCALE_PATTERN } from '../datasets.js';
 import { defineArrayMember, defineField, defineType } from './define.js';
-import { pageBlocks } from './objects.js';
+import { campaignBlocks, pageBlocks } from './objects.js';
 import { endsAfterStart, uniqueLocale, uniqueLocaleKey, uniqueLocaleSlug } from './validators.js';
 
 const localeField = defineField({
@@ -92,7 +92,7 @@ export const campaignLanding = defineType({
       name: 'blocks',
       title: 'Blocks',
       type: 'array',
-      of: pageBlocks,
+      of: campaignBlocks,
       group: 'content',
     }),
     defineField({

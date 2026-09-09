@@ -1,5 +1,16 @@
 # Changelog — @platform/cms
 
+## 0.3.0 — 2026-09-09
+
+Task [cms] 2.4 (issue #122): the campaign embed.
+
+- New object `embed` on `campaignLanding.blocks` only (`campaignBlocks`): provider `builder` |
+  `framer` | `html`, required accessible `title`, `url` (https on the provider host allow-list,
+  `isAllowedEmbedUrl`; wildcards allow exactly one subdomain label) or `html` (≤ 20 kB), `height`
+  200–4000/800. `embedSource` enforces exactly one source matching the provider.
+- Campaign fixture gains a Framer embed; `EmbedBlock` / `CampaignBlock` exported for the
+  storefront. Tests in `test/embed.test.ts`.
+
 ## 0.2.0 — 2026-09-08
 
 Task [cms] 2.3 (issue #121): the two "later" nits from the PR #163 review.
