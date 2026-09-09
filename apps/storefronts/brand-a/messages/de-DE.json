@@ -1,0 +1,150 @@
+{
+  "nav": {
+    "shop": "Shop",
+    "about": "Über uns",
+    "account": "Konto",
+    "cart": "Warenkorb",
+    "main": "Hauptnavigation",
+    "shipsTo": "Versand nach {country} · Preise in {currency}",
+    "copyright": "© {year} {store}"
+  },
+  "common": {
+    "noImage": "Kein Bild",
+    "sale": "Sale",
+    "change": "Ändern",
+    "continueShopping": "Weiter einkaufen",
+    "locale": "Sprache",
+    "currency": "Währung"
+  },
+  "home": {
+    "intro": "Ein Starter-Storefront, der Live-Daten aus der Store-API rendert. Jede Marken-App wird aus dieser Vorlage erzeugt und überschreibt Tokens, Slots und Route-Dateien — nie das gemeinsame Kit.",
+    "shopAll": "Alle Produkte ansehen",
+    "thisStore": "Dieser Shop",
+    "code": "Code",
+    "shipsTo": "Versand nach",
+    "currencies": "Währungen",
+    "locales": "Sprachen",
+    "default": "Standard {value}",
+    "offline": {
+      "title": "Store-API nicht erreichbar",
+      "body": "Der Storefront konnte GET /store nicht laden. Starten Sie den Prism-Mock mit `pnpm mock` (oder den gesamten Stack mit `pnpm dev`) und laden Sie neu.",
+      "config": "Der Client liest STORE_API_URL, ersatzweise MOCK_API_URL und dann http://localhost:4010."
+    }
+  },
+  "plp": {
+    "allProducts": "Alle Produkte",
+    "count": "{count, plural, one {# Produkt} other {# Produkte}}",
+    "matching": " passend zu „{query}“",
+    "empty": "Keine Produkte passen zu diesen Filtern. Setzen Sie die Suche zurück oder wählen Sie eine andere Kategorie.",
+    "sort": "Sortieren",
+    "sortOptions": {
+      "relevance": "Relevanz",
+      "price_asc": "Preis: aufsteigend",
+      "price_desc": "Preis: absteigend",
+      "newest": "Neueste"
+    },
+    "search": "Produkte suchen",
+    "searchAction": "Suchen",
+    "categories": "Kategorien",
+    "pagination": "Seitennavigation",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "page": "Seite {page}",
+    "metaDescription": "Den gesamten Katalog durchsuchen: nach Kategorie filtern, suchen und nach Preis oder Neuheit sortieren."
+  },
+  "pdp": {
+    "breadcrumb": "Brotkrumennavigation",
+    "products": "Produkte",
+    "description": "Beschreibung",
+    "addToCart": "In den Warenkorb",
+    "unavailable": "Nicht verfügbar",
+    "sku": "Artikelnummer {sku}",
+    "originalPrice": "Ursprünglicher Preis",
+    "stock": {
+      "in_stock": "Auf Lager",
+      "low_stock": "Nur noch {quantity} verfügbar",
+      "backorder": "Nachbestellt — Versand nach Wiederauffüllung",
+      "out_of_stock": "Nicht auf Lager"
+    },
+    "chooseOption": "Wählen Sie eine Option, bevor Sie in den Warenkorb legen."
+  },
+  "cart": {
+    "title": "Warenkorb",
+    "empty": {
+      "title": "Ihr Warenkorb ist leer",
+      "body": "Noch nichts hier — sehen Sie sich an, was vorrätig ist.",
+      "action": "Produkte ansehen"
+    },
+    "quantity": "Menge",
+    "update": "Aktualisieren",
+    "remove": "Entfernen",
+    "checkout": "Zur Kasse",
+    "expired": "Ihr Warenkorb ist abgelaufen. Bitte beginnen Sie erneut."
+  },
+  "totals": {
+    "subtotal": "Zwischensumme",
+    "discount": "Rabatt",
+    "shipping": "Versand",
+    "tax": "Steuer",
+    "total": "Gesamt"
+  },
+  "checkout": {
+    "progress": "Bestellfortschritt",
+    "steps": {
+      "address": "Adresse",
+      "shipping": "Versand",
+      "payment": "Zahlung",
+      "review": "Prüfen"
+    },
+    "address": {
+      "title": "Wohin soll die Lieferung gehen?",
+      "email": "E-Mail",
+      "firstName": "Vorname",
+      "lastName": "Nachname",
+      "company": "Firma (optional)",
+      "line1": "Adresse",
+      "line2": "Wohnung, Zusatz (optional)",
+      "postalCode": "Postleitzahl",
+      "city": "Stadt",
+      "region": "Region (optional)",
+      "country": "Ländercode",
+      "phone": "Telefon (optional)",
+      "submit": "Weiter zum Versand"
+    },
+    "shipping": {
+      "title": "Wie soll geliefert werden?",
+      "legend": "Versandoption",
+      "none": "Für diese Adresse sind keine Versandoptionen verfügbar. Gehen Sie zurück und prüfen Sie die Adresse.",
+      "submit": "Weiter zur Zahlung"
+    },
+    "payment": {
+      "title": "Wie möchten Sie bezahlen?",
+      "method": "Zahlungsart",
+      "manual": "Auf Rechnung",
+      "manualBody": "Platzhalter für Phase 1 — der Anbieter „manual“. Kartenzahlung folgt mit Hosted Fields, Kartendaten erreichen diese App also nie.",
+      "failed": "Die Zahlung wurde nicht autorisiert. Wählen Sie eine Zahlungsart und versuchen Sie es erneut.",
+      "submit": "Weiter zur Prüfung"
+    },
+    "review": {
+      "title": "Bestellung prüfen",
+      "deliveryAddress": "Lieferadresse",
+      "deliveryAndPayment": "Versand und Zahlung",
+      "placeOrder": "Kostenpflichtig bestellen",
+      "idempotencyNote": "Beim Bestellen wird ein Idempotenzschlüssel gesendet, damit ein erneuter Versuch nach einem Netzwerkfehler keine zweite Bestellung anlegt."
+    },
+    "confirmation": {
+      "badge": "Bestellung aufgegeben",
+      "title": "Vielen Dank",
+      "body": "Bestellung #{order} ist bestätigt. Wir haben eine Bestätigung an {email} gesendet.",
+      "delivery": "Versand",
+      "unavailable": "Bestellung nicht verfügbar",
+      "unavailableBody": "Öffnen Sie den Link aus Ihrer Bestätigungs-E-Mail, um diese Bestellung zu sehen, oder melden Sie sich in Ihrem Konto an.",
+      "goToAccount": "Zu Ihrem Konto",
+      "deliveryAddress": "Lieferadresse"
+    },
+    "errors": {
+      "generic": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
+      "correctFields": "Bitte korrigieren Sie die markierten Felder."
+    }
+  }
+}

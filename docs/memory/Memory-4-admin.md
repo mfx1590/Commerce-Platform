@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (REQUEST #154 done, 2.1 next)
+Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,7 +16,32 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **REQUEST #154 — `playwright.config.ts` honours `E2E_CHANNEL`** · commit: this PR's first commit (sha recorded below once pushed)
+- **Admin API 0.4.0 follow-up on PR #184 — the #180 gap test flipped** · (sha in the next entry's
+  commit list) · main merged at b4d83f6 (contracts 0.4.0, #185). `test-contract/catalog.test.tsx`
+  now drives `Prefer: code=403` and `code=401` on `updateProduct` through `adminRequest` →
+  `toActionResult` and asserts the `refusal` shape with no field errors. Version comments, README,
+  CLAUDE.md → 0.4.0. Gate: lint, typecheck, format, 336 unit, 21 contract.
+
+- **2.1 — issue #113 Catalog editor** · commits `ded75d4` (part 1) + `0e5f308` (part 2) · **PR #184** (in review) · Admin API 0.3.0, no contract change
+  - Refusals render the state panel: `ActionResult` error carries `refusal: {status, error}` for
+    401/403, `ActionRefusal` renders `ApiStatePanel` in the product form, publish controls,
+    variants and categories panels. Publish behind a confirmation (emits `product.published`).
+    Media move up/down; `position` renumbered server-side only. Category picker sends `null` for
+    "none" (the empty string silently failed validation with no error slot — a real 1.5 bug).
+  - `test-contract/catalog.test.tsx` (14): wrappers, the spec's 400/409 examples under the Handle
+    input, and the screens through the *real* server actions against Prism (`prism.ts` spawns
+    per suite on :4212; `states.test.tsx` keeps :4211). **CONTRACT CHANGE #180**: no catalog
+    operation documents 401/403, so Prism cannot produce one there.
+  - e2e on the mock 11/11 (create → editor, publish asks first, media reorder). **Real core:**
+    `e2e/catalog-core.spec.ts` (opt-in `E2E_API=core`) passed against core 2.2 on :9000 —
+    create → 2 variants → publish → listed, screenshots in `apps/admin/docs/real-core-run/`.
+  - Unit 336, contract 20. README/CLAUDE.md/CHANGELOG updated.
+  - **Incident:** the Phase 1 admin session ("Window 4 Admin app phase 1 setup") was also given
+    2.1 and edited this worktree in parallel for ~25 minutes; it built steps 1–4 of the plan and
+    filed #180. Its uncommitted work was reviewed, formatted and taken over here (commit
+    `ded75d4`); it was told to stop via a session message and is no longer running.
+
+- **REQUEST #154 — `playwright.config.ts` honours `E2E_CHANNEL`** · commit `a34e583` · PR #171 (in review)
   - `const CHANNEL = process.env.E2E_CHANNEL ?? (CI ? undefined : 'chrome')` and
     `const browser = CHANNEL ? { channel: CHANNEL } : {}` spread into `use` and the chromium
     project; no pinned channel anywhere. `E2E_CHANNEL=''` means bundled chromium,
@@ -206,7 +231,88 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#113 · 2.1 Catalog editor** — starting after the #154 PR is opened (building locally while it is in review).
+- **#192 · 2.1b Medusa rail** — plan confirmed 2026-09-09 (**go**); decisions: serpents are buttons with `aria-pressed` (e2e asserts buttons), fonts committed as woff2 under `public/fonts` and loaded with `next/font/local` (hermetic builds, no network).
+  Brief `docs/admin-design.md` (main 580331e), prototype `docs/design/medusa-rail-prototype.html`
+  (read in full; behaviour reference), artwork `docs/design/medusa-face.jpg` = 116.6 KB (≤ 120 KB).
+  1. **Tokens** in `src/app/globals.css` `@theme` only: the brief's dark set mapped onto the
+     existing semantic names (canvas→ground `#0B0F14`, surface, surface-2, line, ink, muted→stone,
+     accent→verdigris, accent-ink `#06201A`, danger→critical, warning→warn, success→ok) plus
+     `--color-gold` (serpent eyes only) and font tokens; `color-scheme: dark`. Verified contrast:
+     stone/ground 6.3:1, stone/surface 5.8:1, ink/ground 16.0:1, verdigris/surface 9.6:1,
+     critical/surface 4.8:1, button text on verdigris 9.4:1 (all ≥ 4.5:1). Existing primitives (Button, Badge, Card, DataTable, fields, state panels) already use
+     the semantic classes, so they restyle through the variables — no rewrites; the few places
+     with `bg-accent/10`-style alphas are re-checked in dark. Fonts via `next/font/google`
+     (Cinzel display, IBM Plex Sans body, IBM Plex Mono numbers) — self-hosted at build, no
+     third-party script at runtime; system fallbacks declared.
+  2. **Rail** in `src/components/rail/`: `rail.config.ts` (plain module: geometry roots, tip
+     column, timings, storage keys), `serpent-geometry.ts` (pure: crown anchor, tip point, bezier
+     path with sway/lift/gaze, head angle from the bezier derivative, numeric arc length for the
+     draw reveal — no `getTotalLength`, so it is unit-testable in jsdom), `medusa-rail.tsx`
+     (client: SVG serpents over the masked head `<image href="/medusa-face.jpg">`, one rAF loop
+     paused when the tab is hidden, Canvas motes 70 pts, intro once per session via
+     `sessionStorage`, gaze on mousemove, Store/HQ scope switch, list toggle), `rail-list.tsx`
+     (plain `<nav>` with `aria-current`). Serpents: `role="button" tabindex=0 aria-pressed`,
+     Enter/Space → `router.push`, focus ring at the label, label = SVG `<text>` (real text).
+  3. **Data**: `AppShell` passes the already-filtered `hqItems`/`storeItems`; no serpent for a
+     missing permission; the HQ scope button appears only when `hqItems.length > 0`. Wordmark +
+     scope in the rail; store switcher + sign out stay in a slim top bar; rail foot shows the
+     principal's name and the list toggle. Active scope follows the pathname.
+  4. **Fallbacks**: list view on `prefers-reduced-motion` (no rAF, no intro, no motes), on touch
+     (`hover: none`) by default, or by the persisted toggle (`localStorage medusa-list`); under
+     860 px the rail is a 520 px band above the content.
+  5. **Tests**: `serpent-geometry.test.ts` (paths, head angle, reduced → zero sway); `rail.test.tsx`
+     with the 1.7 role fixtures through `hqNavItems`/`storeNavItems` (store_staff → no Settings
+     serpent, analyst → no Customers, store_admin → no Finance, HQ button absent without HQ items),
+     `aria-pressed` from the pathname, Enter/Space navigate, list toggle persists, reduced motion
+     renders the list; **axe** on the shell via `axe-core` in jsdom (new devDependency in
+     `apps/admin` only). e2e: existing journeys updated from nav links to serpent buttons (list
+     links still asserted in list view), plus screenshots of the rail in both scopes saved to
+     `docs/medusa-rail/` for the PR; `E2E_API=core` journey re-run.
+  6. Nit in the same PR: `src/lib/api/admin.ts` header says Admin API 0.2.0 → the version in
+     `packages/contracts` after merging main (0.4.0 once #185 lands).
+  7. README (rail + tokens section), CHANGELOG, memory; gate; PR with the acceptance criteria.
+  **Estimate: 60–80 tool calls.** Risks stated up front: `next/font/google` needs network at build
+  time (fine locally and in CI; a build without network would fail — fallback is committing the
+  font files, also allowed); the 2.1 screens are not restyled beyond what the tokens do (2.6).
+- **#114 · 2.2 Orders** — plan written 2026-09-08, awaiting confirmation. Building locally while
+  #184 is in review; no push until the manager confirms. Contracts 0.4.0 (#185, 401/403 on every
+  operation) lands today: merge main and retarget the refusal contract tests at the spec's examples.
+  1. **Wrappers** in `src/lib/api/admin.ts`: `listOrders` (filters status, payment_status,
+     fulfillment_status, q, placed_from/to; sort placed_at/display_id/total/status), `getOrder`,
+     `cancelOrder`, `createRefund` (**`Idempotency-Key` header** via `adminCall.headers`),
+     `createReturn`, `createShipment`, `updateShipment`, `receiveReturn`; `listWarehouses` exists.
+  2. **List** `/{storeId}/orders`: data-table, URL-driven filters + sort from the contract enums
+     (`orders-table.config.ts`), money from `{amount_minor, currency}` with the store's
+     `default_locale` (`getStore` in parallel, fails alone), status/payment/fulfilment badges,
+     empty vs filter-matched-nothing, `ApiStatePanel` on failure.
+  3. **Detail** `/{storeId}/orders/{orderId}` (server component renders the PII: email, addresses):
+     header + three badges, lines (qty, unit, discount, tax, total, fulfilled/returned), totals
+     block, shipping method, payments/refunds/shipments/returns as one timeline sorted by time,
+     `cancel_reason` when set.
+  4. **Actions panel** (client, each behind a confirmation, each gated in the UI by the relation
+     from `/admin/me` via `src/lib/nav/relations.ts`, always re-checked by the API → `ActionRefusal`):
+     Cancel (`store_admin`, reason required) · Fulfil = `createShipment` (`operations` on
+     organization:hq: warehouse picker from `listWarehouses`, per-line quantity ≤ remaining,
+     carrier/service) · Refund (`support`: `MoneyField` ≤ captured − refunded, reason enum,
+     optional payment) · Request return (`support`: per-line quantity ≤ shipped − returned, reason).
+  5. **Idempotency**: the refund form mints `crypto.randomUUID()` when it opens and keeps it until a
+     success; a retry after a network error (status 0) or 5xx reuses it, a success mints a new one.
+     Unit test: action fails with status 0 then succeeds → both calls carry the same key; the next
+     refund carries a different one.
+  6. **Server actions** `src/app/actions/orders.ts` + Zod schemas (`MatchesContract` where the
+     contract has a named input; the inline bodies get hand-written schemas).
+  7. **Tests**: unit (table config, money rendering never via floats, gating per role fixture,
+     idempotency, confirmations), contract `test-contract/orders.test.tsx` (list/detail/cancel/
+     refund 201 + documented 403/409, return 201, shipment 201; after #185: 401/403 examples on the
+     order operations), 403/empty/error through `ApiStatePanel`; e2e: orders list → detail on the mock.
+  8. **Real core at the end** (core 2.3 / PR #174 merges within the hour): merge main, run
+     list/detail (+ whichever actions the core implements) against :9000, document; refusals →
+     issue for window 1 with exact request/response.
+  9. README (orders section), CHANGELOG, memory; `pnpm lint && pnpm typecheck && pnpm test --filter
+     @platform/admin` + `test:contract`; PR with the acceptance criteria.
+  **Estimate: 50–70 tool calls.** Not in scope: shipment status updates UI beyond `updateShipment`
+  wrapper (window 8's labels/tracking), `receiveReturn` UI (HQ warehouse, Phase 3 window 11) —
+  wrappers only.
 
 ### Open requests, none blocking
 - ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
@@ -218,7 +324,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [ ] **#113 · 2.1** Catalog editor: product, variants, options, media, publish
+- [x] **#113 · 2.1** Catalog editor — in PR
 - [ ] **#114 · 2.2** Orders: list, detail, actions
 - [ ] **#115 · 2.3** Customers and consent (support-gated)
 - [ ] **#116 · 2.4** Promotions and price lists screens
@@ -226,6 +332,21 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
 
 ## Decisions made (with reasons)
+- **A 401/403 from a mutation is a `refusal`, not a `formError`.** A relation you do not hold is
+  not a validation message; rendering the same `ApiStatePanel` the screen would render makes the
+  refusal look identical whether it came from loading or from Save, and it can never be a silent
+  no-op.
+- **Publish asks first.** It emits `product.published` and is the moment shoppers see the product;
+  that is not a mis-click away from Archive.
+- **The form never sets media `position`.** The server action renumbers from the array order, so
+  a client-side number was only a second source of truth that could disagree.
+- **Contract tests drive the real server actions.** `server-only`, the session and `next/cache`
+  are the only stubs, so a click on `PublishControls` in `test-contract/` is a real POST to Prism.
+  Error codes the wrappers cannot ask for go through `adminCall` with `Prefer` — no test-only
+  door in shipped code.
+- **The real-core journey is opt-in (`E2E_API=core`) and reuses a server you started.** It writes
+  real rows; the default run stays hermetic on Prism. The config's `reuseExistingServer` is what
+  makes this work without a second config.
 - **Customers is gated on `support`, not `viewer`** (Admin API 0.2.1). Customer records are personal
   data, so a relation on the store is no longer enough to read them — `store_staff`, `finance`,
   `operations` and `analyst` all lose the section, while an organization `support` keeps it.
@@ -369,6 +490,24 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Two sessions on one worktree corrupt each other silently.** A resumed Phase 1 session and this
+  one both received "go on 2.1" and both edited `apps/admin`; `git status` showing files you did
+  not touch is the tell. Check `list_sessions` for another running session with the same `cwd`
+  before editing, and message it to stop rather than racing it.
+- **No catalog operation in Admin API 0.3.0 documents 401/403**, so `Prefer: code=403` on those
+  paths makes Prism answer 404/normally, not 403 — a contract test that expects the refusal there
+  passes for the wrong reason or fails confusingly. Drive refusals on a registry operation
+  (`createStore` documents 403) until #180 lands.
+- **`listProducts` has no example in the spec**, so Prism generates the page from the schema:
+  assert on shape (row → link to its own id), never on "Classic Tee".
+- **The mock's only product example is already `published`**, so a Publish click cannot be
+  exercised on Prism; the contract suite overrides the status to `draft` before rendering, and the
+  real-core journey does the actual click.
+- **Playwright `getByLabel('Title', { exact: false })` also matches "Subtitle"** (strict-mode
+  violation). Anchor it: `getByLabel(/^Title/)`.
+- **Async form submits in tests:** the action runs inside `startTransition`, so assert with
+  `findBy*`/`waitFor` after the click; `getBy*` right after `user.click` is a race that only
+  sometimes loses.
 - **Check `origin/main`, not your branch, before reporting that a shared file is missing something.**
   I told window 2 the realm JSON lacked the 3200 redirect URI; it did not — their #85 had landed on
   `main` and I was reading this branch's older copy. `git fetch && git show origin/main:<path>`
