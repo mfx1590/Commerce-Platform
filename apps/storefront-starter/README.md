@@ -100,10 +100,19 @@ dependency.
 | `(shop)`     | `/`, `/products`, `/categories/[handle]`, `/products/[handle]`                   | window 3                       |
 | `(checkout)` | `/cart`, `/checkout/{address,shipping,payment,review}`, `/orders/[orderId]`      | window 3                       |
 | `(account)`  | `/account`, `/account/orders` (plus `/auth/*` and `/health`, outside `[locale]`) | window 3 → window 13 (Phase 3) |
-| `(content)`  | `/pages/[slug]`                                                                  | window 6 (placeholder only)    |
+| `(content)`  | `/pages/[slug]`                                                                  | window 6                       |
 
 `(checkout)` deliberately has its own chrome: no navigation, nothing that invites the customer out of
 the funnel.
+
+**CMS content** lives in window 6's folders — see
+[`src/lib/cms/README.md`](./src/lib/cms/README.md) and [`cms/README.md`](../../cms/README.md).
+That window records its own storefront changes there rather than in this CHANGELOG, which is this
+window's file (REQUEST #167). Its strings are merged into the request catalogue as the `content`
+namespace (REQUEST #178): `src/i18n/request.ts` layers
+`src/lib/cms/messages/<locale>.json` over `messages/<locale>.json`, so window 6 owns its own
+catalogue and needs no request to this window per string. The namespace is optional — until window 6
+ships those files the merge contributes nothing, rather than failing the request.
 
 ## Catalog and caching
 
