@@ -118,9 +118,12 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
   boot on main** — `apps/core/src/jobs/index-products.ts` (window 9, `d258257`) is a CLI script with
   no Medusa job `config`, and the `JobLoader` refuses the boot before :9000 ever binds. Filed as
-  **#203**. Everything else in 2.1 is green against the mock, and the suite is written so the same
-  spec runs against the core the moment it starts. Re-run then:
+  **#203** and confirmed there with a clean reproduction: the bootstrap check, Redis, the fallback
+  proxy and every other Medusa loader succeed first, so it really is only that file. Everything else
+  in 2.1 is green against the mock, and the suite is written so the same spec runs against the core
+  the moment it starts. Re-run then:
   `E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-starter e2e`.
+  PR **#204** is open with all 12 CI checks green (including the Playwright job on CI's chromium).
 
 <!-- superseded plan, kept for the record:
 - **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
@@ -331,6 +334,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- **`/tmp` is shared by every worktree on this machine — never use a predictable name there.**
+  All windows run on one Windows box, so `/tmp/<something>.log` is one file for all of them.
+  Hit twice on 2026-09-09: `/tmp/pr-body.md` still held **window 5's** infra PR text when I went to
+  create mine (`gh` would have opened the PR with the wrong body if the write had not failed first),
+  and `/tmp/core-dev.log` was being written by **window 9's** core in `../wt-search`, so I was
+  reading another window's boot errors as though they were mine. Same hazard class as the shared git
+  stash. Use the session scratchpad directory instead; if a temp file must be read back, check it is
+  really yours (the paths inside a stack trace name the worktree that produced it).
 - **The core does not boot on main (2026-09-09, issue #203).** `apps/core/src/jobs/index-products.ts`
   is a CLI script with no `config` export, and Medusa's `JobLoader` scans `src/jobs/` at boot and
   requires one from every file: "Config is required for scheduled jobs", before :9000 binds. Nothing
