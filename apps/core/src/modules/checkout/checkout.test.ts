@@ -7,11 +7,11 @@ import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@p
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { addLineItem, createCart, updateCart } from '../cart';
+import { getStoreOrder } from '../orders';
 import {
   completeCart,
   createPaymentSession,
   emailHash,
-  getStoreOrder,
   listShippingOptions,
   manualPaymentProvider,
   setPaymentProvider,
@@ -199,7 +199,7 @@ describe('completeCart — one transaction', () => {
     expect(payment.rows[0]).toMatchObject({
       provider: 'manual',
       status: 'authorized',
-      idempotency_key: `key-${cart.id}`,
+      idempotency_key: `${A}:key-${cart.id}`, // stored per store
       amount_minor: String(order.totals.total.amount_minor),
     });
 
@@ -419,6 +419,44 @@ describe('completeCart — one transaction', () => {
     await expect(getStoreOrder(b, order.id, { email: cart.email })).rejects.toMatchObject({
       code: 'not_found',
     });
+  });
+});
+
+describe('idempotency is per store (RLS on payment rows)', () => {
+  it('the same Idempotency-Key used by store B places a separate order for store B', async () => {
+    const cart = await readyCart();
+    const key = `shared-key-${cart.id}`;
+    const { order } = await completeCart(a, { cartId: cart.id, idempotencyKey: key, actor });
+    // a brand-b cart, readied through the module on store B's client
+    const scopeB = { organizationId: ORG, storeId: B, salesChannelId: null };
+    const cartB = await createCart(b, scopeB);
+    const vB = await owner.query<{ id: string }>(
+      `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'GBP' AND pr.min_quantity = 1
+       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       WHERE v.store_id = $1 ORDER BY v.sku LIMIT 1`,
+      [B],
+    );
+    await addLineItem(b, cartB.id, { variant_id: vB.rows[0]!.id, quantity: 1 });
+    const optB = await owner.query<{ id: string }>(
+      `SELECT id FROM shipping_option WHERE store_id = $1 AND code = 'standard'`,
+      [B],
+    );
+    await updateCart(b, cartB.id, {
+      email: 'b.customer@example.com',
+      shipping_address: { ...address, country: 'GB' },
+      billing_address: { ...address, country: 'GB' },
+      country: 'GB',
+      shipping_option_id: optB.rows[0]!.id,
+    });
+    await createPaymentSession(b, cartB.id, { provider: 'manual' });
+    const placedB = await completeCart(b, { cartId: cartB.id, idempotencyKey: key, actor });
+    expect(placedB.replayed).toBe(false);
+    expect(placedB.order.id).not.toBe(order.id);
+    expect(placedB.order.currency).toBe('GBP');
+    // and store A's replay still returns store A's order
+    const again = await completeCart(a, { cartId: cart.id, idempotencyKey: key, actor });
+    expect(again).toMatchObject({ replayed: true, order: { id: order.id } });
   });
 });
 

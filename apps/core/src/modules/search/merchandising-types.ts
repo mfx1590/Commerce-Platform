@@ -1,5 +1,5 @@
-// Merchandising rules (task 2.2, #135): types mirroring the proposed contract (proposed/admin-api.merchandising.yaml)
-// and the body validation the router runs until the contract lands and `spec().validateBody` can take over.
+// Merchandising rules (task 2.2, #135): types mirroring the contract (admin-api.yaml 0.4.0, CONTRACT CHANGE #162)
+// and the body validation the router runs (same schemas as the spec; `spec().validateBody` could take over).
 import { Ajv2020, type ErrorObject } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { validationError } from '../../lib/errors';
@@ -54,7 +54,7 @@ export interface PublishResult {
   skipped: number;
 }
 
-// ---- JSON schemas (same as the proposed YAML; keep both in sync) ----------------------------------------------
+// ---- JSON schemas (same as admin-api.yaml 0.4.0; keep both in sync) ----------------------------------------------
 
 const uuid = { type: 'string', format: 'uuid' } as const;
 const boost = {

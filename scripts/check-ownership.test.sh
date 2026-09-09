@@ -24,7 +24,7 @@ expect violation admin/phase1      packages/ui/src/index.ts
 expect ok        infra/phase2      .github/workflows/ci.yml apps/core/Dockerfile infra/terraform/main.tf
 expect ok        infra/phase2      .dockerignore
 expect violation infra/phase2      apps/core/src/index.ts
-expect ok        cms/phase2        "cms/brand-a/schema.ts" "apps/storefront-starter/src/app/(content)/page.tsx" "apps/storefront-starter/src/lib/cms/client.ts"
+expect ok        cms/phase2        "cms/brand-a/schema.ts" "apps/storefront-starter/src/app/[locale]/(content)/page.tsx" "apps/storefront-starter/src/lib/cms/client.ts"
 expect violation cms/phase2        "apps/storefront-starter/src/app/(shop)/page.tsx"
 expect ok        search/phase2     apps/core/src/jobs/index-products.ts apps/core/src/modules/search/index.ts
 expect violation search/phase2     apps/core/src/jobs/other.ts

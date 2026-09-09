@@ -67,13 +67,12 @@ Known limits (reviewer notes on #160):
 
 ## Merchandising rules (task 2.2, #135 — contract change #162)
 
-Pin / boost / bury per **category** or **search query**, one rule per store + scope, stored in the proposed
-`merchandising_rule` table (`proposed/0130_merchandising_rule.sql`, applied by this module's tests to their
-throwaway database until the migration lands in `packages/db`) or in `MemoryRulesRepository` for environments
-without the table. The Admin API operations are the proposed `proposed/admin-api.merchandising.yaml`
-(`store_staff` read, `store_admin` write); until they are in `admin-api.yaml`, `merchandisingRouter({
-repository, indexFor })` validates bodies against the same schemas (`merchandising-types.ts`) and hard-codes the
-relations. Window 1 mounts the router next to `adminRouter()` (REQUEST in #162).
+Pin / boost / bury per **category** or **search query**, one rule per store + scope, stored in the
+`merchandising_rule` table (`packages/db` migration 0130, landed with contracts-v0.4) or in
+`MemoryRulesRepository` for environments without the table. The Admin API operations are the `search` area of
+`admin-api.yaml` 0.4.0 (`store_staff` read, `store_admin` write); `merchandisingRouter({ repository, indexFor })`
+reads each operation's `x-permission` from the spec (`loadSpec`) and validates bodies against the same schemas
+(`merchandising-types.ts`). Window 1 mounts the router next to `adminRouter()` (REQUEST in #162).
 
 - Validation: schema (ajv), scope (`category_id` must be a category **of the store**, `query` is normalised:
   trimmed, single-spaced, lower-cased), every product id in pins / boosts / buries must belong to the store
@@ -141,7 +140,7 @@ store is one batch; `--batch <n>` tunes it.
 - `algolia-client.test.ts` — REST shaping against a fake fetch (batches of 1000, headers, URL encoding, browse
   cursor loop, 404 settings → `{}`, task polling, key never in errors).
 - `search-live.test.ts` — real Algolia round trip on a throwaway index; skips without credentials.
-- `merchandising.test.ts` — seeded database + the proposed migration: router with dev-token principals
+- `merchandising.test.ts` — seeded database (migration 0130): router with dev-token principals
   (store_staff read / store_admin write, 403), validation (foreign category / product ids, pinned+buried,
   weights), one rule per scope (409), get/patch/delete, brand-b never sees brand-a's rule, publish → fake
   Algolia rules (active only, `published_at`), relevance search with pin/bury applied, 409 without an index,

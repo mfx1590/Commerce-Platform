@@ -38,9 +38,26 @@ import {
 } from '../modules/registry';
 import { organizationClient } from '../lib/db';
 import { handle } from './errors';
+import {
+  cancelOrder,
+  FULFILLMENT_STATUSES,
+  getAdminOrder,
+  listAdminOrders,
+  ORDER_SORT_FIELDS,
+  ORDER_STATUSES,
+  PAYMENT_STATUSES,
+} from '../modules/orders';
 import { loadSpec } from './openapi';
 import { requirePermission, resolveObject } from './permissions';
-import { one, pageParams, sortParams, throwIfProblems, uuidParam } from './query';
+import {
+  dateParam,
+  enumParam,
+  one,
+  pageParams,
+  sortParams,
+  throwIfProblems,
+  uuidParam,
+} from './query';
 import {
   organizationClientFor,
   requirePrincipal,
@@ -83,6 +100,64 @@ function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client
 
 export function adminRouter(): Router {
   const r = Router();
+
+  // ---- orders (task 2.3, src/modules/orders) ----------------------------------------------------------------
+  r.get(
+    '/admin/stores/:storeId/orders',
+    permission('listOrders'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const sort = sortParams(req.query, ORDER_SORT_FIELDS, problems);
+      const status = enumParam(req.query, 'status', ORDER_STATUSES, problems);
+      const paymentStatus = enumParam(req.query, 'payment_status', PAYMENT_STATUSES, problems);
+      const fulfillmentStatus = enumParam(
+        req.query,
+        'fulfillment_status',
+        FULFILLMENT_STATUSES,
+        problems,
+      );
+      const placedFrom = dateParam(req.query, 'placed_from', problems);
+      const placedTo = dateParam(req.query, 'placed_to', problems);
+      throwIfProblems(problems);
+      res.json(
+        await listAdminOrders(client, storeId, {
+          ...page,
+          ...sort,
+          status,
+          payment_status: paymentStatus,
+          fulfillment_status: fulfillmentStatus,
+          q: one(req.query.q),
+          placed_from: placedFrom,
+          placed_to: placedTo,
+        }),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/orders/:orderId',
+    permission('getOrder'),
+    handle(async (req, res) => {
+      const { client } = storeClient(req);
+      res.json(await getAdminOrder(client, uuidParam(req.params, 'orderId')));
+    }),
+  );
+  r.post(
+    '/admin/stores/:storeId/orders/:orderId/cancel',
+    permission('cancelOrder'),
+    body('cancelOrder'),
+    handle(async (req, res) => {
+      const { client } = storeClient(req);
+      const p = requirePrincipal(req);
+      res.json(
+        await cancelOrder(client, uuidParam(req.params, 'orderId'), {
+          reason: String((req.body as { reason: string }).reason),
+          actor: p.actor,
+        }),
+      );
+    }),
+  );
 
   // ---- me --------------------------------------------------------------------------------------------------
   r.get(
