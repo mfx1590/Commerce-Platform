@@ -72,6 +72,22 @@ export function sortParams<T extends string>(
   return { ...(sort ? { sort } : {}), ...(sort && order ? { order } : {}) };
 }
 
+/** An RFC 3339 date-time query parameter (400 detail `date-time` otherwise). */
+export function dateParam(
+  query: Request['query'],
+  name: string,
+  problems: Record<string, string>,
+): Date | undefined {
+  const raw = one(query[name]);
+  if (raw === undefined || raw === '') return undefined;
+  const t = Date.parse(raw);
+  if (Number.isNaN(t)) {
+    problems[name] = 'date-time';
+    return undefined;
+  }
+  return new Date(t);
+}
+
 export function throwIfProblems(problems: Record<string, string>): void {
   if (Object.keys(problems).length) throw validationError('invalid query', problems);
 }

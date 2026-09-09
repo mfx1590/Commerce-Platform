@@ -5,6 +5,34 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-08 · contracts-v0.4 landed (#162 applied by the main window)
+
+- `proposed/` removed: `merchandising_rule` is `packages/db` migration 0130 and the operations are in
+  `admin-api.yaml` 0.4.0. `merchandising.test.ts` no longer applies the SQL itself (`createTestDatabase` runs
+  every migration); `http.ts` reads each operation's `x-permission` from the spec via `loadSpec` instead of
+  hard-coding the relations.
+
+### 2026-09-08 · 2.2 Merchandising rules API (#135, CONTRACT CHANGE #162)
+
+- `proposed/admin-api.merchandising.yaml` + `proposed/0130_merchandising_rule.sql` (removed once #162 landed, see
+  above): the exact contract change filed as #162 (Admin API `…/merchandising/rules[/{ruleId}]`, `…/merchandising/publish`, `store_staff` read /
+  `store_admin` write; table `merchandising_rule`, RLS `store`). The module tests apply the SQL to their
+  throwaway database until it lands.
+- `merchandising-types.ts`: contract types, ajv body validation, scope normalisation, cross-field checks.
+- `repository.ts`: `RulesRepository` with `PgRulesRepository` (the proposed table) and `MemoryRulesRepository`.
+- `merchandising.ts`: `listRules`/`getRule`/`createRule`/`updateRule`/`deleteRule` (category and product ids
+  validated against the store through the tenant client), `publishRules` (active rules → complete Algolia rule
+  set, `published_at`), `searchRelevance` (Store API `sort=relevance` ids + total through the index).
+- `algolia-rules.ts`: `toAlgoliaRule` mapping (promote / hide / optionalFilters score / validity).
+- `http.ts`: `merchandisingRouter({ repository, indexFor })` — mount point requested from window 1 in #162.
+- `IndexClient` gained `saveRules`, `clearRules`, `search`; `FakeIndexClient.search` applies rules
+  deterministically; `AlgoliaIndexClient` maps them to `/rules/batch?clearExistingRules`, `/rules/clear`,
+  `/query`.
+- Reviewer nits from #160 folded in: `AlgoliaError` masks **every** occurrence of the key (`replaceAll`);
+  `request` retries 429 / 5xx / network failures with exponential backoff (`retries`, `retryBaseMs`). README
+  documents `--full` as the safety net for the READ COMMITTED `seq` gap and the concurrent-full-reindex race.
+- Tests: `merchandising.test.ts` (7), `algolia-client.test.ts` +3 (retry, masking, rules/search shaping).
+
 ### 2026-09-08 · 2.1 Algolia index per brand with full and incremental sync (#134)
 
 - `types.ts`: `SearchRecord` (one per published, sellable product; prices per currency in integer minor units),

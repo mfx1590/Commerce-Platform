@@ -241,6 +241,9 @@ importers:
 
   apps/storefront-starter:
     dependencies:
+      '@platform/cms':
+        specifier: workspace:*
+        version: link:../../cms
       '@platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

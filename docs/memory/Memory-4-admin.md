@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 not started (Phase 1 complete)
+Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (REQUEST #154 done, 2.1 next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,15 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **REQUEST #154 — `playwright.config.ts` honours `E2E_CHANNEL`** · commit: this PR's first commit (sha recorded below once pushed)
+  - `const CHANNEL = process.env.E2E_CHANNEL ?? (CI ? undefined : 'chrome')` and
+    `const browser = CHANNEL ? { channel: CHANNEL } : {}` spread into `use` and the chromium
+    project; no pinned channel anywhere. `E2E_CHANNEL=''` means bundled chromium,
+    `E2E_CHANNEL=chrome` means the machine's Chrome, unset keeps the local/CI fallback.
+  - Verified: `playwright test --list` loads the config under both values (8 tests); lint,
+    typecheck, format, 304 unit tests unchanged. CLAUDE.md + CHANGELOG updated. Window 5 drops
+    the double browser install in `infra/ci/run-e2e.sh` once this merges.
+
 - **Admin API 0.2.1 — Customers gated on `support`** · commit `c41e731` · PR #94
   - `listCustomers`/`getCustomer` moved from `viewer` to `support`, so the section follows: an
     organization `support`, a `store_admin` or an `owner` — no longer `store_staff`, `finance`,
@@ -197,7 +206,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- (nothing — Phase 2 starts with the first item under Next)
+- **#113 · 2.1 Catalog editor** — starting after the #154 PR is opened (building locally while it is in review).
 
 ### Open requests, none blocking
 - ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in

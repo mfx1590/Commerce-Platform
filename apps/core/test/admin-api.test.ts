@@ -15,7 +15,9 @@ import {
   resolveObject,
   resolveStaffPrincipal,
 } from '../src/http';
-import { closePool, initDb } from '../src/lib/db';
+import { closePool, initDb, tenantClient } from '../src/lib/db';
+import { addLineItem, createCart, updateCart } from '../src/modules/cart';
+import { completeCart, createPaymentSession } from '../src/modules/checkout';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -409,5 +411,125 @@ describe('customer PII gate (contracts 0.2.1, issue #77)', () => {
     expect(hasPermission(principal, 'support', `store:${A}`)).toBe(false);
     expect(hasPermission(principal, 'support', `store:${B}`)).toBe(false);
     expect(hasPermission(principal, 'support', 'store:*')).toBe(false);
+  });
+});
+
+describe('orders (task 2.3): listOrders, getOrder, cancelOrder', () => {
+  const customer = { id: null, type: 'customer' as const, requestId: 'req-admin-orders' };
+  let orderId: string;
+  let displayId: number;
+
+  beforeAll(async () => {
+    // Place one brand-a order through the cart + checkout modules (the Admin API has no "create order").
+    const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
+    const channel = await client.query<{ id: string }>(
+      `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+      [A],
+    );
+    const cart = await createCart(client, {
+      organizationId: SEED_IDS.organization,
+      storeId: A,
+      salesChannelId: channel.rows[0]!.id,
+    });
+    const variant = await client.query<{ id: string }>(
+      `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
+       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       WHERE v.store_id = $1 ORDER BY v.sku LIMIT 1`,
+      [A],
+    );
+    await addLineItem(client, cart.id, { variant_id: variant.rows[0]!.id, quantity: 1 });
+    const option = await client.query<{ id: string }>(
+      `SELECT id FROM shipping_option WHERE store_id = $1 AND code = 'standard'`,
+      [A],
+    );
+    const address = {
+      first_name: 'Ada',
+      last_name: 'Admin',
+      line1: 'Dam 1',
+      city: 'Amsterdam',
+      postal_code: '1012 JS',
+      country: 'NL',
+    };
+    await updateCart(client, cart.id, {
+      email: 'ada.admin@example.com',
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: option.rows[0]!.id,
+    });
+    await createPaymentSession(client, cart.id, { provider: 'manual' });
+    const { order } = await completeCart(client, {
+      cartId: cart.id,
+      idempotencyKey: `admin-api-${cart.id}`,
+      actor: customer,
+    });
+    orderId = order.id;
+    displayId = order.display_id;
+  });
+
+  it('GET /admin/stores/{storeId}/orders → Page<OrderSummary> (viewer); filters, q, sort/order; 400 on bad params', async () => {
+    const res = await storeStaff.get(`/admin/stores/${A}/orders?sort=display_id&order=asc`);
+    expect(res.status).toBe(200);
+    spec.assertPage('OrderSummary', res.body);
+    expect(res.body.items.map((o: { id: string }) => o.id)).toContain(orderId);
+    const byId = await storeStaff.get(`/admin/stores/${A}/orders?q=${displayId}`);
+    expect(byId.body.items.map((o: { id: string }) => o.id)).toEqual([orderId]);
+    const filtered = await storeStaff.get(`/admin/stores/${A}/orders?status=cancelled`);
+    expect(filtered.body.items.map((o: { id: string }) => o.id)).not.toContain(orderId);
+    const bad = await storeStaff.get(
+      `/admin/stores/${A}/orders?status=shipped&sort=email&placed_from=yesterday`,
+    );
+    expect(bad.status).toBe(400);
+    spec.assertSchema('Error', bad.body);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['placed_from', 'sort', 'status']);
+    // another store's admin scope → 403 from the permission stub (brand-c is outside store-staff's stores)
+    const foreign = await storeStaff.get(`/admin/stores/${SEED_IDS.stores.brandC}/orders`);
+    expect(foreign.status).toBe(403);
+  });
+
+  it('GET /admin/stores/{storeId}/orders/{orderId} → Order; 404 through another store; 400 non-uuid', async () => {
+    const res = await storeStaff.get(`/admin/stores/${A}/orders/${orderId}`);
+    expect(res.status).toBe(200);
+    spec.assertSchema('Order', res.body);
+    expect(res.body).toMatchObject({
+      id: orderId,
+      display_id: displayId,
+      status: 'pending',
+      payment_status: 'authorized',
+      payments: [{ provider: 'manual', status: 'authorized' }],
+      shipments: [],
+      returns: [],
+      refunds: [],
+    });
+    const viaB = await storeAdmin.get(`/admin/stores/${B}/orders/${orderId}`);
+    expect(viaB.status).toBe(404);
+    const notUuid = await storeStaff.get(`/admin/stores/${A}/orders/not-a-uuid`);
+    expect(notUuid.status).toBe(400);
+  });
+
+  it('POST /admin/stores/{storeId}/orders/{orderId}/cancel: store_admin only; body validated; 200 Order cancelled; idempotent', async () => {
+    const forbidden = await storeStaff.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {
+      reason: 'x',
+    });
+    expect(forbidden.status).toBe(403);
+    const noReason = await storeAdmin.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {});
+    expect(noReason.status).toBe(400);
+    const res = await storeAdmin.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {
+      reason: 'customer request',
+    });
+    expect(res.status).toBe(200);
+    spec.assertSchema('Order', res.body);
+    expect(res.body).toMatchObject({
+      status: 'cancelled',
+      cancel_reason: 'customer request',
+      payments: [{ status: 'cancelled' }],
+    });
+    const again = await storeAdmin.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {
+      reason: 'again',
+    });
+    expect(again.status).toBe(200);
+    expect(again.body.cancel_reason).toBe('customer request');
+    const list = await storeStaff.get(`/admin/stores/${A}/orders?status=cancelled`);
+    expect(list.body.items.map((o: { id: string }) => o.id)).toContain(orderId);
   });
 });

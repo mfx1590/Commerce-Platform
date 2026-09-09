@@ -21,13 +21,8 @@ import {
   type CreateCartInput,
   type UpdateCartInput,
 } from '../modules/cart';
-import {
-  completeCart,
-  createPaymentSession,
-  customerIdForSubject,
-  getStoreOrder,
-  listShippingOptions,
-} from '../modules/checkout';
+import { completeCart, createPaymentSession, listShippingOptions } from '../modules/checkout';
+import { customerIdForSubject, getStoreOrder } from '../modules/orders';
 import {
   getStoreProduct,
   listStoreCategories,
@@ -35,7 +30,7 @@ import {
   type StoreSort,
 } from '../modules/catalog';
 import { getStore, listCurrencies, listLocales, listSalesChannels } from '../modules/registry';
-import { AppError, validationError } from '../lib/errors';
+import { AppError, notFound, validationError } from '../lib/errors';
 import { handle } from './errors';
 import { loadSpec } from './openapi';
 import { intParam, one, uuidParam } from './query';
@@ -225,20 +220,21 @@ export const completeCartRoute: RequestHandler = handle(async (req, res) => {
 });
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * `GET /store/orders/{orderId}`: a customers-realm bearer token (verified against the store code of the key)
- * or the guest `?email=`. Any failure — bad token, unknown customer, wrong email, other store — is a 404 exactly
- * like the contract says (never 401/403): an order id must not be confirmable. Nothing here logs the email or
- * the query string.
+ * or the guest `?email=`. Any failure — bad token, unknown customer, wrong email, other store, a malformed id
+ * or email — is a 404 exactly like the contract says (never 400/401/403): an order id must not be confirmable
+ * and the shape of the input must not be either. Nothing here logs the email or the query string.
  */
 export const getOrderRoute: RequestHandler = handle(async (req, res) => {
   const t = requireTenant(req);
-  const orderId = uuidParam(req.params, 'orderId');
+  const orderIdRaw = one(req.params.orderId) ?? '';
+  if (!UUID.test(orderIdRaw)) throw notFound('order', orderIdRaw);
+  const orderId = orderIdRaw;
   const emailRaw = one(req.query.email);
-  if (emailRaw !== undefined && !EMAIL.test(emailRaw.trim())) {
-    throw validationError('invalid query', { email: 'email address' });
-  }
+  if (emailRaw !== undefined && !EMAIL.test(emailRaw.trim())) throw notFound('order', orderId);
   let customerId: string | null = null;
   const authorization = req.headers.authorization;
   if (authorization) {
