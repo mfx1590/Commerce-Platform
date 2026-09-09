@@ -1,6 +1,5 @@
-// Storage of merchandising rules. `PgRulesRepository` targets the proposed `merchandising_rule` table
-// (proposed/0130_merchandising_rule.sql; tests apply it to their throwaway database until the migration lands);
-// `MemoryRulesRepository` is the local mock for environments without the table (job dry runs, other windows'
+// Storage of merchandising rules. `PgRulesRepository` targets the `merchandising_rule` table
+// (packages/db migration 0130, CONTRACT CHANGE #162); `MemoryRulesRepository` is the local mock for environments without the table (job dry runs, other windows'
 // tests). Both enforce one rule per (store, scope).
 import type { Queryable } from '@platform/db';
 import { conflict, mapPgError } from '../../lib/errors';
