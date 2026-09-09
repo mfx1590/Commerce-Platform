@@ -456,11 +456,37 @@ describe('authorize', () => {
     ).rejects.toMatchObject({ code: 'payment_failed' });
     const orders = await owner.query(`SELECT 1 FROM "order" WHERE cart_id = $1`, [cart.id]);
     expect(orders.rows).toHaveLength(0);
-    // Placement-failure path: the declined intent is left for the orders module to void; nothing here
-    // cancels it behind the caller's back (the call log is the fixture the acceptance criteria ask for).
+    // A decline never authorised anything, so there is no hold to release: nothing cancels that intent.
     expect(fake.callsOf('cancelPaymentIntent').map((c) => c.id)).not.toContain(
       cart.session.session_id,
     );
+  });
+
+  it('releases the hold when placement fails AFTER authorising (checkout catch → provider.void)', async () => {
+    const cart = await readyCart();
+    fake.clientConfirm(cart.session.session_id);
+    const key = `boom-${randomUUID()}`;
+    await expect(
+      completeCart(a, {
+        cartId: cart.id,
+        idempotencyKey: key,
+        actor,
+        hooks: {
+          afterEvents: () => {
+            throw new Error('injected failure after the outbox insert');
+          },
+        },
+      }),
+    ).rejects.toThrow('injected failure');
+    // The authorisation was placed and then released: the intent is cancelled with the key the checkout
+    // module derives (`<Idempotency-Key>:void`), and nothing of the order survives the rollback.
+    const cancel = fake
+      .callsOf('cancelPaymentIntent')
+      .find((c) => c.id === cart.session.session_id);
+    expect(cancel?.idempotencyKey).toBe(voidIdempotencyKey(`${key}:void`));
+    expect(fake.intents.get(cart.session.session_id)!.status).toBe('canceled');
+    const orders = await owner.query(`SELECT 1 FROM "order" WHERE cart_id = $1`, [cart.id]);
+    expect(orders.rows).toHaveLength(0);
   });
 });
 
@@ -560,8 +586,10 @@ describe('capturePayment', () => {
       `SELECT topic, payload FROM outbox WHERE aggregate_id = $1 ORDER BY occurred_at`,
       [paymentId],
     );
-    expect(events.rows.map((e) => e.topic)).toEqual(['payment.captured']);
-    expect(events.rows[0]!.payload).toMatchObject({
+    // Placement emits `payment.authorized` (window 1's checkout, #176 part 2); capture adds `payment.captured`.
+    // Asserting the whole ordered sequence documents that split and catches a duplicate from either side.
+    expect(events.rows.map((e) => e.topic)).toEqual(['payment.authorized', 'payment.captured']);
+    expect(events.rows.at(-1)!.payload).toMatchObject({
       payment_id: paymentId,
       order_id: orderId,
       provider: 'stripe',
@@ -636,14 +664,22 @@ describe('capturePayment', () => {
 
   it('an outage writes nothing and rethrows; the retry then succeeds', async () => {
     const { paymentId } = await placedOrder();
+    // Baseline: placement already wrote `payment.authorized` for this payment (window 1, #176 part 2).
+    const before = await owner.query<{ topic: string }>(
+      `SELECT topic FROM outbox WHERE aggregate_id = $1`,
+      [paymentId],
+    );
     fake.outageNextCapture = true;
     await expect(capturePayment(a, paymentId, opts())).rejects.toBeInstanceOf(StripeError);
     const p = await owner.query<{ status: string }>(`SELECT status FROM payment WHERE id = $1`, [
       paymentId,
     ]);
     expect(p.rows[0]!.status).toBe('authorized');
-    const events = await owner.query(`SELECT 1 FROM outbox WHERE aggregate_id = $1`, [paymentId]);
-    expect(events.rows).toHaveLength(0);
+    const events = await owner.query<{ topic: string }>(
+      `SELECT topic FROM outbox WHERE aggregate_id = $1`,
+      [paymentId],
+    );
+    expect(events.rows.map((e) => e.topic)).toEqual(before.rows.map((e) => e.topic)); // the outage added none
     const retry = await capturePayment(a, paymentId, opts());
     expect(retry.payment.status).toBe('captured');
   });

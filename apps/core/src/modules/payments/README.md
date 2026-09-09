@@ -44,6 +44,12 @@ loader. Test mode only in Phase 2 (decisions.md #10): live-mode keys are refused
   because captured money comes back only through a refund — window 1's own `cancelOrder` says the same ("a
   captured payment is window 7's to refund"), so the cancel is refused loudly instead of cancelling a charged
   order. Outages rethrow, leaving the hold in place for the retry.
+  One limitation, found while testing the placement-failure path: `void` resolves the store (and so the
+  credentials) from the `payment` row by `provider_payment_id`. In the checkout's catch block the row exists
+  (it is inserted before the steps that can throw there), but if a placement ever failed BETWEEN `authorize`
+  and the payment insert, `void` would answer `unknown stripe payment` and the hold would sit until Stripe
+  expires it. Flagged to window 1 rather than worked around here: nothing in this module can resolve a store
+  without that row.
 - **`refund`** (task 2.3's entry point): `POST /v1/refunds` on the intent with idempotency key
   `refund_<refund Idempotency-Key>`. Stripe `pending` counts as succeeded (funds are on their way; the 2.2
   webhook receiver picks up a later `refund.failed`). The store — and so the credentials — is resolved from the
