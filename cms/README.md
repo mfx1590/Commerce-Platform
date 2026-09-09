@@ -168,6 +168,11 @@ fetch layer's tests rely on it; the Studio stays the authority on anything beyon
 
 ## For the fetch layer (task 2.2)
 
+The fetch layer lives in `apps/storefront-starter/src/lib/cms` (its README covers the reads, preview mode,
+the cache tags and the publish webhook: URL `/api/cms/revalidate`, projection
+`{ _id, _type, locale, "slug": slug.current, key }`, secret `SANITY_WEBHOOK_SECRET`; preview link
+`/api/cms/preview?secret=…&redirect=/<locale>/pages/<slug>`).
+
 `@platform/cms` exports the typed documents (`PageDocument`, `CampaignLandingDocument`,
 `NavigationDocument`, `FooterDocument`, `LegalDocument`, the block union `PageBlock`),
 `DOCUMENT_TYPES`, `documentId`, `datasetForStore(store.code)`, `SANITY_API_VERSION`, the fixtures

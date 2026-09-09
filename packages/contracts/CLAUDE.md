@@ -16,8 +16,8 @@ with the exact YAML diff; the Integrator applies accepted changes, bumps `info.v
 
 - `pnpm mock` (root) — Store API mock on http://localhost:4010, Admin API mock on http://localhost:4011 (`MOCK_STORE_PORT`, `MOCK_ADMIN_PORT` to override). Send `X-Publishable-Key: anything` / `Authorization: Bearer anything`; the mock only checks presence. Prism validates requests (400 on bad bodies) and responses.
 - `pnpm --filter @platform/contracts generate` — regenerates `src/generated/{store,admin}.ts` (openapi-typescript); committed, CI checks they are current.
-- `pnpm --filter @platform/contracts test` — static spec checks (every admin operation has `x-permission`, money is integer, ten areas covered incl. marketing, the marketing permission matrix, the Store API `currency` query).
-- `pnpm --filter @platform/contracts test:contract` — boots both mocks on :4110/:4111 and walks the storefront journey + admin surfaces + the marketing flow (campaign → launch → attribution report, feed publish, review moderation); fails if an example violates its schema.
+- `pnpm --filter @platform/contracts test` — static spec checks (every admin operation has `x-permission` and documents 401/403, money is integer, eleven areas covered incl. marketing and search, the marketing and merchandising permission matrices, the Store API `currency` query).
+- `pnpm --filter @platform/contracts test:contract` — boots both mocks on :4110/:4111 and walks the storefront journey + admin surfaces + the marketing flow (campaign → launch → attribution report, feed publish, review moderation) + merchandising (create rule → publish → list) + `Prefer: code=403` refusals; fails if an example violates its schema.
 - `pnpm --filter @platform/contracts build | typecheck`
 
 ## Public API
@@ -32,6 +32,7 @@ with the exact YAML diff; the Integrator applies accepted changes, bumps `info.v
 - Store API: every request carries `X-Publishable-Key`; customer routes add a Bearer JWT (Keycloak customers realm). Admin API: Bearer JWT (staff realm).
 - Admin store-scoped resources: `/admin/stores/{storeId}/...`; org-level: `/admin/...`. Each operation's `x-permission: { relation, object }` is the OpenFGA check the server performs (`viewer` = any relation on the object).
 - Marketing (0.3.0, docs/marketing-scope.md): `/admin/stores/{storeId}/marketing/…` reads `store_staff`, writes/launch/publish/moderate `store_admin`, reports `viewer`; `/admin/marketing/dashboard` `analyst` and `/admin/marketing/segment-templates` `viewer` reads / `owner` writes on `organization:hq`. Store API `listProducts`/`getProduct` take an optional `currency` query.
+- Merchandising (0.4.0, CONTRACT CHANGE #162): `/admin/stores/{storeId}/merchandising/rules[/{ruleId}]` + `…/merchandising/publish`, tag `search`; reads `store_staff`, writes and publish `store_admin` on `store:{storeId}`; one rule per store + scope (`category` | `query`), scope immutable, list fields replace on PATCH. Every admin operation documents `401` and `403` (#180); a new operation must too (spec test).
 - Money `{ amount_minor, currency }`; ids uuid; timestamps RFC-3339; lists `{ page, limit, total, items }`; errors `{ code, message, details }`.
 - Mutations that create money movements (`completeCart`, `createRefund`) require `Idempotency-Key`.
 - Seed ids in examples match `SEED_IDS` in `@platform/db` (brand-a store = `…0031`).

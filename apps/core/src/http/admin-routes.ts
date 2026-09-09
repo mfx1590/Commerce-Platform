@@ -36,17 +36,43 @@ import {
   updateStore,
   STORE_SORT_FIELDS,
 } from '../modules/registry';
-import { organizationClient } from '../lib/db';
+import { organizationClient, tenantClient } from '../lib/db';
+import { validationError } from '../lib/errors';
 import { handle } from './errors';
+import {
+  ADMIN_MOVEMENT_REASONS,
+  createStockMovement,
+  LEVEL_SORT_FIELDS,
+  listInventoryLevels,
+} from '../modules/inventory';
+import {
+  cancelOrder,
+  FULFILLMENT_STATUSES,
+  getAdminOrder,
+  listAdminOrders,
+  ORDER_SORT_FIELDS,
+  ORDER_STATUSES,
+  PAYMENT_STATUSES,
+} from '../modules/orders';
 import { loadSpec } from './openapi';
 import { requirePermission, resolveObject } from './permissions';
-import { one, pageParams, sortParams, throwIfProblems, uuidParam } from './query';
 import {
+  dateParam,
+  enumParam,
+  intParam,
+  one,
+  pageParams,
+  sortParams,
+  throwIfProblems,
+  uuidParam,
+} from './query';
+import {
+  hasOrganizationAccess,
   organizationClientFor,
   requirePrincipal,
   storeClientFor,
-  visibleStoresClientFor,
   type StaffPrincipal,
+  visibleStoresClientFor,
 } from './staff-auth';
 
 type Principal = AdminComponents['schemas']['Principal'];
@@ -81,8 +107,150 @@ function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client
   return { p, storeId, client: storeClientFor(p, storeId) };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function adminRouter(): Router {
   const r = Router();
+
+  // ---- inventory (task 2.4, src/modules/inventory) ----------------------------------------------------------
+  // listInventoryLevels' x-permission is `viewer` on `store:{store_id}` with store_id an OPTIONAL query: with it
+  // the check is that store; without it the check is `store:*` (any visible store) and the list is limited to
+  // the principal's visible stores by the client's RLS scope.
+  r.get(
+    '/admin/inventory/levels',
+    requirePermission(spec().permission('listInventoryLevels').relation, (req) => {
+      const storeId = one(req.query.store_id);
+      // a malformed store_id is a 400 (input shape), decided before the permission check would say 403
+      if (storeId !== undefined && !UUID_RE.test(storeId)) {
+        throw validationError('invalid query', { store_id: 'uuid' });
+      }
+      return storeId ? `store:${storeId}` : 'store:*';
+    }),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const sort = sortParams(req.query, LEVEL_SORT_FIELDS, problems);
+      const storeId = one(req.query.store_id);
+      const warehouseId = one(req.query.warehouse_id);
+      const variantId = one(req.query.variant_id);
+      for (const [name, value] of [
+        ['store_id', storeId],
+        ['warehouse_id', warehouseId],
+        ['variant_id', variantId],
+      ] as const) {
+        if (value !== undefined && !UUID_RE.test(value)) problems[name] = 'uuid';
+      }
+      const below = intParam(req.query, 'below_available', { min: -1_000_000 }, problems);
+      throwIfProblems(problems);
+      const client =
+        storeId && !hasOrganizationAccess(p)
+          ? storeClientFor(p, storeId)
+          : storeId
+            ? tenantClient({ organizationId: p.organizationId, storeIds: [storeId] })
+            : visibleStoresClientFor(p);
+      res.json(
+        await listInventoryLevels(client, {
+          ...page,
+          ...sort,
+          store_id: storeId,
+          warehouse_id: warehouseId,
+          variant_id: variantId,
+          sku: one(req.query.sku),
+          below_available: below,
+        }),
+      );
+    }),
+  );
+  r.post(
+    '/admin/inventory/movements',
+    permission('createStockMovement'),
+    body('createStockMovement'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const b = req.body as {
+        variant_id: string;
+        warehouse_id: string;
+        delta: number;
+        reason: (typeof ADMIN_MOVEMENT_REASONS)[number];
+        note?: string;
+      };
+      if (!(ADMIN_MOVEMENT_REASONS as readonly string[]).includes(b.reason)) {
+        throw validationError('invalid reason', {
+          reason: `one of ${ADMIN_MOVEMENT_REASONS.join(', ')}`,
+        });
+      }
+      res.status(201).json(
+        await createStockMovement(organizationClientFor(p), {
+          organizationId: p.organizationId,
+          variantId: b.variant_id,
+          warehouseId: b.warehouse_id,
+          delta: b.delta,
+          reason: b.reason,
+          note: b.note ?? null,
+          actor: p.actor,
+        }),
+      );
+    }),
+  );
+
+  // ---- orders (task 2.3, src/modules/orders) ----------------------------------------------------------------
+  r.get(
+    '/admin/stores/:storeId/orders',
+    permission('listOrders'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const sort = sortParams(req.query, ORDER_SORT_FIELDS, problems);
+      const status = enumParam(req.query, 'status', ORDER_STATUSES, problems);
+      const paymentStatus = enumParam(req.query, 'payment_status', PAYMENT_STATUSES, problems);
+      const fulfillmentStatus = enumParam(
+        req.query,
+        'fulfillment_status',
+        FULFILLMENT_STATUSES,
+        problems,
+      );
+      const placedFrom = dateParam(req.query, 'placed_from', problems);
+      const placedTo = dateParam(req.query, 'placed_to', problems);
+      throwIfProblems(problems);
+      res.json(
+        await listAdminOrders(client, storeId, {
+          ...page,
+          ...sort,
+          status,
+          payment_status: paymentStatus,
+          fulfillment_status: fulfillmentStatus,
+          q: one(req.query.q),
+          placed_from: placedFrom,
+          placed_to: placedTo,
+        }),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/orders/:orderId',
+    permission('getOrder'),
+    handle(async (req, res) => {
+      const { client } = storeClient(req);
+      res.json(await getAdminOrder(client, uuidParam(req.params, 'orderId')));
+    }),
+  );
+  r.post(
+    '/admin/stores/:storeId/orders/:orderId/cancel',
+    permission('cancelOrder'),
+    body('cancelOrder'),
+    handle(async (req, res) => {
+      const { client } = storeClient(req);
+      const p = requirePrincipal(req);
+      res.json(
+        await cancelOrder(client, uuidParam(req.params, 'orderId'), {
+          reason: String((req.body as { reason: string }).reason),
+          actor: p.actor,
+        }),
+      );
+    }),
+  );
 
   // ---- me --------------------------------------------------------------------------------------------------
   r.get(

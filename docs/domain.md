@@ -863,6 +863,25 @@ Owner: window 17. Events: `referral.converted`.
 
 Owner: window 17. Events: `review.published`.
 
+### merchandising_rule (search; migration 0130, contracts-v0.4)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| scope_type | text | `category` / `query` |
+| scope_key | text | category: the `product_category` id; query: the search query, trimmed and lower-cased; UNIQUE `(store_id, scope_type, scope_key)` — one rule per store + scope |
+| category_id | uuid NULL FK product_category | cascade; CHECK: set exactly when `scope_type = category` |
+| pins | jsonb | ordered product ids shown first (≤ 50) |
+| boosts | jsonb | `[{ product_id, weight 1..100 }]` (≤ 200) |
+| buries | jsonb | product ids hidden for this scope (≤ 200) |
+| enabled | boolean | |
+| starts_at / ends_at | timestamptz NULL | `ends_at > starts_at` when both set; outside the window a rule is skipped on publish |
+| published_at | timestamptz NULL | stamped by `publishMerchandisingRules`, which replaces the store's Algolia rules with every enabled rule |
+
+Owner: window 9 (search). Events: none — rules are pushed to Algolia synchronously on publish and no other system
+consumes them (CONTRACT CHANGE #162, open question left as is).
+
 ### abandoned carts (no table)
 
 Derived from `cart` with `status = 'active'` and no activity for the store's abandonment window; the core job flips
@@ -913,7 +932,7 @@ every mutation ─► outbox ─► bus ─► ledger_entry (Phase 4)
 | 2 auth | staff_user, role_assignment, audit_log helper |
 | 7 payments | payment, refund, tax_rate (Stripe Tax) |
 | 8 shipping | shipment, shipment_item, shipping_option |
-| 9 search | promotion, product_media pipeline, search index sync |
+| 9 search | promotion, product_media pipeline, search index sync, merchandising_rule |
 | 11 warehouse | warehouse, allocation policy over inventory_level |
 | 13 customers | customer, customer_address, customer_identity |
 | 14 events | outbox relay |

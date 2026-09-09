@@ -29,12 +29,18 @@ module: `GET /store/carts/{cartId}/shipping-options`, `POST …/payment-session`
 3. Preconditions → 400 `validation_error` listing what is missing: items, `email`, `shipping_address`,
    `billing_address`, `shipping_option_id`, `payment_session`.
 4. Totals refreshed through the cart module (`recalculate`, providers included); a shipping option no longer
-   quotable → 400. Stock re-checked per line → 409 `out_of_stock` (reservations arrive with task 2.4).
+   quotable → 400. (The stock check is the reservation in step 6b since task 2.4.)
 5. `PaymentProvider.authorize()` for the session's provider; `failed` → 402 `payment_failed`, **nothing written**.
 6. `"order"` inserted with snapshots (addresses, `shipping_method {code,name,carrier,price_minor}`, totals frozen,
    `payment_status = 'authorized'`, `metadata = orderMetadataFromCart(cart.metadata)`), then `order_line_item`
    rows (`tax_minor` exact from the persisted `tax_rate_bp`, `total_minor = qty×unit − discount + tax`), then the
    `payment` row (provider, provider payment id, amount, `authorized`, the idempotency key).
+   6b. **Reservations** (`reserveForOrder`, inventory module): the stock check at placement under the level rows'
+   locks — greedy allocation across warehouses by priority; a non-backorderable shortfall → 409 `out_of_stock`
+   and the whole placement rolls back.
+   6c. **Void on failure**: every step after a successful `authorize` runs under a guard — any throw (out_of_stock,
+   a shipping-option race, a database error) rolls back AND calls `PaymentProvider.void` for the authorisation
+   before rethrowing, so no dangling hold survives (#174 review; tested on the manual provider's call log).
 7. `recordAttribution()` from `src/lib/attribution.ts` (Integration 1): one `attribution` row + one
    `attribution.recorded` per touch in `cart.metadata.attribution` — called, not reimplemented.
 8. `order.placed` v1 through `withEvents` (validated against `packages/events/schemas/order.placed/v1.json`;
@@ -63,6 +69,10 @@ setPaymentProvider(stripeProvider); // at boot; returns the previous provider un
 - `authorize({ tx, cart, session, idempotencyKey }) → { status: 'authorized' | 'failed', providerPaymentId, failureReason? }`
   inside the placement transaction; `failed` aborts the placement with 402. Must be idempotent on
   `idempotencyKey` (the replay path never reaches it, but a provider may be retried after a crash).
+- `void({ tx, providerPaymentId, idempotencyKey, reason }) → { status: 'voided' | 'failed' }`: called by the
+  orders module when an order with an **authorised, uncaptured** payment is cancelled (`cancelOrder`, 2.3); a
+  `failed` void aborts the cancellation with 402. `manual` is a no-op that always succeeds (nothing was ever
+  captured); Stripe cancels the PaymentIntent.
 - `refund({ tx, providerPaymentId, amountMinor, currency, idempotencyKey, reason })` for task 2.5's returns.
 - `manual` (`manualPaymentProvider`): authorises everything at once, `client_secret: null`, ids `man_…` /
   `manpay_…`. It is the default registration and what the storefront uses in Phase 2 until Stripe lands.
@@ -92,12 +102,19 @@ guest orders. The storefront's client never sends the customer token to cart pat
 - **2026-09-08 · Idempotency lives on `payment.idempotency_key`** (manager decision at the start of 2.2): placement
   creates exactly one payment row, the column is already UNIQUE, and the replay reads the order through it. No
   idempotency table, no key on the order row, no metadata pollution.
+- **2026-09-08 · Idempotency keys are per store.** `payment.idempotency_key` is UNIQUE table-wide (migration 0006)
+  while RLS hides other stores' rows from the replay lookup — so the stored value is `<store_id>:<Idempotency-Key>`.
+  The same key sent to two stores places two orders, never collides on the constraint and never returns another
+  store's order (tested; the per-store test caught the unique-violation 500 before the fix). Keys are generated per
+  storefront, so this is the intended scope; window 7 reads the composite when it needs the raw key (split on the
+  first `:`).
 - **2026-09-08 · A payment session is required to complete** — `manual` is never assumed. A cart without a
   session is a 400, so a storefront that forgets the step cannot place unpaid orders by accident.
 - **2026-09-08 · Display id via the existing store-row trigger** (see above); per-store serialisation accepted
   for Phase 2.
-- The order read model lives here until task 2.3 creates `src/modules/orders`, which takes `renderOrder`,
-  `getStoreOrder` and the state machine.
+- The order read model (`renderStoreOrder`, `getStoreOrder`, `customerIdForSubject`) moved to
+  `src/modules/orders` in task 2.3; the access rule above is implemented there. `GET /store/orders/{orderId}`
+  also answers 404 for a malformed id or email (never a 400 that would confirm the id exists).
 
 ## Tests
 
