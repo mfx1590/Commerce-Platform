@@ -20,6 +20,13 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.2 (#146) product feeds** — commit `c787e41`, merged main in `47608e3`, PR #200 (2026-09-09).
+  Core: `feed-types/feed-items/feed-validation/feed-render/storage/feeds.ts` + 7 routes on the same router.
+  New app `apps/feeds` (Node `http`, no runtime deps, serves artifacts only).
+  Publish = build → validate → render → store; idempotent on the **stored artifact's** hash, so identical bytes
+  write nothing and emit nothing. Renderers deterministic (no timestamps) — that is what makes the hash work.
+  Found and filed CONTRACT CHANGE #194 (accepted → Admin API 0.4.1 after #200 merges); REQUEST #195 to window 5.
+
 - **2.1 (#145) campaigns + attribution report** — commit `ca83a70`, PR #182 (2026-09-08). New module
   `apps/core/src/modules/marketing/` (types, campaigns, reports, routes, index, README, CHANGELOG) + 23 tests.
   Campaign CRUD, `launch`/`end` with `campaign.launched`/`campaign.ended` through the outbox in the same
@@ -28,17 +35,12 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- **2.2 (#146) product feeds — code complete and green locally, NOT yet committed/pushed.** Holding until the
-  manager confirms #182 (2.1) merged, then `git merge main`, commit, push, open the 2.2 PR.
-  Delivered: `apps/core/src/modules/marketing/{feed-types,feed-items,feed-validation,feed-render,storage,feeds}.ts`
-  + 7 routes; `apps/feeds/**` (server, storage reader, config, README/CLAUDE/CHANGELOG, 13 tests).
-  Gates green: lint, typecheck 19/19, format:check, core 220 passed / 1 skipped, feeds 13 passed.
-  `infra/ci/check-image-manifests.sh` is RED on purpose (4 Dockerfiles missing `apps/feeds/package.json`) — the
-  intended prompt; REQUEST #195 to window 5. To call out in the PR so it is not read as a regression.
+- **2.3 (#147) segments** — starting 2026-09-09. Blocked on the local Docker stack for DB-backed tests (see
+  Blocked); pure work (rule grammar, evaluator, validation) can proceed without it.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
-- [~] **#146 · 2.2** Product feeds for Google Merchant and Meta — built and green, PR pending #182's merge
+- [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
 - [ ] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract
 - [ ] **#148 · 2.4** Abandoned-cart recovery
 - [ ] **#149 · 2.5** Admin Marketing section v1
@@ -77,8 +79,14 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
-- **#182 (2.1) merge confirmation** — no pushes until the manager says it landed; then `git merge main` first.
-- **CONTRACT CHANGE #194** — Admin API 0.3.0's `ProductFeed` is `allOf[ProductFeedInput, …]` and
+- **Local Docker stack is DOWN (2026-09-09)** — Docker Desktop is not running on this machine, so every suite
+  calling `createTestDatabase` fails with `ECONNREFUSED :5433` (window 9's search suites too, not just mine).
+  Lint/typecheck/format still run. Restarting the shared stack is the manager's call at a quiet moment
+  (stack etiquette): do not `pnpm dev --reset` or recreate containers. Stated as a caveat on PR #200.
+- **CONTRACT CHANGE #194 — ACCEPTED** (manager 2026-09-09): `ProductFeed` gets its own status enum including
+  `error` and `ProductFeedInput` stops carrying `status`; lands as **Admin API 0.4.1 after PR #200 merges**.
+  Keep `proposed/` and the loud inverted test until then, then delete both in a follow-up.
+  Original report: Admin API 0.3.0's `ProductFeed` is `allOf[ProductFeedInput, …]` and
   `ProductFeedInput.status` excludes `error`, so the document rejects the status `publishFeed` produces and the
   generated type will not compile with it. Working against `proposed/product-feed.schema.json` + a local read
   type; a test asserts the frozen document *still rejects* the error response, so it fails loudly when #194
