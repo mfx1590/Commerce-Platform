@@ -14,8 +14,11 @@ import {
   requirePermission,
   resolveObject,
   resolveStaffPrincipal,
+  moduleAdminRouters,
 } from '../src/http';
-import { closePool, initDb } from '../src/lib/db';
+import { closePool, initDb, tenantClient } from '../src/lib/db';
+import { addLineItem, createCart, updateCart } from '../src/modules/cart';
+import { completeCart, createPaymentSession } from '../src/modules/checkout';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -49,7 +52,7 @@ beforeAll(async () => {
   process.env.CORE_ORGANIZATION_ID = SEED_IDS.organization;
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
-  mountCoreMiddleware(app, new DevTokenVerifier());
+  mountCoreMiddleware(app, new DevTokenVerifier(), { moduleRouters: moduleAdminRouters() });
   // The Admin API customers routes belong to window 13 and stay on the Prism mock in Phase 1; this probe
   // mounts the frozen `listCustomers` x-permission (support since contracts 0.2.1, issue #77) on our guard so
   // the PII gate is proven for everything window 1 owns.
@@ -409,5 +412,230 @@ describe('customer PII gate (contracts 0.2.1, issue #77)', () => {
     expect(hasPermission(principal, 'support', `store:${A}`)).toBe(false);
     expect(hasPermission(principal, 'support', `store:${B}`)).toBe(false);
     expect(hasPermission(principal, 'support', 'store:*')).toBe(false);
+  });
+});
+
+describe('orders (task 2.3): listOrders, getOrder, cancelOrder', () => {
+  const customer = { id: null, type: 'customer' as const, requestId: 'req-admin-orders' };
+  let orderId: string;
+  let displayId: number;
+
+  beforeAll(async () => {
+    // Place one brand-a order through the cart + checkout modules (the Admin API has no "create order").
+    const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
+    const channel = await client.query<{ id: string }>(
+      `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+      [A],
+    );
+    const cart = await createCart(client, {
+      organizationId: SEED_IDS.organization,
+      storeId: A,
+      salesChannelId: channel.rows[0]!.id,
+    });
+    const variant = await client.query<{ id: string }>(
+      `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
+       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       WHERE v.store_id = $1 ORDER BY v.sku LIMIT 1`,
+      [A],
+    );
+    await addLineItem(client, cart.id, { variant_id: variant.rows[0]!.id, quantity: 1 });
+    const option = await client.query<{ id: string }>(
+      `SELECT id FROM shipping_option WHERE store_id = $1 AND code = 'standard'`,
+      [A],
+    );
+    const address = {
+      first_name: 'Ada',
+      last_name: 'Admin',
+      line1: 'Dam 1',
+      city: 'Amsterdam',
+      postal_code: '1012 JS',
+      country: 'NL',
+    };
+    await updateCart(client, cart.id, {
+      email: 'ada.admin@example.com',
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: option.rows[0]!.id,
+    });
+    await createPaymentSession(client, cart.id, { provider: 'manual' });
+    const { order } = await completeCart(client, {
+      cartId: cart.id,
+      idempotencyKey: `admin-api-${cart.id}`,
+      actor: customer,
+    });
+    orderId = order.id;
+    displayId = order.display_id;
+  });
+
+  it('GET /admin/stores/{storeId}/orders → Page<OrderSummary> (viewer); filters, q, sort/order; 400 on bad params', async () => {
+    const res = await storeStaff.get(`/admin/stores/${A}/orders?sort=display_id&order=asc`);
+    expect(res.status).toBe(200);
+    spec.assertPage('OrderSummary', res.body);
+    expect(res.body.items.map((o: { id: string }) => o.id)).toContain(orderId);
+    const byId = await storeStaff.get(`/admin/stores/${A}/orders?q=${displayId}`);
+    expect(byId.body.items.map((o: { id: string }) => o.id)).toEqual([orderId]);
+    const filtered = await storeStaff.get(`/admin/stores/${A}/orders?status=cancelled`);
+    expect(filtered.body.items.map((o: { id: string }) => o.id)).not.toContain(orderId);
+    const bad = await storeStaff.get(
+      `/admin/stores/${A}/orders?status=shipped&sort=email&placed_from=yesterday`,
+    );
+    expect(bad.status).toBe(400);
+    spec.assertSchema('Error', bad.body);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['placed_from', 'sort', 'status']);
+    // another store's admin scope → 403 from the permission stub (brand-c is outside store-staff's stores)
+    const foreign = await storeStaff.get(`/admin/stores/${SEED_IDS.stores.brandC}/orders`);
+    expect(foreign.status).toBe(403);
+  });
+
+  it('GET /admin/stores/{storeId}/orders/{orderId} → Order; 404 through another store; 400 non-uuid', async () => {
+    const res = await storeStaff.get(`/admin/stores/${A}/orders/${orderId}`);
+    expect(res.status).toBe(200);
+    spec.assertSchema('Order', res.body);
+    expect(res.body).toMatchObject({
+      id: orderId,
+      display_id: displayId,
+      status: 'pending',
+      payment_status: 'authorized',
+      payments: [{ provider: 'manual', status: 'authorized' }],
+      shipments: [],
+      returns: [],
+      refunds: [],
+    });
+    const viaB = await storeAdmin.get(`/admin/stores/${B}/orders/${orderId}`);
+    expect(viaB.status).toBe(404);
+    const notUuid = await storeStaff.get(`/admin/stores/${A}/orders/not-a-uuid`);
+    expect(notUuid.status).toBe(400);
+  });
+
+  it('POST /admin/stores/{storeId}/orders/{orderId}/cancel: store_admin only; body validated; 200 Order cancelled; idempotent', async () => {
+    const forbidden = await storeStaff.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {
+      reason: 'x',
+    });
+    expect(forbidden.status).toBe(403);
+    const noReason = await storeAdmin.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {});
+    expect(noReason.status).toBe(400);
+    const res = await storeAdmin.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {
+      reason: 'customer request',
+    });
+    expect(res.status).toBe(200);
+    spec.assertSchema('Order', res.body);
+    expect(res.body).toMatchObject({
+      status: 'cancelled',
+      cancel_reason: 'customer request',
+      payments: [{ status: 'cancelled' }],
+    });
+    const again = await storeAdmin.post(`/admin/stores/${A}/orders/${orderId}/cancel`, {
+      reason: 'again',
+    });
+    expect(again.status).toBe(200);
+    expect(again.body.cancel_reason).toBe('customer request');
+    const list = await storeStaff.get(`/admin/stores/${A}/orders?status=cancelled`);
+    expect(list.body.items.map((o: { id: string }) => o.id)).toContain(orderId);
+  });
+});
+
+describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () => {
+  const operations = as('seed-operations');
+
+  it('GET /admin/inventory/levels: with store_id → that store (viewer); without → visible stores; sort/filters; 403 for a foreign store', async () => {
+    const res = await storeStaff.get(
+      `/admin/inventory/levels?store_id=${A}&sort=available&order=asc&limit=5`,
+    );
+    expect(res.status).toBe(200);
+    spec.assertPage('InventoryLevel', res.body);
+    expect(res.body.items).toHaveLength(5);
+    for (const i of res.body.items) expect(i.store_id).toBe(A);
+    const avail = res.body.items.map((i: { available: number }) => i.available);
+    expect([...avail].sort((x, y) => x - y)).toEqual(avail);
+
+    // no store_id: store:* → the caller's visible stores only (store-staff = brand-a and brand-b)
+    const mine = await storeStaff.get(
+      '/admin/inventory/levels?limit=100&warehouse_id=' + SEED_IDS.warehouses.eu,
+    );
+    expect(mine.status).toBe(200);
+    const stores = new Set(mine.body.items.map((i: { store_id: string }) => i.store_id));
+    expect(stores.has(SEED_IDS.stores.brandC)).toBe(false);
+    // HQ operations sees every store
+    const all = await operations.get(
+      '/admin/inventory/levels?limit=100&warehouse_id=' + SEED_IDS.warehouses.eu,
+    );
+    expect(all.status).toBe(200);
+    expect(all.body.total).toBeGreaterThan(mine.body.total);
+
+    const foreign = await storeStaff.get(
+      `/admin/inventory/levels?store_id=${SEED_IDS.stores.brandC}`,
+    );
+    expect(foreign.status).toBe(403);
+    const badStore = await storeStaff.get(`/admin/inventory/levels?store_id=nope`);
+    expect(badStore.status).toBe(400);
+    expect(badStore.body.details).toEqual({ store_id: 'uuid' });
+    const bad = await storeStaff.get(
+      `/admin/inventory/levels?store_id=${A}&sort=price&below_available=x`,
+    );
+    expect(bad.status).toBe(400);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['below_available', 'sort']);
+  });
+
+  it('POST /admin/inventory/movements: operations only; body validated; 201 InventoryLevel; stock.moved written', async () => {
+    const levels = await operations.get(
+      `/admin/inventory/levels?store_id=${A}&limit=1&sort=sku&order=asc`,
+    );
+    const lvl = levels.body.items[0] as {
+      variant_id: string;
+      warehouse_id: string;
+      on_hand: number;
+      sku: string;
+    };
+    const forbidden = await storeAdmin.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: 1,
+      reason: 'receipt',
+    });
+    expect(forbidden.status).toBe(403);
+    const badReason = await operations.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: 1,
+      reason: 'sale',
+    });
+    expect(badReason.status).toBe(400);
+    const res = await operations.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: 5,
+      reason: 'receipt',
+      note: 'PO-42',
+    });
+    expect(res.status).toBe(201);
+    spec.assertSchema('InventoryLevel', res.body);
+    expect(res.body).toMatchObject({
+      variant_id: lvl.variant_id,
+      sku: lvl.sku,
+      on_hand: lvl.on_hand + 5,
+    });
+    const negative = await operations.post('/admin/inventory/movements', {
+      variant_id: lvl.variant_id,
+      warehouse_id: lvl.warehouse_id,
+      delta: -(lvl.on_hand + 100),
+      reason: 'adjustment',
+    });
+    expect(negative.status).toBe(409);
+    spec.assertSchema('Error', negative.body);
+  });
+});
+
+describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
+  it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
+    expect(moduleAdminRouters()).toHaveLength(2);
+    const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
+    expect(rules.status).toBe(200); // window 9: store_staff read
+    expect(rules.body).toHaveProperty('items');
+    const campaigns = await storeStaff.get(`/admin/stores/${A}/marketing/campaigns`);
+    expect(campaigns.status).toBe(200); // window 17: viewer read
+    expect(campaigns.body).toHaveProperty('items');
+    const anonymous = await request(app).get(`/admin/stores/${A}/marketing/campaigns`);
+    expect(anonymous.status).toBe(401); // our middleware still fronts them
   });
 });

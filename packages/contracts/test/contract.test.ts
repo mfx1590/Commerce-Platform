@@ -331,6 +331,97 @@ describe('Admin API mock', () => {
   });
 });
 
+describe('Admin API mock (0.4.0)', () => {
+  it('merchandising (#162): create rule → publish → list; get / patch / delete; bad scope is 400', async () => {
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/merchandising`;
+    const created = await fetch(`${base}/rules`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        scope: { type: 'category', category_id: '00000000-0000-4000-8000-000000000201' },
+        pins: ['00000000-0000-4000-8000-000000000301'],
+        boosts: [{ product_id: '00000000-0000-4000-8000-000000000302', weight: 50 }],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const rule = await json(created);
+    expect((rule.scope as { type: string }).type).toBe('category');
+    expect(rule.published_at).toBeNull();
+
+    const badScope = await fetch(`${base}/rules`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ scope: { type: 'brand' } }),
+    });
+    expect(badScope.status).toBe(400);
+    const badWeight = await fetch(`${base}/rules`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        scope: { type: 'query', query: 'summer tee' },
+        boosts: [{ product_id: '00000000-0000-4000-8000-000000000302', weight: 101 }],
+      }),
+    });
+    expect(badWeight.status).toBe(400);
+
+    const published = await fetch(`${base}/publish`, { method: 'POST', headers: adminHeaders });
+    expect(published.status).toBe(200);
+    const result = await json(published);
+    expect(typeof result.index).toBe('string');
+    expect(typeof result.published).toBe('number');
+    expect(typeof result.skipped).toBe('number');
+
+    const list = await json(await fetch(`${base}/rules`, { headers: adminHeaders }));
+    const items = list.items as Array<{ id: string; scope: { type: string } }>;
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0]?.scope.type).toBe('category');
+
+    const one = await fetch(`${base}/rules/${rule.id}`, { headers: adminHeaders });
+    expect(one.status).toBe(200);
+    const patched = await fetch(`${base}/rules/${rule.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(patched.status).toBe(200);
+    expect(typeof (await json(patched)).enabled).toBe('boolean');
+    const badPatch = await fetch(`${base}/rules/${rule.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ scope: { type: 'query', query: 'x' }, enabled: 'yes' }),
+    });
+    expect(badPatch.status).toBe(400);
+    const deleted = await fetch(`${base}/rules/${rule.id}`, {
+      method: 'DELETE',
+      headers: adminHeaders,
+    });
+    expect(deleted.status).toBe(204);
+  });
+
+  it('401 / 403 are documented on every operation (#180): Prism can produce the refusal on demand', async () => {
+    for (const [path, method, body] of [
+      [`/admin/stores/${STORE_ID}/products`, 'POST', { handle: 'new-tee', title: 'New Tee' }],
+      [`/admin/stores/${STORE_ID}/merchandising/publish`, 'POST', undefined],
+      [`/admin/stores/${STORE_ID}/merchandising/rules`, 'GET', undefined],
+    ] as const) {
+      const forbidden = await fetch(`${ADMIN}${path}`, {
+        method,
+        headers: { ...adminHeaders, prefer: 'code=403' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      expect(forbidden.status, `${method} ${path}`).toBe(403);
+      const err = await json(forbidden);
+      expect(err.code).toBe('forbidden');
+      expect(typeof (err.details as { relation: string }).relation).toBe('string');
+    }
+    const unauthorized = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/products`, {
+      headers: { ...adminHeaders, prefer: 'code=401' },
+    });
+    expect(unauthorized.status).toBe(401);
+    expect((await json(unauthorized)).code).toBe('unauthorized');
+  });
+});
+
 describe('Store API mock (0.3.0 currency query)', () => {
   it('accepts a valid currency and rejects a malformed one', async () => {
     const ok = await fetch(`${STORE}/store/products/classic-tee?currency=EUR`, {

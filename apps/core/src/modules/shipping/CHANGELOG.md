@@ -5,6 +5,35 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
+### 2026-09-08 · 2.2 Rate shopping at checkout (#130)
+
+- `rate-shopping.ts` (new): `createCarrierRateProvider()` implements the cart module's `ShippingRateProvider`.
+  The `shipping_option` table decides which options exist and who is eligible (so an option id is always a real
+  row and checkout can freeze it on the order); a row with `rules.live = true` and a `service` is priced by the
+  carrier instead of its flat `price_minor`. Reads the options, the store's code and settings, an origin
+  warehouse and `product_variant.weight_g` through the cart's own transaction (RLS scope = the store).
+- `rules` keys: `min_subtotal_minor` and `max_weight_g` (eligibility, from docs/domain.md),
+  `free_over_subtotal_minor` (free shipping threshold, applied after pricing) and `live`. All optional, all
+  ignored when unreadable — a mistyped rule never fails a quote. No schema change: `rules` is jsonb.
+- Fallback: a provider error, timeout, exhausted retry, missing credential, missing warehouse, missing shipping
+  address or a quote in the wrong currency puts every option back on its flat table price. A carrier outage
+  cannot stop a cart from pricing, and there is no FX anywhere.
+- Carrier quotes are cached 60 s per identical cart. The key hashes the destination (sha256), so an address is
+  never held in a process index in readable form.
+- `registerCarrierProviders()` is the boot mount point `src/server.ts` calls (REQUEST #176 to window 1); this
+  module never edits the cart. Safe before any store opts in: with no credentials the behaviour is today's.
+- A provider registered with `setCarrierProvider` now wins over building one from a store's credentials — the
+  registry is the extension point, and `easypost` cannot be a single entry because its keys are per store.
+- `bounded-map.ts` (new): `BoundedTtlMap`, entries expiring on a TTL with a hard cap and oldest-first eviction.
+  The EasyPost rate → shipment index (500 / 30 min), the manual provider's quotes (500 / 30 min) and labels
+  (1000 / 24 h) and the rate cache all use it — no in-process index in this module grows without bound.
+- EasyPost retries: a _safe_ call (rates, track, address validation) is attempted up to `maxAttempts` (default 3)
+  while the status is retryable, with the delay doubling from 200 ms. **Buying and voiding a label are never
+  retried** — a 5xx can arrive after the label exists, and a retry would buy a second parcel.
+- Tests: 22 more unit tests (rate shopping, bounded map, retries) plus `rate-shopping-db.test.ts` — 6 tests on a
+  seeded database including placement through the cart and checkout public APIs, proving the live price is
+  frozen on the order as `shipping_method`.
+
 ### 2026-09-08 · 2.1 Carrier provider interface + manual and EasyPost providers (#129)
 
 - `types.ts`: `CarrierProvider` (`rates`, `buyLabel`, `voidLabel`, `track`, optional `validateAddress`) with

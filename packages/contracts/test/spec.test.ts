@@ -84,7 +84,8 @@ describe('admin-api.yaml', () => {
   const text = read('admin-api.yaml');
   const ops = operations(text);
 
-  it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0)', () => {
+  it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
+    expect(text).toMatch(/version: 0\.4\.0/);
     for (const tag of [
       'registry',
       'catalog',
@@ -96,10 +97,62 @@ describe('admin-api.yaml', () => {
       'roles',
       'audit',
       'marketing',
+      'search',
     ]) {
       expect(text, tag).toMatch(new RegExp(`tags: \\[[^\\]]*\\b${tag}\\b`));
     }
     expect(ops.length).toBeGreaterThanOrEqual(45);
+  });
+
+  it('merchandising (0.4.0, #162): rules CRUD + publish with store_staff reads and store_admin writes', () => {
+    const ids = ops.map((o) => o.id);
+    const reads = ['listMerchandisingRules', 'getMerchandisingRule'];
+    const writes = [
+      'createMerchandisingRule',
+      'updateMerchandisingRule',
+      'deleteMerchandisingRule',
+      'publishMerchandisingRules',
+    ];
+    for (const id of [...reads, ...writes]) expect(ids, id).toContain(id);
+    expect(ops.length).toBeGreaterThanOrEqual(93);
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    for (const id of reads) expect(permission(id), id).toEqual(['store_staff', 'store:{storeId}']);
+    for (const id of writes) expect(permission(id), id).toEqual(['store_admin', 'store:{storeId}']);
+    // `tags:` precedes `operationId:`, so count the search-tagged operations per document
+    expect((text.match(/^ {6}tags: \[search\]$/gm) ?? []).length).toBe(
+      reads.length + writes.length,
+    );
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/merchandising\/rules:/);
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/merchandising\/rules\/\{ruleId\}:/);
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/merchandising\/publish:/);
+    for (const schema of [
+      'MerchandisingScope',
+      'MerchandisingBoost',
+      'MerchandisingRuleInput',
+      'MerchandisingRulePatch',
+      'MerchandisingRule',
+    ]) {
+      expect(text, schema).toMatch(new RegExp(`^    ${schema}:$`, 'm'));
+    }
+    // one rule per scope: create documents 409; publish without an index documents 409
+    expect(ops.find((o) => o.id === 'createMerchandisingRule')!.body).toMatch(/'409':/);
+    expect(ops.find((o) => o.id === 'publishMerchandisingRules')!.body).toMatch(/'409':/);
+  });
+
+  it('every admin operation documents 401 and 403 (#180; getMe has no permission, so 401 only)', () => {
+    for (const o of ops) {
+      expect(o.body, `${o.id} lacks 401`).toMatch(
+        /'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/,
+      );
+      if (o.id === 'getMe') continue;
+      expect(o.body, `${o.id} lacks 403`).toMatch(
+        /'403': \{ \$ref: '#\/components\/responses\/Forbidden' \}/,
+      );
+    }
   });
 
   it('marketing (0.3.0): every path from docs/marketing-scope.md exists with the agreed permissions', () => {

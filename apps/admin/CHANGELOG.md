@@ -2,6 +2,94 @@
 
 ## Unreleased
 
+### Added — task 2.1b, issue #192: the Medusa rail and the dark design system
+
+- **The sidebar is gone; the rail is the navigation.** `src/components/rail/MedusaRail` draws the
+  head artwork (`public/medusa-face.jpg`, 117 KB, feathered with an SVG mask) and one procedural
+  SVG serpent per section the principal may see, its label at the serpent's tip. The items are the
+  same permission-filtered `hqNavItems` / `storeNavItems` the old sidebar received — a section the
+  user lacks never grows a serpent, and the HQ/Store scope switch appears only when both scopes
+  have sections. Nothing new is fetched and nothing here decides access.
+- **Motion, as specified in `docs/admin-design.md`:** a load sequence once per session (the head
+  surfaces, then each serpent draws itself out of the crown, 1.1 s, staggered 160 ms), a 7 s
+  breathing on the head, an independent two-sine sway per serpent (≤ 9 px), hover/focus lift with
+  a thicker body, pulsing gold eye and tongue flick, a gaze toward the pointer, and teal motes on a
+  canvas. One `requestAnimationFrame` loop writes attributes directly (no React re-render per
+  frame) and pauses while the tab is hidden. Every number is in `rail.config.ts`; every position
+  comes from `serpent-geometry.ts`, pure arithmetic with no `getTotalLength`, so the same code runs
+  in jsdom.
+- **Accessibility and fallbacks:** each serpent is `role="button"` with `tabindex`, `aria-pressed`
+  and a visible focus ring at the label; Enter and Space navigate. The list view (`RailList`, plain
+  links with `aria-current`) replaces the serpents under `prefers-reduced-motion` (toggle locked
+  on, no animation set up, no intro flag consumed), by default on touch devices (`hover: none`),
+  or by the persisted toggle (`localStorage` `medusa-list`). Under 860 px the rail becomes a
+  520 px band above the content. axe passes on both views (`test/rail.test.tsx`).
+- **Tokens:** the brief's dark set replaces the light theme in `globals.css` — the only file that
+  names a colour or a font. Existing primitives (Button, Badge, Card, DataTable, fields, state
+  panels) restyle through the semantic names they already used; `gold` exists for serpent eyes
+  only and is never used for text. Measured contrast is recorded next to the tokens.
+- **Fonts committed, not fetched:** Cinzel, IBM Plex Sans and IBM Plex Mono as latin woff2 under
+  `public/fonts` (OFL licences alongside), loaded with `next/font/local` so no build needs the
+  network and no page loads a third-party script.
+- **Tests:** `serpent-geometry.test.ts` (roots inside the head, even spacing, stillness at rest,
+  sway ≤ the brief, tangent-aligned heads, arc length); `rail.test.tsx` with the 1.7 role fixtures
+  (store_staff → no Settings serpent, analyst → no Customers, store_admin → no Finance and no HQ
+  scope), scope switch, keyboard, persistence, reduced motion, the once-per-session sequence and
+  axe. `shell.test.tsx` now covers `RailList`. e2e: `rail.spec.ts` (serpent buttons, keyboard,
+  asset size and no third-party scripts, reduced motion, persistence, HQ scope with `E2E_API=core`)
+  and the store-admin journey asserts buttons instead of links.
+- Heads sit at most 120 units apart and the block is centred, so two HQ sections sit near the
+  head rather than at the far ends of the column; seven store sections still fill it.
+- Nit from the manager: `src/lib/api/admin.ts` no longer claims Admin API 0.2.0.
+- **Known gap:** `E2E_API=core` could not be re-run — the core does not boot from `main` (#202,
+  window 9's job file under Medusa's auto-loaded `src/jobs`). The HQ-scope screenshot was rendered
+  against a Prism copy whose `/admin/me` example is the seeded `finance` principal (documented in
+  the README); the core variant is re-run when #202 lands.
+
+### Changed — Admin API 0.4.0: the catalog refusal tests drive the spec's own examples
+
+- CONTRACT CHANGE #180 landed in 0.4.0: every operation now documents `401` and `403`, so
+  `test-contract/catalog.test.tsx` no longer records "Prism answers normally" for a refused
+  `updateProduct`. It asks Prism for the documented `403` and `401` and proves each arrives as an
+  `ActionResult` refusal with no field error — the shape `ActionRefusal` renders as the panel.
+- Version comments and the README/CLAUDE.md contract line say 0.4.0.
+
+### Added — task 2.1, issue #113 (Admin API 0.3.0, no contract change)
+
+- **A refused mutation renders the state panel, never a silent no-op.** `ActionResult`'s error
+  variant now carries `refusal: { status, error }` for 401/403 (set by `toActionResult`), and the
+  new `ActionRefusal` component renders `ApiStatePanel` from it — the same "you need `store_staff`
+  on `store:…`" panel a screen shows when it cannot load. The product form, publish controls,
+  variants panel and categories panel all use it; a 400 still lands under the field it names.
+- **Publish asks first.** It emits `product.published` and is the moment a product becomes visible
+  to shoppers, so it gets the same inline confirmation archive already had. Both render what the
+  server returned (`status`, `published_at`), never an assumed outcome.
+- **Media rows can be reordered** (move up / move down, thumbnail is row 1). `position` is no
+  longer set by the form at all: the server action renumbers from the array order (REQUEST #68),
+  so a number set client-side was only a second source of truth. Still URL-based until window 9's
+  Cloudinary pipeline (CONTRACT CHANGE #168).
+- **Category picker fix.** "— none —" is `value=""`, which is neither a uuid nor `null`, so the
+  schema rejected every submit with no category — and because the field had no error slot, Save
+  simply did nothing. It now sends `null`, and every product field shows its own error.
+- **Contract tests** (`test-contract/catalog.test.tsx`, 14 tests): every catalog wrapper against
+  Prism with `--errors`; the spec's own 400 and 409 examples mapped through `toActionResult` and
+  rendered under the Handle input, wired through `aria-describedby`; and the screens driven through
+  the _real_ server actions — list rows link to their product, detail shows status and offers the
+  five missing variants, the Publish click is a real `POST …/publish`, Create variant gets its 201,
+  creating a category resets the form. Prism is spawned per suite on its own port (`prism.ts`).
+- **CONTRACT CHANGE #180** filed: no catalog operation documents 401/403 although every one carries
+  an `x-permission`, so Prism cannot produce a refusal there; the refusal chain is proven on a
+  registry operation (`states.test.tsx`) and with synthesized results (`test/catalog-refusals.test.tsx`).
+- **e2e** extended: sign in → New product → editor (the id in the URL is the API's, not the
+  form's), publishing asks first, media reorder in the editor.
+- **Real-core journey** `e2e/catalog-core.spec.ts`, opt-in with `E2E_API=core` against an app
+  started with `ADMIN_API_URL=http://localhost:9000`: sign in as `store-admin` → create a product
+  with a fresh handle → create its two variants from the matrix → publish (confirmed) → the list
+  shows it published. Passed on 2026-09-08 against core 2.2 with a real Keycloak token and OpenFGA
+  permissions; screenshots in `docs/real-core-run/`. The sign-in helper moved to `e2e/staff.ts`
+  and both journeys share it.
+- Unit: 336 (was 304). Contract: 20 (was 6). E2E on the mock: 11 (was 8), plus 1 against the core.
+
 ### Changed — REQUEST #154: `playwright.config.ts` honours `E2E_CHANNEL`
 
 - The config no longer pins `channel: 'chrome'`. `infra/ci/run-e2e.sh` decides the browser and

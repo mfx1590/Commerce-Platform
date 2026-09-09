@@ -13,6 +13,10 @@ export const manualPaymentProvider: PaymentProvider = {
   async authorize({ session }) {
     return { status: 'authorized', providerPaymentId: `manpay_${session.session_id}` };
   },
+  // Nothing was ever captured for a manual payment: voiding is a no-op that always succeeds.
+  async void() {
+    return { status: 'voided' };
+  },
   async refund({ providerPaymentId }) {
     return { status: 'succeeded', providerRefundId: `manref_${providerPaymentId}` };
   },

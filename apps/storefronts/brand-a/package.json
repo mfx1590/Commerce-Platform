@@ -1,0 +1,38 @@
+{
+  "name": "@platform/storefront-brand-a",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3101",
+    "build": "next build",
+    "start": "node scripts/start.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf .next dist .turbo",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "lighthouse": "npx -y @lhci/cli@0.14 autorun --config=lighthouserc.json",
+    "sync": "node scripts/sync-from-starter.mjs"
+  },
+  "dependencies": {
+    "@platform/cms": "workspace:*",
+    "@platform/contracts": "workspace:*",
+    "@platform/ui": "workspace:*",
+    "next": "^15.5.4",
+    "next-intl": "^4.14.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

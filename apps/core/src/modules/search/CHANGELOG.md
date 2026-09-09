@@ -5,6 +5,20 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-09 · core boot regression fixed (#202/#203)
+
+- The index CLI moved `src/jobs/index-products.ts` → `src/modules/search/cli/index-products.ts`. Medusa's job
+  loader scans `src/jobs/` and requires every file there to export a `config`; the CLI exports none, so the core
+  refused to boot ("Config is required for scheduled jobs") from main since #160. README runbook commands
+  updated. A genuine scheduled job would live in `src/jobs/` **with** a `config` export.
+
+### 2026-09-08 · contracts-v0.4 landed (#162 applied by the main window)
+
+- `proposed/` removed: `merchandising_rule` is `packages/db` migration 0130 and the operations are in
+  `admin-api.yaml` 0.4.0. `merchandising.test.ts` no longer applies the SQL itself (`createTestDatabase` runs
+  every migration); `http.ts` reads each operation's `x-permission` from the spec via `loadSpec` instead of
+  hard-coding the relations.
+
 ### 2026-09-08 · 2.3 Cloudinary media pipeline for product media (#136, CONTRACT CHANGE #168, REQUEST #169)
 
 - `proposed/admin-api.media.yaml`: the exact contract change filed as #168 — `POST
@@ -26,8 +40,8 @@ file is the module's own history (linked from the PRs).
 
 ### 2026-09-08 · 2.2 Merchandising rules API (#135, CONTRACT CHANGE #162)
 
-- `proposed/admin-api.merchandising.yaml` + `proposed/0130_merchandising_rule.sql`: the exact contract change
-  filed as #162 (Admin API `…/merchandising/rules[/{ruleId}]`, `…/merchandising/publish`, `store_staff` read /
+- `proposed/admin-api.merchandising.yaml` + `proposed/0130_merchandising_rule.sql` (removed once #162 landed, see
+  above): the exact contract change filed as #162 (Admin API `…/merchandising/rules[/{ruleId}]`, `…/merchandising/publish`, `store_staff` read /
   `store_admin` write; table `merchandising_rule`, RLS `store`). The module tests apply the SQL to their
   throwaway database until it lands.
 - `merchandising-types.ts`: contract types, ajv body validation, scope normalisation, cross-field checks.

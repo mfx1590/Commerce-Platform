@@ -25,14 +25,54 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `PORT`                     | `3100`                       | `start` honours `$PORT` (image contract, REQUEST #68) and defaults to 3100 rather than Next's 3000, which collides with the admin app. |
 | `SITE_URL`                 | `http://localhost:3100`      | Absolute URLs: canonical links and the OIDC redirect URI.                                                                              |
-| `STORE_API_URL`            | —                            | Real Store API. Wins over `MOCK_API_URL`.                                                                                              |
-| `MOCK_API_URL`             | `http://localhost:4010`      | Prism mock (Phase 1).                                                                                                                  |
+| `STORE_API_URL`            | `http://localhost:9000`      | The core's Store API — the default since 2.1. Wins over `MOCK_API_URL`.                                                                |
+| `MOCK_API_URL`             | —                            | Prism mock. Set it to run against contract examples instead of the core (Playwright does).                                             |
 | `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                                                                               |
 | `KEYCLOAK_URL`             | `http://localhost:8180`      | Customer sign-in.                                                                                                                      |
 | `KEYCLOAK_REALM_CUSTOMERS` | `customers`                  | Realm.                                                                                                                                 |
 | `KEYCLOAK_CLIENT_ID`       | `storefront-brand-a`         | Public OIDC client; each brand app has its own.                                                                                        |
 
 `GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
+
+## Running against the core
+
+The core answers the whole journey since core 2.2 — catalogue, cart, checkout, order read — so it,
+not the mock, is what the starter talks to by default. Only `/store/customers*` (window 13) is still
+unimplemented, and the core proxies exactly that to Prism when you opt in.
+
+```bash
+# 1. the stack, then the core with the fallback for the customers routes only
+pnpm dev                                                    # repo root; docker + migrations + seed
+CORE_STORE_API_FALLBACK=1 CORE_STORE_API_FALLBACK_URL=http://localhost:4010 \
+  pnpm --filter @platform/core dev                          # :9000
+
+# 2. the storefront (STORE_API_URL already defaults to the core)
+pnpm --filter @platform/storefront-starter dev              # :3100
+
+# 3. the end-to-end journey against the core rather than the mock
+E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-starter e2e
+```
+
+`E2E_STORE_API_URL` is what switches Playwright over; unset, the suite runs against Prism alone, so
+a laptop with no stack still gets a full green run. Prism starts either way, because the core's
+fallback proxies the account journeys' `/store/customers*` to it.
+
+**The suite is data-independent** (2.1). It used to encode the mock — the fixture's product name and
+handle, its price, its SKU, Jane's street, and the assumption that a cart already carries an address
+and a delivery option so checkout always opened at the payment step. All of that is false against the
+core with seeded data. The journey now picks whatever the first product on the listing is, reads its
+name off the page, and drives whichever checkout step it actually lands on. It asserts on **our own
+UI** — copy from the message catalogue, roles, structure — and on values captured at runtime, never
+on a name, price or id belonging to whatever dataset is behind the API.
+
+Two things differ by backend, and the suite says so rather than pretending otherwise: Prism answers
+`GET /store/products/{handle}` with the contract's example for _any_ handle, so the 404 path is
+exercised only when `E2E_STORE_API_URL` is set; and against Prism the funnel opens at payment, while
+against the core it opens at address and the spec fills the form.
+
+Product images: the seed's thumbnails are `https://picsum.photos/seed/…`, so that host is in
+`next.config.mjs` `remotePatterns`, scoped to `/seed/**`. Without it the PLP cannot render against
+the core at all — `next/image` refuses an unlisted hostname.
 
 ## The Store API client
 
@@ -100,10 +140,19 @@ dependency.
 | `(shop)`     | `/`, `/products`, `/categories/[handle]`, `/products/[handle]`                   | window 3                       |
 | `(checkout)` | `/cart`, `/checkout/{address,shipping,payment,review}`, `/orders/[orderId]`      | window 3                       |
 | `(account)`  | `/account`, `/account/orders` (plus `/auth/*` and `/health`, outside `[locale]`) | window 3 → window 13 (Phase 3) |
-| `(content)`  | `/pages/[slug]`                                                                  | window 6 (placeholder only)    |
+| `(content)`  | `/pages/[slug]`                                                                  | window 6                       |
 
 `(checkout)` deliberately has its own chrome: no navigation, nothing that invites the customer out of
 the funnel.
+
+**CMS content** lives in window 6's folders — see
+[`src/lib/cms/README.md`](./src/lib/cms/README.md) and [`cms/README.md`](../../cms/README.md).
+That window records its own storefront changes there rather than in this CHANGELOG, which is this
+window's file (REQUEST #167). Its strings are merged into the request catalogue as the `content`
+namespace (REQUEST #178): `src/i18n/request.ts` layers
+`src/lib/cms/messages/<locale>.json` over `messages/<locale>.json`, so window 6 owns its own
+catalogue and needs no request to this window per string. The namespace is optional — until window 6
+ships those files the merge contributes nothing, rather than failing the request.
 
 ## Catalog and caching
 

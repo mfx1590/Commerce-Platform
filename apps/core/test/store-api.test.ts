@@ -630,8 +630,12 @@ describe('checkout routes (contract replay, task 2.2)', () => {
         .get(`/store/orders/${id}?email=${encodeURIComponent(cart.email)}`)
         .set('X-Publishable-Key', KEY_B);
       expect(foreign.status).toBe(404);
+      // malformed email or id: the same 404 (never a 400 that confirms the id exists — #165 review)
       const malformed = await asA(`/store/orders/${id}?email=nope`);
-      expect(malformed.status).toBe(400);
+      expect(malformed.status).toBe(404);
+      const notUuid = await asA(`/store/orders/not-a-uuid?email=${encodeURIComponent(cart.email)}`);
+      expect(notUuid.status).toBe(404);
+      spec.assertSchema('Error', notUuid.body);
     } finally {
       spies.forEach((s) => s.mockRestore());
     }

@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Fable
-Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0) · Branch: `search/phase2` · Status: ALL PHASE 2 TASKS BUILT — 2.1+2.2 merged; 2.3+2.4 reviewed MERGE as one PR (#188, queued behind #186; closes #136+#137 together); 2.5 committed locally `023209b`, PUSH HELD until the manager confirms the #188 merge, then push + open the 2.5 PR. After 2.5 the window goes QUIET until a REQUEST reopens it.
+Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0) · Branch: `search/phase2` · Status: ALL PHASE 2 TASKS BUILT — 2.1+2.2 merged; 2.3+2.4 in PR #188 (conflicts with main resolved 2026-09-09 + core boot fix #202/#203, pushed for the queue; closes #136+#137 together); 2.5 committed locally `023209b`, pushes after #188 merges. After 2.5 the window goes QUIET until a REQUEST reopens it.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -52,6 +52,8 @@ Algolia index per brand synced from product.published events, merchandising rule
 - #162 (accepted, lands after #166), #168 (CONTRACT CHANGE 2.3, main), #169 (REQUEST loader, window 3), mount lines (window 1) — all non-blocking.
 
 ## Gotchas learned
+- **Never put a plain CLI script in `apps/core/src/jobs/`** (#202/#203, 2026-09-09): Medusa's job loader scans that folder and requires every file to export a `config`, so the core refuses to boot with "Config is required for scheduled jobs" — and `pnpm test`/typecheck never notice because they don't boot Medusa. The index CLI lives at `src/modules/search/cli/index-products.ts`; a real scheduled job goes in `src/jobs/` **with** a `config` export. Boot proof: `pnpm --filter @platform/core dev` → `/health` 200.
+- **This worktree has no `.env`** (it is gitignored and per-checkout): copy it from the main checkout (`cp ../commerce-platform/.env .env`) before `pnpm --filter @platform/core dev`, otherwise the server dies with "DATABASE_URL_APP is not set". Do NOT run `pnpm dev` at the root (shared docker stack rule).
 - Integration 1 (2026-09-08): real Keycloak staff tokens are the default on the core's Admin API; `CORE_DEV_TOKENS=1` keeps `Bearer dev:<subject>` working locally. Storefront against the core: `STORE_API_URL=http://localhost:9000` (+ `CORE_STORE_API_FALLBACK=1` + `CORE_STORE_API_FALLBACK_URL=http://localhost:4010`). Admin uses `ADMIN_API_URL`.
 - `catalog/index.ts` does not export `loadAggregates`; the search module has its own read queries (lint forbids `../catalog/service`).
 - One `tx` = one pg client: never `Promise.all` several `tx.query` calls. The catalog module still does it — the warning in the test output is theirs.

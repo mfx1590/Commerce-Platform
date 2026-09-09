@@ -5,6 +5,12 @@ export const PACKAGE_NAME = '@platform/ui' as const;
 
 export { cn } from './lib/cn.js';
 export { variants, type VariantMap, type VariantProps } from './lib/variants.js';
+export {
+  cloudinaryImageLoader,
+  isCloudinaryUrl,
+  transformUrl,
+  type CloudinaryLoaderParams,
+} from './lib/cloudinary-loader.js';
 
 export {
   cssVarName,

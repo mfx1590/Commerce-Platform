@@ -142,7 +142,8 @@ describe('customer token handling', () => {
     const { impl, calls } = stubFetch({ id: 'p1' });
     const client = new StoreApiClient({ ...CONFIG, fetchImpl: impl });
 
-    await expect(client.getProduct('classic-tee', { token: 'jwt-abc' })).rejects.toThrow(
+    // `getProduct` takes the 0.3.0 `currency` query second and the request options third (2.1).
+    await expect(client.getProduct('classic-tee', undefined, { token: 'jwt-abc' })).rejects.toThrow(
       /Refusing to send a customer token/,
     );
     expect(calls).toHaveLength(0);
@@ -150,7 +151,9 @@ describe('customer token handling', () => {
 });
 
 describe('storeApiConfigFromEnv', () => {
-  it('prefers STORE_API_URL, then MOCK_API_URL, then the mock default', () => {
+  // Since 2.1 the unconfigured default is the core, not the mock; see test/real-api.test.ts for
+  // the full precedence and why.
+  it('prefers STORE_API_URL, then MOCK_API_URL, then the core', () => {
     expect(
       storeApiConfigFromEnv({ STORE_API_URL: 'https://api.example.com', MOCK_API_URL: 'x' })
         .baseUrl,
@@ -158,7 +161,7 @@ describe('storeApiConfigFromEnv', () => {
     expect(storeApiConfigFromEnv({ MOCK_API_URL: 'http://localhost:4010' }).baseUrl).toBe(
       'http://localhost:4010',
     );
-    expect(storeApiConfigFromEnv({}).baseUrl).toBe('http://localhost:4010');
+    expect(storeApiConfigFromEnv({}).baseUrl).toBe('http://localhost:9000');
   });
 
   it('takes the publishable key from the environment', () => {
