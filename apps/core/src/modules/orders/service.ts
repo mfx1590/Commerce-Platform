@@ -301,6 +301,23 @@ export async function markReturnedIn(
   }
 }
 
+/**
+ * Window 8's port (#191): apply a fulfilment status derived from live shipments, on shipping's transaction.
+ * Idempotent on the target; illegal per the table → 409 (shipping only asks for unfulfilled | partially_fulfilled |
+ * fulfilled and leaves the return states alone).
+ */
+export async function setFulfillmentStatusIn(
+  tx: Queryable,
+  orderId: string,
+  status: FulfillmentStatus,
+  actor: Actor,
+): Promise<void> {
+  const current = await loadOrder(tx, orderId, true);
+  if (current.fulfillment_status !== status) {
+    await transition(tx, orderId, { fulfillment_status: status, actor });
+  }
+}
+
 /** Merges keys into `order.metadata` on the caller's transaction (the returns module's exchange link). No event: metadata is storefront/ops-owned. */
 export async function mergeOrderMetadataIn(
   tx: Queryable,

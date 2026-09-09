@@ -19,7 +19,9 @@ import {
 import { cancelOrder, confirmOrder } from '../orders';
 import {
   consumeForShipment,
+  consumeReservationsForShipment,
   createStockMovement,
+  releaseReservationsForShipment,
   listInventoryLevels,
   moveStock,
   releaseForOrder,
@@ -465,5 +467,57 @@ describe('admin services and RLS', () => {
       on_hand: before.on_hand + 3,
     });
     expect(out.available).toBe(out.on_hand - out.reserved);
+  });
+});
+
+describe("window 8's port shapes (#191): consume / release per shipment, by order line item, idempotent", () => {
+  it('consumeReservationsForShipment moves once per shipment; releaseReservationsForShipment reverses once', async () => {
+    const vs = await variantsA();
+    const v = vs[10]!;
+    await setStock(v.id, 6, 6);
+    const cartId = await readyCart([{ variantId: v.id, quantity: 4 }]);
+    const { order } = await place(cartId);
+    const line = order.items[0]!;
+    const shipmentId = '80000000-0000-4000-8000-000000000042';
+    const input = {
+      organizationId: ORG,
+      storeId: A,
+      orderId: order.id,
+      shipmentId,
+      items: [{ orderLineItemId: line.id, quantity: 4 }],
+      actor,
+    };
+    const first = await a.transaction((tx) => consumeReservationsForShipment(tx, input));
+    expect(first.reduce((n, c) => n + c.quantity, 0)).toBe(4);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 2, reserved: 0 });
+    const retry = await a.transaction((tx) => consumeReservationsForShipment(tx, input));
+    expect(retry).toEqual([]);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 2, reserved: 0 });
+    const sales = await owner.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM stock_movement WHERE reference_type = 'shipment' AND reference_id = $1`,
+      [shipmentId],
+    );
+    expect(sales.rows[0]!.n).toBe('1');
+    await expect(
+      a.transaction((tx) =>
+        consumeReservationsForShipment(tx, {
+          ...input,
+          items: [{ orderLineItemId: order.id, quantity: 1 }],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'validation_error' });
+
+    // the planned shipment is cancelled before picking: goods back on hand, reservation re-opened, once
+    const released = await a.transaction((tx) => releaseReservationsForShipment(tx, input));
+    expect(released).toBe(4);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 6, reserved: 4, available: 2 });
+    const again = await a.transaction((tx) => releaseReservationsForShipment(tx, input));
+    expect(again).toBe(0);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 6, reserved: 4 });
+    const open = await owner.query<{ quantity: number }>(
+      `SELECT quantity FROM reservation WHERE order_id = $1 AND released_at IS NULL`,
+      [order.id],
+    );
+    expect(open.rows.reduce((n, r) => n + r.quantity, 0)).toBe(4);
   });
 });

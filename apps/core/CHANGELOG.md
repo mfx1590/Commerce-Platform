@@ -7,8 +7,28 @@
 - `apps/core/package.json` declares `@medusajs/draft-order` at the `@medusajs/medusa` version (2.20.1). Medusa 2.20
   resolves a default plugin set from the app directory, and pnpm's isolated `node_modules` only links direct
   dependencies — without the declaration the built server died in the plugin loader (`Unable to resolve plugin
-"@medusajs/draft-order"`) right after the bootstrap check. Verified: `pnpm --filter @platform/core start` reaches
+  "@medusajs/draft-order"`) right after the bootstrap check. Verified: `pnpm --filter @platform/core start` reaches
   `GET /health` → 200.
+
+### 2026-09-09 · 2.6 `cart.abandoned` job, lifecycle replay, module docs (issue #108) — Phase 2 core complete
+
+- Cart: `markAbandonedCarts` / `markAllAbandonedCarts` (injected clock; idle active carts with lines → `abandoned`
+  - one `cart.abandoned` v1, `email_hash` only; `FOR UPDATE SKIP LOCKED`; empty carts skipped). **Reactivation**:
+    a mutation on an abandoned cart flips it back to `active` and restarts the idle clock; a later abandonment is a
+    new event; `completed` stays 409. Job `src/jobs/abandoned-carts.ts`: Medusa scheduled job (`config.schedule`
+    from `CORE_ABANDONED_CART_CRON`, default hourly; threshold `CORE_ABANDONED_CART_AFTER_HOURS`, default 6) running
+    one organization-scoped pass under `MEDUSA_WORKER_MODE = shared | worker`, plus a one-shot CLI.
+- `test/lifecycle-replay.test.ts`: place → confirm → capture → shipment created → shipped (reservation consumed
+  through window 8's port shape) → delivered → return → received (restock + refund) — one event per transition
+  asserted end to end, and the order, return and stock projections folded from the outbox equal the rows; the
+  cancel branch (reservations released) and the abandoned branch.
+- #191 (window 8's port shapes): `setFulfillmentStatusIn(tx, orderId, status, actor)` (orders),
+  `consumeReservationsForShipment` / `releaseReservationsForShipment` (inventory; by order line item, idempotent
+  per shipment via the movement reference).
+- #179 part 1: catalog `addMedia` / `updateMedia` / `deleteMedia` (positions contiguous, thumbnail = position 0,
+  audit + `product.updated` `["media"]`).
+- Docs: module table complete (cart … returns, jobs), READMEs with the ADR-style decisions, "What is real" jobs row.
+- Tests: `abandoned.test.ts` (3), `lifecycle-replay.test.ts` (3), catalog media +1, inventory ports +1.
 
 ### 2026-09-08 · 2.5 returns and exchanges (issue #107)
 

@@ -17,6 +17,9 @@ export {
   recalculate,
   renderCart,
 } from './service';
+// Abandoned carts (task 2.6): the job in src/jobs/abandoned-carts.ts calls these with an injected clock.
+export { markAbandonedCarts, markAllAbandonedCarts } from './abandoned';
+export type { MarkAbandonedInput, MarkAbandonedResult } from './abandoned';
 // Pricing providers: windows 7 (tax, #127) and 8 (shipping rates, #130) replace the table-backed defaults at boot.
 export {
   currentShippingRateProvider,

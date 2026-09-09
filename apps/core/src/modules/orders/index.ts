@@ -15,6 +15,7 @@ export {
   markShipmentCreated,
   mergeOrderMetadataIn,
   movePaymentStatusIn,
+  setFulfillmentStatusIn,
   markShipped,
   transition,
 } from './service';
