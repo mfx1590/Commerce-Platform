@@ -4,7 +4,7 @@ import { storeApiConfigFromEnv } from './config';
 export { StoreApiClient, allowsCustomerToken, buildUrl } from './client';
 export type { RequestOptions, StoreApiConfig } from './client';
 export { StoreApiError, isNotFound, isStoreApiError } from './errors';
-export { storeApiConfigFromEnv } from './config';
+export { DEFAULT_STORE_API_URL, storeApiConfigFromEnv } from './config';
 export * from './types';
 
 let client: StoreApiClient | undefined;

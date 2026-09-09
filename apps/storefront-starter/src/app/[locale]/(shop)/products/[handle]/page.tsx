@@ -6,6 +6,8 @@ import { Link } from '@/i18n/navigation';
 import { notFound } from 'next/navigation';
 import { VariantPicker } from '@/components/variant-picker';
 import { getProduct } from '@/lib/catalog';
+import { getCurrency } from '@/lib/i18n';
+import { getStoreOrNull } from '@/lib/store';
 import { isNotFound } from '@/lib/store-api';
 import { defaultSelection, findVariant, mediaFor } from '@/lib/variant';
 
@@ -14,10 +16,14 @@ type Params = Promise<{ handle: string }>;
 /** The gallery is the largest element on the page; sizes keep the LCP image small on a phone. */
 const GALLERY_SIZES = '(min-width: 1024px) 50vw, 100vw';
 
-/** `getProduct` is wrapped in `cache()`, so metadata and the page share one request. */
+/**
+ * `getProduct` is wrapped in `cache()`, so metadata and the page share one request — as long as both
+ * pass the same currency, which they do because `getCurrency` is resolved from the same cookie and
+ * `getStoreOrNull` is itself cached per render.
+ */
 async function loadProduct(handle: string) {
   try {
-    return await getProduct(handle);
+    return await getProduct(handle, await getCurrency(await getStoreOrNull()));
   } catch (error) {
     if (isNotFound(error)) notFound();
     throw error;
