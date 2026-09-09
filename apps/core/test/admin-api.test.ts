@@ -14,6 +14,7 @@ import {
   requirePermission,
   resolveObject,
   resolveStaffPrincipal,
+  moduleAdminRouters,
 } from '../src/http';
 import { closePool, initDb, tenantClient } from '../src/lib/db';
 import { addLineItem, createCart, updateCart } from '../src/modules/cart';
@@ -51,7 +52,7 @@ beforeAll(async () => {
   process.env.CORE_ORGANIZATION_ID = SEED_IDS.organization;
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
-  mountCoreMiddleware(app, new DevTokenVerifier());
+  mountCoreMiddleware(app, new DevTokenVerifier(), { moduleRouters: moduleAdminRouters() });
   // The Admin API customers routes belong to window 13 and stay on the Prism mock in Phase 1; this probe
   // mounts the frozen `listCustomers` x-permission (support since contracts 0.2.1, issue #77) on our guard so
   // the PII gate is proven for everything window 1 owns.
@@ -622,5 +623,19 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
     });
     expect(negative.status).toBe(409);
     spec.assertSchema('Error', negative.body);
+  });
+});
+
+describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
+  it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
+    expect(moduleAdminRouters()).toHaveLength(2);
+    const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
+    expect(rules.status).toBe(200); // window 9: store_staff read
+    expect(rules.body).toHaveProperty('items');
+    const campaigns = await storeStaff.get(`/admin/stores/${A}/marketing/campaigns`);
+    expect(campaigns.status).toBe(200); // window 17: viewer read
+    expect(campaigns.body).toHaveProperty('items');
+    const anonymous = await request(app).get(`/admin/stores/${A}/marketing/campaigns`);
+    expect(anonymous.status).toBe(401); // our middleware still fronts them
   });
 });
