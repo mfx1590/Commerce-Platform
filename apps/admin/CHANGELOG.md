@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Added — task 2.1b, issue #192: the Medusa rail and the dark design system
+
+- **The sidebar is gone; the rail is the navigation.** `src/components/rail/MedusaRail` draws the
+  head artwork (`public/medusa-face.jpg`, 117 KB, feathered with an SVG mask) and one procedural
+  SVG serpent per section the principal may see, its label at the serpent's tip. The items are the
+  same permission-filtered `hqNavItems` / `storeNavItems` the old sidebar received — a section the
+  user lacks never grows a serpent, and the HQ/Store scope switch appears only when both scopes
+  have sections. Nothing new is fetched and nothing here decides access.
+- **Motion, as specified in `docs/admin-design.md`:** a load sequence once per session (the head
+  surfaces, then each serpent draws itself out of the crown, 1.1 s, staggered 160 ms), a 7 s
+  breathing on the head, an independent two-sine sway per serpent (≤ 9 px), hover/focus lift with
+  a thicker body, pulsing gold eye and tongue flick, a gaze toward the pointer, and teal motes on a
+  canvas. One `requestAnimationFrame` loop writes attributes directly (no React re-render per
+  frame) and pauses while the tab is hidden. Every number is in `rail.config.ts`; every position
+  comes from `serpent-geometry.ts`, pure arithmetic with no `getTotalLength`, so the same code runs
+  in jsdom.
+- **Accessibility and fallbacks:** each serpent is `role="button"` with `tabindex`, `aria-pressed`
+  and a visible focus ring at the label; Enter and Space navigate. The list view (`RailList`, plain
+  links with `aria-current`) replaces the serpents under `prefers-reduced-motion` (toggle locked
+  on, no animation set up, no intro flag consumed), by default on touch devices (`hover: none`),
+  or by the persisted toggle (`localStorage` `medusa-list`). Under 860 px the rail becomes a
+  520 px band above the content. axe passes on both views (`test/rail.test.tsx`).
+- **Tokens:** the brief's dark set replaces the light theme in `globals.css` — the only file that
+  names a colour or a font. Existing primitives (Button, Badge, Card, DataTable, fields, state
+  panels) restyle through the semantic names they already used; `gold` exists for serpent eyes
+  only and is never used for text. Measured contrast is recorded next to the tokens.
+- **Fonts committed, not fetched:** Cinzel, IBM Plex Sans and IBM Plex Mono as latin woff2 under
+  `public/fonts` (OFL licences alongside), loaded with `next/font/local` so no build needs the
+  network and no page loads a third-party script.
+- **Tests:** `serpent-geometry.test.ts` (roots inside the head, even spacing, stillness at rest,
+  sway ≤ the brief, tangent-aligned heads, arc length); `rail.test.tsx` with the 1.7 role fixtures
+  (store_staff → no Settings serpent, analyst → no Customers, store_admin → no Finance and no HQ
+  scope), scope switch, keyboard, persistence, reduced motion, the once-per-session sequence and
+  axe. `shell.test.tsx` now covers `RailList`. e2e: `rail.spec.ts` (serpent buttons, keyboard,
+  asset size and no third-party scripts, reduced motion, persistence, HQ scope with `E2E_API=core`)
+  and the store-admin journey asserts buttons instead of links.
+- Heads sit at most 120 units apart and the block is centred, so two HQ sections sit near the
+  head rather than at the far ends of the column; seven store sections still fill it.
+- Nit from the manager: `src/lib/api/admin.ts` no longer claims Admin API 0.2.0.
+- **Known gap:** `E2E_API=core` could not be re-run — the core does not boot from `main` (#202,
+  window 9's job file under Medusa's auto-loaded `src/jobs`). The HQ-scope screenshot was rendered
+  against a Prism copy whose `/admin/me` example is the seeded `finance` principal (documented in
+  the README); the core variant is re-run when #202 lands.
+
 ### Changed — Admin API 0.4.0: the catalog refusal tests drive the spec's own examples
 
 - CONTRACT CHANGE #180 landed in 0.4.0: every operation now documents `401` and `403`, so
