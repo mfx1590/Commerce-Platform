@@ -361,7 +361,8 @@ describe('EasyPost provider', () => {
       { status: 503, body: { error: { code: 'SERVICE_UNAVAILABLE' } } },
       { status: 401, body: 'not json at all' },
     ]);
-    const provider = createEasyPostProvider({ apiKey: KEY, fetch: fetchImpl });
+    // maxAttempts 1: this test is about the mapping, not the retry (covered below).
+    const provider = createEasyPostProvider({ apiKey: KEY, fetch: fetchImpl, maxAttempts: 1 });
     const invalid = await provider.rates(rateRequest()).catch((error: unknown) => error as Error);
     expect(invalid.message).toBe('easypost rates failed (422): zip is required; city is required');
     expect(invalid.message).not.toContain('Havenweg');
@@ -382,7 +383,11 @@ describe('EasyPost provider', () => {
     const failing = (async () => {
       throw new TypeError('fetch failed');
     }) as unknown as typeof globalThis.fetch;
-    const provider = createEasyPostProvider({ apiKey: KEY, fetch: failing });
+    const provider = createEasyPostProvider({
+      apiKey: KEY,
+      fetch: failing,
+      maxAttempts: 1,
+    });
     await expect(provider.rates(rateRequest())).rejects.toMatchObject({
       status: 0,
       retryable: true,
@@ -399,12 +404,100 @@ describe('EasyPost provider', () => {
           });
         }),
     ) as unknown as typeof globalThis.fetch;
-    const impatient = createEasyPostProvider({ apiKey: KEY, fetch: hanging, timeoutMs: 5 });
+    const impatient = createEasyPostProvider({
+      apiKey: KEY,
+      fetch: hanging,
+      timeoutMs: 5,
+      maxAttempts: 1,
+    });
     await expect(impatient.rates(rateRequest())).rejects.toMatchObject({
       status: 0,
       retryable: true,
       message: 'easypost rates failed (0): request timed out',
     });
+  });
+
+  it('retries a retryable status with doubling backoff, up to maxAttempts', async () => {
+    const { fetchImpl, calls } = fakeFetch([
+      { status: 503, body: { error: { message: 'unavailable' } } },
+      { status: 429, body: { error: { message: 'slow down' } } },
+      { body: shipmentBody },
+    ]);
+    const slept: number[] = [];
+    const provider = createEasyPostProvider({
+      apiKey: KEY,
+      fetch: fetchImpl,
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
+    });
+    const rates = await provider.rates(rateRequest());
+    expect(calls).toHaveLength(3);
+    expect(slept).toEqual([200, 400]);
+    expect(rates.map((rate) => rate.rateId)).toEqual(['rate_eur', 'rate_eur2']);
+  });
+
+  it('gives up after maxAttempts and reports the last failure', async () => {
+    const { fetchImpl, calls } = fakeFetch([
+      { status: 500, body: { error: { message: 'boom' } } },
+      { status: 500, body: { error: { message: 'boom' } } },
+      { status: 500, body: { error: { message: 'boom' } } },
+      { body: shipmentBody },
+    ]);
+    const provider = createEasyPostProvider({
+      apiKey: KEY,
+      fetch: fetchImpl,
+      sleep: async () => {},
+    });
+    await expect(provider.rates(rateRequest())).rejects.toMatchObject({ status: 500 });
+    expect(calls).toHaveLength(3);
+  });
+
+  it('never retries a non-retryable status', async () => {
+    const { fetchImpl, calls } = fakeFetch([
+      { status: 422, body: { error: { message: 'bad address' } } },
+      { body: shipmentBody },
+    ]);
+    const provider = createEasyPostProvider({
+      apiKey: KEY,
+      fetch: fetchImpl,
+      sleep: async () => {},
+    });
+    await expect(provider.rates(rateRequest())).rejects.toMatchObject({ status: 422 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('never retries buying or voiding a label: a 5xx may arrive after the label exists', async () => {
+    const { fetchImpl, calls } = fakeFetch([
+      { status: 503, body: { error: { message: 'unavailable' } } },
+      { status: 503, body: { error: { message: 'unavailable' } } },
+    ]);
+    const provider = createEasyPostProvider({
+      apiKey: KEY,
+      fetch: fetchImpl,
+      sleep: async () => {},
+    });
+    await expect(
+      provider.buyLabel({ rateId: 'rate_eur', providerShipmentId: 'shp_1' }),
+    ).rejects.toMatchObject({ status: 503 });
+    await expect(provider.voidLabel({ providerShipmentId: 'shp_1' })).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(calls).toHaveLength(2); // one attempt each
+  });
+
+  it('forgets a quote once the rate index expires', async () => {
+    let clock = 0;
+    const { fetchImpl } = fakeFetch([{ body: shipmentBody }]);
+    const provider = createEasyPostProvider({
+      apiKey: KEY,
+      fetch: fetchImpl,
+      rateIndexTtlMs: 1000,
+      now: () => clock,
+    });
+    await provider.rates(rateRequest());
+    clock += 2000;
+    await expect(provider.buyLabel({ rateId: 'rate_eur' })).rejects.toMatchObject({ status: 400 });
   });
 
   it('maps tracker statuses, defaulting anything unknown', () => {

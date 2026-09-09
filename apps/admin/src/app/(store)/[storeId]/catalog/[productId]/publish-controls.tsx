@@ -4,9 +4,10 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FormError } from '@/components/form/fields';
+import { ActionRefusal } from '@/components/states/action-refusal';
 import { archiveProductAction, publishProductAction } from '@/app/actions/catalog';
 import type { AdminComponents } from '@/lib/api/admin-client';
+import type { ActionRefusalInfo, ActionResult } from '@/lib/forms/action-result';
 
 type Product = AdminComponents['Product'];
 
@@ -22,13 +23,22 @@ function formatDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 16).replace('T', ' ');
 }
 
+type Confirming = 'publish' | 'archive' | null;
+
 /**
  * Publish and archive.
  *
  * Both render what the server returned rather than what was hoped for: publishing shows the
  * `status` and `published_at` from the response, and archiving re-reads (the contract answers
- * `204`, so there is no product to show). Archive is behind a confirmation because `DELETE` is the
- * verb even though the contract archives rather than hard-deletes.
+ * `204`, so there is no product to show).
+ *
+ * **Both are behind a confirmation.** Archive always was, because `DELETE` is the verb. Publishing
+ * earns one for a different reason: it emits `product.published` on the bus, so it is the moment a
+ * product becomes visible to shoppers and downstream consumers act on it. That is not something to
+ * do by mis-clicking a button that sits next to Archive.
+ *
+ * A refusal (401/403) renders the state panel rather than a line of red text — being told "you need
+ * `store_staff` on this store" is a different thing from being told a field is wrong.
  */
 export function PublishControls({ storeId, product }: { storeId: string; product: Product }) {
   const router = useRouter();
@@ -38,15 +48,47 @@ export function PublishControls({ storeId, product }: { storeId: string; product
     publishedAt: product.published_at,
   });
   const [error, setError] = useState<string | null>(null);
-  const [confirmingArchive, setConfirmingArchive] = useState(false);
+  const [refusal, setRefusal] = useState<ActionRefusalInfo | undefined>(undefined);
+  const [confirming, setConfirming] = useState<Confirming>(null);
 
-  const run = (work: () => Promise<{ ok: boolean; message: string | null }>) => {
+  /** Runs one mutation, then renders whatever came back — never an assumed outcome. */
+  const run = <T,>(
+    work: () => Promise<ActionResult<T>>,
+    apply: (data: T) => void,
+    fallback: string,
+  ) => {
     setError(null);
+    setRefusal(undefined);
     startTransition(async () => {
-      const outcome = await work();
-      if (!outcome.ok) setError(outcome.message);
+      const result = await work();
+      setConfirming(null);
+      if (result.status === 'success') {
+        apply(result.data);
+        router.refresh();
+        return;
+      }
+      setRefusal(result.refusal);
+      setError(result.refusal === undefined ? (result.formError ?? fallback) : null);
     });
   };
+
+  const publish = () =>
+    run(
+      () => publishProductAction(storeId, product.id),
+      (data: Product) => setState({ status: data.status, publishedAt: data.published_at }),
+      'Could not publish this product.',
+    );
+
+  const archive = () =>
+    run(
+      () => archiveProductAction(storeId, product.id),
+      // 204: nothing came back, so `router.refresh()` re-reads rather than this guessing.
+      () => setState((current) => ({ ...current, status: 'archived' })),
+      'Could not archive this product.',
+    );
+
+  const published = state.status === 'published';
+  const archived = state.status === 'archived';
 
   return (
     <div className="space-y-3">
@@ -57,67 +99,48 @@ export function PublishControls({ storeId, product }: { storeId: string; product
         </span>
       </div>
 
-      <FormError message={error} />
+      <ActionRefusal refusal={refusal} message={error} />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          disabled={isPending || state.status === 'published' || state.status === 'archived'}
-          onClick={() =>
-            run(async () => {
-              const result = await publishProductAction(storeId, product.id);
-              if (result.status === 'success') {
-                setState({
-                  status: result.data.status,
-                  publishedAt: result.data.published_at,
-                });
-                router.refresh();
-                return { ok: true, message: null };
-              }
-              return { ok: false, message: result.formError ?? 'Could not publish this product.' };
-            })
-          }
-        >
-          {state.status === 'published' ? 'Published' : 'Publish'}
-        </Button>
-
-        {confirmingArchive ? (
+        {confirming === 'publish' ? (
+          <>
+            <span className="text-sm">
+              Publish this product? It becomes visible to shoppers and emits{' '}
+              <code className="text-xs">product.published</code>.
+            </span>
+            <Button size="sm" disabled={isPending} onClick={publish}>
+              Yes, publish
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setConfirming(null)}>
+              Cancel
+            </Button>
+          </>
+        ) : confirming === 'archive' ? (
           <>
             <span className="text-sm">Archive this product?</span>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={isPending}
-              onClick={() =>
-                run(async () => {
-                  const result = await archiveProductAction(storeId, product.id);
-                  setConfirmingArchive(false);
-                  if (result.status === 'success') {
-                    // 204: nothing came back, so re-read rather than guessing the new state.
-                    setState({ status: 'archived', publishedAt: state.publishedAt });
-                    router.refresh();
-                    return { ok: true, message: null };
-                  }
-                  return {
-                    ok: false,
-                    message: result.formError ?? 'Could not archive this product.',
-                  };
-                })
-              }
-            >
+            <Button variant="danger" size="sm" disabled={isPending} onClick={archive}>
               Yes, archive
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => setConfirmingArchive(false)}>
+            <Button size="sm" variant="secondary" onClick={() => setConfirming(null)}>
               Cancel
             </Button>
           </>
         ) : (
-          <Button
-            variant="secondary"
-            disabled={isPending || state.status === 'archived'}
-            onClick={() => setConfirmingArchive(true)}
-          >
-            {state.status === 'archived' ? 'Archived' : 'Archive'}
-          </Button>
+          <>
+            <Button
+              disabled={isPending || published || archived}
+              onClick={() => setConfirming('publish')}
+            >
+              {published ? 'Published' : 'Publish'}
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={isPending || archived}
+              onClick={() => setConfirming('archive')}
+            >
+              {archived ? 'Archived' : 'Archive'}
+            </Button>
+          </>
         )}
       </div>
     </div>

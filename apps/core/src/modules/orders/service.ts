@@ -9,6 +9,7 @@ import type { Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { paymentProvider } from '../checkout';
+import { releaseForOrder } from '../inventory';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
 import { allowed } from './transitions';
 import type {
@@ -155,7 +156,9 @@ async function moveField(
   extra: Partial<TransitionChange> = {},
 ): Promise<AdminOrder> {
   return client.transaction(async (tx) => {
-    const current = await loadOrder(tx, orderId, false);
+    // The idempotency read happens under the row lock: a concurrent change cannot slip between the check and
+    // the transition (which re-locks the same row in this transaction) — #174 review.
+    const current = await loadOrder(tx, orderId, true);
     if (current[field] !== to) {
       await transition(tx, orderId, { [field]: to, actor, ...extra } as TransitionChange);
     }
@@ -353,6 +356,8 @@ export async function cancelOrder(
         p.id,
       ]);
     }
+    // Reservations are released here, through the orders module's own cancel — never from window 8's side.
+    await releaseForOrder(tx, orderId);
     await transition(tx, orderId, {
       status: 'cancelled',
       reason: input.reason,

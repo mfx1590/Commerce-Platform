@@ -19,6 +19,7 @@ export {
   manualCarrierProvider,
 } from './manual-provider';
 export { currencyExponent, fromMinorUnits, toMinorUnits } from './money';
+export { createCarrierRateProvider, parseRules, registerCarrierProviders } from './rate-shopping';
 export { CarrierError, isRetryableStatus, redactAddress, toCarrierAddress } from './redact';
 export {
   carrierProvider,
@@ -27,9 +28,16 @@ export {
   resetCarrierProviders,
   setCarrierProvider,
 } from './registry';
+export { BoundedTtlMap } from './bounded-map';
+export type { BoundedTtlMapOptions } from './bounded-map';
 export type { CarrierCredentials } from './config';
 export type { EasyPostOptions } from './easypost-provider';
-export type { ManualCarrierConfig, ManualService } from './manual-provider';
+export type { ManualCarrierConfig, ManualProviderLimits, ManualService } from './manual-provider';
+export type {
+  CarrierRateProvider,
+  RateShoppingOptions,
+  ShippingOptionRules,
+} from './rate-shopping';
 export type {
   AddressValidation,
   BuyLabelRequest,
