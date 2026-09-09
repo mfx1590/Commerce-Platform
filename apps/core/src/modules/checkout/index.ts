@@ -6,7 +6,7 @@ export {
   emailHash,
   listShippingOptions,
 } from './service';
-export { customerIdForSubject, getStoreOrder, renderOrder } from './orders-read';
+// The order read (`getStoreOrder`, `renderStoreOrder`, `customerIdForSubject`) lives in `src/modules/orders` since 2.3.
 // Payment providers: window 7 registers `stripe` (#127) with setPaymentProvider at boot; `manual` ships here.
 export {
   manualPaymentProvider,
@@ -20,7 +20,6 @@ export type {
   CompleteCartInput,
   CompleteCartResult,
   CreatePaymentSessionInput,
-  OrderAccess,
   PaymentCartRef,
   PaymentProvider,
   PaymentProviderName,
@@ -28,8 +27,8 @@ export type {
   PaymentSessionStatus,
   RefundInput,
   RefundResult,
-  StoreOrder,
-  StoreOrderSummary,
   StorePaymentSession,
   StoreShippingOption,
+  VoidInput,
+  VoidResult,
 } from './types';
