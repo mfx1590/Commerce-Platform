@@ -6,3 +6,6 @@ dist/
 .turbo/
 .claude/CLAUDE.local.md
 *.log
+
+# feed artifacts written by the core (FeedStorage local default); served by apps/feeds
+.feeds/
