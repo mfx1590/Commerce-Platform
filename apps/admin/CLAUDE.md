@@ -5,7 +5,7 @@
 Next.js App Router admin application. One app, two views (Store view and HQ view) decided by the
 principal's relations; every API call is re-checked server-side against the operation's
 `x-permission`. Phase 1 reads permissions from `GET /admin/me` on the Prism mock — do **not** import
-`@platform/auth-sdk` yet (window 2 is still writing it). Contract: Admin API 0.2.0.
+`@platform/auth-sdk` yet (window 2 is still writing it). Contract: Admin API 0.4.0.
 
 ## Owner
 

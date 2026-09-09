@@ -202,25 +202,49 @@ describe("the spec's own error examples reach the right control", () => {
   });
 
   /**
-   * There is no 403 or 401 test here, and that is a fact about the spec rather than a gap in the
-   * app: **no catalog operation in `admin-api.yaml` documents a `401` or `403` response**, even
-   * though every one carries an `x-permission` and the API will certainly refuse a caller without
-   * the relation. `Prefer: code=403` therefore cannot be honoured — Prism can only return what is
-   * written down. Filed as CONTRACT CHANGE #180.
-   *
-   * The chain itself is covered: `states.test.tsx` drives a real documented `403` (on a registry
-   * operation) through `adminRequest` into the panel, and `test/catalog-refusals.test.tsx` covers
-   * every catalog mutation's refusal path with a synthesized result. What is missing is only the
-   * spec's own example to test against.
+   * Admin API 0.4.0 (CONTRACT CHANGE #180) documents `401` and `403` on every operation, so the
+   * spec's own refusal examples can now drive a catalog mutation end to end: Prism answers
+   * `Prefer: code=403` with the shared `Forbidden` example, `adminRequest` reports it as a failure,
+   * and `toActionResult` carries it as a `refusal` — the shape `ActionRefusal` turns into the panel
+   * that names the relation. Before 0.4.0 this test could only record that Prism answered normally.
    */
-  it('has no documented refusal to drive, so Prism answers normally', async () => {
+  it('403 on updateProduct becomes a refusal naming the relation from the spec example', async () => {
     const result = await asking('updateProduct', 403, {
       path: `${PRODUCTS}/${SEED_STORE_ID}`,
       method: 'PATCH',
       body: NEW_PRODUCT,
     });
-    // Not an assertion about what *should* happen — a record of what the spec currently allows.
-    expect(result.status).not.toBe(403);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected a refusal');
+    expect(result.status).toBe(403);
+    expect(result.error.code).toBe('forbidden');
+
+    const mapped = toActionResult(result, KNOWN);
+    if (mapped.status !== 'error') throw new Error('expected a refusal');
+    expect(mapped.refusal).toEqual({ status: 403, error: result.error });
+    // The shared example names finance on organization:hq; what matters is that the relation and
+    // object the panel reads are present, not which relation the example happens to pick.
+    expect(result.error.details).toMatchObject({
+      relation: expect.any(String),
+      object: expect.any(String),
+    });
+    expect(mapped.fieldErrors).toEqual({});
+  });
+
+  it('401 on updateProduct becomes a refusal too, with no field error to attach', async () => {
+    const result = await asking('updateProduct', 401, {
+      path: `${PRODUCTS}/${SEED_STORE_ID}`,
+      method: 'PATCH',
+      body: NEW_PRODUCT,
+    });
+    if (result.ok) throw new Error('expected a refusal');
+    expect(result.status).toBe(401);
+    expect(result.error.code).toBe('unauthorized');
+
+    const mapped = toActionResult(result, KNOWN);
+    if (mapped.status !== 'error') throw new Error('expected a refusal');
+    expect(mapped.refusal?.status).toBe(401);
+    expect(mapped.fieldErrors).toEqual({});
   });
 });
 

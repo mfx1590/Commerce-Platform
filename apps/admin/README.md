@@ -5,7 +5,7 @@ relations the signed-in principal holds. Everything the UI shows is derived from
 the Admin API re-checks each operation's `x-permission` server-side, so UI gating is convenience,
 never security.
 
-Contracts: `@platform/contracts/admin`, **Admin API 0.2.0**.
+Contracts: `@platform/contracts/admin`, **Admin API 0.4.0**.
 
 ## Run it
 

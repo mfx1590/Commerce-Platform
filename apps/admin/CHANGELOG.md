@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed — Admin API 0.4.0: the catalog refusal tests drive the spec's own examples
+
+- CONTRACT CHANGE #180 landed in 0.4.0: every operation now documents `401` and `403`, so
+  `test-contract/catalog.test.tsx` no longer records "Prism answers normally" for a refused
+  `updateProduct`. It asks Prism for the documented `403` and `401` and proves each arrives as an
+  `ActionResult` refusal with no field error — the shape `ActionRefusal` renders as the panel.
+- Version comments and the README/CLAUDE.md contract line say 0.4.0.
+
 ### Added — task 2.1, issue #113 (Admin API 0.3.0, no contract change)
 
 - **A refused mutation renders the state panel, never a silent no-op.** `ActionResult`'s error

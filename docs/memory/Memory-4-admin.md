@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
+Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,12 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **Admin API 0.4.0 follow-up on PR #184 — the #180 gap test flipped** · (sha in the next entry's
+  commit list) · main merged at b4d83f6 (contracts 0.4.0, #185). `test-contract/catalog.test.tsx`
+  now drives `Prefer: code=403` and `code=401` on `updateProduct` through `adminRequest` →
+  `toActionResult` and asserts the `refusal` shape with no field errors. Version comments, README,
+  CLAUDE.md → 0.4.0. Gate: lint, typecheck, format, 336 unit, 21 contract.
+
 - **2.1 — issue #113 Catalog editor** · commits `ded75d4` (part 1) + `0e5f308` (part 2) · **PR #184** (in review) · Admin API 0.3.0, no contract change
   - Refusals render the state panel: `ActionResult` error carries `refusal: {status, error}` for
     401/403, `ActionRefusal` renders `ApiStatePanel` in the product form, publish controls,
@@ -225,7 +231,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#192 · 2.1b Medusa rail** — plan written 2026-09-08, awaiting confirmation; goes before 2.2.
+- **#192 · 2.1b Medusa rail** — plan confirmed 2026-09-09 (**go**); decisions: serpents are buttons with `aria-pressed` (e2e asserts buttons), fonts committed as woff2 under `public/fonts` and loaded with `next/font/local` (hermetic builds, no network).
   Brief `docs/admin-design.md` (main 580331e), prototype `docs/design/medusa-rail-prototype.html`
   (read in full; behaviour reference), artwork `docs/design/medusa-face.jpg` = 116.6 KB (≤ 120 KB).
   1. **Tokens** in `src/app/globals.css` `@theme` only: the brief's dark set mapped onto the
