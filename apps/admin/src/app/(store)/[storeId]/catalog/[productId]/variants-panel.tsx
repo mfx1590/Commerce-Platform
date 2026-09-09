@@ -4,10 +4,11 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FormError } from '@/components/form/fields';
+import { ActionRefusal } from '@/components/states/action-refusal';
 import { MoneyField } from '@/components/form/money-field';
 import { createVariantAction, updateVariantAction } from '@/app/actions/catalog';
 import type { AdminComponents } from '@/lib/api/admin-client';
+import type { ActionRefusalInfo } from '@/lib/forms/action-result';
 import { formatMoney } from '@/lib/forms/money';
 import {
   missingCombinations,
@@ -32,6 +33,7 @@ export function VariantsPanel({ storeId, product }: { storeId: string; product: 
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<ActionRefusalInfo | undefined>(undefined);
   const [editing, setEditing] = useState<string | null>(null);
 
   const drafts = product.options.map((option) => ({ name: option.name, values: option.values }));
@@ -39,6 +41,7 @@ export function VariantsPanel({ storeId, product }: { storeId: string; product: 
 
   const create = (combinations: readonly VariantCombination[]) => {
     setError(null);
+    setRefusal(undefined);
     startTransition(async () => {
       for (const combination of combinations) {
         const result = await createVariantAction(storeId, product.id, {
@@ -49,7 +52,12 @@ export function VariantsPanel({ storeId, product }: { storeId: string; product: 
         if (result.status === 'error') {
           // Stop at the first refusal rather than pressing on: the rest would likely fail the same
           // way, and a half-created matrix is harder to reason about than a stated failure.
-          setError(result.formError ?? 'Could not create this variant.');
+          setRefusal(result.refusal);
+          setError(
+            result.refusal === undefined
+              ? (result.formError ?? 'Could not create this variant.')
+              : null,
+          );
           break;
         }
       }
@@ -59,7 +67,7 @@ export function VariantsPanel({ storeId, product }: { storeId: string; product: 
 
   return (
     <div className="space-y-4">
-      <FormError message={error} />
+      <ActionRefusal refusal={refusal} message={error} />
 
       {product.variants.length === 0 ? (
         <p className="text-muted text-sm">No variants yet.</p>
@@ -192,9 +200,11 @@ function VariantEditRow({
     })),
   );
   const [error, setError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<ActionRefusalInfo | undefined>(undefined);
 
   const save = () => {
     setError(null);
+    setRefusal(undefined);
     startTransition(async () => {
       const result = await updateVariantAction(storeId, variant.id, {
         sku,
@@ -208,7 +218,12 @@ function VariantEditRow({
           .map((price) => ({ currency: price.currency, amount_minor: price.amount_minor })),
       });
       if (result.status === 'error') {
-        setError(result.formError ?? 'Could not save this variant.');
+        setRefusal(result.refusal);
+        setError(
+          result.refusal === undefined
+            ? (result.formError ?? 'Could not save this variant.')
+            : null,
+        );
         return;
       }
       onDone();
@@ -275,7 +290,9 @@ function VariantEditRow({
             Cancel
           </Button>
         </div>
-        {error !== null && <FormError message={error} />}
+        {(error !== null || refusal !== undefined) && (
+          <ActionRefusal refusal={refusal} message={error} />
+        )}
       </td>
     </tr>
   );

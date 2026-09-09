@@ -100,9 +100,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       it landed **inside PR #101**, which was still open when it was pushed, rather than the separate
       small PR the manager asked for: one branch means one open PR.
 
-- [x] **2.1 (#109) Real Store API wiring** — commit `d28aec7`, PR PENDING. Closes #102; folds in
-      REQUEST #169 (`9cb3204`, `@platform/ui` 0.3.0), REQUEST #178 (`a52e635`) and #167's
-      documentation lines (`f050020`) as three self-contained commits in the same PR.
+- [x] **2.1 (#109) Real Store API wiring** — commit `016d056`, **PR #204 merged** (merge commit
+      `f6ac558`, 2026-09-09). Closes #102; folds in REQUEST #169 (`9cb3204`, `@platform/ui` 0.3.0),
+      REQUEST #178 (`a52e635`) and #167's documentation lines (`f050020`) as three self-contained
+      commits in the same PR. All 12 CI checks green, Playwright included.
       The core is the default backend (`STORE_API_URL` wins, `MOCK_API_URL` selects Prism, the
       unconfigured default moved from the mock to `http://localhost:9000`). `currency` (Store API
       0.3.0) is sent on `listProducts`/`getProduct` from the reconciled currency cookie, so PLP/PDP
@@ -121,9 +122,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   **#203** and confirmed there with a clean reproduction: the bootstrap check, Redis, the fallback
   proxy and every other Medusa loader succeed first, so it really is only that file. Everything else
   in 2.1 is green against the mock, and the suite is written so the same spec runs against the core
-  the moment it starts. Re-run then:
+  the moment it starts. **Re-run this the day #203 lands** — it is 2.1's one unmet acceptance
+  criterion and nobody else will notice it is outstanding:
   `E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-starter e2e`.
-  PR **#204** is open with all 12 CI checks green (including the Playwright job on CI's chromium).
+  PR #204 merged with the gap recorded in its description.
 
 <!-- superseded plan, kept for the record:
 - **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
