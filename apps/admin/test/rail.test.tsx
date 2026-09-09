@@ -187,6 +187,7 @@ describe('list view', () => {
     expect(window.requestAnimationFrame).not.toHaveBeenCalled();
     expect(container.querySelector('canvas')).toBeNull();
     expect(window.sessionStorage.getItem(STORAGE.introSeen)).toBeNull();
+    expect(screen.getByRole('complementary')).toHaveAttribute('data-intro', 'done');
   });
 });
 
@@ -199,11 +200,13 @@ describe('the load sequence', () => {
     expect(first?.style.getPropertyValue('--delay')).toBe('0.90s');
     expect(window.sessionStorage.getItem(STORAGE.introSeen)).toBe('1');
     expect(window.requestAnimationFrame).toHaveBeenCalled();
+    expect(screen.getByRole('complementary')).toHaveAttribute('data-intro', 'playing');
 
     unmount();
     const again = renderRail('storeAdmin');
     const second = again.container.querySelector<SVGGElement>('[data-section="catalog"]');
     expect(second?.classList.contains(styles.grow ?? '')).toBe(false);
+    expect(again.getByRole('complementary')).toHaveAttribute('data-intro', 'done');
   });
 
   it('staggers each serpent by 160 ms after the head', () => {

@@ -197,8 +197,14 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
   const liftRef = useRef<number[]>([]);
   const hoverRef = useRef<number | null>(null);
   const gazeRef = useRef(0);
-  const [introducing, setIntroducing] = useState(false);
-  const [breathing, setBreathing] = useState(false);
+  /**
+   * The load sequence as a state machine, exposed as `data-intro` so a test (or a screenshot) can
+   * wait for `done`: 'pending' until the device is known and the effect has run — a plain boolean
+   * would read as "finished" for the one render before the sequence starts.
+   */
+  const [intro, setIntro] = useState<'pending' | 'playing' | 'done'>('pending');
+  const introducing = intro === 'playing';
+  const breathing = intro === 'done' && decided && !showList && !reduced;
 
   const animating = decided && !showList && !reduced;
 
@@ -245,8 +251,9 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
 
   // ---- load sequence: once per session, skipped entirely without motion ----
   useEffect(() => {
+    if (!decided) return;
     if (!animating || introAlreadySeen()) {
-      setBreathing(animating);
+      setIntro('done');
       return;
     }
     shapes.forEach((shape, index) => {
@@ -259,16 +266,13 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
         `${((MOTION.introHeadMs + index * MOTION.introStaggerMs) / 1000).toFixed(2)}s`,
       );
     });
-    setIntroducing(true);
+    setIntro('playing');
     const total = MOTION.introHeadMs + shapes.length * MOTION.introStaggerMs + MOTION.introTailMs;
-    const timer = window.setTimeout(() => {
-      setIntroducing(false);
-      setBreathing(true);
-    }, total);
+    const timer = window.setTimeout(() => setIntro('done'), total);
     return () => window.clearTimeout(timer);
     // Re-running on a scope switch is harmless: the session flag is already set, so it only
-    // confirms the breathing state.
-  }, [animating, shapes]);
+    // confirms `done`.
+  }, [decided, animating, shapes]);
 
   // ---- motes: faint teal dust behind the head, Canvas not DOM ----
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -391,7 +395,7 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
       className={cn(styles.rail, introducing && styles.intro, breathing && styles.breathing)}
       onMouseMove={onMouseMove}
       data-list-view={showList ? 'true' : 'false'}
-      data-intro={introducing ? 'true' : 'false'}
+      data-intro={intro}
     >
       <div className={styles.brand}>
         MEDUSA

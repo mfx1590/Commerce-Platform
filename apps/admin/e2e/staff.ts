@@ -38,7 +38,7 @@ export function signIn(page: Page, to = '/'): Promise<void> {
   return signInAs(page, STORE_ADMIN, to);
 }
 
-/** The Medusa rail once its load sequence has finished (or was skipped under reduced motion). */
+/** The Medusa rail once its load sequence is `done` (played, already seen, or skipped for the list). */
 export async function settledRail(page: Page) {
   const rail = page.getByRole('complementary', { name: 'Medusa navigation rail' });
   await rail.waitFor();
@@ -46,7 +46,7 @@ export async function settledRail(page: Page) {
     () =>
       document
         .querySelector('aside[aria-label="Medusa navigation rail"]')
-        ?.getAttribute('data-intro') === 'false',
+        ?.getAttribute('data-intro') === 'done',
     undefined,
     { timeout: 15_000 },
   );
