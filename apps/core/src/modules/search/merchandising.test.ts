@@ -1,9 +1,7 @@
-// Merchandising rules (task 2.2, #135) against a seeded throwaway database that also carries the PROPOSED
-// migration (proposed/0130_merchandising_rule.sql, contract change #162): Postgres repository under RLS, service
-// validation (no cross-store ids), the router with dev-token principals (store_admin write / store_staff read),
-// publish → Algolia rules on the fake client, and the Store API relevance path with rules applied.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Merchandising rules (task 2.2, #135) against a seeded throwaway database (migration 0130 merchandising_rule,
+// contract change #162): Postgres repository under RLS, service validation (no cross-store ids), the router with
+// dev-token principals (store_admin write / store_staff read, relations read from admin-api.yaml), publish →
+// Algolia rules on the fake client, and the Store API relevance path with rules applied.
 import express from 'express';
 import request from 'supertest';
 import { createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -55,10 +53,6 @@ const base = `/admin/stores/${A}/merchandising`;
 beforeAll(async () => {
   db = await createTestDatabase('core_merch');
   await seed(db.owner, { productsPerStore: 12, log: () => {} });
-  // the proposed migration, verbatim (proven here until it lands in packages/db)
-  await db.owner.query(
-    readFileSync(join(__dirname, 'proposed', '0130_merchandising_rule.sql'), 'utf8'),
-  );
 
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;

@@ -1,9 +1,8 @@
 import type { Queryable } from '@platform/db';
 import type { StoreComponents } from '@platform/contracts';
 import type { Actor } from '../../lib/audit';
+import type { StoreOrder } from '../orders';
 
-export type StoreOrder = StoreComponents['schemas']['Order'];
-export type StoreOrderSummary = StoreComponents['schemas']['OrderSummary'];
 export type StoreShippingOption = StoreComponents['schemas']['ShippingOption'];
 export type StorePaymentSession = StoreComponents['schemas']['PaymentSession'];
 export type PaymentProviderName = StorePaymentSession['provider'];
@@ -68,19 +67,35 @@ export interface RefundResult {
   failureReason?: string | undefined;
 }
 
+export interface VoidInput {
+  tx: Queryable;
+  /** The authorised, not yet captured payment (`payment.provider_payment_id`). */
+  providerPaymentId: string;
+  idempotencyKey: string;
+  reason: string;
+}
+
+export interface VoidResult {
+  status: 'voided' | 'failed';
+  failureReason?: string | undefined;
+}
+
 /**
  * A payment service provider seen from the checkout. `createSession` runs on `POST …/payment-session`,
  * `authorize` inside the placement transaction (a `failed` result aborts the placement with 402
- * `payment_failed`), `refund` from task 2.5's returns. Implementations must be idempotent on `idempotencyKey`.
+ * `payment_failed`), `void` when an order with an authorised, uncaptured payment is cancelled (orders module,
+ * 2.3), `refund` from task 2.5's returns. Implementations must be idempotent on `idempotencyKey`.
  */
 export interface PaymentProvider {
   readonly name: PaymentProviderName;
   createSession(input: CreatePaymentSessionInput): Promise<PaymentSessionResult>;
   authorize(input: AuthorizeInput): Promise<AuthorizeResult>;
+  void(input: VoidInput): Promise<VoidResult>;
   refund(input: RefundInput): Promise<RefundResult>;
 }
 
 // ---- use-case inputs ----
+// (the order read types moved to src/modules/orders in 2.3)
 
 export interface CompleteCartInput {
   cartId: string;
@@ -97,64 +112,4 @@ export interface CompleteCartResult {
   order: StoreOrder;
   /** True when the `Idempotency-Key` had already placed this cart: the stored order, no provider call. */
   replayed: boolean;
-}
-
-/** Who is asking for an order: a verified customer of the store, a guest with the checkout email, or nobody. */
-export interface OrderAccess {
-  customerId?: string | null | undefined;
-  email?: string | null | undefined;
-}
-
-// ---- rows ----
-
-export interface OrderRow {
-  id: string;
-  organization_id: string;
-  store_id: string;
-  display_id: string;
-  sales_channel_id: string;
-  cart_id: string | null;
-  customer_id: string | null;
-  email: string;
-  currency: string;
-  locale: string;
-  status: StoreOrderSummary['status'];
-  payment_status: StoreOrderSummary['payment_status'];
-  fulfillment_status: StoreOrderSummary['fulfillment_status'];
-  shipping_address: Address;
-  billing_address: Address;
-  shipping_option_id: string | null;
-  shipping_method: { code: string; name: string; carrier: string; price_minor: number };
-  promotion_codes: string[];
-  subtotal_minor: string;
-  discount_minor: string;
-  shipping_minor: string;
-  tax_minor: string;
-  total_minor: string;
-  placed_at: Date;
-  metadata: Record<string, unknown>;
-}
-
-export interface OrderLineRow {
-  id: string;
-  variant_id: string | null;
-  sku: string;
-  title: string;
-  variant_title: string;
-  thumbnail_url: string | null;
-  quantity: number;
-  unit_price_minor: string;
-  discount_minor: string;
-  tax_rate_bp: number;
-  tax_minor: string;
-  total_minor: string;
-}
-
-export interface ShipmentRow {
-  id: string;
-  status: StoreOrder['shipments'][number]['status'];
-  carrier: string;
-  tracking_number: string | null;
-  tracking_url: string | null;
-  shipped_at: Date | null;
 }

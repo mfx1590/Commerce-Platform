@@ -5,10 +5,17 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-08 · contracts-v0.4 landed (#162 applied by the main window)
+
+- `proposed/` removed: `merchandising_rule` is `packages/db` migration 0130 and the operations are in
+  `admin-api.yaml` 0.4.0. `merchandising.test.ts` no longer applies the SQL itself (`createTestDatabase` runs
+  every migration); `http.ts` reads each operation's `x-permission` from the spec via `loadSpec` instead of
+  hard-coding the relations.
+
 ### 2026-09-08 · 2.2 Merchandising rules API (#135, CONTRACT CHANGE #162)
 
-- `proposed/admin-api.merchandising.yaml` + `proposed/0130_merchandising_rule.sql`: the exact contract change
-  filed as #162 (Admin API `…/merchandising/rules[/{ruleId}]`, `…/merchandising/publish`, `store_staff` read /
+- `proposed/admin-api.merchandising.yaml` + `proposed/0130_merchandising_rule.sql` (removed once #162 landed, see
+  above): the exact contract change filed as #162 (Admin API `…/merchandising/rules[/{ruleId}]`, `…/merchandising/publish`, `store_staff` read /
   `store_admin` write; table `merchandising_rule`, RLS `store`). The module tests apply the SQL to their
   throwaway database until it lands.
 - `merchandising-types.ts`: contract types, ajv body validation, scope normalisation, cross-field checks.

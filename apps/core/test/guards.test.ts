@@ -35,6 +35,14 @@ describe('structural guards', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('only src/modules/orders updates the "order" row (state machine, task 2.3)', () => {
+    const offenders = files
+      .filter((f) => !f.rel.startsWith('modules/orders/') && !f.rel.endsWith('.test.ts'))
+      .filter((f) => /update\s+"order"/i.test(f.text))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
   it('modules import the outbox helper through its index only', () => {
     const offenders = files
       .filter((f) => !f.rel.startsWith('outbox/'))
