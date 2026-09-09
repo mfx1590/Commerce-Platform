@@ -1,0 +1,402 @@
+/*
+ * The Medusa rail and the shell grid around it. Every colour is a theme variable from
+ * src/app/globals.css — nothing is written as a literal here — so the rail restyles with the
+ * rest of the app. Motion lives in this file only: content panels never animate (the brief).
+ */
+
+.shell {
+  display: grid;
+  grid-template-columns: 400px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.rail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  background: radial-gradient(120% 60% at 0% 0%, var(--color-surface) 0%, var(--color-canvas) 60%);
+  border-right: 1px solid var(--color-line);
+}
+
+.brand {
+  position: absolute;
+  left: 24px;
+  top: 22px;
+  z-index: 2;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  font-size: 15px;
+  color: var(--color-ink);
+}
+
+.brandSmall {
+  display: block;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.scope {
+  position: absolute;
+  left: 24px;
+  top: 72px;
+  z-index: 2;
+  display: inline-flex;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--color-surface);
+}
+
+.scopeButton {
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.scopeButton[aria-pressed='true'] {
+  background: var(--color-surface-2);
+  color: var(--color-ink);
+}
+
+.motes {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* The <nav> around the serpents fills the rail so the SVG can too. */
+.stage {
+  position: absolute;
+  inset: 0;
+}
+
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.headGroup {
+  transform-origin: 100px 360px;
+}
+
+/* ---- serpents ---- */
+
+.snake {
+  cursor: pointer;
+}
+
+.snake:focus {
+  outline: none;
+}
+
+.bodyOuter {
+  fill: none;
+  stroke: var(--color-canvas);
+  stroke-linecap: round;
+}
+
+.body {
+  fill: none;
+  stroke: var(--color-accent-deep);
+  stroke-linecap: round;
+  transition: stroke 0.25s;
+}
+
+.scales {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-ink) 18%, transparent);
+  stroke-linecap: round;
+  stroke-dasharray: 2 7;
+}
+
+.head {
+  fill: var(--color-accent-deep);
+  transition: fill 0.25s;
+}
+
+.eye {
+  fill: var(--color-gold);
+  opacity: 0.55;
+  transition: opacity 0.25s;
+}
+
+.tongue {
+  stroke: var(--color-danger);
+  stroke-width: 1.2;
+  fill: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  fill: var(--color-muted);
+  letter-spacing: 0.02em;
+  transition: fill 0.25s;
+  paint-order: stroke;
+  stroke: var(--color-canvas);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.focusRing {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 1.5;
+}
+
+.snake:hover .body,
+.snake.active .body,
+.snake:focus-visible .body {
+  stroke: var(--color-accent);
+}
+
+.snake:hover .head,
+.snake.active .head,
+.snake:focus-visible .head {
+  fill: var(--color-accent);
+}
+
+.snake:hover .eye,
+.snake.active .eye,
+.snake:focus-visible .eye {
+  opacity: 1;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+.snake:hover .tongue {
+  opacity: 1;
+}
+
+.snake:hover .label,
+.snake.active .label,
+.snake:focus-visible .label {
+  fill: var(--color-ink);
+}
+
+.snake.active .label {
+  font-weight: 600;
+}
+
+.snake:focus-visible .focusRing {
+  stroke: var(--color-accent);
+}
+
+/* ---- load sequence ---- */
+
+.rail.intro .headGroup {
+  animation: surface 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.rail.breathing .headGroup {
+  animation: breathe 7s ease-in-out infinite;
+}
+
+.snake.grow .bodyOuter,
+.snake.grow .body,
+.snake.grow .scales {
+  stroke-dasharray: var(--len) var(--len);
+  stroke-dashoffset: var(--len);
+  animation: draw 1.1s cubic-bezier(0.3, 0.6, 0.2, 1) var(--delay) forwards;
+}
+
+.snake.grow .head,
+.snake.grow .label {
+  opacity: 0;
+  animation: arrive 0.5s ease-out calc(var(--delay) + 0.95s) forwards;
+}
+
+.snake.grow .eye {
+  opacity: 0;
+  animation: arriveEye 0.5s ease-out calc(var(--delay) + 0.95s) forwards;
+}
+
+@keyframes surface {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+    filter: brightness(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.006);
+  }
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes arrive {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes arriveEye {
+  to {
+    opacity: 0.55;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    r: 1.8;
+  }
+  50% {
+    opacity: 0.7;
+    r: 2.4;
+  }
+}
+
+/* ---- list fallback ---- */
+
+.list {
+  position: absolute;
+  left: 24px;
+  top: 130px;
+  z-index: 3;
+  min-width: 180px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.listLink {
+  display: block;
+  padding: 6px 10px;
+  color: var(--color-muted);
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.listLink[aria-current='page'],
+.listLink:hover {
+  color: var(--color-ink);
+  background: var(--color-surface-2);
+}
+
+.headOnly {
+  opacity: 0.6;
+}
+
+/* ---- foot ---- */
+
+.foot {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 18px;
+  z-index: 2;
+  font-size: 11px;
+  color: var(--color-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.who {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.who b {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+  flex: none;
+}
+
+.toggle {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ---- reduced motion: nothing moves, and the list view takes over (handled in the component) ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .body,
+  .head,
+  .label,
+  .eye,
+  .tongue {
+    transition: none;
+  }
+
+  .rail.intro .headGroup,
+  .rail.breathing .headGroup,
+  .snake.grow *,
+  .snake:hover .eye,
+  .snake.active .eye,
+  .snake:focus-visible .eye {
+    animation: none !important;
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ---- narrow: the rail becomes a band above the content ---- */
+
+@media (max-width: 860px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rail {
+    position: relative;
+    height: 520px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+}
