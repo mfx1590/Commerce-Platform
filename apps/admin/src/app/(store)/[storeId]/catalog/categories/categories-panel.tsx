@@ -2,7 +2,8 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FormError, SelectField, TextField, errorMessage } from '@/components/form/fields';
+import { SelectField, TextField, errorMessage } from '@/components/form/fields';
+import { ActionRefusal } from '@/components/states/action-refusal';
 import { useContractForm } from '@/components/form/use-contract-form';
 import { createCategoryAction } from '@/app/actions/catalog';
 import type { AdminComponents } from '@/lib/api/admin-client';
@@ -72,14 +73,15 @@ export function CategoriesPanel({
 }) {
   const tree = buildTree(categories);
 
-  const { form, submit, formError, isSubmitting } = useContractForm<CategoryCreateValues, Category>(
-    {
-      schema: categoryCreateSchema,
-      action: (values) => createCategoryAction(storeId, values),
-      defaultValues: { handle: '', name: '', parent_id: null, is_active: true },
-      onSuccess: () => form.reset({ handle: '', name: '', parent_id: null, is_active: true }),
-    },
-  );
+  const { form, submit, formError, refusal, isSubmitting } = useContractForm<
+    CategoryCreateValues,
+    Category
+  >({
+    schema: categoryCreateSchema,
+    action: (values) => createCategoryAction(storeId, values),
+    defaultValues: { handle: '', name: '', parent_id: null, is_active: true },
+    onSuccess: () => form.reset({ handle: '', name: '', parent_id: null, is_active: true }),
+  });
 
   const errors = form.formState.errors;
 
@@ -92,7 +94,7 @@ export function CategoriesPanel({
       )}
 
       <form onSubmit={submit} noValidate className="border-line space-y-3 border-t pt-4">
-        <FormError message={formError} />
+        <ActionRefusal refusal={refusal} message={formError} />
         <div className="grid gap-3 sm:grid-cols-3">
           <TextField
             label="Name"

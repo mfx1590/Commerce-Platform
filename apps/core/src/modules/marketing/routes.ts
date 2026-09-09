@@ -33,6 +33,16 @@ import {
   listCampaigns,
   updateCampaign,
 } from './campaigns';
+import {
+  createFeed,
+  deleteFeed,
+  getFeed,
+  listFeedItems,
+  listFeeds,
+  publishFeed,
+  updateFeed,
+} from './feeds';
+import { FEED_CHANNELS, FEED_STATUSES, type FeedChannel, type FeedStatus } from './feed-types';
 import { attributionReport } from './reports';
 import {
   CAMPAIGN_SORT_FIELDS,
@@ -189,6 +199,92 @@ export function marketingAdminRouter(): Router {
     handle(async (req, res) => {
       const { client, storeId, p } = storeClient(req);
       res.json(await endCampaign(client, storeId, uuidParam(req.params, 'campaignId'), p.actor));
+    }),
+  );
+
+  // ---- feeds -----------------------------------------------------------------------------------------------
+  r.get(
+    `${BASE}/feeds`,
+    permission('listFeeds'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const channel = enumParam<FeedChannel>(req.query, 'channel', FEED_CHANNELS, problems);
+      const status = enumParam<FeedStatus>(req.query, 'status', FEED_STATUSES, problems);
+      const { page, limit } = pageParams(req.query, 20, problems);
+      throwIfProblems(problems);
+      res.json(
+        await listFeeds(client, storeId, {
+          page,
+          limit,
+          ...(channel ? { channel } : {}),
+          ...(status ? { status } : {}),
+        }),
+      );
+    }),
+  );
+
+  r.post(
+    `${BASE}/feeds`,
+    permission('createFeed'),
+    body('createFeed'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      res.status(201).json(await createFeed(client, storeId, req.body, p.actor));
+    }),
+  );
+
+  r.get(
+    `${BASE}/feeds/:feedId`,
+    permission('getFeed'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(await getFeed(client, storeId, uuidParam(req.params, 'feedId')));
+    }),
+  );
+
+  r.patch(
+    `${BASE}/feeds/:feedId`,
+    permission('updateFeed'),
+    body('updateFeed'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      res.json(
+        await updateFeed(client, storeId, uuidParam(req.params, 'feedId'), req.body, p.actor),
+      );
+    }),
+  );
+
+  r.delete(
+    `${BASE}/feeds/:feedId`,
+    permission('deleteFeed'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      await deleteFeed(client, storeId, uuidParam(req.params, 'feedId'), p.actor);
+      res.status(204).end();
+    }),
+  );
+
+  r.post(
+    `${BASE}/feeds/:feedId/publish`,
+    permission('publishFeed'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      res.json(await publishFeed(client, storeId, uuidParam(req.params, 'feedId'), p.actor));
+    }),
+  );
+
+  r.get(
+    `${BASE}/feeds/:feedId/items`,
+    permission('listFeedItems'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const { page, limit } = pageParams(req.query, 20, problems);
+      throwIfProblems(problems);
+      res.json(
+        await listFeedItems(client, storeId, uuidParam(req.params, 'feedId'), { page, limit }),
+      );
     }),
   );
 

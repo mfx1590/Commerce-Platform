@@ -5,7 +5,7 @@
 Next.js App Router admin application. One app, two views (Store view and HQ view) decided by the
 principal's relations; every API call is re-checked server-side against the operation's
 `x-permission`. Phase 1 reads permissions from `GET /admin/me` on the Prism mock — do **not** import
-`@platform/auth-sdk` yet (window 2 is still writing it). Contract: Admin API 0.2.0.
+`@platform/auth-sdk` yet (window 2 is still writing it). Contract: Admin API 0.4.0.
 
 ## Owner
 
@@ -37,6 +37,9 @@ them self-contained (no shared components inside them, no API calls until contra
   - Browser: `E2E_CHANNEL` decides (REQUEST #154) — `chrome` uses the Chrome on the machine, an
     empty-but-set value means Playwright's bundled chromium, and only an absent variable falls
     back to Chrome locally / chromium on CI. `infra/ci/run-e2e.sh` exports it; never pin a channel.
+  - `e2e/catalog-core.spec.ts` runs only with `E2E_API=core` against an app you started yourself
+    with `ADMIN_API_URL=http://localhost:9000` (it writes real rows). See README, "Against the
+    real core". The default run stays hermetic on Prism.
   - CI wiring is REQUEST #80 — `.github/workflows/**` is not this window's to edit.
 
 ## Public API
