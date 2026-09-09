@@ -16,12 +16,12 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.3 (#131) — labels, shipments and tracking webhooks** · commits `6f69b97` + `SHA_PORTS` · PR pending
+- **2.3 (#131) — labels, shipments and tracking webhooks** · commits `6f69b97` + `f305919` · PR pending
   `shipments.ts` (plan a shipment against what the order still owes, buy its label, the status machine and its
   outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
   on the carrier's clock), `webhook-events.ts` (shared idempotency record + the proposed table SQL),
   `ports.ts`. 21 unit tests + 15 database tests. Admin API routes already exist in the contract — no CONTRACT
-  CHANGE needed. **Follow-up commit `SHA_PORTS`:** the orders mirror is replaced by the real core 2.3 functions
+  CHANGE needed. **Follow-up commit `f305919`:** the orders mirror is replaced by the real core 2.3 functions
   (`markShipmentCreated` / `markShipped` / `markDelivered`), so planning a shipment advances the order to
   `processing` and fulfilment is recorded on despatch, not on plan. Inventory stays a mirror — core 2.4 has NOT
   merged (no `modules/inventory` on main), contrary to the merge note.
