@@ -10,7 +10,7 @@ import {
   type UseFormReturn,
 } from 'react-hook-form';
 import type { ZodType } from 'zod';
-import type { ActionResult } from '@/lib/forms/action-result';
+import type { ActionRefusalInfo, ActionResult } from '@/lib/forms/action-result';
 
 export interface ContractForm<TValues extends FieldValues, TData> {
   form: UseFormReturn<TValues>;
@@ -18,6 +18,12 @@ export interface ContractForm<TValues extends FieldValues, TData> {
   isSubmitting: boolean;
   /** The problem no single input owns. Render it above the fields. */
   formError: string | null;
+  /**
+   * Set when the *principal* was refused (401/403) rather than the request being wrong. Hand it to
+   * `ActionRefusal`, which renders the same panel the screen would — a relation you do not hold is
+   * not a validation message.
+   */
+  refusal: ActionRefusalInfo | undefined;
   lastResult: ActionResult<TData> | null;
 }
 
@@ -101,6 +107,7 @@ export function useContractForm<TValues extends FieldValues, TData>({
     submit,
     isSubmitting: isPending || form.formState.isSubmitting,
     formError,
+    refusal: lastResult?.status === 'error' ? lastResult.refusal : undefined,
     lastResult,
   };
 }

@@ -12,6 +12,57 @@ export {
   toCampaign,
   updateCampaign,
 } from './campaigns';
+export {
+  createFeed,
+  deleteFeed,
+  getFeed,
+  listFeedItems,
+  listFeeds,
+  normaliseFeedInput,
+  publishFeed,
+  toFeed,
+  updateFeed,
+} from './feeds';
+export { buildFeedItems } from './feed-items';
+export { formatPrice, renderFeed, renderGoogleFeed, renderMetaFeed } from './feed-render';
+export {
+  blocksPublication,
+  messageFor,
+  publishableItems,
+  validateItem,
+  validateItems,
+} from './feed-validation';
+export {
+  assertFeedKey,
+  feedKey,
+  FilesystemFeedStorage,
+  getFeedStorage,
+  resetFeedStorage,
+  setFeedStorage,
+  sha256,
+} from './storage';
+export type { FeedStorage, FilesystemFeedStorageOptions, PutResult } from './storage';
+export {
+  FEED_CHANNELS,
+  FEED_CONTENT_TYPE,
+  FEED_EXTENSION,
+  FEED_INPUT_STATUSES,
+  FEED_STATUSES,
+  RENDERABLE_CHANNELS,
+} from './feed-types';
+export type {
+  Availability,
+  FeedBuild,
+  FeedChannel,
+  FeedError,
+  FeedFilters,
+  FeedItem,
+  FeedListQuery,
+  FeedStatus,
+  ProductFeed,
+  ProductFeedInput,
+  ProductFeedRow,
+} from './feed-types';
 export { attributionReport } from './reports';
 export { marketingAdminRouter } from './routes';
 export {

@@ -3,7 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useFieldArray, useWatch } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
-import { FormError, SelectField, TextField, errorMessage } from '@/components/form/fields';
+import { SelectField, TextField, errorMessage } from '@/components/form/fields';
+import { ActionRefusal } from '@/components/states/action-refusal';
 import { useContractForm } from '@/components/form/use-contract-form';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import type { ActionResult } from '@/lib/forms/action-result';
@@ -36,7 +37,10 @@ export function ProductForm({
   redirectBase?: string;
 }) {
   const router = useRouter();
-  const { form, submit, formError, isSubmitting } = useContractForm<ProductCreateValues, Product>({
+  const { form, submit, formError, refusal, isSubmitting } = useContractForm<
+    ProductCreateValues,
+    Product
+  >({
     schema: productCreateSchema,
     action,
     defaultValues,
@@ -61,7 +65,7 @@ export function ProductForm({
 
   return (
     <form onSubmit={submit} noValidate className="space-y-6">
-      <FormError message={formError} />
+      <ActionRefusal refusal={refusal} message={formError} />
 
       <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
         <TextField
@@ -77,17 +81,37 @@ export function ProductForm({
           error={errorMessage(errors.handle)}
           {...form.register('handle')}
         />
-        <TextField label="Subtitle" {...form.register('subtitle')} />
-        <TextField label="Brand" {...form.register('brand_name')} />
+        <TextField
+          label="Subtitle"
+          error={errorMessage(errors.subtitle)}
+          {...form.register('subtitle')}
+        />
+        <TextField
+          label="Brand"
+          error={errorMessage(errors.brand_name)}
+          {...form.register('brand_name')}
+        />
         <SelectField
           label="Category"
+          error={errorMessage(errors.category_id)}
           options={[
             { value: '', label: '— none —' },
             ...categories.map((category) => ({ value: category.id, label: category.name })),
           ]}
-          {...form.register('category_id')}
+          // "No category" is an empty option value, but the contract's `category_id` is a uuid or
+          // null — an empty string is neither, so it must become null on the way in. Without this
+          // the form silently refused to submit: the schema rejected `''`, and because this field
+          // had no error slot the message had nowhere to appear. Every field here now shows its
+          // own error for the same reason.
+          {...form.register('category_id', {
+            setValueAs: (value: string) => (value === '' ? null : value),
+          })}
         />
-        <TextField label="Description" {...form.register('description')} />
+        <TextField
+          label="Description"
+          error={errorMessage(errors.description)}
+          {...form.register('description')}
+        />
       </div>
 
       <section className="space-y-3">
@@ -157,7 +181,9 @@ export function ProductForm({
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() => media.append({ url: '', alt: null, position: media.fields.length })}
+            // `position` is omitted on purpose: the server renumbers from the array order, so a
+            // number set here would only be a second source of truth that could disagree.
+            onClick={() => media.append({ url: '', alt: null })}
           >
             Add image
           </Button>
@@ -187,14 +213,44 @@ export function ProductForm({
                     {...form.register(`media.${index}.alt`)}
                   />
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => media.remove(index)}
-                >
-                  Remove
-                </Button>
+                <div className="flex items-center gap-1">
+                  {/*
+                    Order is the whole point of this list: the first image is the thumbnail and the
+                    rest is gallery order, so being able to say "this one first" without deleting
+                    and retyping a URL is the difference between a usable editor and a chore.
+                    `position` is renumbered from the array order server-side, so moving a row here
+                    is the only thing that has to happen.
+                  */}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Move image ${index + 1} up`}
+                    disabled={index === 0}
+                    onClick={() => media.move(index, index - 1)}
+                  >
+                    ↑
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Move image ${index + 1} down`}
+                    disabled={index === media.fields.length - 1}
+                    onClick={() => media.move(index, index + 1)}
+                  >
+                    ↓
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    aria-label={`Remove image ${index + 1}`}
+                    onClick={() => media.remove(index)}
+                  >
+                    Remove
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>

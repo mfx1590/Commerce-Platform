@@ -232,4 +232,54 @@ describe('row-level security (platform_app role)', () => {
     const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
     expect((await other.query('SELECT id FROM segment')).rowCount).toBe(0);
   });
+
+  it('merchandising: a store-A session sees only its own rule; one rule per store + scope (0130)', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    await hq.transaction(async (tx) => {
+      for (const store of [STORE_A, STORE_B]) {
+        const category = await tx.query<{ id: string }>(
+          `INSERT INTO product_category (organization_id, store_id, handle, name) VALUES ($1, $2, 'tees', 'Tees') RETURNING id`,
+          [ORG, store],
+        );
+        await tx.query(
+          `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key, category_id, pins)
+           VALUES ($1, $2, 'category', $3::text, $3::uuid, '[]'), ($1, $2, 'query', 'summer tee', NULL, '[]')`,
+          [ORG, store, category.rows[0]!.id],
+        );
+      }
+    });
+
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const mine = await a.query<{ store_id: string; scope_type: string }>(
+      'SELECT store_id, scope_type FROM merchandising_rule ORDER BY scope_type',
+    );
+    expect(mine.rows).toEqual([
+      { store_id: STORE_A, scope_type: 'category' },
+      { store_id: STORE_A, scope_type: 'query' },
+    ]);
+    expect(
+      (await a.query('SELECT id FROM merchandising_rule WHERE store_id = $1', [STORE_B])).rowCount,
+    ).toBe(0);
+    await expect(
+      a.query(
+        `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key) VALUES ($1, $2, 'query', 'hack')`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // one rule per (store, scope_type, scope_key): a second query rule for the same words is refused
+    await expect(
+      a.query(
+        `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key) VALUES ($1, $2, 'query', 'summer tee')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/merchandising_rule_store_id_scope_type_scope_key_key/);
+    // a category scope must carry its category_id (and a query scope must not)
+    await expect(
+      a.query(
+        `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key) VALUES ($1, $2, 'category', 'x')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/check constraint/);
+    expect((await hq.query('SELECT id FROM merchandising_rule')).rowCount).toBe(4);
+  });
 });

@@ -1,5 +1,16 @@
 # Changelog — @platform/cms
 
+## 0.2.0 — 2026-09-08
+
+Task [cms] 2.3 (issue #121): the two "later" nits from the PR #163 review.
+
+- `navigation` and `footer` now enforce what the README promised: `uniqueLocaleKey` on
+  `navigation.key` (one `main` and one `utility` menu per locale) and `uniqueLocale` on
+  `footer.locale` (one footer per locale), Studio-side queries like `uniqueLocaleSlug`.
+- `href` fields (links, CTAs, navigation items, portable-text links) accept a storefront path with
+  exactly one leading slash or an `https://` URL — `HREF_PATTERN`. `//host` and `http://` used to
+  slip through `uri({ allowRelative: true })`; they no longer do. Tests in `test/links.test.ts`.
+
 ## 0.1.1 — 2026-09-08
 
 Folded review nits from PR #163, shipped with task [cms] 2.2 (issue #120).

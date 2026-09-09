@@ -77,8 +77,10 @@ is not a 409) and returns the Admin `Order`.
 `cancelOrder` is allowed only while `fulfillment_status = unfulfilled` (409 otherwise — use a return). Every
 **authorised, uncaptured** payment is voided through its `PaymentProvider.void()` (checkout module; `manual` is a
 no-op that always succeeds; a `failed` void → 402 `payment_failed`, nothing written) and the `payment` row goes
-`cancelled`; a captured payment is window 7's to refund on `order.cancelled`. Reservations release in task 2.4
-through the inventory public API.
+`cancelled`; a captured payment is window 7's to refund on `order.cancelled`. Reservations are released here
+(`releaseForOrder`, inventory module) before the transition — through this module's own cancel, never from
+window 8's side. The wrappers' idempotency read happens under the row lock (`FOR UPDATE`) so a concurrent change
+cannot turn an intended no-op into a 409 (#174 review).
 
 ## Order edits before fulfilment (`edits.ts`)
 
