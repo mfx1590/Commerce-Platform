@@ -1,7 +1,3 @@
--- PROPOSED (CONTRACT CHANGE, window 9, task 2.2): packages/db/migrations/0130_merchandising_rule.sql
--- Kept here verbatim until the main window applies it. The search module's tests run this file on their
--- throwaway database so the SQL and the Postgres repository are proven before the migration lands.
---
 -- 0130 merchandising_rule: pin / boost / bury per category or search query, per store (docs/plan 2.2, window 9).
 -- One rule per (store, scope); rules are pushed to the store's Algolia index as Algolia Rules on publish.
 -- Grants come from the 0009 ALTER DEFAULT PRIVILEGES (no sequences: uuid keys).

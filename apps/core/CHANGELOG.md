@@ -2,6 +2,35 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-08 · 2.4 inventory: levels per warehouse, reservations at placement, backorders (issue #106)
+
+- `src/modules/inventory` (new): `moveStock` — the only writer of `on_hand` (locked level, append-only
+  `stock_movement`, one `stock.moved` v1; negative `on_hand` only through `sale`), `reserveForOrder` — the stock
+  check at placement (deterministic lock order variant id → warehouse priority → code; greedy allocation across
+  active warehouses; non-backorderable shortfall → 409 `out_of_stock` with full rollback; backorderable reserves
+  anyway and `available` goes negative; a reservation is never a movement), `releaseForOrder` (cancel, idempotent),
+  `consumeForShipment` (window 8: reservation → `sale` movement per warehouse; over-consumption 409),
+  `listInventoryLevels` / `createStockMovement` for the Admin API. Guard: no `UPDATE inventory_level` /
+  `INSERT INTO stock_movement` outside the module; the app role cannot UPDATE/DELETE movements (tested).
+- Checkout: `reserveForOrder` replaces the advisory re-check at placement; **void on failure** — any throw after a
+  successful `authorize` voids the authorisation before the rollback (#174 review; manual provider call log tested).
+- Orders: `cancelOrder` releases the order's reservations through its own transition; the wrappers' idempotency
+  read now happens under the row lock (#174 review).
+- Admin API: `GET /admin/inventory/levels` (with `store_id` → that store; without → `store:*` and the caller's
+  visible stores; filters, `below_available`, sort/order), `POST /admin/inventory/movements` (`operations`;
+  reasons receipt | adjustment | transfer_in | transfer_out | cycle_count) → 201 `InventoryLevel`; one levels route
+  in the live suite.
+- Wiring batch (#176 / #179 / #181, manager decision — travels with 2.4): `src/http/module-routers.ts` mounts window 9's
+  `merchandisingRouter({ repository: new PgRulesRepository(), indexFor })` (#162 part 3) and window 17's
+  `marketingAdminRouter()` (#181 part 1); `completeCart` emits `payment.authorized` v1 next to `order.placed` (#176
+  part 2); `enumParam` / `sortParams` exported from `src/http/index.ts` (#181 part 2). Not yet mountable (module not on
+  main): `registerPaymentProviders()` (#176 part 1), `mediaRouter()` (#168), `pricingRouter()` + the cart's
+  `resolvePrices` call site (#179 parts 2/3); #179 part 1 (catalog media functions) = a later core PR.
+- Tests: `src/modules/inventory/inventory.test.ts` (9: movement + event + append-only, greedy allocation, 409 +
+  rollback + void, backorder negative, 8 parallel placements on shared variants in shuffled order, last-unit race,
+  release/consume, Store availability, admin list/RLS across the shared warehouse, adjust), `test/admin-api.test.ts`
+  +2, `test/auth-live.test.ts` +1, guards +1.
+
 ### 2026-09-08 · 2.3 order state machine, wrappers for windows 7/8, edits, Admin API order routes (issue #105)
 
 - `src/modules/orders` (new): `transitions.ts` (one map per status field — the README tables are asserted equal),

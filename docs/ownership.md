@@ -10,14 +10,14 @@ Branch prefix → allowed write paths. Everything else is read-only for that bra
 | `storefront/` | 3 — Storefront starter & UI kit | `apps/storefront-starter/**`, `packages/ui/**` |
 | `admin/` | 4 — Admin application | `apps/admin/**` |
 | `infra/` | 5 — Infra & DevOps | `infra/**`, `.github/workflows/**`, `**/Dockerfile`, `.dockerignore` |
-| `cms/` | 6 — CMS & landing pages | `cms/**`, `apps/storefront-starter/src/app/(content)/**`, `apps/storefront-starter/src/app/api/cms/**`, `apps/storefront-starter/src/lib/cms/**`, `apps/storefront-starter/test/cms-*` |
+| `cms/` | 6 — CMS & landing pages | `cms/**`, `apps/storefront-starter/src/app/[locale]/(content)/**`, `apps/storefront-starter/src/app/api/cms/**`, `apps/storefront-starter/src/lib/cms/**`, `apps/storefront-starter/test/cms-*` |
 | `payments/` | 7 — Payments, tax, fraud | `apps/core/src/modules/payments/**`, `apps/core/src/modules/tax/**`, `apps/core/src/modules/fraud/**` |
 | `shipping/` | 8 — Shipping & fulfillment | `apps/core/src/modules/fulfillment/**`, `apps/core/src/modules/shipping/**` |
 | `search/` | 9 — Search, media, promotions | `apps/core/src/modules/search/**`, `apps/core/src/modules/promotions/**`, `apps/core/src/jobs/index-*.ts` |
 | `brands/` | 10 — Brand storefronts (A, B, C…) | `apps/storefronts/<brand>/**`, `cms/<brand>/**` |
 | `warehouse/` | 11 — Shared warehouse / WMS | `apps/core/src/modules/hq-warehouse/**`, `apps/wms-adapter/**` |
 | `data/` | 12 — Data platform, BI & AI | `data/**`, `apps/analytics-ingest/**`, `apps/admin/src/app/(hq)/bi/** (embed only)` |
-| `customers/` | 13 — Customer accounts & identity | `apps/core/src/modules/customers/**`, `apps/storefront-starter/src/app/(account)/**` |
+| `customers/` | 13 — Customer accounts & identity | `apps/core/src/modules/customers/**`, `apps/storefront-starter/src/app/[locale]/(account)/**` |
 | `events/` | 14 — Event bus & outbox relay | `apps/core/src/outbox/**`, `infra/redpanda/**`, `packages/events/** (exception this phase only)` |
 | `accounting/` | 15 — Automatic accounting | `apps/accounting/**` |
 | `engagement/` | 16 — CRM, notifications & support | `apps/notifications/**`, `apps/support/**`, `data/cdp/**` |
