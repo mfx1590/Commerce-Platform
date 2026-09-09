@@ -20,6 +20,9 @@ Stripe + Adyen providers (hosted fields only), one local PSP, Avalara/Stripe Tax
 - **#124 · 2.1 Stripe provider, capture on confirm, per-store credentials — commit ba506bd, PR pending.**
   `apps/core/src/modules/payments/`: fetch-based `StripeClient` (no `stripe` npm dep; window 1 owns package.json), `FakeStripe` (idempotency map + call log), `stripe` PaymentProvider (manual-capture intents, ids-only metadata, session reuse via intent update, server-side confirm idempotent on `confirm_<sha256(placement key)>`, amount/currency check, declines→failed/outages rethrown), `capturePayment` (payment row + `payment.captured` w/ `fee_minor` in one tx, then orders `markPaymentCaptured`; failure → `payment.failed` + 402; replay converges), `stripeCredentialsFor` (store suffix wins, fail-closed naming variables, live keys refused, read-per-call rotation). 23 tests + live suite (skips w/o `STRIPE_SECRET_KEY`). REQUEST #176 filed (window 1: `registerPaymentProviders()` in server boot + `payment.authorized` after the payment insert in `completeCart`).
 
+## Waiting on the manager
+- **#183 (2.1) is green and ready to re-queue** (head f582505, CI all-pass incl. unit tests with Postgres: 27 payments tests). Contains, since the refusal: `PaymentProvider.void` for stripe (core 2.3's new interface member), the authorize-before-check fix, the orders-seam re-export, and the capture tests updated for window 1's `payment.authorized`.
+
 ## In progress
 - **#125 · 2.2 webhook receiver — plan written 2026-09-08, waiting for the manager's go (> ~20 tool calls).**
   Prereqs done: authorize-before-check fix pushed to #183 (e006b1b); CONTRACT CHANGE #187 filed (webhook_event, migration 0140, exact SQL folding window 8's requirements: UNIQUE(provider, provider_event_id), nullable `occurred_at` separate from `received_at`, redacted payload + sha256 hash, no PII).
