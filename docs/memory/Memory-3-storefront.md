@@ -127,6 +127,33 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   `E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-starter e2e`.
   PR #204 merged with the gap recorded in its description.
 
+- **2.2 (#110) SEO — PLAN written 2026-09-09, awaiting confirmation (~20-tool-call rule).**
+  Branch is level with main after #204; 234 app + 47 kit tests green on the merge.
+  1. **Static root metadata.** The Phase 1 finding to fix first: the root layout's
+     `generateMetadata` is async because it awaits `GET /store` for the title template, so Next
+     streams the tags into `<body>` and Lighthouse scores `meta-description` 0 — SEO 91 on the PLP
+     with the tag present and correct in the DOM. Take the brand name and description from build
+     config (`src/brand/`) instead of the API so root metadata is synchronous and lands in `<head>`.
+     **This touches `src/brand/**`, window 10's override surface — announce it in the PR** (they
+     cloned the starter at `59d4830`; a re-clone is how it reaches brand-a).
+  2. **PLP/PDP metadata**: title/description templates from brand config, canonical per locale,
+     `hreflang` alternates for every store locale (the existing `alternates` work moves here).
+  3. **JSON-LD on the PDP**: `Product` + `BreadcrumbList`, price and availability from the core's
+     real data (not the mock's examples), `gtin`/`brand` emitted when the contract carries them —
+     window 17 needs those fields for feeds. Typed with `schema-dts` (dev dependency) so the shape
+     is compile-checked, plus a fixture test asserting required properties.
+  4. **`sitemap.xml` + `robots.txt`** as route handlers built from the Store API, paged at 5 000
+     URLs, tagged and revalidated like the catalogue reads. Must page the API, not assume one call.
+  5. **OG images via `next/og`** per product and for the brand default.
+  6. **Ownership check before starting:** #110 says "PLP/PDP/**content** routes", but `(content)/**`
+     is window 6's path (docs/ownership.md) and they are active in it. Their 2.3 shipped those
+     routes. So either they own the `(content)` metadata and I file a REQUEST with the exact
+     `generateMetadata` to add, or the manager reassigns. **Needs a ruling before I touch it.**
+  7. **Gates**: lint, typecheck, format, both test suites, `next build`, Lighthouse SEO ≥ 95 on
+     PLP/PDP through the existing `lighthouserc.json`, README + CHANGELOG + memory, one PR.
+  Open question for the manager: Lighthouse currently runs against the mock. Against the core the
+  numbers are the real ones but need the stack up — and #203 blocks that too.
+
 <!-- superseded plan, kept for the record:
 - **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
   Bigger than the ~20-tool-call budget in CLAUDE.md, hence the stop. Plan:
