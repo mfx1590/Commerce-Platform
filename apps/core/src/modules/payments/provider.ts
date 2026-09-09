@@ -12,6 +12,8 @@ import type {
   PaymentSessionStatus,
   RefundInput,
   RefundResult,
+  VoidInput,
+  VoidResult,
   StorePaymentSession,
 } from '../checkout';
 import { validationError } from '../../lib/errors';
@@ -36,6 +38,9 @@ const AUTHORIZED_STATUSES: ReadonlyArray<StripePaymentIntent['status']> = [
   'succeeded',
 ];
 
+/** Stripe's code when an operation does not match the intent's current state (cancel of a canceled intent). */
+const UNEXPECTED_STATE = 'payment_intent_unexpected_state';
+
 function sessionStatus(intent: StripePaymentIntent): PaymentSessionStatus {
   return AUTHORIZED_STATUSES.includes(intent.status) ? 'authorized' : 'pending';
 }
@@ -43,6 +48,14 @@ function sessionStatus(intent: StripePaymentIntent): PaymentSessionStatus {
 /** The Stripe idempotency key for the server-side confirm, derived from the placement `Idempotency-Key`. */
 export function confirmIdempotencyKey(placementKey: string): string {
   return `confirm_${createHash('sha256').update(placementKey).digest('hex')}`;
+}
+
+/**
+ * The Stripe idempotency key for the cancel, derived from the void key the orders module passes
+ * (`<payment.idempotency_key>:void`): a retried cancel replays Stripe's recorded response instead of erroring.
+ */
+export function voidIdempotencyKey(voidKey: string): string {
+  return `void_${createHash('sha256').update(voidKey).digest('hex')}`;
 }
 
 async function storeCodeFor(tx: Queryable, storeId: string): Promise<string> {
@@ -207,6 +220,47 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
         return { status: 'failed', providerPaymentId: intent.id, failureReason: reason };
       }
       return { status: 'authorized', providerPaymentId: intent.id };
+    },
+
+    /**
+     * `POST /v1/payment_intents/{id}/cancel` — releases the authorisation hold when an order with an authorised,
+     * uncaptured payment is cancelled (orders module 2.3) or a placement fails after authorising. Idempotency key
+     * derived from the orders module's `<payment.idempotency_key>:void`, so a retried cancel replays.
+     *
+     * Already-cancelled is a no-op success: the hold is gone, which is all the caller wants, and a retry after a
+     * lost response must not turn into a 402. Already-captured (`succeeded`) is NOT voided — the money left the
+     * customer's account and only a refund returns it, which is what window 1's own `cancelOrder` doc says
+     * ("a captured payment is window 7's to refund"). It comes back as `failed` with an explicit reason so the
+     * cancel is refused loudly instead of cancelling an order that was charged.
+     */
+    async void({ tx, providerPaymentId, idempotencyKey, reason }: VoidInput): Promise<VoidResult> {
+      const payment = await tx.query<{ store_id: string }>(
+        `SELECT store_id FROM payment WHERE provider = 'stripe' AND provider_payment_id = $1`,
+        [providerPaymentId],
+      );
+      const storeId = payment.rows[0]?.store_id;
+      if (!storeId) return { status: 'failed', failureReason: 'unknown stripe payment' };
+      const api = await apiFor(tx, storeId);
+      try {
+        await api.cancelPaymentIntent(providerPaymentId, {
+          idempotencyKey: voidIdempotencyKey(idempotencyKey),
+        });
+        return { status: 'voided' };
+      } catch (err) {
+        if (!(err instanceof StripeError) || !err.definitive) throw err; // outage → retryable, abort the cancel
+        if (err.code !== UNEXPECTED_STATE)
+          return { status: 'failed', failureReason: declineReason(err) };
+        // The intent refused the cancel because of its state: ask what that state is before deciding.
+        const intent = await api.retrievePaymentIntent(providerPaymentId);
+        if (intent.status === 'canceled') return { status: 'voided' }; // already released
+        if (intent.status === 'succeeded') {
+          return {
+            status: 'failed',
+            failureReason: `payment was captured (${reason} needs a refund, not a void)`,
+          };
+        }
+        return { status: 'failed', failureReason: `payment intent is ${intent.status}` };
+      }
     },
 
     /**

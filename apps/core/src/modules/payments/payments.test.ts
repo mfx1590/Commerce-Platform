@@ -26,6 +26,7 @@ import {
   StripeClient,
   StripeError,
   stripeCredentialsFor,
+  voidIdempotencyKey,
 } from './index';
 
 const ORG = SEED_IDS.organization;
@@ -116,6 +117,15 @@ async function placedOrder(): Promise<{ orderId: string; paymentId: string; inte
     [order.id],
   );
   return { orderId: order.id, paymentId: p.rows[0]!.id, intentId: p.rows[0]!.provider_payment_id };
+}
+
+/** The stored `payment.idempotency_key` (window 1 prefixes it with the store id since core 2.3). */
+async function idempotencyKeyOf(paymentId: string): Promise<string> {
+  const r = await owner.query<{ idempotency_key: string }>(
+    `SELECT idempotency_key FROM payment WHERE id = $1`,
+    [paymentId],
+  );
+  return r.rows[0]!.idempotency_key;
 }
 
 const cartRef = (amountMinor: number): PaymentCartRef => ({
@@ -446,6 +456,91 @@ describe('authorize', () => {
     ).rejects.toMatchObject({ code: 'payment_failed' });
     const orders = await owner.query(`SELECT 1 FROM "order" WHERE cart_id = $1`, [cart.id]);
     expect(orders.rows).toHaveLength(0);
+    // Placement-failure path: the declined intent is left for the orders module to void; nothing here
+    // cancels it behind the caller's back (the call log is the fixture the acceptance criteria ask for).
+    expect(fake.callsOf('cancelPaymentIntent').map((c) => c.id)).not.toContain(
+      cart.session.session_id,
+    );
+  });
+});
+
+describe('void (authorisation hold released on cancel)', () => {
+  const provider = () => createStripePaymentProvider({ apiFactory: () => fake, env });
+
+  it('cancels the intent with the derived key and is a no-op on replay and on an already-cancelled intent', async () => {
+    const { paymentId, intentId } = await placedOrder();
+    const key = await idempotencyKeyOf(paymentId);
+    const p = provider();
+    const first = await a.transaction((tx) =>
+      p.void({ tx, providerPaymentId: intentId, idempotencyKey: `${key}:void`, reason: 'cancel' }),
+    );
+    expect(first).toEqual({ status: 'voided' });
+    expect(fake.intents.get(intentId)!.status).toBe('canceled');
+    const cancel = fake.callsOf('cancelPaymentIntent').at(-1)!;
+    expect(cancel.idempotencyKey).toBe(voidIdempotencyKey(`${key}:void`));
+
+    // Same key again → Stripe replays its recorded response: still voided, no error.
+    const replay = await a.transaction((tx) =>
+      p.void({ tx, providerPaymentId: intentId, idempotencyKey: `${key}:void`, reason: 'cancel' }),
+    );
+    expect(replay).toEqual({ status: 'voided' });
+
+    // A *fresh* key on an already-cancelled intent hits payment_intent_unexpected_state → still voided:
+    // the hold is gone, which is all the caller needs.
+    const fresh = await a.transaction((tx) =>
+      p.void({
+        tx,
+        providerPaymentId: intentId,
+        idempotencyKey: `${key}:void:2`,
+        reason: 'cancel',
+      }),
+    );
+    expect(fresh).toEqual({ status: 'voided' });
+  });
+
+  it('refuses to void a captured payment: that money needs a refund, not a cancel', async () => {
+    const { paymentId, intentId } = await placedOrder();
+    await capturePayment(a, paymentId, { actor: staffActor, apiFactory: () => fake, env });
+    expect(fake.intents.get(intentId)!.status).toBe('succeeded');
+    const key = await idempotencyKeyOf(paymentId);
+    const r = await a.transaction((tx) =>
+      provider().void({
+        tx,
+        providerPaymentId: intentId,
+        idempotencyKey: `${key}:void`,
+        reason: 'customer changed their mind',
+      }),
+    );
+    expect(r.status).toBe('failed');
+    expect(r.failureReason).toContain('captured');
+    expect(fake.intents.get(intentId)!.status).toBe('succeeded'); // untouched
+  });
+
+  it('fails on an unknown payment and rethrows an outage instead of reporting a void', async () => {
+    const unknown = await a.transaction((tx) =>
+      provider().void({
+        tx,
+        providerPaymentId: 'pi_not_ours',
+        idempotencyKey: 'k:void',
+        reason: 'cancel',
+      }),
+    );
+    expect(unknown).toMatchObject({ status: 'failed', failureReason: 'unknown stripe payment' });
+
+    const { paymentId, intentId } = await placedOrder();
+    const key = await idempotencyKeyOf(paymentId);
+    fake.outageNextCancel = true;
+    await expect(
+      a.transaction((tx) =>
+        provider().void({
+          tx,
+          providerPaymentId: intentId,
+          idempotencyKey: `${key}:void`,
+          reason: 'cancel',
+        }),
+      ),
+    ).rejects.toThrow(StripeError);
+    expect(fake.intents.get(intentId)!.status).toBe('requires_capture'); // hold still there
   });
 });
 

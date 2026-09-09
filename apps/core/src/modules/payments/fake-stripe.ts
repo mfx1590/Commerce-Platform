@@ -39,6 +39,8 @@ export class FakeStripe implements StripeApi {
   outageNextCapture = false;
   /** Script the next refund to fail (then reset). */
   failNextRefund: string | null = null;
+  /** Script the next cancel to fail with a retryable 500 (then reset). */
+  outageNextCancel = false;
 
   private log(call: FakeCall): void {
     this.calls.push(call);
@@ -197,6 +199,11 @@ export class FakeStripe implements StripeApi {
     return intent;
   }
 
+  /**
+   * Like Stripe: a replay of the same idempotency key returns the recorded response, but cancelling an intent
+   * that is already `canceled` (or already captured → `succeeded`) with a *fresh* key is a definitive
+   * `invalid_request_error` / `payment_intent_unexpected_state`, not a silent success.
+   */
   async cancelPaymentIntent(
     id: string,
     opts: StripeRequestOptions = {},
@@ -207,8 +214,23 @@ export class FakeStripe implements StripeApi {
       params: {},
       idempotencyKey: opts.idempotencyKey,
     });
+    const replayed = this.replay(opts.idempotencyKey, (rid) => this.intents.get(rid));
+    if (replayed) return replayed;
+    if (this.outageNextCancel) {
+      this.outageNextCancel = false;
+      throw new StripeError(500, 'Something went wrong on Stripe’s end', 'api_error');
+    }
     const intent = this.intent(id);
+    if (intent.status === 'canceled' || intent.status === 'succeeded') {
+      throw new StripeError(
+        400,
+        `You cannot cancel this PaymentIntent because it has a status of ${intent.status}.`,
+        'invalid_request_error',
+        'payment_intent_unexpected_state',
+      );
+    }
     intent.status = 'canceled';
+    if (opts.idempotencyKey) this.recorded.set(opts.idempotencyKey, id);
     return intent;
   }
 

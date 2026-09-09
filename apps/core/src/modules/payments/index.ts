@@ -24,6 +24,7 @@ export { FakeStripe, type FakeCall } from './fake-stripe';
 export {
   confirmIdempotencyKey,
   createStripePaymentProvider,
+  voidIdempotencyKey,
   type StripeProviderOptions,
 } from './provider';
 export {

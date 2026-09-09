@@ -15,6 +15,7 @@ loader. Test mode only in Phase 2 (decisions.md #10): live-mode keys are refused
 | `StripeClient` / `StripeError` / `StripeApi`   | thin fetch-based REST client (no `stripe` npm dependency — apps/core/package.json is window 1's; same precedent as search's Algolia client) |
 | `FakeStripe`                                   | in-memory `StripeApi` for tests: idempotency map, call log, scriptable declines                                                             |
 | `confirmIdempotencyKey(placementKey)`          | `confirm_<sha256(placement Idempotency-Key)>` — exported for tests                                                                          |
+| `voidIdempotencyKey(voidKey)`                  | `void_<sha256(orders' `<payment.idempotency_key>:void`)>` — exported for tests                                                              |
 
 ## The provider
 
@@ -35,6 +36,14 @@ loader. Test mode only in Phase 2 (decisions.md #10): live-mode keys are refused
   402 upstream, nothing written. Stripe outages (5xx / 429 / network) are RETHROWN so the placement aborts as
   retryable instead of telling the shopper their card failed. `requires_action` and `processing` map to `failed`
   in Phase 2 (redirect-less card flows; documented trade-off, revisit with async payment methods).
+- **`void`** (orders module 2.3: `cancelOrder`, and the placement failure path): cancels the PaymentIntent so
+  the authorisation hold is released, idempotency key `void_<sha256(<payment.idempotency_key>:void)>` — the key
+  the orders module passes — so a retried cancel replays Stripe's recorded response. An intent Stripe refuses to
+  cancel (`payment_intent_unexpected_state`) is retrieved and judged on its real state: `canceled` → `voided`
+  (the hold is already gone, and a retry must not become a 402); `succeeded` → `failed` naming the capture,
+  because captured money comes back only through a refund — window 1's own `cancelOrder` says the same ("a
+  captured payment is window 7's to refund"), so the cancel is refused loudly instead of cancelling a charged
+  order. Outages rethrow, leaving the hold in place for the retry.
 - **`refund`** (task 2.3's entry point): `POST /v1/refunds` on the intent with idempotency key
   `refund_<refund Idempotency-Key>`. Stripe `pending` counts as succeeded (funds are on their way; the 2.2
   webhook receiver picks up a later `refund.failed`). The store — and so the credentials — is resolved from the
@@ -55,9 +64,9 @@ v1 through `withEvents`, same transaction. Then, in its own transaction, the ord
 - **Replay**: a `captured` row makes no Stripe call and emits nothing new, but still calls
   `markPaymentCaptured` — so a crash between the payment transaction and the order transition is healed by
   calling `capturePayment` again. Returns `{ payment, replayed: true }`.
-- `./orders-seam.ts` is a LOCAL MIRROR of `markPaymentCaptured` / `markPaymentFailed` (window 1's orders
-  module, PR #174): same signatures and semantics. When #174 is on main the file body becomes
-  `export { markPaymentCaptured, markPaymentFailed } from '../orders';` and nothing else changes.
+- `./orders-seam.ts` re-exports `markPaymentCaptured` / `markPaymentFailed` from `../orders` (window 1's orders
+  module, #174, on main since merge round 8). It stays as the module's single import point for the orders seam,
+  so the webhook receiver (2.2) and any later caller share one place where that boundary is documented.
 
 ## Credentials (ADR 0006)
 
@@ -98,6 +107,9 @@ refunds a real test-mode PaymentIntent.
   existing intent so the storefront's Payment Element keeps working across total changes.
 - **2026-09-08 · Outage ≠ decline**: only definitive Stripe rejections mark a payment `failed`; 5xx/429/network
   rethrow so nothing is written and the action is retried.
+- **2026-09-09 · A captured payment is never "voided"**: `void` reports `failed` when Stripe says the intent
+  already succeeded, rather than a silent no-op success — a no-op would let `cancelOrder` cancel an order the
+  customer was charged for. Already-`canceled` stays a no-op success (idempotent retry).
 - **2026-09-08 · Events split with window 1**: placement's `payment.authorized` is emitted by the checkout
   module right after it inserts the `payment` row (REQUEST #176 — only that code shares the row's transaction);
   this module emits `payment.captured` / `payment.failed` (capture) and `refund.*` (2.3) in its own transactions.

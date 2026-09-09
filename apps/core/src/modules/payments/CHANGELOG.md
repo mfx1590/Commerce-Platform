@@ -23,6 +23,17 @@ file is the module's own history (linked from the PRs).
   `markPaymentCaptured`; definitive failure → `payment.failed` + 402; replay converges a half-done capture.
 - `orders-seam.ts`: local mirror of `markPaymentCaptured` / `markPaymentFailed` (window 1's PR #174) — becomes
   a re-export from `../orders` when #174 lands on main.
+
+#### 2026-09-09 · follow-ups on the same PR (#183, review + core 2.3 on main)
+
+- `provider.ts`: `authorize` checks the intent's amount and currency BEFORE the server-side confirm, so a stale
+  session can never place an authorisation hold for a total the cart no longer has (review finding).
+- `provider.ts`: **`void`** implemented for `PaymentProvider.void` (added by core 2.3 / #174) — cancels the
+  intent with `void_<sha256(orders' void key)>`; already-cancelled → `voided` (no-op), already-captured →
+  `failed` (needs a refund, not a void), outage → rethrow. `voidIdempotencyKey` exported.
+- `fake-stripe.ts`: `cancelPaymentIntent` now behaves like Stripe — idempotent replay, and
+  `payment_intent_unexpected_state` on an intent that is already `canceled`/`succeeded`; `outageNextCancel`.
+- `orders-seam.ts`: the mirror became the promised re-export from `../orders` (#174 is on main).
 - `index.ts`: public API + `registerPaymentProviders()` (mount point for src/server.ts, REQUEST #176).
 - Tests: `payments.test.ts` (FakeStripe + seeded throwaway DB), `stripe-live.test.ts` (real test mode; skips
   without `STRIPE_SECRET_KEY`).
