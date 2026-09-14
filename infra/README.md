@@ -31,58 +31,61 @@
   | `commerce-platform/analytics-ingest`   | `apps/analytics-ingest/Dockerfile`   | 9004             | 12         |
   | `commerce-platform/notifications`      | `apps/notifications/Dockerfile`      | 9005             | 16         |
 
-  These are container ports. The build compose publishes none, and the smoke script maps each one to the same
-  number on the host — free on this machine (other projects own 5432/6379/6380/8080; ours are 5433/6381/8180/8081/19092/4010/4011).
-  The two Next.js apps sit at 3000/3100 rather than in the 900x block because their `start` scripts hard-code
-  `next start --port 3000` / `--port 3100`, which overrides `$PORT`; the image follows the app so that its
-  `HEALTHCHECK` probes the port the app really listens on. [REQUEST #68](https://github.com/mfx1590/Commerce-Platform/issues/68)
-  asks windows 3 and 4 to drop the flag, after which both images move back to 9001/9002.
+| `commerce-platform/feeds` | `apps/feeds/Dockerfile` | 4020 | 17 |
+| `commerce-platform/storefront-brand-a` | `apps/storefronts/brand-a/Dockerfile` | 3101 | 10 |
 
-  **Image contract with the app windows** (a change needs a `CONTRACT CHANGE:` issue):
+These are container ports. The build compose publishes none, and the smoke script maps each one to the same
+number on the host — free on this machine (other projects own 5432/6379/6380/8080; ours are 5433/6381/8180/8081/19092/4010/4011).
+The two Next.js apps sit at 3000/3100 rather than in the 900x block because their `start` scripts hard-code
+`next start --port 3000` / `--port 3100`, which overrides `$PORT`; the image follows the app so that its
+`HEALTHCHECK` probes the port the app really listens on. [REQUEST #68](https://github.com/mfx1590/Commerce-Platform/issues/68)
+asks windows 3 and 4 to drop the flag, after which both images move back to 9001/9002.
 
-  1. Build context is the repo root. The Dockerfile runs `pnpm install --frozen-lockfile`, then
-     `pnpm --filter <app>... build` — the `...` suffix builds the app **and its workspace dependencies**
-     (`@platform/db`, `@platform/events`, `@platform/contracts`) in topological order — then
-     `pnpm --filter <app> --prod --legacy deploy /out` to get a pruned, self-contained package.
-  2. The container starts `pnpm start` inside that package. **Adding a `start` script to an app is the only
-     change needed** to switch its image from scaffold to the real app. Until then, `docker/entrypoint.sh` runs
-     `docker/health-server.mjs`, so the `HEALTHCHECK` is real either way.
-  3. The app must listen on `$PORT` and answer `GET /health` with 200. Every image runs as the non-root `node`
-     user (uid 1000) and ships no build toolchain beyond node + pnpm.
+**Image contract with the app windows** (a change needs a `CONTRACT CHANGE:` issue):
 
-  **What an app must provide for its image to build.** Everything below is something that actually broke a
-  build; check it when adding an app or changing a build:
+1. Build context is the repo root. The Dockerfile runs `pnpm install --frozen-lockfile`, then
+   `pnpm --filter <app>... build` — the `...` suffix builds the app **and its workspace dependencies**
+   (`@platform/db`, `@platform/events`, `@platform/contracts`) in topological order — then
+   `pnpm --filter <app> --prod --legacy deploy /out` to get a pruned, self-contained package.
+2. The container starts `pnpm start` inside that package. **Adding a `start` script to an app is the only
+   change needed** to switch its image from scaffold to the real app. Until then, `docker/entrypoint.sh` runs
+   `docker/health-server.mjs`, so the `HEALTHCHECK` is real either way.
+3. The app must listen on `$PORT` and answer `GET /health` with 200. Every image runs as the non-root `node`
+   user (uid 1000) and ships no build toolchain beyond node + pnpm.
 
-  | requirement                                                                | why                                                                                                                                                                                                                                                                                                                                                                       |
-  | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | Every tool the `build` script invokes is a declared dependency of that app | The image installs the workspace from the lockfile and nothing else. A tool that happens to be on your machine, or that a framework CLI `require()`s by name, will not be there. `apps/core` needs `ts-node` for `medusa build`, which is [REQUEST #60](https://github.com/mfx1590/Commerce-Platform/issues/60); the Dockerfile installs it in the build stage meanwhile. |
-  | Dev dependencies are available at build time                               | The image installs the full workspace and only prunes with `--prod` afterwards, when producing the deployed package.                                                                                                                                                                                                                                                      |
-  | Config files the build reads live inside the app directory                 | The build stage copies `apps/` and `packages/` from the repo root. `apps/core/medusa-config.ts` is copied; a file outside the workspace is not.                                                                                                                                                                                                                           |
-  | The build must not need real infrastructure or secrets                     | There is no database, cache or `.env` during an image build. If a config file throws on a missing variable — as `medusa-config.ts` does for `DATABASE_URL_APP`, `REDIS_URL`, `JWT_SECRET`, `COOKIE_SECRET` — the Dockerfile sets syntactically valid placeholders for the build stage only. Nothing connects anywhere and no placeholder is baked into the output.        |
-  | Build output in a dot-directory needs an explicit copy                     | `pnpm deploy` packs the package the way npm would, and npm's rules skip dot-directories. `medusa build` writes everything to `.medusa/server`, so `apps/core/Dockerfile` copies it across after the deploy step. An app that builds to `dist/` needs nothing extra.                                                                                                       |
-  | `start` must run from the package root                                     | The entrypoint runs `pnpm start` with the working directory at the deployed package, so a path like `node .medusa/server/src/server.js` resolves.                                                                                                                                                                                                                         |
+**What an app must provide for its image to build.** Everything below is something that actually broke a
+build; check it when adding an app or changing a build:
 
-  **What the smoke test does and does not prove.** `infra/docker/smoke-images.sh` reads each image's deployed
-  `package.json` and checks accordingly — it does not keep a list of which app is which.
+| requirement                                                                | why                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every tool the `build` script invokes is a declared dependency of that app | The image installs the workspace from the lockfile and nothing else. A tool that happens to be on your machine, or that a framework CLI `require()`s by name, will not be there. `apps/core` needs `ts-node` for `medusa build`, which is [REQUEST #60](https://github.com/mfx1590/Commerce-Platform/issues/60); the Dockerfile installs it in the build stage meanwhile. |
+| Dev dependencies are available at build time                               | The image installs the full workspace and only prunes with `--prod` afterwards, when producing the deployed package.                                                                                                                                                                                                                                                      |
+| Config files the build reads live inside the app directory                 | The build stage copies `apps/` and `packages/` from the repo root. `apps/core/medusa-config.ts` is copied; a file outside the workspace is not.                                                                                                                                                                                                                           |
+| The build must not need real infrastructure or secrets                     | There is no database, cache or `.env` during an image build. If a config file throws on a missing variable — as `medusa-config.ts` does for `DATABASE_URL_APP`, `REDIS_URL`, `JWT_SECRET`, `COOKIE_SECRET` — the Dockerfile sets syntactically valid placeholders for the build stage only. Nothing connects anywhere and no placeholder is baked into the output.        |
+| Build output in a dot-directory needs an explicit copy                     | `pnpm deploy` packs the package the way npm would, and npm's rules skip dot-directories. `medusa build` writes everything to `.medusa/server`, so `apps/core/Dockerfile` copies it across after the deploy step. An app that builds to `dist/` needs nothing extra.                                                                                                       |
+| `start` must run from the package root                                     | The entrypoint runs `pnpm start` with the working directory at the deployed package, so a path like `node .medusa/server/src/server.js` resolves.                                                                                                                                                                                                                         |
 
-  |                                                        | scaffold (`accounting`, `analytics-ingest`, `notifications`) | real app (`core`, `admin`, `storefront-starter`) |
-  | ------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------ |
-  | non-root                                               | yes, read from the image's `Config.User`                     | same                                             |
-  | build output present under `/app`                      | n/a                                                          | yes — `.medusa/server`, `.next` or `dist`        |
-  | `HEALTHCHECK` reaches `healthy`, `/health` returns 200 | yes                                                          | **no — not attempted**                           |
+**What the smoke test does and does not prove.** `infra/docker/smoke-images.sh` reads each image's deployed
+`package.json` and checks accordingly — it does not keep a list of which app is which.
 
-  A scaffold is self-contained, so it is held to a real health check. A real app is deliberately not booted:
-  `apps/core` throws without `DATABASE_URL_APP` and `apps/admin` without `ADMIN_SESSION_SECRET`, and that is
-  correct fail-fast behaviour rather than something to work around. An image test that stood up Postgres and
-  Redis, ran two sets of migrations and invented secrets would be testing the deployment — slowly, and flakily.
-  Proving that a _configured_ app serves `/health` belongs to the staging deploy (tasks 2.3/2.4).
+|                                                        | scaffold (`accounting`, `analytics-ingest`, `notifications`) | real app (`core`, `admin`, `storefront-starter`) |
+| ------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------------------ |
+| non-root                                               | yes, read from the image's `Config.User`                     | same                                             |
+| build output present under `/app`                      | n/a                                                          | yes — `.medusa/server`, `.next` or `dist`        |
+| `HEALTHCHECK` reaches `healthy`, `/health` returns 200 | yes                                                          | **no — not attempted**                           |
 
-  What it does catch is the failure that caused issue #59: `pnpm deploy` drops dot-directories, so `.medusa`
-  and `.next` never reached the deployed package and two images shipped no application at all while still
-  building green.
+A scaffold is self-contained, so it is held to a real health check. A real app is deliberately not booted:
+`apps/core` throws without `DATABASE_URL_APP` and `apps/admin` without `ADMIN_SESSION_SECRET`, and that is
+correct fail-fast behaviour rather than something to work around. An image test that stood up Postgres and
+Redis, ran two sets of migrations and invented secrets would be testing the deployment — slowly, and flakily.
+Proving that a _configured_ app serves `/health` belongs to the staging deploy (tasks 2.3/2.4).
 
-  The `images` CI job builds all six and runs the smoke test; see the CI pipeline section below for when it
-  runs and how it is cached. It never pushes.
+What it does catch is the failure that caused issue #59: `pnpm deploy` drops dot-directories, so `.medusa`
+and `.next` never reached the deployed package and two images shipped no application at all while still
+building green.
+
+The `images` CI job builds all six and runs the smoke test; see the CI pipeline section below for when it
+runs and how it is cached. It never pushes.
 
 - `keycloak/` — realm exports. Phase 0 ships local-dev stubs (7 staff users, one customer); window 2 replaces them (MFA, SSO, mappers).
 - `openfga/` — authorization model (`model.fga`) and seed tuples. Window 2 (the frozen relation names are in docs/adr/0002-auth-model.md).
@@ -381,6 +384,21 @@ Reloader is a cluster add-on (installed in the bootstrap runbook). Without it th
 `kubectl rollout restart deploy/<app> -n commerce-<env>` is the manual equivalent — which is what the rotation
 runbook in task 2.6 will say.
 
+**The pipeline boots `apps/core` for real.** `infra/ci/boot-smoke.sh` builds it, starts it against the compose
+stack and waits for `GET /health` to answer 200, then stops it. Nothing else in CI loads Medusa's own runtime:
+`medusa build` proves the TypeScript compiles, the unit tests prove the modules behave, and the image smoke
+test proves a container starts and answers a health endpoint served by the scaffold fallback. A plugin- or
+module-loader failure is a production outage that every other check reports as green — which is exactly what
+it found on its first run ([REQUEST #207](https://github.com/mfx1590/Commerce-Platform/issues/207)).
+
+**A memory-only push to `main` runs nothing.** `paths-ignore` on the `push` trigger covers `docs/**` and
+`**/*.md`, so a Memory-main commit no longer starts the most expensive run there is (a push to main sets
+`CHANGES_ALL=1`, which builds everything) to test nothing. It is deliberately **not** on `pull_request`:
+branch protection requires five checks, and a workflow that does not run reports nothing at all, so a
+docs-only PR would sit on "Expected — waiting for status to be reported" and could never merge. On the PR side
+the classifier already makes a docs-only run no-op in seconds, so there is little to save and a merge deadlock
+to lose.
+
 **`env:` is where the non-secret half of `.env.example` lives**, per app per environment. It is not optional:
 an app given no configuration falls back to its localhost defaults, which inside a pod means itself.
 
@@ -506,18 +524,18 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 `.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
 belongs to the main window.
 
-| job              | runs when   | what it does                                                                                              |
-| ---------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                      |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ`                      |
-| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                             |
-| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                            |
-| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                        |
-| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                  |
-| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA and Postgres from compose; the live auth suites; every Playwright journey |
-| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                           |
-| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                |
-| `preview`        | PRs         | placeholder until 2.4b                                                                                    |
+| job              | runs when   | what it does                                                                                                                              |
+| ---------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                      |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ`                                                      |
+| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                             |
+| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                            |
+| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                        |
+| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                  |
+| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every Playwright journey |
+| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                           |
+| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                |
+| `preview`        | PRs         | placeholder until 2.4b                                                                                                                    |
 
 **`images` is narrower on a PR than `code` is.** A source change under `apps/**` or `packages/**` no longer
 rebuilds the six images: only a `Dockerfile`, `.dockerignore`, `infra/docker/**`, `infra/ci/**` or a
@@ -615,10 +633,13 @@ live auth + end-to-end (Keycloak, OpenFGA, Playwright)
 Set on GitHub under _Settings → Branches → main_: require a pull request, require these checks, and require
 branches to be up to date before merging.
 
-**Not available on this repository today.** It is private on the free plan, and the branch-protection API
-answers `403 Upgrade to GitHub Pro or make this repository public`. The list above is what to apply the moment
-the plan allows it; until then "nobody merges their own PR" is enforced by the Reviewer session rather than by
-GitHub.
+**Applied.** The repository is public, so branch protection is available and on: a pull request is required,
+these checks must pass, and force-pushes to `main` are blocked.
+
+The five checks GitHub actually enforces are a subset of the jobs — `ownership check`, `lint + typecheck`,
+`unit tests (with Postgres, RLS)`, `contract tests (Prism)` and `secret scan (gitleaks)`. The rest
+(`app images`, `helm`, `terraform`, `observability`, `live auth + end-to-end`) run on every PR and are read by
+a human; requiring all of them would make a slow job able to block an unrelated merge.
 
 When protection is enabled, `deploy-staging.yml` needs a **bypass allowance** — it pushes the deployed image
 tag to `main`. Add `github-actions[bot]` to the bypass list for the rule. Without it the workflow fails on the

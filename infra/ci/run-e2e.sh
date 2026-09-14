@@ -63,7 +63,10 @@ else
   browsers="$channel"
 fi
 
-mapfile -t configs < <(ls -1 apps/*/playwright.config.* 2>/dev/null | sort)
+# apps/* AND apps/storefronts/*: apps/storefronts/brand-a has a journey and an `e2e` script, and an
+# apps/*-only glob quietly never ran it. A discovery bug in a test runner does not announce itself —
+# it just reports fewer passes than there are tests.
+mapfile -t configs < <(ls -1 apps/*/playwright.config.* apps/storefronts/*/playwright.config.* 2>/dev/null | sort)
 
 if [ "${#configs[@]}" -eq 0 ]; then
   echo 'FAIL: no apps/*/playwright.config.* found — this job exists to run the journeys.' >&2

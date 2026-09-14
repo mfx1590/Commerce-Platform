@@ -58,3 +58,17 @@ services:
     build:
       <<: *app-build
       dockerfile: apps/notifications/Dockerfile
+
+  feeds:
+    image: commerce-platform/feeds:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/feeds/Dockerfile
+
+  # Brand storefronts live one level deeper than the other apps (window 10 owns
+  # apps/storefronts/<brand>/**); only the Dockerfile path differs.
+  storefront-brand-a:
+    image: commerce-platform/storefront-brand-a:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/storefronts/brand-a/Dockerfile

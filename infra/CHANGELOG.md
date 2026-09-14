@@ -316,6 +316,28 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - `.github/workflows/ci.yml` declares `permissions: contents: read` at the workflow level. Nothing in it
   writes; `deploy-staging.yml` raises its own.
 
+### Added (#195, #197 and the manager's batch)
+
+- Images for `apps/feeds` (port 4020) and `apps/storefronts/brand-a` (port 3101), and the two new workspace
+  manifests added to the `deps` stage of all eight app Dockerfiles — which turns the `app images` job on `main`
+  green again. The guard named exactly what was missing, which is what it is for.
+- **A real boot of `apps/core` in the `auth-e2e` job** (`infra/ci/boot-smoke.sh`): build, start against the
+  compose stack, wait for `GET /health` 200, stop. Every other check reasons about the code without running
+  the server, so a Medusa loader failure was a production outage CI reported as green.
+- `paths-ignore` for `docs/**` and `**/*.md` on the **push** trigger, so a memory-only commit to `main` starts
+  no run. Not on `pull_request` — see the note in `infra/README.md`: with five required checks, a workflow that
+  does not run reports nothing and the PR can never merge.
+
+### Fixed
+
+- Three discovery globs assumed `apps/*` and silently skipped `apps/storefronts/<brand>/`:
+  `check-image-manifests.sh` stopped checking a whole class of image, `smoke-images.sh` never tested one, and
+  **`run-e2e.sh` never ran brand-a's Playwright journey** although the app has both a config and an `e2e`
+  script. A discovery bug in a test runner does not announce itself; it just reports fewer passes than there
+  are tests.
+- Branch-protection documentation says "applied", and lists the five checks GitHub actually enforces rather
+  than all nine jobs.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).

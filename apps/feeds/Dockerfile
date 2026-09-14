@@ -1,17 +1,20 @@
 # syntax=docker/dockerfile:1.7
-# Image for @platform/notifications. Owned by window 5 (infra); the app source is owned by window 16.
+# Image for @platform/feeds. Owned by window 5 (infra); the app source is owned by window 17.
 #
 # Build from the REPO ROOT — the pnpm workspace is the build context:
-#   docker compose -f infra/docker/docker-compose.build.yml build notifications
-#   docker build -f apps/notifications/Dockerfile -t commerce-platform/notifications:dev .
+#   docker compose -f infra/docker/docker-compose.build.yml build feeds
+#   docker build -f apps/feeds/Dockerfile -t commerce-platform/feeds:dev .
 #
 # Contract with the app window (changing it needs a CONTRACT CHANGE issue):
-#   build time      `pnpm --filter @platform/notifications... build` (the app and its workspace dependencies)
+#   build time      `pnpm --filter @platform/feeds... build` (the app and its workspace dependencies)
 #   container start `pnpm start` inside the deployed package (infra/docker/entrypoint.sh)
 #   runtime         listens on $PORT and answers `GET /health` with 200
-# The app is still a Phase 0 scaffold with no `start` script, so the entrypoint serves
-# infra/docker/health-server.mjs instead. Adding a `start` script is the only change needed
-# to switch this image over to the notification worker — the Dockerfile stays as is.
+# `tsc` writes dist/ and the app's `start` is `node dist/main.js`, so the entrypoint runs the real
+# feed server. No explicit copy of the build output is needed here, unlike core (.medusa) and the
+# storefronts (.next): dist is not a dot-directory, and the package declares `files: ["dist"]`, so
+# `pnpm deploy` carries it.
+#
+# PORT 4020 is the port apps/feeds/CLAUDE.md documents for `GET /health`.
 
 ARG NODE_VERSION=20.19-alpine
 ARG PNPM_VERSION=10.34.5
@@ -52,7 +55,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lo
 
 # ---------- build: add the sources and build the app ----------
 FROM deps AS build
-ARG APP=@platform/notifications
+ARG APP=@platform/feeds
 COPY . .
 # The "..." suffix builds the app AND its workspace dependencies (@platform/db, events,
 # contracts) in topological order. Without it the app compiles against packages that have no
@@ -68,14 +71,14 @@ FROM node:${NODE_VERSION} AS runtime
 ARG PNPM_VERSION
 RUN npm install -g pnpm@${PNPM_VERSION} && npm cache clean --force
 ENV NODE_ENV=production \
-    APP_NAME=@platform/notifications \
-    PORT=9005
+    APP_NAME=@platform/feeds \
+    PORT=4020
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
 COPY --chmod=0755 infra/docker/entrypoint.sh /usr/local/bin/platform-entrypoint
 COPY infra/docker/health-server.mjs /usr/local/lib/platform/health-server.mjs
 USER node
-EXPOSE 9005
+EXPOSE 4020
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=5 \
   CMD wget -q -O - "http://127.0.0.1:${PORT}/health" >/dev/null || exit 1
 ENTRYPOINT ["platform-entrypoint"]
