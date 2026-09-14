@@ -1,15 +1,17 @@
-// Product index job (issue #134). Full reindex or incremental outbox sync of one, several or every active
+// Product index CLI (issue #134). Lives under the module (NOT src/jobs/): Medusa's job loader scans src/jobs/
+// and requires every file there to export a `config`, so a plain CLI script in that folder makes the server
+// refuse to boot with "Config is required for scheduled jobs" (#202/#203). Full reindex or incremental outbox sync of one, several or every active
 // store. Runs as a one-shot (cron / CI / runbook) or as a loop (`--loop <ms>`), always through the tenant client
 // of the store being indexed. Credentials: ALGOLIA_APP_ID / ALGOLIA_ADMIN_API_KEY (or the per-store
 // ALGOLIA_*_<CODE> pair) from the repo-root .env / Vault; `--fake` runs the in-memory client (dry run, local dev
 // without an Algolia account).
 //
-//   pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --all --full
-//   pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --store brand-a
-//   pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --all --loop 5000
-//   pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --store brand-a --full --fake
+//   pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --all --full
+//   pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --store brand-a
+//   pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --all --loop 5000
+//   pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --store brand-a --full --fake
 import { SEED_IDS } from '@platform/db';
-import { closePool, initDb, organizationClient, tenantClient } from '../lib/db';
+import { closePool, initDb, organizationClient, tenantClient } from '../../../lib/db';
 import {
   AlgoliaIndexClient,
   FakeIndexClient,
@@ -19,7 +21,7 @@ import {
   syncUntilCaughtUp,
   type IndexClient,
   type StoreIndexTarget,
-} from '../modules/search';
+} from '../index';
 
 export interface JobArgs {
   stores: string[];
