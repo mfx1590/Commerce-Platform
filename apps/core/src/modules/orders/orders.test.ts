@@ -477,8 +477,13 @@ describe('admin read model', () => {
 
 describe("tx-taking markers (window 8, #191): no deadlock behind a shipment insert's FOR KEY SHARE lock", () => {
   it('confirm → shipment created → shipped → delivered inside ONE transaction that also inserts the shipment row', async () => {
-    const { confirmOrderInTx, markShipmentCreatedInTx, markShippedInTx, markDeliveredInTx, markPaymentCapturedInTx } =
-      await import('./index');
+    const {
+      confirmOrderInTx,
+      markShipmentCreatedInTx,
+      markShippedInTx,
+      markDeliveredInTx,
+      markPaymentCapturedInTx,
+    } = await import('./index');
     const order = await placeOrder();
     await a.transaction(async (tx) => {
       await confirmOrderInTx(tx, order.id, actor);
@@ -490,11 +495,20 @@ describe("tx-taking markers (window 8, #191): no deadlock behind a shipment inse
         [ORG, A, order.id, SEED_IDS.warehouses.eu],
       );
       await markShipmentCreatedInTx(tx, order.id, actor); // would deadlock on a second connection
-      await markShippedInTx(tx, order.id, order.items.map((l) => ({ lineItemId: l.id, quantity: 2 })), actor);
+      await markShippedInTx(
+        tx,
+        order.id,
+        order.items.map((l) => ({ lineItemId: l.id, quantity: 2 })),
+        actor,
+      );
       await markDeliveredInTx(tx, order.id, actor);
     });
     const r = await row(order.id);
-    expect(r).toMatchObject({ status: 'completed', payment_status: 'captured', fulfillment_status: 'fulfilled' });
+    expect(r).toMatchObject({
+      status: 'completed',
+      payment_status: 'captured',
+      fulfillment_status: 'fulfilled',
+    });
     expect((await stream(order.id)).map((e) => e.topic)).toEqual([
       'order.placed',
       'order.confirmed',

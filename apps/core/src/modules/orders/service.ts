@@ -198,7 +198,6 @@ export const markPaymentRefunded = (client: ScopedClient, orderId: string, actor
 export const markShipmentCreated = (client: ScopedClient, orderId: string, actor: Actor) =>
   moveField(client, orderId, 'status', 'processing', actor);
 
-
 // ---- tx-taking twins (window 8, #191): same semantics on the caller's transaction ----
 export const confirmOrderInTx = (tx: Queryable, orderId: string, actor: Actor) =>
   moveFieldInTx(tx, orderId, 'status', 'confirmed', actor);
@@ -251,7 +250,8 @@ export async function markShippedInTx(
   shipped: readonly LineQuantity[],
   actor: Actor,
 ): Promise<void> {
-  if (shipped.length === 0) throw validationError('nothing shipped', { shipped: 'at least one line' });
+  if (shipped.length === 0)
+    throw validationError('nothing shipped', { shipped: 'at least one line' });
   await loadOrder(tx, orderId, true);
   for (const s of shipped) {
     const r = await tx.query(
@@ -287,7 +287,11 @@ export async function markDelivered(
 }
 
 /** `markDelivered` on the caller's transaction (window 8, #191). */
-export async function markDeliveredInTx(tx: Queryable, orderId: string, actor: Actor): Promise<void> {
+export async function markDeliveredInTx(
+  tx: Queryable,
+  orderId: string,
+  actor: Actor,
+): Promise<void> {
   const o = await loadOrder(tx, orderId, true);
   if (o.status === 'completed') return;
   if (o.fulfillment_status !== 'fulfilled') {
