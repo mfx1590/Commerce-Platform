@@ -5,6 +5,22 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-14 · 2.5 follow-up — per-line discount budget + review fixes (post-merge review of #188)
+
+- **Defect fixed**: the discount cap was cart-level only, so two overlapping stackable `fixed_amount` 1000
+  promotions on a 1000 line allocated 2000 to it. Applications now spend a **per-line budget** (`fitToBudget`
+  in `engine.ts`): each line absorbs at most its own subtotal across all promotions, overflow spills onto the
+  promotion's other eligible lines (proportional, largest remainder), and what does not fit is dropped from
+  that promotion's discount. The cart-level bound is now a consequence rather than a separate rule.
+- **`EvaluationContext.at` is required** — no `new Date()` default, so the caller's transaction time decides
+  every window and a quote cannot disagree with the placement that follows.
+- Tests: no allocation exceeds its line total, a blocked share spills to other eligible lines, the invariant
+  holds across fixture combinations (`engine.test.ts`, now 8); another store's code is `not_found` rather than
+  a silent discount (`promotions.test.ts`, now 7).
+- #179 amended with the missing `promotionsRouter()` mount line, the two other pending mounts and the
+  `src/modules/promotions` row for `apps/core/CLAUDE.md` — the router is still unmounted, so its routes 404
+  until window 1 lands them.
+
 ### 2026-09-08 · 2.5 Promotions and coupon rule engine (#138, CONTRACT CHANGE #189 "jsonb")
 
 - `promotions-types.ts`: types + ajv (contract PromotionInput + #189 additions: `buy_x_get_y`, `stackable`,

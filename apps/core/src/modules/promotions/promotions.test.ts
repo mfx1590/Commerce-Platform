@@ -13,6 +13,7 @@ import { coreErrorHandler, DevTokenVerifier } from '../../http';
 import { closePool, initDb, tenantClient } from '../../lib/db';
 import { mountCoreMiddleware } from '../../server';
 import {
+  evaluatePromotions,
   loadCandidatePromotions,
   promotionReportData,
   promotionsRouter,
@@ -196,6 +197,34 @@ describe('promotion CRUD', () => {
     expect(auto.every((p) => p.code === null)).toBe(true);
     const withCode = await loadCandidatePromotions(a, A, ['search10 ']);
     expect(withCode.some((p) => p.code === 'SEARCH10')).toBe(true);
+  });
+
+  it("another store's code is not_found here, not a silent discount (RLS + engine)", async () => {
+    // brand-b owns BONLY; a brand-a cart quoting it must be told the code does not exist
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [B] });
+    await b.query(
+      `INSERT INTO promotion (organization_id, store_id, code, name, type, value, status)
+       VALUES ($1, $2, 'BONLY', 'Brand B only', 'percentage', 5000, 'active')`,
+      [ORG, B],
+    );
+    const loaded = await loadCandidatePromotions(a, A, ['BONLY']);
+    expect(loaded.some((p) => p.code === 'BONLY')).toBe(false);
+
+    const quote = evaluatePromotions(
+      [{ id: 'l1', product_id: productA, quantity: 1, unit_price_minor: 1000 }],
+      loaded,
+      { currency: 'EUR', codes: ['BONLY'], at: new Date('2026-09-14T12:00:00Z') },
+    );
+    expect(quote.discount_minor).toBe(0);
+    expect(quote.rejected).toContainEqual({
+      promotion_id: null,
+      code: 'BONLY',
+      reason: 'not_found',
+    });
+    // and it still works for the store that owns it
+    expect((await loadCandidatePromotions(b, B, ['bonly'])).some((p) => p.code === 'BONLY')).toBe(
+      true,
+    );
   });
 
   it('recordPromotionUse counts atomically and refuses past the limit with the contract error', async () => {

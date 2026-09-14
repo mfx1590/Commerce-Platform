@@ -71,7 +71,13 @@ lifts the first two to top level); the one db statement #189 needs — widening 
   per-customer limits, min subtotal, product/category eligibility, customer group, sales channel, first order,
   code matching (case-insensitive; unknown code → `not_found`). **Stacking**: the best applicable `exclusive`
   wins over everything and applies alone; otherwise the better of (best non-stackable alone) vs (all
-  stackables combined); total capped at the cart subtotal, trimming the least valuable applications first.
+  stackables combined). Applications are then spent against a **per-line budget**: a line absorbs at most its
+  own subtotal across all promotions together, a promotion that overshoots a line spills the remainder onto its
+  other eligible lines, and whatever still does not fit is dropped from that promotion's discount. The
+  cart-level bound follows from this rather than being a separate rule — a cart-level cap alone let two
+  overlapping stackables both spend the same line's value (post-merge review of #188).
+- **`ctx.at` is required**: the caller passes its own transaction time, so a quote and the placement that
+  follows judge every window with the same clock.
 - **Usage** (`recordPromotionUse(tx, storeId, promotionId)`): atomic increment refusing past `usage_limit`
   with 409 `conflict` — the cart calls it inside its placement transaction, once per applied promotion, so a
   failed placement never burns a use. Per-customer counts come from the caller (`ctx.customerUses`); the
@@ -91,14 +97,16 @@ matrix (sale beats default and group, priority wins within a rank, expired + dra
 group list needs the group, tiers at quantity 5 vs 4, `ends_at` exclusive, unknown currency → absent, fallback
 to the seeded default), RLS isolation for brand-b.
 
-`engine.test.ts` (7, pure): allocation sums exactly for arbitrary totals, percentage/fixed/free-shipping/
+`engine.test.ts` (8, pure): allocation sums exactly for arbitrary totals, percentage/fixed/free-shipping/
 buy-X-get-Y discounts, every condition gate (with the passing counterpart), code matching + per-customer
-limit, stacking matrix (stackables combine, better single wins, exclusive beats everything), subtotal cap.
+limit, stacking matrix (stackables combine, better single wins, exclusive beats everything), subtotal cap, and the
+per-line budget: no allocation exceeds its line total, a blocked share spills to the promotion's other eligible
+lines, and the invariant holds across every fixture combination.
 
-`promotions.test.ts` (6, DB + routes): jsonb round trip of stackable/exclusive, seeded-WELCOME10 duplicate
+`promotions.test.ts` (7, DB + routes): jsonb round trip of stackable/exclusive, seeded-WELCOME10 duplicate
 409, type/rule validation incl. foreign ids, list/sort/patch (code immutable, RLS 404), candidate loading,
-atomic usage counting to the limit (409 `conflict`), the report over fixture orders (cancelled and
-out-of-window excluded).
+atomic usage counting to the limit (409 `conflict`), another store's code reported `not_found` rather than
+silently discounting, the report over fixture orders (cancelled and out-of-window excluded).
 
 Run: `cd apps/core && pnpm exec vitest run src/modules/promotions` (Postgres 5433; creates `core_pricing_*` /
 `core_promo_*`).

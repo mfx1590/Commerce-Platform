@@ -24,7 +24,7 @@ Algolia index per brand synced from product.published events, merchandising rule
 - [x] **#138 · 2.5** Promotions and coupon rule engine — commit `023209b`, merged inside #188 (main `899e606`); issue closed 2026-09-14. No separate 2.5 PR: the commits reached the branch via the 2026-09-09 push (see the push gotcha below); the scope correction and the corrected PR title/body landed on #188 before it merged. CONTRACT CHANGE #189 accepted, lands with Admin API 0.4.1 (migration 0150 = the promotion type-CHECK widening).
 
 ## In progress
-- (nothing — Phase 2 is complete and merged; the window is quiet until Admin API 0.4.1 lands or a REQUEST arrives)
+- **2.5 follow-up PR** (post-merge review of #188): per-line discount budget (the cart-level cap let two overlapping stackables spend the same line twice), `ctx.at` required, cross-store code test, #179 amended with the missing `promotionsRouter` mount + the CLAUDE.md promotions row. Gates green. Not taken now (manager's call): per-customer limit still relies on caller-supplied counts; automatic promotions (code null) never appear in the report.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [ ] After contracts 0.4.0 (#185, carries #162 + #180) lands on main: `git merge main` — #185 itself deletes `proposed/` (merchandising) and switches the merchandising router to spec-driven permissions, so the follow-up is **docs only** (README references to proposed/, memory). #168 + #189 land after the 2.5 PR merges, bundled into Admin API 0.4.1 (migration 0150 = the promotion type-CHECK widening); same docs-only cleanup for the media/promotions proposed/ files then. (#166 nits: folded into the branch 2026-09-08, commit `56ccb75`.)
