@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
-Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Fable
-Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0) · Branch: `search/phase2` · Status: ALL PHASE 2 TASKS BUILT — 2.1+2.2 merged; 2.3+2.4 in PR #188 (conflicts with main resolved 2026-09-09 + core boot fix #202/#203, pushed for the queue; closes #136+#137 together); 2.5 committed locally `023209b`, pushes after #188 merges. After 2.5 the window goes QUIET until a REQUEST reopens it.
+Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
+Last updated: 2026-09-14 · Contracts: Admin API 0.4.0 on main (0.4.1 pending: #168 + #189) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE — 2.1–2.5 all merged to main.** #134–#138 closed. Last action left: the docs-only cleanup once Admin API 0.4.1 lands (delete both `proposed/` folders + their test-side DDL, switch the merchandising/media/promotions routers to `loadSpec`). Then the window goes QUIET until a REQUEST reopens it.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -52,6 +52,7 @@ Algolia index per brand synced from product.published events, merchandising rule
 - #162 (accepted, lands after #166), #168 (CONTRACT CHANGE 2.3, main), #169 (REQUEST loader, window 3), mount lines (window 1) — all non-blocking.
 
 ## Gotchas learned
+- **A branch push is all-or-nothing — "hold the push" cannot be honoured per-commit** (2026-09-14). 2.5 was committed locally under a push hold; pushing an unrelated memory commit on 2026-09-09 carried it too, so 2.5 rode into PR #188 and merged with 2.3+2.4 instead of getting its own PR. The manager was still planning around "2.5 unpushed" two messages later. If a hold matters, either keep the held work on a separate branch or re-check `git log origin/<branch>..HEAD` before reporting "unpushed" — and re-verify the claim every time it is repeated, not just when first made.
 - **A 2-second all-red CI run with no logs = GitHub Actions billing, not your branch** (2026-09-09, run 34359615873 on #188): every job "failed" with 0 steps; the check annotation reads "The job was not started because recent account payments have failed or your spending limit needs to be increased". Read it with `gh api repos/<owner>/<repo>/check-runs/<id>/annotations`. Re-running is pointless; the manager merges manually on billing refusal (Memory-main merge round 14 did this for #205). Local gates are the evidence to post.
 - **Never put a plain CLI script in `apps/core/src/jobs/`** (#202/#203, 2026-09-09): Medusa's job loader scans that folder and requires every file to export a `config`, so the core refuses to boot with "Config is required for scheduled jobs" — and `pnpm test`/typecheck never notice because they don't boot Medusa. The index CLI lives at `src/modules/search/cli/index-products.ts`; a real scheduled job goes in `src/jobs/` **with** a `config` export. Boot proof: `pnpm --filter @platform/core dev` → `/health` 200.
 - **This worktree has no `.env`** (it is gitignored and per-checkout): copy it from the main checkout (`cp ../commerce-platform/.env .env`) before `pnpm --filter @platform/core dev`, otherwise the server dies with "DATABASE_URL_APP is not set". Do NOT run `pnpm dev` at the root (shared docker stack rule).
