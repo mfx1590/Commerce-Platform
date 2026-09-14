@@ -84,6 +84,16 @@ no-op that always succeeds; a `failed` void → 402 `payment_failed`, nothing wr
 window 8's side. The wrappers' idempotency read happens under the row lock (`FOR UPDATE`) so a concurrent change
 cannot turn an intended no-op into a 409 (#174 review).
 
+### Transaction-taking twins (window 8, #191)
+
+Every marker also exists as `…InTx(tx, …)` — `confirmOrderInTx`, `markPaymentAuthorizedInTx`,
+`markPaymentCapturedInTx`, `markPaymentFailedInTx`, `markPaymentPartiallyRefundedInTx`, `markPaymentRefundedInTx`,
+`markShipmentCreatedInTx`, `markShippedInTx`, `markDeliveredInTx`, `markReturnedInTx`, `cancelOrderInTx`,
+`setFulfillmentStatusIn` — with the same semantics on the caller's transaction and no return value (render the
+order yourself if you need it). Use them when your transaction already holds a lock the order row participates in:
+window 8's `INSERT INTO shipment` takes `FOR KEY SHARE` on the order (FK), and a marker opening its own
+transaction on another connection would deadlock behind it (tested in `orders.test.ts`).
+
 ## Order edits before fulfilment (`edits.ts`)
 
 `decreaseLineQuantity(client, orderId, lineItemId, quantity, actor)` and `cancelLine(client, orderId, lineItemId, actor)`

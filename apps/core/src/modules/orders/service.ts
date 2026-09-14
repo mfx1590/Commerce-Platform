@@ -147,6 +147,23 @@ export async function transition(
 
 // ---- wrappers (windows 7 and 8; idempotent on the target state) ----
 
+/** One status move on the caller's transaction, idempotent on the target (window 8's INSERT INTO shipment holds FOR KEY SHARE on the order row: a marker must run on that transaction). */
+async function moveFieldInTx(
+  tx: Queryable,
+  orderId: string,
+  field: StatusField,
+  to: OrderRow[StatusField],
+  actor: Actor,
+  extra: Partial<TransitionChange> = {},
+): Promise<void> {
+  // The idempotency read happens under the row lock: a concurrent change cannot slip between the check and
+  // the transition (which re-locks the same row in this transaction) — #174 review.
+  const current = await loadOrder(tx, orderId, true);
+  if (current[field] !== to) {
+    await transition(tx, orderId, { [field]: to, actor, ...extra } as TransitionChange);
+  }
+}
+
 async function moveField(
   client: ScopedClient,
   orderId: string,
@@ -156,12 +173,7 @@ async function moveField(
   extra: Partial<TransitionChange> = {},
 ): Promise<AdminOrder> {
   return client.transaction(async (tx) => {
-    // The idempotency read happens under the row lock: a concurrent change cannot slip between the check and
-    // the transition (which re-locks the same row in this transaction) — #174 review.
-    const current = await loadOrder(tx, orderId, true);
-    if (current[field] !== to) {
-      await transition(tx, orderId, { [field]: to, actor, ...extra } as TransitionChange);
-    }
+    await moveFieldInTx(tx, orderId, field, to, actor, extra);
     return renderAdminOrder(tx, orderId);
   });
 }
@@ -186,6 +198,23 @@ export const markPaymentRefunded = (client: ScopedClient, orderId: string, actor
 export const markShipmentCreated = (client: ScopedClient, orderId: string, actor: Actor) =>
   moveField(client, orderId, 'status', 'processing', actor);
 
+
+// ---- tx-taking twins (window 8, #191): same semantics on the caller's transaction ----
+export const confirmOrderInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+  moveFieldInTx(tx, orderId, 'status', 'confirmed', actor);
+export const markPaymentAuthorizedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+  moveFieldInTx(tx, orderId, 'payment_status', 'authorized', actor);
+export const markPaymentCapturedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+  moveFieldInTx(tx, orderId, 'payment_status', 'captured', actor);
+export const markPaymentFailedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+  moveFieldInTx(tx, orderId, 'payment_status', 'failed', actor);
+export const markPaymentPartiallyRefundedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+  moveFieldInTx(tx, orderId, 'payment_status', 'partially_refunded', actor);
+export const markPaymentRefundedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+  moveFieldInTx(tx, orderId, 'payment_status', 'refunded', actor);
+export const markShipmentCreatedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+  moveFieldInTx(tx, orderId, 'status', 'processing', actor);
+
 function fulfillmentFrom(
   lines: { quantity: number; fulfilled_quantity: number; returned_quantity: number }[],
   kind: 'fulfilled' | 'returned',
@@ -209,31 +238,40 @@ export async function markShipped(
   shipped: readonly LineQuantity[],
   actor: Actor,
 ): Promise<AdminOrder> {
-  if (shipped.length === 0)
-    throw validationError('nothing shipped', { shipped: 'at least one line' });
   return client.transaction(async (tx) => {
-    await loadOrder(tx, orderId, true);
-    for (const s of shipped) {
-      const r = await tx.query(
-        `UPDATE order_line_item SET fulfilled_quantity = LEAST(quantity, fulfilled_quantity + $3), updated_at = now()
-         WHERE id = $1 AND order_id = $2`,
-        [s.lineItemId, orderId, s.quantity],
-      );
-      if (r.rowCount === 0)
-        throw validationError('unknown line item', { line_item_id: s.lineItemId });
-    }
-    const lines = await loadOrderLines(tx, orderId);
-    const next = fulfillmentFrom(lines, 'fulfilled');
-    const current = await loadOrder(tx, orderId, false);
-    if (current.fulfillment_status !== next) {
-      await transition(tx, orderId, {
-        fulfillment_status: next,
-        actor,
-        changed_fields: ['line_items'],
-      });
-    }
+    await markShippedInTx(tx, orderId, shipped, actor);
     return renderAdminOrder(tx, orderId);
   });
+}
+
+/** `markShipped` on the caller's transaction (window 8, #191). */
+export async function markShippedInTx(
+  tx: Queryable,
+  orderId: string,
+  shipped: readonly LineQuantity[],
+  actor: Actor,
+): Promise<void> {
+  if (shipped.length === 0) throw validationError('nothing shipped', { shipped: 'at least one line' });
+  await loadOrder(tx, orderId, true);
+  for (const s of shipped) {
+    const r = await tx.query(
+      `UPDATE order_line_item SET fulfilled_quantity = LEAST(quantity, fulfilled_quantity + $3), updated_at = now()
+       WHERE id = $1 AND order_id = $2`,
+      [s.lineItemId, orderId, s.quantity],
+    );
+    if (r.rowCount === 0)
+      throw validationError('unknown line item', { line_item_id: s.lineItemId });
+  }
+  const lines = await loadOrderLines(tx, orderId);
+  const next = fulfillmentFrom(lines, 'fulfilled');
+  const current = await loadOrder(tx, orderId, false);
+  if (current.fulfillment_status !== next) {
+    await transition(tx, orderId, {
+      fulfillment_status: next,
+      actor,
+      changed_fields: ['line_items'],
+    });
+  }
 }
 
 /** Window 8: delivered → `processing → completed` (requires the order to be fulfilled). */
@@ -243,18 +281,23 @@ export async function markDelivered(
   actor: Actor,
 ): Promise<AdminOrder> {
   return client.transaction(async (tx) => {
-    const o = await loadOrder(tx, orderId, false);
-    if (o.status === 'completed') return renderAdminOrder(tx, orderId);
-    if (o.fulfillment_status !== 'fulfilled') {
-      throw conflict('order is not fully fulfilled', {
-        field: 'fulfillment_status',
-        from: o.fulfillment_status,
-        to: 'fulfilled',
-      });
-    }
-    await transition(tx, orderId, { status: 'completed', actor });
+    await markDeliveredInTx(tx, orderId, actor);
     return renderAdminOrder(tx, orderId);
   });
+}
+
+/** `markDelivered` on the caller's transaction (window 8, #191). */
+export async function markDeliveredInTx(tx: Queryable, orderId: string, actor: Actor): Promise<void> {
+  const o = await loadOrder(tx, orderId, true);
+  if (o.status === 'completed') return;
+  if (o.fulfillment_status !== 'fulfilled') {
+    throw conflict('order is not fully fulfilled', {
+      field: 'fulfillment_status',
+      from: o.fulfillment_status,
+      to: 'fulfilled',
+    });
+  }
+  await transition(tx, orderId, { status: 'completed', actor });
 }
 
 /** Task 2.5 (returns): quantities received back per line → `returned_quantity` and partially_returned | returned. */
@@ -331,6 +374,9 @@ export async function mergeOrderMetadataIn(
   ]);
 }
 
+/** Alias of `markReturnedIn` in the `…InTx` naming window 8 uses. */
+export const markReturnedInTx = markReturnedIn;
+
 /** A payment_status move on the caller's transaction, idempotent on the target (the returns module's refunds). */
 export async function movePaymentStatusIn(
   tx: Queryable,
@@ -362,59 +408,70 @@ export async function cancelOrder(
   input: { reason: string; actor: Actor },
 ): Promise<AdminOrder> {
   return client.transaction(async (tx) => {
-    const o = await loadOrder(tx, orderId, true);
-    if (o.status === 'cancelled') return renderAdminOrder(tx, orderId);
-    if (o.fulfillment_status !== 'unfulfilled') {
-      throw conflict('order has shipped; cancel is no longer possible (use a return)', {
-        field: 'fulfillment_status',
-        from: o.fulfillment_status,
-        to: 'unfulfilled',
-      });
+    await cancelOrderInTx(tx, orderId, input);
+    return renderAdminOrder(tx, orderId);
+  });
+}
+
+/** `cancelOrder` on the caller's transaction (window 8, #191). */
+export async function cancelOrderInTx(
+  tx: Queryable,
+  orderId: string,
+  input: { reason: string; actor: Actor },
+): Promise<void> {
+  const o = await loadOrder(tx, orderId, true);
+  if (o.status === 'cancelled') return;
+  if (o.fulfillment_status !== 'unfulfilled') {
+    throw conflict('order has shipped; cancel is no longer possible (use a return)', {
+      field: 'fulfillment_status',
+      from: o.fulfillment_status,
+      to: 'unfulfilled',
+    });
+  }
+  const payments = await tx.query<AuthorizedPayment>(
+    `SELECT id, provider, provider_payment_id, idempotency_key FROM payment
+     WHERE order_id = $1 AND status = 'authorized' ORDER BY created_at`,
+    [orderId],
+  );
+  for (const p of payments.rows) {
+    const provider = paymentProvider(p.provider);
+    if (!provider) {
+      throw new AppError(
+        'internal',
+        `payment provider ${p.provider} is not registered`,
+        undefined,
+        503,
+      );
     }
-    const payments = await tx.query<AuthorizedPayment>(
-      `SELECT id, provider, provider_payment_id, idempotency_key FROM payment
-       WHERE order_id = $1 AND status = 'authorized' ORDER BY created_at`,
-      [orderId],
-    );
-    for (const p of payments.rows) {
-      const provider = paymentProvider(p.provider);
-      if (!provider) {
+    if (p.provider_payment_id) {
+      const result = await provider.void({
+        tx,
+        organizationId: o.organization_id,
+        storeId: o.store_id,
+        providerPaymentId: p.provider_payment_id,
+        idempotencyKey: `${p.idempotency_key}:void`,
+        reason: input.reason,
+      });
+      if (result.status !== 'voided') {
         throw new AppError(
-          'internal',
-          `payment provider ${p.provider} is not registered`,
-          undefined,
-          503,
+          'payment_failed',
+          result.failureReason ?? 'payment could not be voided',
+          {
+            provider: p.provider,
+          },
         );
       }
-      if (p.provider_payment_id) {
-        const result = await provider.void({
-          tx,
-          providerPaymentId: p.provider_payment_id,
-          idempotencyKey: `${p.idempotency_key}:void`,
-          reason: input.reason,
-        });
-        if (result.status !== 'voided') {
-          throw new AppError(
-            'payment_failed',
-            result.failureReason ?? 'payment could not be voided',
-            {
-              provider: p.provider,
-            },
-          );
-        }
-      }
-      await tx.query(`UPDATE payment SET status = 'cancelled', updated_at = now() WHERE id = $1`, [
-        p.id,
-      ]);
     }
-    // Reservations are released here, through the orders module's own cancel — never from window 8's side.
-    await releaseForOrder(tx, orderId);
-    await transition(tx, orderId, {
-      status: 'cancelled',
-      reason: input.reason,
-      actor: input.actor,
-    });
-    return renderAdminOrder(tx, orderId);
+    await tx.query(`UPDATE payment SET status = 'cancelled', updated_at = now() WHERE id = $1`, [
+      p.id,
+    ]);
+  }
+  // Reservations are released here, through the orders module's own cancel — never from window 8's side.
+  await releaseForOrder(tx, orderId);
+  await transition(tx, orderId, {
+    status: 'cancelled',
+    reason: input.reason,
+    actor: input.actor,
   });
 }
 

@@ -262,7 +262,7 @@ describe('reservations at placement', () => {
       },
       async void(input) {
         calls.push(
-          `void:${input.providerPaymentId.startsWith('manpay_') ? 'ok' : 'bad'}:${input.reason}`,
+          `void:${input.providerPaymentId.startsWith('manpay_') ? 'ok' : 'bad'}:${input.reason}:${input.storeId === A && input.organizationId === ORG && !!input.cartId ? 'store' : 'nostore'}`,
         );
         return { status: 'voided' };
       },
@@ -274,7 +274,8 @@ describe('reservations at placement', () => {
       code: 'out_of_stock',
       details: { variant_id: v.id, available: 2 },
     });
-    expect(calls).toEqual(['authorize', 'void:ok:placement failed']);
+    // the void carries the store (window 7 resolves per-store credentials from it; the tx is being rolled back)
+    expect(calls).toEqual(['authorize', 'void:ok:placement failed:store']);
     expect(
       (await owner.query(`SELECT 1 FROM "order" WHERE cart_id = $1`, [cartId])).rows,
     ).toHaveLength(0);

@@ -68,8 +68,9 @@ export async function markAbandonedCarts(
     );
     const cartIds: string[] = [];
     for (const c of idle.rows) {
-      // updated_at is NOT touched: it stays the last customer activity (the event carries it), so a later
-      // reactivation measures idleness from the customer's next action, not from this run.
+      // The schema's app.set_updated_at trigger bumps updated_at on this UPDATE; harmless — abandoned carts are
+      // never selected again, and the event carries the customer's real last activity (read above, before the
+      // update). A reactivation measures idleness from the customer's next mutation.
       await tx.query(`UPDATE cart SET status = 'abandoned' WHERE id = $1`, [c.id]);
       const attribution = (c.metadata ?? {}).attribution;
       await withEvents(tx, [

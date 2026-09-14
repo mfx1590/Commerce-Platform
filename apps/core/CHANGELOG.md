@@ -27,6 +27,13 @@
   per shipment via the movement reference).
 - #179 part 1: catalog `addMedia` / `updateMedia` / `deleteMedia` (positions contiguous, thumbnail = position 0,
   audit + `product.updated` `["media"]`).
+- Window 7's gap: the placement failure path's `PaymentProvider.void` now carries `organizationId` / `storeId` /
+  `cartId` (per-store credentials without touching the rolled-back transaction); `RefundInput` carries the store
+  too. Tested on the manual provider's call log.
+- #191: `…InTx(tx, …)` twins of every order marker (`confirmOrderInTx`, `markPayment*InTx`,
+  `markShipmentCreatedInTx`, `markShippedInTx`, `markDeliveredInTx`, `markReturnedInTx`, `cancelOrderInTx`) so
+  shipping runs them on its own transaction (a shipment insert's `FOR KEY SHARE` on the order row deadlocked the
+  client-taking ones); tested with a shipment row inserted in the same transaction.
 - Docs: module table complete (cart … returns, jobs), READMEs with the ADR-style decisions, "What is real" jobs row.
 - Tests: `abandoned.test.ts` (3), `lifecycle-replay.test.ts` (3), catalog media +1, inventory ports +1.
 

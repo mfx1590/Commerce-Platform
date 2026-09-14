@@ -417,7 +417,10 @@ export async function completeCart(
     } catch (err) {
       await provider
         .void({
-          tx,
+          tx, // being rolled back — the provider must resolve everything from the fields below
+          organizationId: cart.organization_id,
+          storeId: cart.store_id,
+          cartId: cart.id,
           providerPaymentId: auth.providerPaymentId,
           idempotencyKey: `${idempotencyKey}:void`,
           reason: 'placement failed',

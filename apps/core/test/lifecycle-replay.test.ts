@@ -282,10 +282,11 @@ describe('whole lifecycle: place → confirm → capture → ship → deliver �
   it('abandoned branch: a cart never placed is abandoned by the job with one cart.abandoned', async () => {
     const cart = await createCart(a, scopeA);
     await addLineItem(a, cart.id, { variant_id: variantId, quantity: 1 });
-    await owner.query(`UPDATE cart SET updated_at = now() - interval '7 hours' WHERE id = $1`, [
-      cart.id,
-    ]);
-    const r = await markAllAbandonedCarts(a, { now: new Date(), idleForMs: 6 * 3_600_000 });
+    // seven hours later (injected clock; the schema's trigger would overwrite a backdated updated_at)
+    const r = await markAllAbandonedCarts(a, {
+      now: new Date(Date.now() + 7 * 3_600_000),
+      idleForMs: 6 * 3_600_000,
+    });
     expect(r.cartIds).toContain(cart.id);
     const ev = await owner.query<{ topic: string }>(
       `SELECT topic FROM outbox WHERE aggregate_id::text = $1::text`,
