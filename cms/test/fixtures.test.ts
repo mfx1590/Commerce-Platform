@@ -146,7 +146,7 @@ describe('validateDocument', () => {
     expect(params).toMatchObject({
       type: 'page',
       locale: 'en-GB',
-      slug: 'about',
+      own: 'about',
       id: 'page.en-GB.about',
       draftId: 'drafts.page.en-GB.about',
     });

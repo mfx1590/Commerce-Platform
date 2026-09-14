@@ -137,8 +137,15 @@ export class StoreApiClient {
     return this.request('GET', '/store/products', { query: { ...query }, options });
   }
 
-  getProduct(handle: string, options?: RequestOptions): Promise<Result<'getProduct'>> {
-    return this.request('GET', `/store/products/${encodeURIComponent(handle)}`, { options });
+  getProduct(
+    handle: string,
+    query?: Query<'getProduct'>,
+    options?: RequestOptions,
+  ): Promise<Result<'getProduct'>> {
+    return this.request('GET', `/store/products/${encodeURIComponent(handle)}`, {
+      query: { ...query },
+      options,
+    });
   }
 
   // ── cart ─────────────────────────────────────────────────────────────────────────────────────

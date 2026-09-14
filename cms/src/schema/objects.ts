@@ -5,14 +5,21 @@
 
 import { defineArrayMember, defineField, defineType } from './define.js';
 
-/** Storefront paths (`/en-GB/products`) or absolute http(s) URLs — nothing else can be linked. */
+/**
+ * A storefront path (`/en-GB/products` — exactly one leading slash, so `//host` is not a path) or
+ * an absolute `https://` URL. Nothing else: no `http:`, `javascript:`, `mailto:` or
+ * protocol-relative links.
+ */
+export const HREF_PATTERN = /^(?:\/(?!\/)|https:\/\/[^\s/?#]+)/;
+
 const HREF_RULE = (label: string) =>
   defineField({
     name: 'href',
     title: label,
     type: 'string',
     description: 'A path on this storefront (starts with /) or a full https:// URL',
-    validation: (rule) => rule.required().uri({ allowRelative: true, scheme: ['http', 'https'] }),
+    validation: (rule) =>
+      rule.required().regex(HREF_PATTERN, { name: 'a storefront path (/…) or an https:// URL' }),
   });
 
 /** Sanity's `image` with a mandatory `alt`: an image without alt text cannot be published. */

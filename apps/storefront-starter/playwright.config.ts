@@ -15,6 +15,15 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3100';
 const MOCK_URL = process.env.MOCK_API_URL ?? 'http://localhost:4010';
+/**
+ * Against the real core (task 2.1): `E2E_STORE_API_URL=http://localhost:9000 pnpm e2e`.
+ *
+ * Prism still starts, because the core proxies `/store/customers*` to it
+ * (`CORE_STORE_API_FALLBACK_URL`) for the account journeys; everything else the core answers
+ * itself. Unset — the default — the app runs against Prism alone, so a laptop with no docker stack
+ * still gets a full green run.
+ */
+const STORE_API_URL = process.env.E2E_STORE_API_URL;
 const CHANNEL = process.env.E2E_CHANNEL ?? (process.env.CI ? undefined : 'chrome');
 const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 
@@ -49,7 +58,11 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
       // `start` honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
-      env: { MOCK_API_URL: MOCK_URL, PORT: new URL(APP_URL).port },
+      env: {
+        MOCK_API_URL: MOCK_URL,
+        PORT: new URL(APP_URL).port,
+        ...(STORE_API_URL === undefined ? {} : { STORE_API_URL }),
+      },
     },
   ],
 });

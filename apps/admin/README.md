@@ -5,7 +5,7 @@ relations the signed-in principal holds. Everything the UI shows is derived from
 the Admin API re-checks each operation's `x-permission` server-side, so UI gating is convenience,
 never security.
 
-Contracts: `@platform/contracts/admin`, **Admin API 0.2.0**.
+Contracts: `@platform/contracts/admin`, **Admin API 0.4.0**.
 
 ## Run it
 
@@ -59,6 +59,27 @@ says what is missing, not a stack trace. Run the mock when you need those screen
 E2E and the contract suite ignore all of this on purpose: `playwright.config.ts` and
 `vitest.contract.config.ts` force `ADMIN_API_URL` to the Prism they start, so a `.env` pointing at
 the core does not make an e2e run depend on whatever the core is currently serving.
+
+**The one journey that does talk to the core** is `e2e/catalog-core.spec.ts`, and it is opt-in:
+it writes real rows into the shared local database, so it never runs by accident. Start the app
+yourself against the core (the config reuses a server that already answers `/health` instead of
+starting one pinned to the mock), then run it with `E2E_API=core`:
+
+```bash
+PORT=3200 ADMIN_API_URL=http://localhost:9000 ADMIN_APP_URL=http://localhost:3200 ADMIN_SESSION_SECRET=… pnpm --filter @platform/admin start
+```
+
+```bash
+E2E_API=core PORT=3200 pnpm --filter @platform/admin e2e catalog-core
+```
+
+It signs in as the seeded `store-admin`, creates a product with a fresh handle on brand-a, creates
+its two variants from the matrix, publishes it (confirmation included) and checks the list agrees.
+Every step asserts what the core returned — the id in the URL, `draft` then `published`, the
+variant rows — and screenshots each state into `test-results/`. The run recorded for task 2.1
+(2026-09-08, core 2.2 on :9000, real Keycloak token, OpenFGA permissions) is in
+[`docs/real-core-run/`](./docs/real-core-run/): created as draft, variants created, published,
+listed as published.
 
 ## Checks
 
@@ -143,6 +164,57 @@ expiry. Switching keeps you on the same section (Orders on brand-a → Orders on
 **Adding a section** means one entry in `src/lib/nav/sections.ts` (with its `why`), a folder under
 `src/app/(hq)/` or `src/app/(store)/[storeId]/`, and a row in the test matrix in
 `test/navigation.test.ts`. Nothing else knows the list.
+
+## The Medusa rail (task 2.1b, issue #192)
+
+The product is called Medusa, so the navigation **is** Medusa: the head artwork sits top-left and
+one procedural SVG serpent grows per section the principal may see, its label at the tip. The brief
+is `docs/admin-design.md` and the behaviour reference is `docs/design/medusa-rail-prototype.html`;
+pixel parity was never the goal, the sequence and the accessibility rules were.
+
+**Where the sections come from.** Exactly where they came from before: the shell still calls
+`hqNavItems` / `storeNavItems` and hands the already permission-filtered lists to
+`src/components/rail/MedusaRail`. A section the user lacks never grows a serpent; the Store/HQ scope
+switch appears only when both scopes have sections. The rail fetches nothing and decides nothing —
+the API re-checks every `x-permission` underneath, as always.
+
+**What moves, and when** (`rail.config.ts` holds every number, `serpent-geometry.ts` every
+position — pure arithmetic, no `getTotalLength`, so the same code runs in jsdom):
+
+- _Load sequence_, once per session (`sessionStorage`): the head surfaces (1.6 s), then each
+  serpent draws itself out of the crown (1.1 s, staggered 160 ms) and its head and label arrive.
+- _At rest_: the head breathes (7 s), each serpent sways on two sine terms (≤ 9 px), teal motes
+  drift up on a canvas behind the head.
+- _Hover / focus_: the serpent lifts toward the pointer, thickens by 2 px, the gold eye pulses and
+  the tongue flicks; the active serpent stays lifted. _Gaze_: head and serpents lean a few pixels
+  toward the pointer.
+- One `requestAnimationFrame` loop writes attributes directly (React is not re-rendered per frame)
+  and pauses while the tab is hidden. Nothing on the content side ever animates.
+
+**Accessibility and fallbacks (non-negotiable).** Every serpent is a real button —
+`role="button"`, `tabindex="0"`, `aria-pressed`, a visible focus ring at the label — and Enter or
+Space follows it. **List view** (`RailList`: plain links with `aria-current`) replaces the serpents
+under `prefers-reduced-motion` (toggle locked on, no animation is set up and the session's intro
+flag is not consumed), by default on touch devices (`hover: none`), or whenever the user ticks the
+toggle, which persists per browser in `localStorage` (`medusa-list`). Under 860 px the rail becomes
+a 520 px band above the content. axe runs on both views in `test/rail.test.tsx`.
+
+**Design tokens.** `src/app/globals.css` is the only file that names a colour or a font family: the
+brief's dark set (ground, surface, line, stone, ink, verdigris, gold, critical/warn/ok) mapped onto
+the semantic utilities components already used (`bg-surface`, `text-muted`, `text-accent`, …), so
+the data-table, forms, state panels and pills restyled without a rewrite. `gold` is for the
+serpents' eyes and highlights and is never used for text. Measured contrast sits next to the
+tokens. Fonts (Cinzel for the wordmark and page titles, IBM Plex Sans, IBM Plex Mono for numbers)
+are committed as latin woff2 under `public/fonts` with their OFL licences and loaded with
+`next/font/local`, so no build touches the network and no page loads a third-party script.
+
+**Screenshots** for the PR are taken by `e2e/rail.spec.ts` into `docs/medusa-rail/` (store scope,
+list view; the HQ scope needs a principal with HQ relations, which the Prism example never is, so
+that test runs with `E2E_API=core` signed in as the seeded `finance` user). For task 2.1b the core
+could not boot from `main` (#202: Medusa's job loader rejects `src/jobs/index-products.ts`), so
+`hq-scope.png` was rendered by the same test against a Prism started on a scratch copy of the spec
+whose `/admin/me` example is the `finance` principal — the real app, a real Keycloak sign-in, a
+mocked principal. Re-take it against the core once #202 lands.
 
 ## Lists: the data-table primitive
 
@@ -238,6 +310,13 @@ is a cent lost in the ledger. It is currency-aware — JPY takes no decimals, EU
 accepts a comma as the decimal point while rejecting group separators rather than guessing at
 `1,234`.
 
+**A refused principal is not a form error.** `toActionResult` puts a 401/403 on the result as
+`refusal: { status, error }` alongside the (empty) field errors, `useContractForm` exposes it, and
+`ActionRefusal` — used in place of `FormError` — renders the same `ApiStatePanel` a screen renders
+when it cannot load. "You need `store_staff` on `store:brand-a`" is a different kind of message
+from "handle must be kebab-case": one names a control, the other names a person, and nothing about
+pressing Save again helps with the second.
+
 **Optimistic UI is opt-in.** `useContractForm` takes an `optimistic` callback and runs it only when
 one is passed. An admin form that shows a save as done before the server agreed is a form that lies
 about whether a price changed.
@@ -259,10 +338,20 @@ why the reveal carries a warning and a copy button rather than a "show again" co
 (`q`, `status`) and sort; `/{storeId}/catalog/new` and `/{storeId}/catalog/{id}` are the same form,
 which previews the variant matrix as options are typed — `variantMatrix` is a pure function with its
 own tests, because 3 sizes × 2 colours must be 6 variants and quietly producing 3 would corrupt a
-catalog. Publish and archive render what the server returned (`status`, `published_at`); archive is
-behind a confirmation, since `DELETE` is the verb even though the contract archives rather than
-hard-deletes. `/{storeId}/catalog/categories` assembles the tree from the flat list, showing an
-orphan at the root rather than dropping it.
+catalog. Media is an ordered list of URLs (row 1 is the thumbnail) with move up / move down; the
+server action renumbers `position` from the array order, so the form never sets one. Publish and
+archive each sit behind an inline confirmation — publish because it emits `product.published` and
+makes the product visible to shoppers, archive because `DELETE` is the verb even though the
+contract archives rather than hard-deletes — and both render what the server returned (`status`,
+`published_at`). Variants are created deliberately from the gap between the option matrix and what
+exists (one button per row, or "Create all N"), and edited inline (SKU, title, price per currency).
+`/{storeId}/catalog/categories` assembles the tree from the flat list, showing an orphan at the root
+rather than dropping it, and is the source of the category picker.
+
+Every catalog mutation is a server action that calls the Admin API, which re-checks the operation's
+`x-permission`; a 401/403 comes back as `refusal` on the `ActionResult` and `ActionRefusal` renders
+the same `ApiStatePanel` a screen would — never a one-line message that reads as "try again", and
+never a silent no-op. A 400 or 409 names a field and lands under that input.
 
 ## When a screen cannot show what was asked for
 
@@ -357,7 +446,9 @@ message may contain whatever the server was holding, and this app handles tokens
 | `src/lib/forms/`                       | Contract schemas, server-error mapping, money parsing (all pure)     |
 | `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
 | `src/components/table/`                | The `DataTable` primitive                                            |
-| `src/components/shell/`                | The frame: header, side nav, store switcher, section guards          |
+| `src/components/rail/`                 | The Medusa rail: serpents, geometry (pure), config, list fallback    |
+| `src/components/shell/`                | The frame: rail + top bar, store switcher, section guards            |
+| `public/`                              | The head artwork and the committed fonts (OFL)                       |
 | `src/components/states/`               | Every state panel plus the `ApiStatePanel` dispatcher                |
 | `src/components/ui/`                   | Presentational primitives (`cn`, Button, Card, Badge)                |
 | `test/`                                | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |

@@ -7,7 +7,7 @@
 import { ALL_LOCALES, LOCALE_PATTERN } from '../datasets.js';
 import { defineArrayMember, defineField, defineType } from './define.js';
 import { pageBlocks } from './objects.js';
-import { endsAfterStart, uniqueLocaleSlug } from './validators.js';
+import { endsAfterStart, uniqueLocale, uniqueLocaleKey, uniqueLocaleSlug } from './validators.js';
 
 const localeField = defineField({
   name: 'locale',
@@ -131,7 +131,7 @@ export const navigation = defineType({
         ],
       },
       initialValue: 'main',
-      validation: (rule) => rule.required(),
+      validation: (rule) => rule.required().custom(uniqueLocaleKey),
     }),
     localeField,
     defineField({
@@ -150,7 +150,15 @@ export const footer = defineType({
   title: 'Footer',
   type: 'document',
   fields: [
-    localeField,
+    defineField({
+      ...localeField,
+      description: 'The storefront language; one footer per language',
+      validation: (rule) =>
+        rule
+          .required()
+          .regex(LOCALE_PATTERN, { name: 'BCP-47 locale (xx-YY)' })
+          .custom(uniqueLocale),
+    }),
     defineField({
       name: 'columns',
       title: 'Link columns',
