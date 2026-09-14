@@ -115,9 +115,9 @@ Admin API 0.3.0 defines `ProductFeed` as `allOf: [ProductFeedInput, { … status
 while `ProductFeedInput.status` is `[draft, active, paused]`. Under `allOf` a value must satisfy **both**
 branches, so a feed in `error` — the status `publishFeed`'s own summary produces — is rejected by the document,
 and the generated TypeScript intersects the unions down to three values. Filed as a CONTRACT CHANGE with the
-exact diff (spell the schema out instead of composing it; no field changes). Until it lands, `feed-types.ts`
-carries the corrected read type and error-status responses are asserted in tests against
-`proposed/product-feed.schema.json` — the same `proposed/` pattern window 9 used in #162.
+exact diff (spell the schema out instead of composing it; no field changes) — landed as Admin API 0.4.1 (#194):
+`feed-types.ts` now uses the generated `ProductFeed` and the tests assert error-status responses against the
+document (`proposed/` removed).
 
 ### Known limitation — currency
 

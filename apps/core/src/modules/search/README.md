@@ -117,7 +117,7 @@ starts_at`, boost weight 1–100, at most 50 pins / 200 boosts / 200 buries. Dup
   (`cloudinaryCredentialsFor`; a store triple wins, a partial triple is ignored). `CLOUDINARY_CLOUD_NAME` is
   shared with the cms rows in `.env.example`; the key/secret rows are requested in #168.
 - Router: `mediaRouter({ credentialsFor?, now? })` (`media-http.ts`), mounted by window 1 next to
-  `adminRouter()` (REQUEST inside #168); relations and body schemas come from the proposed YAML until it lands.
+  `adminRouter()` (REQUEST inside #168); permissions are read from admin-api.yaml 0.4.1 (`loadSpec`, #168 landed).
 - Tests: `cloudinary.test.ts` (7: credentials, signature, params without the secret, slugs, transformations,
   passthrough, loader), `media.test.ts` (6: signed params / 409 / 404, alt required, variant check, 403 for a
   read-only role, append / insert / move / delete positions, thumbnail, audit + events, foreign product 404).

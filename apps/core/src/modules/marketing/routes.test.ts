@@ -4,14 +4,11 @@
 //
 // This file is also what proves the router works before window 1 mounts it in `src/http` (the REQUEST): it
 // mounts `marketingAdminRouter()` exactly where `adminRouter()` sits in the chain.
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -35,33 +32,6 @@ const base = `/admin/stores/${A}/marketing`;
 let db: TestDatabase;
 let app: express.Express;
 let feedsDir: string;
-
-/**
- * A feed whose publish failed cannot be validated against the frozen document: Admin API 0.3.0 defines
- * `ProductFeed` as `allOf[ProductFeedInput, …]` and `ProductFeedInput.status` excludes `error`, so the schema
- * rejects the very status `publishFeed` documents. Filed as a CONTRACT CHANGE; until it lands, error-status
- * responses are checked against `proposed/product-feed.schema.json` and everything else against the document.
- */
-const proposedFeedSchema = (() => {
-  const ajv = new Ajv2020({ strict: false, allErrors: true, allowUnionTypes: true });
-  const applyFormats = ((addFormats as unknown as { default?: unknown }).default ?? addFormats) as (
-    a: Ajv2020,
-  ) => void;
-  applyFormats(ajv);
-  const schema = JSON.parse(
-    readFileSync(join(__dirname, 'proposed', 'product-feed.schema.json'), 'utf8'),
-  ) as object;
-  const validate = ajv.compile(schema);
-  return (body: unknown) => {
-    if (!validate(body)) {
-      throw new Error(
-        `ProductFeed (proposed) mismatch: ${(validate.errors ?? [])
-          .map((e) => `${e.instancePath || '/'} ${e.message ?? ''}`)
-          .join('; ')}`,
-      );
-    }
-  };
-})();
 
 const as = (subject: string) => ({
   get: (path: string) => request(app).get(path).set('Authorization', `Bearer dev:${subject}`),
@@ -294,7 +264,7 @@ describe('feed routes', () => {
     expect(items.body.items).toHaveLength(3);
   });
 
-  it('reports a broken feed as status error (asserted against the proposed schema, see #CONTRACT)', async () => {
+  it('reports a broken feed as status error (a schema-valid ProductFeed since 0.4.1, #194)', async () => {
     await db.owner.query(`DELETE FROM store_domain WHERE store_id = $1`, [A]);
     try {
       const id = await createFeedViaApi();
@@ -302,10 +272,7 @@ describe('feed routes', () => {
       expect(published.status).toBe(200);
       expect(published.body.status).toBe('error');
       expect(published.body.item_count).toBe(0);
-      proposedFeedSchema(published.body);
-
-      // The frozen document cannot express this response — that is the bug the CONTRACT CHANGE fixes.
-      expect(() => spec.assertSchema('ProductFeed', published.body)).toThrow();
+      spec.assertSchema('ProductFeed', published.body);
     } finally {
       await db.owner.query(
         `INSERT INTO store_domain (organization_id, store_id, hostname, is_primary)

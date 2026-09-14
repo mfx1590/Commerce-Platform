@@ -1,8 +1,8 @@
-// Promotion types and body validation (task 2.5, #138). The shapes follow contracts-v0.3 `PromotionInput` /
-// `Promotion` plus the proposed additions of CONTRACT CHANGE #189 (`buy_x_get_y`, `stackable`, `exclusive`,
-// buy-X-get-Y rule numbers, `PromotionPatch`); the local ajv schemas mirror the proposed YAML until it lands
-// and the generated contract types take over. Storage: `stackable`/`exclusive` and the buy-X-get-Y numbers
-// live inside the `promotion.rules` jsonb column (#189, "jsonb" decision — no migration).
+// Promotion types and body validation (task 2.5, #138). The shapes follow Admin API 0.4.1 `PromotionInput` /
+// `PromotionPatch` / `Promotion` (CONTRACT CHANGE #189: `buy_x_get_y`, `stackable`, `exclusive`, buy-X-get-Y
+// rule numbers); the local ajv schemas mirror the spec and add the cross-field rules. Storage:
+// `stackable`/`exclusive` and the buy-X-get-Y numbers live inside the `promotion.rules` jsonb column (#189,
+// "jsonb" decision; the type CHECK is packages/db migration 0150).
 import { Ajv2020, type ErrorObject } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { validationError } from '../../lib/errors';
@@ -74,7 +74,7 @@ export interface Promotion {
   exclusive: boolean;
 }
 
-// ---- ajv (mirrors proposed/admin-api.promotions.yaml + the frozen PromotionInput) --------------------------
+// ---- ajv (mirrors admin-api.yaml 0.4.1 PromotionInput / PromotionPatch) -----------------------------------
 
 const uuid = { type: 'string', format: 'uuid' } as const;
 const uuidList = { type: 'array', maxItems: 200, items: uuid } as const;
