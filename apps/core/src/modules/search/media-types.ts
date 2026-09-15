@@ -1,5 +1,5 @@
-// Product media (task 2.3, #136): contract types of proposed/admin-api.media.yaml and the body validation the
-// router runs until the operations are in admin-api.yaml.
+// Product media (task 2.3, #136): the shapes of Admin API 0.4.1's ProductMedia / ProductMediaInput /
+// ProductMediaPatch / MediaUploadRequest (#168) and the body validation the router runs (same schemas).
 import { Ajv2020, type ErrorObject } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { validationError } from '../../lib/errors';

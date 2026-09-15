@@ -85,7 +85,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.0/);
+    expect(text).toMatch(/version: 0\.4\.1/);
     for (const tag of [
       'registry',
       'catalog',
@@ -141,6 +141,112 @@ describe('admin-api.yaml', () => {
     // one rule per scope: create documents 409; publish without an index documents 409
     expect(ops.find((o) => o.id === 'createMerchandisingRule')!.body).toMatch(/'409':/);
     expect(ops.find((o) => o.id === 'publishMerchandisingRules')!.body).toMatch(/'409':/);
+  });
+
+  it('product media (0.4.1, #168): signed upload params + per-item operations, viewer reads / store_staff writes', () => {
+    const ids = ops.map((o) => o.id);
+    const reads = ['listProductMedia'];
+    const writes = [
+      'createMediaUploadParams',
+      'addProductMedia',
+      'updateProductMedia',
+      'deleteProductMedia',
+    ];
+    for (const id of [...reads, ...writes]) expect(ids, id).toContain(id);
+    expect(ops.length).toBeGreaterThanOrEqual(100);
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    for (const id of reads) expect(permission(id), id).toEqual(['viewer', 'store:{storeId}']);
+    for (const id of writes) expect(permission(id), id).toEqual(['store_staff', 'store:{storeId}']);
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/media\/upload-params:/);
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/products\/\{productId\}\/media:/);
+    expect(text).toMatch(
+      /\/admin\/stores\/\{storeId\}\/products\/\{productId\}\/media\/\{mediaId\}:/,
+    );
+    for (const schema of [
+      'MediaUploadRequest',
+      'MediaUploadParams',
+      'ProductMediaInput',
+      'ProductMediaPatch',
+      'ProductMedia',
+    ]) {
+      expect(text, schema).toMatch(new RegExp(`^    ${schema}:$`, 'm'));
+    }
+    // alt is required per item; the store without credentials answers 409; the secret never appears
+    expect(text).toMatch(/ProductMediaInput:\n\s+type: object\n\s+required: \[url, alt\]/);
+    expect(ops.find((o) => o.id === 'createMediaUploadParams')!.body).toMatch(/'409':/);
+    expect(text).not.toMatch(/api_secret/);
+  });
+
+  it('promotions (0.4.1, #189): buy_x_get_y, stackable / exclusive, get + update operations', () => {
+    const ids = ops.map((o) => o.id);
+    for (const id of ['getPromotion', 'updatePromotion']) expect(ids, id).toContain(id);
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(permission('getPromotion')).toEqual(['viewer', 'store:{storeId}']);
+    expect(permission('updatePromotion')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/promotions\/\{promotionId\}:/);
+    expect(text).toMatch(/enum: \[percentage, fixed_amount, free_shipping, buy_x_get_y\]/);
+    for (const schema of ['PromotionRules', 'PromotionInput', 'PromotionPatch', 'Promotion']) {
+      expect(text, schema).toMatch(new RegExp(`^    ${schema}:$`, 'm'));
+    }
+    const component = (name: string) =>
+      text
+        .slice(text.indexOf(`\n    ${name}:\n`) + 1)
+        .match(/^ {4}\w+:\n[\s\S]*?(?=^ {4}\w+:\n)/m)![0];
+    // the patch never carries the immutable code / type; the response always carries the stacking flags
+    const patch = component('PromotionPatch');
+    expect(patch).not.toMatch(/^\s{8}code:/m);
+    expect(patch).not.toMatch(/^\s{8}type: \{/m);
+    expect(patch).toMatch(/^\s{8}stackable:/m);
+    expect(component('Promotion')).toMatch(/required:\n[\s\S]*stackable,\n\s+exclusive,/);
+    for (const rule of ['buy_quantity', 'get_quantity', 'get_discount_bp']) {
+      expect(component('PromotionRules'), rule).toMatch(new RegExp(`^\\s{8}${rule}:`, 'm'));
+    }
+  });
+
+  it('feeds (0.4.1, #194): ProductFeed is spelled out, so status=error validates; the input cannot claim it', () => {
+    const component = (name: string) =>
+      text
+        .slice(text.indexOf(`\n    ${name}:\n`) + 1)
+        .match(/^ {4}\w+:\n[\s\S]*?(?=^ {4}\w+:\n)/m)![0];
+    const feed = component('ProductFeed');
+    expect(feed).not.toMatch(/^\s+allOf:/m);
+    expect(feed).toMatch(/status: \{ type: string, enum: \[draft, active, paused, error\] \}/);
+    expect(component('ProductFeedInput')).toMatch(/enum: \[draft, active, paused\],/);
+    expect(text).toMatch(/^ {4}FeedGoogleError:$/m);
+  });
+
+  it('no allOf[XInput, …] component overrides a property its input branch already defines (#194 sweep)', () => {
+    // Under allOf a value must satisfy every branch, so redefining a property (a wider enum, another type)
+    // can only ever narrow it. Composition may add properties and required fields, never restate them.
+    const componentsText = text.slice(text.indexOf('\ncomponents:\n'));
+    const blocks = [
+      ...componentsText.matchAll(/^ {4}(\w+):\n([\s\S]*?)(?=^ {4}\w+:\n|^ {2}\w+:\n|(?![\s\S]))/gm),
+    ];
+    const props = (body: string, indent: number) =>
+      [...body.matchAll(new RegExp(`^ {${indent}}(\\w+):`, 'gm'))].map((m) => m[1]!);
+    const byName = new Map(blocks.map((b) => [b[1]!, b[2]!]));
+    let composed = 0;
+    for (const [name, body] of byName) {
+      if (!/^ {6}allOf:/m.test(body)) continue;
+      for (const ref of body.matchAll(/^ {8}- \$ref: '#\/components\/schemas\/(\w+)'$/gm)) {
+        const base = byName.get(ref[1]!);
+        if (!base) continue;
+        composed++;
+        const inherited = new Set(props(base, 8));
+        for (const own of props(body, 12)) {
+          expect(inherited.has(own), `${name} restates ${own} from ${ref[1]}`).toBe(false);
+        }
+      }
+    }
+    expect(composed).toBeGreaterThanOrEqual(6); // PriceList, Promotion, Order, Campaign, Segment, ReferralProgram
   });
 
   it('every admin operation documents 401 and 403 (#180; getMe has no permission, so 401 only)', () => {
