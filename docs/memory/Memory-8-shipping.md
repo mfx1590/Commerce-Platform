@@ -21,7 +21,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
   on the carrier's clock), `webhook-events.ts` (shared idempotency record + the proposed table SQL),
   `ports.ts`. 21 unit tests + 15 database tests. Admin API routes already exist in the contract — no CONTRACT
-  CHANGE needed. **Ports now call the real modules** (commit `SHA_INTX`): orders `…InTx` markers and inventory
+  CHANGE needed. **Ports now call the real modules** (commit `e9fc154`): orders `…InTx` markers and inventory
   `consumeReservationsForShipment` / `releaseReservationsForShipment`, all on shipping's transaction. Planning
   advances the order to `processing`; fulfilment is recorded on despatch, not on plan. My earlier "core 2.4 not
   merged" finding was a stale tree — it was on main.
