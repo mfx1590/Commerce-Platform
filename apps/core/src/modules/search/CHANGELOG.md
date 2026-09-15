@@ -5,6 +5,12 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-15 · docs cleanup after contracts-v0.4.1 (last Phase 2 change)
+
+- README and router headers now state the real mount state on main: `merchandisingRouter` is mounted through
+  `src/http/module-routers.ts`; `mediaRouter` is not yet (window 1, #179) and its routes 404 until it is.
+- README: the Cloudinary key/secret rows are in `.env.example` (landed with 0.4.1), no longer "requested".
+
 ### 2026-09-14 · contracts-v0.4.1 landed (#168 applied by the main window)
 
 - `proposed/admin-api.media.yaml` removed: the media operations are in `admin-api.yaml` 0.4.1 and

@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-09-14 · Contracts: Admin API 0.4.0 on main (0.4.1 pending: #168 + #189) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE — 2.1–2.5 all merged to main.** #134–#138 closed. Last action left: the docs-only cleanup once Admin API 0.4.1 lands (delete both `proposed/` folders + their test-side DDL, switch the merchandising/media/promotions routers to `loadSpec`). Then the window goes QUIET until a REQUEST reopens it.
+Last updated: 2026-09-15 · Contracts: contracts-v0.4.1 on main (67f19d5) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE AND QUIET.** 2.1–2.5 merged (#160, #166, #188); 2.5 follow-up #208 merged (main `2456e9a`); this docs-only cleanup is the last commit. Reopens only on a REQUEST.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -24,11 +24,13 @@ Algolia index per brand synced from product.published events, merchandising rule
 - [x] **#138 · 2.5** Promotions and coupon rule engine — commit `023209b`, merged inside #188 (main `899e606`); issue closed 2026-09-14. No separate 2.5 PR: the commits reached the branch via the 2026-09-09 push (see the push gotcha below); the scope correction and the corrected PR title/body landed on #188 before it merged. CONTRACT CHANGE #189 accepted, lands with Admin API 0.4.1 (migration 0150 = the promotion type-CHECK widening).
 
 ## In progress
-- **2.5 follow-up PR** (post-merge review of #188): per-line discount budget (the cart-level cap let two overlapping stackables spend the same line twice), `ctx.at` required, cross-store code test, #179 amended with the missing `promotionsRouter` mount + the CLAUDE.md promotions row. Gates green. Not taken now (manager's call): per-customer limit still relies on caller-supplied counts; automatic promotions (code null) never appear in the report.
+- (nothing — window quiet since 2026-09-15)
 
-## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [ ] After contracts 0.4.0 (#185, carries #162 + #180) lands on main: `git merge main` — #185 itself deletes `proposed/` (merchandising) and switches the merchandising router to spec-driven permissions, so the follow-up is **docs only** (README references to proposed/, memory). #168 + #189 land after the 2.5 PR merges, bundled into Admin API 0.4.1 (migration 0150 = the promotion type-CHECK widening); same docs-only cleanup for the media/promotions proposed/ files then. (#166 nits: folded into the branch 2026-09-08, commit `56ccb75`.)
-- [ ] When window 1 delivers #179's catalog media functions: switch `media.ts` to them, delete its direct SQL on `product_media`/`product.thumbnail_url`.
+## Next — only if reopened by a REQUEST
+- When window 1 mounts the three pending routers (#179: `mediaRouter`, `pricingRouter`, `promotionsRouter`): update the two READMEs' "not mounted yet" lines.
+- When window 1 delivers #179's catalog media functions: switch `media.ts` to them, delete its direct SQL on `product_media`/`product.thumbnail_url`.
+- Known, deliberately not done (manager, #208 review): per-customer promotion limit relies on caller-supplied counts; automatic promotions (code null) never appear in `promotionReportData`.
+- Local env note (manager-confirmed 2026-09-15): the shared stack can be partially down locally — OpenFGA (:8081) was, so hq-rbac + auth-live suites skipped (34 passed / 8 skipped). **CI's live job is the authoritative run** for those suites; check which files skipped before trusting a local green, and never restart the shared stack from this window.
 
 ## Decisions made (with reasons)
 - **No SDKs (Algolia, Cloudinary); REST/crypto over Node built-ins.** `apps/core/package.json` belongs to window 1. Errors strip the Algolia key (every occurrence); `request` retries 429/5xx/network with backoff.
@@ -48,8 +50,7 @@ Algolia index per brand synced from product.published events, merchandising rule
 - **2.4 no events**: events 0.2.0 has no price topics; price changes reach the search index at the next full reindex (documented in both READMEs); a price event would be a `CONTRACT CHANGE:` on packages/events if incremental price sync is ever needed.
 
 ## Blocked / waiting
-- **Push hold for 2.3** until the manager confirms the #166 merge (then push + PR). If the manager merged main into `origin/search/phase2` again, `git pull` (merge) first, `pnpm install`, re-run typecheck + module tests.
-- #162 (accepted, lands after #166), #168 (CONTRACT CHANGE 2.3, main), #169 (REQUEST loader, window 3), mount lines (window 1) — all non-blocking.
+- (none — all window-9 work is merged or in #208; #179 mount lines are window 1's and non-blocking)
 
 ## Gotchas learned
 - **A branch push is all-or-nothing — "hold the push" cannot be honoured per-commit** (2026-09-14). 2.5 was committed locally under a push hold; pushing an unrelated memory commit on 2026-09-09 carried it too, so 2.5 rode into PR #188 and merged with 2.3+2.4 instead of getting its own PR. The manager was still planning around "2.5 unpushed" two messages later. If a hold matters, either keep the held work on a separate branch or re-check `git log origin/<branch>..HEAD` before reporting "unpushed" — and re-verify the claim every time it is repeated, not just when first made.
