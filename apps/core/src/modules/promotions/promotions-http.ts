@@ -1,7 +1,7 @@
 // Admin API promotion routes (task 2.5, #138). Every permission is the operation's `x-permission` from
 // admin-api.yaml 0.4.1 (`getPromotion` / `updatePromotion` landed with CONTRACT CHANGE #189); bodies are
-// validated by promotions-types.ts (same shapes as the spec plus the cross-field rules). Window 1 mounts
-// `promotionsRouter()` (REQUEST #179 add-on noted in the PR).
+// validated by promotions-types.ts (same shapes as the spec plus the cross-field rules). Not mounted yet:
+// window 1 adds it to src/http/module-routers.ts (REQUEST #179, amended 2026-09-14).
 import { Router, type Request, type RequestHandler } from 'express';
 import type { ScopedClient } from '@platform/db';
 import { handle } from '../../http/errors';
