@@ -5,6 +5,11 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-14 · contracts-v0.4.1 landed (#189 applied by the main window)
+
+- `proposed/` removed: the type CHECK widening is `packages/db` migration 0150 (`promotions.test.ts` no longer
+  applies it) and `getPromotion` / `updatePromotion` read their `x-permission` from admin-api.yaml 0.4.1.
+
 ### 2026-09-14 · 2.5 follow-up — per-line discount budget + review fixes (post-merge review of #188)
 
 - **Defect fixed**: the discount cap was cart-level only, so two overlapping stackable `fixed_amount` 1000

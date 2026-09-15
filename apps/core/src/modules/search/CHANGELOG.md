@@ -5,6 +5,11 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-14 · contracts-v0.4.1 landed (#168 applied by the main window)
+
+- `proposed/admin-api.media.yaml` removed: the media operations are in `admin-api.yaml` 0.4.1 and
+  `media-http.ts` reads each operation's `x-permission` via `loadSpec` instead of hard-coding the relations.
+
 ### 2026-09-09 · core boot regression fixed (#202/#203)
 
 - The index CLI moved `src/jobs/index-products.ts` → `src/modules/search/cli/index-products.ts`. Medusa's job

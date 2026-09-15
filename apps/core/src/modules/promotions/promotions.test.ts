@@ -2,8 +2,6 @@
 // principals: spec permission on list/create, local ones on get/patch, validation against the store's catalog,
 // jsonb round trip of stackable/exclusive/buy-X-get-Y, atomic usage counting to the limit (contract error),
 // and the report provider over the "order" read model.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -46,10 +44,6 @@ const base = `/admin/stores/${A}/promotions`;
 beforeAll(async () => {
   db = await createTestDatabase('core_promo');
   await seed(db.owner, { productsPerStore: 6, log: () => {} });
-  // the one db statement of CONTRACT CHANGE #189, verbatim (proven here until it lands in packages/db)
-  await db.owner.query(
-    readFileSync(join(__dirname, 'proposed', '0131_promotion_type_buy_x_get_y.sql'), 'utf8'),
-  );
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
   await initDb({ connectionString: db.app.options.connectionString! });

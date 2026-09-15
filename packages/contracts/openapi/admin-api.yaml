@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.0
+  version: 0.4.1
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -11,6 +11,8 @@ info:
     0.3.0 adds the marketing surface under `/admin/stores/{storeId}/marketing/…` and `/admin/marketing/…` (docs/marketing-scope.md, additive).
     0.4.0 adds search merchandising rules under `/admin/stores/{storeId}/merchandising/…` (CONTRACT CHANGE #162, additive) and
     documents `401` and `403` on every operation (#180): every `x-permission` can fail, and Prism can only mock what is written down.
+    0.4.1 adds per-item product media + signed Cloudinary upload params (#168), `getPromotion`/`updatePromotion` with the
+    `buy_x_get_y` type and `stackable`/`exclusive` (#189), and spells `ProductFeed` out so `status: error` validates (#194).
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -694,6 +696,152 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /admin/stores/{storeId}/media/upload-params:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    post:
+      tags: [catalog]
+      operationId: createMediaUploadParams
+      summary: Signed parameters for a direct browser → Cloudinary upload (the API secret never leaves the server)
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaUploadRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaUploadParams' }
+              example:
+                {
+                  upload_url: https://api.cloudinary.com/v1_1/demo/image/upload,
+                  cloud_name: demo,
+                  api_key: '123456789012345',
+                  timestamp: 1757332800,
+                  signature: 5f2d1c0a9b8e7d6c5b4a39281706f5e4d3c2b1a0,
+                  params:
+                    {
+                      folder: products/brand-a,
+                      public_id: classic-tee-8f3a2c,
+                      timestamp: 1757332800,
+                    },
+                  max_bytes: 10485760,
+                  allowed_formats: [jpg, jpeg, png, webp, avif, gif],
+                }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: The store has no media credentials configured (conflict)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/stores/{storeId}/products/{productId}/media:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [catalog]
+      operationId: listProductMedia
+      summary: The product's media ordered by position (contiguous from 0)
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK (ordered by position, contiguous from 0)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ProductMedia' } }
+              example:
+                {
+                  items:
+                    [
+                      {
+                        id: 30000000-0000-4000-8000-000000000221,
+                        url: https://res.cloudinary.com/demo/image/upload/v1757332800/products/brand-a/classic-tee.jpg,
+                        alt: Classic Tee,
+                        position: 0,
+                        variant_id: null,
+                        variants:
+                          {
+                            thumb: 'https://res.cloudinary.com/demo/image/upload/c_fill,w_400,h_400,g_auto,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg',
+                            pdp: 'https://res.cloudinary.com/demo/image/upload/c_limit,w_1200,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg',
+                            zoom: 'https://res.cloudinary.com/demo/image/upload/c_limit,w_2400,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg',
+                          },
+                      },
+                    ],
+                }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [catalog]
+      operationId: addProductMedia
+      summary: Append one media item (alt text required); becomes the thumbnail when it is the first
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductMediaInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductMedia' }
+              examples:
+                front: { $ref: '#/components/examples/ProductMediaFront' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/products/{productId}/media/{mediaId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: mediaId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [catalog]
+      operationId: updateProductMedia
+      summary: Change alt / variant / position (move; the others shift, positions stay contiguous)
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductMediaPatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductMedia' }
+              examples:
+                front: { $ref: '#/components/examples/ProductMediaFront' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [catalog]
+      operationId: deleteProductMedia
+      summary: Remove one item; the remaining positions are renumbered 0..n-1 in their existing order
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ---------------------------------------------------------------- pricing
   /admin/stores/{storeId}/price-lists:
     parameters:
@@ -862,6 +1010,8 @@ paths:
                         starts_at: null,
                         ends_at: null,
                         status: active,
+                        stackable: false,
+                        exclusive: false,
                       },
                     ],
                 }
@@ -897,10 +1047,99 @@ paths:
                   starts_at: null,
                   ends_at: null,
                   status: active,
+                  stackable: false,
+                  exclusive: false,
                 }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/promotions/{promotionId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: promotionId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [pricing]
+      operationId: getPromotion
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Promotion' }
+              example:
+                {
+                  id: 50000000-0000-4000-8000-000000000102,
+                  code: null,
+                  name: Buy 2 tees get 1 free,
+                  type: buy_x_get_y,
+                  value: 0,
+                  currency: null,
+                  rules:
+                    {
+                      category_ids: [00000000-0000-4000-8000-000000000201],
+                      buy_quantity: 2,
+                      get_quantity: 1,
+                      get_discount_bp: 10000,
+                    },
+                  usage_limit: null,
+                  usage_count: 3,
+                  per_customer_limit: null,
+                  starts_at: null,
+                  ends_at: null,
+                  status: active,
+                  stackable: false,
+                  exclusive: true,
+                }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [pricing]
+      operationId: updatePromotion
+      summary: Partial update; `code` and `type` are immutable (create a new promotion instead)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromotionPatch' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Promotion' }
+              example:
+                {
+                  id: 50000000-0000-4000-8000-000000000102,
+                  code: null,
+                  name: Buy 2 tees get 1 free,
+                  type: buy_x_get_y,
+                  value: 0,
+                  currency: null,
+                  rules:
+                    {
+                      category_ids: [00000000-0000-4000-8000-000000000201],
+                      buy_quantity: 2,
+                      get_quantity: 1,
+                      get_discount_bp: 10000,
+                    },
+                  usage_limit: null,
+                  usage_count: 3,
+                  per_customer_limit: null,
+                  starts_at: null,
+                  ends_at: null,
+                  status: active,
+                  stackable: false,
+                  exclusive: true,
+                }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- orders
   /admin/stores/{storeId}/orders:
@@ -2424,6 +2663,7 @@ paths:
               schema: { $ref: '#/components/schemas/ProductFeed' }
               examples:
                 google: { $ref: '#/components/examples/FeedGoogle' }
+                googleError: { $ref: '#/components/examples/FeedGoogleError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2476,6 +2716,7 @@ paths:
               schema: { $ref: '#/components/schemas/ProductFeed' }
               examples:
                 google: { $ref: '#/components/examples/FeedGoogle' }
+                googleError: { $ref: '#/components/examples/FeedGoogleError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -3499,6 +3740,70 @@ components:
               reserved: { type: integer }
               available: { type: integer }
 
+    MediaUploadRequest:
+      type: object
+      required: [product_id]
+      properties:
+        product_id:
+          {
+            type: string,
+            format: uuid,
+            description: the product the upload is for (must belong to the store),
+          }
+        filename: { type: string, maxLength: 200, description: used to derive a readable public_id }
+        content_type: { type: string, maxLength: 100 }
+    MediaUploadParams:
+      type: object
+      required:
+        [upload_url, cloud_name, api_key, timestamp, signature, params, max_bytes, allowed_formats]
+      properties:
+        upload_url: { type: string, format: uri }
+        cloud_name: { type: string }
+        api_key: { type: string, description: public key id, not a secret }
+        timestamp: { type: integer }
+        signature:
+          {
+            type: string,
+            description: SHA-1 over the sorted signed params + api secret (server side),
+          }
+        params:
+          type: object
+          description: every parameter that is part of the signature; send them verbatim with the file
+          additionalProperties: { type: [string, integer] }
+        max_bytes: { type: integer }
+        allowed_formats: { type: array, items: { type: string } }
+    ProductMediaInput:
+      type: object
+      required: [url, alt]
+      properties:
+        url: { type: string, format: uri, maxLength: 2000 }
+        alt: { type: string, minLength: 1, maxLength: 500, description: required for accessibility }
+        variant_id: { type: [string, 'null'], format: uuid }
+        position: { type: integer, minimum: 0, description: insert at; default = append }
+    ProductMediaPatch:
+      type: object
+      properties:
+        alt: { type: string, minLength: 1, maxLength: 500 }
+        variant_id: { type: [string, 'null'], format: uuid }
+        position: { type: integer, minimum: 0 }
+    ProductMedia:
+      type: object
+      required: [id, url, alt, position, variant_id, variants]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string }
+        alt: { type: [string, 'null'] }
+        position: { type: integer }
+        variant_id: { type: [string, 'null'], format: uuid }
+        variants:
+          type: object
+          description: Cloudinary delivery URLs per rendition (the original url for non-Cloudinary hosts)
+          required: [thumb, pdp, zoom]
+          properties:
+            thumb: { type: string }
+            pdp: { type: string }
+            zoom: { type: string }
+
     PriceListInput:
       type: object
       required: [code, name, type, currency]
@@ -3520,30 +3825,74 @@ components:
           required: [id, customer_group_id, sales_channel_id, starts_at, ends_at, status, priority]
           properties:
             id: { type: string, format: uuid }
+    PromotionRules:
+      type: object
+      description: |
+        Conditions of a promotion; `buy_quantity` / `get_quantity` / `get_discount_bp` apply to `buy_x_get_y` only
+        (0.4.1, #189). Stored in the `promotion.rules` jsonb column together with `stackable` / `exclusive`.
+      properties:
+        min_subtotal_minor: { type: integer }
+        product_ids: { type: array, items: { type: string, format: uuid } }
+        category_ids: { type: array, items: { type: string, format: uuid } }
+        customer_group_ids: { type: array, items: { type: string, format: uuid } }
+        sales_channel_ids: { type: array, items: { type: string, format: uuid } }
+        first_order_only: { type: boolean }
+        buy_quantity:
+          { type: integer, minimum: 1, description: buy_x_get_y — units that must be bought }
+        get_quantity:
+          { type: integer, minimum: 1, description: buy_x_get_y — units discounted per bundle }
+        get_discount_bp:
+          {
+            type: integer,
+            minimum: 1,
+            maximum: 10000,
+            default: 10000,
+            description: discount on the free units in basis points (10000 = free),
+          }
     PromotionInput:
       type: object
       required: [name, type]
       properties:
         code: { type: [string, 'null'] }
         name: { type: string }
-        type: { type: string, enum: [percentage, fixed_amount, free_shipping] }
+        type: { type: string, enum: [percentage, fixed_amount, free_shipping, buy_x_get_y] }
         value:
           { type: integer, description: basis points for percentage, minor units for fixed_amount }
         currency: { type: [string, 'null'] }
-        rules:
-          type: object
-          properties:
-            min_subtotal_minor: { type: integer }
-            product_ids: { type: array, items: { type: string, format: uuid } }
-            category_ids: { type: array, items: { type: string, format: uuid } }
-            customer_group_ids: { type: array, items: { type: string, format: uuid } }
-            sales_channel_ids: { type: array, items: { type: string, format: uuid } }
-            first_order_only: { type: boolean }
+        rules: { $ref: '#/components/schemas/PromotionRules' }
         usage_limit: { type: [integer, 'null'] }
         per_customer_limit: { type: [integer, 'null'] }
         starts_at: { type: [string, 'null'], format: date-time }
         ends_at: { type: [string, 'null'], format: date-time }
         status: { type: string, enum: [active, draft, disabled] }
+        stackable:
+          {
+            type: boolean,
+            default: false,
+            description: may combine with other stackable promotions,
+          }
+        exclusive:
+          {
+            type: boolean,
+            default: false,
+            description: applies alone; the best exclusive wins over everything else,
+          }
+    PromotionPatch:
+      type: object
+      description: Every PromotionInput property except `code` and `type` (immutable), all optional (0.4.1, #189)
+      properties:
+        name: { type: string }
+        value:
+          { type: integer, description: basis points for percentage, minor units for fixed_amount }
+        currency: { type: [string, 'null'] }
+        rules: { $ref: '#/components/schemas/PromotionRules' }
+        usage_limit: { type: [integer, 'null'] }
+        per_customer_limit: { type: [integer, 'null'] }
+        starts_at: { type: [string, 'null'], format: date-time }
+        ends_at: { type: [string, 'null'], format: date-time }
+        status: { type: string, enum: [active, draft, disabled] }
+        stackable: { type: boolean }
+        exclusive: { type: boolean }
     Promotion:
       allOf:
         - $ref: '#/components/schemas/PromotionInput'
@@ -3561,6 +3910,8 @@ components:
               starts_at,
               ends_at,
               status,
+              stackable,
+              exclusive,
             ]
           properties:
             id: { type: string, format: uuid }
@@ -4057,43 +4408,72 @@ components:
           type: object
           additionalProperties: true
           description: 'Channel attribute → product field overrides (e.g. { brand: Brand A })'
-        status: { type: string, enum: [draft, active, paused] }
+        status:
+          {
+            type: string,
+            enum: [draft, active, paused],
+            description: 'Omitted on create → draft; pause / resume on update. `error` is only ever set by publishing.',
+          }
     ProductFeed:
-      allOf:
-        - $ref: '#/components/schemas/ProductFeedInput'
-        - type: object
-          required:
-            [
-              id,
-              store_id,
-              filters,
-              mapping,
-              url,
-              status,
-              last_published_at,
-              item_count,
-              errors,
-              created_at,
-              updated_at,
-            ]
+      # Spelled out, not allOf[ProductFeedInput, …]: under allOf a value must satisfy every branch, so an
+      # overridden enum (status with `error`) could never validate (0.4.1, CONTRACT CHANGE #194).
+      type: object
+      required:
+        [
+          id,
+          store_id,
+          name,
+          channel,
+          locale,
+          currency,
+          filters,
+          mapping,
+          url,
+          status,
+          last_published_at,
+          item_count,
+          errors,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        store_id: { type: string, format: uuid }
+        name: { type: string }
+        channel: { type: string, enum: [google_merchant, meta, tiktok, pinterest] }
+        locale: { type: string }
+        currency:
+          {
+            type: string,
+            pattern: '^[A-Z]{3}$',
+            description: Must be one of the store's currencies,
+          }
+        filters:
+          type: object
+          additionalProperties: true
           properties:
-            id: { type: string, format: uuid }
-            store_id: { type: string, format: uuid }
-            url: { type: [string, 'null'], description: Public feed URL once published }
-            status: { type: string, enum: [draft, active, paused, error] }
-            last_published_at: { type: [string, 'null'], format: date-time }
-            item_count: { type: integer, minimum: 0 }
-            errors:
-              type: array
-              items:
-                type: object
-                required: [code, message]
-                properties:
-                  code: { type: string }
-                  message: { type: string }
-                  product_id: { type: [string, 'null'], format: uuid }
-            created_at: { type: string, format: date-time }
-            updated_at: { type: string, format: date-time }
+            category_ids: { type: array, items: { type: string, format: uuid } }
+            tags: { type: array, items: { type: string } }
+            in_stock_only: { type: boolean }
+        mapping:
+          type: object
+          additionalProperties: true
+          description: 'Channel attribute → product field overrides (e.g. { brand: Brand A })'
+        url: { type: [string, 'null'], description: Public feed URL once published }
+        status: { type: string, enum: [draft, active, paused, error] }
+        last_published_at: { type: [string, 'null'], format: date-time }
+        item_count: { type: integer, minimum: 0 }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code: { type: string }
+              message: { type: string }
+              product_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     FeedItem:
       type: object
       description: One row of a product feed — channel-neutral names; the file writer maps them per channel
@@ -4499,6 +4879,17 @@ components:
         published_at: '2026-09-04T00:00:00Z'
         created_at: '2026-09-04T00:00:00Z'
         updated_at: '2026-09-04T00:00:00Z'
+    ProductMediaFront:
+      value:
+        id: 30000000-0000-4000-8000-000000000221
+        url: https://res.cloudinary.com/demo/image/upload/v1757332800/products/brand-a/classic-tee.jpg
+        alt: Classic Tee
+        position: 0
+        variant_id: null
+        variants:
+          thumb: https://res.cloudinary.com/demo/image/upload/c_fill,w_400,h_400,g_auto,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg
+          pdp: https://res.cloudinary.com/demo/image/upload/c_limit,w_1200,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg
+          zoom: https://res.cloudinary.com/demo/image/upload/c_limit,w_2400,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg
     ShipmentPending:
       value:
         id: 60000000-0000-4000-8000-000000000301
@@ -4709,6 +5100,27 @@ components:
               code: missing_gtin,
               message: 'GTIN missing; Google requires it for branded goods',
               product_id: 30000000-0000-4000-8000-000000000201,
+            }
+        created_at: '2026-09-08T00:00:00Z'
+        updated_at: '2026-09-08T06:00:00Z'
+    FeedGoogleError:
+      value:
+        id: 70000000-0000-4000-8000-000000000731
+        store_id: 00000000-0000-4000-8000-000000000031
+        name: Google Shopping NL
+        channel: google_merchant
+        locale: en-GB
+        currency: EUR
+        filters: { in_stock_only: true }
+        mapping: { brand: Brand A }
+        url: null
+        status: error
+        last_published_at: null
+        item_count: 0
+        errors:
+          - {
+              code: no_primary_domain,
+              message: 'The store has no primary domain; product links cannot be built',
             }
         created_at: '2026-09-08T00:00:00Z'
         updated_at: '2026-09-08T06:00:00Z'

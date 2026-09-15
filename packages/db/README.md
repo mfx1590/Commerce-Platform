@@ -35,4 +35,5 @@ role that store A cannot read, filter, insert, or move store B rows; that organi
 foreign organization and a context-less connection see nothing; and that per-store order numbers are sequential.
 Since 0.2.0 it also covers the marketing tables (0120): campaign and attribution rows stay per store, and segment
 templates (`store_id NULL`) are visible only in organization scope. Since 0.2.1 it covers `merchandising_rule` (0130):
-rules stay per store and one rule per store + scope is enforced.
+rules stay per store and one rule per store + scope is enforced. Since 0.2.2 it covers migration 0150: `promotion.type`
+accepts `buy_x_get_y` and still refuses unknown types.

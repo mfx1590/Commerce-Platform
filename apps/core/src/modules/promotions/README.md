@@ -58,10 +58,10 @@ Types `percentage` (value = basis points), `fixed_amount` (value = minor units, 
 `get_discount_bp`, 10000 = free; the CHEAPEST eligible units are the discounted ones). `stackable` /
 `exclusive` and the buy-X-get-Y numbers are stored **inside the `rules` jsonb column** (no migration; the API
 lifts the first two to top level); the one db statement #189 needs — widening the `type` CHECK — lives at
-`proposed/0131_promotion_type_buy_x_get_y.sql` and is applied by the tests until it lands.
+`packages/db` migration 0150 (landed with contracts-v0.4.1).
 
 - **Admin operations**: `listPromotions` / `createPromotion` are contracts-v0.3 (spec permission); `GET` /
-  `PATCH …/promotions/{promotionId}` are #189 (viewer / store_admin, local validation; `code` and `type`
+  `PATCH …/promotions/{promotionId}` are Admin API 0.4.1 / #189 (spec permission, local validation; `code` and `type`
   immutable). Codes are stored and matched upper-case trimmed, unique per store (409). Every rule id
   (products, categories, groups, channels) must belong to the store (400 with the offending list). Audit
   `promotion.create` / `promotion.update`.

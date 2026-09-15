@@ -339,10 +339,10 @@ Owner: window 1 (catalog).
 | product_id | uuid FK product | |
 | variant_id | uuid NULL FK product_variant | |
 | url | text | Cloudinary URL (window 9) |
-| alt | text NULL | |
-| position | int | |
+| alt | text NULL | required (non-blank) on the per-item Admin API operations since contracts-v0.4.1 (#168); the whole-set `ProductInput.media` path still allows NULL |
+| position | int | server-owned: contiguous 0..n-1 per product; add inserts at `position` (default append), move shifts the others, delete renumbers (#168) |
 
-Owner: window 1 (catalog); upload pipeline window 9.
+Owner: window 1 (catalog); upload pipeline window 9 (signed Cloudinary upload params, per-item add / patch / delete, contracts-v0.4.1).
 
 ### customer_group
 
@@ -397,10 +397,10 @@ Owner: window 1 (pricing).
 | organization_id / store_id | uuid | |
 | code | text NULL | coupon code, unique per store when set; NULL = automatic |
 | name | text | |
-| type | text | `percentage` / `fixed_amount` / `free_shipping` |
+| type | text | `percentage` / `fixed_amount` / `free_shipping` / `buy_x_get_y` (migration 0150, contracts-v0.4.1 #189) |
 | value | int | basis points for percentage (1000 = 10%), minor units for fixed |
 | currency | char(3) NULL | required for fixed_amount |
-| rules | jsonb | `{min_subtotal_minor, product_ids, category_ids, customer_group_ids, sales_channel_ids, first_order_only}` |
+| rules | jsonb | `{min_subtotal_minor, product_ids, category_ids, customer_group_ids, sales_channel_ids, first_order_only, buy_quantity, get_quantity, get_discount_bp, stackable, exclusive}` — the API lifts `stackable` / `exclusive` to top level; `buy_*` / `get_*` are `buy_x_get_y` only (#189, no extra columns) |
 | usage_limit | int NULL | |
 | usage_count | int | |
 | per_customer_limit | int NULL | |
@@ -789,7 +789,7 @@ Owner: window 17 (materialise job). Events: none. No `updated_at`: rows are repl
 | filters | jsonb | `{category_ids, tags, in_stock_only, …}` |
 | mapping | jsonb | channel attribute → product field overrides |
 | url | text NULL | public URL once published |
-| status | text | `draft` / `active` / `paused` / `error` |
+| status | text | `draft` / `active` / `paused` / `error` — `error` is set by publishing only; `ProductFeedInput.status` is `draft` / `active` / `paused` (contracts-v0.4.1 #194: `ProductFeed` is spelled out, not `allOf[ProductFeedInput, …]`) |
 | last_published_at | timestamptz NULL | |
 | item_count | int | |
 | errors | jsonb | `[{code, message, product_id?}]` |
