@@ -205,6 +205,59 @@ describe('stacking and exclusion', () => {
     expect(withEx.rejected.filter((x) => x.reason === 'not_stacked')).toHaveLength(4);
   });
 
+  it('no line is ever discounted past its own total, and the overflow spills to other eligible lines', () => {
+    // the defect the post-merge review of #188 found: two stackable fixed_amount 1000 promotions both
+    // targeting the 1000 line used to allocate 2000 to it, because the cap was cart-level only
+    const onL1 = { product_ids: ['p1'] };
+    const a = promo({
+      type: 'fixed_amount',
+      value: 1000,
+      currency: 'EUR',
+      stackable: true,
+      rules: onL1,
+    });
+    const b = promo({
+      type: 'fixed_amount',
+      value: 1000,
+      currency: 'EUR',
+      stackable: true,
+      rules: onL1,
+    });
+    const r = evaluatePromotions(lines, [a, b], ctx);
+    expect(r.allocations.l1).toBe(1000); // l1's own total, not 2000
+    expect(r.discount_minor).toBe(1000);
+    expect(r.applied.map((x) => x.discount_minor)).toEqual([1000, 0]); // the second finds no room
+
+    // spill: a category promotion covering l1 + l2, applied after `a` exhausted l1, keeps its full value by
+    // moving l1's blocked share onto l2 instead of silently losing it
+    const catC1 = promo({
+      type: 'fixed_amount',
+      value: 900,
+      currency: 'EUR',
+      stackable: true,
+      rules: { category_ids: ['c1'] },
+    });
+    const spill = evaluatePromotions(lines, [a, catC1], ctx);
+    expect(spill.allocations.l1).toBe(1000); // exhausted by `a`, never beyond its own total
+    expect(spill.allocations.l2).toBe(900); // l1's blocked 450 spilled here on top of l2's own 450
+    expect(spill.applied.find((x) => x.promotion_id === catC1.id)!.discount_minor).toBe(900);
+    expect(spill.discount_minor).toBe(1900);
+
+    // the invariant, over every case in this file's fixtures
+    for (const set of [
+      [a, b],
+      [a, catC1],
+      [a, b, catC1],
+    ]) {
+      const out = evaluatePromotions(lines, set, ctx);
+      for (const l of lines)
+        expect(out.allocations[l.id] ?? 0).toBeLessThanOrEqual(l.unit_price_minor * l.quantity);
+      expect(Object.values(out.allocations).reduce((n, v) => n + v, 0)).toBe(out.discount_minor);
+      for (const ap of out.applied)
+        expect(Object.values(ap.allocations).reduce((n, v) => n + v, 0)).toBe(ap.discount_minor);
+    }
+  });
+
   it('the combined discount never exceeds the subtotal and still allocates exactly', () => {
     const a = promo({ stackable: true, value: 8000 }); // 4000
     const b = promo({ stackable: true, value: 6000 }); // 3000 → capped to 1000
