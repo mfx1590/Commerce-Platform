@@ -3,7 +3,26 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
-## Phase 2 — payments/phase2 (contracts-v0.3)
+## Phase 2 — payments/phase2 (contracts-v0.3 → v0.4.1)
+
+### 2026-09-15 · 2.2 Signed webhook receiver with idempotency and replay protection (#125)
+
+- `webhook-signature.ts`: `Stripe-Signature` parsing, HMAC-SHA256 over `"<t>.<raw body>"`, ±300 s tolerance,
+  constant-time compare against every `v1` entry (secret roll), `signStripePayload` for tests/CLI parity.
+- `webhook-extract.ts`: `redactStripeEvent` (ids, amounts, statuses, error codes, our metadata ids — no PII),
+  `canonicalJson`, `sha256Hex`, `sealExtract` / `verifySeal` (extract bound to `payload_hash`).
+- `webhook-receiver.ts`: `handleStripeWebhook` — signature before any parsing/DB work; insert-or-skip on
+  `(provider, provider_event_id)` with processing in the same transaction; in-flight duplicate → wait then 409,
+  takeover after 60 s; state-guarded handlers for `payment_intent.succeeded` / `canceled` / `payment_failed` /
+  `amount_capturable_updated`, everything else stored as `skipped` (replayable); order transitions through the
+  orders module (`markPaymentCaptured`, `markPaymentFailed`, `cancelOrder`); `replayWebhookEvent` (idempotent,
+  refuses a tampered extract, counts replays); `getWebhookEvent`.
+- `replay-webhook.ts`: the CLI (`tsx src/modules/payments/replay-webhook.ts evt_…`; exit 0/2/1).
+- `webhook-router.ts`: `paymentsWebhookRouter()` — `POST /webhooks/stripe/:storeCode` on the raw body; mount line
+  requested on #176 (part 3).
+- `credentials.ts`: `stripeWebhookSecretFor` (the receiver verifies without needing the secret key).
+- `proposed/0140_webhook_event.sql`: #187's DDL, applied by `webhooks.test.ts` only until migration 0140 lands.
+- Tests: `webhooks.test.ts` (18). README: webhook section + runbook (register, rotate, replay, read the table).
 
 ### 2026-09-08 · 2.1 Stripe provider (hosted fields, test mode), capture on confirm, per-store credentials (#124)
 

@@ -330,6 +330,13 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ### Changed
 
+- OpenFGA playground host port **3001 → 18083** (`infra/docker/docker-compose.yml`, the README ports table,
+  `infra/openfga/README.md`). On a Windows machine whose dynamic port range starts at 1024, WinNAT reserves
+  random 100-port blocks below 15000 and moves them on every restart; 3001 landed in 2917–3016 and compose
+  refused to start OpenFGA at all, taking the API down with the playground. The originally agreed 3081 was
+  already inside another block (3055–3154), so the port went above 15000 instead. Verified: the container
+  starts, the API and the playground both answer 200. The README now lists which stack ports sit below 15000
+  and the two owner-side remedies.
 - Brand storefront journeys (`apps/storefronts/*`) are **opt-in** in `infra/ci/run-e2e.sh`:
   `E2E_INCLUDE_BRAND_STOREFRONTS=1`, default off. `apps/*` discovery is unchanged. Brand-a inherits the
   starter's account journey, which signs in through Keycloak, but the realm's brand client only registers the

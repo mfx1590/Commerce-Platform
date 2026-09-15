@@ -8,10 +8,25 @@
   | redis                   | 6381                                                                     |                                                                                                                                                                    |
   | redpanda                | 19092 (Kafka), 18081 (schema registry), 18082 (HTTP proxy), 9644 (admin) |                                                                                                                                                                    |
   | keycloak                | 8180                                                                     | admin/admin; realms `staff`, `customers` imported from `keycloak/*.json` on first start, persisted in the `keycloak-data` volume (`pnpm dev --reset` to re-import) |
-  | openfga                 | 8081 (HTTP), 8082 (gRPC), 3001 (playground)                              | memory datastore                                                                                                                                                   |
+  | openfga                 | 8081 (HTTP), 8082 (gRPC), 18083 (playground)                             | memory datastore                                                                                                                                                   |
   | mock-store / mock-admin | 4010 / 4011                                                              | Prism on `packages/contracts/openapi/*.yaml`                                                                                                                       |
 
   `pnpm dev --down` stops, `pnpm dev --reset` also wipes volumes.
+
+  **Ports below 15000 on Windows.** Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081/8082, the mocks
+  4010/4011, Redpanda's admin 9644 and the observability ports (Grafana 3400, Loki 3410, Tempo 3420,
+  Prometheus 9090, the collector 4317/4318) all sit below 15000. That matters on a Windows machine whose TCP
+  dynamic port range starts at 1024 instead of the default 49152 (`netsh int ipv4 show dynamicport tcp`):
+  WinNAT then reserves random 100-port blocks anywhere below 15000 and **moves them on every Docker, winnat or
+  machine restart**, and compose will not start a container if any of its ports is inside one — with
+  `bind: An attempt was made to access a socket in a way forbidden by its access permissions`. That is how the
+  OpenFGA playground on 3001 stopped starting; it now uses 18083, above the range, next to Redpanda's
+  18081/18082. `netsh interface ipv4 show excludedportrange protocol=tcp` lists the current blocks.
+
+  Two remedies, both needing an elevated terminal, both the machine owner's call:
+  `net stop winnat && net start winnat` releases the current blocks until the next restart;
+  `netsh int ipv4 set dynamic tcp start=49152 num=16384` plus a reboot puts the range back to the default and
+  protects every port in this table for good.
 
 - `docker/docker-compose.build.yml` — build-only compose that produces one image per app. It starts nothing and publishes no ports.
 
