@@ -299,7 +299,8 @@ jobs:
       - name: core boots for real (Medusa loaders, database, Redis)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/boot-smoke.sh
-      - name: playwright journeys (apps/* and apps/storefronts/*)
+      # Brand storefront journeys (apps/storefronts/*) are opt-in until REQUEST #212 — see run-e2e.sh.
+      - name: playwright journeys (apps/*; brand storefronts opt-in)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/run-e2e.sh
       - name: keycloak and openfga logs on failure

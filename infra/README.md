@@ -407,6 +407,13 @@ test proves a container starts and answers a health endpoint served by the scaff
 module-loader failure is a production outage that every other check reports as green — which is exactly what
 it found on its first run ([REQUEST #207](https://github.com/mfx1590/Commerce-Platform/issues/207)).
 
+**Brand storefront journeys are opt-in for now.** `infra/ci/run-e2e.sh` always runs `apps/*/playwright.config.*`
+and runs `apps/storefronts/*` only with `E2E_INCLUDE_BRAND_STOREFRONTS=1`. A brand inherits the starter's
+Keycloak sign-in journey, but the realm registers only the starter's port as a redirect URI for the brand
+client ([REQUEST #212](https://github.com/mfx1590/Commerce-Platform/issues/212)), so by default it would keep
+the job red for a reason unrelated to the brand. The log names every brand journey it skipped. Flip the default
+when #212 lands.
+
 **A memory-only push to `main` runs nothing.** `paths-ignore` on the `push` trigger covers `docs/**` and
 `**/*.md`, so a Memory-main commit no longer starts the most expensive run there is (a push to main sets
 `CHANGES_ALL=1`, which builds everything) to test nothing. It is deliberately **not** on `pull_request`:
@@ -540,18 +547,18 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 `.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
 belongs to the main window.
 
-| job              | runs when   | what it does                                                                                                                              |
-| ---------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                      |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ`                                                      |
-| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                             |
-| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                            |
-| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                        |
-| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                  |
-| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every Playwright journey |
-| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                           |
-| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                |
-| `preview`        | PRs         | placeholder until 2.4b                                                                                                                    |
+| job              | runs when   | what it does                                                                                                                                                                         |
+| ---------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                                                                 |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ`                                                                                                 |
+| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                        |
+| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                       |
+| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                                                                   |
+| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                             |
+| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every `apps/*` Playwright journey (brand storefronts opt-in, below) |
+| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                                                                      |
+| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                           |
+| `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                               |
 
 **`images` is narrower on a PR than `code` is.** A source change under `apps/**` or `packages/**` no longer
 rebuilds the six images: only a `Dockerfile`, `.dockerignore`, `infra/docker/**`, `infra/ci/**` or a

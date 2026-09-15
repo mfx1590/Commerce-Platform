@@ -328,6 +328,15 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   no run. Not on `pull_request` — see the note in `infra/README.md`: with five required checks, a workflow that
   does not run reports nothing and the PR can never merge.
 
+### Changed
+
+- Brand storefront journeys (`apps/storefronts/*`) are **opt-in** in `infra/ci/run-e2e.sh`:
+  `E2E_INCLUDE_BRAND_STOREFRONTS=1`, default off. `apps/*` discovery is unchanged. Brand-a inherits the
+  starter's account journey, which signs in through Keycloak, but the realm's brand client only registers the
+  starter's port (3100) as a redirect URI and brand-a serves on 3101 — so it fails for a reason unrelated to the
+  brand (REQUEST #212, window 2). The job log lists the brand journeys it did not run and how to run them, so
+  the gap stays visible. Flip the default when #212 lands.
+
 ### Fixed
 
 - **The boot smoke ran core against an empty database**, so it would have stayed red even after REQUEST #207.

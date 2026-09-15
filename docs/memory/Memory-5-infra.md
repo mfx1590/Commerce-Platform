@@ -129,6 +129,7 @@ Standing debts, whenever this window is next open:
 
 - **REQUEST #207** (window 1) — `apps/core` cannot start on main; the new boot smoke step is red until it
   lands. Verified fix: declare `@medusajs/draft-order` as a dependency.
+- **REQUEST #212** (window 2) — brand-a's Keycloak redirect URI; then set `E2E_INCLUDE_BRAND_STOREFRONTS` on by default.
 - **REQUEST #154** — once the Playwright configs honour `E2E_CHANNEL`, `run-e2e.sh` stops installing both
   browsers on CI and installs `"$channel"` alone. Supersedes #84.
 - **REQUEST #60** — once `apps/core` declares `ts-node`, delete the two workaround lines from its Dockerfile.
@@ -309,6 +310,13 @@ Standing debts, whenever this window is next open:
   without `FEEDS_STORE_CODES`. The image smoke test did not catch it because it checks real apps for build
   output only, not boot. Required runtime env belongs in the image contract table; never bake a default for a
   value whose absence is a deliberate guard.
+
+- **Opt-in beats silent skip when a known external blocker would keep a job red.** Brand storefront journeys
+  are behind `E2E_INCLUDE_BRAND_STOREFRONTS=1` until REQUEST #212 (Keycloak redirect URI for the brand port).
+  The script prints the journeys it skipped, so "not run" never reads as "does not exist".
+- **Killing a background shell does not kill its children on Windows.** Stopping a run of `run-e2e.sh` left a
+  Playwright runner and `next start` alive, holding a port. After stopping one, check for processes whose
+  command line contains the worktree path and stop them.
 
 ## Blocked / waiting
 
