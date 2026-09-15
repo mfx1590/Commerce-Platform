@@ -567,4 +567,45 @@ describe("window 8's port shapes (#191): consume / release per shipment, by orde
       await a.transaction((tx) => releaseReservationsForShipment(tx, { ...base, items: [] })),
     ).toBe(0);
   });
+
+  it('release spends the asked quantity across a variant split over two warehouses in canonical order (#217 review)', async () => {
+    const v = (await variantsA())[13]!;
+    await setStock(v.id, 3, 5); // 3 at EU (priority), the rest of a 5-unit order lands at US
+    const cartId = await readyCart([{ variantId: v.id, quantity: 5 }]);
+    const { order } = await place(cartId);
+    expect(await level(v.id, EU)).toMatchObject({ reserved: 3 });
+    expect(await level(v.id, US)).toMatchObject({ reserved: 2 });
+    const line = order.items[0]!;
+    const shipmentId = '80000000-0000-4000-8000-000000000044';
+    const base = { organizationId: ORG, storeId: A, orderId: order.id, shipmentId, actor };
+    await a.transaction((tx) =>
+      consumeReservationsForShipment(tx, {
+        ...base,
+        items: [{ orderLineItemId: line.id, quantity: 5 }],
+      }),
+    );
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 0, reserved: 0 });
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 3, reserved: 0 });
+
+    // asked 3 of 5: EU (canonical first) gets its 3 back, US stays consumed — not 3 + 2
+    const three = { ...base, items: [{ orderLineItemId: line.id, quantity: 3 }] };
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, three))).toBe(3);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 3, reserved: 3 });
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 3, reserved: 0 });
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, three))).toBe(0);
+    // asked 4: one more unit, at US; then everything: the last one
+    const four = { ...base, items: [{ orderLineItemId: line.id, quantity: 4 }] };
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, four))).toBe(1);
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 4, reserved: 1 });
+    expect(
+      await a.transaction((tx) => releaseReservationsForShipment(tx, { ...base, items: [] })),
+    ).toBe(1);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 3, reserved: 3 });
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 5, reserved: 2 });
+    const open = await owner.query<{ n: string }>(
+      `SELECT coalesce(sum(quantity), 0)::text AS n FROM reservation WHERE order_id = $1 AND released_at IS NULL`,
+      [order.id],
+    );
+    expect(open.rows[0]!.n).toBe('5');
+  });
 });

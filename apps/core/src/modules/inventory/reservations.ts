@@ -340,9 +340,11 @@ export async function consumeReservationsForShipment(
  * `releaseReservations` for shipping (#191): a planned shipment cancelled before picking. Reverses what
  * `consumeReservationsForShipment` did for this shipment: the goods go back on hand (`adjustment` movement
  * referencing `shipment_release:<id>`) and the order's reservation is re-opened. `items` says which order lines
- * (and how many units) to release: per variant the target is `min(consumed, asked)` and what earlier calls already
- * released under this shipment is subtracted, so the same call twice releases once, a larger later call releases
- * the difference, and an empty `items` means everything the shipment consumed. Returns the units released now.
+ * (and how many units) to release: per variant the target is `min(consumed, asked)`, what earlier calls already
+ * released under this shipment is subtracted, and the rest is spent across the variant's warehouse rows in the
+ * canonical order (warehouse priority, then code) — so the same call twice releases once, a larger later call
+ * releases the difference, and an empty `items` means everything the shipment consumed. Returns the units
+ * released now.
  */
 export async function releaseReservationsForShipment(
   tx: Queryable,
@@ -355,10 +357,13 @@ export async function releaseReservationsForShipment(
     actor: Actor;
   },
 ): Promise<number> {
+  // canonical order: the asked quantity is spent warehouse by warehouse in this order (priority, then code)
   const consumed = await tx.query<{ variant_id: string; warehouse_id: string; quantity: string }>(
-    `SELECT variant_id, warehouse_id, sum(-delta)::text AS quantity FROM stock_movement
-     WHERE reference_type = 'shipment' AND reference_id = $1 AND reason = 'sale'
-     GROUP BY variant_id, warehouse_id`,
+    `SELECT m.variant_id, m.warehouse_id, sum(-m.delta)::text AS quantity
+     FROM stock_movement m JOIN warehouse w ON w.id = m.warehouse_id
+     WHERE m.reference_type = 'shipment' AND m.reference_id = $1 AND m.reason = 'sale'
+     GROUP BY m.variant_id, m.warehouse_id, w.priority, w.code
+     ORDER BY m.variant_id, w.priority, w.code`,
     [input.shipmentId],
   );
   const released = await tx.query<{ variant_id: string; warehouse_id: string; quantity: string }>(
@@ -378,14 +383,27 @@ export async function releaseReservationsForShipment(
       asked.set(l.variantId, (asked.get(l.variantId) ?? 0) + l.quantity);
     }
   }
+  // per variant: target = min(all consumed, asked) − all released so far; then spend it row by row
+  const remaining = new Map<string, number>();
+  for (const c of consumed.rows) {
+    if (remaining.has(c.variant_id)) continue;
+    const rows = consumed.rows.filter((r) => r.variant_id === c.variant_id);
+    const consumedAll = rows.reduce((n, r) => n + Number(r.quantity), 0);
+    const releasedAll = rows.reduce(
+      (n, r) => n + (releasedBefore.get(`${r.variant_id}:${r.warehouse_id}`) ?? 0),
+      0,
+    );
+    const target = asked ? Math.min(consumedAll, asked.get(c.variant_id) ?? 0) : consumedAll;
+    remaining.set(c.variant_id, target - releasedAll);
+  }
   let total = 0;
   for (const c of consumed.rows) {
     const key = `${c.variant_id}:${c.warehouse_id}`;
-    const target = asked
-      ? Math.min(Number(c.quantity), asked.get(c.variant_id) ?? 0)
-      : Number(c.quantity);
-    const quantity = target - (releasedBefore.get(key) ?? 0);
+    const left = remaining.get(c.variant_id) ?? 0;
+    const capacity = Number(c.quantity) - (releasedBefore.get(key) ?? 0); // still held at this warehouse
+    const quantity = Math.min(capacity, left);
     if (quantity <= 0) continue;
+    remaining.set(c.variant_id, left - quantity);
     const { level } = await moveStock(tx, {
       organizationId: input.organizationId,
       storeId: input.storeId,

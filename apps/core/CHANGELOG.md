@@ -12,7 +12,8 @@
   `{ status: "failed", failure_reason: "requester threw: …", idempotency_key: "return:<id>" }` and a later
   `requestRefundFor` (now exported) retries under the same key. `metadata.refund` carries `idempotency_key`.
 - **Inventory — `releaseReservationsForShipment` honours `items`**: per variant the release target is
-  `min(consumed, asked)` minus what earlier calls released under the shipment (same call twice = once, larger
+  `min(consumed, asked)` minus what earlier calls released under the shipment, spent across the variant's
+  warehouse rows in canonical order — priority, then code (same call twice = once, larger
   call = the difference, empty `items` = everything still held).
 - **Orders — `setFulfillmentStatus({ tx, orderId, status, actor })`**: #191's object shape, exported next to
   the positional `setFulfillmentStatusIn` (kept for window 8's current adapter).
