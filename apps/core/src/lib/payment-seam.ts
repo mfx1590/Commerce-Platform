@@ -54,6 +54,9 @@ export interface AuthorizeResult {
 
 export interface RefundInput {
   tx: Queryable;
+  /** The store the payment belongs to: per-store PSP credentials are resolved from it. */
+  organizationId: string;
+  storeId: string;
   providerPaymentId: string;
   amountMinor: number;
   currency: string;
@@ -68,7 +71,16 @@ export interface RefundResult {
 }
 
 export interface VoidInput {
+  /**
+   * The placement transaction, when there still is one. On the placement failure path the transaction is being
+   * rolled back (it may already be aborted): providers must NOT run queries on it there — the store fields below
+   * are what a void needs (per-store PSP credentials), never the database.
+   */
   tx: Queryable;
+  organizationId: string;
+  storeId: string;
+  /** The cart being placed (failure path) — for provider-side logging/idempotency only. */
+  cartId?: string | undefined;
   /** The authorised, not yet captured payment (`payment.provider_payment_id`). */
   providerPaymentId: string;
   idempotencyKey: string;

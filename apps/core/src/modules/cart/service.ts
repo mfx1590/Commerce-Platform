@@ -59,9 +59,17 @@ export async function loadCart(tx: Queryable, cartId: string, lock: boolean): Pr
   return row;
 }
 
-/** Locks the cart row for the mutation and refuses completed/abandoned carts (409 `cart_completed`). */
+/**
+ * Locks the cart row for the mutation. A completed cart → 409 `cart_completed`. An `abandoned` cart is
+ * REACTIVATED by the mutation (task 2.6): back to `active` with `updated_at` touched, so the idle clock restarts
+ * and the abandoned-carts job only abandons it again after a full idle period (a new event then).
+ */
 export async function lockActiveCart(tx: Queryable, cartId: string): Promise<CartRow> {
   const cart = await loadCart(tx, cartId, true);
+  if (cart.status === 'abandoned') {
+    await tx.query(`UPDATE cart SET status = 'active', updated_at = now() WHERE id = $1`, [cartId]);
+    return { ...cart, status: 'active' };
+  }
   if (cart.status !== 'active') throw cartCompleted(cart);
   return cart;
 }

@@ -21,6 +21,8 @@ export const manualRefundRequester: RefundRequester = {
     }
     const result = await provider.refund({
       tx: input.tx,
+      organizationId: input.organizationId,
+      storeId: input.storeId,
       providerPaymentId: input.providerPaymentId,
       amountMinor: input.amountMinor,
       currency: input.currency,

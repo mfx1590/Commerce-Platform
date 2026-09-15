@@ -6,7 +6,8 @@ Medusa 2 commerce core (modular monolith) over the tenant-scoped schema in `@pla
 registry, catalog, pricing, checkout, orders, inventory, fulfillment, customers, hq-rbac, hq-warehouse, payments,
 tax, fraud, shipping, search, promotions. Phase 1 (window 1): registry + catalog, Store/Admin API routes for them.
 Phase 2 (window 1): cart (2.1, done), checkout/placement (2.2, done), orders (2.3, done), inventory (2.4, done), returns (2.5, done),
-`cart.abandoned` job (2.6); the Store API paths not yet implemented stay on the Prism mock behind the fallback proxy.
+`cart.abandoned` job + lifecycle replay (2.6, done) — **Phase 2 core complete**; only `/store/customers*` (window 13)
+stays on the Prism mock behind the fallback proxy.
 
 ## Owner
 
@@ -96,12 +97,19 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `return.received`) → refund through the `RefundRequester` seam (`setRefundRequester`; manual default calls
   `PaymentProvider.refund`, no refund row — the `refund` table and `refund.*` events are window 7's; idempotent per
   return, key `return:<id>`). Exchange = return + linked order, no money coupling.
+- Abandoned carts (`src/modules/cart/abandoned.ts` + `src/jobs/abandoned-carts.ts`): a Medusa scheduled job
+  (`default` handler + `config.schedule` from `CORE_ABANDONED_CART_CRON`, threshold `CORE_ABANDONED_CART_AFTER_HOURS`)
+  runs one organization-scoped pass under `MEDUSA_WORKER_MODE = shared | worker`; a mutation reactivates an
+  abandoned cart. **Every file in `src/jobs` must export Medusa's job contract** (`config` + `default`): the loader
+  validates each file and refuses to boot otherwise.
+- Window 8's port shapes (#191): `setFulfillmentStatusIn` (orders), `consumeReservationsForShipment` /
+  `releaseReservationsForShipment` (inventory; idempotent per shipment). Catalog media functions `addMedia` /
+  `updateMedia` / `deleteMedia` (#179 part 1) for window 9's pipeline.
 - `payment.authorized` is emitted by `completeCart` next to `order.placed` (#176 part 2); `src/http/index.ts`
   exports `enumParam`/`sortParams` for other modules' route files (#181 part 2).
 - Other modules' Admin routers mount through `src/http/module-routers.ts` (`moduleAdminRouters()`, after
   `adminRouter()`): window 9's `merchandisingRouter` (#162) and window 17's `marketingAdminRouter` (#181) are
-  mounted; add one `routers.push(...)` line per new router (`mediaRouter`, `pricingRouter`). `completeCart` emits
-  `payment.authorized` next to `order.placed` (#176 part 2).
+  mounted; add one `routers.push(...)` line per new router (`mediaRouter`, `pricingRouter`).
 - Modules and helpers. Modules, `outbox`, `bootstrap` and `http` expose an `index.ts` public API and have their own
   tests; `lib` is a plain helper folder (imported by path, covered through the module and HTTP tests). Every folder
   has a `README.md`:
@@ -110,11 +118,12 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------- |
   | `src/modules/registry`  | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read)                                                                                                            | `store.created`, `store.updated`                                               | `src/modules/registry/README.md`  |
   | `src/modules/catalog`   | categories, products, options, variants, media; Store API read model (price + availability)                                                                                                                 | `product.updated`, `product.published`, `product.archived`                     | `src/modules/catalog/README.md`   |
-  | `src/modules/cart`      | Store API cart: create/read/update, line items, promotion codes (stored), totals through the tax + shipping provider seams; bypasses Medusa's cart                                                          | — (`cart.abandoned` in 2.6)                                                    | `src/modules/cart/README.md`      |
+  | `src/modules/cart`      | Store API cart: create/read/update, line items, promotion codes (stored), totals through the tax + shipping provider seams; abandoned-cart marking with reactivation; bypasses Medusa's cart                | `cart.abandoned`                                                               | `src/modules/cart/README.md`      |
   | `src/modules/checkout`  | shipping options, payment session (`PaymentProvider` seam, `manual` built in), placement as one transaction (order + lines + payment + attribution + cart completed), Store API order read                  | `order.placed` (+ `attribution.recorded` via src/lib/attribution)              | `src/modules/checkout/README.md`  |
   | `src/modules/orders`    | order state machine (`transition()` over the transition tables), wrappers for windows 7/8, cancel (payment void), edits before fulfilment, Store + Admin order reads, outbox projection/replay              | `order.confirmed`, `order.updated`, `order.cancelled`, `order.completed`       | `src/modules/orders/README.md`    |
   | `src/modules/inventory` | levels per (variant, warehouse), `moveStock` (append-only ledger + `stock.moved`), reservations at placement / release on cancel / consume on shipment, Admin `listInventoryLevels` + `createStockMovement` | `stock.moved`                                                                  | `src/modules/inventory/README.md` |
   | `src/modules/returns`   | return lifecycle (`transitionReturn` over `RETURN_TRANSITIONS`), receive = order returned quantities + restock + refund seam, exchange link, Admin `createReturn` / `receiveReturn`, projection             | `return.requested`, `return.received`                                          | `src/modules/returns/README.md`   |
+  | `src/jobs`              | Medusa scheduled jobs: `abandoned-carts.ts` (window 1; hourly, `cart.abandoned`), `index-products.ts` (window 9 CLI)                                                                                        | `cart.abandoned`                                                               | `src/modules/cart/README.md`      |
   | `src/modules/search`    | window 9 (search) — do not edit. Algolia index per store (records from the catalog read model, full reindex + incremental outbox sync, replicas for sort orders); job `src/jobs/index-products.ts`          | reads `product.published`, `product.updated`, `product.archived` from `outbox` | `src/modules/search/README.md`    |
   | `src/modules/hq-rbac`   | window 2 (auth) — do not edit                                                                                                                                                                               | —                                                                              | theirs                            |
   | `src/outbox`            | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                                                                                                                                   | —                                                                              | `src/outbox/README.md`            |
