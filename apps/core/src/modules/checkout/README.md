@@ -58,6 +58,11 @@ transaction — fine for Phase 2, a Phase 3 scaling concern to revisit (per-stor
 
 ## PaymentProvider (public API; window 7 implements `stripe` against it, #127)
 
+Since task 2.5 the seam itself (types, the process-wide registry, the `manual` provider) lives in
+`src/lib/payment-seam.ts` so the orders and returns modules can use the registry without importing the checkout
+module (no checkout ↔ orders cycle; a guard test enforces it). This module re-exports everything unchanged:
+keep importing `setPaymentProvider` / `PaymentProvider` from `../checkout`.
+
 ```ts
 import { setPaymentProvider, type PaymentProvider } from '../checkout'; // from another module: '../modules/checkout'
 setPaymentProvider(stripeProvider); // at boot; returns the previous provider under that name

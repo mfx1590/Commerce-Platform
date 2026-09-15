@@ -2,6 +2,39 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-15 · declare `@medusajs/draft-order` (#207)
+
+- `apps/core/package.json` declares `@medusajs/draft-order` at the `@medusajs/medusa` version (2.20.1). Medusa 2.20
+  resolves a default plugin set from the app directory, and pnpm's isolated `node_modules` only links direct
+  dependencies — without the declaration the built server died in the plugin loader (`Unable to resolve plugin
+"@medusajs/draft-order"`) right after the bootstrap check. Verified: `pnpm --filter @platform/core start` reaches
+  `GET /health` → 200.
+
+### 2026-09-08 · 2.5 returns and exchanges (issue #107)
+
+- `src/modules/returns` (new): `requestReturn` (per line ≤ shipped − returned − open requests, 409 otherwise;
+  unshipped order 409; `return.requested`), `receiveReturn` in one transaction (received ≤ requested, unreceived
+  items dropped; `received`; orders `markReturnedIn` → returned quantities + fulfillment_status; inventory
+  `moveStock(reason 'return')` for resellable goods only; `return.received`; the refund through the seam),
+  `approveReturn` / `rejectReturn` (support flows, no event), `markReturnRefunded` (window 7 settles a pending
+  refund), `linkExchange` (return + linked order, no money coupling), `renderReturn` / `getReturn`, pure
+  `projectReturn`. **Refund seam** `RefundRequester` + `setRefundRequester`: the manual default calls
+  `PaymentProvider.refund` and returns no id; window 7's requester writes the `refund` row + `refund.*` events and
+  returns the id the return stores. Idempotent per return (`return:<id>`, outcome recorded on the row: a retry
+  never refunds twice). Amount = received items' share of the line total (floor), shipping excluded; requires a
+  captured payment (409 otherwise). Order `payment_status` follows (partially_refunded | refunded).
+- Orders: `markReturnedIn`, `movePaymentStatusIn`, `mergeOrderMetadataIn` — transaction-level variants for the
+  returns module (no nested transactions while the order row is locked).
+- Admin API: `POST /admin/stores/{storeId}/orders/{orderId}/returns` (support) → 201, `POST
+/admin/stores/{storeId}/returns/{returnId}/receive` (operations on HQ; the store in the path must be the
+  return's → 404) → 200; live suite: createReturn through OpenFGA.
+- Wiring batch: `payment.authorized` emitted in `completeCart` next to `order.placed` (#176 part 2);
+  `enumParam` / `sortParams` exported from `src/http/index.ts` (#181 part 2). The mount lines (#176 part 1,
+  #179 part 2, #181 part 1) land in `src/http/module-routers.ts` as each module's export reaches main.
+- Tests: `src/modules/returns/returns.test.ts` (6: request rules, receive + restock + seam once + amount rule +
+  replay, full refund, failed/pending + markReturnRefunded + retry never twice, captured-only + rollback after the
+  outbox insert, RLS + exchange), `test/admin-api.test.ts` +2, `test/auth-live.test.ts` +1.
+
 ### 2026-09-08 · 2.4 inventory: levels per warehouse, reservations at placement, backorders (issue #106)
 
 - `src/modules/inventory` (new): `moveStock` — the only writer of `on_hand` (locked level, append-only

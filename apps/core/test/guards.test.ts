@@ -51,6 +51,14 @@ describe('structural guards', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('no checkout ↔ orders cycle: src/modules/orders never imports the checkout module (task 2.5)', () => {
+    const offenders = files
+      .filter((f) => f.rel.startsWith('modules/orders/') && !f.rel.endsWith('.test.ts'))
+      .filter((f) => /from\s+['"]\.\.\/checkout['"]/.test(f.text))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
   it('modules import the outbox helper through its index only', () => {
     const offenders = files
       .filter((f) => !f.rel.startsWith('outbox/'))
