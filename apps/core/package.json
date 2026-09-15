@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@medusajs/cli": "2.20.1",
+    "@medusajs/draft-order": "2.20.1",
     "@medusajs/framework": "2.20.1",
     "@medusajs/medusa": "2.20.1",
     "@platform/auth-sdk": "workspace:*",
