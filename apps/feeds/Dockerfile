@@ -15,6 +15,12 @@
 # `pnpm deploy` carries it.
 #
 # PORT 4020 is the port apps/feeds/CLAUDE.md documents for `GET /health`.
+#
+# REQUIRED AT RUNTIME: FEEDS_STORE_CODES, a comma-separated allowlist of the store codes this instance
+# serves (e.g. `brand-a` or `brand-a,brand-b`). This image sets NODE_ENV=production, and the feed server
+# refuses to start in production without it rather than serve every store code it finds on disk — so a
+# container started with no environment exits at once. There is intentionally no default here: a
+# baked-in store code would defeat that guard. Optional: FEEDS_DIR (default .feeds), FEEDS_MAX_AGE.
 
 ARG NODE_VERSION=20.19-alpine
 ARG PNPM_VERSION=10.34.5

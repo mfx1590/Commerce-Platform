@@ -53,6 +53,18 @@ asks windows 3 and 4 to drop the flag, after which both images move back to 9001
 3. The app must listen on `$PORT` and answer `GET /health` with 200. Every image runs as the non-root `node`
    user (uid 1000) and ships no build toolchain beyond node + pnpm.
 
+**Runtime environment an image requires.** Every image sets `NODE_ENV=production`, so an app's production
+guards apply the moment a container starts:
+
+| image   | required at runtime                                                    | why it has no default                                                                                          |
+| ------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `feeds` | `FEEDS_STORE_CODES` — comma-separated store codes this instance serves | the server refuses to serve every code it finds on disk in production; a baked-in code would defeat that guard |
+| `core`  | `DATABASE_URL_APP`, `REDIS_URL`, `JWT_SECRET`, `COOKIE_SECRET`         | secrets, and `src/server.ts` refuses to start without them                                                     |
+| `admin` | `ADMIN_SESSION_SECRET`                                                 | a secret                                                                                                       |
+
+`infra/docker/docker-compose.build.yml` gives `feeds` a `FEEDS_STORE_CODES=brand-a` placeholder so
+`docker compose ... up feeds` starts on a laptop; the Helm values set the real allowlist per instance.
+
 **What an app must provide for its image to build.** Everything below is something that actually broke a
 build; check it when adding an app or changing a build:
 
@@ -384,8 +396,12 @@ Reloader is a cluster add-on (installed in the bootstrap runbook). Without it th
 `kubectl rollout restart deploy/<app> -n commerce-<env>` is the manual equivalent — which is what the rotation
 runbook in task 2.6 will say.
 
-**The pipeline boots `apps/core` for real.** `infra/ci/boot-smoke.sh` builds it, starts it against the compose
-stack and waits for `GET /health` to answer 200, then stops it. Nothing else in CI loads Medusa's own runtime:
+**The pipeline boots `apps/core` for real.** `infra/ci/boot-smoke.sh` creates a throwaway database
+(`platform_boot_smoke`) on the compose Postgres, migrates and seeds it, runs Medusa's own migrations, builds and
+starts core, waits for `GET /health` to answer 200, then stops it and drops the database. It needs a _seeded_
+database because core runs a readiness check at start — booting against an empty one just fails earlier for a
+different reason and proves nothing about the loaders. It never touches the shared `platform` database, which
+other windows are using. Nothing else in CI loads Medusa's own runtime:
 `medusa build` proves the TypeScript compiles, the unit tests prove the modules behave, and the image smoke
 test proves a container starts and answers a health endpoint served by the scaffold fallback. A plugin- or
 module-loader failure is a production outage that every other check reports as green — which is exactly what

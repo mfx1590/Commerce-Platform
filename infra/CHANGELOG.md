@@ -330,6 +330,17 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ### Fixed
 
+- **The boot smoke ran core against an empty database**, so it would have stayed red even after REQUEST #207.
+  It now creates `platform_boot_smoke`, migrates and seeds it (`pnpm db:migrate && pnpm db:seed`), runs
+  Medusa's migrations, then boots — and drops the database afterwards. Its own database rather than the shared
+  `platform` one: re-seeding that under other windows, or leaving it half-migrated on a failure, is not
+  acceptable. Verified: on a fresh database core reports `bootstrap check: ready (3 store(s))`, and with #207
+  simulated the whole step exits 0 with `/health` answering in 21s.
+- **The `feeds` image exited on start.** It sets `NODE_ENV=production`, and the feed server refuses to start in
+  production without `FEEDS_STORE_CODES`. Documented as a runtime requirement in the image contract and the
+  Dockerfile, with a `brand-a` placeholder in the build compose. Deliberately not defaulted in the Dockerfile:
+  a baked-in store code would defeat the guard. Verified: without it the container exits, with it the
+  container is healthy and `/health` answers `{"status":"ok"}`.
 - Three discovery globs assumed `apps/*` and silently skipped `apps/storefronts/<brand>/`:
   `check-image-manifests.sh` stopped checking a whole class of image, `smoke-images.sh` never tested one, and
   **`run-e2e.sh` never ran brand-a's Playwright journey** although the app has both a config and an `e2e`

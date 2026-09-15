@@ -300,6 +300,16 @@ Standing debts, whenever this window is next open:
   declare `@medusajs/draft-order`, which pnpm therefore does not link into `apps/core/node_modules`, and
   Medusa's plugin loader resolves it from the app directory).
 
+- **A boot smoke needs a realistic database, and its own one.** Core runs a readiness check at start, so
+  booting against an empty database fails for a boring reason and proves nothing about Medusa's loaders.
+  `boot-smoke.sh` creates `platform_boot_smoke`, migrates, seeds and Medusa-migrates it, and drops it after —
+  never the shared `platform` database. `loadDotenv()` never overrides an exported variable, which is what
+  makes redirecting every URL at the throwaway database safe.
+- **Images run with `NODE_ENV=production`, so app production guards fire at container start.** `feeds` exits
+  without `FEEDS_STORE_CODES`. The image smoke test did not catch it because it checks real apps for build
+  output only, not boot. Required runtime env belongs in the image contract table; never bake a default for a
+  value whose absence is a deliberate guard.
+
 ## Blocked / waiting
 
 - **REQUEST #92** (main) — `.prettierignore` must skip `infra/helm/*/templates/`. **Blocking 2.3**: Helm
