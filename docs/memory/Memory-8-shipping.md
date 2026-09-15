@@ -40,7 +40,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#218 (2.3) review fixes pushed** (commit `SHA_FIX`); waiting for the manager's re-review of the diff.
+- **#218 (2.3) review fixes pushed** (commit `6598276`); waiting for the manager's re-review of the diff.
 - **2.4 is parked on local branch `shipping/phase2-2.4-parked`** (commits f1261e6 + d1076aa) so it did not ride
   along with the #218 fix. Replay it onto `shipping/phase2` locally; do NOT push until the manager confirms #218
   merged. Delete the parked branch once replayed.
