@@ -316,6 +316,48 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - `.github/workflows/ci.yml` declares `permissions: contents: read` at the workflow level. Nothing in it
   writes; `deploy-staging.yml` raises its own.
 
+### Added (#195, #197 and the manager's batch)
+
+- Images for `apps/feeds` (port 4020) and `apps/storefronts/brand-a` (port 3101), and the two new workspace
+  manifests added to the `deps` stage of all eight app Dockerfiles — which turns the `app images` job on `main`
+  green again. The guard named exactly what was missing, which is what it is for.
+- **A real boot of `apps/core` in the `auth-e2e` job** (`infra/ci/boot-smoke.sh`): build, start against the
+  compose stack, wait for `GET /health` 200, stop. Every other check reasons about the code without running
+  the server, so a Medusa loader failure was a production outage CI reported as green.
+- `paths-ignore` for `docs/**` and `**/*.md` on the **push** trigger, so a memory-only commit to `main` starts
+  no run. Not on `pull_request` — see the note in `infra/README.md`: with five required checks, a workflow that
+  does not run reports nothing and the PR can never merge.
+
+### Changed
+
+- Brand storefront journeys (`apps/storefronts/*`) are **opt-in** in `infra/ci/run-e2e.sh`:
+  `E2E_INCLUDE_BRAND_STOREFRONTS=1`, default off. `apps/*` discovery is unchanged. Brand-a inherits the
+  starter's account journey, which signs in through Keycloak, but the realm's brand client only registers the
+  starter's port (3100) as a redirect URI and brand-a serves on 3101 — so it fails for a reason unrelated to the
+  brand (REQUEST #212, window 2). The job log lists the brand journeys it did not run and how to run them, so
+  the gap stays visible. Flip the default when #212 lands.
+
+### Fixed
+
+- **The boot smoke ran core against an empty database**, so it would have stayed red even after REQUEST #207.
+  It now creates `platform_boot_smoke`, migrates and seeds it (`pnpm db:migrate && pnpm db:seed`), runs
+  Medusa's migrations, then boots — and drops the database afterwards. Its own database rather than the shared
+  `platform` one: re-seeding that under other windows, or leaving it half-migrated on a failure, is not
+  acceptable. Verified: on a fresh database core reports `bootstrap check: ready (3 store(s))`, and with #207
+  simulated the whole step exits 0 with `/health` answering in 21s.
+- **The `feeds` image exited on start.** It sets `NODE_ENV=production`, and the feed server refuses to start in
+  production without `FEEDS_STORE_CODES`. Documented as a runtime requirement in the image contract and the
+  Dockerfile, with a `brand-a` placeholder in the build compose. Deliberately not defaulted in the Dockerfile:
+  a baked-in store code would defeat the guard. Verified: without it the container exits, with it the
+  container is healthy and `/health` answers `{"status":"ok"}`.
+- Three discovery globs assumed `apps/*` and silently skipped `apps/storefronts/<brand>/`:
+  `check-image-manifests.sh` stopped checking a whole class of image, `smoke-images.sh` never tested one, and
+  **`run-e2e.sh` never ran brand-a's Playwright journey** although the app has both a config and an `e2e`
+  script. A discovery bug in a test runner does not announce itself; it just reports fewer passes than there
+  are tests.
+- Branch-protection documentation says "applied", and lists the five checks GitHub actually enforces rather
+  than all nine jobs.
+
 ### Notes
 
 - `scripts/check-ownership.sh` is unchanged and remains the first CI job (owned by the main window).
