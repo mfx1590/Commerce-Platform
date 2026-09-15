@@ -34,6 +34,25 @@ export function easyPostCredentialsFor(
   return null;
 }
 
+/**
+ * The tracking-webhook signing secret for a store: `EASYPOST_WEBHOOK_SECRET_<CODE>` (brand-a →
+ * `EASYPOST_WEBHOOK_SECRET_BRAND_A`), else the global `EASYPOST_WEBHOOK_SECRET`; null when neither is set, and the
+ * router then refuses the delivery before reading it. Deployed: `<env>/stores/<store_code>/easypost` (ADR 0006).
+ * Never logged; the router reports only the variable NAME that is missing.
+ */
+export function easyPostWebhookSecretFor(
+  storeCode: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { secret: string; variable: string } | null {
+  const storeVariable = `EASYPOST_WEBHOOK_SECRET_${envSuffix(storeCode)}`;
+  const storeSecret = env[storeVariable];
+  if (storeSecret) return { secret: storeSecret, variable: storeVariable };
+  if (env.EASYPOST_WEBHOOK_SECRET) {
+    return { secret: env.EASYPOST_WEBHOOK_SECRET, variable: 'EASYPOST_WEBHOOK_SECRET' };
+  }
+  return null;
+}
+
 /** True for an EasyPost **test**-mode key. Phase 2 buys labels in test mode only (issue #129). */
 export function isTestModeKey(apiKey: string): boolean {
   return apiKey.startsWith('EZTK');

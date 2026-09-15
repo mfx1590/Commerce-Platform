@@ -5,6 +5,54 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
+### 2026-09-15 · 2.3 review fixes (#218)
+
+- **`webhook_event` now matches #187 exactly.** `proposed/0140_webhook_event.sql` is a byte-for-byte copy of #187's
+  SQL (identical to payments' copy; a test fails on drift) and only the test suite applies it. The store is
+  rewritten against it: `provider_event_id`, `event_type`, `provider_object_id`, `aggregate_type` / `aggregate_id`,
+  status `received → processed | skipped | failed`, `failure_reason`, `store_id NOT NULL`, RLS. The earlier draft
+  (`external_id`, `topic`, `error`, `ignored`, nullable store, no hash) would have failed every delivery once 0140
+  landed. The in-memory event store and `PROPOSED_WEBHOOK_EVENT_SQL` are gone.
+- **No raw carrier body is stored.** `extractEasyPostWebhook` reduces a delivery to provider event id, event type,
+  tracker id, tracking code, carrier, status and the carrier timestamp; addresses, recipient names and scan
+  locations are dropped. `payload_hash` is the sha256 of the raw request body. The carrier timestamp is `null` when
+  absent — no more 1970 placeholder — and a transition then uses receipt time.
+- **Routers shipped.** `shippingWebhookRouter()` (`POST /webhooks/easypost/:storeCode`, `express.raw`, store
+  resolved before anything is stored, per-store `EASYPOST_WEBHOOK_SECRET_<CODE>`) and `shippingAdminRouter()`
+  (`createShipment`, `updateShipment` with `permission(operationId)` and body validation from `admin-api.yaml`),
+  exported from `index.ts`; mount lines posted on #176. Result outcome `ignored` is renamed `skipped`.
+
+### 2026-09-08 · 2.3 Labels, shipments and tracking webhooks (#131)
+
+- `shipments.ts` (new): `createShipment` (validates against what the order still owes, inserts `shipment` +
+  `shipment_item`, consumes reservations, refreshes the order's fulfilment status, emits `shipment.created` — one
+  transaction), `buyShipmentLabel` (idempotent; a carrier failure is a 502 and the shipment stays `pending`),
+  `updateShipment` / `applyTransition` (the only writer of a shipment's status), `getShipment`,
+  `listOrderShipments`, `renderShipment` (the Admin API `Shipment` shape; Postgres timestamps rendered as ISO).
+- Status machine: `pending` to `label_created` to `shipped` to `in_transit` to `delivered`, forward only, with
+  `delivered` / `failed` / `cancelled` terminal. An illegal transition on the admin route is a 409; the same one
+  from a carrier scan is ignored. A shipment that jumps straight to `delivered` still emits `shipment.shipped`
+  first, because accounting derives shipping cost and COGS timing from it.
+- `tracking.ts` (new): `handleEasyPostWebhook` — verify the HMAC over the **raw** body (timing-safe, 401 on
+  anything wrong), record the provider event id, then apply. `applyTrackingEvent` is the provider-independent
+  half; `parseEasyPostWebhook` reads the tracker's current state rather than the last detail, since EasyPost
+  resends the whole history. Results are `applied` / `duplicate` / `ignored`.
+- `webhook-events.ts` (new): the shared idempotency record. `UNIQUE (provider, external_id)` — not a global
+  unique id — and a nullable `occurred_at` separate from `received_at`, so out-of-order scans are ordered by the
+  carrier's clock. The table is window 7's CONTRACT CHANGE (#125) and is not in db 0.2.0 yet:
+  `PROPOSED_WEBHOOK_EVENT_SQL` is what this module builds and tests against meanwhile.
+- `ports.ts` (new): how shipping reaches the modules it does not own, on the functions agreed on #191 — orders
+  `markShipmentCreatedInTx` / `markShippedInTx` / `markDeliveredInTx`, inventory `consumeReservationsForShipment`
+  / `releaseReservationsForShipment`. All run on shipping's transaction. Orders calls are advisory (a 409 from the
+  order's state machine is reported, never thrown, inside a SAVEPOINT so a refusal leaves no partial rows);
+  inventory calls are not. **Behaviour change: fulfilment is recorded on despatch, not on plan** — planning only
+  moves the order to `processing`. An earlier local draft used a transaction adapter over the client-taking
+  functions and a no-op inventory mirror; both are gone.
+- Events: `shipment.created`, `shipment.shipped`, `shipment.delivered` v1, all through `withEvents` in the same
+  transaction as the state change, all carrying ids, amounts and a destination country — never an address.
+- Tests: 21 unit tests (signatures, parsing, transitions) and 15 on a seeded database, including duplicate
+  deliveries, delivered-before-shipped, partial shipments and a cancel releasing the reservation.
+
 ### 2026-09-08 · 2.2 Rate shopping at checkout (#130)
 
 - `rate-shopping.ts` (new): `createCarrierRateProvider()` implements the cart module's `ShippingRateProvider`.
