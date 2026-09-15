@@ -3,7 +3,18 @@
 // objects; every status change goes through `transition()` and writes exactly one event.
 export {
   cancelOrder,
+  cancelOrderInTx,
   confirmOrder,
+  confirmOrderInTx,
+  markDeliveredInTx,
+  markPaymentAuthorizedInTx,
+  markPaymentCapturedInTx,
+  markPaymentFailedInTx,
+  markPaymentPartiallyRefundedInTx,
+  markPaymentRefundedInTx,
+  markReturnedInTx,
+  markShipmentCreatedInTx,
+  markShippedInTx,
   markDelivered,
   markPaymentAuthorized,
   markPaymentCaptured,
@@ -15,6 +26,7 @@ export {
   markShipmentCreated,
   mergeOrderMetadataIn,
   movePaymentStatusIn,
+  setFulfillmentStatusIn,
   markShipped,
   transition,
 } from './service';

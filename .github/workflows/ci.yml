@@ -4,6 +4,16 @@ on:
   pull_request:
   push:
     branches: [main]
+    # A memory-only push to main would otherwise run the whole pipeline with CHANGES_ALL=1 — the
+    # most expensive run there is — to test nothing.
+    #
+    # Deliberately NOT on `pull_request`. Branch protection requires five checks, and a workflow
+    # that does not run reports nothing, so a docs-only PR would sit "Expected — waiting for status"
+    # and could never merge. On the PR side the classifier already makes a docs-only run no-op in
+    # seconds, so there is little to save and a merge deadlock to lose.
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -267,7 +277,7 @@ jobs:
         if: needs.changes.outputs.e2e == 'true'
       - name: boot keycloak (staff + customers realms), openfga and postgres
         if: needs.changes.outputs.e2e == 'true'
-        run: docker compose -f infra/docker/docker-compose.yml up -d postgres keycloak openfga
+        run: docker compose -f infra/docker/docker-compose.yml up -d postgres redis keycloak openfga
       - name: the auth stack is really up (the live suites skip silently otherwise)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/wait-for-auth-stack.sh
@@ -280,7 +290,17 @@ jobs:
         run: pnpm exec turbo run test --filter=@platform/auth-sdk
       # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
       # `pnpm exec playwright` at the workspace root cannot find it.
-      - name: playwright journeys (every apps/*/playwright.config.*)
+      # Boot the real server. Everything else in this pipeline reasons about the code without
+      # running it: `medusa build` proves it compiles, the unit tests prove the modules behave, the
+      # image smoke test proves a container starts and answers a health endpoint served by the
+      # scaffold fallback. None of them load Medusa's own runtime — its config, its plugin and module
+      # loaders, its database and Redis connections. A failure there is a production outage that CI
+      # otherwise reports as green. It found one on its first run (REQUEST #207).
+      - name: core boots for real (Medusa loaders, database, Redis)
+        if: needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/boot-smoke.sh
+      # Brand storefront journeys (apps/storefronts/*) are opt-in until REQUEST #212 — see run-e2e.sh.
+      - name: playwright journeys (apps/*; brand storefronts opt-in)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/run-e2e.sh
       - name: keycloak and openfga logs on failure

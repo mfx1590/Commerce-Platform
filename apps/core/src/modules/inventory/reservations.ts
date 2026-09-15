@@ -7,6 +7,7 @@
 // goes negative (the backorder). `releaseForOrder` (cancel, through the orders module's transition) and
 // `consumeForShipment` (window 8 at ship time: reservation → `sale` movement) close the loop.
 import type { Queryable } from '@platform/db';
+import type { Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { ensureLevel, moveStock } from './service';
 import type {
@@ -263,4 +264,130 @@ export async function consumeForShipment(
     }
   }
   return out;
+}
+
+// ---- window 8's port shapes (#191): per-shipment, by order line item, idempotent per shipment ----
+
+interface ShipmentLine {
+  orderLineItemId: string;
+  quantity: number;
+}
+
+async function variantsOfLines(
+  tx: Queryable,
+  orderId: string,
+  items: readonly ShipmentLine[],
+): Promise<{ variantId: string; quantity: number }[]> {
+  const ids = items.map((i) => i.orderLineItemId);
+  const rows = await tx.query<{ id: string; variant_id: string | null }>(
+    `SELECT id, variant_id FROM order_line_item WHERE order_id = $1 AND id = ANY($2)`,
+    [orderId, ids],
+  );
+  const byId = new Map(rows.rows.map((r) => [r.id, r.variant_id]));
+  const out: { variantId: string; quantity: number }[] = [];
+  for (const i of items) {
+    if (!byId.has(i.orderLineItemId)) {
+      throw validationError('unknown order line item', { order_line_item_id: i.orderLineItemId });
+    }
+    const variantId = byId.get(i.orderLineItemId);
+    if (!variantId) continue; // variant deleted since: nothing to move
+    out.push({ variantId, quantity: i.quantity });
+  }
+  return out;
+}
+
+/**
+ * `consumeReservations` for shipping (#191): the shipment's lines by order line item, idempotent per shipment —
+ * a `sale` movement referencing this shipment already exists for a variant → that line is skipped, so a retry
+ * never double-decrements.
+ */
+export async function consumeReservationsForShipment(
+  tx: Queryable,
+  input: {
+    organizationId: string;
+    storeId: string;
+    orderId: string;
+    shipmentId: string;
+    warehouseId?: string | undefined;
+    items: readonly ShipmentLine[];
+    actor: Actor;
+  },
+): Promise<ConsumeResult[]> {
+  const lines = await variantsOfLines(tx, input.orderId, input.items);
+  const done = await tx.query<{ variant_id: string }>(
+    `SELECT DISTINCT variant_id FROM stock_movement
+     WHERE reference_type = 'shipment' AND reference_id = $1 AND reason = 'sale'`,
+    [input.shipmentId],
+  );
+  const already = new Set(done.rows.map((r) => r.variant_id));
+  const pending = lines.filter((l) => !already.has(l.variantId));
+  if (pending.length === 0) return [];
+  return consumeForShipment(tx, {
+    organizationId: input.organizationId,
+    storeId: input.storeId,
+    orderId: input.orderId,
+    shipmentId: input.shipmentId,
+    lines: pending.map((l) => ({
+      variantId: l.variantId,
+      quantity: l.quantity,
+      warehouseId: input.warehouseId,
+    })),
+    actor: input.actor,
+  });
+}
+
+/**
+ * `releaseReservations` for shipping (#191): a planned shipment cancelled before picking. Reverses what
+ * `consumeReservationsForShipment` did for this shipment: the goods go back on hand (`adjustment` movement
+ * referencing `shipment_release:<id>`) and the order's reservation is re-opened. Idempotent per shipment.
+ */
+export async function releaseReservationsForShipment(
+  tx: Queryable,
+  input: {
+    organizationId: string;
+    storeId: string;
+    orderId: string;
+    shipmentId: string;
+    items: readonly ShipmentLine[];
+    actor: Actor;
+  },
+): Promise<number> {
+  const consumed = await tx.query<{ variant_id: string; warehouse_id: string; quantity: string }>(
+    `SELECT variant_id, warehouse_id, sum(-delta)::text AS quantity FROM stock_movement
+     WHERE reference_type = 'shipment' AND reference_id = $1 AND reason = 'sale'
+     GROUP BY variant_id, warehouse_id`,
+    [input.shipmentId],
+  );
+  const released = await tx.query<{ variant_id: string; warehouse_id: string }>(
+    `SELECT variant_id, warehouse_id FROM stock_movement
+     WHERE reference_type = 'shipment_release' AND reference_id = $1`,
+    [input.shipmentId],
+  );
+  const doneKeys = new Set(released.rows.map((r) => `${r.variant_id}:${r.warehouse_id}`));
+  let total = 0;
+  for (const c of consumed.rows) {
+    if (doneKeys.has(`${c.variant_id}:${c.warehouse_id}`)) continue;
+    const quantity = Number(c.quantity);
+    if (quantity <= 0) continue;
+    const { level } = await moveStock(tx, {
+      organizationId: input.organizationId,
+      storeId: input.storeId,
+      variantId: c.variant_id,
+      warehouseId: c.warehouse_id,
+      delta: quantity,
+      reason: 'adjustment',
+      referenceType: 'shipment_release',
+      referenceId: input.shipmentId,
+      note: 'planned shipment cancelled before picking',
+      actor: input.actor,
+    });
+    await tx.query(
+      `INSERT INTO reservation (organization_id, store_id, variant_id, warehouse_id, order_id, quantity)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [input.organizationId, input.storeId, c.variant_id, c.warehouse_id, input.orderId, quantity],
+    );
+    await bumpReserved(tx, level.id, quantity);
+    total += quantity;
+  }
+  return total;
 }
