@@ -37,8 +37,10 @@ export {
   getShipment,
   iso,
   listOrderShipments,
+  readShipmentMetadata,
   renderShipment,
   updateShipment,
+  writeShipmentMetadata,
 } from './shipments';
 export {
   applyTrackingEvent,

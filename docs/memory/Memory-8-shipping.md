@@ -16,6 +16,12 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
+- **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `SHA_24` · local, PR after #218 merges
+  New module `apps/core/src/modules/fulfillment`: `routeFulfillment` (pure; store country override → store default
+  → same country → same region → priority), `FulfillmentProvider` (`push` / `status` / `cancel`) with the in-memory
+  3PL (cancel refused once picking), `requestFulfillment` / `cancelFulfillment` / `applyFulfillmentUpdate` with no
+  transaction across a provider call and a compensating cancel on a failed push. Shipping gained
+  `readShipmentMetadata` / `writeShipmentMetadata`. README documents the real-3PL mapping. 16 unit + 9 database tests.
 - **2.3 (#131) — labels, shipments and tracking webhooks** · commits `6f69b97` + `f305919` · PR pending
   `shipments.ts` (plan a shipment against what the order still owes, buy its label, the status machine and its
   outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
@@ -40,19 +46,25 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#218 (2.3) review fixes pushed** (commit `6598276`); waiting for the manager's re-review of the diff.
-- **2.4 is parked on local branch `shipping/phase2-2.4-parked`** (commits f1261e6 + d1076aa) so it did not ride
-  along with the #218 fix. Replay it onto `shipping/phase2` locally; do NOT push until the manager confirms #218
-  merged. Delete the parked branch once replayed.
+- **#218 (2.3) review fixes pushed**; waiting for the manager's re-review of the diff.
+- **2.4 replayed locally** onto the fixed branch (the parked branch `shipping/phase2-2.4-parked` can be deleted).
+  NOT pushed: wait for the manager to confirm #218 merged, then merge main, push, open the 2.4 PR.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
 - [x] **#130 · 2.2** Rate shopping at checkout — done, PR #186 in review
 - [x] **#131 · 2.3** Labels and tracking webhooks — done, PR pending
-- [ ] **#132 · 2.4** 3PL adapter interface + in-memory implementation
+- [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — done locally, PR after #218
 - [ ] **#133 · 2.5** Pick/pack state machine and events
 
 ## Decisions made (with reasons)
+- **No database transaction across a provider call** (2.4): a 3PL can take seconds or time out, and a held
+  transaction pins a connection and the order row's locks. Flows are short transactions around the network call
+  with explicit compensation — a failed push cancels the shipment, which releases its stock.
+- **Routing is a pure function with the rule that won in the result** (2.4); store settings name warehouses by
+  `code`, and an unknown code is ignored rather than failing the order.
+- **The 3PL reference lives on `shipment.metadata.fulfillment`** (2.4); the provider echoes our shipment id.
+- **The default provider is named `memory`** (2.4): it forgets jobs on restart, so it must not sound production-ready.
 - **A shared-table CONTRACT CHANGE is copied, never re-typed** (#218 review, 2026-09-15): `proposed/0140_webhook_event.sql`
   is a byte copy of #187's fence (identical to payments'), and a test compares the two files while both exist. My
   first draft re-typed the shape from my own proposal on #125 and diverged from what was accepted.
