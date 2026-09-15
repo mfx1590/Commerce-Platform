@@ -11,7 +11,9 @@ import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { SYSTEM_ACTOR, type Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { cancelOrder } from '../orders';
+import { markReturnRefunded } from '../returns';
 import { markPaymentCaptured, markPaymentFailed } from './orders-seam';
+import { syncOrderPaymentStatus, type RefundRow } from './refunds';
 import { envSuffix, stripeWebhookSecretsFor } from './credentials';
 import {
   MalformedEventError,
@@ -285,10 +287,107 @@ async function processEvent(
         : skipped(`no payment row for ${intentId} yet`);
     }
 
-    default:
-      if (extract.type.startsWith('charge.refund') || extract.type.startsWith('refund.')) {
-        return skipped('unhandled_type: refunds arrive with task 2.3 (replay after it lands)');
+    // ---- refunds (task 2.3): Stripe settles or fails a refund asynchronously ----
+    case 'refund.updated':
+    case 'refund.failed':
+    case 'charge.refund.updated': {
+      if (obj.object !== 'refund') return skipped(`event object is ${obj.object}, not a refund`);
+      const r = await tx.query<RefundRow & { captured_minor: string }>(
+        `SELECT r.id, r.organization_id, r.store_id, r.order_id, r.payment_id, r.return_id, r.amount_minor::text,
+                r.currency, r.reason, r.status, r.provider_refund_id, r.requested_by, r.idempotency_key,
+                r.created_at, p.amount_minor::text AS captured_minor
+         FROM refund r JOIN payment p ON p.id = r.payment_id
+         WHERE p.provider = 'stripe' AND r.provider_refund_id = $1 FOR UPDATE OF r`,
+        [obj.id],
+      );
+      const refund = r.rows[0];
+      if (!refund) return skipped(`no refund row for ${obj.id}`);
+      const aggregate = { type: 'refund' as const, id: refund.id };
+      const now = new Date();
+      if (obj.status === 'failed' || obj.status === 'canceled') {
+        if (refund.status === 'failed') return skipped('already failed', aggregate);
+        await tx.query(`UPDATE refund SET status = 'failed', updated_at = now() WHERE id = $1`, [
+          refund.id,
+        ]);
+        await withEvents(tx, [
+          await buildEvent({
+            topic: 'refund.failed',
+            organizationId: refund.organization_id,
+            storeId: refund.store_id,
+            aggregateType: 'refund',
+            aggregateId: refund.id,
+            actor: eventActor(actor),
+            occurredAt: now,
+            payload: {
+              refund_id: refund.id,
+              payment_id: refund.payment_id,
+              order_id: refund.order_id,
+              amount_minor: Number(refund.amount_minor),
+              currency: refund.currency,
+              failure_reason: obj.failure_reason ?? obj.status,
+              failed_at: now.toISOString(),
+            },
+          }),
+        ]);
+        // The order's payment_status has no transition back from (partially_)refunded: `refund.failed` is the
+        // "needs manual action" signal (docs/domain.md); the money is still with us until a human re-issues it.
+        return { status: 'processed', reason: null, aggregate, followUps: [] };
       }
+      if (obj.status === 'succeeded') {
+        if (refund.status === 'succeeded') return skipped('already succeeded', aggregate);
+        if (refund.status === 'failed') {
+          return failed('state_conflict: stripe says succeeded, refund row is failed', aggregate);
+        }
+        await tx.query(`UPDATE refund SET status = 'succeeded', updated_at = now() WHERE id = $1`, [
+          refund.id,
+        ]);
+        await withEvents(tx, [
+          await buildEvent({
+            topic: 'refund.issued',
+            organizationId: refund.organization_id,
+            storeId: refund.store_id,
+            aggregateType: 'refund',
+            aggregateId: refund.id,
+            actor: eventActor(actor),
+            occurredAt: now,
+            payload: {
+              refund_id: refund.id,
+              payment_id: refund.payment_id,
+              order_id: refund.order_id,
+              return_id: refund.return_id,
+              legal_entity_id: store.legal_entity_id,
+              amount_minor: Number(refund.amount_minor),
+              currency: refund.currency,
+              reason: refund.reason,
+              provider_refund_id: refund.provider_refund_id,
+              issued_at: now.toISOString(),
+            },
+          }),
+        ]);
+        const followUps: FollowUp[] = [];
+        if (refund.return_id) {
+          // Return-driven: the returns module records the settlement and moves the order itself.
+          const returnId = refund.return_id;
+          followUps.push(async (client) => {
+            await markReturnRefunded(client, returnId, refund.id, actor);
+          });
+        } else {
+          await syncOrderPaymentStatus(
+            tx,
+            refund.order_id,
+            refund.payment_id,
+            Number(refund.captured_minor),
+            actor,
+          );
+        }
+        return { status: 'processed', reason: null, aggregate, followUps };
+      }
+      return skipped(`refund is ${obj.status ?? 'unknown'}`, aggregate);
+    }
+    case 'charge.refunded':
+      return skipped('informational: the refund.* events carry the refund id');
+
+    default:
       return skipped('unhandled_type');
   }
 }

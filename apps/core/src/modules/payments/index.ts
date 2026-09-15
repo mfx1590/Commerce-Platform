@@ -1,7 +1,9 @@
 // Public API of the payments module (window 7). Nothing outside this folder may import from its other files
 // (ADR 0005).
 import { setPaymentProvider } from '../checkout';
+import { setRefundRequester } from '../returns';
 import { createStripePaymentProvider, type StripeProviderOptions } from './provider';
+import { paymentsRefundRequester } from './refund-requester';
 
 export {
   envSuffix,
@@ -48,6 +50,25 @@ export {
   STRIPE_WEBHOOK_PATH,
   type PaymentsWebhookRouterOptions,
 } from './webhook-router';
+// Refunds (task 2.3, #126): Admin API createRefund, the returns module's RefundRequester, webhook settlement.
+export {
+  createRefund,
+  createRefundIn,
+  getRefund,
+  paymentStatusAfterRefund,
+  refundedMinor,
+  refundIdempotencyKey,
+  renderRefund,
+  syncOrderPaymentStatus,
+  type AdminRefund,
+  type CreateRefundInput,
+  type CreateRefundOutcome,
+  type RefundReason,
+  type RefundRow,
+  type RefundStatus,
+} from './refunds';
+export { paymentsRefundRequester } from './refund-requester';
+export { paymentsAdminRouter, REFUNDS_PATH, SUPPORT_REFUND_LIMIT_SETTING } from './refund-router';
 export {
   formEncode,
   STRIPE_API_VERSION,
@@ -79,10 +100,12 @@ export {
 } from './capture';
 
 /**
- * Registers this module's providers with the checkout module's registry (next to the built-in `manual`).
- * Called once at boot by src/server.ts (REQUEST #176 to window 1). Configuration problems surface at first
- * use per store, not at boot: a store without Stripe keys simply keeps using `manual`.
+ * Registers this module's providers with the checkout module's registry (next to the built-in `manual`) and
+ * this module's `RefundRequester` with the returns module (return-driven refunds write `refund` rows + events
+ * here, task 2.3). Called once at boot by src/server.ts (REQUEST #176 to window 1). Configuration problems
+ * surface at first use per store, not at boot: a store without Stripe keys simply keeps using `manual`.
  */
 export function registerPaymentProviders(opts: StripeProviderOptions = {}): void {
   setPaymentProvider(createStripePaymentProvider(opts));
+  setRefundRequester(paymentsRefundRequester);
 }

@@ -696,7 +696,7 @@ describe('handleStripeWebhook — processing', () => {
     const r1 = await deliver(
       stripeEvent('charge.refunded', { id: 'pi_r', amount: 5, status: 'succeeded' }).raw,
     );
-    expect(r1).toMatchObject({ kind: 'skipped', reason: expect.stringContaining('2.3') });
+    expect(r1).toMatchObject({ kind: 'skipped', reason: expect.stringContaining('informational') });
     const r2 = await deliver(
       stripeEvent('customer.created', { id: 'cus_1', amount: 0, status: 'x' }).raw,
     );
