@@ -2,6 +2,95 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-15 · declare `@medusajs/draft-order` (#207)
+
+- `apps/core/package.json` declares `@medusajs/draft-order` at the `@medusajs/medusa` version (2.20.1). Medusa 2.20
+  resolves a default plugin set from the app directory, and pnpm's isolated `node_modules` only links direct
+  dependencies — without the declaration the built server died in the plugin loader (`Unable to resolve plugin
+"@medusajs/draft-order"`) right after the bootstrap check. Verified: `pnpm --filter @platform/core start` reaches
+  `GET /health` → 200.
+
+### 2026-09-09 · 2.6 `cart.abandoned` job, lifecycle replay, module docs (issue #108) — Phase 2 core complete
+
+- Cart: `markAbandonedCarts` / `markAllAbandonedCarts` (injected clock; idle active carts with lines → `abandoned`
+  - one `cart.abandoned` v1, `email_hash` only; `FOR UPDATE SKIP LOCKED`; empty carts skipped). **Reactivation**:
+    a mutation on an abandoned cart flips it back to `active` and restarts the idle clock; a later abandonment is a
+    new event; `completed` stays 409. Job `src/jobs/abandoned-carts.ts`: Medusa scheduled job (`config.schedule`
+    from `CORE_ABANDONED_CART_CRON`, default hourly; threshold `CORE_ABANDONED_CART_AFTER_HOURS`, default 6) running
+    one organization-scoped pass under `MEDUSA_WORKER_MODE = shared | worker`, plus a one-shot CLI.
+- `test/lifecycle-replay.test.ts`: place → confirm → capture → shipment created → shipped (reservation consumed
+  through window 8's port shape) → delivered → return → received (restock + refund) — one event per transition
+  asserted end to end, and the order, return and stock projections folded from the outbox equal the rows; the
+  cancel branch (reservations released) and the abandoned branch.
+- #191 (window 8's port shapes): `setFulfillmentStatusIn(tx, orderId, status, actor)` (orders),
+  `consumeReservationsForShipment` / `releaseReservationsForShipment` (inventory; by order line item, idempotent
+  per shipment via the movement reference).
+- #179 part 1: catalog `addMedia` / `updateMedia` / `deleteMedia` (positions contiguous, thumbnail = position 0,
+  audit + `product.updated` `["media"]`).
+- Window 7's gap: the placement failure path's `PaymentProvider.void` now carries `organizationId` / `storeId` /
+  `cartId` (per-store credentials without touching the rolled-back transaction); `RefundInput` carries the store
+  too. Tested on the manual provider's call log.
+- #191: `…InTx(tx, …)` twins of every order marker (`confirmOrderInTx`, `markPayment*InTx`,
+  `markShipmentCreatedInTx`, `markShippedInTx`, `markDeliveredInTx`, `markReturnedInTx`, `cancelOrderInTx`) so
+  shipping runs them on its own transaction (a shipment insert's `FOR KEY SHARE` on the order row deadlocked the
+  client-taking ones); tested with a shipment row inserted in the same transaction.
+- Docs: module table complete (cart … returns, jobs), READMEs with the ADR-style decisions, "What is real" jobs row.
+- Tests: `abandoned.test.ts` (3), `lifecycle-replay.test.ts` (3), catalog media +1, inventory ports +1.
+
+### 2026-09-08 · 2.5 returns and exchanges (issue #107)
+
+- `src/modules/returns` (new): `requestReturn` (per line ≤ shipped − returned − open requests, 409 otherwise;
+  unshipped order 409; `return.requested`), `receiveReturn` in one transaction (received ≤ requested, unreceived
+  items dropped; `received`; orders `markReturnedIn` → returned quantities + fulfillment_status; inventory
+  `moveStock(reason 'return')` for resellable goods only; `return.received`; the refund through the seam),
+  `approveReturn` / `rejectReturn` (support flows, no event), `markReturnRefunded` (window 7 settles a pending
+  refund), `linkExchange` (return + linked order, no money coupling), `renderReturn` / `getReturn`, pure
+  `projectReturn`. **Refund seam** `RefundRequester` + `setRefundRequester`: the manual default calls
+  `PaymentProvider.refund` and returns no id; window 7's requester writes the `refund` row + `refund.*` events and
+  returns the id the return stores. Idempotent per return (`return:<id>`, outcome recorded on the row: a retry
+  never refunds twice). Amount = received items' share of the line total (floor), shipping excluded; requires a
+  captured payment (409 otherwise). Order `payment_status` follows (partially_refunded | refunded).
+- Orders: `markReturnedIn`, `movePaymentStatusIn`, `mergeOrderMetadataIn` — transaction-level variants for the
+  returns module (no nested transactions while the order row is locked).
+- Admin API: `POST /admin/stores/{storeId}/orders/{orderId}/returns` (support) → 201, `POST
+/admin/stores/{storeId}/returns/{returnId}/receive` (operations on HQ; the store in the path must be the
+  return's → 404) → 200; live suite: createReturn through OpenFGA.
+- Wiring batch: `payment.authorized` emitted in `completeCart` next to `order.placed` (#176 part 2);
+  `enumParam` / `sortParams` exported from `src/http/index.ts` (#181 part 2). The mount lines (#176 part 1,
+  #179 part 2, #181 part 1) land in `src/http/module-routers.ts` as each module's export reaches main.
+- Tests: `src/modules/returns/returns.test.ts` (6: request rules, receive + restock + seam once + amount rule +
+  replay, full refund, failed/pending + markReturnRefunded + retry never twice, captured-only + rollback after the
+  outbox insert, RLS + exchange), `test/admin-api.test.ts` +2, `test/auth-live.test.ts` +1.
+
+### 2026-09-08 · 2.4 inventory: levels per warehouse, reservations at placement, backorders (issue #106)
+
+- `src/modules/inventory` (new): `moveStock` — the only writer of `on_hand` (locked level, append-only
+  `stock_movement`, one `stock.moved` v1; negative `on_hand` only through `sale`), `reserveForOrder` — the stock
+  check at placement (deterministic lock order variant id → warehouse priority → code; greedy allocation across
+  active warehouses; non-backorderable shortfall → 409 `out_of_stock` with full rollback; backorderable reserves
+  anyway and `available` goes negative; a reservation is never a movement), `releaseForOrder` (cancel, idempotent),
+  `consumeForShipment` (window 8: reservation → `sale` movement per warehouse; over-consumption 409),
+  `listInventoryLevels` / `createStockMovement` for the Admin API. Guard: no `UPDATE inventory_level` /
+  `INSERT INTO stock_movement` outside the module; the app role cannot UPDATE/DELETE movements (tested).
+- Checkout: `reserveForOrder` replaces the advisory re-check at placement; **void on failure** — any throw after a
+  successful `authorize` voids the authorisation before the rollback (#174 review; manual provider call log tested).
+- Orders: `cancelOrder` releases the order's reservations through its own transition; the wrappers' idempotency
+  read now happens under the row lock (#174 review).
+- Admin API: `GET /admin/inventory/levels` (with `store_id` → that store; without → `store:*` and the caller's
+  visible stores; filters, `below_available`, sort/order), `POST /admin/inventory/movements` (`operations`;
+  reasons receipt | adjustment | transfer_in | transfer_out | cycle_count) → 201 `InventoryLevel`; one levels route
+  in the live suite.
+- Wiring batch (#176 / #179 / #181, manager decision — travels with 2.4): `src/http/module-routers.ts` mounts window 9's
+  `merchandisingRouter({ repository: new PgRulesRepository(), indexFor })` (#162 part 3) and window 17's
+  `marketingAdminRouter()` (#181 part 1); `completeCart` emits `payment.authorized` v1 next to `order.placed` (#176
+  part 2); `enumParam` / `sortParams` exported from `src/http/index.ts` (#181 part 2). Not yet mountable (module not on
+  main): `registerPaymentProviders()` (#176 part 1), `mediaRouter()` (#168), `pricingRouter()` + the cart's
+  `resolvePrices` call site (#179 parts 2/3); #179 part 1 (catalog media functions) = a later core PR.
+- Tests: `src/modules/inventory/inventory.test.ts` (9: movement + event + append-only, greedy allocation, 409 +
+  rollback + void, backorder negative, 8 parallel placements on shared variants in shuffled order, last-unit race,
+  release/consume, Store availability, admin list/RLS across the shared warehouse, adjust), `test/admin-api.test.ts`
+  +2, `test/auth-live.test.ts` +1, guards +1.
+
 ### 2026-09-08 · 2.3 order state machine, wrappers for windows 7/8, edits, Admin API order routes (issue #105)
 
 - `src/modules/orders` (new): `transitions.ts` (one map per status field — the README tables are asserted equal),

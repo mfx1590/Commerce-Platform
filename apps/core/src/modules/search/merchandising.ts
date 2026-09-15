@@ -127,7 +127,11 @@ export async function deleteRule(
 
 /**
  * Pushes every active rule of the store as the index's complete rule set (disabled, expired and future rules
- * are skipped and therefore removed from the index) and stamps `published_at` on the published ones.
+ * are skipped and therefore removed from the index) and stamps `published_at` on the published ones. The
+ * Algolia call runs OUTSIDE any open transaction (#166 review): reading the rules and stamping `published_at`
+ * are two short transactions around the network call, so a slow index never holds row locks. If the stamp
+ * fails after a successful push the index is already correct and the next publish re-stamps — never the other
+ * way around.
  */
 export async function publishRules(
   client: ScopedClient,
@@ -137,18 +141,18 @@ export async function publishRules(
   now = new Date(),
 ): Promise<PublishResult> {
   const indexName = indexNameFor(store);
-  return client.transaction(async (tx) => {
-    const rules = await repo.list(tx, store.id);
-    const active = rules.filter((r) => isRuleActive(r, now));
-    await index.saveRules(indexName, active.map(toAlgoliaRule), { clearExisting: true });
-    await repo.markPublished(
+  const rules = await client.transaction((tx) => repo.list(tx, store.id));
+  const active = rules.filter((r) => isRuleActive(r, now));
+  await index.saveRules(indexName, active.map(toAlgoliaRule), { clearExisting: true });
+  await client.transaction((tx) =>
+    repo.markPublished(
       tx,
       store.id,
       active.map((r) => r.id),
       now,
-    );
-    return { index: indexName, published: active.length, skipped: rules.length - active.length };
-  });
+    ),
+  );
+  return { index: indexName, published: active.length, skipped: rules.length - active.length };
 }
 
 export interface RelevanceQuery {

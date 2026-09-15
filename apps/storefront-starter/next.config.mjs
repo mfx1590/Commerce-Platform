@@ -12,10 +12,17 @@ const config = {
   // The kit ships as TypeScript-compiled ESM; Next must transpile it like app code.
   transpilePackages: ['@platform/ui'],
   images: {
-    // Product media in the mock (and in Phase 2) comes from the CDN, not from the app.
+    // Product media comes from the CDN, not from the app. This list is a security boundary: an
+    // unlisted host cannot be rendered through the optimiser, so each entry is as narrow as the
+    // media it has to serve.
     remotePatterns: [
       { protocol: 'https', hostname: 'res.cloudinary.com' },
       { protocol: 'https', hostname: 'images.unsplash.com' },
+      // The development seed's product thumbnails (packages/db seed:
+      // `https://picsum.photos/seed/<store>-<n>/800/1000`). Scoped to `/seed/**` rather than the
+      // whole host: without it the PLP cannot render against the core at all, and with a wider
+      // entry the optimiser would proxy arbitrary picsum paths.
+      { protocol: 'https', hostname: 'picsum.photos', pathname: '/seed/**' },
     ],
   },
   eslint: {

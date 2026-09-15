@@ -2,7 +2,8 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
+Status: Phase 2 complete; reopened by REQUEST. **In flight:** #195/#197 + the boot smoke + paths-ignore batch.
+Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
 ## Identity (does not change)
@@ -107,6 +108,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- One PR: feeds + brand-a images (#195/#197), the `apps/core` boot smoke in `auth-e2e`, `paths-ignore` on push,
+  branch-protection docs marked applied. The feed artifact bucket plan is a second PR, not this one.
+
+## Done (earlier)
+
 - The close-out PR for #156's review nits. Nothing else in flight.
 
 ## Next — reopened by REQUEST, not by a phase
@@ -121,6 +127,9 @@ Phase 2 is complete. The manager reopens this window with issues; three are alre
 
 Standing debts, whenever this window is next open:
 
+- **REQUEST #207** (window 1) — `apps/core` cannot start on main; the new boot smoke step is red until it
+  lands. Verified fix: declare `@medusajs/draft-order` as a dependency.
+- **REQUEST #212** (window 2) — brand-a's Keycloak redirect URI; then set `E2E_INCLUDE_BRAND_STOREFRONTS` on by default.
 - **REQUEST #154** — once the Playwright configs honour `E2E_CHANNEL`, `run-e2e.sh` stops installing both
   browsers on CI and installs `"$channel"` alone. Supersedes #84.
 - **REQUEST #60** — once `apps/core` declares `ts-node`, delete the two workaround lines from its Dockerfile.
@@ -279,6 +288,35 @@ Standing debts, whenever this window is next open:
 - **gitleaks allowlist regexes match the extracted SECRET, not the reported MATCH.** They differ — match
   "access, analyst/finance/operations ", secret "analyst/finance/operations". Anchoring on the match
   allowlists nothing and looks like the config is being ignored. Read the `Secret` field of a JSON report.
+
+- **Discovery globs must cover `apps/storefronts/*` as well as `apps/*`.** Brand storefronts live one level
+  deeper (window 10 owns `apps/storefronts/<brand>/**`). Three of my scripts assumed `apps/*`; the worst was
+  `run-e2e.sh`, which silently never ran brand-a's Playwright journey even though the app ships a config and an
+  `e2e` script. A discovery bug in a test runner reports fewer passes, not a failure.
+- **`paths-ignore` and required checks do not mix on `pull_request`.** A workflow that does not run reports no
+  status at all, so a docs-only PR would sit on "Expected — waiting for status" forever under branch
+  protection. On `push` it is free money; on `pull_request` it is a merge deadlock.
+- **CI never loaded Medusa's runtime until the boot smoke.** `medusa build`, the unit tests and the image smoke
+  test all pass while the server cannot start — proven on the first run (REQUEST #207: `apps/core` does not
+  declare `@medusajs/draft-order`, which pnpm therefore does not link into `apps/core/node_modules`, and
+  Medusa's plugin loader resolves it from the app directory).
+
+- **A boot smoke needs a realistic database, and its own one.** Core runs a readiness check at start, so
+  booting against an empty database fails for a boring reason and proves nothing about Medusa's loaders.
+  `boot-smoke.sh` creates `platform_boot_smoke`, migrates, seeds and Medusa-migrates it, and drops it after —
+  never the shared `platform` database. `loadDotenv()` never overrides an exported variable, which is what
+  makes redirecting every URL at the throwaway database safe.
+- **Images run with `NODE_ENV=production`, so app production guards fire at container start.** `feeds` exits
+  without `FEEDS_STORE_CODES`. The image smoke test did not catch it because it checks real apps for build
+  output only, not boot. Required runtime env belongs in the image contract table; never bake a default for a
+  value whose absence is a deliberate guard.
+
+- **Opt-in beats silent skip when a known external blocker would keep a job red.** Brand storefront journeys
+  are behind `E2E_INCLUDE_BRAND_STOREFRONTS=1` until REQUEST #212 (Keycloak redirect URI for the brand port).
+  The script prints the journeys it skipped, so "not run" never reads as "does not exist".
+- **Killing a background shell does not kill its children on Windows.** Stopping a run of `run-e2e.sh` left a
+  Playwright runner and `next start` alive, holding a port. After stopping one, check for processes whose
+  command line contains the worktree path and stop them.
 
 ## Blocked / waiting
 

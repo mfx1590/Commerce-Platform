@@ -58,7 +58,10 @@ if [ "${#expected[@]}" -eq 0 ]; then
 fi
 
 fail=0
-for dockerfile in apps/*/Dockerfile; do
+# apps/* AND apps/storefronts/*: brand storefronts live one level deeper (docs/ownership.md gives
+# window 10 `apps/storefronts/<brand>/**`). A glob that only looked at apps/* would silently stop
+# checking a whole class of image.
+for dockerfile in apps/*/Dockerfile apps/storefronts/*/Dockerfile; do
   missing=()
   for manifest in "${expected[@]}"; do
     grep -qF "COPY $manifest " "$dockerfile" || missing+=("$manifest")

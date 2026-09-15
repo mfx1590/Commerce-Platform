@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ATTRIBUTION_COOKIE,
+  ATTRIBUTION_COOKIE_MAX_BYTES,
+  attributionCookieBytes,
   mergeAttribution,
   metadataFor,
   parseAttribution,
@@ -187,5 +189,75 @@ describe('the JSON sent to the Store API', () => {
 describe('the cookie', () => {
   it('is first-party and named for this storefront', () => {
     expect(ATTRIBUTION_COOKIE).toBe('sf_attribution');
+  });
+});
+
+/**
+ * #102. A browser drops an oversized cookie without a word — no exception, no log, nothing in a
+ * dashboard — so attribution would silently stop existing. The ceiling is therefore a property of
+ * `mergeAttribution`, proven at the worst case rather than assumed from typical inputs.
+ */
+describe('the cookie size ceiling (#102)', () => {
+  /** Every field at its maximum length, in characters that percent-encode to three bytes each. */
+  const worstCaseQuery = new URLSearchParams(
+    Object.fromEntries(
+      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'ref'].map((key) => [
+        key,
+        '€'.repeat(500),
+      ]),
+    ),
+  );
+
+  function worstCaseTouch(now: Date) {
+    return readTouch(worstCaseQuery, {
+      referrer: `https://${'ä'.repeat(200)}.example.com/path`,
+      path: `/en-GB/${'ü'.repeat(500)}`,
+      siteOrigin: SITE,
+      now,
+    })!;
+  }
+
+  it('keeps the serialised cookie under the browser limit at the worst case', () => {
+    const merged = mergeAttribution(
+      mergeAttribution(null, worstCaseTouch(AT)),
+      worstCaseTouch(LATER),
+    )!;
+
+    expect(attributionCookieBytes(merged)).toBeLessThanOrEqual(ATTRIBUTION_COOKIE_MAX_BYTES);
+    expect(ATTRIBUTION_COOKIE_MAX_BYTES).toBeLessThan(4096);
+  });
+
+  it('is still valid, parseable attribution after being capped', () => {
+    const merged = mergeAttribution(null, worstCaseTouch(AT))!;
+    const roundTripped = parseAttribution(JSON.stringify(merged));
+
+    expect(roundTripped).not.toBeNull();
+    expect(roundTripped!.first.at).toBe(AT.toISOString());
+  });
+
+  it('sacrifices the last touch before the first: first touch is what acquired the customer', () => {
+    const first = touchFrom('utm_source=newsletter&utm_campaign=spring');
+    const merged = mergeAttribution(mergeAttribution(null, first), worstCaseTouch(LATER))!;
+
+    // The modest first touch survives intact; the enormous last one is what gets reduced.
+    expect(merged.first).toEqual(first);
+    expect(attributionCookieBytes(merged)).toBeLessThanOrEqual(ATTRIBUTION_COOKIE_MAX_BYTES);
+  });
+
+  it('keeps the campaign identity even when it has to reduce a touch', () => {
+    const merged = mergeAttribution(null, worstCaseTouch(AT))!;
+
+    // Whatever was dropped, what the touch is *for* — the campaign — is still there.
+    expect(merged.last.utm_source).not.toBeNull();
+    expect(merged.last.utm_campaign).not.toBeNull();
+  });
+
+  it('leaves an ordinary touch completely untouched', () => {
+    const touch = touchFrom('utm_source=newsletter&utm_medium=email&utm_campaign=spring');
+    expect(mergeAttribution(null, touch)).toEqual({
+      first: touch,
+      last: touch,
+      captured_at: touch!.at,
+    });
   });
 });

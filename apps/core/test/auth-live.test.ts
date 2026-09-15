@@ -169,6 +169,41 @@ describe.runIf(live)(
       expect(foreign.body).toMatchObject({ code: 'forbidden' });
     });
 
+    it('GET /admin/inventory/levels (task 2.4): store-admin → 200 with store_id=brand-a and without (store:*); brand-c → 403', async () => {
+      const own = await request(app)
+        .get(`/admin/inventory/levels?store_id=${S.brandA}&limit=1`)
+        .set('Authorization', await bearer('store-admin'));
+      expect(own.status).toBe(200);
+      expect(own.body).toMatchObject({ page: 1, limit: 1 });
+      const any = await request(app)
+        .get('/admin/inventory/levels?limit=1')
+        .set('Authorization', await bearer('store-admin'));
+      expect(any.status).toBe(200);
+      const foreign = await request(app)
+        .get(`/admin/inventory/levels?store_id=${S.brandC}&limit=1`)
+        .set('Authorization', await bearer('store-admin'));
+      expect(foreign.status).toBe(403);
+    });
+
+    it('POST /admin/stores/{brand-c}/orders/{id}/returns (task 2.5): store-admin → 403 through OpenFGA (support on a store outside the scope)', async () => {
+      const foreign = await request(app)
+        .post(`/admin/stores/${S.brandC}/orders/00000000-0000-4000-8000-0000000000aa/returns`)
+        .set('Authorization', await bearer('store-admin'))
+        .send({
+          items: [{ order_line_item_id: '00000000-0000-4000-8000-0000000000ab', quantity: 1 }],
+        });
+      expect(foreign.status).toBe(403);
+      expect(foreign.body).toMatchObject({ code: 'forbidden', details: { relation: 'support' } });
+      // in scope the permission passes and the (unknown) order answers 404 — the route is live behind OpenFGA
+      const own = await request(app)
+        .post(`/admin/stores/${S.brandA}/orders/00000000-0000-4000-8000-0000000000aa/returns`)
+        .set('Authorization', await bearer('store-admin'))
+        .send({
+          items: [{ order_line_item_id: '00000000-0000-4000-8000-0000000000ab', quantity: 1 }],
+        });
+      expect(own.status).toBe(404);
+    });
+
     it('GATE: store-admin gets 403 with the contract body on a finance-gated route; finance gets 200', async () => {
       const denied = await request(app)
         .get('/admin/legal-entities')

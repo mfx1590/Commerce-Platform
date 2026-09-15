@@ -1,8 +1,8 @@
 // Admin API merchandising routes (task 2.2, #135) as a mountable Express router. Permissions are each
 // operation's `x-permission` from admin-api.yaml 0.4.0 (CONTRACT CHANGE #162: `store_staff` read /
 // `store_admin` write), read through `loadSpec` like every other admin route; bodies are validated by
-// merchandising-types.ts (same schemas as the spec). Window 1 mounts `merchandisingRouter(...)` next to
-// `adminRouter()` (REQUEST in #162); nothing here is reachable until then.
+// merchandising-types.ts (same schemas as the spec). Mounted by window 1 through src/http/module-routers.ts
+// (`moduleAdminRouters()`, after `adminRouter()`).
 import { Router, type Request } from 'express';
 import type { ScopedClient } from '@platform/db';
 import { AppError } from '../../lib/errors';

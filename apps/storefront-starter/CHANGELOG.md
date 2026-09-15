@@ -1,5 +1,47 @@
 # Changelog — @platform/storefront-starter
 
+## 0.9.0 — 2026-09-09
+
+Task [storefront] 2.1 (issue #109), contracts `contracts-v0.3`. Closes #102. Folds in REQUEST #178
+and the REQUEST #167 documentation lines; REQUEST #169 ships in `@platform/ui` 0.3.0.
+
+**The core is the default backend.** `STORE_API_URL` still wins, `MOCK_API_URL` selects Prism, and
+the unconfigured default moved from the mock to `http://localhost:9000` — the core has answered the
+whole journey since core 2.2. Playwright and the offline `next build` keep using the mock, which
+they select explicitly.
+
+- **`currency` (Store API 0.3.0) on the catalogue reads.** The customer's chosen currency,
+  reconciled against `store.currencies`, is sent on `listProducts` and `getProduct`, so PLP and PDP
+  prices follow the switcher instead of silently rendering the store default. It is part of the URL,
+  so each currency caches separately at the fetch layer. `getProduct` takes the query as its second
+  argument and request options as its third.
+- **Real error bodies mapped.** 401 `unauthorized` (and `invalid_publishable_key`), `forbidden` and
+  409 `conflict` join the existing 402/409/404 mapping. The core answers `unauthorized` for a
+  missing, unknown or revoked publishable key — issue #109 predicted `invalid_publishable_key`,
+  which is not one of the contract's `ERROR_CODES`; both are mapped, and neither sends the customer
+  to a form they cannot fix.
+- **Prism-only assumptions removed from the e2e suite**, which is why it could not run against the
+  core at all. It encoded the fixture's product name, handle, price and SKU, and the mock's
+  stateless cart that always opened checkout at the payment step. The journey now takes whatever the
+  first product is, reads its name off the page, and drives whichever step it lands on — so one spec
+  covers Prism and the core. `E2E_STORE_API_URL=http://localhost:9000 pnpm e2e` runs it against the
+  core; see the README.
+- **`picsum.photos` allowed in `next.config.mjs` `images.remotePatterns`, scoped to `/seed/**`.**
+  The seeded catalogue's thumbnails live there and `next/image` refuses an unlisted hostname, so the
+  PLP could not render against the core.
+- **#102, both halves.** `mergeAttribution` now caps the cookie: values are truncated on both
+  touches first and only then is `last` reduced, because the first touch is what actually acquired
+  the customer. A browser drops an oversized cookie silently, so the worst case is proven by test
+  rather than assumed. And `cartMetadata()` reads the cookie **inside** the guard — a malformed
+  cookie, or a cookie store that throws, now degrades to "no attribution" exactly like a missing one
+  instead of throwing out of the path that must never cost an order.
+- **REQUEST #178:** `src/lib/cms/messages/<locale>.json` is merged as the `content` namespace in
+  `src/i18n/request.ts`, so window 6 owns its own catalogue. The namespace is optional: until that
+  window ships the files the merge contributes nothing rather than failing the request.
+- **REQUEST #167:** the README's `(content)` row is window 6's without "placeholder", with a pointer
+  to `src/lib/cms/README.md` and `cms/README.md` and a note that window 6 records its storefront
+  changes there rather than in this file.
+
 ## 0.8.1 — 2026-09-08
 
 CONTRACT CHANGE #100 accepted (Store API 0.2.0): `metadata` is now specified on `Cart`, `Order`,

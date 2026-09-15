@@ -4,6 +4,9 @@
 //
 // This file is also what proves the router works before window 1 mounts it in `src/http` (the REQUEST): it
 // mounts `marketingAdminRouter()` exactly where `adminRouter()` sits in the chain.
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { SEED_IDS, seed } from '@platform/db';
@@ -13,7 +16,12 @@ import { coreErrorHandler, DevTokenVerifier } from '../../http';
 import { closePool, initDb } from '../../lib/db';
 import { mountCoreMiddleware } from '../../server';
 import { specValidator } from '../../../test/helpers/openapi';
-import { marketingAdminRouter } from './index';
+import {
+  FilesystemFeedStorage,
+  marketingAdminRouter,
+  resetFeedStorage,
+  setFeedStorage,
+} from './index';
 
 const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
@@ -23,6 +31,7 @@ const base = `/admin/stores/${A}/marketing`;
 
 let db: TestDatabase;
 let app: express.Express;
+let feedsDir: string;
 
 const as = (subject: string) => ({
   get: (path: string) => request(app).get(path).set('Authorization', `Bearer dev:${subject}`),
@@ -57,6 +66,10 @@ beforeAll(async () => {
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
   await initDb({ connectionString: db.app.options.connectionString! });
+  feedsDir = await mkdtemp(join(tmpdir(), 'feed-routes-'));
+  setFeedStorage(
+    new FilesystemFeedStorage({ dir: feedsDir, baseUrl: 'https://feeds.example/feeds' }),
+  );
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier());
   app.use(marketingAdminRouter());
@@ -64,6 +77,8 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  resetFeedStorage();
+  await rm(feedsDir, { recursive: true, force: true });
   await closePool();
   await db?.drop();
 });
@@ -72,6 +87,7 @@ beforeEach(async () => {
   await db.owner.query('DELETE FROM attribution');
   await db.owner.query('DELETE FROM "order"');
   await db.owner.query('DELETE FROM campaign');
+  await db.owner.query('DELETE FROM product_feed');
 });
 
 describe('campaign routes', () => {
@@ -187,6 +203,117 @@ describe('permissions (x-permission from admin-api.yaml)', () => {
     // The seeded store-staff user is scoped to brand A only.
     const other = await storeStaff.get(`/admin/stores/${B}/marketing/campaigns`);
     expect(other.status).toBe(403);
+  });
+});
+
+describe('feed routes', () => {
+  const feedPayload = {
+    name: 'Google Shopping NL',
+    channel: 'google_merchant',
+    locale: 'en-GB',
+    currency: 'EUR',
+    filters: { in_stock_only: true },
+    mapping: { brand: 'Brand A' },
+  };
+
+  async function createFeedViaApi(over: Record<string, unknown> = {}): Promise<string> {
+    const res = await storeAdmin.post(`${base}/feeds`, { ...feedPayload, ...over });
+    expect(res.status).toBe(201);
+    return res.body.id as string;
+  }
+
+  it('creates, reads, lists and updates in the contract shape', async () => {
+    const created = await storeAdmin.post(`${base}/feeds`, feedPayload);
+    expect(created.status).toBe(201);
+    spec.assertSchema('ProductFeed', created.body);
+    expect(created.body).toMatchObject({ store_id: A, status: 'draft', url: null, item_count: 0 });
+
+    const read = await storeStaff.get(`${base}/feeds/${created.body.id}`);
+    expect(read.status).toBe(200);
+    spec.assertSchema('ProductFeed', read.body);
+
+    const list = await storeStaff.get(`${base}/feeds?channel=google_merchant&status=draft`);
+    expect(list.status).toBe(200);
+    spec.assertPage('ProductFeed', list.body);
+    expect(list.body.items).toHaveLength(1);
+
+    const patched = await storeAdmin.patch(`${base}/feeds/${created.body.id}`, {
+      ...feedPayload,
+      name: 'Google Shopping NL v2',
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.name).toBe('Google Shopping NL v2');
+
+    expect((await storeAdmin.delete(`${base}/feeds/${created.body.id}`)).status).toBe(204);
+    expect((await storeStaff.get(`${base}/feeds/${created.body.id}`)).status).toBe(404);
+  });
+
+  it('publishes and lists the computed items', async () => {
+    const id = await createFeedViaApi();
+
+    const published = await storeAdmin.post(`${base}/feeds/${id}/publish`);
+    expect(published.status).toBe(200);
+    spec.assertSchema('ProductFeed', published.body);
+    expect(published.body).toMatchObject({ status: 'active' });
+    expect(published.body.item_count).toBeGreaterThan(0);
+    expect(published.body.url).toBe(`https://feeds.example/feeds/brand-a/${id}.xml`);
+
+    const items = await storeStaff.get(`${base}/feeds/${id}/items?limit=3`);
+    expect(items.status).toBe(200);
+    spec.assertPage('FeedItem', items.body);
+    expect(items.body.items).toHaveLength(3);
+  });
+
+  it('reports a broken feed as status error (a schema-valid ProductFeed since 0.4.1, #194)', async () => {
+    await db.owner.query(`DELETE FROM store_domain WHERE store_id = $1`, [A]);
+    try {
+      const id = await createFeedViaApi();
+      const published = await storeAdmin.post(`${base}/feeds/${id}/publish`);
+      expect(published.status).toBe(200);
+      expect(published.body.status).toBe('error');
+      expect(published.body.item_count).toBe(0);
+      spec.assertSchema('ProductFeed', published.body);
+    } finally {
+      await db.owner.query(
+        `INSERT INTO store_domain (organization_id, store_id, hostname, is_primary)
+         VALUES ($1, $2, 'shop.brand-a.local', true)
+         ON CONFLICT (hostname) DO NOTHING`,
+        [ORG, A],
+      );
+    }
+  });
+
+  it('validates the body and the channel', async () => {
+    expect((await storeAdmin.post(`${base}/feeds`, { name: 'No channel' })).status).toBe(400);
+    const badCurrency = await storeAdmin.post(`${base}/feeds`, {
+      ...feedPayload,
+      currency: 'GBP',
+    });
+    expect(badCurrency.status).toBe(400);
+    expect(badCurrency.body.details.currency).toContain('not sold by this store');
+
+    // A channel with no renderer is a 409 on publish, not an empty file.
+    const tiktok = await createFeedViaApi({ name: 'TikTok', channel: 'tiktok' });
+    const refused = await storeAdmin.post(`${base}/feeds/${tiktok}/publish`);
+    expect(refused.status).toBe(409);
+    spec.assertSchema('Error', refused.body);
+  });
+
+  it('store_staff reads, store_admin writes and publishes', async () => {
+    const id = await createFeedViaApi();
+
+    expect((await storeStaff.get(`${base}/feeds`)).status).toBe(200);
+    expect((await storeStaff.get(`${base}/feeds/${id}/items`)).status).toBe(200);
+
+    for (const res of [
+      await storeStaff.post(`${base}/feeds`, feedPayload),
+      await storeStaff.patch(`${base}/feeds/${id}`, feedPayload),
+      await storeStaff.post(`${base}/feeds/${id}/publish`),
+      await storeStaff.delete(`${base}/feeds/${id}`),
+    ]) {
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('forbidden');
+    }
   });
 });
 
