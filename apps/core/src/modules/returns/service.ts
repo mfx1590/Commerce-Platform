@@ -209,18 +209,40 @@ export async function rejectReturn(client: ScopedClient, returnId: string): Prom
   });
 }
 
-/** Refund amount for received items: each item's share of its line total (floor), shipping excluded. */
+/**
+ * Refund amount for received items, shipping excluded. A line's total is allocated over its units by cumulative
+ * floor — `floor(total × (before + qty) / quantity) − floor(total × before / quantity)`, `before` being the line's
+ * `returned_quantity` before this receipt — so separate partial returns of one line sum to the line total exactly:
+ * the rounding remainder lands on the last unit returned (100 over 3 units → 33, 33, 34), never on the merchant.
+ */
 export function refundAmountFor(
-  lines: readonly Pick<OrderLineRow, 'id' | 'quantity' | 'total_minor'>[],
+  lines: readonly Pick<OrderLineRow, 'id' | 'quantity' | 'total_minor' | 'returned_quantity'>[],
   received: readonly { order_line_item_id: string; quantity: number }[],
 ): number {
   let total = 0;
+  const allocated = new Map<string, number>(); // units of this receipt already counted per line
   for (const r of received) {
     const line = lines.find((l) => l.id === r.order_line_item_id);
-    if (!line || line.quantity === 0) continue;
-    total += Math.floor((Number(line.total_minor) * r.quantity) / line.quantity);
+    if (!line || line.quantity === 0 || r.quantity <= 0) continue;
+    const lineTotal = Number(line.total_minor);
+    const before = line.returned_quantity + (allocated.get(line.id) ?? 0);
+    const after = Math.min(before + r.quantity, line.quantity);
+    total +=
+      Math.floor((lineTotal * after) / line.quantity) -
+      Math.floor((lineTotal * before) / line.quantity);
+    allocated.set(line.id, after - line.returned_quantity);
   }
   return total;
+}
+
+type RefundOutcome = Awaited<ReturnType<ReturnType<typeof currentRefundRequester>['request']>>;
+
+/** A thrown error as a stored failure reason: name + message, capped; never the stack, never request data. */
+function thrownReason(error: unknown): string {
+  const e = error as { name?: unknown; message?: unknown } | null;
+  const name = typeof e?.name === 'string' ? e.name : 'Error';
+  const message = typeof e?.message === 'string' ? e.message : String(error);
+  return `requester threw: ${name}: ${message}`.slice(0, 200);
 }
 
 interface CapturedPayment {
@@ -237,7 +259,8 @@ interface CapturedPayment {
  * quantities and fulfillment_status (orders module) → restock of resellable items into `warehouseId` (inventory
  * `moveStock`, reason `return`, one `stock.moved` each; damaged goods are not restocked) → `return.received` →
  * refund through the RefundRequester (idempotent per return: a recorded outcome is never re-requested) →
- * `refunded` + the order's payment_status when the requester succeeded.
+ * `refunded` + the order's payment_status when the requester succeeded. A requester that throws (provider
+ * timeout) does not undo the receipt: its work is rolled back to a savepoint and a failed outcome is recorded.
  */
 export async function receiveReturn(
   client: ScopedClient,
@@ -350,10 +373,12 @@ export async function receiveReturn(
 }
 
 /**
- * Asks the RefundRequester once per return: a recorded outcome (`metadata.refund`) short-circuits a retry. On
- * success the return goes `refunded` (with the requester's refund id when given) and the order's payment_status
- * follows (partially_refunded | refunded against the captured amount). A failed or pending outcome leaves the
- * return `received`; window 7 finishes it with `markReturnRefunded`.
+ * Asks the RefundRequester once per return: a succeeded or pending outcome recorded in `metadata.refund`
+ * short-circuits a retry; a failed one is retried under the same `return:<id>` key. On success the return goes
+ * `refunded` (with the requester's refund id when given) and the order's payment_status follows
+ * (partially_refunded | refunded against the captured amount). A failed or pending outcome leaves the return
+ * `received`; window 7 finishes it with `markReturnRefunded`. A requester that throws is treated as failed: its
+ * writes are rolled back to a savepoint (the transaction stays usable), the reason is recorded, nothing else is lost.
  */
 export async function requestRefundFor(
   tx: Queryable,
@@ -377,21 +402,32 @@ export async function requestRefundFor(
       return_id: returnId,
     });
   }
-  const response = await currentRefundRequester().request({
-    tx,
-    organizationId: ret.organization_id,
-    storeId: ret.store_id,
-    orderId: ret.order_id,
-    returnId,
-    paymentId: payment.id,
-    provider: payment.provider,
-    providerPaymentId: payment.provider_payment_id,
-    amountMinor,
-    currency: payment.currency,
-    reason: 'return',
-    idempotencyKey: refundKeyFor(returnId),
-    actor,
-  });
+  const idempotencyKey = refundKeyFor(returnId);
+  await tx.query('SAVEPOINT refund_request');
+  let response: RefundOutcome;
+  try {
+    response = await currentRefundRequester().request({
+      tx,
+      organizationId: ret.organization_id,
+      storeId: ret.store_id,
+      orderId: ret.order_id,
+      returnId,
+      paymentId: payment.id,
+      provider: payment.provider,
+      providerPaymentId: payment.provider_payment_id,
+      amountMinor,
+      currency: payment.currency,
+      reason: 'return',
+      idempotencyKey,
+      actor,
+    });
+    await tx.query('RELEASE SAVEPOINT refund_request');
+  } catch (error) {
+    // provider timeout / requester crash: drop whatever it wrote, keep the receipt + restock, record and move on —
+    // the next requestRefundFor retries under the same key (the provider de-duplicates on it)
+    await tx.query('ROLLBACK TO SAVEPOINT refund_request');
+    response = { status: 'failed', refundId: null, failureReason: thrownReason(error) };
+  }
   await tx.query(`UPDATE "return" SET metadata = $2::jsonb, updated_at = now() WHERE id = $1`, [
     returnId,
     JSON.stringify({
@@ -402,6 +438,7 @@ export async function requestRefundFor(
         currency: payment.currency,
         payment_id: payment.id,
         refund_id: response.refundId,
+        idempotency_key: idempotencyKey,
         failure_reason: response.failureReason ?? null,
         at: new Date().toISOString(),
       },

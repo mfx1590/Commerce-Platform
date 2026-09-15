@@ -2,6 +2,23 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-15 · #214 follow-up (returns dust, throwing requester, release items, #191 shape, docs)
+
+- **Returns — no floor dust across partial returns**: `refundAmountFor` allocates a line total by cumulative
+  floor over the line's units (`returned_quantity` before the receipt as the base), so three returns of one unit
+  from a 100-minor line refund 33 + 33 + 34; the signature now reads `returned_quantity` from the lines.
+- **Returns — a throwing `RefundRequester` is a failed outcome**: `requestRefundFor` runs the requester under
+  a savepoint; a throw rolls back to it, keeps the receipt + restock + `return.received`, records
+  `{ status: "failed", failure_reason: "requester threw: …", idempotency_key: "return:<id>" }` and a later
+  `requestRefundFor` (now exported) retries under the same key. `metadata.refund` carries `idempotency_key`.
+- **Inventory — `releaseReservationsForShipment` honours `items`**: per variant the release target is
+  `min(consumed, asked)` minus what earlier calls released under the shipment (same call twice = once, larger
+  call = the difference, empty `items` = everything still held).
+- **Orders — `setFulfillmentStatus({ tx, orderId, status, actor })`**: #191's object shape, exported next to
+  the positional `setFulfillmentStatusIn` (kept for window 8's current adapter).
+- **Docs**: `CLAUDE.md` `src/jobs` row lists only `abandoned-carts.ts`; window 9's CLI path corrected to
+  `src/modules/search/cli/index-products.ts`. Tests: returns +2, inventory +1, orders +1.
+
 ### 2026-09-15 · declare `@medusajs/draft-order` (#207)
 
 - `apps/core/package.json` declares `@medusajs/draft-order` at the `@medusajs/medusa` version (2.20.1). Medusa 2.20

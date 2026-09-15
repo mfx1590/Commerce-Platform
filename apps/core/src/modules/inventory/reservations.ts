@@ -339,7 +339,10 @@ export async function consumeReservationsForShipment(
 /**
  * `releaseReservations` for shipping (#191): a planned shipment cancelled before picking. Reverses what
  * `consumeReservationsForShipment` did for this shipment: the goods go back on hand (`adjustment` movement
- * referencing `shipment_release:<id>`) and the order's reservation is re-opened. Idempotent per shipment.
+ * referencing `shipment_release:<id>`) and the order's reservation is re-opened. `items` says which order lines
+ * (and how many units) to release: per variant the target is `min(consumed, asked)` and what earlier calls already
+ * released under this shipment is subtracted, so the same call twice releases once, a larger later call releases
+ * the difference, and an empty `items` means everything the shipment consumed. Returns the units released now.
  */
 export async function releaseReservationsForShipment(
   tx: Queryable,
@@ -358,16 +361,30 @@ export async function releaseReservationsForShipment(
      GROUP BY variant_id, warehouse_id`,
     [input.shipmentId],
   );
-  const released = await tx.query<{ variant_id: string; warehouse_id: string }>(
-    `SELECT variant_id, warehouse_id FROM stock_movement
-     WHERE reference_type = 'shipment_release' AND reference_id = $1`,
+  const released = await tx.query<{ variant_id: string; warehouse_id: string; quantity: string }>(
+    `SELECT variant_id, warehouse_id, sum(delta)::text AS quantity FROM stock_movement
+     WHERE reference_type = 'shipment_release' AND reference_id = $1
+     GROUP BY variant_id, warehouse_id`,
     [input.shipmentId],
   );
-  const doneKeys = new Set(released.rows.map((r) => `${r.variant_id}:${r.warehouse_id}`));
+  const releasedBefore = new Map(
+    released.rows.map((r) => [`${r.variant_id}:${r.warehouse_id}`, Number(r.quantity)]),
+  );
+  // asked units per variant (undefined = no cap: release everything the shipment consumed)
+  let asked: Map<string, number> | undefined;
+  if (input.items.length > 0) {
+    asked = new Map();
+    for (const l of await variantsOfLines(tx, input.orderId, input.items)) {
+      asked.set(l.variantId, (asked.get(l.variantId) ?? 0) + l.quantity);
+    }
+  }
   let total = 0;
   for (const c of consumed.rows) {
-    if (doneKeys.has(`${c.variant_id}:${c.warehouse_id}`)) continue;
-    const quantity = Number(c.quantity);
+    const key = `${c.variant_id}:${c.warehouse_id}`;
+    const target = asked
+      ? Math.min(Number(c.quantity), asked.get(c.variant_id) ?? 0)
+      : Number(c.quantity);
+    const quantity = target - (releasedBefore.get(key) ?? 0);
     if (quantity <= 0) continue;
     const { level } = await moveStock(tx, {
       organizationId: input.organizationId,
