@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-09-15 · Contracts: contracts-v0.4.1 on main (67f19d5) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE AND QUIET.** 2.1–2.5 merged (#160, #166, #188); 2.5 follow-up #208 green (merge pending at time of writing — re-check before trusting); docs-only cleanup is the last commit. Reopens only on a REQUEST.
+Last updated: 2026-09-15 · Contracts: contracts-v0.4.1 on main (67f19d5) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE AND QUIET.** 2.1–2.5 merged (#160, #166, #188); 2.5 follow-up #208 merged (main `2456e9a`); this docs-only cleanup is the last commit. Reopens only on a REQUEST.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -30,7 +30,7 @@ Algolia index per brand synced from product.published events, merchandising rule
 - When window 1 mounts the three pending routers (#179: `mediaRouter`, `pricingRouter`, `promotionsRouter`): update the two READMEs' "not mounted yet" lines.
 - When window 1 delivers #179's catalog media functions: switch `media.ts` to them, delete its direct SQL on `product_media`/`product.thumbnail_url`.
 - Known, deliberately not done (manager, #208 review): per-customer promotion limit relies on caller-supplied counts; automatic promotions (code null) never appear in `promotionReportData`.
-- Local env note: on 2026-09-15 the shared stack's OpenFGA (:8081) was down, so hq-rbac + auth-live suites skipped locally (34 passed / 8 skipped); CI's live job covers them. Never restart the shared stack from this window.
+- Local env note (manager-confirmed 2026-09-15): the shared stack can be partially down locally — OpenFGA (:8081) was, so hq-rbac + auth-live suites skipped (34 passed / 8 skipped). **CI's live job is the authoritative run** for those suites; check which files skipped before trusting a local green, and never restart the shared stack from this window.
 
 ## Decisions made (with reasons)
 - **No SDKs (Algolia, Cloudinary); REST/crypto over Node built-ins.** `apps/core/package.json` belongs to window 1. Errors strip the Algolia key (every occurrence); `request` retries 429/5xx/network with backoff.
