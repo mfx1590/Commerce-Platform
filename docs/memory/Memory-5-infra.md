@@ -318,6 +318,12 @@ Standing debts, whenever this window is next open:
   Playwright runner and `next start` alive, holding a port. After stopping one, check for processes whose
   command line contains the worktree path and stop them.
 
+- **On Windows, check a port against `netsh interface ipv4 show excludedportrange protocol=tcp`, not just
+  against listeners.** With the dynamic range starting at 1024, WinNAT reserves random blocks below 15000 that
+  move on every restart; a free port today can be forbidden tomorrow. 3001 broke OpenFGA, and the replacement
+  first agreed (3081) was already reserved. Fixed ports for new services go above 15000 (OpenFGA playground
+  is now 18083).
+
 ## Blocked / waiting
 
 - **REQUEST #92** (main) — `.prettierignore` must skip `infra/helm/*/templates/`. **Blocking 2.3**: Helm
