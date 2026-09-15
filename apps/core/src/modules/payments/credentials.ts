@@ -43,6 +43,19 @@ export function stripeCredentialsFor(
         `(sk_test_…); refusing to use it`,
     );
   }
-  const webhookSecret = env[`STRIPE_WEBHOOK_SECRET_${suffix}`] || env.STRIPE_WEBHOOK_SECRET || null;
+  const webhookSecret = stripeWebhookSecretFor(storeCode, env);
   return { secretKey, webhookSecret, source: storeKey ? 'store' : 'global' };
+}
+
+/**
+ * The webhook endpoint secret alone (`STRIPE_WEBHOOK_SECRET_<CODE>`, else `STRIPE_WEBHOOK_SECRET`), for the
+ * 2.2 receiver — which must verify a signature without needing (or touching) the secret key. Null when unset:
+ * the receiver fails closed with an error naming the variables.
+ */
+export function stripeWebhookSecretFor(
+  storeCode: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const suffix = envSuffix(storeCode);
+  return env[`STRIPE_WEBHOOK_SECRET_${suffix}`] || env.STRIPE_WEBHOOK_SECRET || null;
 }
