@@ -1,132 +1,95 @@
-// The idempotency record behind every carrier webhook: one row per provider event id, inserted before the
-// event is applied. A duplicate delivery — carriers retry until they get a 2xx — conflicts on that row and is
-// answered "already seen" without touching a shipment or emitting a second event.
+// The idempotency record behind every carrier webhook, on the shared `webhook_event` table accepted in #187
+// (migration 0140, shared with payments). One row per delivered provider event; a redelivery conflicts on
+// `UNIQUE (provider, provider_event_id)`, inserts nothing, and is answered "already seen" without touching a
+// shipment or emitting a second event.
 //
-// The `webhook_event` table is SHARED with window 7 (payments) and is not in db 0.2.0 yet: window 7 files the
-// CONTRACT CHANGE, shipping's requirements are on issue #125. `PROPOSED_WEBHOOK_EVENT_SQL` below is the shape
-// this module builds against and the tests create; when the real migration lands, only that constant and this
-// comment go away.
+// NO RAW PAYLOADS (#187): `payload` holds only the redacted extract this module processes — ids, the tracking
+// code, the status and timestamps, never an address — and `payload_hash` is the sha256 of the raw request body.
+//
+// Until 0140 lands, `proposed/0140_webhook_event.sql` is a byte-for-byte copy of #187's SQL (identical to
+// payments' copy) and only the test suites apply it. The manager's 0140 commit removes both copies.
+import { createHash } from 'node:crypto';
 import type { Queryable } from '@platform/db';
 
-export type WebhookEventStatus = 'received' | 'processed' | 'ignored' | 'failed';
+export const TRACKING_WEBHOOK_PROVIDER = 'easypost';
 
-export interface WebhookEventRecord {
-  provider: string;
-  externalId: string;
-  topic: string;
-  organizationId: string;
-  storeId: string | null;
-  /** The provider's own timestamp, not ours — tracking scans arrive out of order. */
-  occurredAt: string | null;
-  payload: Record<string, unknown>;
+/** `webhook_event.status` (#187): received → processed | skipped (recognised, no-op) | failed. */
+export type WebhookEventStatus = 'received' | 'processed' | 'skipped' | 'failed';
+
+/**
+ * What shipping keeps of a tracking delivery — the fields it processes and nothing else. No address, no city: a
+ * carrier's scan location is part of the destination's trail, so it is dropped at extraction.
+ */
+export interface TrackingExtract {
+  provider_event_id: string;
+  event_type: string;
+  /** The carrier's tracker object (`trk_…`), stored as `provider_object_id`. */
+  tracker_id: string | null;
+  tracking_code: string;
+  carrier: string | null;
+  status: string;
+  /** Carrier timestamp for the scan; null when the carrier omitted it. Audit only — never used for ordering. */
+  occurred_at: string | null;
 }
 
-export interface WebhookEventStore {
-  /**
-   * Records the event if it has not been seen. `false` = a duplicate delivery; the caller must do nothing else.
-   * Runs on the caller's transaction so the record and the state change commit or roll back together.
-   */
-  record(tx: Queryable, event: WebhookEventRecord): Promise<boolean>;
-  /** Marks the outcome of an event this call recorded. */
-  finish(
-    tx: Queryable,
-    key: { provider: string; externalId: string },
-    status: WebhookEventStatus,
-    error?: string | null,
-  ): Promise<void>;
+export interface RecordInput {
+  organizationId: string;
+  storeId: string;
+  extract: TrackingExtract;
+  payloadHash: string;
+}
+
+/** sha256 hex of the exact bytes received — computed before parsing, stored as `payload_hash`. */
+export function payloadHashOf(rawBody: Buffer | string): string {
+  return createHash('sha256').update(rawBody).digest('hex');
 }
 
 /**
- * The proposed shared table. Kept here (not in packages/db, which is frozen and window 1's) so this module and
- * its tests have something real to run against while the CONTRACT CHANGE is open.
- *
- * `UNIQUE (provider, external_id)` — not a global unique id: EasyPost's and Stripe's id spaces are unrelated.
- * `occurred_at` is nullable and separate from `received_at` — a `delivered` scan can reach us before the
- * `in_transit` one, and ordering must use the carrier's clock.
+ * Inserts the delivery if this provider event has not been seen. Returns the new row id, or `null` for a
+ * redelivery — the caller must then do nothing else. Runs on the caller's transaction, so the record and the
+ * state change commit or roll back together.
  */
-export const PROPOSED_WEBHOOK_EVENT_SQL = `
-CREATE TABLE IF NOT EXISTS webhook_event (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id uuid NOT NULL,
-  store_id        uuid,
-  provider        text NOT NULL,
-  topic           text NOT NULL,
-  external_id     text NOT NULL,
-  status          text NOT NULL DEFAULT 'received'
-                    CHECK (status IN ('received','processed','ignored','failed')),
-  occurred_at     timestamptz,
-  received_at     timestamptz NOT NULL DEFAULT now(),
-  processed_at    timestamptz,
-  payload         jsonb NOT NULL DEFAULT '{}'::jsonb,
-  error           text,
-  UNIQUE (provider, external_id)
-);`;
-
-/** Table-backed store. Works against the shared table the moment the migration lands. */
-export const sqlWebhookEventStore: WebhookEventStore = {
-  async record(tx, event): Promise<boolean> {
-    const r = await tx.query(
-      `INSERT INTO webhook_event (organization_id, store_id, provider, topic, external_id, occurred_at, payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-       ON CONFLICT (provider, external_id) DO NOTHING
-       RETURNING id`,
-      [
-        event.organizationId,
-        event.storeId,
-        event.provider,
-        event.topic,
-        event.externalId,
-        event.occurredAt,
-        JSON.stringify(event.payload),
-      ],
-    );
-    return (r.rowCount ?? 0) > 0;
-  },
-  async finish(tx, key, status, error = null): Promise<void> {
-    await tx.query(
-      `UPDATE webhook_event SET status = $3, error = $4, processed_at = now()
-        WHERE provider = $1 AND external_id = $2`,
-      [key.provider, key.externalId, status, error],
-    );
-  },
-};
-
-/** In-memory store for tests and for a local run without the shared table. */
-export function createMemoryWebhookEventStore(): WebhookEventStore & {
-  seen(): { provider: string; externalId: string; status: WebhookEventStatus }[];
-} {
-  const rows = new Map<string, { record: WebhookEventRecord; status: WebhookEventStatus }>();
-  const keyOf = (provider: string, externalId: string) => `${provider}|${externalId}`;
-  return {
-    async record(_tx, event) {
-      const key = keyOf(event.provider, event.externalId);
-      if (rows.has(key)) return false;
-      rows.set(key, { record: event, status: 'received' });
-      return true;
-    },
-    async finish(_tx, key, status) {
-      const row = rows.get(keyOf(key.provider, key.externalId));
-      if (row) row.status = status;
-    },
-    seen() {
-      return [...rows.entries()].map(([key, row]) => ({
-        provider: key.split('|')[0]!,
-        externalId: row.record.externalId,
-        status: row.status,
-      }));
-    },
-  };
+export async function recordWebhookEvent(
+  tx: Queryable,
+  input: RecordInput,
+): Promise<string | null> {
+  const { extract } = input;
+  const r = await tx.query<{ id: string }>(
+    `INSERT INTO webhook_event (organization_id, store_id, provider, provider_event_id, event_type,
+       provider_object_id, occurred_at, status, payload, payload_hash)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'received', $8::jsonb, $9)
+     ON CONFLICT (provider, provider_event_id) DO NOTHING
+     RETURNING id`,
+    [
+      input.organizationId,
+      input.storeId,
+      TRACKING_WEBHOOK_PROVIDER,
+      extract.provider_event_id,
+      extract.event_type,
+      extract.tracker_id,
+      extract.occurred_at,
+      JSON.stringify(extract),
+      input.payloadHash,
+    ],
+  );
+  return r.rows[0]?.id ?? null;
 }
 
-let store: WebhookEventStore = sqlWebhookEventStore;
-
-/** Replaces the store (the in-memory one in unit tests). Returns the previous one. */
-export function setWebhookEventStore(next: WebhookEventStore): WebhookEventStore {
-  const previous = store;
-  store = next;
-  return previous;
-}
-
-export function currentWebhookEventStore(): WebhookEventStore {
-  return store;
+/** Closes a row this call recorded: its outcome, the shipment it resolved to, and why when it was skipped. */
+export async function finishWebhookEvent(
+  tx: Queryable,
+  rowId: string,
+  outcome: {
+    status: Exclude<WebhookEventStatus, 'received'>;
+    shipmentId: string | null;
+    reason?: string | null;
+  },
+): Promise<void> {
+  await tx.query(
+    `UPDATE webhook_event
+        SET status = $2, aggregate_type = CASE WHEN $3::uuid IS NULL THEN NULL ELSE 'shipment' END,
+            aggregate_id = $3::uuid, failure_reason = $4, processed_at = now(), updated_at = now()
+      WHERE id = $1`,
+    [rowId, outcome.status, outcome.shipmentId, outcome.reason ?? null],
+  );
 }

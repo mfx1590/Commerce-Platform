@@ -40,7 +40,10 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- (nothing — 2.4 is next: `apps/core/src/modules/fulfillment`, FulfillmentProvider + per-warehouse routing)
+- **#218 (2.3) review fixes pushed** (commit `SHA_FIX`); waiting for the manager's re-review of the diff.
+- **2.4 is parked on local branch `shipping/phase2-2.4-parked`** (commits f1261e6 + d1076aa) so it did not ride
+  along with the #218 fix. Replay it onto `shipping/phase2` locally; do NOT push until the manager confirms #218
+  merged. Delete the parked branch once replayed.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
@@ -50,6 +53,15 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - [ ] **#133 · 2.5** Pick/pack state machine and events
 
 ## Decisions made (with reasons)
+- **A shared-table CONTRACT CHANGE is copied, never re-typed** (#218 review, 2026-09-15): `proposed/0140_webhook_event.sql`
+  is a byte copy of #187's fence (identical to payments'), and a test compares the two files while both exist. My
+  first draft re-typed the shape from my own proposal on #125 and diverged from what was accepted.
+- **No raw provider body on any row** (#187): shipping stores a redacted extract (event id, type, tracker id,
+  tracking code, carrier, status, carrier timestamp) plus `payload_hash` = sha256 of the raw body. Scan locations
+  count as address data and are dropped.
+- **A module that has routes ships its routers** (#218 review): `shippingWebhookRouter` / `shippingAdminRouter` in
+  `http.ts`, following payments' `webhook-router.ts` and search's `http.ts`; permissions from the spec via
+  `permission(operationId)`. A README sentence saying window 1 mounts it is not a deliverable.
 - **Orders calls are advisory, inside a SAVEPOINT** (2.3): a 409 from the order's state machine (shipment planned
   before anyone confirmed the order; delivery before every line shipped) is reported, not thrown, and rolls back
   to the savepoint so a call that wrote rows before refusing leaves nothing behind. Inventory calls are not
@@ -107,6 +119,12 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   the tests create the proposed DDL. Delete `PROPOSED_WEBHOOK_EVENT_SQL` when 0140 is on main.
 
 ## Gotchas learned
+- When a fix must go into an open PR while later work sits unpushed on the same branch: park the later commits on a
+  local branch, reset to `origin/<branch>`, fix, push, then replay. Pushing first would have put 2.4 into #218.
+- Test fixtures that place many orders must rotate variants: since shipments consume real stock, one variant ran
+  dry ("Only 1 left") after about ten orders.
+- `updateShipment`'s path names no store. Resolve the shipment's store through `organizationClientFor(p)` and then
+  use `storeClientFor(p, storeId)`, so RLS and the principal's store scope both still apply.
 - A "module does not exist on main" check must run against a freshly fetched and merged tree. On 2026-09-09 this
   window reported core 2.4 as unmerged from a stale checkout; it was already on main.
 - `src/modules/hq-rbac/test/scope.test.ts` (window 2's live suite) fails locally with Keycloak `invalid_grant`

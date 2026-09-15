@@ -5,6 +5,23 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
+### 2026-09-15 · 2.3 review fixes (#218)
+
+- **`webhook_event` now matches #187 exactly.** `proposed/0140_webhook_event.sql` is a byte-for-byte copy of #187's
+  SQL (identical to payments' copy; a test fails on drift) and only the test suite applies it. The store is
+  rewritten against it: `provider_event_id`, `event_type`, `provider_object_id`, `aggregate_type` / `aggregate_id`,
+  status `received → processed | skipped | failed`, `failure_reason`, `store_id NOT NULL`, RLS. The earlier draft
+  (`external_id`, `topic`, `error`, `ignored`, nullable store, no hash) would have failed every delivery once 0140
+  landed. The in-memory event store and `PROPOSED_WEBHOOK_EVENT_SQL` are gone.
+- **No raw carrier body is stored.** `extractEasyPostWebhook` reduces a delivery to provider event id, event type,
+  tracker id, tracking code, carrier, status and the carrier timestamp; addresses, recipient names and scan
+  locations are dropped. `payload_hash` is the sha256 of the raw request body. The carrier timestamp is `null` when
+  absent — no more 1970 placeholder — and a transition then uses receipt time.
+- **Routers shipped.** `shippingWebhookRouter()` (`POST /webhooks/easypost/:storeCode`, `express.raw`, store
+  resolved before anything is stored, per-store `EASYPOST_WEBHOOK_SECRET_<CODE>`) and `shippingAdminRouter()`
+  (`createShipment`, `updateShipment` with `permission(operationId)` and body validation from `admin-api.yaml`),
+  exported from `index.ts`; mount lines posted on #176. Result outcome `ignored` is renamed `skipped`.
+
 ### 2026-09-08 · 2.3 Labels, shipments and tracking webhooks (#131)
 
 - `shipments.ts` (new): `createShipment` (validates against what the order still owes, inserts `shipment` +

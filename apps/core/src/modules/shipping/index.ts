@@ -4,6 +4,7 @@ export {
   carrierConfigFor,
   DEFAULT_PARCEL,
   easyPostCredentialsFor,
+  easyPostWebhookSecretFor,
   envSuffix,
   isTestModeKey,
 } from './config';
@@ -41,16 +42,24 @@ export {
 } from './shipments';
 export {
   applyTrackingEvent,
+  extractEasyPostWebhook,
   handleEasyPostWebhook,
-  parseEasyPostWebhook,
   verifyEasyPostSignature,
 } from './tracking';
 export {
-  createMemoryWebhookEventStore,
-  currentWebhookEventStore,
-  PROPOSED_WEBHOOK_EVENT_SQL,
-  setWebhookEventStore,
-  sqlWebhookEventStore,
+  CREATE_SHIPMENT_PATH,
+  EASYPOST_WEBHOOK_BODY_LIMIT,
+  EASYPOST_WEBHOOK_PATH,
+  shippingAdminRouter,
+  shippingWebhookRouter,
+  UPDATE_SHIPMENT_PATH,
+} from './http';
+export type { ShippingWebhookRouterOptions } from './http';
+export {
+  finishWebhookEvent,
+  payloadHashOf,
+  recordWebhookEvent,
+  TRACKING_WEBHOOK_PROVIDER,
 } from './webhook-events';
 export { CarrierError, isRetryableStatus, redactAddress, toCarrierAddress } from './redact';
 export {
@@ -88,7 +97,7 @@ export type {
   UpdateShipmentInput,
 } from './shipments';
 export type { ApplyTrackingInput, WebhookRequest, WebhookResult } from './tracking';
-export type { WebhookEventRecord, WebhookEventStatus, WebhookEventStore } from './webhook-events';
+export type { RecordInput, TrackingExtract, WebhookEventStatus } from './webhook-events';
 export type {
   AddressValidation,
   BuyLabelRequest,

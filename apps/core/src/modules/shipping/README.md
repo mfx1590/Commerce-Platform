@@ -23,6 +23,11 @@ Window 8 (shipping). Paths: `apps/core/src/modules/shipping/**`, `apps/core/src/
 | `carrierConfigFor`, `DEFAULT_PARCEL`                                                                                      | per-store carrier settings from `store.settings.shipping`                 |
 | `toCarrierAddress`, `redactAddress`, `CarrierError`, `isRetryableStatus`                                                  | address conversion, redaction, the one error providers throw              |
 | `toMinorUnits`, `fromMinorUnits`, `currencyExponent`                                                                      | carrier decimal strings ⇄ integer minor units                             |
+| `createShipment`, `buyShipmentLabel`, `updateShipment`, `getShipment`, `listOrderShipments`                               | shipments and their state machine (task 2.3)                              |
+| `handleEasyPostWebhook`, `applyTrackingEvent`, `extractEasyPostWebhook`, `verifyEasyPostSignature`                        | the tracking webhook receiver                                             |
+| `shippingWebhookRouter`, `shippingAdminRouter`                                                                            | the mountable routers (see HTTP below)                                    |
+| `recordWebhookEvent`, `finishWebhookEvent`, `payloadHashOf`                                                               | the `webhook_event` row (#187)                                            |
+| `easyPostWebhookSecretFor`                                                                                                | per-store tracking webhook secret from the environment                    |
 
 Money is always an integer in minor units of an explicit currency; nothing in this module is a float.
 
@@ -128,7 +133,7 @@ pending -> label_created -> shipped -> in_transit -> delivered
 ```
 
 Forward only, and `delivered` / `failed` / `cancelled` are final. An illegal transition through the admin route
-is a 409; the same transition arriving from a carrier scan is **ignored**, because carriers deliver events out of
+is a 409; the same transition arriving from a carrier scan is **skipped**, because carriers deliver events out of
 order and a late `in_transit` after `delivered` is normal, not an error.
 
 A shipment that jumps straight to `delivered` still emits `shipment.shipped` first: accounting derives shipping
@@ -160,26 +165,61 @@ to `processing`; `fulfilled_quantity` and `fulfillment_status` change when the s
 
 ## Tracking webhooks (task 2.3)
 
-`handleEasyPostWebhook` does three things in this order, and the order is the design:
+`handleEasyPostWebhook` does four things in this order, and the order is the design:
 
 1. **Verify first.** HMAC-SHA256 over the **raw** body, compared timing-safely. A missing, malformed or wrong
-   signature is a 401 — anything else would let a stranger drive our shipment states.
-2. **Record before applying.** The provider's event id goes into `webhook_event` in the same transaction as the
-   state change. A carrier retry conflicts on `UNIQUE (provider, external_id)` and returns `duplicate` without
-   touching a shipment or emitting a second event.
-3. **Move forward only**, using the carrier's own timestamp rather than ours.
+   signature is a 401, and nothing is stored — anything else would let a stranger drive our shipment states.
+2. **Extract, don't store.** The raw body is hashed (`payload_hash`, sha256 hex of the exact bytes) and reduced to
+   the fields shipping processes: provider event id, event type, tracker id, tracking code, carrier, status and the
+   carrier's timestamp. Addresses, recipient names and scan locations are dropped at extraction and never reach a
+   row, an event or a log.
+3. **Record before applying.** The extract goes into `webhook_event` in the same transaction as the state change. A
+   carrier retry conflicts on `UNIQUE (provider, provider_event_id)` and returns `duplicate` without touching a
+   shipment or emitting a second event.
+4. **Move forward only.** Ordering comes from the shipment's own state machine, never from the carrier's timestamp.
 
-The result is `applied`, `duplicate` or `ignored` (unknown tracking number, unmapped carrier status, or a scan
-the shipment is already past). The stored payload can contain a delivery address, so it stays on that row:
-events derived from it carry city, region and country only.
+The result is `applied`, `duplicate` or `skipped` (unknown tracking number, unmapped carrier status, or a scan the
+shipment is already past). A failure while applying rolls the row back with the change, so the carrier's retry
+processes the event again instead of finding it "already seen".
 
-### The shared `webhook_event` table
+### The shared `webhook_event` table (#187)
 
-It is shared with window 7 (payments) and **is not in db 0.2.0 yet** — window 7 files the CONTRACT CHANGE, and
-shipping's requirements are on issue #125. `PROPOSED_WEBHOOK_EVENT_SQL` in `webhook-events.ts` is the shape this
-module builds and tests against; the two requirements that matter are `UNIQUE (provider, external_id)` rather
-than a global unique id, and a nullable `occurred_at` separate from `received_at`. When the migration lands,
-that constant is deleted and `sqlWebhookEventStore` keeps working unchanged.
+Accepted as migration **0140**, shared with payments, landing after both consumers merge. Until then
+`proposed/0140_webhook_event.sql` is a **byte-for-byte copy of #187's SQL** — identical to payments' copy, and a
+test fails if the two ever drift — and only this module's test suite applies it. The manager's 0140 commit removes
+both copies.
+
+| Column                                             | What shipping writes                                                          |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `provider`, `provider_event_id`                    | `easypost`, the webhook's `evt_…` id — the dedupe key                         |
+| `event_type`, `provider_object_id`                 | `tracker.updated`, the tracker `trk_…`                                        |
+| `store_id`                                         | resolved by the router from the path before anything is stored                |
+| `occurred_at`                                      | the carrier's timestamp from the payload, **null when the carrier sent none** |
+| `status`                                           | `received`, then `processed` or `skipped`                                     |
+| `aggregate_type`, `aggregate_id`, `failure_reason` | `shipment` and its id once resolved; why it was skipped                       |
+| `payload`                                          | the redacted extract above — never the raw body                               |
+| `payload_hash`                                     | sha256 hex of the raw request body                                            |
+
+A shipment moved by a scan with no carrier timestamp uses receipt time, never a placeholder date.
+
+## HTTP (task 2.3)
+
+Two routers in `http.ts`, exported from `index.ts`. Mounting them is window 1's one line each (REQUEST #176):
+
+```ts
+app.use(shippingWebhookRouter()); // mountCoreMiddleware, before coreErrorHandler, outside /store and /admin
+routers.push(shippingAdminRouter()); // src/http/module-routers.ts, after adminRouter()
+```
+
+| Route                                                   | Authentication                                       | Notes                                                                                                                              |
+| ------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /webhooks/easypost/:storeCode`                    | HMAC over the raw body (`X-Hmac-Signature`)          | `express.raw`, 512 KB limit; unknown store 404; no secret configured 503 naming the missing variable; 200 with `outcome` otherwise |
+| `POST /admin/stores/:storeId/orders/:orderId/shipments` | staff principal + `x-permission` of `createShipment` | body validated against the spec; 201 `Shipment`                                                                                    |
+| `PATCH /admin/shipments/:shipmentId`                    | staff principal + `x-permission` of `updateShipment` | the path names no store, so the shipment's store is resolved and a client scoped to it is used; illegal transition 409             |
+
+Permissions are read from `admin-api.yaml` through `loadSpec(...).permission(operationId)` — never hard-coded. The
+webhook secret is `EASYPOST_WEBHOOK_SECRET_<CODE>`, else `EASYPOST_WEBHOOK_SECRET`; `.env.example` has no row for
+it yet (root config, main window).
 
 ## Credentials (ADR 0006)
 
@@ -230,11 +270,13 @@ and are resolved by the name in a store's settings; `carrierProviderOrManual` ne
 - `rate-shopping-db.test.ts` — the real SQL on a seeded database, and placement through the cart and checkout
   public APIs: the live price is frozen on the order as `shipping_method` (6 tests).
 - `bounded-map.test.ts` — expiry, cap and eviction order (6 tests).
-- `tracking.test.ts` — signature verification, webhook parsing and every transition rule (21 tests).
-- `shipments-db.test.ts` — shipments on a seeded database: planning against a real placed order, over-shipping
-  refused, label purchase and its idempotency, one event per transition, delivered-before-shipped, duplicate
-  webhook deliveries, partial shipments moving the order's fulfilment status, cancel releasing the reservation
-  (15 tests).
+- `tracking.test.ts` — signature verification, redacted extraction (no PII survives), the raw body hash and every
+  transition rule (24 tests).
+- `shipments-db.test.ts` — on a seeded database with #187's DDL: planning against a real placed order, over-shipping
+  refused, label purchase and its idempotency, one event per transition, delivered-before-shipped, real inventory
+  consume and release; the `webhook_event` row (redacted extract, raw-body hash, skipped outcomes, null carrier
+  timestamp), byte-equality with payments' copy of the DDL; the webhook router (raw body, 401/404/503) and the
+  admin router (403 without the operation's permission, 400 on a body the spec refuses, 409, 404) (22 tests).
 - `easypost-live.test.ts` — real round trip against EasyPost **test mode**: quote, buy, track, void, validate.
   Skips unless `EASYPOST_API_KEY` is set, and refuses a non-test key. Uses EasyPost's documentation addresses,
   so no customer data ever leaves the machine.
@@ -244,7 +286,5 @@ and are resolved by the name in a store's settings; `carrierProviderOrManual` ne
 
 ## Next in this module
 
-2.4 adds the 3PL adapter in `apps/core/src/modules/fulfillment` and real per-warehouse routing, which replaces
-the single origin-warehouse pick used here; 2.5 adds the pick/pack lifecycle in front of `shipped`. The Admin API
-routes for `createShipment` / `updateShipment` exist in `admin-api.yaml` (operations `createShipment` and
-`updateShipment`, both `x-permission: operations on organization:hq`) and are mounted by window 1's HTTP layer.
+2.4 adds the 3PL adapter in `apps/core/src/modules/fulfillment` and real per-warehouse routing, which replaces the
+single origin-warehouse pick used here; 2.5 adds the pick/pack lifecycle in front of `shipped`.

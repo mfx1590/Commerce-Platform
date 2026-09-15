@@ -1,10 +1,11 @@
-// Webhook verification, parsing and the transition rules, without a database: the signature must be checked
-// against the raw body, a body that is not a tracker update is rejected, and the status machine only ever moves
-// forward.
-import { createHmac } from 'node:crypto';
+// Webhook verification, redacted extraction and the transition rules, without a database: the signature must be
+// checked against the raw body, the extract keeps ids/status/timestamps and nothing that locates a person (#187),
+// a body that is not a tracker update is rejected, and the status machine only ever moves forward.
+import { createHash, createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { canTransition, type ShipmentStatus } from './shipments';
-import { parseEasyPostWebhook, verifyEasyPostSignature } from './tracking';
+import { extractEasyPostWebhook, verifyEasyPostSignature } from './tracking';
+import { payloadHashOf } from './webhook-events';
 
 const SECRET = 'whsec_test_shipping';
 const sign = (body: string, secret = SECRET) =>
@@ -21,6 +22,8 @@ const webhookBody = (over: Record<string, unknown> = {}) =>
       status: 'in_transit',
       status_detail: 'Departed facility',
       updated_at: '2026-09-08T10:00:00Z',
+      signed_by: 'Jane Doe',
+      destination: { street1: 'Keizersgracht 1', city: 'Amsterdam', zip: '1015 CJ', country: 'NL' },
       tracking_details: [
         {
           object_id: 'evtd_1',
@@ -54,22 +57,24 @@ describe('EasyPost webhook signature', () => {
   });
 });
 
-describe('parseEasyPostWebhook', () => {
-  it('reads the tracker state, the carrier and the scan time', () => {
-    const parsed = parseEasyPostWebhook(JSON.parse(webhookBody()));
-    expect(parsed).toMatchObject({
-      eventId: 'evt_123',
-      topic: 'tracker.updated',
-      event: {
-        eventId: 'evt_123',
-        trackingNumber: '1Z999',
-        carrier: 'UPS',
-        status: 'in_transit',
-        statusDetail: 'Departed facility',
-        occurredAt: '2026-09-08T09:00:00Z',
-        location: { city: 'Köln', region: 'NRW', country: 'DE' },
-      },
+describe('extractEasyPostWebhook', () => {
+  it('keeps exactly the fields shipping processes', () => {
+    expect(extractEasyPostWebhook(JSON.parse(webhookBody()))).toEqual({
+      provider_event_id: 'evt_123',
+      event_type: 'tracker.updated',
+      tracker_id: 'trk_1',
+      tracking_code: '1Z999',
+      carrier: 'UPS',
+      status: 'in_transit',
+      occurred_at: '2026-09-08T09:00:00Z',
     });
+  });
+
+  it('drops every address, name and scan location (#187: no raw payloads, no PII)', () => {
+    const extract = JSON.stringify(extractEasyPostWebhook(JSON.parse(webhookBody())));
+    for (const pii of ['Keizersgracht', 'Amsterdam', '1015 CJ', 'Jane Doe', 'Köln', 'NRW']) {
+      expect(extract).not.toContain(pii);
+    }
   });
 
   it('prefers the tracker status over the last detail (EasyPost resends the whole history)', () => {
@@ -82,20 +87,38 @@ describe('parseEasyPostWebhook', () => {
         ],
       }),
     );
-    const parsed = parseEasyPostWebhook(body);
-    expect(parsed!.event.status).toBe('delivered');
-    expect(parsed!.event.occurredAt).toBe('2026-09-09T11:00:00Z');
+    const extract = extractEasyPostWebhook(body);
+    expect(extract!.status).toBe('delivered');
+    expect(extract!.occurred_at).toBe('2026-09-09T11:00:00Z');
+  });
+
+  it('leaves occurred_at null when the carrier sent no timestamp, never a placeholder date', () => {
+    const body = JSON.parse(webhookBody({ updated_at: undefined, tracking_details: [] }));
+    expect(extractEasyPostWebhook(body)!.occurred_at).toBeNull();
   });
 
   it('maps an unknown carrier status to `unknown` rather than guessing', () => {
-    const parsed = parseEasyPostWebhook(JSON.parse(webhookBody({ status: 'teleported' })));
-    expect(parsed!.event.status).toBe('unknown');
+    expect(extractEasyPostWebhook(JSON.parse(webhookBody({ status: 'teleported' })))!.status).toBe(
+      'unknown',
+    );
   });
 
   it('returns null for anything that is not a tracker update', () => {
-    expect(parseEasyPostWebhook({})).toBeNull();
-    expect(parseEasyPostWebhook({ id: 'evt_1', result: {} })).toBeNull();
-    expect(parseEasyPostWebhook({ result: { tracking_code: '1Z' } })).toBeNull();
+    expect(extractEasyPostWebhook({})).toBeNull();
+    expect(extractEasyPostWebhook(null)).toBeNull();
+    expect(extractEasyPostWebhook({ id: 'evt_1', result: {} })).toBeNull();
+    expect(extractEasyPostWebhook({ result: { tracking_code: '1Z' } })).toBeNull();
+    expect(extractEasyPostWebhook({ id: 7, result: { tracking_code: '1Z' } })).toBeNull();
+  });
+});
+
+describe('payloadHashOf', () => {
+  it('is the sha256 hex of the exact bytes, the same for a string or a Buffer', () => {
+    const raw = webhookBody();
+    const expected = createHash('sha256').update(raw).digest('hex');
+    expect(payloadHashOf(raw)).toBe(expected);
+    expect(payloadHashOf(Buffer.from(raw, 'utf8'))).toBe(expected);
+    expect(payloadHashOf(`${raw} `)).not.toBe(expected);
   });
 });
 
