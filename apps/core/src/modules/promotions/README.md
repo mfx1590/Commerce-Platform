@@ -15,7 +15,8 @@ price lists live here** — `docs/domain.md` labels the `price_list` / `price` /
 Admin operations are the **existing** contract operations (tag `pricing`, contracts-v0.3 — no contract change):
 `listPriceLists` (`viewer`), `createPriceList` (`store_admin`), `upsertPrices` (`store_admin`). `pricingRouter()`
 reads the `x-permission` and request-body schema from `admin-api.yaml` (`loadSpec`), exactly like window 1's
-admin routes; window 1 mounts it next to `adminRouter()` (REQUEST issue). Not in the contract, so not built:
+admin routes. **Not mounted yet**: window 1 adds `routers.push(pricingRouter())` to
+`apps/core/src/http/module-routers.ts` (REQUEST #179) — until then the routes 404. Not in the contract, so not built:
 update/delete of a list, CSV import.
 
 - **Create**: currency must be enabled on the store (`store_currency`, 400), customer group / sales channel
@@ -61,8 +62,9 @@ lifts the first two to top level); the one db statement #189 needs — widening 
 `packages/db` migration 0150 (landed with contracts-v0.4.1).
 
 - **Admin operations**: `listPromotions` / `createPromotion` are contracts-v0.3 (spec permission); `GET` /
-  `PATCH …/promotions/{promotionId}` are Admin API 0.4.1 / #189 (spec permission, local validation; `code` and `type`
-  immutable). Codes are stored and matched upper-case trimmed, unique per store (409). Every rule id
+  `PATCH …/promotions/{promotionId}` are Admin API 0.4.1 / #189 (spec permission; bodies checked against the
+  same shapes plus the cross-field rules; `code` and `type` immutable). `promotionsRouter()` is **not mounted
+  yet** — its `routers.push(...)` line is window 1's, added to #179 on 2026-09-14. Codes are stored and matched upper-case trimmed, unique per store (409). Every rule id
   (products, categories, groups, channels) must belong to the store (400 with the offending list). Audit
   `promotion.create` / `promotion.update`.
 - **Engine** (`engine.ts`, pure — no db, no clock): `evaluatePromotions(lines, promotions, ctx)` →

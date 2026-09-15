@@ -1,7 +1,8 @@
 // Admin API media routes (task 2.3, #136) as a mountable Express router — same arrangement as the merchandising
 // router: the operations are Admin API 0.4.1 (CONTRACT CHANGE #168), each permission is the operation's
 // `x-permission` read through `loadSpec` (`viewer` list, `store_staff` write, like the product operations) and
-// bodies are validated by media-types.ts (same schemas as the spec). Window 1 mounts it next to `adminRouter()`.
+// bodies are validated by media-types.ts (same schemas as the spec). Not mounted yet: window 1 adds it to
+// src/http/module-routers.ts (REQUEST #179).
 import { Router, type Request } from 'express';
 import type { ScopedClient } from '@platform/db';
 import { AppError } from '../../lib/errors';

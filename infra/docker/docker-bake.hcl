@@ -81,3 +81,13 @@ target "notifications" {
   cache-from = cache_from("notifications")
   cache-to   = cache_to("notifications")
 }
+
+target "feeds" {
+  cache-from = cache_from("feeds")
+  cache-to   = cache_to("feeds")
+}
+
+target "storefront-brand-a" {
+  cache-from = cache_from("storefront-brand-a")
+  cache-to   = cache_to("storefront-brand-a")
+}

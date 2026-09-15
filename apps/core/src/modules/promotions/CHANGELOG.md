@@ -5,6 +5,13 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-15 · docs cleanup after contracts-v0.4.1 (last Phase 2 change)
+
+- README and `promotions-http.ts` header state the real mount state on main: neither `pricingRouter` nor
+  `promotionsRouter` is mounted yet (window 1, #179, amended 2026-09-14), so their routes 404 until it lands.
+- README: "local validation" replaced by what the router actually does now that #189 is in the spec
+  (spec permission, body checked against the same shapes plus the cross-field rules).
+
 ### 2026-09-14 · contracts-v0.4.1 landed (#189 applied by the main window)
 
 - `proposed/` removed: the type CHECK widening is `packages/db` migration 0150 (`promotions.test.ts` no longer
