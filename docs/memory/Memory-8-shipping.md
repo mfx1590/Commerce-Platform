@@ -16,7 +16,7 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `SHA_24` · local, PR after #218 merges
+- **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `23f3498` · local, PR after #218 merges
   New module `apps/core/src/modules/fulfillment`: `routeFulfillment` (pure; store country override → store default
   → same country → same region → priority), `FulfillmentProvider` (`push` / `status` / `cancel`) with the in-memory
   3PL (cancel refused once picking), `requestFulfillment` / `cancelFulfillment` / `applyFulfillmentUpdate` with no
