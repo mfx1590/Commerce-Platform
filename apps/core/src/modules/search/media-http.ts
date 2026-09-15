@@ -1,12 +1,13 @@
 // Admin API media routes (task 2.3, #136) as a mountable Express router — same arrangement as the merchandising
-// router: the operations are the proposed proposed/admin-api.media.yaml (CONTRACT CHANGE), relations hard-coded
-// from it (`viewer` list, `store_staff` write, like the product operations) and bodies validated by
-// media-types.ts until `loadSpec('admin-api.yaml')` can take over. Window 1 mounts it next to `adminRouter()`.
+// router: the operations are Admin API 0.4.1 (CONTRACT CHANGE #168), each permission is the operation's
+// `x-permission` read through `loadSpec` (`viewer` list, `store_staff` write, like the product operations) and
+// bodies are validated by media-types.ts (same schemas as the spec). Window 1 mounts it next to `adminRouter()`.
 import { Router, type Request } from 'express';
 import type { ScopedClient } from '@platform/db';
 import { AppError } from '../../lib/errors';
 import { handle } from '../../http/errors';
-import { requirePermission } from '../../http/permissions';
+import { loadSpec } from '../../http/openapi';
+import { requirePermission, resolveObject } from '../../http/permissions';
 import { uuidParam } from '../../http/query';
 import { requirePrincipal, storeClientFor, type StaffPrincipal } from '../../http/staff-auth';
 import { cloudinaryCredentialsFor, type CloudinaryCredentials } from './cloudinary';
@@ -33,8 +34,13 @@ function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client
   return { p, storeId, client: storeClientFor(p, storeId) };
 }
 
-const permission = (relation: 'viewer' | 'store_staff') =>
-  requirePermission(relation, (req) => `store:${uuidParam(req.params, 'storeId')}`);
+/** `requirePermission` for the operation's `x-permission`; `{storeId}` in the object comes from the path. */
+function permission(operationId: string) {
+  const perm = loadSpec('admin-api.yaml').permission(operationId);
+  return requirePermission(perm.relation, (req) =>
+    resolveObject(perm.object, { storeId: uuidParam(req.params, 'storeId') }),
+  );
+}
 
 export function mediaRouter(opts: MediaRouterOptions = {}): Router {
   const r = Router();
@@ -42,7 +48,7 @@ export function mediaRouter(opts: MediaRouterOptions = {}): Router {
 
   r.post(
     MEDIA_UPLOAD_PATH,
-    permission('store_staff'),
+    permission('createMediaUploadParams'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       const store = await client.query<{ id: string; code: string }>(
@@ -67,7 +73,7 @@ export function mediaRouter(opts: MediaRouterOptions = {}): Router {
   );
   r.get(
     PRODUCT_MEDIA_BASE,
-    permission('viewer'),
+    permission('listProductMedia'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       res.json({
@@ -77,7 +83,7 @@ export function mediaRouter(opts: MediaRouterOptions = {}): Router {
   );
   r.post(
     PRODUCT_MEDIA_BASE,
-    permission('store_staff'),
+    permission('addProductMedia'),
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
       res
@@ -95,7 +101,7 @@ export function mediaRouter(opts: MediaRouterOptions = {}): Router {
   );
   r.patch(
     `${PRODUCT_MEDIA_BASE}/:mediaId`,
-    permission('store_staff'),
+    permission('updateProductMedia'),
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
       res.json(
@@ -112,7 +118,7 @@ export function mediaRouter(opts: MediaRouterOptions = {}): Router {
   );
   r.delete(
     `${PRODUCT_MEDIA_BASE}/:mediaId`,
-    permission('store_staff'),
+    permission('deleteProductMedia'),
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
       await deleteProductMedia(

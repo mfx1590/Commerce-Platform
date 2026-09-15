@@ -5,6 +5,11 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
+### 2026-09-14 · contracts-v0.4.1 landed (#189 applied by the main window)
+
+- `proposed/` removed: the type CHECK widening is `packages/db` migration 0150 (`promotions.test.ts` no longer
+  applies it) and `getPromotion` / `updatePromotion` read their `x-permission` from admin-api.yaml 0.4.1.
+
 ### 2026-09-08 · 2.5 Promotions and coupon rule engine (#138, CONTRACT CHANGE #189 "jsonb")
 
 - `promotions-types.ts`: types + ajv (contract PromotionInput + #189 additions: `buy_x_get_y`, `stackable`,

@@ -5,29 +5,12 @@ import type { AdminComponents } from '@platform/contracts';
 export type ProductFeedInput = AdminComponents['schemas']['ProductFeedInput'];
 export type FeedItem = AdminComponents['schemas']['FeedItem'];
 
-/**
- * The read shape of a feed.
- *
- * **Not** `AdminComponents['schemas']['ProductFeed']` directly, because that schema is broken in Admin API
- * 0.3.0: it is `allOf: [ProductFeedInput, { … status: [draft, active, paused, error] }]`, and
- * `ProductFeedInput.status` is `[draft, active, paused]`. Under `allOf` a value must satisfy BOTH branches, so a
- * feed whose publish failed — the exact case `publishFeed`'s own summary describes ("status → active or error")
- * — cannot be expressed: the document rejects it and the generated TypeScript intersects the unions down to
- * three values. Filed as a CONTRACT CHANGE with the exact diff (spell `ProductFeed` out instead of `allOf`);
- * until it lands this local type is the mock, and the error-status response is asserted against
- * `proposed/product-feed.schema.json` rather than the frozen document.
- */
-export interface ProductFeed extends Omit<AdminComponents['schemas']['ProductFeed'], 'status'> {
-  status: FeedStatus;
-}
+/** The read shape of a feed — the contract's own `ProductFeed` (spelled out since Admin API 0.4.1, #194). */
+export type ProductFeed = AdminComponents['schemas']['ProductFeed'];
 
 export type FeedChannel = NonNullable<ProductFeedInput['channel']>;
-/**
- * Spelled out rather than derived: `ProductFeed` is `ProductFeedInput & { status: … }`, and TypeScript
- * intersects the two `status` unions down to the input's three values, losing `error`. `error` is real — it is
- * the publish job's verdict — so the read type has to be written here.
- */
-export type FeedStatus = 'draft' | 'active' | 'paused' | 'error';
+/** `error` is the publish job's verdict; since 0.4.1 the contract's `ProductFeed.status` carries it. */
+export type FeedStatus = ProductFeed['status'];
 export type FeedError = ProductFeed['errors'][number];
 export type Availability = FeedItem['availability'];
 

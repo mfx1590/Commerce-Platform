@@ -282,4 +282,31 @@ describe('row-level security (platform_app role)', () => {
     ).rejects.toThrow(/check constraint/);
     expect((await hq.query('SELECT id FROM merchandising_rule')).rowCount).toBe(4);
   });
+
+  it('promotions: buy_x_get_y inserts after 0150; unknown types are still refused; rows stay per store', async () => {
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const created = await a.query<{ id: string; type: string }>(
+      `INSERT INTO promotion (organization_id, store_id, name, type, rules)
+       VALUES ($1, $2, 'Buy 2 get 1', 'buy_x_get_y', '{"buy_quantity": 2, "get_quantity": 1, "exclusive": true}')
+       RETURNING id, type`,
+      [ORG, STORE_A],
+    );
+    expect(created.rows[0]?.type).toBe('buy_x_get_y');
+    await expect(
+      a.query(
+        `INSERT INTO promotion (organization_id, store_id, name, type) VALUES ($1, $2, 'Nope', 'bogo')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/promotion_type_check/);
+    await expect(
+      a.query(
+        `INSERT INTO promotion (organization_id, store_id, name, type) VALUES ($1, $2, 'Hack', 'buy_x_get_y')`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    expect(
+      (await b.query('SELECT id FROM promotion WHERE type = $1', ['buy_x_get_y'])).rowCount,
+    ).toBe(0);
+  });
 });
