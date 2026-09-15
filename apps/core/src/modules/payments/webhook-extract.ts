@@ -4,7 +4,7 @@
 // our own requirement). The extract keeps ids, amounts, statuses and Stripe's error codes — nothing else — and
 // is SEALED to `payload_hash` (sha256 of the raw body): replaying an extract that was edited, or whose
 // `payload_hash` was edited, is refused.
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export interface ExtractObject {
   id: string;
@@ -21,6 +21,8 @@ export interface ExtractObject {
   canceled_at: number | null;
   cancellation_reason: string | null;
   last_payment_error: { code: string | null; decline_code: string | null } | null;
+  /** Refund objects: Stripe's failure code (`lost_or_stolen_card`, …) — a code, never free text. */
+  failure_reason: string | null;
   /** Only the ids we put there at session creation. */
   metadata: { cart_id?: string; store_id?: string; organization_id?: string };
 }
@@ -108,6 +110,7 @@ export function redactStripeEvent(event: unknown): WebhookExtract {
       latest_charge: idOf(obj.latest_charge),
       canceled_at: num(obj.canceled_at),
       cancellation_reason: str(obj.cancellation_reason),
+      failure_reason: str(obj.failure_reason),
       last_payment_error:
         lpe && typeof lpe === 'object'
           ? { code: str(lpe.code), decline_code: str(lpe.decline_code) }
@@ -133,22 +136,43 @@ export function sha256Hex(data: Buffer | string): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
-/** `sha256(<payload_hash>.<canonical extract without seal>)` — binds the extract to the raw body it came from. */
-export function computeSeal(extract: WebhookExtract, payloadHash: string): string {
+/**
+ * `HMAC-SHA256(webhook secret, "<payload_hash>.<canonical extract without seal>")` — binds the extract to the raw
+ * body it came from AND to the secret that authenticated that body: a row written by anyone without the
+ * store's endpoint secret (a hand edit, a copy from another environment) cannot carry a valid seal, whereas a
+ * plain hash could simply be recomputed by the editor.
+ */
+export function computeSeal(extract: WebhookExtract, payloadHash: string, secret: string): string {
   const { seal: _seal, ...rest } = extract;
-  return sha256Hex(`${payloadHash}.${canonicalJson(rest)}`);
+  return createHmac('sha256', secret)
+    .update(`${payloadHash}.${canonicalJson(rest)}`)
+    .digest('hex');
 }
 
-export function sealExtract(extract: WebhookExtract, payloadHash: string): WebhookExtract {
-  return { ...extract, seal: computeSeal(extract, payloadHash) };
+export function sealExtract(
+  extract: WebhookExtract,
+  payloadHash: string,
+  secret: string,
+): WebhookExtract {
+  return { ...extract, seal: computeSeal(extract, payloadHash, secret) };
 }
 
-/** True when the stored extract still matches its stored `payload_hash` (replay precondition). */
-export function verifySeal(extract: WebhookExtract, payloadHash: string): boolean {
+/**
+ * True when the stored extract still matches its stored `payload_hash` under one of the store's webhook
+ * secrets (current first, then the previous one during a roll) — the replay precondition. Every candidate is
+ * checked (no early exit) with a constant-time compare.
+ */
+export function verifySeal(
+  extract: WebhookExtract,
+  payloadHash: string,
+  secrets: readonly string[],
+): boolean {
   if (typeof extract.seal !== 'string' || extract.seal.length !== 64) return false;
-  const expected = computeSeal(extract, payloadHash);
-  // Same-length hex → constant-time compare is cheap; a mismatch here is an integrity failure, not a timing risk.
-  let diff = 0;
-  for (let i = 0; i < 64; i++) diff |= expected.charCodeAt(i) ^ extract.seal.charCodeAt(i);
-  return diff === 0;
+  const given = Buffer.from(extract.seal, 'hex');
+  let matched = false;
+  for (const secret of secrets) {
+    const expected = Buffer.from(computeSeal(extract, payloadHash, secret), 'hex');
+    if (expected.length === given.length && timingSafeEqual(expected, given)) matched = true;
+  }
+  return matched;
 }

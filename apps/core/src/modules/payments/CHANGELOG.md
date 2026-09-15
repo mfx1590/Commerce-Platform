@@ -5,6 +5,26 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.3 → v0.4.1)
 
+### 2026-09-15 · 2.3 Refunds (#126)
+
+- `refunds.ts`: `createRefundIn` / `createRefund` — replay on `<store_id>:<Idempotency-Key>`, captured payment
+  locked, ceiling (409 with `captured_minor / refunded_minor / available_minor`), support limit (403), row
+  inserted `pending` before `PaymentProvider.refund`, `refund.issued` / `refund.failed`, order `payment_status`
+  through the orders module's `transition()` on the same transaction, 402 with the refund id on a PSP failure;
+  `renderRefund`, `getRefund`, `refundedMinor`, `syncOrderPaymentStatus`, `paymentStatusAfterRefund`.
+- `refund-requester.ts`: `paymentsRefundRequester` for the returns module's seam (`reason: 'return'`,
+  `return_id`, no order transition — the returns module does it); registered by `registerPaymentProviders()`.
+- `refund-router.ts`: `paymentsAdminRouter()` — Admin API `createRefund` with the spec's `x-permission`, body
+  validation, `Idempotency-Key`, `store.settings.support_refund_limit_minor` for non-admins; mount line on #176.
+- `webhook-receiver.ts`: `refund.updated` / `refund.failed` / `charge.refund.updated` settle refund rows
+  (`failed` + `refund.failed`; `pending → succeeded` + `refund.issued` + order sync / `markReturnRefunded`);
+  `charge.refunded` informational. `webhook-extract.ts`: `failure_reason` (code only).
+- Review nits from #215 folded in: the extract seal is an HMAC under the webhook secret (`sealExtract` /
+  `verifySeal` take the secret(s); `stripeWebhookSecretsFor` returns `[current, previous]` from
+  `STRIPE_WEBHOOK_SECRET[_<CODE>]_PREVIOUS`; signatures verify under either); two real two-connection duplicate
+  tests (409 while in flight, blocked at the unique index while the insert transaction is open).
+- Tests: `refunds.test.ts` (11), `webhooks.test.ts` 18 → 21. README: refunds section, keyed seal, rotation.
+
 ### 2026-09-15 · 2.2 Signed webhook receiver with idempotency and replay protection (#125)
 
 - `webhook-signature.ts`: `Stripe-Signature` parsing, HMAC-SHA256 over `"<t>.<raw body>"`, ±300 s tolerance,

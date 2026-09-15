@@ -56,6 +56,24 @@ export function stripeWebhookSecretFor(
   storeCode: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
+  return stripeWebhookSecretsFor(storeCode, env)[0] ?? null;
+}
+
+/**
+ * Current secret first, then the previous one during a roll (`STRIPE_WEBHOOK_SECRET_<CODE>_PREVIOUS`, else
+ * `STRIPE_WEBHOOK_SECRET_PREVIOUS`). Signatures and stored-extract seals verify against any of them; new seals
+ * always use the current one. Remove the `_PREVIOUS` value once every event sealed with it is settled.
+ */
+export function stripeWebhookSecretsFor(
+  storeCode: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
   const suffix = envSuffix(storeCode);
-  return env[`STRIPE_WEBHOOK_SECRET_${suffix}`] || env.STRIPE_WEBHOOK_SECRET || null;
+  const current = env[`STRIPE_WEBHOOK_SECRET_${suffix}`] || env.STRIPE_WEBHOOK_SECRET || null;
+  const previous =
+    env[`STRIPE_WEBHOOK_SECRET_${suffix}_PREVIOUS`] || env.STRIPE_WEBHOOK_SECRET_PREVIOUS || null;
+  const out: string[] = [];
+  if (current) out.push(current);
+  if (previous && previous !== current) out.push(previous);
+  return out;
 }

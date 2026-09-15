@@ -74,7 +74,8 @@ function constantTimeEqualHex(a: string, b: string): boolean {
 export interface VerifyOptions {
   rawBody: Buffer | string;
   header: string | undefined | null;
-  secret: string;
+  /** The store's endpoint secret, or [current, previous] during a roll. */
+  secret: string | readonly string[];
   toleranceSeconds?: number;
   /** Injectable clock (seconds since epoch) for tests. */
   nowSeconds?: number;
@@ -82,8 +83,8 @@ export interface VerifyOptions {
 
 /**
  * Verifies a delivery: header shape, timestamp within tolerance (both directions — a clock skewed into the
- * future is as suspicious as a replay), then a constant-time compare against every `v1` entry. The verdict
- * carries a reason code (for the 400 body), never the body, the secret or a signature.
+ * future is as suspicious as a replay), then a constant-time compare of every `v1` entry against every secret.
+ * The verdict carries a reason code (for the 400 body), never the body, a secret or a signature.
  */
 export function verifyStripeSignature(opts: VerifyOptions): SignatureVerdict {
   const parsed = parseStripeSignature(opts.header);
@@ -95,11 +96,14 @@ export function verifyStripeSignature(opts: VerifyOptions): SignatureVerdict {
   if (Math.abs(now - parsed.timestamp) > tolerance) {
     return { ok: false, reason: 'timestamp_out_of_tolerance' };
   }
-  const expected = computeStripeSignature(opts.rawBody, opts.secret, parsed.timestamp);
-  // Check every candidate (no early exit on the first mismatch) so timing does not reveal which one failed.
+  const secrets = typeof opts.secret === 'string' ? [opts.secret] : opts.secret;
+  // Check every candidate against every secret (no early exit) so timing does not reveal which one failed.
   let matched = false;
-  for (const candidate of parsed.signatures) {
-    if (constantTimeEqualHex(candidate, expected)) matched = true;
+  for (const secret of secrets) {
+    const expected = computeStripeSignature(opts.rawBody, secret, parsed.timestamp);
+    for (const candidate of parsed.signatures) {
+      if (constantTimeEqualHex(candidate, expected)) matched = true;
+    }
   }
   return matched ? { ok: true, timestamp: parsed.timestamp } : { ok: false, reason: 'no_match' };
 }
