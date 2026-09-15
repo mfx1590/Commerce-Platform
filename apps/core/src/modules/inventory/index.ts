@@ -8,7 +8,13 @@ export {
   moveStock,
   toAdminLevel,
 } from './service';
-export { consumeForShipment, releaseForOrder, reserveForOrder } from './reservations';
+export {
+  consumeForShipment,
+  consumeReservationsForShipment,
+  releaseForOrder,
+  releaseReservationsForShipment,
+  reserveForOrder,
+} from './reservations';
 export { ADMIN_MOVEMENT_REASONS, LEVEL_SORT_FIELDS } from './types';
 export type {
   AdminInventoryLevel,

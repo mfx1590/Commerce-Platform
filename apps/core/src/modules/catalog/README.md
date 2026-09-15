@@ -71,3 +71,14 @@ store_admin `store:{id}`.
 variant with 0 available reports `in_stock: false`, create → publish yields exactly `product.updated` then
 `product.published` (`store_id` set, `version = 1`, `published_at IS NULL`), archive emits `product.archived`,
 category filter includes children, duplicate handle/sku → 409, brand-b cannot read brand-a.
+
+## Media (public functions, #179 part 1 · task 2.6)
+
+`addMedia(client, storeId, productId, { url, alt?, variant_id?, position? }, actor)`,
+`updateMedia(client, storeId, productId, mediaId, { alt?, variant_id?, position? }, actor)`,
+`deleteMedia(client, storeId, productId, mediaId, actor)` — the functions window 9's media pipeline calls instead
+of writing `product_media` itself. Positions stay contiguous `0..n-1`, `product.thumbnail_url` follows position 0,
+a `variant_id` must belong to the product (404 otherwise), and every call writes `audit_log` + one
+`product.updated` with `changed_fields: ["media"]` on the same transaction. Store B cannot touch store A's media (RLS
+→ 404). `ProductInput.media` on `updateProduct` still replaces the whole list (admin bulk edit); these are the
+incremental operations.

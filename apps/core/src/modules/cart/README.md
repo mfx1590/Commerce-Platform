@@ -66,7 +66,26 @@ setShippingRateProvider(easyPostRates); // window 8, #130 — returns the previo
 - Both run inside the mutation's transaction through `ctx.tx` (RLS scope = the store). Set once at boot from the
   owning module; the registry is process-wide.
 
+## Abandoned carts (task 2.6, `abandoned.ts`)
+
+`markAbandonedCarts(client, { now, idleForMs, batchSize? })` / `markAllAbandonedCarts(...)`: every `active` cart with
+at least one line and `updated_at < now − idleForMs` becomes `abandoned` and emits ONE `cart.abandoned` v1
+(`cart_id`, `customer_id`, `email_hash` = sha256 of the lowercased email or null, `currency`, `total_minor`,
+`line_item_count`, `last_activity_at` = the cart's `updated_at`, `abandoned_at` = now, `has_attribution`) in the
+same transaction. Rows are taken with `FOR UPDATE SKIP LOCKED`, so two concurrent runs never double-process. The
+clock is injected; the job in `src/jobs/abandoned-carts.ts` supplies it (Medusa scheduled job under
+`MEDUSA_WORKER_MODE = shared | worker`, cron `CORE_ABANDONED_CART_CRON` default hourly, threshold
+`CORE_ABANDONED_CART_AFTER_HOURS` default 6, one organization-scoped pass for every store; also a one-shot CLI).
+
+**Reactivation**: any mutation on an `abandoned` cart flips it back to `active` and touches `updated_at`
+(`lockActiveCart`), so the idle clock restarts and the cart is abandoned again only after a full idle period — that
+later abandonment is a new event. A `completed` cart still answers 409 `cart_completed`. Empty carts are never
+abandoned (nothing to recover).
+
 ## Decisions (ADR-style; the main window moves them to docs/adr)
+
+- **2026-09-09 · Abandoned = idle, reactivation resets the clock, a new abandonment is a new event** (manager, 2.6);
+  `updated_at` is deliberately NOT touched by the job so `last_activity_at` stays the customer's last action.
 
 - **2026-09-08 · Carts bypass Medusa's cart module** (owner decision deferred from task 1.8, accepted by the manager
   at the start of 2.1). The contract cart is `public.cart` / `cart_line_item`: `organization_id` + `store_id` on

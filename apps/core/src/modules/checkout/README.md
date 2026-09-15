@@ -74,7 +74,10 @@ setPaymentProvider(stripeProvider); // at boot; returns the previous provider un
 - `authorize({ tx, cart, session, idempotencyKey }) → { status: 'authorized' | 'failed', providerPaymentId, failureReason? }`
   inside the placement transaction; `failed` aborts the placement with 402. Must be idempotent on
   `idempotencyKey` (the replay path never reaches it, but a provider may be retried after a crash).
-- `void({ tx, providerPaymentId, idempotencyKey, reason }) → { status: 'voided' | 'failed' }`: called by the
+- `void({ tx, organizationId, storeId, cartId?, providerPaymentId, idempotencyKey, reason }) → { status: 'voided' | 'failed' }`
+  — carries the **store** (per-store PSP credentials are resolved from it) because on the placement failure path
+  the transaction is being rolled back and may already be aborted: a provider must never run queries on `tx`
+  there (2.6, window 7's gap). `refund` carries `organizationId` / `storeId` for the same reason: called by the
   orders module when an order with an **authorised, uncaptured** payment is cancelled (`cancelOrder`, 2.3); a
   `failed` void aborts the cancellation with 402. `manual` is a no-op that always succeeds (nothing was ever
   captured); Stripe cancels the PaymentIntent.

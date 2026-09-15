@@ -72,7 +72,8 @@ Pin / boost / bury per **category** or **search query**, one rule per store + sc
 `MemoryRulesRepository` for environments without the table. The Admin API operations are the `search` area of
 `admin-api.yaml` 0.4.0 (`store_staff` read, `store_admin` write); `merchandisingRouter({ repository, indexFor })`
 reads each operation's `x-permission` from the spec (`loadSpec`) and validates bodies against the same schemas
-(`merchandising-types.ts`). Window 1 mounts the router next to `adminRouter()` (REQUEST in #162).
+(`merchandising-types.ts`). **Mounted** on main through `apps/core/src/http/module-routers.ts`
+(`moduleAdminRouters()`, after `adminRouter()`), with `PgRulesRepository` and the store's index backend.
 
 - Validation: schema (ajv), scope (`category_id` must be a category **of the store**, `query` is normalised:
   trimmed, single-spaced, lower-cased), every product id in pins / boosts / buries must belong to the store
@@ -115,9 +116,10 @@ starts_at`, boost weight 1–100, at most 50 pins / 200 boosts / 200 buries. Dup
   #169): `c_limit,w_<width>,q_<quality|auto>,f_auto`, passthrough for other hosts.
 - Credentials: `CLOUDINARY_CLOUD_NAME[_<CODE>]`, `CLOUDINARY_API_KEY[_<CODE>]`, `CLOUDINARY_API_SECRET[_<CODE>]`
   (`cloudinaryCredentialsFor`; a store triple wins, a partial triple is ignored). `CLOUDINARY_CLOUD_NAME` is
-  shared with the cms rows in `.env.example`; the key/secret rows are requested in #168.
-- Router: `mediaRouter({ credentialsFor?, now? })` (`media-http.ts`), mounted by window 1 next to
-  `adminRouter()` (REQUEST inside #168); permissions are read from admin-api.yaml 0.4.1 (`loadSpec`, #168 landed).
+  shared with the cms rows; all three rows are in `.env.example` (landed with contracts-v0.4.1).
+- Router: `mediaRouter({ credentialsFor?, now? })` (`media-http.ts`); permissions are read from admin-api.yaml
+  0.4.1 (`loadSpec`). **Not mounted yet**: the `routers.push(mediaRouter())` line in
+  `apps/core/src/http/module-routers.ts` is window 1's, requested in #179 — until it lands these routes 404.
 - Tests: `cloudinary.test.ts` (7: credentials, signature, params without the secret, slugs, transformations,
   passthrough, loader), `media.test.ts` (6: signed params / 409 / 404, alt required, variant check, 403 for a
   read-only role, append / insert / move / delete positions, thumbnail, audit + events, foreign product 404).

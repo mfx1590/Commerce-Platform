@@ -898,3 +898,218 @@ export async function updateVariant(
 }
 
 export type { EventEnvelope };
+
+// ---- media (#179 part 1, task 2.6): the public functions window 9's media pipeline calls ----
+
+export interface MediaInput {
+  url: string;
+  alt?: string | null | undefined;
+  variant_id?: string | null | undefined;
+  /** Insert position (0 = thumbnail); default: append. */
+  position?: number | undefined;
+}
+
+export interface MediaPatch {
+  alt?: string | null | undefined;
+  variant_id?: string | null | undefined;
+  /** Move to this position (0 = thumbnail); the others shift. */
+  position?: number | undefined;
+}
+
+interface MediaRowFull {
+  id: string;
+  variant_id: string | null;
+  url: string;
+  alt: string | null;
+  position: number;
+}
+
+async function mediaOf(tx: Queryable, productId: string): Promise<MediaRowFull[]> {
+  const r = await tx.query<MediaRowFull>(
+    `SELECT id, variant_id, url, alt, position FROM product_media WHERE product_id = $1 ORDER BY position, id`,
+    [productId],
+  );
+  return r.rows;
+}
+
+/** Rewrites positions 0..n-1 in the given order and sets product.thumbnail_url from position 0 (null when none). */
+async function renumberMedia(
+  tx: Queryable,
+  productId: string,
+  ordered: MediaRowFull[],
+): Promise<void> {
+  for (const [i, m] of ordered.entries()) {
+    if (m.position !== i) {
+      await tx.query(`UPDATE product_media SET position = $2 WHERE id = $1`, [m.id, i]);
+    }
+  }
+  await tx.query(`UPDATE product SET thumbnail_url = $2 WHERE id = $1`, [
+    productId,
+    ordered[0]?.url ?? null,
+  ]);
+}
+
+async function assertVariantOfProduct(
+  tx: Queryable,
+  productId: string,
+  variantId: string,
+): Promise<void> {
+  const v = await tx.query('SELECT id FROM product_variant WHERE id = $1 AND product_id = $2', [
+    variantId,
+    productId,
+  ]);
+  if (v.rowCount === 0) throw notFound('variant', variantId);
+}
+
+/** Audit + `product.updated` (`changed_fields: ["media"]`) after a media change, on the caller's transaction. */
+async function finishMediaChange(
+  tx: Queryable,
+  organizationId: string,
+  storeId: string,
+  productId: string,
+  before: AdminProduct,
+  action: 'product.media.add' | 'product.media.update' | 'product.media.delete',
+  actor: Actor,
+): Promise<AdminProduct> {
+  const a = await loadAggregate(tx, storeId, productId);
+  const after = toAdminProduct(a);
+  await writeAudit(tx, {
+    organizationId,
+    storeId,
+    actor,
+    action,
+    entityType: 'product',
+    entityId: productId,
+    before,
+    after,
+  });
+  await emitProductUpdated(tx, organizationId, storeId, a, ['media'], actor);
+  return after;
+}
+
+/** Adds one media item (appended, or inserted at `position`); position 0 becomes the thumbnail. */
+export async function addMedia(
+  client: ScopedClient,
+  storeId: string,
+  productId: string,
+  input: MediaInput,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<AdminProduct> {
+  if (!input.url || typeof input.url !== 'string')
+    throw validationError('url is required', { url: 'string' });
+  const organizationId = organizationOf(client);
+  return client.transaction(async (tx) => {
+    const before = toAdminProduct(await loadAggregate(tx, storeId, productId));
+    if (input.variant_id) await assertVariantOfProduct(tx, productId, input.variant_id);
+    const current = await mediaOf(tx, productId);
+    const at = Math.max(0, Math.min(current.length, input.position ?? current.length));
+    const inserted = await tx.query<MediaRowFull>(
+      `INSERT INTO product_media (organization_id, store_id, product_id, variant_id, url, alt, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, variant_id, url, alt, position`,
+      [
+        organizationId,
+        storeId,
+        productId,
+        input.variant_id ?? null,
+        input.url,
+        input.alt ?? null,
+        1_000_000 + at,
+      ],
+    );
+    const ordered = [...current];
+    ordered.splice(at, 0, inserted.rows[0]!);
+    await renumberMedia(tx, productId, ordered);
+    return finishMediaChange(
+      tx,
+      organizationId,
+      storeId,
+      productId,
+      before,
+      'product.media.add',
+      actor,
+    );
+  });
+}
+
+/** Changes alt / variant binding / position of one media item (404 when it is not the product's). */
+export async function updateMedia(
+  client: ScopedClient,
+  storeId: string,
+  productId: string,
+  mediaId: string,
+  patch: MediaPatch,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<AdminProduct> {
+  const organizationId = organizationOf(client);
+  return client.transaction(async (tx) => {
+    const before = toAdminProduct(await loadAggregate(tx, storeId, productId));
+    const current = await mediaOf(tx, productId);
+    const idx = current.findIndex((m) => m.id === mediaId);
+    if (idx < 0) throw notFound('media', mediaId);
+    if (patch.variant_id) await assertVariantOfProduct(tx, productId, patch.variant_id);
+    const sets: string[] = [];
+    const params: unknown[] = [mediaId];
+    if (patch.alt !== undefined) {
+      params.push(patch.alt);
+      sets.push(`alt = $${params.length}`);
+    }
+    if (patch.variant_id !== undefined) {
+      params.push(patch.variant_id);
+      sets.push(`variant_id = $${params.length}`);
+    }
+    if (sets.length)
+      await tx.query(`UPDATE product_media SET ${sets.join(', ')} WHERE id = $1`, params);
+    if (patch.position !== undefined) {
+      const to = Math.max(0, Math.min(current.length - 1, patch.position));
+      const [moved] = current.splice(idx, 1);
+      current.splice(to, 0, moved!);
+      // park the moved row out of the way so the renumbering never collides on (product_id, position)
+      await tx.query(`UPDATE product_media SET position = $2 WHERE id = $1`, [mediaId, 1_000_000]);
+      await renumberMedia(
+        tx,
+        productId,
+        current.map((m) => (m.id === mediaId ? { ...m, position: 1_000_000 } : m)),
+      );
+    }
+    return finishMediaChange(
+      tx,
+      organizationId,
+      storeId,
+      productId,
+      before,
+      'product.media.update',
+      actor,
+    );
+  });
+}
+
+/** Removes one media item; the rest close ranks and the thumbnail follows position 0. */
+export async function deleteMedia(
+  client: ScopedClient,
+  storeId: string,
+  productId: string,
+  mediaId: string,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<AdminProduct> {
+  const organizationId = organizationOf(client);
+  return client.transaction(async (tx) => {
+    const before = toAdminProduct(await loadAggregate(tx, storeId, productId));
+    const current = await mediaOf(tx, productId);
+    if (!current.some((m) => m.id === mediaId)) throw notFound('media', mediaId);
+    await tx.query(`DELETE FROM product_media WHERE id = $1`, [mediaId]);
+    await renumberMedia(
+      tx,
+      productId,
+      current.filter((m) => m.id !== mediaId),
+    );
+    return finishMediaChange(
+      tx,
+      organizationId,
+      storeId,
+      productId,
+      before,
+      'product.media.delete',
+      actor,
+    );
+  });
+}
