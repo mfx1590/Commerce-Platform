@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-15 · declare `@medusajs/draft-order` (#207)
+
+- `apps/core/package.json` declares `@medusajs/draft-order` at the `@medusajs/medusa` version (2.20.1). Medusa 2.20
+  resolves a default plugin set from the app directory, and pnpm's isolated `node_modules` only links direct
+  dependencies — without the declaration the built server died in the plugin loader (`Unable to resolve plugin
+"@medusajs/draft-order"`) right after the bootstrap check. Verified: `pnpm --filter @platform/core start` reaches
+  `GET /health` → 200.
+
 ### 2026-09-08 · 2.5 returns and exchanges (issue #107)
 
 - `src/modules/returns` (new): `requestReturn` (per line ≤ shipped − returned − open requests, 409 otherwise;
