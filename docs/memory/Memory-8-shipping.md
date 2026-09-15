@@ -21,10 +21,10 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
   on the carrier's clock), `webhook-events.ts` (shared idempotency record + the proposed table SQL),
   `ports.ts`. 21 unit tests + 15 database tests. Admin API routes already exist in the contract — no CONTRACT
-  CHANGE needed. **Follow-up commit `f305919`:** the orders mirror is replaced by the real core 2.3 functions
-  (`markShipmentCreated` / `markShipped` / `markDelivered`), so planning a shipment advances the order to
-  `processing` and fulfilment is recorded on despatch, not on plan. Inventory stays a mirror — core 2.4 has NOT
-  merged (no `modules/inventory` on main), contrary to the merge note.
+  CHANGE needed. **Ports now call the real modules** (commit `SHA_INTX`): orders `…InTx` markers and inventory
+  `consumeReservationsForShipment` / `releaseReservationsForShipment`, all on shipping's transaction. Planning
+  advances the order to `processing`; fulfilment is recorded on despatch, not on plan. My earlier "core 2.4 not
+  merged" finding was a stale tree — it was on main.
 - **2.2 (#130) — rate shopping at checkout** · commit `7de8158` · PR #186
   `rate-shopping.ts`: the cart module's `ShippingRateProvider`. `shipping_option` rows decide which options
   exist and who is eligible (ids stay real rows so checkout can freeze them); a row with `rules.live` + `service`
@@ -50,15 +50,12 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - [ ] **#133 · 2.5** Pick/pack state machine and events
 
 ## Decisions made (with reasons)
-- **Orders functions run inside shipping's transaction via `clientOn(tx, client)`** (2.3 follow-up): they take a
-  `ScopedClient` and open their own transaction, and handing them the outer client deadlocks — our shipment
-  insert holds a key-share lock on the order row that their `SELECT … FOR UPDATE` waits for, on a connection we
-  are waiting for. The adapter makes `transaction(fn)` run `fn(tx)`, so everything commits together.
-- **Calls to the orders module are advisory** (2.3 follow-up): a 409 from its state machine (shipment planned
-  before anyone confirmed the order; delivery before every line shipped) is reported in the outcome, not thrown.
-  A carrier webhook must not fail for ever because an operator has not confirmed an order.
-- **Fulfilment is recorded on despatch, not on plan** (2.3 follow-up): `markShipped` takes the quantities that
-  actually left. Planning only moves the order to `processing`.
+- **Orders calls are advisory, inside a SAVEPOINT** (2.3): a 409 from the order's state machine (shipment planned
+  before anyone confirmed the order; delivery before every line shipped) is reported, not thrown, and rolls back
+  to the savepoint so a call that wrote rows before refusing leaves nothing behind. Inventory calls are not
+  advisory — a stock failure rolls the shipment back.
+- **Fulfilment is recorded on despatch, not on plan** (2.3): `markShippedInTx` takes the quantities that actually
+  left. Planning only moves the order to `processing`. Stated in the 2.3 PR body as a behaviour change.
 - **Verify, record, then apply** (2.3): the webhook checks its HMAC against the raw body before parsing, writes
   the provider event id, and only then moves a shipment — all in one transaction. A carrier retry conflicts on
   the unique row and changes nothing.
@@ -106,16 +103,15 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   defaults. Every field falls back to a default rather than throwing.
 
 ## Blocked / waiting
-- REQUEST filed for the main window: add the shipping variables to the root `.env.example`
-  (`EASYPOST_API_KEY`, per-store `EASYPOST_API_KEY_<CODE>`) — issue #173. Root config is main-window-only; the module reads
-  the environment and runs on `manual` when nothing is set, so nothing is blocked meanwhile.
-- 2.3 needs the shared `webhook_event` table. **No CONTRACT CHANGE issue exists yet**; window 7 owns filing it
-  (their 2.2, #125, lands first). Shipping's requirements are posted as a comment on #125 on 2026-09-08: UNIQUE
-  (provider, external_id) rather than a global unique id, a nullable `occurred_at` for the carrier's own clock
-  (delivered-before-shipped ordering), and a note that an EasyPost payload contains an address. Offered to file
-  it myself if window 7 has not started. Check #125 before starting 2.3.
+- `webhook_event` lands as migration 0140 (#187) after both shipping 2.3 and payments 2.2 merge; until then only
+  the tests create the proposed DDL. Delete `PROPOSED_WEBHOOK_EVENT_SQL` when 0140 is on main.
 
 ## Gotchas learned
+- A "module does not exist on main" check must run against a freshly fetched and merged tree. On 2026-09-09 this
+  window reported core 2.4 as unmerged from a stale checkout; it was already on main.
+- `src/modules/hq-rbac/test/scope.test.ts` (window 2's live suite) fails locally with Keycloak `invalid_grant`
+  for `owner` (2026-09-15, 3 tests). It is the owner's password+TOTP grant, not OpenFGA tuples, so
+  `fga:seed` does not fix it. Not shipping's; CI's auth-e2e job runs it on a fresh stack.
 - Postgres `timestamptz` reaches the app as a JS `Date`, not a string. A row typed `string | null` that goes
   straight into a contract response or an event payload will fail schema validation or produce `[]` in a test —
   render it with `iso()` at the boundary.

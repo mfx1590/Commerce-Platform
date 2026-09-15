@@ -1,75 +1,62 @@
-// How shipping reaches the two core modules it leans on but does not own.
+// How shipping reaches the two core modules it leans on but does not own. Both are window 1's and both are on
+// main: the shapes were agreed on #191 and delivered by core 2.4 (inventory) and 2.6 (orders `…InTx` variants).
 //
-// **Orders (core 2.3, merged):** the real functions from `../orders` — `markShipmentCreated` when a shipment is
-// planned, `markShipped` with the quantities that actually left, `markDelivered` when the carrier says so.
-// Shipping encodes none of that state machine; it reports facts and window 1's module decides.
+// **Orders:** `markShipmentCreatedInTx` when a shipment is planned, `markShippedInTx` with the quantities that
+// actually left, `markDeliveredInTx` when the carrier says so. Shipping encodes none of that state machine; it
+// reports facts and the orders module decides.
 //
-// **Inventory (core 2.4, NOT merged yet):** `apps/core/src/modules/inventory` does not exist on main — the
-// reservation functions are still ahead of us. `InventoryPort` keeps mirroring them with a no-op default, and
-// `setInventoryPort` swaps in the real ones the day they land (REQUEST #191).
+// **Inventory:** `consumeReservationsForShipment` when a shipment is planned, `releaseReservationsForShipment` when
+// a planned shipment is cancelled. Both are idempotent per shipment on window 1's side.
 //
-// Two details worth knowing before changing anything here:
+// Everything runs on shipping's own transaction, so the shipment rows, their events, the order's status and the
+// stock movements commit together or not at all.
 //
-//  - The orders functions take a `ScopedClient` and open their own transaction. Shipping calls them from
-//    *inside* its transaction through `clientOn(tx)`, so the shipment rows, their events and the order's status
-//    commit together. Handing them the outer client instead would deadlock: our INSERT holds a key-share lock on
-//    the order row that their `SELECT … FOR UPDATE` would wait for, on a connection we are waiting for.
-//  - An order can legitimately be in a state that refuses the transition (a shipment planned before anyone
-//    confirmed the order). That is a 409 from the orders module, and it must not fail the shipment or make a
-//    carrier retry its webhook forever: `conflict` is swallowed and reported, anything else propagates.
-import type { Queryable, ScopedClient } from '@platform/db';
+// Orders calls are **advisory**: an order can legitimately refuse a transition (a shipment planned before anyone
+// confirmed the order; delivery before every line has shipped). That 409 must not fail the shipment or make a
+// carrier retry its webhook for ever, so it is reported in the outcome instead of thrown. Each call runs inside a
+// SAVEPOINT, and a refusal rolls back to it — so a call that wrote some rows before refusing leaves nothing behind.
+// Inventory calls are not advisory: a stock failure is a real failure and rolls the shipment back.
+import type { Queryable } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { AppError } from '../../lib/errors';
-import { markDelivered, markShipmentCreated, markShipped } from '../orders';
+import { consumeReservationsForShipment, releaseReservationsForShipment } from '../inventory';
+import { markDeliveredInTx, markShipmentCreatedInTx, markShippedInTx } from '../orders';
 
 export interface ShipmentLineRef {
   orderLineItemId: string;
   quantity: number;
 }
 
-export interface InventoryPort {
-  /**
-   * A shipment left the warehouse: turn the order's reservations into a real stock decrement. `shipmentId` is
-   * passed so the implementation can be idempotent per shipment — shipping may retry, and a double decrement is
-   * much worse than a late one.
-   */
-  consumeReservations(input: {
-    tx: Queryable;
-    organizationId: string;
-    storeId: string;
-    orderId: string;
-    warehouseId: string;
-    shipmentId: string;
-    items: ShipmentLineRef[];
-  }): Promise<void>;
-
-  /** A planned shipment was cancelled before picking: the reservation goes back to available. */
-  releaseReservations(input: {
-    tx: Queryable;
-    organizationId: string;
-    storeId: string;
-    orderId: string;
-    shipmentId: string;
-    items: ShipmentLineRef[];
-  }): Promise<void>;
+export interface InventoryCall {
+  tx: Queryable;
+  organizationId: string;
+  storeId: string;
+  orderId: string;
+  shipmentId: string;
+  items: ShipmentLineRef[];
+  actor: Actor;
 }
 
-/**
- * Still the interim implementation: core 2.4 has not merged, so there is nothing to call. The shipment rows and
- * events are correct without it, and a wrong decrement would be worse than a missing one.
- */
-export const noopInventoryPort: InventoryPort = {
-  async consumeReservations() {
-    /* core 2.4 — see REQUEST #191 */
+export interface InventoryPort {
+  /** A shipment was planned: the order's reservations become a stock decrement from that warehouse. */
+  consumeReservations(input: InventoryCall & { warehouseId: string }): Promise<void>;
+  /** A planned shipment was cancelled: the goods go back on hand and the reservation re-opens. */
+  releaseReservations(input: InventoryCall): Promise<void>;
+}
+
+/** The real inventory module (core 2.4). */
+export const coreInventoryPort: InventoryPort = {
+  async consumeReservations({ tx, ...input }) {
+    await consumeReservationsForShipment(tx, input);
   },
-  async releaseReservations() {
-    /* core 2.4 — see REQUEST #191 */
+  async releaseReservations({ tx, ...input }) {
+    await releaseReservationsForShipment(tx, input);
   },
 };
 
-let inventoryPort: InventoryPort = noopInventoryPort;
+let inventoryPort: InventoryPort = coreInventoryPort;
 
-/** Registers core 2.4's inventory functions once they exist. Returns the previous port so tests can restore it. */
+/** Replaces the inventory port (tests). Returns the previous one so it can be restored. */
 export function setInventoryPort(next: InventoryPort): InventoryPort {
   const previous = inventoryPort;
   inventoryPort = next;
@@ -80,18 +67,16 @@ export function currentInventoryPort(): InventoryPort {
   return inventoryPort;
 }
 
-/**
- * Presents an in-flight transaction as a `ScopedClient` so a module function that opens its own transaction runs
- * inside ours instead. `transaction(fn)` is `fn(tx)`: the tenant context and RLS scope are already applied by the
- * outer client, and a throw still rolls the whole thing back because it propagates to our transaction.
- */
-export function clientOn(tx: Queryable, client: ScopedClient): ScopedClient {
-  return {
-    query: tx.query.bind(tx),
-    transaction: <T>(fn: (inner: Queryable) => Promise<T>) => fn(tx),
-    context: client.context,
-    scope: client.scope,
-  };
+export interface OrdersCall {
+  tx: Queryable;
+  orderId: string;
+  actor: Actor;
+}
+
+export interface OrdersOutcome {
+  applied: boolean;
+  /** Why the orders module refused, when it did. */
+  reason?: string;
 }
 
 /** What shipping asks the orders module to record. Each call is advisory: a 409 is reported, never thrown. */
@@ -104,50 +89,48 @@ export interface OrdersPort {
   delivered(input: OrdersCall): Promise<OrdersOutcome>;
 }
 
-export interface OrdersCall {
-  tx: Queryable;
-  client: ScopedClient;
-  orderId: string;
-  actor: Actor;
-}
-
-export interface OrdersOutcome {
-  applied: boolean;
-  /** Why the orders module refused, when it did. */
-  reason?: string;
-}
+let savepointSeq = 0;
 
 /**
- * Runs an orders call on our transaction and turns its 409 into an outcome. Anything else is a real failure and
- * rolls the shipment back with it.
+ * Runs an orders call inside a SAVEPOINT on our transaction. A `conflict` rolls back to the savepoint and becomes
+ * an outcome; anything else propagates and rolls the whole shipment back.
  */
-async function advisory(fn: () => Promise<unknown>, what: string): Promise<OrdersOutcome> {
+async function advisory(
+  tx: Queryable,
+  fn: () => Promise<unknown>,
+  what: string,
+): Promise<OrdersOutcome> {
+  const savepoint = `shipping_orders_${++savepointSeq}`;
+  await tx.query(`SAVEPOINT ${savepoint}`);
   try {
     await fn();
+    await tx.query(`RELEASE SAVEPOINT ${savepoint}`);
     return { applied: true };
   } catch (error) {
+    await tx.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
     if (error instanceof AppError && error.code === 'conflict') {
-      // e.g. a shipment planned before the order was confirmed, or delivery before every line has shipped.
       return { applied: false, reason: `${what}: ${error.message}` };
     }
     throw error;
   }
 }
 
-/** The real orders module (core 2.3). */
+/** The real orders module (core 2.3, transaction-taking variants from 2.6). */
 export const coreOrdersPort: OrdersPort = {
-  async shipmentCreated({ tx, client, orderId, actor }) {
+  async shipmentCreated({ tx, orderId, actor }) {
     return advisory(
-      () => markShipmentCreated(clientOn(tx, client), orderId, actor),
+      tx,
+      () => markShipmentCreatedInTx(tx, orderId, actor),
       'order status not advanced',
     );
   },
-  async shipped({ tx, client, orderId, actor, items }) {
+  async shipped({ tx, orderId, actor, items }) {
     if (items.length === 0) return { applied: false, reason: 'nothing shipped' };
     return advisory(
+      tx,
       () =>
-        markShipped(
-          clientOn(tx, client),
+        markShippedInTx(
+          tx,
           orderId,
           items.map((item) => ({ lineItemId: item.orderLineItemId, quantity: item.quantity })),
           actor,
@@ -155,11 +138,8 @@ export const coreOrdersPort: OrdersPort = {
       'fulfilment not recorded',
     );
   },
-  async delivered({ tx, client, orderId, actor }) {
-    return advisory(
-      () => markDelivered(clientOn(tx, client), orderId, actor),
-      'order not completed',
-    );
+  async delivered({ tx, orderId, actor }) {
+    return advisory(tx, () => markDeliveredInTx(tx, orderId, actor), 'order not completed');
   },
 };
 

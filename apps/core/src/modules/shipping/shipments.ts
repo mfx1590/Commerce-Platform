@@ -204,6 +204,7 @@ export async function createShipment(
       orderId: order.id,
       warehouseId: input.warehouseId,
       shipmentId: shipment.id,
+      actor: input.actor,
       items: input.items.map((item) => ({
         orderLineItemId: item.order_line_item_id,
         quantity: item.quantity,
@@ -213,7 +214,6 @@ export async function createShipment(
     // order nobody confirmed yet keeps its status and still gets its shipment.
     await currentOrdersPort().shipmentCreated({
       tx,
-      client,
       orderId: order.id,
       actor: input.actor,
     });
@@ -367,7 +367,6 @@ export async function updateShipment(
       });
     }
     return applyTransition(tx, shipment, items, {
-      client,
       status: input.status,
       trackingNumber: input.trackingNumber,
       trackingUrl: input.trackingUrl,
@@ -388,8 +387,6 @@ export function canTransition(from: ShipmentStatus, to: ShipmentStatus): boolean
 }
 
 export interface TransitionInput {
-  /** The scoped client the caller is transacting on; the orders module is called through it. */
-  client: ScopedClient;
   status?: ShipmentStatus | undefined;
   trackingNumber?: string | undefined;
   trackingUrl?: string | undefined;
@@ -505,6 +502,7 @@ export async function applyTransition(
       storeId: row.store_id,
       orderId: row.order_id,
       shipmentId: row.id,
+      actor: input.actor,
       items: items.map((item) => ({
         orderLineItemId: item.order_line_item_id,
         quantity: item.quantity,
@@ -515,7 +513,7 @@ export async function applyTransition(
   // What the order should know: these quantities left the warehouse, and later that they arrived. The orders
   // module owns `fulfilled_quantity`, `fulfillment_status` and `status` — shipping only reports the facts.
   const orders = currentOrdersPort();
-  const call = { tx, client: input.client, orderId: row.order_id, actor: input.actor };
+  const call = { tx, orderId: row.order_id, actor: input.actor };
   if (passesShipped) {
     await orders.shipped({
       ...call,

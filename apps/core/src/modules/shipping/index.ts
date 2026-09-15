@@ -20,11 +20,10 @@ export {
 } from './manual-provider';
 export { currencyExponent, fromMinorUnits, toMinorUnits } from './money';
 export {
-  clientOn,
+  coreInventoryPort,
   coreOrdersPort,
   currentInventoryPort,
   currentOrdersPort,
-  noopInventoryPort,
   setInventoryPort,
   setOrdersPort,
 } from './ports';
@@ -72,6 +71,7 @@ export type {
   ShippingOptionRules,
 } from './rate-shopping';
 export type {
+  InventoryCall,
   InventoryPort,
   OrdersCall,
   OrdersOutcome,

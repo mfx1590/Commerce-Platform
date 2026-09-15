@@ -134,31 +134,29 @@ order and a late `in_transit` after `delivered` is normal, not an error.
 A shipment that jumps straight to `delivered` still emits `shipment.shipped` first: accounting derives shipping
 cost and COGS timing from that event and must never miss it.
 
-### What the order hears, and reservations
+### What the order and the stock hear
 
-Shipping encodes neither the order state machine nor the reservation rules. It reports facts to the **orders
-module** (window 1, core 2.3) through its public functions:
+Shipping encodes neither the order state machine nor the reservation rules. It reports facts to window 1's
+modules through the functions agreed on #191, all on shipping's own transaction — so the shipment rows, their
+events, the order's status and the stock movements commit together or not at all.
 
-| When                                            | Call                                   | Effect on the order                                            |
-| ----------------------------------------------- | -------------------------------------- | -------------------------------------------------------------- |
-| a shipment is planned                           | `markShipmentCreated`                  | `confirmed` to `processing`                                    |
-| a shipment reaches `shipped` (or jumps past it) | `markShipped` with the line quantities | `fulfilled_quantity`, then `partially_fulfilled` / `fulfilled` |
-| a shipment reaches `delivered`                  | `markDelivered`                        | `processing` to `completed`, once the order is fulfilled       |
+| When                                    | Orders module                                                     | Inventory module                 |
+| --------------------------------------- | ----------------------------------------------------------------- | -------------------------------- |
+| a shipment is planned                   | `markShipmentCreatedInTx` (`confirmed` to `processing`)           | `consumeReservationsForShipment` |
+| it reaches `shipped` (or jumps past it) | `markShippedInTx` with the line quantities                        | —                                |
+| it reaches `delivered`                  | `markDeliveredInTx` (`processing` to `completed`, once fulfilled) | —                                |
+| a planned shipment is cancelled         | —                                                                 | `releaseReservationsForShipment` |
 
-Two rules make that safe:
+Both inventory functions are idempotent per shipment on window 1's side, so a retry never double-decrements.
 
-- **They run inside shipping's transaction.** Those functions take a `ScopedClient` and open their own
-  transaction; `clientOn(tx, client)` presents the in-flight transaction as one, so the shipment rows, their
-  events and the order's status commit together. Passing the outer client instead would deadlock — our insert
-  holds a key-share lock on the order row that their `SELECT ... FOR UPDATE` would wait for, on a connection we
-  are waiting for.
-- **Each call is advisory.** An order nobody has confirmed refuses `processing`, and delivery before every line
-  has shipped refuses `completed`. That is a 409 from the orders module, and it must not fail the shipment or
-  make a carrier retry its webhook for ever: `conflict` is reported in the outcome, anything else propagates.
+**Orders calls are advisory.** An order nobody has confirmed refuses `processing`, and delivery before every line
+has shipped refuses `completed`. That 409 must not fail the shipment or make a carrier retry its webhook for ever,
+so it is reported in the outcome instead of thrown. Each call runs inside a `SAVEPOINT`, and a refusal rolls back
+to it: a call that wrote some rows before refusing leaves nothing behind. **Inventory calls are not advisory** — a
+stock failure is a real failure and rolls the shipment back.
 
-Reservations are still a mirror: **core 2.4 (inventory) has not merged** — there is no `modules/inventory` on
-main. `InventoryPort` keeps its no-op default and `setInventoryPort` swaps in the real functions the day they
-land (REQUEST #191).
+**Behaviour to know: fulfilment is recorded on despatch, not on plan.** Planning a shipment only moves the order
+to `processing`; `fulfilled_quantity` and `fulfillment_status` change when the shipment reaches `shipped`.
 
 ## Tracking webhooks (task 2.3)
 

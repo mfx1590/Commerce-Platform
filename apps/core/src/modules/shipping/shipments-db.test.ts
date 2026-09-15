@@ -12,7 +12,7 @@ import { addLineItem, createCart, updateCart } from '../cart';
 import { confirmOrder } from '../orders';
 import { completeCart, createPaymentSession } from '../checkout';
 import { createManualCarrierProvider } from './manual-provider';
-import { setInventoryPort, noopInventoryPort, type InventoryPort } from './ports';
+import { coreInventoryPort, setInventoryPort, type InventoryPort } from './ports';
 import { resetCarrierProviders, setCarrierProvider } from './registry';
 import {
   buyShipmentLabel,
@@ -91,7 +91,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetCarrierProviders();
-  setInventoryPort(noopInventoryPort);
+  setInventoryPort(coreInventoryPort);
 });
 
 /**
@@ -414,6 +414,51 @@ describe('shipments', () => {
       actor,
     });
     expect(again.status).toBe('pending');
+  });
+
+  it('consumes and releases stock through the real inventory module, once per shipment', async () => {
+    const order = await placedOrder();
+    const line = order.lines[0]!;
+    const variant = (
+      await owner.query<{ variant_id: string }>(
+        `SELECT variant_id FROM order_line_item WHERE id = $1`,
+        [line.id],
+      )
+    ).rows[0]!.variant_id;
+    const level = async () =>
+      (
+        await owner.query<{ on_hand: number; reserved: number }>(
+          `SELECT on_hand, reserved FROM inventory_level WHERE variant_id = $1 AND warehouse_id = $2`,
+          [variant, WH],
+        )
+      ).rows[0]!;
+    const movements = (shipmentId: string) =>
+      owner.query<{ reason: string; delta: number; reference_type: string }>(
+        `SELECT reason, delta, reference_type FROM stock_movement
+          WHERE reference_id = $1 ORDER BY created_at, reason`,
+        [shipmentId],
+      );
+
+    const before = await level();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: line.id, quantity: 2 }],
+      actor,
+    });
+    const consumed = await movements(planned.id);
+    expect(consumed.rows).toEqual([{ reason: 'sale', delta: -2, reference_type: 'shipment' }]);
+    const afterConsume = await level();
+    expect(afterConsume.on_hand).toBe(before.on_hand - 2);
+
+    await updateShipment(a, planned.id, { status: 'cancelled', actor });
+    const released = await movements(planned.id);
+    expect(released.rows.map((row) => row.reference_type).sort()).toEqual([
+      'shipment',
+      'shipment_release',
+    ]);
+    // The goods are back on hand: net zero movement for this shipment.
+    expect((await level()).on_hand).toBe(before.on_hand);
   });
 
   it('consumes the reservation through the inventory port when a shipment is planned', async () => {

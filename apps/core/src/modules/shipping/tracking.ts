@@ -232,7 +232,6 @@ export async function applyTrackingEvent(
     }
 
     await applyTransition(tx, shipment, items, {
-      client,
       status: target,
       occurredAt: input.event.occurredAt,
       actor: input.actor,

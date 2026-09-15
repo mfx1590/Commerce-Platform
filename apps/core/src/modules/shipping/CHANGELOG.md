@@ -24,14 +24,13 @@ file is the module's own history (linked from the PRs).
   unique id — and a nullable `occurred_at` separate from `received_at`, so out-of-order scans are ordered by the
   carrier's clock. The table is window 7's CONTRACT CHANGE (#125) and is not in db 0.2.0 yet:
   `PROPOSED_WEBHOOK_EVENT_SQL` is what this module builds and tests against meanwhile.
-- `ports.ts` (new): how shipping reaches the modules it does not own. **Orders (core 2.3, merged) is wired to the
-  real functions** — `markShipmentCreated` on plan, `markShipped` with the line quantities on despatch,
-  `markDelivered` on delivery — so shipping no longer derives `fulfillment_status` itself. They run inside
-  shipping's transaction through `clientOn(tx, client)` (handing them the outer client would deadlock on the
-  order row's key-share lock), and each call is advisory: a 409 from the order's own state machine is reported,
-  never thrown, so an unconfirmed order still gets its shipment and a carrier does not retry for ever.
-  **Inventory (core 2.4) has not merged**, so `InventoryPort` keeps its no-op default; `setInventoryPort` swaps
-  in the real functions when they land (REQUEST #191).
+- `ports.ts` (new): how shipping reaches the modules it does not own, on the functions agreed on #191 — orders
+  `markShipmentCreatedInTx` / `markShippedInTx` / `markDeliveredInTx`, inventory `consumeReservationsForShipment`
+  / `releaseReservationsForShipment`. All run on shipping's transaction. Orders calls are advisory (a 409 from the
+  order's state machine is reported, never thrown, inside a SAVEPOINT so a refusal leaves no partial rows);
+  inventory calls are not. **Behaviour change: fulfilment is recorded on despatch, not on plan** — planning only
+  moves the order to `processing`. An earlier local draft used a transaction adapter over the client-taking
+  functions and a no-op inventory mirror; both are gone.
 - Events: `shipment.created`, `shipment.shipped`, `shipment.delivered` v1, all through `withEvents` in the same
   transaction as the state change, all carrying ids, amounts and a destination country — never an address.
 - Tests: 21 unit tests (signatures, parsing, transitions) and 15 on a seeded database, including duplicate
