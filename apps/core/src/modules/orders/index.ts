@@ -26,6 +26,7 @@ export {
   markShipmentCreated,
   mergeOrderMetadataIn,
   movePaymentStatusIn,
+  setFulfillmentStatus,
   setFulfillmentStatusIn,
   markShipped,
   transition,

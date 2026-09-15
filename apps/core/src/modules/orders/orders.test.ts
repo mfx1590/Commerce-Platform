@@ -29,6 +29,7 @@ import {
   markShipped,
   PAYMENT_TRANSITIONS,
   projectOrder,
+  setFulfillmentStatus,
   STATUS_TRANSITIONS,
   transition,
   transitionTableMarkdown,
@@ -517,5 +518,25 @@ describe("tx-taking markers (window 8, #191): no deadlock behind a shipment inse
       'order.updated',
       'order.completed',
     ]);
+  });
+});
+
+describe("#191's object shape (#214)", () => {
+  it('setFulfillmentStatus({ tx, orderId, status, actor }) is the positional twin: applies, idempotent on the target, 409 per the table', async () => {
+    const order = await placeOrder();
+    await confirmOrder(a, order.id, actor);
+    await a.transaction((tx) =>
+      setFulfillmentStatus({ tx, orderId: order.id, status: 'partially_fulfilled', actor }),
+    );
+    expect((await row(order.id)).fulfillment_status).toBe('partially_fulfilled');
+    await a.transaction((tx) =>
+      setFulfillmentStatus({ tx, orderId: order.id, status: 'partially_fulfilled', actor }),
+    );
+    expect((await row(order.id)).fulfillment_status).toBe('partially_fulfilled');
+    await expect(
+      a.transaction((tx) =>
+        setFulfillmentStatus({ tx, orderId: order.id, status: 'returned', actor }),
+      ),
+    ).rejects.toMatchObject({ code: 'conflict' });
   });
 });
