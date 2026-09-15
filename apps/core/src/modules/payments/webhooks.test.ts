@@ -312,21 +312,30 @@ describe('redacted extract and seal', () => {
     ).toThrow(/missing id/);
   });
 
-  it('seals the extract to the raw-body hash; editing either side breaks the seal; key order does not', () => {
+  it('seals the extract to the raw-body hash under the webhook secret; editing either side or lacking the secret breaks it', () => {
     const { raw } = stripeEvent('payment_intent.succeeded', {
       id: 'pi_y',
       amount: 10,
       status: 'succeeded',
     });
     const hash = sha256Hex(raw);
-    const sealed = sealExtract(redactStripeEvent(JSON.parse(raw.toString('utf8'))), hash);
-    expect(verifySeal(sealed, hash)).toBe(true);
-    expect(verifySeal({ ...sealed, object: { ...sealed.object, amount: 11 } }, hash)).toBe(false);
-    expect(verifySeal(sealed, sha256Hex('other body'))).toBe(false);
-    expect(verifySeal({ ...sealed, seal: undefined }, hash)).toBe(false);
+    const sealed = sealExtract(redactStripeEvent(JSON.parse(raw.toString('utf8'))), hash, SECRET_A);
+    expect(verifySeal(sealed, hash, [SECRET_A])).toBe(true);
+    expect(
+      verifySeal({ ...sealed, object: { ...sealed.object, amount: 11 } }, hash, [SECRET_A]),
+    ).toBe(false);
+    expect(verifySeal(sealed, sha256Hex('other body'), [SECRET_A])).toBe(false);
+    expect(verifySeal({ ...sealed, seal: undefined }, hash, [SECRET_A])).toBe(false);
+    // Keyed: without the store's secret a valid seal can be neither produced nor recognised — an editor who
+    // could recompute a plain hash cannot recompute an HMAC.
+    expect(verifySeal(sealed, hash, ['whsec_someone_else'])).toBe(false);
+    expect(verifySeal(sealed, hash, [])).toBe(false);
+    // Secret roll: the previous secret still verifies rows sealed before it; the new one seals new rows.
+    expect(verifySeal(sealed, hash, ['whsec_new', SECRET_A])).toBe(true);
+    expect(verifySeal(sealed, hash, ['whsec_new'])).toBe(false);
     // The seal survives a JSON round trip through jsonb, which reorders keys.
     const reordered = JSON.parse(canonicalJson(sealed));
-    expect(verifySeal(reordered, hash)).toBe(true);
+    expect(verifySeal(reordered, hash, [SECRET_A])).toBe(true);
     expect(canonicalJson({ b: 1, a: [{ d: 1, c: 2 }] })).toBe('{"a":[{"c":2,"d":1}],"b":1}');
   });
 });
@@ -436,7 +445,8 @@ describe('handleStripeWebhook — processing', () => {
     expect(row.occurred_at).not.toBeNull();
     expect(row.processed_at).not.toBeNull();
     expect(row.payload_hash).toBe(sha256Hex(raw));
-    expect(verifySeal(row.payload, row.payload_hash)).toBe(true);
+    expect(verifySeal(row.payload, row.payload_hash, [SECRET_A])).toBe(true);
+    expect(verifySeal(row.payload, row.payload_hash, [SECRET_GLOBAL])).toBe(false); // sealed with the store's
     expectNoPii(JSON.stringify(row.payload));
     expectNoPii(logLines.join('\n'));
     expect(logLines.join('\n')).toContain(id);
@@ -491,6 +501,96 @@ describe('handleStripeWebhook — processing', () => {
     expect(taken).toMatchObject({ kind: 'skipped', reason: 'already captured' });
     expect((await getWebhookEvent(a, id))!.status).toBe('skipped');
     expect(await topicsFor(paymentId)).toEqual(['payment.authorized', 'payment.captured']);
+  });
+
+  it('two connections: a duplicate arriving while the first delivery is in flight gets 409, then 200 once it is done', async () => {
+    const { paymentId, intentId, amount } = await placedOrder();
+    const { id, raw } = stripeEvent('payment_intent.succeeded', {
+      id: intentId,
+      amount,
+      status: 'succeeded',
+    });
+    // Delivery A pauses after its insert transaction committed and before its order follow-ups: the row is
+    // `received` and fresh. Delivery B arrives on a second connection meanwhile.
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reachedPause!: () => void;
+    const atPause = new Promise<void>((resolve) => {
+      reachedPause = resolve;
+    });
+    const first = handleStripeWebhook({
+      client: a,
+      storeCode: codeA,
+      rawBody: raw,
+      signatureHeader: signStripePayload(raw, SECRET_A),
+      env,
+      log: (l) => logLines.push(l),
+      hooks: {
+        beforeFollowUps: async () => {
+          reachedPause();
+          await paused;
+        },
+      },
+    });
+    await atPause;
+    await expect(
+      deliver(raw, { client: createTenantClient(db.app, { organizationId: ORG, storeIds: [A] }) }),
+    ).rejects.toMatchObject({
+      code: 'conflict',
+      details: { provider_event_id: id },
+    });
+    release();
+    expect(await first).toMatchObject({ kind: 'processed' });
+    expect(await paymentStatus(paymentId)).toBe('captured');
+    // Now the duplicate is a plain 200.
+    expect(await deliver(raw)).toMatchObject({ kind: 'duplicate', status: 'processed' });
+    expect(await topicsFor(paymentId)).toEqual(['payment.authorized', 'payment.captured']);
+  });
+
+  it('two connections: a duplicate arriving while the insert transaction is still open WAITS at the unique index, then is a duplicate', async () => {
+    // An event without order follow-ups (`skipped` is final inside the insert transaction), so that what the
+    // waiting connection sees after the commit is deterministic: a finished duplicate, not an in-flight 409.
+    const { raw } = stripeEvent('customer.created', { id: 'cus_wait', amount: 0, status: 'x' });
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reachedPause!: () => void;
+    const atPause = new Promise<void>((resolve) => {
+      reachedPause = resolve;
+    });
+    const first = handleStripeWebhook({
+      client: a,
+      storeCode: codeA,
+      rawBody: raw,
+      signatureHeader: signStripePayload(raw, SECRET_A),
+      env,
+      log: (l) => logLines.push(l),
+      hooks: {
+        afterInsert: async () => {
+          reachedPause();
+          await paused; // the insert transaction stays open: the unique index entry is uncommitted
+        },
+      },
+    });
+    await atPause;
+    let secondSettled = false;
+    const second = deliver(raw, {
+      client: createTenantClient(db.app, { organizationId: ORG, storeIds: [A] }),
+    }).finally(() => {
+      secondSettled = true;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(secondSettled).toBe(false); // blocked on the unique index, not answered
+    release();
+    expect(await first).toMatchObject({ kind: 'skipped', reason: 'unhandled_type' });
+    expect(await second).toMatchObject({ kind: 'duplicate', status: 'skipped' });
+    const rows = await owner.query(
+      `SELECT 1 FROM webhook_event WHERE provider_object_id = 'cus_wait'`,
+    );
+    expect(rows.rows).toHaveLength(1);
   });
 
   it('out of order: an authorization event after the capture is skipped; the row never regresses', async () => {
@@ -616,7 +716,7 @@ describe('replayWebhookEvent', () => {
     });
     await deliver(raw);
 
-    const replay = await replayWebhookEvent(a, id, { log: (l) => logLines.push(l) });
+    const replay = await replayWebhookEvent(a, id, { log: (l) => logLines.push(l), env });
     expect(replay).toMatchObject({ kind: 'skipped', reason: 'already captured', replayed: true });
     expect(await topicsFor(paymentId)).toEqual(['payment.authorized', 'payment.captured']);
     expect((await getWebhookEvent(a, id))!.replay_count).toBe(1);
@@ -627,13 +727,60 @@ describe('replayWebhookEvent', () => {
       `UPDATE webhook_event SET payload = jsonb_set(payload, '{object,amount}', '1'::jsonb) WHERE provider_event_id = $1`,
       [id],
     );
-    await expect(replayWebhookEvent(a, id, { log: () => {} })).rejects.toMatchObject({
+    await expect(replayWebhookEvent(a, id, { log: () => {}, env })).rejects.toMatchObject({
       code: 'conflict',
       message: expect.stringContaining('does not match payload_hash'),
     });
     expect((await getWebhookEvent(a, id))!.replay_count).toBe(1);
-    await expect(replayWebhookEvent(a, 'evt_missing', { log: () => {} })).rejects.toMatchObject({
+    await expect(
+      replayWebhookEvent(a, 'evt_missing', { log: () => {}, env }),
+    ).rejects.toMatchObject({
       code: 'not_found',
+    });
+  });
+
+  it('secret roll: deliveries and replays verify under [current, previous]; a replay with only the new secret is refused', async () => {
+    const { intentId, amount } = await placedOrder();
+    const { id, raw } = stripeEvent('payment_intent.succeeded', {
+      id: intentId,
+      amount,
+      status: 'succeeded',
+    });
+    await deliver(raw); // sealed under SECRET_A (the current secret at delivery time)
+    const rolled = {
+      ...env,
+      STRIPE_WEBHOOK_SECRET_BRAND_A: 'whsec_rolled',
+      STRIPE_WEBHOOK_SECRET_BRAND_A_PREVIOUS: SECRET_A,
+    } as NodeJS.ProcessEnv;
+    // During the roll Stripe still signs with the old secret for a while: accepted through _PREVIOUS.
+    const late = stripeEvent('payment_intent.amount_capturable_updated', {
+      id: intentId,
+      amount,
+      status: 'requires_capture',
+    });
+    const r = await handleStripeWebhook({
+      client: a,
+      storeCode: codeA,
+      rawBody: late.raw,
+      signatureHeader: signStripePayload(late.raw, SECRET_A),
+      env: rolled,
+      log: () => {},
+    });
+    expect(r).toMatchObject({ kind: 'skipped' });
+    // …and the new one seals new rows.
+    expect(
+      verifySeal((await getWebhookEvent(a, late.id))!.payload, sha256Hex(late.raw), [
+        'whsec_rolled',
+      ]),
+    ).toBe(true);
+    // Replaying the pre-roll row works while _PREVIOUS is set, and is refused once it is dropped.
+    expect(await replayWebhookEvent(a, id, { log: () => {}, env: rolled })).toMatchObject({
+      kind: 'skipped',
+    });
+    const dropped = { ...env, STRIPE_WEBHOOK_SECRET_BRAND_A: 'whsec_rolled' } as NodeJS.ProcessEnv;
+    await expect(replayWebhookEvent(a, id, { log: () => {}, env: dropped })).rejects.toMatchObject({
+      code: 'conflict',
+      message: expect.stringContaining('webhook secret'),
     });
   });
 
@@ -652,7 +799,7 @@ describe('replayWebhookEvent', () => {
       [id],
     );
     // …and the replay converges it without a second payment.captured.
-    const r = await replayWebhookEvent(a, id, { log: () => {} });
+    const r = await replayWebhookEvent(a, id, { log: () => {}, env });
     expect(r).toMatchObject({ kind: 'skipped', reason: 'already captured' });
     expect(await orderPaymentStatus(orderId)).toMatchObject({ payment_status: 'captured' });
     expect(await topicsFor(paymentId)).toEqual(['payment.authorized', 'payment.captured']);

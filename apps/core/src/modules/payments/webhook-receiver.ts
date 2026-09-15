@@ -12,7 +12,7 @@ import { SYSTEM_ACTOR, type Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { cancelOrder } from '../orders';
 import { markPaymentCaptured, markPaymentFailed } from './orders-seam';
-import { envSuffix, stripeWebhookSecretFor } from './credentials';
+import { envSuffix, stripeWebhookSecretsFor } from './credentials';
 import {
   MalformedEventError,
   redactStripeEvent,
@@ -71,6 +71,11 @@ export interface StripeWebhookInput {
   actor?: Actor;
   /** One line per delivery, ids only. Default `console.info`. */
   log?: (line: string) => void;
+  /** Test seams (concurrency tests): pause inside the insert transaction, or between its commit and the follow-ups. */
+  hooks?: {
+    afterInsert?: ((tx: Queryable) => Promise<void>) | undefined;
+    beforeFollowUps?: (() => Promise<void>) | undefined;
+  };
 }
 
 interface StoreRow {
@@ -341,8 +346,8 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
   const log = input.log ?? ((line: string) => console.info(line));
 
   // ---- 1. signature over the raw body, before any parsing or database work ----
-  const secret = stripeWebhookSecretFor(input.storeCode, env);
-  if (!secret) {
+  const secrets = stripeWebhookSecretsFor(input.storeCode, env);
+  if (secrets.length === 0) {
     const suffix = envSuffix(input.storeCode);
     throw validationError(
       `no stripe webhook secret for store ${input.storeCode}: set STRIPE_WEBHOOK_SECRET_${suffix} or STRIPE_WEBHOOK_SECRET`,
@@ -352,7 +357,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
   const verdict = verifyStripeSignature({
     rawBody: input.rawBody,
     header: input.signatureHeader,
-    secret,
+    secret: secrets,
     ...(input.nowSeconds !== undefined ? { nowSeconds: input.nowSeconds } : {}),
   });
   if (!verdict.ok) {
@@ -376,7 +381,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
     throw err;
   }
   const payloadHash = sha256Hex(input.rawBody);
-  const sealed = sealExtract(extract, payloadHash);
+  const sealed = sealExtract(extract, payloadHash, secrets[0]!); // always the CURRENT secret
 
   // ---- 3. insert-or-skip + processing, one transaction ----
   const first = await input.client.transaction(
@@ -430,6 +435,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
         }
         rowId = row.id;
       }
+      if (input.hooks?.afterInsert) await input.hooks.afterInsert(tx); // test seam: hold the transaction open
       const result = await processEvent(tx, store, sealed, actor);
       await tx.query(
         `UPDATE webhook_event SET aggregate_type = $2, aggregate_id = $3, status = $4, failure_reason = $5,
@@ -456,6 +462,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
   let status = first.result.status;
   let reason = first.result.reason;
   if (first.result.followUps.length > 0) {
+    if (input.hooks?.beforeFollowUps) await input.hooks.beforeFollowUps(); // test seam: row is `received`
     const failure = await runFollowUps(input.client, first.result.followUps);
     if (failure) {
       status = 'failed';
@@ -470,6 +477,8 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
 export interface ReplayOptions {
   actor?: Actor;
   log?: (line: string) => void;
+  /** Where the store's webhook secrets come from (seal verification); default process.env. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -493,17 +502,27 @@ export async function replayWebhookEvent(
       );
       const row = r.rows[0];
       if (!row) throw new AppError('not_found', `webhook event ${providerEventId} not found`);
-      if (!verifySeal(row.payload, row.payload_hash)) {
+      const store = await tx.query<StoreRow & { code: string }>(
+        `SELECT id, organization_id, legal_entity_id, code FROM store WHERE id = $1`,
+        [row.store_id],
+      );
+      const storeRow = store.rows[0]!;
+      // The seal is an HMAC under the store's webhook secret (current, then previous during a roll): a row that
+      // was edited by hand, or copied from another environment, cannot carry a valid one.
+      const secrets = stripeWebhookSecretsFor(storeRow.code, opts.env ?? process.env);
+      if (secrets.length === 0) {
+        throw validationError(
+          `no stripe webhook secret for store ${storeRow.code}: cannot verify the stored event before replaying`,
+          { provider: 'stripe' },
+        );
+      }
+      if (!verifySeal(row.payload, row.payload_hash, secrets)) {
         throw conflict(
-          `webhook event ${providerEventId}: stored payload does not match payload_hash; refusing to replay`,
+          `webhook event ${providerEventId}: stored payload does not match payload_hash under the store's webhook secret; refusing to replay`,
           { provider_event_id: providerEventId, status: row.status },
         );
       }
-      const store = await tx.query<StoreRow>(
-        `SELECT id, organization_id, legal_entity_id FROM store WHERE id = $1`,
-        [row.store_id],
-      );
-      const result = await processEvent(tx, store.rows[0]!, row.payload, actor);
+      const result = await processEvent(tx, storeRow, row.payload, actor);
       await tx.query(
         `UPDATE webhook_event SET aggregate_type = coalesce($2, aggregate_type), aggregate_id = coalesce($3, aggregate_id),
            status = $4, failure_reason = $5, replay_count = replay_count + 1,
