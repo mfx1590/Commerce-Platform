@@ -19,6 +19,12 @@ import {
 import { closePool, initDb, tenantClient } from '../src/lib/db';
 import { addLineItem, createCart, updateCart } from '../src/modules/cart';
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
+import {
+  confirmOrder,
+  markPaymentCaptured,
+  markShipmentCreated,
+  markShipped,
+} from '../src/modules/orders';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -637,5 +643,135 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     expect(campaigns.body).toHaveProperty('items');
     const anonymous = await request(app).get(`/admin/stores/${A}/marketing/campaigns`);
     expect(anonymous.status).toBe(401); // our middleware still fronts them
+  });
+});
+
+describe('returns (task 2.5): createReturn, receiveReturn', () => {
+  const customer = { id: null, type: 'customer' as const, requestId: 'req-admin-returns' };
+  const system = { id: null, type: 'system' as const, requestId: 'req-admin-returns' };
+  const operations = as('seed-operations');
+  let orderId: string;
+  let lineId: string;
+
+  beforeAll(async () => {
+    const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
+    const channel = await client.query<{ id: string }>(
+      `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+      [A],
+    );
+    const cart = await createCart(client, {
+      organizationId: SEED_IDS.organization,
+      storeId: A,
+      salesChannelId: channel.rows[0]!.id,
+    });
+    const variant = await client.query<{ id: string }>(
+      `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
+       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       WHERE v.store_id = $1 ORDER BY v.sku DESC LIMIT 1`,
+      [A],
+    );
+    await addLineItem(client, cart.id, { variant_id: variant.rows[0]!.id, quantity: 2 });
+    const option = await client.query<{ id: string }>(
+      `SELECT id FROM shipping_option WHERE store_id = $1 AND code = 'standard'`,
+      [A],
+    );
+    const address = {
+      first_name: 'Ret',
+      last_name: 'Urn',
+      line1: 'Dam 1',
+      city: 'Amsterdam',
+      postal_code: '1012 JS',
+      country: 'NL',
+    };
+    await updateCart(client, cart.id, {
+      email: 'ret.urn@example.com',
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: option.rows[0]!.id,
+    });
+    await createPaymentSession(client, cart.id, { provider: 'manual' });
+    const { order } = await completeCart(client, {
+      cartId: cart.id,
+      idempotencyKey: `admin-returns-${cart.id}`,
+      actor: customer,
+    });
+    orderId = order.id;
+    lineId = order.items[0]!.id;
+    await confirmOrder(client, orderId, system);
+    await markPaymentCaptured(client, orderId, system);
+    await db.owner.query(
+      `UPDATE payment SET status = 'captured', captured_at = now() WHERE order_id = $1`,
+      [orderId],
+    );
+    await markShipmentCreated(client, orderId, system);
+    await markShipped(client, orderId, [{ lineItemId: lineId, quantity: 2 }], system);
+  });
+
+  it('POST …/orders/{orderId}/returns: support; body validated; 201 Return; over the shipped quantity → 409', async () => {
+    const forbidden = await analyst.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+    });
+    expect(forbidden.status).toBe(403);
+    const bad = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, { items: [] });
+    expect(bad.status).toBe(400);
+    const over = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 5 }],
+    });
+    expect(over.status).toBe(409);
+    spec.assertSchema('Error', over.body);
+    const res = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+      reason: 'wrong size',
+    });
+    expect(res.status).toBe(201);
+    spec.assertSchema('Return', res.body);
+    expect(res.body).toMatchObject({
+      order_id: orderId,
+      status: 'requested',
+      reason: 'wrong size',
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: null }],
+    });
+    const viaB = await support.post(`/admin/stores/${B}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+    });
+    expect(viaB.status).toBe(404);
+  });
+
+  it('POST …/returns/{returnId}/receive: operations only; store path must match; 200 Return refunded (manual)', async () => {
+    const created = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+    });
+    expect(created.status).toBe(201);
+    const returnId = created.body.id as string;
+    const forbidden = await storeAdmin.post(`/admin/stores/${A}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    expect(forbidden.status).toBe(403);
+    const wrongStore = await operations.post(`/admin/stores/${B}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    expect(wrongStore.status).toBe(404);
+    const badBody = await operations.post(`/admin/stores/${A}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'meh' }],
+    });
+    expect(badBody.status).toBe(400);
+    const res = await operations.post(`/admin/stores/${A}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    expect(res.status).toBe(200);
+    spec.assertSchema('Return', res.body);
+    expect(res.body).toMatchObject({
+      status: 'refunded',
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    const order = await storeStaff.get(`/admin/stores/${A}/orders/${orderId}`);
+    expect(order.body.returns.map((r: { id: string }) => r.id)).toContain(returnId);
+    expect(order.body.items[0].returned_quantity).toBe(1);
   });
 });

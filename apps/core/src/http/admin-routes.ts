@@ -45,6 +45,7 @@ import {
   LEVEL_SORT_FIELDS,
   listInventoryLevels,
 } from '../modules/inventory';
+import { getReturn, receiveReturn, requestReturn } from '../modules/returns';
 import {
   cancelOrder,
   FULFILLMENT_STATUSES,
@@ -188,6 +189,57 @@ export function adminRouter(): Router {
           delta: b.delta,
           reason: b.reason,
           note: b.note ?? null,
+          actor: p.actor,
+        }),
+      );
+    }),
+  );
+
+  // ---- returns (task 2.5, src/modules/returns) --------------------------------------------------------------
+  r.post(
+    '/admin/stores/:storeId/orders/:orderId/returns',
+    permission('createReturn'),
+    body('createReturn'),
+    handle(async (req, res) => {
+      const { client } = storeClient(req);
+      const p = requirePrincipal(req);
+      const b = req.body as {
+        items: { order_line_item_id: string; quantity: number }[];
+        reason?: string;
+      };
+      res.status(201).json(
+        await requestReturn(client, uuidParam(req.params, 'orderId'), {
+          items: b.items,
+          reason: b.reason ?? null,
+          actor: p.actor,
+        }),
+      );
+    }),
+  );
+  // receiveReturn: x-permission is `operations` on the organization; the store id in the path must be the
+  // return's store (404 otherwise — a return is never confirmable through another store's path).
+  r.post(
+    '/admin/stores/:storeId/returns/:returnId/receive',
+    permission('receiveReturn'),
+    body('receiveReturn'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      const returnId = uuidParam(req.params, 'returnId');
+      const client = tenantClient({ organizationId: p.organizationId, storeIds: [storeId] });
+      await getReturn(client, returnId); // 404 unless the return belongs to this store
+      const b = req.body as {
+        warehouse_id: string;
+        items: {
+          order_line_item_id: string;
+          quantity: number;
+          condition: 'resellable' | 'damaged';
+        }[];
+      };
+      res.json(
+        await receiveReturn(client, returnId, {
+          warehouseId: b.warehouse_id,
+          items: b.items,
           actor: p.actor,
         }),
       );

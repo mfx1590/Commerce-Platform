@@ -11,7 +11,10 @@ export {
   markPaymentPartiallyRefunded,
   markPaymentRefunded,
   markReturned,
+  markReturnedIn,
   markShipmentCreated,
+  mergeOrderMetadataIn,
+  movePaymentStatusIn,
   markShipped,
   transition,
 } from './service';

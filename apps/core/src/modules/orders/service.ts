@@ -8,7 +8,7 @@ import type { Queryable, ScopedClient } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
-import { paymentProvider } from '../checkout';
+import { paymentProvider } from '../../lib/payment-seam';
 import { releaseForOrder } from '../inventory';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
 import { allowed } from './transitions';
@@ -264,31 +264,65 @@ export async function markReturned(
   returned: readonly LineQuantity[],
   actor: Actor,
 ): Promise<AdminOrder> {
-  if (returned.length === 0)
-    throw validationError('nothing returned', { returned: 'at least one line' });
   return client.transaction(async (tx) => {
-    await loadOrder(tx, orderId, true);
-    for (const s of returned) {
-      const r = await tx.query(
-        `UPDATE order_line_item SET returned_quantity = LEAST(fulfilled_quantity, returned_quantity + $3), updated_at = now()
-         WHERE id = $1 AND order_id = $2`,
-        [s.lineItemId, orderId, s.quantity],
-      );
-      if (r.rowCount === 0)
-        throw validationError('unknown line item', { line_item_id: s.lineItemId });
-    }
-    const lines = await loadOrderLines(tx, orderId);
-    const next = fulfillmentFrom(lines, 'returned');
-    const current = await loadOrder(tx, orderId, false);
-    if (current.fulfillment_status !== next) {
-      await transition(tx, orderId, {
-        fulfillment_status: next,
-        actor,
-        changed_fields: ['line_items'],
-      });
-    }
+    await markReturnedIn(tx, orderId, returned, actor);
     return renderAdminOrder(tx, orderId);
   });
+}
+
+/** `markReturned` on the caller's transaction (the returns module runs it inside receiveReturn). */
+export async function markReturnedIn(
+  tx: Queryable,
+  orderId: string,
+  returned: readonly LineQuantity[],
+  actor: Actor,
+): Promise<void> {
+  if (returned.length === 0)
+    throw validationError('nothing returned', { returned: 'at least one line' });
+  await loadOrder(tx, orderId, true);
+  for (const s of returned) {
+    const r = await tx.query(
+      `UPDATE order_line_item SET returned_quantity = LEAST(fulfilled_quantity, returned_quantity + $3), updated_at = now()
+       WHERE id = $1 AND order_id = $2`,
+      [s.lineItemId, orderId, s.quantity],
+    );
+    if (r.rowCount === 0)
+      throw validationError('unknown line item', { line_item_id: s.lineItemId });
+  }
+  const lines = await loadOrderLines(tx, orderId);
+  const next = fulfillmentFrom(lines, 'returned');
+  const current = await loadOrder(tx, orderId, false);
+  if (current.fulfillment_status !== next) {
+    await transition(tx, orderId, {
+      fulfillment_status: next,
+      actor,
+      changed_fields: ['line_items'],
+    });
+  }
+}
+
+/** Merges keys into `order.metadata` on the caller's transaction (the returns module's exchange link). No event: metadata is storefront/ops-owned. */
+export async function mergeOrderMetadataIn(
+  tx: Queryable,
+  orderId: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const o = await loadOrder(tx, orderId, true);
+  await tx.query(`UPDATE "order" SET metadata = $2::jsonb, updated_at = now() WHERE id = $1`, [
+    orderId,
+    JSON.stringify({ ...o.metadata, ...patch }),
+  ]);
+}
+
+/** A payment_status move on the caller's transaction, idempotent on the target (the returns module's refunds). */
+export async function movePaymentStatusIn(
+  tx: Queryable,
+  orderId: string,
+  to: PaymentStatus,
+  actor: Actor,
+): Promise<void> {
+  const current = await loadOrder(tx, orderId, true);
+  if (current.payment_status !== to) await transition(tx, orderId, { payment_status: to, actor });
 }
 
 interface AuthorizedPayment {
