@@ -71,7 +71,7 @@ Windows are told "keep building the next task locally; push it as its own PR aft
 ## 6. Shared stack etiquette (windows share one docker stack on this machine)
 
 Never `pnpm dev --reset` / `docker compose down` while windows are active; realm changes via
-`node infra/keycloak/reimport.mjs <realm>`; ports: Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081, Redpanda 19092,
+`node infra/keycloak/reimport.mjs <realm>`; ports: Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081 (playground 18083), Redpanda 19092,
 mocks 4010/4011, observability (2.5) Grafana 3400 / Loki 3410 / Tempo 3420 / Prometheus 9090 / OTel 4317-4318.
 
 ## 7. Platform facts

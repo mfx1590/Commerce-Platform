@@ -56,7 +56,7 @@ console.info(`
   Redis             redis://localhost:6381
   Redpanda          localhost:19092 (Kafka)  http://localhost:18081 (schema registry)
   Keycloak          http://localhost:8180  (admin / admin; realms: staff, customers)
-  OpenFGA           http://localhost:8081  (playground http://localhost:3001)
+  OpenFGA           http://localhost:8081  (playground http://localhost:18083)
   Store API mock    http://localhost:4010  (X-Publishable-Key: pk_brand-a_dev)
   Admin API mock    http://localhost:4011  (Authorization: Bearer dev)
 

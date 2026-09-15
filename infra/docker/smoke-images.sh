@@ -37,6 +37,8 @@ APPS=(
   "accounting:9003"
   "analytics-ingest:9004"
   "notifications:9005"
+  "feeds:4020"
+  "storefront-brand-a:3101"
 )
 
 # Build outputs we know how to recognise, in the order we look for them.

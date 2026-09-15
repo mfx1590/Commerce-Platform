@@ -42,8 +42,10 @@ COPY apps/accounting/package.json apps/accounting/
 COPY apps/admin/package.json apps/admin/
 COPY apps/analytics-ingest/package.json apps/analytics-ingest/
 COPY apps/core/package.json apps/core/
+COPY apps/feeds/package.json apps/feeds/
 COPY apps/notifications/package.json apps/notifications/
 COPY apps/storefront-starter/package.json apps/storefront-starter/
+COPY apps/storefronts/brand-a/package.json apps/storefronts/brand-a/
 COPY packages/auth-sdk/package.json packages/auth-sdk/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/

@@ -5,7 +5,7 @@
 | `model.fga`        | The authorization model (OpenFGA DSL, schema 1.1). Relation names are frozen by ADR 0002. |
 | `tuples.seed.json` | Relationship tuples for the seeded organization, stores and 7 staff users (`SEED_IDS`).   |
 
-Local server: `http://localhost:8081` (HTTP API, `OPENFGA_API_URL`), playground `http://localhost:3001`,
+Local server: `http://localhost:8081` (HTTP API, `OPENFGA_API_URL`), playground `http://localhost:18083`,
 in-memory datastore (everything is gone on container restart, re-run the seed).
 
 ## Object and user ids

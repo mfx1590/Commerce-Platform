@@ -97,7 +97,11 @@ services:
     ports:
       - '8081:8080' # HTTP API (OPENFGA_API_URL=http://localhost:8081)
       - '8082:8081' # gRPC
-      - '3001:3000' # Playground
+      # Playground. Host port 18083, not 3001: on a Windows machine whose dynamic port range starts at
+      # 1024, WinNAT reserves random 100-port blocks below 15000 and moves them on every restart. 3001
+      # landed in one (2917-3016) and compose refused to start the container at all. Above 15000 those
+      # blocks cannot land, and it sits next to Redpanda's 18081/18082 which are safe for the same reason.
+      - '18083:3000'
     healthcheck:
       test: ['CMD', '/openfga', 'version']
       interval: 10s

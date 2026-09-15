@@ -2,8 +2,11 @@ import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@p
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  addMedia,
   archiveProduct,
   createCategory,
+  deleteMedia,
+  updateMedia,
   createProduct,
   createVariant,
   getProduct,
@@ -331,5 +334,97 @@ describe('admin catalog: products, variants, events', () => {
     const full = await getProduct(a, A, productA.id);
     expect(full.variants[0]!.inventory.length).toBeGreaterThan(0);
     expect(full.variants[0]!.prices[0]!.currency).toBe('EUR');
+  });
+});
+
+describe('media public functions (#179 part 1, task 2.6)', () => {
+  it('add / move / retarget / delete keep positions contiguous, the thumbnail on position 0, one product.updated ["media"] each', async () => {
+    const list = await listStoreProducts(a, A, 'EUR', { limit: 1, sort: 'price_desc' });
+    const productId = list.items[0]!.id;
+    const before = await getProduct(a, A, productId);
+    const n0 = before.media.length;
+    const events = async () =>
+      (
+        await owner.query<{ payload: Record<string, unknown> }>(
+          `SELECT payload FROM outbox WHERE topic = 'product.updated' AND aggregate_id::text = $1::text ORDER BY occurred_at, id`,
+          [productId],
+        )
+      ).rows.map((r) => r.payload.changed_fields);
+    const e0 = (await events()).length;
+
+    const added = await addMedia(
+      a,
+      A,
+      productId,
+      { url: 'https://picsum.photos/seed/new/600', alt: 'new' },
+      actor,
+    );
+    expect(added.media).toHaveLength(n0 + 1);
+    expect(added.media.map((m) => m.position)).toEqual([...Array(n0 + 1).keys()]);
+    expect(added.media.at(-1)).toMatchObject({
+      url: 'https://picsum.photos/seed/new/600',
+      alt: 'new',
+      position: n0,
+    });
+    expect(added.thumbnail_url).toBe(before.thumbnail_url); // appended → thumbnail unchanged
+
+    const first = await addMedia(
+      a,
+      A,
+      productId,
+      { url: 'https://picsum.photos/seed/first/600', position: 0 },
+      actor,
+    );
+    expect(first.media[0]).toMatchObject({
+      url: 'https://picsum.photos/seed/first/600',
+      position: 0,
+    });
+    expect(first.thumbnail_url).toBe('https://picsum.photos/seed/first/600');
+    expect(first.media.map((m) => m.position)).toEqual([...Array(n0 + 2).keys()]);
+
+    const newId = added.media.at(-1)!.id;
+    const variant = before.variants[0]!;
+    const moved = await updateMedia(
+      a,
+      A,
+      productId,
+      newId,
+      { position: 0, alt: 'moved', variant_id: variant.id },
+      actor,
+    );
+    expect(moved.media[0]).toMatchObject({
+      id: newId,
+      position: 0,
+      alt: 'moved',
+      variant_id: variant.id,
+    });
+    expect(moved.thumbnail_url).toBe('https://picsum.photos/seed/new/600');
+    expect(moved.media.map((m) => m.position)).toEqual([...Array(n0 + 2).keys()]);
+
+    const removed = await deleteMedia(a, A, productId, newId, actor);
+    expect(removed.media.some((m) => m.id === newId)).toBe(false);
+    expect(removed.media.map((m) => m.position)).toEqual([...Array(n0 + 1).keys()]);
+    expect(removed.thumbnail_url).toBe(removed.media[0]!.url);
+
+    const all = await events();
+    expect(all.length).toBe(e0 + 4);
+    for (const changed of all.slice(e0)) expect(changed).toEqual(['media']);
+    await expect(deleteMedia(a, A, productId, newId, actor)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(
+      updateMedia(
+        a,
+        A,
+        productId,
+        removed.media[0]!.id,
+        { variant_id: '00000000-0000-4000-8000-00000000dead' },
+        actor,
+      ),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    // RLS: store B cannot touch A's product media
+    await expect(
+      addMedia(b, A, productId, { url: 'https://x/y.jpg' }, actor),
+    ).rejects.toMatchObject({ code: 'not_found' });
   });
 });
