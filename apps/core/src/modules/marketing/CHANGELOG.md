@@ -5,6 +5,11 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — marketing/phase2 (contracts-v0.3)
 
+### 2026-09-14 · contracts-v0.4.1 landed (#194 applied by the main window)
+
+- `proposed/product-feed.schema.json` removed; `feed-types.ts` takes `ProductFeed` / `FeedStatus` from the
+  generated types and `routes.test.ts` asserts the error-status feed against the document itself.
+
 ### 2026-09-08 · 2.2 Product feeds for Google Merchant and Meta (#146)
 
 - `feed-types.ts`: `ProductFeedRow` (table) vs `ProductFeed` (contract), the channel/status enums,
