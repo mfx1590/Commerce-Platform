@@ -4,6 +4,10 @@
 
 ### 2026-09-19 · cleanup: tax boot line, refunds router, guard + wiring tests (#127, #126 on main)
 
+- **`price_changed` comes from the contract** (contracts-v0.4.3, #228 landed): the local `CoreErrorCode` union in
+  `src/lib/errors.ts` is deleted; `AppError` is typed on `ErrorCode` again.
+- **Store order read vs contracts-v0.4.3**: window 8's `picking` / `packed` shipment statuses pass straight through
+  the read model; a Store API test inserts both and validates the response against `Order`.
 - **`paymentsAdminRouter()` mounted** (window 7, #176 part 4): `POST /admin/stores/{storeId}/orders/{orderId}/refunds`
   answers on the running server (support → 404 on an unknown order, 400 without `Idempotency-Key`, store staff →
   403). `module-routers.ts` header rewritten: nothing is pending, boot registrations live in `src/wiring.ts`.

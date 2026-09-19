@@ -1,12 +1,6 @@
 import type { ErrorCode } from '@platform/contracts';
 
-/**
- * Local mock until CONTRACT CHANGE #228 lands `price_changed` in `ERROR_CODES` (then this collapses back to
- * `ErrorCode`): completeCart answers 409 `price_changed` when a line's resolved price differs from the cart's.
- */
-export type CoreErrorCode = ErrorCode | 'price_changed';
-
-const STATUS: Record<CoreErrorCode, number> = {
+const STATUS: Record<ErrorCode, number> = {
   validation_error: 400,
   unauthorized: 401,
   forbidden: 403,
@@ -26,7 +20,7 @@ const STATUS: Record<CoreErrorCode, number> = {
 export class AppError extends Error {
   readonly status: number;
   constructor(
-    readonly code: CoreErrorCode,
+    readonly code: ErrorCode,
     message: string,
     readonly details?: Record<string, unknown>,
     /** Overrides the status the code implies (503 `internal` when OpenFGA is unreachable, 502 for the proxy). */
@@ -37,7 +31,7 @@ export class AppError extends Error {
     this.status = status ?? STATUS[code];
   }
 
-  toBody(): { code: CoreErrorCode; message: string; details?: Record<string, unknown> } {
+  toBody(): { code: ErrorCode; message: string; details?: Record<string, unknown> } {
     return this.details
       ? { code: this.code, message: this.message, details: this.details }
       : { code: this.code, message: this.message };
