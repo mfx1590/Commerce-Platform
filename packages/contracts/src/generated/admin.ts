@@ -453,6 +453,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancel a line before fulfilment (the last line cannot be cancelled — cancel the order) */
+        delete: operations["cancelOrderLineItem"];
+        options?: never;
+        head?: never;
+        /** Lower a line's quantity before fulfilment (totals recomputed, difference recorded in order.metadata.edits for the refund flow; no money moved) */
+        patch: operations["updateOrderLineItem"];
+        trace?: never;
+    };
     "/admin/stores/{storeId}/orders/{orderId}/refunds": {
         parameters: {
             query?: never;
@@ -3920,6 +3942,70 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    cancelOrderLineItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateOrderLineItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Must be lower than the current quantity */
+                    quantity: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
     };

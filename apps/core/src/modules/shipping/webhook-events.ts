@@ -5,9 +5,6 @@
 //
 // NO RAW PAYLOADS (#187): `payload` holds only the redacted extract this module processes — ids, the tracking
 // code, the status and timestamps, never an address — and `payload_hash` is the sha256 of the raw request body.
-//
-// Until 0140 lands, `proposed/0140_webhook_event.sql` is a byte-for-byte copy of #187's SQL (identical to
-// payments' copy) and only the test suites apply it. The manager's 0140 commit removes both copies.
 import { createHash } from 'node:crypto';
 import type { Queryable } from '@platform/db';
 
