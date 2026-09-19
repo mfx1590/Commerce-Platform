@@ -1,6 +1,6 @@
 # Memory 8 — Shipping & fulfillment
 Window: 8 · Key: `shipping` · Branch prefix: `shipping/` · Model: Sonnet
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `shipping/phase2` · Status: 2.1 merged-in-review (#175), 2.2 done (commit ddec7b3, PR pending push), 2.3 next
+Last updated: 2026-09-19 · Contracts: contracts-v0.4.3 (Admin API 0.4.3, events 0.3.0, db 0.3.0 incl. migrations 0140 `webhook_event` and 0160 pick/pack statuses) · Branch: `shipping/phase2` · **Status: PHASE 2 COMPLETE — 2.1–2.5 all merged; window quiet.**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -18,8 +18,9 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 ## Done
 - **2.5 (#133) — pick/pack lifecycle, events, admin operations** · PR #235 (contracts-v0.4.3)
   `fulfillment/lifecycle.ts` (`pickShipment` / `packShipment` / `listPickLists`), `lifecycle-events.ts` (the
-  seam that writes to the outbox the moment events 0.3.0 exists and buffers with one warning until then),
-  `fulfillment/http.ts` (three Admin API operations, permissions read from the real spec or #225's filed copy),
+  three `fulfillment.*` events, written to the outbox in the same transaction as the move; the `EVENT_TOPICS`
+  check stays as a guard), `fulfillment/http.ts` (three Admin API operations, permissions from `admin-api.yaml`
+  0.4.3 through `loadSpec`),
   the widened status machine in `shipping/shipments.ts`, and all six earlier review nits. **#235 BLOCK fixes**
   (commit `133b03e`): `fulfillment.requested` is emitted from `requestFulfillment` with `provider` and
   `external_id`, in the same transaction as the reference; a 3PL-driven `picking` / `packed` goes through the
@@ -56,11 +57,31 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **2.5 is PR #235, BLOCK fixed and pushed** (sha recorded in the Done entry). Two real defects the review found:
-  `fulfillment.requested` was declared but never emitted, and a cancel from `label_created` never voided the
-  bought label. Both fixed with outbox-row and void-spy tests; manager re-reviews the fix diff only.
-- **Phase 2 is complete for this window** once #235 merges: 2.1 → 2.5 all delivered. REQUEST #226 is window 1's
-  and already on main; `fulfillmentAdminRouter()` still needs window 1's one-line mount (their next PR, not mine).
+- **Nothing. The window is quiet.** Phase 2 delivered 2.1–2.5; #235 merged as `7e02172` and closed #133.
+- Not mine, tracked elsewhere: window 1 mounts `fulfillmentAdminRouter()` with one `routers.push(...)` line in
+  `src/http/module-routers.ts` (their next PR). `shippingAdminRouter` and `shippingWebhookRouter` are already
+  mounted there, and `registerCarrierProviders()` runs from `src/wiring.ts`.
+
+## Follow-ups for whoever reopens this window (none blocking, agreed with the manager)
+
+Two are real behaviour, three are hygiene. In the order I would do them:
+
+1. **`voidLabelForCancel` resolves the store's CURRENT carrier, not the one that sold the label.**
+   `shipping/shipments.ts` reads `store.settings.shipping.provider` to find a provider, but the label records its
+   own `metadata.carrier_label.provider`. A store that switches carrier after buying a label would void against
+   the wrong one. Fix: resolve by `ref.provider` (falling back to the store's when it is not registered), and add
+   a test that switches the store's provider between buy and cancel.
+2. **A successful void is not recorded.** Only failures write to `metadata.carrier_label`. If the cancel
+   transaction fails right after a successful void, a retry voids an already-voided label — harmless with
+   EasyPost today, not guaranteed elsewhere. Fix: write `voided_at` in the cancel transaction and skip the call
+   when it is set.
+3. **Stale comment in `shipping/shipments.ts`** still tells the reader that the tests apply
+   `../fulfillment/proposed/0160_shipment_pick_pack.sql`; that file is gone (migration 0160 is real).
+4. **`fulfillment/README.md` contradicts itself**: the "why they are not in the outbox yet" framing survives in
+   one paragraph although the events have flowed since contracts-v0.4.3.
+5. **Document the emitter buffer as a guard, not a queue** (`fulfillment/lifecycle-events.ts`): it warns once per
+   process and holds at most 200 entries for an hour. It exists so an unknown topic cannot fail a correct
+   warehouse operation — it is not a retry mechanism and nothing drains it.
 
 ## Fold into 2.5 (#133) — DONE, all six
 - `buyShipmentLabel`'s carrier call is outside the transaction, with the bought label voided if the shipment moved.
@@ -70,12 +91,16 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - `cancelFulfillment` records a divergence instead of swallowing it when the provider cancels what we cannot.
 - `applyFulfillmentUpdate` moves the shipment before recording the provider state, so a retry still works.
 
-## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
-- [x] **#130 · 2.2** Rate shopping at checkout — done, PR #186 in review
-- [x] **#131 · 2.3** Labels and tracking webhooks — done, PR pending
-- [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — PR #223 in review
-- [x] **#133 · 2.5** Pick/pack state machine and events — PR #235; Phase 2 complete for window 8
+## Next — Phase 2 (all delivered)
+- [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — PR #175
+- [x] **#130 · 2.2** Rate shopping at checkout — PR #186
+- [x] **#131 · 2.3** Labels and tracking webhooks — PR #218 (merge `968c93f`)
+- [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — PR #223
+- [x] **#133 · 2.5** Pick/pack state machine and events — PR #235 (merge `7e02172`)
+
+Contract changes this window filed: **#187** `webhook_event` (with window 7, landed as migration 0140) and
+**#225** pick/pack (landed as migration 0160 + events 0.3.0 + Admin API 0.4.3). Requests: **#176** (boot + mount
+lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.md` rows).
 
 ## Decisions made (with reasons)
 - **A failed label void refuses the cancel** (#235 fix): the carrier still holds a live label nobody will use, so
@@ -163,8 +188,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   defaults. Every field falls back to a default rather than throwing.
 
 ## Blocked / waiting
-- `webhook_event` lands as migration 0140 (#187) after both shipping 2.3 and payments 2.2 merge; until then only
-  the tests create the proposed DDL. Delete `PROPOSED_WEBHOOK_EVENT_SQL` when 0140 is on main.
+- (nothing)
 
 ## Gotchas learned
 - After a contract lands, **rebuild the workspace packages** before judging anything: `@platform/events` generates
@@ -202,9 +226,17 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - Integration 1 (2026-09-08): real Keycloak staff tokens are the default on the core's Admin API; `CORE_DEV_TOKENS=1` keeps `Bearer dev:<subject>` working locally. The storefront can run against the core with `STORE_API_URL=http://localhost:9000` (+ `CORE_STORE_API_FALLBACK=1` + `CORE_STORE_API_FALLBACK_URL=http://localhost:4010` on the core so unimplemented Store routes still answer from Prism). The admin uses `ADMIN_API_URL`.
 
 ## How to run & test this package
-- `pnpm turbo run build --filter=@platform/auth-sdk --filter=@platform/db --filter=@platform/events --filter=@platform/contracts`
-  once after a fresh worktree or a `git merge main`.
-- `pnpm --filter @platform/core exec vitest run src/modules/shipping` — this module only (fast, no database).
-- Gates before finishing a task: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core`.
-- Live EasyPost suite: put a test-mode key (`EZTK…`) in the repo-root `.env` as `EASYPOST_API_KEY`; without it
-  the suite skips.
+
+- Prerequisites once: `pnpm dev` at the repo root (shared docker stack — Postgres 5433, Redis 6381), then
+  `pnpm install`. **Never** `pnpm dev --reset` or `docker compose down`: other windows share the stack.
+- After merging main, **rebuild the workspace packages before judging anything**:
+  `pnpm turbo run build --filter=@platform/events --filter=@platform/db --filter=@platform/contracts --filter=@platform/auth-sdk`.
+  `@platform/events` generates `EVENT_TOPICS` from its schemas at build time, so a stale build reports new topics
+  as unknown.
+- Gates, in this order: `pnpm lint && pnpm format:check && pnpm typecheck && pnpm test --filter @platform/core`.
+  Remove `apps/core/.medusa` before the root gates.
+- Just this window's code: `pnpm --filter @platform/core exec vitest run src/modules/shipping src/modules/fulfillment`
+  (181 tests, ~40 s; the database suites create their own throwaway databases).
+- `easypost-live.test.ts` skips itself unless `EASYPOST_API_KEY` is set, and refuses a non-test key.
+- `src/modules/hq-rbac/test/scope.test.ts` (window 2's live suite) is intermittently red locally on the owner's
+  password+TOTP grant. Re-run that file alone before reporting it; CI is authoritative.
