@@ -2,6 +2,13 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · `registerTaxProvider()` at boot (#127 on main)
+
+- `src/wiring.ts` → `registerModuleSeams()` now also calls window 7's `registerTaxProvider()`: the cart's
+  `TaxCalculator` is the tax module's (table or Stripe Tax per `store.settings.tax`). With default store settings
+  it answers exactly like the built-in table calculator; both read the same `prices_include_tax` setting and the
+  same `taxOn` rounding, so the per-line record of #221 stays consistent.
+
 ### 2026-09-19 · cart unit prices through price lists, 409 `price_changed`, boot wiring (#179 part 3, #228, #226)
 
 - **`PriceResolver` seam** (`setPriceResolver`, default `defaultListPriceResolver`: default list, tiered by

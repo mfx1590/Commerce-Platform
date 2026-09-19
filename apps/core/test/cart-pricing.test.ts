@@ -11,10 +11,13 @@ import {
   defaultListPriceResolver,
   getCart,
   setPriceResolver,
+  setTaxCalculator,
+  tableTaxCalculator,
   updateCart,
   updateLineItem,
 } from '../src/modules/cart';
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
+import { registerTaxProvider } from '../src/modules/tax';
 import { priceListResolver } from '../src/wiring';
 
 const ORG = SEED_IDS.organization;
@@ -247,5 +250,24 @@ describe('placement never charges a price the customer did not see (409 price_ch
     await expect(
       updateLineItem(a, cart.id, priced.items[0]!.id, { quantity: 2 }),
     ).rejects.toMatchObject({ code: 'validation_error' });
+  });
+});
+
+describe('the tax calculator the server registers (window 7, registerTaxProvider)', () => {
+  it('with default store settings it prices a cart exactly like the built-in table calculator', async () => {
+    const v = freshVariant();
+    const builtIn = await createCart(a, scopeA);
+    const expected = await addLineItem(a, builtIn.id, { variant_id: v.id, quantity: 2 });
+    expect(expected.totals.tax.amount_minor).toBeGreaterThan(0);
+    expect(registerTaxProvider()).toBe(tableTaxCalculator);
+    try {
+      const cart = await createCart(a, scopeA);
+      const c = await addLineItem(a, cart.id, { variant_id: v.id, quantity: 2 });
+      expect(c.totals).toEqual(expected.totals);
+      expect(c.items[0]!.tax).toEqual(expected.items[0]!.tax);
+      expect(c.items[0]!.total).toEqual(expected.items[0]!.total);
+    } finally {
+      setTaxCalculator(tableTaxCalculator);
+    }
   });
 });
