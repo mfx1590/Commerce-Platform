@@ -24,6 +24,9 @@ export type { MarkAbandonedInput, MarkAbandonedResult } from './abandoned';
 export {
   currentShippingRateProvider,
   currentTaxCalculator,
+  lineTaxOf,
+  lineTotalWith,
+  pricesIncludeTaxFor,
   setShippingRateProvider,
   setTaxCalculator,
   tableShippingRates,
@@ -37,6 +40,7 @@ export type {
   CartStatus,
   CartStoreContext,
   CreateCartInput,
+  LineTaxRecord,
   Money,
   PricingContext,
   PricingLine,
@@ -48,6 +52,7 @@ export type {
   StoreShippingOption,
   TaxCalculation,
   TaxCalculator,
+  TaxMode,
   TaxLine,
   UpdateCartInput,
 } from './types';

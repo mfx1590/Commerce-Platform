@@ -8,7 +8,9 @@ import { AppError, notFound, validationError } from '../../lib/errors';
 import {
   currentShippingRateProvider,
   currentTaxCalculator,
-  taxOn,
+  lineTaxOf,
+  lineTotalWith,
+  pricesIncludeTaxFor,
   type PricingContext,
 } from './providers';
 import type {
@@ -17,6 +19,7 @@ import type {
   CartRow,
   CartStoreContext,
   CreateCartInput,
+  LineTaxRecord,
   Money,
   PricingLine,
   ShippingOptionRow,
@@ -91,7 +94,7 @@ function toStoreLineItem(l: CartLineRow, currency: string): StoreLineItem {
   const unit = Number(l.unit_price_minor);
   const subtotal = l.quantity * unit;
   const discount = Number(l.discount_minor);
-  const tax = taxOn(subtotal - discount, l.tax_rate_bp);
+  const tax = lineTaxOf(l); // the calculator's amount as last calculated, never a recompute from the rate (#221)
   return {
     id: l.id,
     variant_id: l.variant_id,
@@ -103,8 +106,8 @@ function toStoreLineItem(l: CartLineRow, currency: string): StoreLineItem {
     unit_price: money(unit, currency),
     subtotal: money(subtotal, currency),
     discount: money(discount, currency),
-    tax: money(tax, currency),
-    total: money(subtotal - discount + tax, currency),
+    tax: money(tax.amount_minor, currency),
+    total: money(lineTotalWith(subtotal - discount, tax), currency),
   };
 }
 
@@ -164,7 +167,9 @@ interface RecalculateOptions {
 /**
  * Recomputes every derived amount of a cart inside the mutation's transaction: shipping through the
  * ShippingRateProvider (a selection that is no longer quotable — e.g. after a country change — is dropped), tax
- * through the TaxCalculator (per-line `tax_rate_bp` persisted), then subtotal / discount / shipping / tax / total.
+ * through the TaxCalculator (per line `tax_rate_bp` + `metadata.tax = { amount_minor, mode, bp }` persisted — the
+ * calculator's own amounts, #221), then subtotal / discount / shipping / tax / total. With
+ * `store.settings.tax.prices_include_tax` the tax is contained in the prices: reported, never added on top.
  * Discounts stay 0 until window 9's promotions API prices the stored codes.
  */
 export async function recalculate(
@@ -191,7 +196,9 @@ export async function recalculate(
     country: cart.country,
     shippingAddress: cart.shipping_address,
     lines: pricingLines,
+    pricesIncludeTax: await pricesIncludeTaxFor(tx, cart.store_id),
   };
+  const mode = ctx.pricesIncludeTax ? 'inclusive' : 'exclusive';
 
   let shippingOptionId = cart.shipping_option_id;
   let shippingMinor = 0;
@@ -219,10 +226,17 @@ export async function recalculate(
     const t = taxByLine.get(l.id);
     taxMinor += t?.taxMinor ?? 0;
     const bp = t?.taxRateBp ?? 0;
-    if (bp !== l.tax_rate_bp) {
+    const record: LineTaxRecord = { amount_minor: t?.taxMinor ?? 0, mode, bp };
+    const stored = l.metadata?.tax as Partial<LineTaxRecord> | undefined;
+    if (
+      bp !== l.tax_rate_bp ||
+      stored?.amount_minor !== record.amount_minor ||
+      stored?.mode !== record.mode ||
+      stored?.bp !== record.bp
+    ) {
       await tx.query(
-        `UPDATE cart_line_item SET tax_rate_bp = $2, updated_at = now() WHERE id = $1`,
-        [l.id, bp],
+        `UPDATE cart_line_item SET tax_rate_bp = $2, metadata = $3::jsonb, updated_at = now() WHERE id = $1`,
+        [l.id, bp, JSON.stringify({ ...(l.metadata ?? {}), tax: record })],
       );
     }
   }
@@ -237,7 +251,8 @@ export async function recalculate(
       discount,
       shippingMinor,
       taxMinor,
-      subtotal - discount + shippingMinor + taxMinor,
+      // exclusive prices: tax on top; inclusive: already inside subtotal and shipping (still reported in tax_minor)
+      subtotal - discount + shippingMinor + (ctx.pricesIncludeTax ? 0 : taxMinor),
     ],
   );
 }

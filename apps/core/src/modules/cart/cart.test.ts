@@ -377,12 +377,83 @@ describe('pricing providers (seams for windows 7 and 8)', () => {
     expect(setTaxCalculator(flat)).toBe(tableTaxCalculator);
     const c = await addLineItem(a, cart.id, { variant_id: v!.id, quantity: 1 });
     expect(c.totals.tax.amount_minor).toBe(10); // 7 on the line + 3 on shipping
-    expect(c.items[0]!.tax.amount_minor).toBe(taxOn(v!.price, 500)); // line display from the persisted rate
-    const row = await owner.query<{ tax_rate_bp: number }>(
-      `SELECT tax_rate_bp FROM cart_line_item WHERE cart_id = $1`,
+    // #221: the line shows the calculator's own amount — NOT taxOn(price, 500), which a provider's rounding
+    // (Stripe Tax) does not have to match; Σ line tax + shipping tax = totals.tax by construction
+    expect(taxOn(v!.price, 500)).not.toBe(7);
+    expect(c.items[0]!.tax.amount_minor).toBe(7);
+    expect(c.items[0]!.total.amount_minor).toBe(v!.price + 7);
+    expect(c.totals.total.amount_minor).toBe(v!.price + 10);
+    const row = await owner.query<{ tax_rate_bp: number; metadata: Record<string, unknown> }>(
+      `SELECT tax_rate_bp, metadata FROM cart_line_item WHERE cart_id = $1`,
       [cart.id],
     );
     expect(row.rows[0]!.tax_rate_bp).toBe(500);
+    expect(row.rows[0]!.metadata.tax).toEqual({ amount_minor: 7, mode: 'exclusive', bp: 500 });
+    // the record is internal: no Store API cart shape carries it (line items have no metadata at all)
+    const read = await getCart(a, cart.id);
+    expect(read.items[0]).not.toHaveProperty('metadata');
+    expect(read.metadata).not.toHaveProperty('tax');
+    expect(JSON.stringify(read)).not.toContain('"mode"');
+  });
+
+  it('taxOn: one half-up rounding for both modes — on top of exclusive prices, contained in inclusive ones (#221)', () => {
+    expect(taxOn(10000, 1900)).toBe(1900);
+    expect(taxOn(11900, 1900, true)).toBe(1900); // 119.00 gross at 19 % contains 19.00
+    expect(taxOn(999, 2100)).toBe(210); // 209.79 → 210
+    expect(taxOn(999, 2100, true)).toBe(173); // 999 × 2100 / 12100 = 173.38 → 173
+    expect(taxOn(1000, 888)).toBe(89); // 88.8 → 89
+    expect(taxOn(0, 1900, true)).toBe(0);
+    expect(taxOn(1000, 0, true)).toBe(0);
+  });
+
+  it('prices_include_tax: tax is contained and reported, never added on top; default stays exclusive (#221)', async () => {
+    const [v] = (await variantsA()).filter((x) => x.available >= 2);
+    const exclusive = await createCart(a, scopeA);
+    const ex = await addLineItem(a, exclusive.id, { variant_id: v!.id, quantity: 2 });
+    const bp = (
+      await owner.query<{ tax_rate_bp: number }>(
+        `SELECT tax_rate_bp FROM cart_line_item WHERE cart_id = $1`,
+        [exclusive.id],
+      )
+    ).rows[0]!.tax_rate_bp;
+    expect(bp).toBeGreaterThan(0);
+    expect(ex.totals.tax.amount_minor).toBe(taxOn(2 * v!.price, bp));
+    expect(ex.totals.total.amount_minor).toBe(2 * v!.price + taxOn(2 * v!.price, bp));
+
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{tax}', '{"prices_include_tax": true}'::jsonb) WHERE id = $1`,
+      [A],
+    );
+    try {
+      const cart = await createCart(a, scopeA);
+      const c = await addLineItem(a, cart.id, { variant_id: v!.id, quantity: 2 });
+      const contained = taxOn(2 * v!.price, bp, true);
+      expect(contained).toBeGreaterThan(0);
+      expect(contained).toBeLessThan(taxOn(2 * v!.price, bp));
+      expect(c.items[0]!.tax.amount_minor).toBe(contained);
+      expect(c.items[0]!.total.amount_minor).toBe(2 * v!.price); // the price already contains the tax
+      expect(c.totals.tax.amount_minor).toBe(contained); // still reported
+      expect(c.totals.total.amount_minor).toBe(2 * v!.price); // no double count
+      const row = await owner.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM cart_line_item WHERE cart_id = $1`,
+        [cart.id],
+      );
+      expect(row.rows[0]!.metadata.tax).toEqual({ amount_minor: contained, mode: 'inclusive', bp });
+
+      // the store goes back to exclusive: the next mutation re-prices the open cart in the new mode
+      await owner.query(
+        `UPDATE store SET settings = coalesce(settings, '{}'::jsonb) - 'tax' WHERE id = $1`,
+        [A],
+      );
+      const back = await updateLineItem(a, cart.id, c.items[0]!.id, { quantity: 1 });
+      expect(back.items[0]!.tax.amount_minor).toBe(taxOn(v!.price, bp));
+      expect(back.totals.total.amount_minor).toBe(v!.price + taxOn(v!.price, bp));
+    } finally {
+      await owner.query(
+        `UPDATE store SET settings = coalesce(settings, '{}'::jsonb) - 'tax' WHERE id = $1`,
+        [A],
+      );
+    }
   });
 
   it('a replaced ShippingRateProvider prices the selected option', async () => {

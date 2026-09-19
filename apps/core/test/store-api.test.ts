@@ -576,6 +576,51 @@ describe('checkout routes (contract replay, task 2.2)', () => {
     });
   });
 
+  it('the stored line-tax record (cart_line_item / order_line_item metadata.tax, #221) never appears in a Store API cart or order response', async () => {
+    const cart = await readyCart({ note: 'gift' });
+    await json('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+    // the record exists on the row …
+    const stored = await owner.query<{ metadata: { tax?: Record<string, unknown> } }>(
+      `SELECT metadata FROM cart_line_item WHERE cart_id = $1`,
+      [cart.id],
+    );
+    expect(stored.rows[0]!.metadata.tax).toMatchObject({ mode: 'exclusive' });
+    expect(stored.rows[0]!.metadata.tax).toHaveProperty('amount_minor');
+    expect(stored.rows[0]!.metadata.tax).toHaveProperty('bp');
+
+    // … and no response shows it: the cart's own metadata (#100) round-trips, line metadata stays internal
+    const leaks = (body: {
+      items: Record<string, unknown>[];
+      metadata?: Record<string, unknown>;
+    }) => {
+      for (const item of body.items) expect(item).not.toHaveProperty('metadata');
+      expect(body.metadata ?? {}).not.toHaveProperty('tax');
+      const text = JSON.stringify(body);
+      expect(text).not.toContain('"mode"');
+      expect(text).not.toContain('"bp"');
+    };
+    const read = await asA(`/store/carts/${cart.id}`);
+    expect(read.status).toBe(200);
+    expect(read.body.metadata).toEqual({ note: 'gift' });
+    leaks(read.body);
+
+    const placed = await json('post', `/store/carts/${cart.id}/complete`)
+      .set('Idempotency-Key', `idem-leak-${cart.id}`)
+      .send();
+    expect(placed.status).toBe(201);
+    leaks(placed.body);
+    const frozen = await owner.query<{ metadata: { tax?: Record<string, unknown> } }>(
+      `SELECT metadata FROM order_line_item WHERE order_id = $1`,
+      [placed.body.id],
+    );
+    expect(frozen.rows[0]!.metadata.tax).toMatchObject({ mode: 'exclusive' });
+    const order = await asA(
+      `/store/orders/${placed.body.id}?email=${encodeURIComponent(cart.email)}`,
+    );
+    expect(order.status).toBe(200);
+    leaks(order.body);
+  });
+
   it('complete refuses a cart that is not ready (400 with the missing fields)', async () => {
     const cart = (await request(app).post('/store/carts').set('X-Publishable-Key', KEY_A)).body;
     const res = await json('post', `/store/carts/${cart.id}/complete`)

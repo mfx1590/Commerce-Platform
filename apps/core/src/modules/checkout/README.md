@@ -107,6 +107,12 @@ guest orders. The storefront's client never sends the customer token to cart pat
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-19 · Placement freezes the calculator's per-line tax (#221).** `completeCart` reloads the lines
+  after its `recalculate` and writes `lineTaxOf(line)` into `order_line_item.tax_minor` / `total_minor` (and the
+  record into the order line's metadata) instead of recomputing from the rate; with
+  `prices_include_tax` the order and line totals carry no tax on top. `order.placed` carries the same numbers:
+  Σ `line_items[].tax_minor` + shipping tax = `totals.tax_minor`.
+
 - **2026-09-08 · Idempotency lives on `payment.idempotency_key`** (manager decision at the start of 2.2): placement
   creates exactly one payment row, the column is already UNIQUE, and the replay reads the order through it. No
   idempotency table, no key on the order row, no metadata pollution.

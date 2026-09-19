@@ -84,6 +84,20 @@ abandoned (nothing to recover).
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-19 · A line's tax is the calculator's amount, kept per line; tax-inclusive stores (#221, window 7).**
+  `recalculate` stores each line's last calculation in `cart_line_item.metadata.tax = { amount_minor, mode, bp }`
+  (one namespaced object, so a later `tax_minor` column is a mechanical migration) and every reader goes through
+  `lineTaxOf(row)` — the cart line, the order line frozen at placement and `order.placed` all show the
+  calculator's own amount, never `taxOn(base, tax_rate_bp)` again (a provider such as Stripe Tax rounds per line
+  in its own way; Σ line tax + shipping tax = `tax_minor` by construction). Why metadata and not the two
+  alternatives: recomputing at render would call the provider on every cart read; a column needs a contract round
+  trip for no behavioural gain. Line metadata is internal — no Store API shape renders it (tested over HTTP).
+  `store.settings.tax.prices_include_tax` (default false) reaches calculators as `PricingContext.pricesIncludeTax`:
+  the tax is then CONTAINED in the prices — reported in `totals.tax`, never added on top
+  (`total = subtotal − discount + shipping`, line `total = subtotal − discount`). `taxOn(base, bp, included)` is
+  the one rounding rule (half up) for both modes; `tableTaxCalculator` honours the flag. A cart is re-priced in the
+  store's current mode on its next mutation; a placed order keeps the mode frozen on its lines.
+
 - **2026-09-09 · Abandoned = idle, reactivation resets the clock, a new abandonment is a new event** (manager, 2.6);
   `updated_at` is deliberately NOT touched by the job so `last_activity_at` stays the customer's last action.
 

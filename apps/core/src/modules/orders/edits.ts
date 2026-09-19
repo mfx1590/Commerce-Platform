@@ -7,7 +7,14 @@
 import type { Queryable, ScopedClient } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { conflict, notFound, validationError } from '../../lib/errors';
-import { currentTaxCalculator, taxOn, type PricingContext } from '../cart';
+import {
+  currentTaxCalculator,
+  lineTaxOf,
+  lineTotalWith,
+  taxOn,
+  type LineTaxRecord,
+  type PricingContext,
+} from '../cart';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
 import { transition } from './service';
 import type { AdminOrder, OrderLineRow, OrderRow } from './types';
@@ -35,9 +42,14 @@ function assertEditable(o: OrderRow): void {
   }
 }
 
-/** Recomputes every line's tax/total and the order totals from the current lines (shipping unchanged). */
+/**
+ * Recomputes every line's tax/total and the order totals from the current lines (shipping unchanged), in the tax
+ * mode frozen on the lines at placement (#221) — a store that flips `prices_include_tax` later never re-prices a
+ * placed order.
+ */
 async function recomputeTotals(tx: Queryable, o: OrderRow): Promise<string[]> {
   const lines = await loadOrderLines(tx, o.id);
+  const included = lines.some((l) => lineTaxOf(l).mode === 'inclusive');
   const ctx: PricingContext & { shippingMinor: number } = {
     tx,
     organizationId: o.organization_id,
@@ -56,6 +68,7 @@ async function recomputeTotals(tx: Queryable, o: OrderRow): Promise<string[]> {
       discountMinor: Number(l.discount_minor),
     })),
     shippingMinor: Number(o.shipping_minor),
+    pricesIncludeTax: included,
   };
   const tax = await currentTaxCalculator().calculate(ctx);
   const byLine = new Map(tax.lines.map((t) => [t.lineItemId, t]));
@@ -66,16 +79,28 @@ async function recomputeTotals(tx: Queryable, o: OrderRow): Promise<string[]> {
     const t = byLine.get(l.id);
     const bp = t?.taxRateBp ?? l.tax_rate_bp;
     const base = l.quantity * Number(l.unit_price_minor) - Number(l.discount_minor);
-    const lineTax = t?.taxMinor ?? taxOn(base, bp);
+    const record: LineTaxRecord = {
+      amount_minor: t?.taxMinor ?? taxOn(base, bp, included),
+      mode: included ? 'inclusive' : 'exclusive',
+      bp,
+    };
+    const lineTax = record.amount_minor;
     subtotal += l.quantity * Number(l.unit_price_minor);
     discount += Number(l.discount_minor);
     taxMinor += lineTax;
     await tx.query(
-      `UPDATE order_line_item SET tax_rate_bp = $2, tax_minor = $3, total_minor = $4, updated_at = now() WHERE id = $1`,
-      [l.id, bp, lineTax, base + lineTax],
+      `UPDATE order_line_item SET tax_rate_bp = $2, tax_minor = $3, total_minor = $4, metadata = $5::jsonb,
+         updated_at = now() WHERE id = $1`,
+      [
+        l.id,
+        bp,
+        lineTax,
+        lineTotalWith(base, record),
+        JSON.stringify({ ...(l.metadata ?? {}), tax: record }),
+      ],
     );
   }
-  const total = subtotal - discount + Number(o.shipping_minor) + taxMinor;
+  const total = subtotal - discount + Number(o.shipping_minor) + (included ? 0 : taxMinor);
   const changed: string[] = ['line_items'];
   if (subtotal !== Number(o.subtotal_minor)) changed.push('subtotal_minor');
   if (discount !== Number(o.discount_minor)) changed.push('discount_minor');

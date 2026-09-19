@@ -13,8 +13,9 @@ import {
   loadCart,
   loadLines,
   lockActiveCart,
+  lineTaxOf,
+  lineTotalWith,
   recalculate,
-  taxOn,
   type CartLineRow,
   type CartRow,
   type PricingContext,
@@ -178,7 +179,7 @@ export async function completeCart(
 
     // ---- lock + preconditions ----
     const locked = await lockActiveCart(tx, cartId); // 409 cart_completed carries the order id
-    const lines = await loadLines(tx, cartId);
+    let lines = await loadLines(tx, cartId);
     const missing: Record<string, string> = {};
     if (lines.length === 0) missing.items = 'cart is empty';
     if (!locked.email?.trim()) missing.email = 'required';
@@ -191,6 +192,7 @@ export async function completeCart(
 
     await recalculate(tx, locked, { explicitShippingOption: true });
     const cart = await loadCart(tx, cartId, false);
+    lines = await loadLines(tx, cartId); // as just priced: rate + metadata.tax are what the order freezes (#221)
     if (!cart.shipping_option_id) {
       throw validationError('cart is not ready for checkout', {
         shipping_option_id: 'no longer available for this destination',
@@ -272,7 +274,9 @@ export async function completeCart(
         const unit = Number(l.unit_price_minor);
         const discount = Number(l.discount_minor);
         const base = l.quantity * unit - discount;
-        const tax = taxOn(base, l.tax_rate_bp);
+        // the calculator's own per-line amount and mode, frozen — never recomputed from the rate (#221); the
+        // record travels on in the order line's metadata so an order edit re-prices in the same mode
+        const tax = lineTaxOf(l);
         const r = await tx.query<LineInsertRow>(
           `INSERT INTO order_line_item (organization_id, store_id, order_id, variant_id, sku, title, variant_title,
            thumbnail_url, quantity, unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor, metadata)
@@ -292,8 +296,8 @@ export async function completeCart(
             unit,
             discount,
             l.tax_rate_bp,
-            tax,
-            base + tax,
+            tax.amount_minor,
+            lineTotalWith(base, tax),
             JSON.stringify(l.metadata ?? {}),
           ],
         );

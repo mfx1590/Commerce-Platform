@@ -2,6 +2,23 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · per-line tax from the calculator + `prices_include_tax` (#221, window 7's REQUEST)
+
+- **No more per-line recompute**: `recalculate` stores each line's calculation in
+  `cart_line_item.metadata.tax = { amount_minor, mode, bp }`; the cart line, `order_line_item.tax_minor` /
+  `total_minor` and `order.placed` read it through `lineTaxOf` instead of `taxOn(base, tax_rate_bp)`. A provider
+  whose per-line rounding differs from ours (Stripe Tax) no longer makes Σ line tax drift from the order tax.
+  `completeCart` reloads the lines after its `recalculate` so it freezes what was just priced.
+- **Tax-inclusive stores**: `store.settings.tax.prices_include_tax` (default false = unchanged behaviour) →
+  `PricingContext.pricesIncludeTax` (additive, optional). Totals: tax is reported but not added on top, for the
+  cart, its lines, the order and its lines. `taxOn(base, bp, included)` is the single half-up rounding for both
+  modes; `tableTaxCalculator` returns the contained tax when the flag is set.
+- **Order edits** re-price in the mode frozen on the order lines, whatever the store's setting is by then.
+- New cart exports: `lineTaxOf`, `lineTotalWith`, `pricesIncludeTaxFor`, types `LineTaxRecord`, `TaxMode`.
+  One changed expectation: the 2.1 seam test asserted the old recompute (line tax from the rate); it now asserts
+  the calculator's amount. Pending boot line: `registerTaxProvider()` — window 7's `src/modules/tax` is not on
+  main yet. Tests: cart +2, checkout +2, store-api +1 (the record never appears in a Store API response).
+
 ### 2026-09-19 · quiet-state wiring batch (#179 amendment, #176 part 3, #159 part 2)
 
 - **Admin router mounts** (`src/http/module-routers.ts` → `moduleAdminRouters()`): window 9's `mediaRouter()`
