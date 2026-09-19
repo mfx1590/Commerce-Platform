@@ -79,7 +79,7 @@ export interface StripeWebhookInput {
   };
 }
 
-interface StoreRow {
+export interface WebhookStoreRow {
   id: string;
   organization_id: string;
   legal_entity_id: string;
@@ -98,12 +98,39 @@ interface PaymentRow {
 
 type FollowUp = (client: ScopedClient) => Promise<void>;
 
-interface ProcessResult {
+export interface ProcessResult {
   status: Exclude<WebhookEventStatus, 'received'>;
   reason: string | null;
   aggregate: { type: 'payment' | 'refund'; id: string } | null;
   /** Order transitions to run after the commit (each opens its own transaction; idempotent on target state). */
   followUps: FollowUp[];
+}
+
+/**
+ * A handler another module owns for an event type this receiver does not process itself (task 2.5: the fraud
+ * module handles Radar's `review.opened` / `review.closed`). It runs inside the delivery's transaction, under the
+ * same exactly-once, replay and state-guard rules, and must be idempotent; order-level work that needs its own
+ * transaction goes into `followUps`. A registry instead of an import keeps the modules acyclic (fraud imports
+ * payments, never the reverse).
+ */
+export type WebhookHandler = (input: {
+  tx: Queryable;
+  store: WebhookStoreRow;
+  extract: WebhookExtract;
+  actor: Actor;
+}) => Promise<ProcessResult>;
+
+const customHandlers = new Map<string, WebhookHandler>();
+
+/** Registers (or replaces) the handler of an event type; returns the previous one so tests can restore it. */
+export function registerWebhookHandler(
+  eventType: string,
+  handler: WebhookHandler | null,
+): WebhookHandler | undefined {
+  const previous = customHandlers.get(eventType);
+  if (handler) customHandlers.set(eventType, handler);
+  else customHandlers.delete(eventType);
+  return previous;
 }
 
 const SELECT_ROW = `SELECT id, organization_id, store_id, provider, provider_event_id, event_type,
@@ -140,7 +167,7 @@ const failed = (reason: string, aggregate: ProcessResult['aggregate'] = null): P
  */
 async function processEvent(
   tx: Queryable,
-  store: StoreRow,
+  store: WebhookStoreRow,
   extract: WebhookExtract,
   actor: Actor,
 ): Promise<ProcessResult> {
@@ -386,8 +413,11 @@ async function processEvent(
     case 'charge.refunded':
       return skipped('informational: the refund.* events carry the refund id');
 
-    default:
+    default: {
+      const custom = customHandlers.get(extract.type);
+      if (custom) return custom({ tx, store, extract, actor });
       return skipped('unhandled_type');
+    }
   }
 }
 
@@ -423,8 +453,8 @@ async function finalize(
   );
 }
 
-async function loadStore(tx: Queryable, storeCode: string): Promise<StoreRow> {
-  const r = await tx.query<StoreRow>(
+async function loadStore(tx: Queryable, storeCode: string): Promise<WebhookStoreRow> {
+  const r = await tx.query<WebhookStoreRow>(
     `SELECT id, organization_id, legal_entity_id FROM store WHERE code = $1`,
     [storeCode],
   );
@@ -600,7 +630,7 @@ export async function replayWebhookEvent(
       );
       const row = r.rows[0];
       if (!row) throw new AppError('not_found', `webhook event ${providerEventId} not found`);
-      const store = await tx.query<StoreRow & { code: string }>(
+      const store = await tx.query<WebhookStoreRow & { code: string }>(
         `SELECT id, organization_id, legal_entity_id, code FROM store WHERE id = $1`,
         [row.store_id],
       );

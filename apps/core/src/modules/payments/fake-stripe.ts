@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import {
   StripeError,
   type StripeApi,
+  type StripeChargeOutcome,
   type StripeParams,
   type StripePaymentIntent,
   type StripeRefund,
@@ -120,6 +121,10 @@ export class FakeStripe implements StripeApi {
     opts: StripeRequestOptions = {},
   ): Promise<StripePaymentIntent> {
     this.log({ method: 'retrievePaymentIntent', id, params: {}, expand: opts.expand });
+    if (this.outageNextRetrieve) {
+      this.outageNextRetrieve = false;
+      throw new StripeError(500, 'Something went wrong on Stripe’s end', 'api_error');
+    }
     return this.intent(id);
   }
 
@@ -128,6 +133,20 @@ export class FakeStripe implements StripeApi {
     const intent = this.intent(id);
     intent.status = intent.capture_method === 'manual' ? 'requires_capture' : 'succeeded';
   }
+
+  /** Radar's verdict on the intent's latest charge (what `expand[]=latest_charge` returns). */
+  setRadarOutcome(id: string, outcome: StripeChargeOutcome): void {
+    const intent = this.intent(id);
+    const existing = typeof intent.latest_charge === 'object' ? intent.latest_charge : null;
+    intent.latest_charge = {
+      id: existing?.id ?? `ch_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+      ...(existing ?? {}),
+      outcome,
+    };
+  }
+
+  /** Script the next retrieve to fail with a retryable 500 (then reset). */
+  outageNextRetrieve = false;
 
   /** Attach a payment method without confirming (server-side confirm path). */
   attachPaymentMethod(id: string): void {

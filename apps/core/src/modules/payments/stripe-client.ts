@@ -23,8 +23,16 @@ export interface StripeBalanceTransaction {
   fee: number;
 }
 
+/** Stripe Radar's verdict on a charge (task 2.5): codes only. */
+export interface StripeChargeOutcome {
+  risk_level?: 'normal' | 'elevated' | 'highest' | 'not_assessed' | 'unknown' | null;
+  /** `authorized`, `manual_review`, `issuer_declined`, `blocked`, `invalid`. */
+  type?: string | null;
+}
+
 export interface StripeCharge {
   id: string;
+  outcome?: StripeChargeOutcome | null;
   balance_transaction?: string | StripeBalanceTransaction | null;
 }
 
