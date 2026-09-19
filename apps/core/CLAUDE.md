@@ -86,14 +86,15 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `completeCart` answers 409 `price_changed` (#228) instead of placing at a price the customer did not see.
   Discounts come through the `DiscountEvaluator` seam (`setDiscountEvaluator()`, #230): per-line `discount_minor`
   BEFORE shipping and tax, free shipping, and the code rule — a code that can never apply is a 400 with the reason
-  per code, a conditional one stays stored.
+  per code; a conditional one (including a promotion that has not started yet) stays stored.
 - Boot-time registrations live in `src/wiring.ts` (`registerModuleSeams()`, called once by `createServer()`):
   `registerPaymentProviders()` (window 7), `registerCarrierProviders()` (window 8) and the cart's
   `priceListResolver` over window 9's `resolvePrices`, and `registerTaxProvider()` (window 7: table or Stripe Tax
   per `store.settings.tax`; identical to the built-in calculator with default settings), and window 7's
   `registerFraudCheck()` — handed on to the checkout's `setFraudCheck` seam in the same place (#231) — and the
-  cart's `promotionsDiscountEvaluator` over window 9's promotions engine (#230; it converts to tax-exclusive
-  prices for tax-inclusive stores, the engine never changes). Plain registry writes — no I/O, no configuration
+  cart's `promotionsDiscountEvaluator` over window 9's promotions engine (#230; for tax-inclusive stores it
+  converts prices, fixed amounts and minimum subtotals gross → net for the engine and the allocations back — what
+  a merchant configures and a customer sees is always gross; the engine never changes). Plain registry writes — no I/O, no configuration
   read.
 - Payment seam (`src/modules/checkout`): `setPaymentProvider()` registers window 7's `stripe` (#127) next to the
   built-in `manual` provider; `createSession` / `authorize` / `void` / `refund` exchange ids and amounts only (hosted

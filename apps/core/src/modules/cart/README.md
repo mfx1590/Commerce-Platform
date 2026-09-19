@@ -91,14 +91,17 @@ abandoned (nothing to recover).
   cart's codes, judged at the mutation's clock, with the customer's groups, first-order state and prior uses (a
   guest has none). `recalculate` order: discounts → shipping (free when a promotion says so) → tax on the
   discounted base → totals. **Codes**: entering a code that can NEVER apply to this cart (`not_found`,
-  `not_active`, `not_started`, `expired`, `usage_limit_reached`, `per_customer_limit_reached`,
-  `wrong_currency`) is a 400 `validation_error` with `details.promotion_codes = { CODE: reason }` and the whole
-  PATCH rolls back; a conditional rejection (minimum subtotal, eligible lines, group, channel, first order) keeps
+  `not_active`, `expired`, `usage_limit_reached`, `per_customer_limit_reached`, `wrong_currency` — the currency is
+  fixed at cart creation and exhaustion does not heal) is a 400 `validation_error` with `details.promotion_codes = { CODE: reason }` and the whole
+  PATCH rolls back; a conditional rejection (minimum subtotal, eligible lines, group, channel, first order, and `not_started` — time,
+  not the cart, makes a launch code applicable) keeps
   the code and it applies once the cart qualifies. The evaluator says which is which (`rejected[].permanent`) —
-  the cart knows no reason names. **Tax-inclusive stores** (manager decision): the engine always sees
-  tax-exclusive prices; OUR adapter derives net unit prices through `taxOn`, and converts the allocations back to
-  the cart's gross base — a percentage is the same percentage of what the customer sees, a fixed amount or a
-  `min_subtotal` of a promotion is a NET figure there. For that conversion `recalculate` asks the TaxCalculator
+  the cart knows no reason names. **Tax-inclusive stores** (manager decision + ruling on #243): the engine always works in
+  tax-exclusive money, and everything a merchant configures or a customer sees is GROSS. OUR adapter converts
+  both ways through `taxOn`: unit prices gross → net; a fixed amount gross → net at the blended rate of its
+  eligible lines, its allocations brought back to sum to EXACTLY the configured amount ("5.00 off" is 5.00 off the
+  displayed total); a `min_subtotal` compared against the DISPLAYED cart subtotal; percentages converted per line
+  (the same percentage of what the customer sees). For that conversion `recalculate` asks the TaxCalculator
   for the lines' rates once before discounting (tax-inclusive stores only).
 
 - **2026-09-19 · Unit prices come through a `PriceResolver` seam, and every line mutation re-prices the cart

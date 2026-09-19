@@ -16,7 +16,12 @@ import {
 import { setFraudCheck } from './modules/checkout';
 import { currentFraudCheck as fraudModuleCheck, registerFraudCheck } from './modules/fraud';
 import { registerPaymentProviders } from './modules/payments';
-import { evaluatePromotions, loadCandidatePromotions, resolvePrices } from './modules/promotions';
+import {
+  eligibleLines,
+  evaluatePromotions,
+  loadCandidatePromotions,
+  resolvePrices,
+} from './modules/promotions';
 import { registerCarrierProviders } from './modules/shipping';
 import { registerTaxProvider } from './modules/tax';
 
@@ -58,11 +63,15 @@ export const priceListResolver: PriceResolver = {
   },
 };
 
-/** Reasons after which a code can never apply to this cart → the cart answers 400 when it is entered (#230). */
+/**
+ * Reasons after which a code can never apply to this cart → the cart answers 400 when it is entered (#230).
+ * `wrong_currency`: a cart's currency is fixed at creation. `per_customer_limit_reached` / `usage_limit_reached`:
+ * exhaustion does not heal. NOT here: `not_started` — time, not the cart, makes it applicable, so a launch code
+ * entered at 23:59 stays stored and applies once active (manager ruling on #243).
+ */
 const PERMANENT_REJECTIONS = new Set([
   'not_found',
   'not_active',
-  'not_started',
   'expired',
   'usage_limit_reached',
   'per_customer_limit_reached',
@@ -96,12 +105,18 @@ async function customerPromotionFacts(
  * The cart's DiscountEvaluator backed by window 9's promotions engine (#230 PR A): candidates = automatic
  * promotions + the cart's codes, judged at the mutation's clock.
  *
- * TAX-INCLUSIVE STORES (manager decision 2026-09-19 — window 9 changes nothing): the engine always receives
- * TAX-EXCLUSIVE unit prices. For a `pricesIncludeTax` store this adapter derives each line's net unit price through
- * the cart's own `taxOn` seam (`net = gross − taxOn(gross, bp, true)`), lets the engine evaluate and allocate
- * against that net base, and converts every line's allocation back to the cart's gross base
- * (`gross = net + taxOn(net, bp)`) — so a percentage takes the same percentage off what the customer sees, while
- * fixed amounts and `min_subtotal` thresholds of a promotion are NET figures in such a store.
+ * TAX-INCLUSIVE STORES (manager decision 4 of 2026-09-19 + ruling on #243 — window 9 changes nothing): the engine
+ * always works in TAX-EXCLUSIVE money; everything a merchant configures and a customer sees in such a store is
+ * GROSS. This adapter converts both ways through the cart's own `taxOn` seam:
+ * - unit prices: `net = gross − taxOn(gross, bp, true)` per line;
+ * - a `fixed_amount` value: gross → net at the blended rate of the promotion's eligible lines, and after the
+ *   evaluation its per-line allocations are brought back so that they sum to EXACTLY the configured gross amount
+ *   ("5.00 off" drops the displayed total by exactly 5.00; capped at the eligible lines' displayed subtotal);
+ * - a `min_subtotal_minor` threshold is compared here against the DISPLAYED (gross) cart subtotal — the engine
+ *   only receives the outcome (threshold 0 when met, an unreachable one when not);
+ * - every other allocation (percentages, buy-x-get-y): `gross = net + taxOn(net, bp)` per line, so a percentage
+ *   is the same percentage of what the customer sees.
+ * In a tax-exclusive store nothing is converted.
  */
 export const promotionsDiscountEvaluator: DiscountEvaluator = {
   async evaluate(q: DiscountQuery): Promise<DiscountQuote> {
@@ -112,46 +127,81 @@ export const promotionsDiscountEvaluator: DiscountEvaluator = {
       rejected: [],
     };
     if (q.lines.length === 0 && q.codes.length === 0) return empty;
-    const promotions = await loadCandidatePromotions(q.tx, q.storeId, q.codes);
-    if (promotions.length === 0 && q.codes.length === 0) return empty;
+    const stored = await loadCandidatePromotions(q.tx, q.storeId, q.codes);
+    if (stored.length === 0 && q.codes.length === 0) return empty;
 
+    const inclusive = q.pricesIncludeTax;
     const bpOf = new Map(q.lines.map((l) => [l.lineItemId, l.taxRateBp]));
+    const grossOf = new Map(q.lines.map((l) => [l.lineItemId, l.quantity * l.unitPriceMinor]));
     const toNet = (gross: number, bp: number) =>
-      q.pricesIncludeTax ? gross - taxOn(gross, bp, true) : gross;
-    const toCartBase = (net: number, bp: number) =>
-      q.pricesIncludeTax ? net + taxOn(net, bp) : net;
+      inclusive ? gross - taxOn(gross, bp, true) : gross;
+    const toCartBase = (net: number, bp: number) => (inclusive ? net + taxOn(net, bp) : net);
+    const engineLines = q.lines.map((l) => ({
+      id: l.lineItemId,
+      product_id: l.productId,
+      category_id: l.categoryId,
+      quantity: l.quantity,
+      unit_price_minor: toNet(l.unitPriceMinor, l.taxRateBp),
+    }));
+    const netCartSubtotal = engineLines.reduce((n, l) => n + l.quantity * l.unit_price_minor, 0);
+    const grossCartSubtotal = q.lines.reduce((n, l) => n + l.quantity * l.unitPriceMinor, 0);
+    const grossEligible = (p: (typeof stored)[number]) =>
+      eligibleLines(engineLines, p.rules).reduce((n, l) => n + (grossOf.get(l.id) ?? 0), 0);
+
+    // what the engine sees of each promotion: its GROSS figures brought into the engine's net money
+    const promotions = !inclusive
+      ? stored
+      : stored.map((p) => {
+          const rules = { ...p.rules };
+          if (rules.min_subtotal_minor !== undefined) {
+            rules.min_subtotal_minor =
+              grossCartSubtotal >= rules.min_subtotal_minor ? 0 : netCartSubtotal + 1;
+          }
+          if (p.type !== 'fixed_amount') return { ...p, rules };
+          const eligible = eligibleLines(engineLines, p.rules);
+          const net = eligible.reduce((n, l) => n + l.quantity * l.unit_price_minor, 0);
+          const gross = grossEligible(p);
+          const value = gross > 0 ? Math.round((p.value * net) / gross) : p.value;
+          return { ...p, rules, value };
+        });
+
     const facts = await customerPromotionFacts(q.tx, q.customerId);
-    const result = evaluatePromotions(
-      q.lines.map((l) => ({
-        id: l.lineItemId,
-        product_id: l.productId,
-        category_id: l.categoryId,
-        quantity: l.quantity,
-        unit_price_minor: toNet(l.unitPriceMinor, l.taxRateBp),
-      })),
-      promotions,
-      {
-        currency: q.currency,
-        codes: q.codes,
-        customerGroupIds: await customerGroupIds(q.tx, q.customerId),
-        salesChannelId: q.salesChannelId,
-        isFirstOrder: facts.isFirstOrder,
-        customerUses: facts.customerUses,
-        at: q.at,
-      },
-    );
-    const inCartBase = (allocations: Record<string, number>) =>
-      Object.entries(allocations).map(
-        ([lineId, net]) => [lineId, toCartBase(net, bpOf.get(lineId) ?? 0)] as const,
+    const result = evaluatePromotions(engineLines, promotions, {
+      currency: q.currency,
+      codes: q.codes,
+      customerGroupIds: await customerGroupIds(q.tx, q.customerId),
+      salesChannelId: q.salesChannelId,
+      isFirstOrder: facts.isFirstOrder,
+      customerUses: facts.customerUses,
+      at: q.at,
+    });
+
+    const configured = new Map(stored.map((p) => [p.id, p]));
+    const allocations = new Map<string, number>();
+    const applied = result.applied.map((a) => {
+      const perLine = Object.entries(a.allocations).map(
+        ([lineId, net]) => [lineId, toCartBase(net, bpOf.get(lineId) ?? 0)] as [string, number],
       );
-    return {
-      allocations: new Map(inCartBase(result.allocations)),
-      freeShipping: result.free_shipping,
-      applied: result.applied.map((a) => ({
+      const p = configured.get(a.promotion_id);
+      if (inclusive && p?.type === 'fixed_amount' && perLine.length > 0) {
+        // exactly the configured gross amount (or the eligible lines' displayed subtotal when that is smaller):
+        // the conversion's rounding remainder goes onto the largest share
+        const target = Math.min(p.value, grossEligible(p));
+        const drift = target - perLine.reduce((n, [, d]) => n + d, 0);
+        if (drift !== 0) perLine.sort((x, y) => y[1] - x[1])[0]![1] += drift;
+      }
+      for (const [lineId, d] of perLine)
+        allocations.set(lineId, (allocations.get(lineId) ?? 0) + d);
+      return {
         promotionId: a.promotion_id,
         code: a.code,
-        discountMinor: inCartBase(a.allocations).reduce((n, [, d]) => n + d, 0),
-      })),
+        discountMinor: perLine.reduce((n, [, d]) => n + d, 0),
+      };
+    });
+    return {
+      allocations,
+      freeShipping: result.free_shipping,
+      applied,
       rejected: result.rejected.map((r) => ({
         code: r.code,
         reason: r.reason,

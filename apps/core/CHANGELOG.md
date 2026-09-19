@@ -10,8 +10,10 @@
   first order, prior uses; one clock per mutation).
 - **Code rule**: a code that can never apply to the cart → 400 with the reason per code, the PATCH rolls back;
   a conditional rejection keeps the code stored.
-- **Tax-inclusive stores**: the adapter converts to tax-exclusive prices for the engine and back to the cart's
-  gross base for the allocations (same `taxOn` rounding); window 9's engine is unchanged.
+- **Tax-inclusive stores**: the adapter converts to tax-exclusive money for the engine and back to the cart's
+  gross base (same `taxOn` rounding); window 9's engine is unchanged. Fixed amounts and `min_subtotal`
+  thresholds are GROSS figures: "5.00 off" is exactly 5.00 off the displayed total, "spend 100" compares the
+  displayed subtotal (#243 ruling). `not_started` is a conditional rejection: a launch code stays stored.
 - **`fulfillmentAdminRouter()` mounted** (window 8, #133: pick, pack, pick lists) — those routes were dead on the
   running server; the "pending on #235" notes are gone, router count 8.
 - **#236 review nits**: an unattributable fraud outage is booked on `rules` (inside the provider-name set) and a

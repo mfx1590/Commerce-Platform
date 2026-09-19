@@ -230,7 +230,7 @@ describe('entering a code: never-applicable = 400 and nothing stored; conditiona
 });
 
 describe('tax-inclusive store: our adapter converts, the engine keeps seeing tax-exclusive prices', () => {
-  it('a percentage takes that percentage off the gross price; a fixed amount is a NET figure; tax stays contained', async () => {
+  it('a percentage takes that percentage off the gross price; a fixed amount is exactly that GROSS amount; tax stays contained', async () => {
     const pct = freshVariant();
     const fixed = freshVariant();
     await promo({
@@ -242,7 +242,7 @@ describe('tax-inclusive store: our adapter converts, the engine keeps seeing tax
     });
     await promo({
       code: 'FIVEOFF',
-      name: 'Five euros net',
+      name: 'Five euros off the displayed price',
       type: 'fixed_amount',
       value: 500,
       currency: 'EUR',
@@ -265,8 +265,10 @@ describe('tax-inclusive store: our adapter converts, the engine keeps seeing tax
       await addLineItem(a, second.id, { variant_id: fixed.id, quantity: 1 });
       const f = await updateCart(a, second.id, { promotion_codes: ['FIVEOFF'] });
       const rate = await rateOf(second.id);
-      expect(f.totals.discount.amount_minor).toBe(500 + taxOn(500, rate)); // 5.00 net = 5.00 + its tax off the gross
-      expect(f.totals.total.amount_minor).toBe(fixed.price - f.totals.discount.amount_minor);
+      expect(rate).toBeGreaterThan(0);
+      expect(f.totals.discount.amount_minor).toBe(500); // "5.00 off" drops the displayed total by exactly 5.00
+      expect(f.totals.total.amount_minor).toBe(fixed.price - 500);
+      expect(f.totals.tax.amount_minor).toBe(taxOn(fixed.price - 500, rate, true)); // contained, on what is paid
     } finally {
       await owner.query(INCLUSIVE_OFF, [A]);
     }
@@ -275,5 +277,59 @@ describe('tax-inclusive store: our adapter converts, the engine keeps seeing tax
     await addLineItem(a, exclusive.id, { variant_id: fixed.id, quantity: 1 });
     const e = await updateCart(a, exclusive.id, { promotion_codes: ['FIVEOFF'] });
     expect(e.totals.discount.amount_minor).toBe(500);
+  });
+
+  it('a minimum subtotal compares the DISPLAYED (gross) subtotal: "spend X" is met by a cart showing X', async () => {
+    const v = freshVariant();
+    // threshold = exactly what a cart of two shows; in net money the same cart is below it
+    await promo({
+      code: 'SPEND',
+      name: 'Spend the displayed amount',
+      type: 'percentage',
+      value: 1000,
+      rules: { min_subtotal_minor: 2 * v.price, product_ids: [v.product_id] },
+    });
+    await owner.query(INCLUSIVE_ON, [A]);
+    try {
+      const cart = await createCart(a, scopeA);
+      const one = await addLineItem(a, cart.id, { variant_id: v.id, quantity: 1 });
+      const stored = await updateCart(a, cart.id, { promotion_codes: ['SPEND'] });
+      expect(stored.totals.discount.amount_minor).toBe(0); // shows 1 × price: below the threshold, code kept
+      expect(stored.promotion_codes).toEqual(['SPEND']);
+      const two = await updateLineItem(a, cart.id, one.items[0]!.id, { quantity: 2 });
+      expect(two.totals.subtotal.amount_minor).toBe(2 * v.price);
+      expect(two.totals.discount.amount_minor).toBeGreaterThan(0); // shows exactly the threshold: met
+      expect(Math.abs(two.totals.discount.amount_minor - (2 * v.price) / 10)).toBeLessThanOrEqual(
+        1,
+      );
+    } finally {
+      await owner.query(INCLUSIVE_OFF, [A]);
+    }
+  });
+});
+
+describe('a code that has not started yet is conditional: time makes it applicable, not the cart (#243 ruling)', () => {
+  it('a launch code entered before its start is stored without a discount and applies once it is active', async () => {
+    const v = freshVariant();
+    const launch = await promo({
+      code: 'LAUNCH',
+      name: 'Starts tomorrow',
+      type: 'percentage',
+      value: 1000,
+      starts_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+      rules: { product_ids: [v.product_id] },
+    });
+    const cart = await createCart(a, scopeA);
+    const added = await addLineItem(a, cart.id, { variant_id: v.id, quantity: 1 });
+    const early = await updateCart(a, cart.id, { promotion_codes: ['LAUNCH'] });
+    expect(early.promotion_codes).toEqual(['LAUNCH']);
+    expect(early.totals.discount.amount_minor).toBe(0);
+
+    await owner.query(
+      `UPDATE promotion SET starts_at = now() - interval '1 minute' WHERE id = $1`,
+      [launch.id],
+    );
+    const live = await updateLineItem(a, cart.id, added.items[0]!.id, { quantity: 2 });
+    expect(Math.abs(live.totals.discount.amount_minor - (2 * v.price) / 10)).toBeLessThan(1);
   });
 });

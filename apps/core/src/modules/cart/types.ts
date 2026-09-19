@@ -256,9 +256,10 @@ export interface RejectedCode {
   /** The evaluator's machine-readable reason (window 9's `RejectReason`). */
   reason: string;
   /**
-   * True when the code can never apply to this cart (unknown, inactive, not started, expired, used up, wrong
-   * currency): entering it is a 400. False = conditional (minimum subtotal, eligible lines, group, channel, first
-   * order): the code stays stored and applies as soon as the cart qualifies.
+   * True when the code can never apply to this cart (unknown, inactive, expired, used up — store-wide or for this
+   * customer — or the wrong currency, which is fixed at cart creation): entering it is a 400. False = conditional
+   * (minimum subtotal, eligible lines, group, channel, first order, or NOT STARTED YET — time, not the cart, makes
+   * a launch code applicable): the code stays stored and applies as soon as it can.
    */
   permanent: boolean;
 }

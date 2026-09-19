@@ -404,10 +404,10 @@ export function normalizePromotionCodes(codes: string[]): string[] {
 /**
  * `PATCH /store/carts/{cartId}`: email, addresses, shipping option, promotion codes, country, metadata. Only the
  * fields present are changed; `metadata` replaces the stored object as a whole (the storefront owns it).
- * Promotion codes (#230): a code the evaluator can NEVER apply to this cart — unknown, inactive, not started,
- * expired, used up, wrong currency — is a 400 with the reason per code and nothing is stored. A conditional
- * rejection (minimum subtotal, eligible lines, group, channel, first order) keeps the code: it applies as soon as
- * the cart qualifies.
+ * Promotion codes (#230): a code the evaluator can NEVER apply to this cart — unknown, inactive, expired, used
+ * up, wrong currency — is a 400 with the reason per code and nothing is stored. A conditional rejection (minimum
+ * subtotal, eligible lines, group, channel, first order, not started yet) keeps the code: it applies as soon as
+ * the cart qualifies or the promotion starts.
  */
 export async function updateCart(
   client: ScopedClient,
