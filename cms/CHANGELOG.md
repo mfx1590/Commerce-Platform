@@ -1,5 +1,16 @@
 # Changelog — @platform/cms
 
+## 0.4.0 — 2026-09-19
+
+Task [cms] 2.5 (issue #123): Cloudinary media for CMS content.
+
+- `imageWithAlt` gains an optional `cloudinaryUrl`: paste a delivery URL from the brand Cloudinary
+  library and it wins over the Sanity upload. `imageSource` requires a source once the image is
+  present (upload or URL) and validates the URL shape (`CLOUDINARY_URL_PATTERN`, mirroring the
+  shared loader in @platform/ui — the storefront tests assert the two agree). Alt text stays
+  required for both sources; `SanityImage.asset` is now optional in the types.
+- Campaign fixture hero is Cloudinary-served, so every render path is exercised.
+
 ## 0.3.0 — 2026-09-09
 
 Task [cms] 2.4 (issue #122): the campaign embed.

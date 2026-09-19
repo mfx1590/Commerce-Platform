@@ -16,7 +16,10 @@ export interface SanityReference {
 
 export interface SanityImage {
   _type: 'image';
-  asset: SanityReference;
+  /** Absent when the image is served from Cloudinary instead of a Sanity upload. */
+  asset?: SanityReference;
+  /** Cloudinary delivery URL; when set it wins over the Sanity asset (task 2.5). */
+  cloudinaryUrl?: string;
   alt: string;
   hotspot?: { x: number; y: number; height: number; width: number };
   crop?: { top: number; bottom: number; left: number; right: number };
