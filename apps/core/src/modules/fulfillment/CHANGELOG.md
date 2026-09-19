@@ -3,7 +3,7 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this file is
 the module's own history (linked from the PRs).
 
-## Phase 2 — shipping/phase2 (contracts-v0.4.2)
+## Phase 2 — shipping/phase2 (contracts-v0.4.3)
 
 ### 2026-09-19 · 2.5 Pick/pack lifecycle, events and admin operations (#133, CONTRACT CHANGE #225)
 
@@ -11,17 +11,20 @@ the module's own history (linked from the PRs).
   `shipment.status` values (#225), so a shipment has one state; each legal move writes one event in the same
   transaction. Skips forward are legal (`pending → packed` for a store that does not pick), backwards is not, and
   an operator's illegal move is a 409 — `applyTransition` writes what it is told, so the check lives here.
-- `lifecycle-events.ts` (new): the seam for `fulfillment.requested` / `.picking` / `.packed`. It writes to the
-  outbox as soon as `@platform/events` knows the topic and buffers with one warning until then, because events
-  0.3.0 is part of #225 and not on main yet. Nothing changes on the day it lands.
-- `http.ts` (new): `fulfillmentAdminRouter()` with the three operations. Permissions are read from
-  `admin-api.yaml` when it has them and from `proposed/admin-api.pick-pack.yaml` (#225, verbatim) until 0.4.3
-  lands. The two shipment paths resolve the shipment's store first, so a shipment in another organization is a
-  404 — never a 403 or a leak.
+- `lifecycle-events.ts` (new): `fulfillment.requested` / `.picking` / `.packed` (events 0.3.0) go to the outbox
+  through `withEvents` in the same transaction as the move. The topic is checked against `EVENT_TOPICS` first, so
+  an unknown topic buffers with a warning instead of failing a correct warehouse operation.
+- `http.ts` (new): `fulfillmentAdminRouter()` with the three operations, permissions read from `admin-api.yaml`
+  0.4.3 through `loadSpec`. The two shipment paths resolve the shipment's store first, so a shipment in another
+  organization is a 404 — never a 403 or a leak.
 - `service.ts`: `cancelFulfillment` records a divergence on the reference when the provider cancels but the
   shipment cannot, instead of swallowing it; `applyFulfillmentUpdate` moves the shipment before recording the
   provider state, so a failed move leaves the reference where a retry expects it.
-- Tests: 22 more (lifecycle, pick lists, the router, the two divergence regressions).
+- Tests: 22 more (lifecycle, pick lists, the router, the two divergence regressions). The lifecycle tests assert
+  the outbox rows and their payloads directly.
+- contracts-v0.4.3 landed #225 in full (migration 0160, events 0.3.0, Admin API 0.4.3): the proposed DDL and spec
+  copies, their test-side application and the permission fallback are deleted, with no change to the code behind
+  them.
 
 ### 2026-09-15 · 2.4 3PL adapter interface, in-memory implementation, per-warehouse routing (#132)
 

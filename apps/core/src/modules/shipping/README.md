@@ -134,8 +134,8 @@ pending -> picking -> packed -> label_created -> shipped -> in_transit -> delive
    \-------------/--> cancelled                \----> failed
 ```
 
-`picking` and `packed` arrive with CONTRACT CHANGE #225 and belong to the sibling `fulfillment` module, which
-owns the two moves; this module owns the machine they move through.
+`picking` and `packed` came with migration 0160 (#225, contracts-v0.4.3) and belong to the sibling `fulfillment`
+module, which owns the two moves; this module owns the machine they move through.
 
 Forward only, and `delivered` / `failed` / `cancelled` are final. Cancel is legal from `pending`, `picking`,
 `packed` and `label_created` — never once the parcel has gone, which is a return, not a cancel. An illegal transition through the admin route

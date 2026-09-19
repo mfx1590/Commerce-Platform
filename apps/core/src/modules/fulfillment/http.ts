@@ -2,16 +2,12 @@
 // (REQUEST #176, window 1): `routers.push(fulfillmentAdminRouter())` in `src/http/module-routers.ts`, after
 // `adminRouter()` — the same staff principal, JSON body parser and error handler as every other admin route.
 //
-// Permissions are read from a spec, never hard-coded: the real `admin-api.yaml` first, and only while #225 is
-// still open, `proposed/admin-api.pick-pack.yaml` — the same three operations, filed verbatim. When Admin API
-// 0.4.3 lands, the fallback and the proposed file are deleted and nothing else changes.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Permissions are each operation's `x-permission` from `admin-api.yaml` 0.4.3 (CONTRACT CHANGE #225), read
+// through `loadSpec` like every other admin route — never hard-coded.
 import { Router, type RequestHandler } from 'express';
-import { parse } from 'yaml';
 import { handle } from '../../http/errors';
 import { loadSpec } from '../../http/openapi';
-import { requirePermission, resolveObject, type PermissionRelation } from '../../http/permissions';
+import { requirePermission, resolveObject } from '../../http/permissions';
 import { enumParam, one, pageParams, throwIfProblems, uuidParam } from '../../http/query';
 import {
   organizationClientFor,
@@ -28,39 +24,8 @@ export const PICK_LISTS_PATH = '/admin/stores/:storeId/pick-lists';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface ProposedSpec {
-  paths?: Record<
-    string,
-    Record<string, { operationId?: string; 'x-permission'?: { relation: string; object: string } }>
-  >;
-}
-
-let proposed: ProposedSpec | undefined;
-
-/** The operation's `x-permission`: the real spec when it has the operation, else #225's filed copy. */
-function permissionFor(operationId: string): { relation: PermissionRelation; object: string } {
-  try {
-    return loadSpec('admin-api.yaml').permission(operationId);
-  } catch {
-    proposed ??= parse(
-      readFileSync(join(__dirname, 'proposed', 'admin-api.pick-pack.yaml'), 'utf8'),
-    ) as ProposedSpec;
-    for (const operations of Object.values(proposed.paths ?? {})) {
-      for (const operation of Object.values(operations)) {
-        if (operation.operationId === operationId && operation['x-permission']) {
-          return {
-            relation: operation['x-permission'].relation as PermissionRelation,
-            object: operation['x-permission'].object,
-          };
-        }
-      }
-    }
-    throw new AppError('internal', `no x-permission for operation ${operationId}`);
-  }
-}
-
 function permission(operationId: string): RequestHandler {
-  const perm = permissionFor(operationId);
+  const perm = loadSpec('admin-api.yaml').permission(operationId);
   return requirePermission(perm.relation, (req) =>
     resolveObject(perm.object, {
       storeId: typeof req.params.storeId === 'string' ? req.params.storeId : undefined,

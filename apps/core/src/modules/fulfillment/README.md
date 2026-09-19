@@ -157,9 +157,8 @@ worth nothing until the contract is real.
 ## HTTP (task 2.5)
 
 `fulfillmentAdminRouter()` serves the three operations; mount it with one line in `src/http/module-routers.ts`
-(REQUEST #176). Permissions come from a spec, never hard-coded: the real `admin-api.yaml` first, and while #225 is
-open, `proposed/admin-api.pick-pack.yaml` — the same operations, filed verbatim. When Admin API 0.4.3 lands, the
-fallback and the proposed file are deleted and nothing else changes.
+(REQUEST #176). Permissions are each operation's `x-permission` from `admin-api.yaml` 0.4.3, read through `loadSpec` like every
+other admin route — never hard-coded.
 
 | Route                                     | Notes                                                          |
 | ----------------------------------------- | -------------------------------------------------------------- |
@@ -173,6 +172,6 @@ as an id that does not exist, so guessing ids reveals nothing (tested).
 
 ## Next
 
-Phase 2 is complete for this module. When events 0.3.0 and Admin API 0.4.3 land (#225), delete
-`proposed/0160_shipment_pick_pack.sql`, `proposed/admin-api.pick-pack.yaml`, the test-side DDL and the
-`permissionFor` fallback — the code behind them already works.
+**Phase 2 is complete for this module.** contracts-v0.4.3 landed #225 in full: migration 0160 (the pick/pack
+statuses), events 0.3.0 (the three topics) and Admin API 0.4.3 (the three operations). The proposed copies and the
+permission fallback are gone; the code behind them needed no change.

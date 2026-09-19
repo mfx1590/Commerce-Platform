@@ -1,8 +1,6 @@
-// The pick/pack lifecycle on a seeded database: the two moves, what they emit, what they refuse, and the pick
-// list a warehouse floor reads. The statuses come from CONTRACT CHANGE #225; until migration 0160 lands this
-// suite applies `proposed/0160_shipment_pick_pack.sql` itself.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// The pick/pack lifecycle on a seeded database: the two moves, the events they write to the outbox, what they
+// refuse, and the pick list a warehouse floor reads. The statuses come from migration 0160 and the topics from
+// events 0.3.0 (CONTRACT CHANGE #225, contracts-v0.4.3).
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -19,7 +17,6 @@ import {
   clearPendingLifecycleEvents,
   pendingLifecycleEvents,
   topicIsKnown,
-  type LifecycleEvent,
 } from './lifecycle-events';
 import { listPickLists, packShipment, pickShipment } from './lifecycle';
 import { fulfillmentAdminRouter } from './http';
@@ -49,9 +46,6 @@ let counter = 0;
 beforeAll(async () => {
   db = await createTestDatabase('core_lifecycle');
   await seed(db.owner, { log: () => {} });
-  await db.owner.query(
-    readFileSync(join(__dirname, 'proposed', '0160_shipment_pick_pack.sql'), 'utf8'),
-  );
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
   await initDb({ connectionString: db.app.options.connectionString! });
@@ -122,50 +116,55 @@ async function plannedShipment(warehouseId = EU) {
 }
 
 const outboxFor = (shipmentId: string) =>
-  owner.query<{ topic: string }>(
-    `SELECT topic FROM outbox WHERE aggregate_type = 'shipment' AND aggregate_id = $1
-      ORDER BY occurred_at, topic`,
+  owner.query<{ topic: string; payload: Record<string, unknown> }>(
+    `SELECT topic, payload FROM outbox WHERE aggregate_type = 'shipment' AND aggregate_id = $1
+      ORDER BY occurred_at, seq`,
     [shipmentId],
   );
 
-const eventFor = (topic: string): LifecycleEvent | undefined =>
-  pendingLifecycleEvents().find((event) => event.topic === topic);
-
 describe('pick and pack', () => {
   it('moves pending → picking → packed, emitting one lifecycle event each', async () => {
-    const { shipment, orderId, lineId } = await plannedShipment();
+    const { shipment } = await plannedShipment();
 
     const picking = await pickShipment(a, shipment.id, actor);
     expect(picking.status).toBe('picking');
-    expect(eventFor('fulfillment.picking')).toMatchObject({
-      shipmentId: shipment.id,
-      orderId,
-      warehouseId: EU,
-      items: [{ order_line_item_id: lineId, quantity: 2 }],
-    });
 
     const packed = await packShipment(a, shipment.id, { actor, parcelCount: 2 });
     expect(packed.status).toBe('packed');
-    expect(eventFor('fulfillment.packed')).toMatchObject({
-      shipmentId: shipment.id,
-      parcelCount: 2,
-    });
 
-    // One event per transition, not two.
-    expect(pendingLifecycleEvents()).toHaveLength(2);
-    // A warehouse event names ids and quantities, never a person or a place.
-    expect(JSON.stringify(pendingLifecycleEvents())).not.toMatch(/Keizersgracht|Amsterdam|Jane/);
+    // One event per transition, not two — and the shipment's own stream still starts with its creation.
+    const topics = (await outboxFor(shipment.id)).rows.map((row) => row.topic);
+    expect(topics).toEqual(['shipment.created', 'fulfillment.picking', 'fulfillment.packed']);
   });
 
-  it('keeps the lifecycle out of the outbox until events 0.3.0 exists, and says so', async () => {
-    const { shipment } = await plannedShipment();
+  it('writes each lifecycle event to the outbox, with the payload the schema requires', async () => {
+    const { shipment, orderId, lineId } = await plannedShipment();
     await pickShipment(a, shipment.id, actor);
-    // The topics are not in @platform/events yet (CONTRACT CHANGE #225).
-    expect(topicIsKnown('fulfillment.picking')).toBe(false);
-    expect((await outboxFor(shipment.id)).rows.map((row) => row.topic)).toEqual([
+    await packShipment(a, shipment.id, { actor, parcelCount: 2 });
+
+    // events 0.3.0 shipped the topics, so nothing is buffered any more.
+    expect(topicIsKnown('fulfillment.picking')).toBe(true);
+    expect(topicIsKnown('fulfillment.packed')).toBe(true);
+    expect(pendingLifecycleEvents()).toEqual([]);
+
+    const rows = await outboxFor(shipment.id);
+    expect(rows.rows.map((row) => row.topic)).toEqual([
       'shipment.created',
+      'fulfillment.picking',
+      'fulfillment.packed',
     ]);
-    expect(pendingLifecycleEvents()).toHaveLength(1);
+    const picking = rows.rows.find((row) => row.topic === 'fulfillment.picking')!;
+    expect(picking.payload).toEqual({
+      shipment_id: shipment.id,
+      order_id: orderId,
+      warehouse_id: EU,
+      items: [{ order_line_item_id: lineId, quantity: 2 }],
+      occurred_at: expect.any(String),
+    });
+    const packed = rows.rows.find((row) => row.topic === 'fulfillment.packed')!;
+    expect(packed.payload).toMatchObject({ shipment_id: shipment.id, parcel_count: 2 });
+    // Warehouse events carry ids and quantities, never a person or a place.
+    expect(JSON.stringify(rows.rows)).not.toMatch(/Keizersgracht|Amsterdam|Jane/);
   });
 
   it('refuses the same move twice and any move backwards', async () => {

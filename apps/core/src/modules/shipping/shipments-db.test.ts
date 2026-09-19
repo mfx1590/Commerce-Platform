@@ -5,8 +5,6 @@
 // The shared `webhook_event` table (#187) comes from migration 0140 in @platform/db.
 // The router tests run the real core middleware with dev tokens.
 import { createHash, createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -57,13 +55,6 @@ let counter = 0;
 beforeAll(async () => {
   db = await createTestDatabase('core_shipments');
   await seed(db.owner, { log: () => {} });
-  // #225's DDL (pick/pack statuses), applied by this suite only until migration 0160 lands.
-  await db.owner.query(
-    readFileSync(
-      join(__dirname, '..', 'fulfillment', 'proposed', '0160_shipment_pick_pack.sql'),
-      'utf8',
-    ),
-  );
   // The router resolves stores and scopes through the app pool, like the running server.
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;

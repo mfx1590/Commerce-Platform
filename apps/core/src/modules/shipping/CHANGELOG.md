@@ -7,8 +7,7 @@ file is the module's own history (linked from the PRs).
 
 ### 2026-09-19 · 2.5 Status machine widened, and the review fixes (#133, CONTRACT CHANGE #225)
 
-- `shipment.status` gains `picking` and `packed` (#225, migration 0160 widens the column's CHECK; both database
-  suites apply `../fulfillment/proposed/0160_shipment_pick_pack.sql` until it lands). Cancel is legal from
+- `shipment.status` gains `picking` and `packed` (migration 0160, #225, contracts-v0.4.3). Cancel is legal from
   `pending`, `picking`, `packed` and `label_created`. The moves themselves live in the `fulfillment` module.
 - `buyShipmentLabel` no longer calls the carrier inside a transaction: read, then quote and buy with nothing
   held, then record. A shipment that moved meanwhile makes the call a 409 and the bought label is voided again

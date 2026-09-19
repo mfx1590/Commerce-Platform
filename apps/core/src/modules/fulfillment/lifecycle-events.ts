@@ -1,15 +1,12 @@
 // The three pick/pack events, and the seam that carries them until `@platform/events` knows their topics.
 //
-// `withEvents` validates every envelope against the schemas compiled into `@platform/events`, and `buildEvent`
-// takes a typed topic — so `fulfillment.picking` can neither typecheck nor validate until events 0.3.0 (CONTRACT
-// CHANGE #225) is on main. Rather than leave the emission unwritten, the payloads are built here and handed to an
-// emitter that checks, at runtime, whether the topic exists yet:
+// Events 0.3.0 (CONTRACT CHANGE #225) shipped the three topics, so they go straight to the outbox through
+// `withEvents`, in the caller's transaction (ADR 0003) — and that is what happens today.
 //
-//   - topic known  → straight to the outbox through `withEvents`, in the caller's transaction (ADR 0003).
-//   - not yet      → buffered in memory, one warning per process, and the state change still commits.
-//
-// The day 0.3.0 lands, nothing here changes: the same call starts writing to the outbox, the buffer stays empty,
-// and `pendingLifecycleEvents()` (a test seam) simply has nothing to report.
+// The runtime check stays: an envelope whose topic `@platform/events` does not know would fail validation and
+// take a correct warehouse operation down with it. If that ever happens — a rolled-back package, a stale build —
+// the event is buffered, one warning is logged, and the state change still commits. `pendingLifecycleEvents()`
+// should be empty in a healthy process, and a test asserts exactly that.
 import { EVENT_TOPICS } from '@platform/events';
 import type { EventTopic } from '@platform/events';
 import type { Queryable } from '@platform/db';
@@ -47,7 +44,7 @@ export interface LifecycleEvent {
   parcelCount?: number | null;
 }
 
-/** True once `@platform/events` ships the topic (events 0.3.0). Read at call time, never cached. */
+/** Whether `@platform/events` knows the topic. Read at call time, never cached. True since events 0.3.0. */
 export function topicIsKnown(topic: LifecycleTopic): boolean {
   return (EVENT_TOPICS as readonly string[]).includes(topic);
 }
@@ -77,7 +74,7 @@ export interface LifecycleEmitter {
   emit(tx: Queryable, event: LifecycleEvent): Promise<void>;
 }
 
-/** Events that could not be written because their topic does not exist yet. Bounded; a test seam. */
+/** Events that could not be written because `@platform/events` did not know the topic. Empty in a healthy run. */
 const buffered = new BoundedTtlMap<LifecycleEvent>({ maxEntries: 200, ttlMs: 60 * 60_000 });
 let warned = false;
 
@@ -100,14 +97,14 @@ export const lifecycleEmitter: LifecycleEmitter = {
       if (!warned) {
         warned = true;
         console.warn(
-          'fulfillment: pick/pack events are not emitted yet — events 0.3.0 (CONTRACT CHANGE #225) is not on main',
+          `fulfillment: @platform/events does not know ${event.topic}; the event was buffered, not written`,
         );
       }
       return;
     }
     await withEvents(tx, [
       await buildEvent({
-        // Safe once `topicIsKnown` passed: the topic is in EVENT_TOPICS, which is what the type describes.
+        // Safe: `topicIsKnown` just checked that the topic is in EVENT_TOPICS, which is what the type describes.
         topic: event.topic as EventTopic,
         organizationId: event.organizationId,
         storeId: event.storeId,

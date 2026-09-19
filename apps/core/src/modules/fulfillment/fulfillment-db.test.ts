@@ -1,8 +1,6 @@
 // Fulfilment on a real seeded database: routing a placed order to the right warehouse (and the store override),
 // the provider receiving it, cancel before pick releasing the reservation through the real inventory module,
 // cancel after pick refused, a failed push compensated, and a provider's `shipped` moving the shipment.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -70,10 +68,6 @@ async function fixture(storeId: string, address: Record<string, string>, currenc
 beforeAll(async () => {
   db = await createTestDatabase('core_fulfilment');
   await seed(db.owner, { log: () => {} });
-  // #225's DDL, exactly as filed; migration 0160 replaces this once it lands (the #187/0140 pattern).
-  await db.owner.query(
-    readFileSync(join(__dirname, 'proposed', '0160_shipment_pick_pack.sql'), 'utf8'),
-  );
   owner = createOrganizationClient(db.owner, { organizationId: ORG });
   stores.a = await fixture(
     A,
