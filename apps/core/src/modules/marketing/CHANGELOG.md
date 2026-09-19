@@ -10,6 +10,42 @@ file is the module's own history (linked from the PRs).
 - `proposed/product-feed.schema.json` removed; `feed-types.ts` takes `ProductFeed` / `FeedStatus` from the
   generated types and `routes.test.ts` asserts the error-status feed against the document itself.
 
+### 2026-09-19 · 2.3 Segments, templates and the messaging sync contract (#147)
+
+- `segment-rules.ts`: **the frozen grammar** — `{ v: 1, all: [{ any: [{ field, op, value }] }] }`, an AND of ORs
+  over a closed seven-field predicate set. `parseSegmentRules` 400s on any unknown field, operator, extra key or
+  wrong value type, naming the exact path (`rules.all[0].any[2].op`). `SEGMENT_RULES_SCHEMA` publishes the same
+  grammar as JSON Schema from the module index for window 16 and the admin rule builder; a test runs the parser
+  and the schema over the same fixtures so they cannot drift.
+- `segment-sql.ts`: rules → one parameterised SQL predicate. Values are always bound, never interpolated (there
+  is an injection test). Every predicate is **total** over ragged data — no orders, no address, no
+  `metadata.tags`, no consent block all still evaluate. `not_granted` uses `IS DISTINCT FROM`: `NOT (NULL =
+'true')` is NULL, which silently dropped never-asked customers from re-consent segments (caught by a test).
+- `segments.ts`: CRUD for store segments and organization templates over one table, `previewSegment` (counts,
+  writes nothing, accepts override rules from the body), `materializeSegment` (replaces `segment_member` in one
+  transaction, updates the counters), template instantiation by copy. Deleting a segment a non-ended campaign
+  points at is a 409 rather than letting the FK quietly unlink it.
+- `segment-sync.ts`: the window 16 contract — a typed payload and one paged function over the **materialised**
+  members, so preview, count and send are the same set. Ids, `email_hash` and granted channels only; no address,
+  name or phone ever crosses the boundary. No provider call in this module.
+- `segment-types.ts`: `Segment` with `rules` typed as the frozen grammar; the table row; the sort enum.
+- 12 new routes: 7 store-scoped (`materialize` answers 202 per the contract) and 5 organization-level for
+  templates (`viewer` reads, `owner` writes on `organization:hq`).
+- Data-model decisions, checked against the schema rather than the contract's prose: `tags` is
+  `customer.metadata.tags` (no `customer.tags` column exists); `country` is the **default shipping address
+  only**; `customer_group_ids` is membership-in-list against the single FK; `erased`/`disabled` customers are
+  never counted.
+- Cleanup now that #181 landed: the local `enumParam` copy in `routes.ts` is gone in favour of `src/http`'s
+  exported `enumParam`/`sortParams`, as its comment promised, and the router header no longer says "not mounted".
+- CONTRACT CHANGE filed for `SegmentRules` (still the loose flat bag in 0.4.3, with "Unknown keys are kept, not
+  rejected" — the opposite of a frozen grammar). Responses validate meanwhile because the document accepts
+  additional properties; the manager lands the change after this PR merges.
+- Tests (+75): `segment-rules.test.ts` (35, pure — accept/reject per field and operator, parser/schema
+  agreement, SQL shape and injection), `segments.test.ts` (20, database — every operator against real orders and
+  customers, preview == materialised count, consent exclusion incl. malformed blocks, template RLS and copying,
+  store isolation, the sync payload and its paging), and 8 more in `routes.test.ts`. The seed creates no
+  customers, so the database tests build their own; keys and names are words, never digit or hex tails.
+
 ### 2026-09-08 · 2.2 Product feeds for Google Merchant and Meta (#146)
 
 - `feed-types.ts`: `ProductFeedRow` (table) vs `ProductFeed` (contract), the channel/status enums,
