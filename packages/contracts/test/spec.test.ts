@@ -221,7 +221,9 @@ describe('admin-api.yaml', () => {
         .slice(1);
     expect(permission('updateOrderLineItem')).toEqual(['store_admin', 'store:{storeId}']);
     expect(permission('cancelOrderLineItem')).toEqual(['store_admin', 'store:{storeId}']);
-    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/orders\/\{orderId\}\/line-items\/\{lineItemId\}:/);
+    expect(text).toMatch(
+      /\/admin\/stores\/\{storeId\}\/orders\/\{orderId\}\/line-items\/\{lineItemId\}:/,
+    );
     const patch = ops.find((o) => o.id === 'updateOrderLineItem')!.body;
     expect(patch).toMatch(/required: \[quantity\]/);
     expect(patch).toMatch(/minimum: 1/);
