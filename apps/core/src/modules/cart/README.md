@@ -28,16 +28,16 @@ Reads keep working on completed carts (the storefront's confirmation page).
 Every mutation locks the cart row (`SELECT … FOR UPDATE`), applies the change and calls `recalculate()` in the same
 transaction. Integer minor units everywhere; nothing is a float.
 
-| Amount            | Rule                                                                                                                                                                                                                                                           |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| line `unit_price` | the `PriceResolver` price for the line's CURRENT quantity (default: the store's default list, greatest `min_quantity <= quantity`; the server registers window 9's price lists: sale > group/override > default). Every line mutation re-prices the whole cart |
-| line `subtotal`   | `quantity × unit_price`                                                                                                                                                                                                                                        |
-| line `discount`   | `cart_line_item.discount_minor` — 0 until window 9's promotions API prices the stored codes                                                                                                                                                                    |
-| line `tax`        | the `TaxCalculator`'s own amount for the line as last calculated (`metadata.tax.amount_minor`, read through `lineTaxOf`) — never recomputed from `tax_rate_bp` (#221)                                                                                          |
-| line `total`      | exclusive prices: `subtotal − discount + tax`; `prices_include_tax`: `subtotal − discount` (the tax is inside)                                                                                                                                                 |
-| `shipping`        | the `ShippingRateProvider` quote for `shipping_option_id` (0 without a selection)                                                                                                                                                                              |
-| `tax`             | Σ `TaxCalculator` line tax + shipping tax                                                                                                                                                                                                                      |
-| `total`           | exclusive prices: `subtotal − discount + shipping + tax`; `prices_include_tax`: `subtotal − discount + shipping` (tax reported, not added)                                                                                                                     |
+| Amount            | Rule                                                                                                                                                                                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| line `unit_price` | the `PriceResolver` price for the line's CURRENT quantity (default: the store's default list, greatest `min_quantity <= quantity`; the server registers window 9's price lists: sale > group/override > default). Every line mutation re-prices the whole cart   |
+| line `subtotal`   | `quantity × unit_price`                                                                                                                                                                                                                                          |
+| line `discount`   | the `DiscountEvaluator`'s allocation for the line (`cart_line_item.discount_minor`), in the cart's own price base, never above the line subtotal; computed BEFORE shipping and tax. Default `noDiscounts` = 0; the server registers window 9's promotions engine |
+| line `tax`        | the `TaxCalculator`'s own amount for the line as last calculated (`metadata.tax.amount_minor`, read through `lineTaxOf`) — never recomputed from `tax_rate_bp` (#221)                                                                                            |
+| line `total`      | exclusive prices: `subtotal − discount + tax`; `prices_include_tax`: `subtotal − discount` (the tax is inside)                                                                                                                                                   |
+| `shipping`        | the `ShippingRateProvider` quote for `shipping_option_id` (0 without a selection, 0 when a promotion grants free shipping)                                                                                                                                       |
+| `tax`             | Σ `TaxCalculator` line tax + shipping tax                                                                                                                                                                                                                        |
+| `total`           | exclusive prices: `subtotal − discount + shipping + tax`; `prices_include_tax`: `subtotal − discount + shipping` (tax reported, not added)                                                                                                                       |
 
 Prices are **tax-exclusive** (owner decision 2026-09-08; tax-inclusive display is a later store setting). Stock:
 adding or raising a line beyond the summed `inventory_level.available` of active warehouses → 409 `out_of_stock`
@@ -84,6 +84,22 @@ later abandonment is a new event. A `completed` cart still answers 409 `cart_com
 abandoned (nothing to recover).
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
+
+- **2026-09-19 · Discounts come through a `DiscountEvaluator` seam, before shipping and tax (#230 PR A).**
+  `setDiscountEvaluator()` follows the price/tax/shipping pattern (default `noDiscounts`); the server registers
+  `promotionsDiscountEvaluator` (`src/wiring.ts`) over window 9's engine — candidates = automatic promotions + the
+  cart's codes, judged at the mutation's clock, with the customer's groups, first-order state and prior uses (a
+  guest has none). `recalculate` order: discounts → shipping (free when a promotion says so) → tax on the
+  discounted base → totals. **Codes**: entering a code that can NEVER apply to this cart (`not_found`,
+  `not_active`, `not_started`, `expired`, `usage_limit_reached`, `per_customer_limit_reached`,
+  `wrong_currency`) is a 400 `validation_error` with `details.promotion_codes = { CODE: reason }` and the whole
+  PATCH rolls back; a conditional rejection (minimum subtotal, eligible lines, group, channel, first order) keeps
+  the code and it applies once the cart qualifies. The evaluator says which is which (`rejected[].permanent`) —
+  the cart knows no reason names. **Tax-inclusive stores** (manager decision): the engine always sees
+  tax-exclusive prices; OUR adapter derives net unit prices through `taxOn`, and converts the allocations back to
+  the cart's gross base — a percentage is the same percentage of what the customer sees, a fixed amount or a
+  `min_subtotal` of a promotion is a NET figure there. For that conversion `recalculate` asks the TaxCalculator
+  for the lines' rates once before discounting (tax-inclusive stores only).
 
 - **2026-09-19 · Unit prices come through a `PriceResolver` seam, and every line mutation re-prices the cart
   (#179 part 3).** `setPriceResolver()` follows the tax/shipping pattern: the default

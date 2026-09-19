@@ -2,6 +2,25 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · promotions quote: discounts, free shipping, code rejection (#230 PR A); pick/pack routes mounted
+
+- **`DiscountEvaluator` seam** in the cart (`setDiscountEvaluator`, default `noDiscounts`); `recalculate` now runs
+  discounts → shipping → tax on the discounted base → totals and returns the quote. `src/wiring.ts` registers
+  `promotionsDiscountEvaluator` over window 9's `loadCandidatePromotions` + `evaluatePromotions` (groups,
+  first order, prior uses; one clock per mutation).
+- **Code rule**: a code that can never apply to the cart → 400 with the reason per code, the PATCH rolls back;
+  a conditional rejection keeps the code stored.
+- **Tax-inclusive stores**: the adapter converts to tax-exclusive prices for the engine and back to the cart's
+  gross base for the allocations (same `taxOn` rounding); window 9's engine is unchanged.
+- **`fulfillmentAdminRouter()` mounted** (window 8, #133: pick, pack, pick lists) — those routes were dead on the
+  running server; the "pending on #235" notes are gone, router count 8.
+- **#236 review nits**: an unattributable fraud outage is booked on `rules` (inside the provider-name set) and a
+  review without a code on `provider_unavailable` (inside the closed code set); no redundant `trim()` before
+  `emailHash`.
+- Tests: `test/cart-discounts.test.ts` (6, with the server's evaluator), store-api +1 (the 400 over HTTP),
+  admin-api (fulfillment acceptance, 8 routers), wiring (the evaluator is registered). Not yet: placement
+  re-evaluation, use counting and order freezing — PR B.
+
 ### 2026-09-19 · fraud seam before authorization, order review mirror, confirm hold (#231, window 7's REQUEST)
 
 - **`setFraudCheck()`** (`src/lib/fraud-seam.ts`, re-exported by the checkout): `completeCart` evaluates the
