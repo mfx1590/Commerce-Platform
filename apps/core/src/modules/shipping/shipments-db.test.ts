@@ -2,12 +2,9 @@
 // the events each transition writes to the outbox, duplicate webhook deliveries, delivered-before-shipped
 // ordering, partial shipments moving `order.fulfillment_status`, and a cancel releasing the reservation.
 //
-// The shared `webhook_event` table (#187) is not migrated yet: this suite applies `proposed/0140_webhook_event.sql`,
-// a byte-for-byte copy of #187's SQL (identical to payments' copy), to its own throwaway database. Migration 0140
-// replaces it once both consumers have merged. The router tests run the real core middleware with dev tokens.
+// The shared `webhook_event` table (#187) comes from migration 0140 in @platform/db.
+// The router tests run the real core middleware with dev tokens.
 import { createHash, createHmac } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -58,8 +55,6 @@ let counter = 0;
 beforeAll(async () => {
   db = await createTestDatabase('core_shipments');
   await seed(db.owner, { log: () => {} });
-  // #187's DDL, exactly as filed; the real migration 0140 replaces this once it lands.
-  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0140_webhook_event.sql'), 'utf8'));
   // The router resolves stores and scopes through the app pool, like the running server.
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
@@ -541,13 +536,6 @@ async function shippedShipment() {
 }
 
 describe('tracking webhooks', () => {
-  it('byte-matches the payments copy of #187 while both proposed copies exist', () => {
-    const ours = readFileSync(join(__dirname, 'proposed', '0140_webhook_event.sql'));
-    const theirs = join(__dirname, '..', 'payments', 'proposed', '0140_webhook_event.sql');
-    if (!existsSync(theirs)) return; // migration 0140 landed and removed both copies
-    expect(ours.equals(readFileSync(theirs))).toBe(true);
-  });
-
   it('applies a scan, stores a redacted extract with the raw body hash, and a duplicate changes nothing', async () => {
     const { shipmentId, tracking } = await shippedShipment();
     const req = webhook(tracking, 'in_transit', `evt_dup_${shipmentId}`, '2026-09-08T10:00:00Z');

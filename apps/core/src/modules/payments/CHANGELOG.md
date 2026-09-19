@@ -56,3 +56,7 @@ file is the module's own history (linked from the PRs).
 - `index.ts`: public API + `registerPaymentProviders()` (mount point for src/server.ts, REQUEST #176).
 - Tests: `payments.test.ts` (FakeStripe + seeded throwaway DB), `stripe-live.test.ts` (real test mode; skips
   without `STRIPE_SECRET_KEY`).
+
+## 2026-09-19 — migration 0140 landed (contracts-v0.4.2, manager)
+
+- `proposed/0140_webhook_event.sql` deleted; `webhook_event` now comes from `@platform/db` migration 0140 (db 0.3.0). `webhooks.test.ts` no longer applies the DDL itself.

@@ -309,4 +309,30 @@ describe('row-level security (platform_app role)', () => {
       (await b.query('SELECT id FROM promotion WHERE type = $1', ['buy_x_get_y'])).rowCount,
     ).toBe(0);
   });
+
+  it('webhook_event (0140): rows stay per store; a redelivery conflicts on (provider, provider_event_id)', async () => {
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    await a.query(
+      `INSERT INTO webhook_event (organization_id, store_id, provider, provider_event_id, event_type, payload_hash)
+       VALUES ($1, $2, 'stripe', 'evt_rls_case', 'payment_intent.succeeded', 'deadhash')`,
+      [ORG, STORE_A],
+    );
+    await expect(
+      a.query(
+        `INSERT INTO webhook_event (organization_id, store_id, provider, provider_event_id, event_type, payload_hash)
+         VALUES ($1, $2, 'stripe', 'evt_rls_hack', 'payment_intent.succeeded', 'deadhash')`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // the dedupe key is intentionally NOT per store: the same delivery routed twice still inserts once
+    await expect(
+      a.query(
+        `INSERT INTO webhook_event (organization_id, store_id, provider, provider_event_id, event_type, payload_hash)
+         VALUES ($1, $2, 'stripe', 'evt_rls_case', 'payment_intent.succeeded', 'deadhash')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/webhook_event_provider_provider_event_id_key/);
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    expect((await b.query('SELECT id FROM webhook_event')).rowCount).toBe(0);
+  });
 });
