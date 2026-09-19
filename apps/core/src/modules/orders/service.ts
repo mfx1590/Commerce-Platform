@@ -365,6 +365,16 @@ export async function setFulfillmentStatusIn(
   }
 }
 
+/** #191's shape of the same port (`setFulfillmentStatus({ tx, orderId, status, actor })`); the positional twin stays for window 8's current adapter. */
+export async function setFulfillmentStatus(input: {
+  tx: Queryable;
+  orderId: string;
+  status: FulfillmentStatus;
+  actor: Actor;
+}): Promise<void> {
+  return setFulfillmentStatusIn(input.tx, input.orderId, input.status, input.actor);
+}
+
 /** Merges keys into `order.metadata` on the caller's transaction (the returns module's exchange link). No event: metadata is storefront/ops-owned. */
 export async function mergeOrderMetadataIn(
   tx: Queryable,

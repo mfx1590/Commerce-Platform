@@ -4,8 +4,7 @@
 // transitions through the orders module's idempotent wrappers → final status. Out-of-order deliveries converge
 // through state guards on the payment row, never through `occurred_at`. Nothing here logs a payload.
 //
-// Table: `webhook_event` from CONTRACT CHANGE #187 (migration 0140, lands after this task and shipping 2.3
-// merge). Until then `proposed/0140_webhook_event.sql` is applied by this module's tests only.
+// Table: `webhook_event` from CONTRACT CHANGE #187, migration 0140 in @platform/db.
 import type { Queryable, ScopedClient } from '@platform/db';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { SYSTEM_ACTOR, type Actor } from '../../lib/audit';

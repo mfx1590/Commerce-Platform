@@ -882,6 +882,27 @@ Owner: window 17. Events: `review.published`.
 Owner: window 9 (search). Events: none — rules are pushed to Algolia synchronously on publish and no other system
 consumes them (CONTRACT CHANGE #162, open question left as is).
 
+### webhook_event (payments + shipping; migration 0140, contracts-v0.4.2)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | RLS kind `store`; the receiver resolves the store (route / signature secret) BEFORE inserting — an unresolvable delivery is rejected and never stored |
+| provider | text | `stripe` / `easypost` / … |
+| provider_event_id | text | Stripe `evt_…`, EasyPost event id; UNIQUE `(provider, provider_event_id)` — the dedupe key, intentionally NOT per store |
+| event_type | text | `payment_intent.succeeded`, `tracker.updated`, … |
+| provider_object_id | text NULL | the provider object the event is about (`pi_…`, `trk_…`) |
+| aggregate_type / aggregate_id | text CHECK payment/refund/shipment · uuid NULL | our row once resolved; NULL = unmatched |
+| occurred_at | timestamptz NULL | provider/carrier time FROM THE PAYLOAD; ordering logic must never depend on it |
+| received_at | timestamptz | when we got the delivery |
+| status | text | `received` → `processed` / `skipped` / `failed` (+ `failure_reason`); partial index feeds retry/replay listings |
+| payload | jsonb | the consumer's REDACTED extract — ids, amounts, statuses; never an address, email or name |
+| payload_hash | text | sha256 hex of the raw request body |
+| replay_count | integer | incremented by the replay CLI |
+
+Owner: shared — window 7 (Stripe receiver, #125) and window 8 (carrier tracking, #131) write through their own
+modules; exactly-once = `INSERT … ON CONFLICT DO NOTHING` before processing (CONTRACT CHANGE #187).
+
 ### abandoned carts (no table)
 
 Derived from `cart` with `status = 'active'` and no activity for the store's abandonment window; the core job flips

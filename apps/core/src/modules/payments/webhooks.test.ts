@@ -1,11 +1,9 @@
-// Stripe webhook receiver (issue #125) on FakeStripe + a seeded throwaway database with #187's proposed
-// `webhook_event` DDL applied by THIS suite only (until migration 0140 lands): signature verification on the raw
+// Stripe webhook receiver (issue #125) on FakeStripe + a seeded throwaway database (the `webhook_event`
+// table comes from migration 0140, #187): signature verification on the raw
 // body, redaction + seal, exactly-once per event id, in-flight duplicates (409 / takeover), out-of-order
 // convergence through payment-row state guards, order transitions through the orders module, the replay path
 // (idempotent; refuses a tampered extract), the Express router, and a PII scan over rows and logs.
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -72,8 +70,6 @@ let logLines: string[];
 beforeAll(async () => {
   db = await createTestDatabase('core_webhooks');
   await seed(db.owner, { log: () => {} });
-  // #187's DDL, exactly as filed; the real migration 0140 replaces this once it lands.
-  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0140_webhook_event.sql'), 'utf8'));
   owner = createOrganizationClient(db.owner, { organizationId: ORG });
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A] });
   b = createTenantClient(db.app, { organizationId: ORG, storeIds: [B] });

@@ -4,6 +4,7 @@ export {
   carrierConfigFor,
   DEFAULT_PARCEL,
   easyPostCredentialsFor,
+  easyPostWebhookSecretFor,
   envSuffix,
   isTestModeKey,
 } from './config';
@@ -19,7 +20,47 @@ export {
   manualCarrierProvider,
 } from './manual-provider';
 export { currencyExponent, fromMinorUnits, toMinorUnits } from './money';
+export {
+  coreInventoryPort,
+  coreOrdersPort,
+  currentInventoryPort,
+  currentOrdersPort,
+  setInventoryPort,
+  setOrdersPort,
+} from './ports';
 export { createCarrierRateProvider, parseRules, registerCarrierProviders } from './rate-shopping';
+export {
+  applyTransition,
+  buyShipmentLabel,
+  canTransition,
+  createShipment,
+  getShipment,
+  iso,
+  listOrderShipments,
+  renderShipment,
+  updateShipment,
+} from './shipments';
+export {
+  applyTrackingEvent,
+  extractEasyPostWebhook,
+  handleEasyPostWebhook,
+  verifyEasyPostSignature,
+} from './tracking';
+export {
+  CREATE_SHIPMENT_PATH,
+  EASYPOST_WEBHOOK_BODY_LIMIT,
+  EASYPOST_WEBHOOK_PATH,
+  shippingAdminRouter,
+  shippingWebhookRouter,
+  UPDATE_SHIPMENT_PATH,
+} from './http';
+export type { ShippingWebhookRouterOptions } from './http';
+export {
+  finishWebhookEvent,
+  payloadHashOf,
+  recordWebhookEvent,
+  TRACKING_WEBHOOK_PROVIDER,
+} from './webhook-events';
 export { CarrierError, isRetryableStatus, redactAddress, toCarrierAddress } from './redact';
 export {
   carrierProvider,
@@ -38,6 +79,25 @@ export type {
   RateShoppingOptions,
   ShippingOptionRules,
 } from './rate-shopping';
+export type {
+  InventoryCall,
+  InventoryPort,
+  OrdersCall,
+  OrdersOutcome,
+  OrdersPort,
+  ShipmentLineRef,
+} from './ports';
+export type {
+  CreateShipmentInput,
+  ShipmentItem,
+  ShipmentRow,
+  ShipmentStatus,
+  StoreShipment,
+  TransitionInput,
+  UpdateShipmentInput,
+} from './shipments';
+export type { ApplyTrackingInput, WebhookRequest, WebhookResult } from './tracking';
+export type { RecordInput, TrackingExtract, WebhookEventStatus } from './webhook-events';
 export type {
   AddressValidation,
   BuyLabelRequest,

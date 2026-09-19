@@ -4,8 +4,6 @@
 // retry), the support limit, return-driven refunds through the returns module's seam, webhook settlement of
 // pending / failed refunds, and the Admin API route with dev tokens (permission, limit, validation).
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -61,7 +59,6 @@ let fake: FakeStripe;
 beforeAll(async () => {
   db = await createTestDatabase('core_refunds');
   await seed(db.owner, { log: () => {} });
-  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0140_webhook_event.sql'), 'utf8'));
   owner = createOrganizationClient(db.owner, { organizationId: ORG });
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A] });
   codeA = (await owner.query<{ code: string }>(`SELECT code FROM store WHERE id = $1`, [A]))
