@@ -8,16 +8,16 @@ packages/\* changes).
 
 ## Public API (`index.ts`)
 
-| Export                                                                             | Purpose                                                                                                                               |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `registerFraudCheck(opts?)`                                                        | boot mount point (REQUEST #231): registers the check with the seam and Radar's `review.*` handlers with the payments webhook receiver |
-| `createFraudCheck(opts?)`                                                          | the check: providers in order, worst outcome wins, outage → `review`, block recorded in `audit_log`                                   |
-| `rulesFraudProvider` / `createRadarFraudProvider(opts?)`                           | the two `FraudProvider`s                                                                                                              |
-| `fraudSettingsFrom(store.settings)` / `DEFAULT_FRAUD_SETTINGS`                     | the store setting reader (never throws)                                                                                               |
-| `setFraudCheck` / `currentFraudCheck` / `enforceDecision` / `applyDecisionToOrder` | LOCAL STAND-IN for the checkout seam requested in #231                                                                                |
-| `flagOrderForReview` / `resolveOrderReview` / `readOrderFraud`                     | the review flag of an order, kept on its PAYMENT row until the orders module gets its own function (#231)                             |
-| `fraudMetrics`                                                                     | in-process counters: evaluations by outcome, decisions by reason code, outages by provider                                            |
-| `RADAR_WEBHOOK_HANDLERS`                                                           | `review.opened` / `review.closed`                                                                                                     |
+| Export                                                                             | Purpose                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerFraudCheck(opts?)`                                                        | boot mount point — one line in `registerModuleSeams()` of `src/wiring.ts` (REQUEST #231): registers the check with the seam and Radar's `review.*` handlers with the payments webhook receiver |
+| `createFraudCheck(opts?)`                                                          | the check: providers in order, worst outcome wins, outage → `review`, block recorded in `audit_log`                                                                                            |
+| `rulesFraudProvider` / `createRadarFraudProvider(opts?)`                           | the two `FraudProvider`s                                                                                                                                                                       |
+| `fraudSettingsFrom(store.settings)` / `DEFAULT_FRAUD_SETTINGS`                     | the store setting reader (never throws)                                                                                                                                                        |
+| `setFraudCheck` / `currentFraudCheck` / `enforceDecision` / `applyDecisionToOrder` | LOCAL STAND-IN for the checkout seam requested in #231                                                                                                                                         |
+| `flagOrderForReview` / `resolveOrderReview` / `readOrderFraud`                     | the review flag of an order, kept on its PAYMENT row until the orders module gets its own function (#231)                                                                                      |
+| `fraudMetrics`                                                                     | in-process counters: evaluations by outcome, decisions by reason code, outages by provider                                                                                                     |
+| `RADAR_WEBHOOK_HANDLERS`                                                           | `review.opened` / `review.closed`                                                                                                                                                              |
 
 ## The three decisions that shape this module
 

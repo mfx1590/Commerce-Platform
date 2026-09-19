@@ -41,7 +41,8 @@ export {
 export { RADAR_WEBHOOK_HANDLERS, reviewClosedHandler, reviewOpenedHandler } from './webhooks';
 
 /**
- * Boot mount point (REQUEST to window 1, next to `registerPaymentProviders()` / `registerTaxProvider()`):
+ * Boot mount point (REQUEST #231 to window 1): one line in `registerModuleSeams()` of `src/wiring.ts`, next to
+ * `registerPaymentProviders()` / `registerTaxProvider()`:
  * registers the fraud check with the seam and Radar's `review.*` handlers with the payments webhook receiver.
  * Returns the previous check. A store without settings runs both providers with the defaults; a non-stripe
  * payment is simply `allow` for Radar.
