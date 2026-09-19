@@ -16,6 +16,12 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
+- **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `23f3498` · local, PR after #218 merges
+  New module `apps/core/src/modules/fulfillment`: `routeFulfillment` (pure; store country override → store default
+  → same country → same region → priority), `FulfillmentProvider` (`push` / `status` / `cancel`) with the in-memory
+  3PL (cancel refused once picking), `requestFulfillment` / `cancelFulfillment` / `applyFulfillmentUpdate` with no
+  transaction across a provider call and a compensating cancel on a failed push. Shipping gained
+  `readShipmentMetadata` / `writeShipmentMetadata`. README documents the real-3PL mapping. 16 unit + 9 database tests.
 - **2.3 (#131) — labels, shipments and tracking webhooks** · commits `6f69b97` + `f305919` · PR pending
   `shipments.ts` (plan a shipment against what the order still owes, buy its label, the status machine and its
   outbox events), `tracking.ts` (verify HMAC over the raw body, record the event id, then apply — forward only,
@@ -40,19 +46,51 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#218 (2.3) review fixes pushed** (commit `6598276`); waiting for the manager's re-review of the diff.
-- **2.4 is parked on local branch `shipping/phase2-2.4-parked`** (commits f1261e6 + d1076aa) so it did not ride
-  along with the #218 fix. Replay it onto `shipping/phase2` locally; do NOT push until the manager confirms #218
-  merged. Delete the parked branch once replayed.
+- **#218 (2.3) is APPROVED (MERGE) and in the manager's queue** behind core #217. Pushed head `30fd3b2`.
+  **HOLD every push until the manager confirms the merge commit** (all-or-nothing push rule).
+- **2.4 (#132) is finished locally**, two commits on `shipping/phase2` (`23f3498` code + `7cb54de` memory), tree
+  clean, gates green. It becomes its own PR only after the #218 merge is confirmed.
+
+### The moment the manager confirms #218 merged
+1. `git merge main && pnpm install`, then push and open the **2.4 PR**. Body = the 2.4 CHANGELOG entry plus:
+   contracts-v0.4.1 and no new table (the 3PL reference lives on `shipment.metadata.fulfillment`); the four
+   routing rules and the store override; "no database transaction across a provider call" with the compensating
+   cancel on a failed push; the #132 acceptance criteria (EU→wh-eu, US→wh-us, store override, cancel before pick
+   releasing stock through the real inventory module, the documented real-3PL mapping); gates (16 unit + 9 database
+   tests, core suite 482 passed); and the "Fold into 2.5" list below as known follow-ups.
+2. The manager then lands #187 as **migration 0140**. After that merge main again and, **in the same commit as
+   that merge**, delete all three of these together:
+   - `apps/core/src/modules/shipping/proposed/0140_webhook_event.sql`
+   - the `readFileSync(join(__dirname, 'proposed', …))` DDL apply in `shipments-db.test.ts` `beforeAll`
+   - the drift test `byte-matches the payments copy of #187 while both proposed copies exist`
+   They must go in one commit: once 0140 is in `packages/db/migrations`, `createTestDatabase` already creates the
+   table, and the suite's own `CREATE TABLE` / `CREATE TRIGGER` would fail as duplicates. Also drop the
+   "proposed"/"#187 DDL" paragraphs from the shipping README and add a CHANGELOG line.
+
+## Fold into 2.5 (#133) — agreed nits from the #218 reviews, none blocking
+- `buyShipmentLabel` calls the carrier **inside** the database transaction; move the network call outside it, the
+  way `fulfillment/service.ts` already does (plan → call → record, with a compensating cancel).
+- `verifyEasyPostSignature` accepts **any** `label=` prefix: require the `hmac-sha256-hex` label (or a bare hex
+  digest) and reject anything else, rather than splitting on the first `=`.
+- `shipmentIdForTracking` silently picks the newest shipment when two share a tracking number; decide and test the
+  collision rule (most likely: refuse and record the delivery as `skipped` with a reason).
+- Add an explicit router test that a **guessed shipment id from another organization** is a 404, not a 403 leak.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
 - [x] **#130 · 2.2** Rate shopping at checkout — done, PR #186 in review
 - [x] **#131 · 2.3** Labels and tracking webhooks — done, PR pending
-- [ ] **#132 · 2.4** 3PL adapter interface + in-memory implementation
+- [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — done locally, PR after #218
 - [ ] **#133 · 2.5** Pick/pack state machine and events
 
 ## Decisions made (with reasons)
+- **No database transaction across a provider call** (2.4): a 3PL can take seconds or time out, and a held
+  transaction pins a connection and the order row's locks. Flows are short transactions around the network call
+  with explicit compensation — a failed push cancels the shipment, which releases its stock.
+- **Routing is a pure function with the rule that won in the result** (2.4); store settings name warehouses by
+  `code`, and an unknown code is ignored rather than failing the order.
+- **The 3PL reference lives on `shipment.metadata.fulfillment`** (2.4); the provider echoes our shipment id.
+- **The default provider is named `memory`** (2.4): it forgets jobs on restart, so it must not sound production-ready.
 - **A shared-table CONTRACT CHANGE is copied, never re-typed** (#218 review, 2026-09-15): `proposed/0140_webhook_event.sql`
   is a byte copy of #187's fence (identical to payments'), and a test compares the two files while both exist. My
   first draft re-typed the shape from my own proposal on #125 and diverged from what was accepted.

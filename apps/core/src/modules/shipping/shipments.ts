@@ -552,6 +552,42 @@ export async function listOrderShipments(
   });
 }
 
+/**
+ * Reads one key of a shipment's `metadata`. The fulfillment module keeps its 3PL reference there (task 2.4): the
+ * frozen schema has no fulfilment table, and `shipment.metadata` is this module's own column.
+ */
+export async function readShipmentMetadata(
+  client: ScopedClient,
+  shipmentId: string,
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  const r = await client.query<{ value: Record<string, unknown> | null }>(
+    `SELECT metadata -> $2 AS value FROM shipment WHERE id = $1`,
+    [shipmentId, key],
+  );
+  const row = r.rows[0];
+  if (!row) throw notFound('shipment', shipmentId);
+  return row.value ?? null;
+}
+
+/**
+ * Replaces one key of a shipment's `metadata`, leaving every other key alone. Not a status change, so no event:
+ * the facts a 3PL reports that do move the shipment go through `updateShipment`.
+ */
+export async function writeShipmentMetadata(
+  client: ScopedClient,
+  shipmentId: string,
+  key: string,
+  value: Record<string, unknown>,
+): Promise<void> {
+  const r = await client.query(
+    `UPDATE shipment SET metadata = jsonb_set(metadata, ARRAY[$2::text], $3::jsonb, true), updated_at = now()
+      WHERE id = $1`,
+    [shipmentId, key, JSON.stringify(value)],
+  );
+  if ((r.rowCount ?? 0) === 0) throw notFound('shipment', shipmentId);
+}
+
 // ---- internals ----
 
 interface OrderRow {
