@@ -58,17 +58,19 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
     has **no `picking` / `packed`**, so the pick/pack states cannot live in that column without a migration.
 
   Plan (order matters):
-  1. **File `CONTRACT CHANGE: fulfilment pick/pack lifecycle`** with the exact diff, then keep building against a
-     local mock (project rule). Proposed, smallest shape that satisfies #133:
-     - events 0.3.0: new `fulfillment.requested`, `fulfillment.picking`, `fulfillment.packed` v1 schemas
-       (`shipment_id`, `order_id`, `warehouse_id`, `items`, `occurred_at`; no address, no PII) + `EVENT_TOPICS`.
-       `shipment.shipped` already covers the last transition.
-     - Admin API 0.5.0: `POST /admin/shipments/{shipmentId}/pick` and `.../pack` (x-permission `operations` on
-       `organization:hq`, like `updateShipment`), and `GET /admin/stores/{storeId}/pick-lists` for the queue,
-       plus a `fulfillment_state` field on the `Shipment` schema (additive).
-     - **No db migration**: the pick/pack state stays on `shipment.metadata.fulfillment.state`, which 2.4 already
-       writes, so `shipment.status` and its CHECK are untouched. Say so explicitly in the issue — it is the reason
-       this change is additive only.
+  1. **DONE — filed as #225** (manager's shape: pick/pack are REAL `shipment.status` values, not metadata).
+     Migration 0160 widens the status CHECK (0150's pattern), events 0.3.0 adds `fulfillment.requested` /
+     `.picking` / `.packed`, Admin API 0.4.3 adds `pickShipment` / `packShipment` / `listPickLists` with
+     `updateShipment`'s permission. The transition table is spelled out in the issue — it is the review surface.
+     Local copy of the DDL: `apps/core/src/modules/fulfillment/proposed/0160_shipment_pick_pack.sql`, applied by
+     tests only, deleted in the PR that merges the real migration. The manager lands it as contracts-v0.4.3 after
+     #223 merges. **REQUEST #226** filed for the `apps/core/CLAUDE.md` rows (window 1's file).
+  1b. **The events cannot be emitted until events 0.3.0 lands**: `withEvents` validates against the envelope's
+     topic enum in `@platform/events`, and `buildEvent`'s `topic` is a typed union, so `fulfillment.picking` fails
+     to typecheck and would fail validation at runtime. 2.5 therefore emits through a **local seam** in the
+     fulfillment module (`lifecycle-events.ts`): the payloads are built and handed to an emitter whose default
+     records them (asserted by tests); once 0.3.0 is on main the emitter delegates to `withEvents` and the seam's
+     default is deleted. The emission code path is written and tested now — only the last hop waits.
   2. Implement the state machine in `modules/fulfillment` over that state: `requested → picking → packed →
      shipped`, forward only, illegal → 409, exactly one event per legal transition through `withEvents`.
   3. Partial shipments keep going through the orders module (`markShippedInTx`), already wired in 2.3.
