@@ -1,9 +1,7 @@
-// Merchandising rules (task 2.2, #135) against a seeded throwaway database that also carries the PROPOSED
-// migration (proposed/0130_merchandising_rule.sql, contract change #162): Postgres repository under RLS, service
-// validation (no cross-store ids), the router with dev-token principals (store_admin write / store_staff read),
-// publish → Algolia rules on the fake client, and the Store API relevance path with rules applied.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Merchandising rules (task 2.2, #135) against a seeded throwaway database (migration 0130 merchandising_rule,
+// contract change #162): Postgres repository under RLS, service validation (no cross-store ids), the router with
+// dev-token principals (store_admin write / store_staff read, relations read from admin-api.yaml), publish →
+// Algolia rules on the fake client, and the Store API relevance path with rules applied.
 import express from 'express';
 import request from 'supertest';
 import { createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -55,10 +53,6 @@ const base = `/admin/stores/${A}/merchandising`;
 beforeAll(async () => {
   db = await createTestDatabase('core_merch');
   await seed(db.owner, { productsPerStore: 12, log: () => {} });
-  // the proposed migration, verbatim (proven here until it lands in packages/db)
-  await db.owner.query(
-    readFileSync(join(__dirname, 'proposed', '0130_merchandising_rule.sql'), 'utf8'),
-  );
 
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
@@ -259,8 +253,11 @@ describe('publish → Algolia rules, relevance search with rules applied', () =>
     await storeAdmin.patch(`${base}/rules/${disabled.body.id}`, { enabled: true });
     const again = await storeAdmin.post(`${base}/publish`);
     expect(again.body).toEqual({ index: name, published: 2, skipped: 0 });
+    // deterministic (#166 review): the fake promotes a pinned record even into an otherwise empty
+    // category listing, so the result is never empty and the pin is always first
     const cat = await searchRelevance(storeA, fake, { category_id: categoryA, limit: 5 });
-    if (cat.ids.length > 0) expect(cat.ids[0]).toBe(productsA[2]);
+    expect(cat.ids.length).toBeGreaterThan(0);
+    expect(cat.ids[0]).toBe(productsA[2]);
   });
 
   it('publish answers 409 when the store has no index backend', async () => {

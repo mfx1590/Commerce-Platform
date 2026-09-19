@@ -7,6 +7,9 @@ PostgreSQL row-level-security policies, the migration runner, the tenant-scoped 
 test helpers. Tests prove that a session for store A cannot read, insert, or move rows of store B.
 Migration 0120 (0.2.0) adds the marketing tables (campaign, segment [+ templates with `store_id NULL`],
 segment_member, product_feed, attribution, referral_program, referral, review); see docs/domain.md section 2b.
+Migration 0130 (0.2.1) adds `merchandising_rule` (search pin / boost / bury per category or query, one rule per
+store + scope; CONTRACT CHANGE #162, window 9). Migration 0150 (0.2.2) widens the `promotion.type` CHECK with
+`buy_x_get_y` (CONTRACT CHANGE #189; the rest of #189 rides the `rules` jsonb column). 0140 is reserved for #187.
 
 ## Owner
 

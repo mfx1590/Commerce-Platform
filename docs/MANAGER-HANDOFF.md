@@ -71,7 +71,7 @@ Windows are told "keep building the next task locally; push it as its own PR aft
 ## 6. Shared stack etiquette (windows share one docker stack on this machine)
 
 Never `pnpm dev --reset` / `docker compose down` while windows are active; realm changes via
-`node infra/keycloak/reimport.mjs <realm>`; ports: Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081, Redpanda 19092,
+`node infra/keycloak/reimport.mjs <realm>`; ports: Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081 (playground 18083), Redpanda 19092,
 mocks 4010/4011, observability (2.5) Grafana 3400 / Loki 3410 / Tempo 3420 / Prometheus 9090 / OTel 4317-4318.
 
 ## 7. Platform facts
@@ -99,3 +99,17 @@ mocks 4010/4011, observability (2.5) Grafana 3400 / Loki 3410 / Tempo 3420 / Pro
   then rewrite the memory files from the issue map. `./scripts/new-window.sh <n> <phase>` now switches an existing worktree
   to the new phase branch.
 
+## 10. Public repo, branch protection, and the queue (learned 2026-09-14/15)
+
+- The repo is public since 2026-09-09: Actions minutes are free, the billing refusals ("job was not started because recent
+  account payments have failed") are gone. Branch protection on `main` requires five checks (ownership, lint + typecheck,
+  unit, contract, secret scan); the manager's direct Memory-main commits bypass it as admin — that is intended.
+- Close a task issue only after `gh pr view N --json state` says MERGED. The queue refuses on any red check (except the
+  advisory `app images`); twice an issue was closed on a refused queue and had to be reopened.
+- A refused queue with a `non-lockfile conflicts:` line means the window must merge main and resolve — the queue never
+  resolves conflicts. A refused queue whose only red job is `live auth + end-to-end` needs the job log: since #210 that job
+  boots the core (a loader/plugin failure fails it) and runs brand journeys only with `E2E_INCLUDE_BRAND_STOREFRONTS=1`.
+- Post-merge reviews exist: when a task rides into main inside another PR (search 2.5 in #188), review it on main and file a
+  follow-up issue instead of pretending it was reviewed.
+- Windows must merge main BEFORE pushing so the queue's own merge is a no-op (fewer CI runs), and hold every push until the
+  manager confirms a merge — a branch push is all-or-nothing and can carry unreviewed work into an open PR.

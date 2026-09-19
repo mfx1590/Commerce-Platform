@@ -28,16 +28,16 @@ Reads keep working on completed carts (the storefront's confirmation page).
 Every mutation locks the cart row (`SELECT … FOR UPDATE`), applies the change and calls `recalculate()` in the same
 transaction. Integer minor units everywhere; nothing is a float.
 
-| Amount            | Rule                                                                                                                                |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| line `unit_price` | default-list price (`price_list.type = 'default'`, `status = 'active'`, cart currency, `min_quantity = 1`) snapshotted at first add |
-| line `subtotal`   | `quantity × unit_price`                                                                                                             |
-| line `discount`   | `cart_line_item.discount_minor` — 0 until window 9's promotions API prices the stored codes                                         |
-| line `tax`        | `round_half_up((subtotal − discount) × tax_rate_bp / 10000)` from the persisted `tax_rate_bp` (`taxOn()`)                           |
-| line `total`      | `subtotal − discount + tax`                                                                                                         |
-| `shipping`        | the `ShippingRateProvider` quote for `shipping_option_id` (0 without a selection)                                                   |
-| `tax`             | Σ `TaxCalculator` line tax + shipping tax                                                                                           |
-| `total`           | `subtotal − discount + shipping + tax`                                                                                              |
+| Amount            | Rule                                                                                                                                                                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| line `unit_price` | the `PriceResolver` price for the line's CURRENT quantity (default: the store's default list, greatest `min_quantity <= quantity`; the server registers window 9's price lists: sale > group/override > default). Every line mutation re-prices the whole cart |
+| line `subtotal`   | `quantity × unit_price`                                                                                                                                                                                                                                        |
+| line `discount`   | `cart_line_item.discount_minor` — 0 until window 9's promotions API prices the stored codes                                                                                                                                                                    |
+| line `tax`        | the `TaxCalculator`'s own amount for the line as last calculated (`metadata.tax.amount_minor`, read through `lineTaxOf`) — never recomputed from `tax_rate_bp` (#221)                                                                                          |
+| line `total`      | exclusive prices: `subtotal − discount + tax`; `prices_include_tax`: `subtotal − discount` (the tax is inside)                                                                                                                                                 |
+| `shipping`        | the `ShippingRateProvider` quote for `shipping_option_id` (0 without a selection)                                                                                                                                                                              |
+| `tax`             | Σ `TaxCalculator` line tax + shipping tax                                                                                                                                                                                                                      |
+| `total`           | exclusive prices: `subtotal − discount + shipping + tax`; `prices_include_tax`: `subtotal − discount + shipping` (tax reported, not added)                                                                                                                     |
 
 Prices are **tax-exclusive** (owner decision 2026-09-08; tax-inclusive display is a later store setting). Stock:
 adding or raising a line beyond the summed `inventory_level.available` of active warehouses → 409 `out_of_stock`
@@ -56,7 +56,8 @@ setShippingRateProvider(easyPostRates); // window 8, #130 — returns the previo
 
 - `TaxCalculator.calculate({ tx, organizationId, storeId, salesChannelId, currency, country, shippingAddress, lines, shippingMinor })`
   → `{ lines: [{ lineItemId, taxRateBp, taxMinor }], shippingTaxMinor }`. `taxRateBp` is persisted on the line
-  (`cart_line_item.tax_rate_bp`) and drives the per-line display; `taxMinor` drives the cart total. Default
+  (`cart_line_item.tax_rate_bp`); `taxMinor` is persisted next to it (`metadata.tax`) and drives both the line
+  display and the cart total (#221). `ctx.pricesIncludeTax` tells the calculator the store's mode. Default
   `tableTaxCalculator`: our `tax_rate` table by `cart.country` — the line's category over a store-wide rate, a
   `region` match (from the shipping address) over `region IS NULL`; no row → 0 bp; shipping untaxed.
 - `ShippingRateProvider.list(ctx)` / `.quote(ctx, optionId)` → `{ optionId, code, name, carrier, priceMinor, currency }`
@@ -66,7 +67,50 @@ setShippingRateProvider(easyPostRates); // window 8, #130 — returns the previo
 - Both run inside the mutation's transaction through `ctx.tx` (RLS scope = the store). Set once at boot from the
   owning module; the registry is process-wide.
 
+## Abandoned carts (task 2.6, `abandoned.ts`)
+
+`markAbandonedCarts(client, { now, idleForMs, batchSize? })` / `markAllAbandonedCarts(...)`: every `active` cart with
+at least one line and `updated_at < now − idleForMs` becomes `abandoned` and emits ONE `cart.abandoned` v1
+(`cart_id`, `customer_id`, `email_hash` = sha256 of the lowercased email or null, `currency`, `total_minor`,
+`line_item_count`, `last_activity_at` = the cart's `updated_at`, `abandoned_at` = now, `has_attribution`) in the
+same transaction. Rows are taken with `FOR UPDATE SKIP LOCKED`, so two concurrent runs never double-process. The
+clock is injected; the job in `src/jobs/abandoned-carts.ts` supplies it (Medusa scheduled job under
+`MEDUSA_WORKER_MODE = shared | worker`, cron `CORE_ABANDONED_CART_CRON` default hourly, threshold
+`CORE_ABANDONED_CART_AFTER_HOURS` default 6, one organization-scoped pass for every store; also a one-shot CLI).
+
+**Reactivation**: any mutation on an `abandoned` cart flips it back to `active` and touches `updated_at`
+(`lockActiveCart`), so the idle clock restarts and the cart is abandoned again only after a full idle period — that
+later abandonment is a new event. A `completed` cart still answers 409 `cart_completed`. Empty carts are never
+abandoned (nothing to recover).
+
 ## Decisions (ADR-style; the main window moves them to docs/adr)
+
+- **2026-09-19 · Unit prices come through a `PriceResolver` seam, and every line mutation re-prices the cart
+  (#179 part 3).** `setPriceResolver()` follows the tax/shipping pattern: the default
+  (`defaultListPriceResolver`) reads the store's default list tiered by quantity; the server registers
+  `priceListResolver` (`src/wiring.ts`) over window 9's `resolvePrices` — sale > group/override > default,
+  priority, date windows, sales channel, the customer's group. A seam rather than an import because
+  `promotions → http → module-routers → payments → checkout → cart` would close an import cycle, and because the
+  cart must not know who owns price lists (guard test). `repriceLines(tx, cart, { at, apply })` re-resolves every
+  line at its current quantity on add / update / remove; a variant with no price in the currency is a 400 for the
+  line being changed and is left alone on other lines — placement reports it.
+
+- **2026-09-19 · A line's tax is the calculator's amount, kept per line; tax-inclusive stores (#221, window 7).**
+  `recalculate` stores each line's last calculation in `cart_line_item.metadata.tax = { amount_minor, mode, bp }`
+  (one namespaced object, so a later `tax_minor` column is a mechanical migration) and every reader goes through
+  `lineTaxOf(row)` — the cart line, the order line frozen at placement and `order.placed` all show the
+  calculator's own amount, never `taxOn(base, tax_rate_bp)` again (a provider such as Stripe Tax rounds per line
+  in its own way; Σ line tax + shipping tax = `tax_minor` by construction). Why metadata and not the two
+  alternatives: recomputing at render would call the provider on every cart read; a column needs a contract round
+  trip for no behavioural gain. Line metadata is internal — no Store API shape renders it (tested over HTTP).
+  `store.settings.tax.prices_include_tax` (default false) reaches calculators as `PricingContext.pricesIncludeTax`:
+  the tax is then CONTAINED in the prices — reported in `totals.tax`, never added on top
+  (`total = subtotal − discount + shipping`, line `total = subtotal − discount`). `taxOn(base, bp, included)` is
+  the one rounding rule (half up) for both modes; `tableTaxCalculator` honours the flag. A cart is re-priced in the
+  store's current mode on its next mutation; a placed order keeps the mode frozen on its lines.
+
+- **2026-09-09 · Abandoned = idle, reactivation resets the clock, a new abandonment is a new event** (manager, 2.6);
+  `updated_at` is deliberately NOT touched by the job so `last_activity_at` stays the customer's last action.
 
 - **2026-09-08 · Carts bypass Medusa's cart module** (owner decision deferred from task 1.8, accepted by the manager
   at the start of 2.1). The contract cart is `public.cart` / `cart_line_item`: `organization_id` + `store_id` on
@@ -75,9 +119,9 @@ setShippingRateProvider(easyPostRates); // window 8, #130 — returns the previo
   answer ahead of Medusa's. Consequence: no Medusa mirror of stores, channels or publishable keys is needed at all —
   the 1.8 "mirror" question is closed; `src/bootstrap` stays a read-only verifier.
 - **2026-09-08 · Prices are tax-exclusive; tax and shipping pricing sit behind interfaces** (manager requirement so
-  windows 7/8 never edit this module). Line tax display derives from the persisted `tax_rate_bp`; the cart total uses
-  the calculator's amounts, so a provider with its own rounding can differ from the line display by a minor unit —
-  acceptable for the cart, and `order_line_item.tax_minor` is written exactly at placement (2.2).
+  windows 7/8 never edit this module). Superseded on two points by the 2026-09-19 decision above (#221): a line
+  shows and freezes the calculator's own amount (no recompute from `tax_rate_bp`, so no minor-unit drift), and
+  tax-exclusive is the default, not the only mode.
 - **2026-09-08 · Promotion codes are accepted and stored, not validated** until window 9's promotions public API
   exists (`apps/core/src/modules/promotions/index.ts`); discount stays 0. When it lands, `recalculate()` gets a
   third provider call between shipping and tax; the stored codes need no migration.

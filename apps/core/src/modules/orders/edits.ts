@@ -7,7 +7,15 @@
 import type { Queryable, ScopedClient } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { conflict, notFound, validationError } from '../../lib/errors';
-import { currentTaxCalculator, taxOn, type PricingContext } from '../cart';
+import {
+  currentTaxCalculator,
+  lineTaxOf,
+  lineTotalWith,
+  taxOn,
+  type LineTaxRecord,
+  type TaxMode,
+  type PricingContext,
+} from '../cart';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
 import { transition } from './service';
 import type { AdminOrder, OrderLineRow, OrderRow } from './types';
@@ -35,47 +43,77 @@ function assertEditable(o: OrderRow): void {
   }
 }
 
-/** Recomputes every line's tax/total and the order totals from the current lines (shipping unchanged). */
+/**
+ * Recomputes every line's tax/total and the order totals from the current lines (shipping unchanged). Each line
+ * re-prices in the tax mode frozen ON THAT LINE at placement (#221, #224 review) — never the store's current
+ * setting, never a mode borrowed from a sibling line. One calculator call per mode present (one in practice: a
+ * placement prices every line in one mode); shipping is taxed once, in the first line's mode. Tax goes on top of
+ * the total only for the exclusive part.
+ */
 async function recomputeTotals(tx: Queryable, o: OrderRow): Promise<string[]> {
   const lines = await loadOrderLines(tx, o.id);
-  const ctx: PricingContext & { shippingMinor: number } = {
-    tx,
-    organizationId: o.organization_id,
-    storeId: o.store_id,
-    salesChannelId: o.sales_channel_id,
-    currency: o.currency,
-    country: o.shipping_address.country,
-    shippingAddress: o.shipping_address,
-    lines: lines.map((l) => ({
-      lineItemId: l.id,
-      variantId: l.variant_id ?? '',
-      productId: l.product_id ?? '',
-      categoryId: l.category_id,
-      quantity: l.quantity,
-      unitPriceMinor: Number(l.unit_price_minor),
-      discountMinor: Number(l.discount_minor),
-    })),
-    shippingMinor: Number(o.shipping_minor),
-  };
-  const tax = await currentTaxCalculator().calculate(ctx);
-  const byLine = new Map(tax.lines.map((t) => [t.lineItemId, t]));
+  const modeOf = new Map<string, TaxMode>(lines.map((l) => [l.id, lineTaxOf(l).mode]));
+  const shippingMode: TaxMode = lines[0] ? modeOf.get(lines[0].id)! : 'exclusive';
+  const byLine = new Map<string, { taxRateBp: number; taxMinor: number }>();
+  let shippingTax = 0;
+  for (const mode of ['exclusive', 'inclusive'] as const) {
+    const group = lines.filter((l) => modeOf.get(l.id) === mode);
+    if (group.length === 0) continue;
+    const ctx: PricingContext & { shippingMinor: number } = {
+      tx,
+      organizationId: o.organization_id,
+      storeId: o.store_id,
+      salesChannelId: o.sales_channel_id,
+      currency: o.currency,
+      country: o.shipping_address.country,
+      shippingAddress: o.shipping_address,
+      lines: group.map((l) => ({
+        lineItemId: l.id,
+        variantId: l.variant_id ?? '',
+        productId: l.product_id ?? '',
+        categoryId: l.category_id,
+        quantity: l.quantity,
+        unitPriceMinor: Number(l.unit_price_minor),
+        discountMinor: Number(l.discount_minor),
+      })),
+      shippingMinor: mode === shippingMode ? Number(o.shipping_minor) : 0,
+      pricesIncludeTax: mode === 'inclusive',
+    };
+    const tax = await currentTaxCalculator().calculate(ctx);
+    for (const t of tax.lines) byLine.set(t.lineItemId, t);
+    if (mode === shippingMode) shippingTax = tax.shippingTaxMinor;
+  }
   let subtotal = 0;
   let discount = 0;
-  let taxMinor = tax.shippingTaxMinor;
+  let taxMinor = shippingTax;
+  let taxOnTop = shippingMode === 'exclusive' ? shippingTax : 0;
   for (const l of lines) {
+    const mode = modeOf.get(l.id)!;
     const t = byLine.get(l.id);
     const bp = t?.taxRateBp ?? l.tax_rate_bp;
     const base = l.quantity * Number(l.unit_price_minor) - Number(l.discount_minor);
-    const lineTax = t?.taxMinor ?? taxOn(base, bp);
+    const record: LineTaxRecord = {
+      amount_minor: t?.taxMinor ?? taxOn(base, bp, mode === 'inclusive'),
+      mode,
+      bp,
+    };
     subtotal += l.quantity * Number(l.unit_price_minor);
     discount += Number(l.discount_minor);
-    taxMinor += lineTax;
+    taxMinor += record.amount_minor;
+    if (mode === 'exclusive') taxOnTop += record.amount_minor;
     await tx.query(
-      `UPDATE order_line_item SET tax_rate_bp = $2, tax_minor = $3, total_minor = $4, updated_at = now() WHERE id = $1`,
-      [l.id, bp, lineTax, base + lineTax],
+      `UPDATE order_line_item SET tax_rate_bp = $2, tax_minor = $3, total_minor = $4, metadata = $5::jsonb,
+         updated_at = now() WHERE id = $1`,
+      [
+        l.id,
+        bp,
+        record.amount_minor,
+        lineTotalWith(base, record),
+        JSON.stringify({ ...(l.metadata ?? {}), tax: record }),
+      ],
     );
   }
-  const total = subtotal - discount + Number(o.shipping_minor) + taxMinor;
+  const total = subtotal - discount + Number(o.shipping_minor) + taxOnTop;
   const changed: string[] = ['line_items'];
   if (subtotal !== Number(o.subtotal_minor)) changed.push('subtotal_minor');
   if (discount !== Number(o.discount_minor)) changed.push('discount_minor');

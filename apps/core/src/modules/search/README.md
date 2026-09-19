@@ -5,7 +5,7 @@ Store API `sort=relevance` path build on this module.
 
 ## Owner
 
-Window 9 (search). Paths: `apps/core/src/modules/search/**`, `apps/core/src/jobs/index-*.ts`.
+Window 9 (search). Paths: `apps/core/src/modules/search/**` (the index CLI lives at `cli/index-products.ts`), `apps/core/src/jobs/index-*.ts`.
 
 ## Index naming
 
@@ -67,13 +67,13 @@ Known limits (reviewer notes on #160):
 
 ## Merchandising rules (task 2.2, #135 — contract change #162)
 
-Pin / boost / bury per **category** or **search query**, one rule per store + scope, stored in the proposed
-`merchandising_rule` table (`proposed/0130_merchandising_rule.sql`, applied by this module's tests to their
-throwaway database until the migration lands in `packages/db`) or in `MemoryRulesRepository` for environments
-without the table. The Admin API operations are the proposed `proposed/admin-api.merchandising.yaml`
-(`store_staff` read, `store_admin` write); until they are in `admin-api.yaml`, `merchandisingRouter({
-repository, indexFor })` validates bodies against the same schemas (`merchandising-types.ts`) and hard-codes the
-relations. Window 1 mounts the router next to `adminRouter()` (REQUEST in #162).
+Pin / boost / bury per **category** or **search query**, one rule per store + scope, stored in the
+`merchandising_rule` table (`packages/db` migration 0130, landed with contracts-v0.4) or in
+`MemoryRulesRepository` for environments without the table. The Admin API operations are the `search` area of
+`admin-api.yaml` 0.4.0 (`store_staff` read, `store_admin` write); `merchandisingRouter({ repository, indexFor })`
+reads each operation's `x-permission` from the spec (`loadSpec`) and validates bodies against the same schemas
+(`merchandising-types.ts`). **Mounted** on main through `apps/core/src/http/module-routers.ts`
+(`moduleAdminRouters()`, after `adminRouter()`), with `PgRulesRepository` and the store's index backend.
 
 - Validation: schema (ajv), scope (`category_id` must be a category **of the store**, `query` is normalised:
   trimmed, single-spaced, lower-cased), every product id in pins / boosts / buries must belong to the store
@@ -92,6 +92,38 @@ starts_at`, boost weight 1–100, at most 50 pins / 200 boosts / 200 buries. Dup
   keeps the ILIKE stub when the store has no credentials. `FakeIndexClient.search` applies saved rules
   deterministically so this path is tested without Algolia.
 
+## Product media / Cloudinary (task 2.3, #136 — contract change #168, loader REQUEST #169)
+
+- **Signed direct upload** (`POST /admin/stores/{storeId}/media/upload-params`, `store_staff`): the browser
+  uploads straight to Cloudinary with parameters this server signed — `folder: products/<store_code>`, a
+  readable `public_id`, `timestamp` — SHA-1 over the sorted `k=v&…` string + api secret (`cloudinary.ts`
+  `signParams`). The response carries the public `api_key`, the signed params and the signature, never the
+  secret (test asserts it). No credentials for the store → 409 `conflict` (URL passthrough mode: media can
+  still be added by URL from any host). The product must belong to the store (404 otherwise).
+- **Per-item media operations** (`GET|POST …/products/{productId}/media`, `PATCH|DELETE …/media/{mediaId}`;
+  `viewer` read, `store_staff` write): `alt` is required (trimmed, non-blank) on add and on patch; `variant_id`
+  must be a variant of the product; positions are **owned by the server** — every add (append or insert at
+  `position`), move and delete renumbers the product's media 0..n-1 in the existing order (no gaps, no
+  duplicates, whatever the client sent — window 4's Phase 1 renumbering note); `product.thumbnail_url` follows
+  position 0. Each change writes `audit_log` (`product.media.add|update|delete`, before/after) and one
+  `product.updated` (`changed_fields: ["media"]`) event through the outbox on the same transaction — so the
+  search index picks it up on the next sync. `product_media.url` always stores the **original** URL.
+- **Renditions** (`ProductMedia.variants`, `renditionUrls`): `thumb` `c_fill,w_400,h_400,g_auto,q_auto,f_auto`,
+  `pdp` `c_limit,w_1200,q_auto,f_auto`, `zoom` `c_limit,w_2400,q_auto,f_auto`, inserted right after
+  `/image/upload/` and chained before any transformation already in the URL; non-Cloudinary URLs (unsplash,
+  picsum in the seed) pass through unchanged.
+- **`next/image` loader contract** (windows 3/6/10; `packages/ui` copies `cloudinaryImageLoader` — REQUEST
+  #169): `c_limit,w_<width>,q_<quality|auto>,f_auto`, passthrough for other hosts.
+- Credentials: `CLOUDINARY_CLOUD_NAME[_<CODE>]`, `CLOUDINARY_API_KEY[_<CODE>]`, `CLOUDINARY_API_SECRET[_<CODE>]`
+  (`cloudinaryCredentialsFor`; a store triple wins, a partial triple is ignored). `CLOUDINARY_CLOUD_NAME` is
+  shared with the cms rows; all three rows are in `.env.example` (landed with contracts-v0.4.1).
+- Router: `mediaRouter({ credentialsFor?, now? })` (`media-http.ts`); permissions are read from admin-api.yaml
+  0.4.1 (`loadSpec`). **Not mounted yet**: the `routers.push(mediaRouter())` line in
+  `apps/core/src/http/module-routers.ts` is window 1's, requested in #179 — until it lands these routes 404.
+- Tests: `cloudinary.test.ts` (7: credentials, signature, params without the secret, slugs, transformations,
+  passthrough, loader), `media.test.ts` (6: signed params / 409 / 404, alt required, variant check, 403 for a
+  read-only role, append / insert / move / delete positions, thumbnail, audit + events, foreign product 404).
+
 ## Credentials
 
 From the environment only (Vault-injected in deployed environments, ADR 0006; repo-root `.env` locally):
@@ -107,18 +139,23 @@ live test skips, local work uses `--fake`. Keys never appear in logs or errors (
 
 ## Runbook
 
+The CLI lives **under the module**, not in `src/jobs/`: Medusa's job loader scans that folder and requires
+every file in it to export a `config`, so a plain script there makes the server refuse to boot with "Config is
+required for scheduled jobs" (#202/#203). A real scheduled job would go back to `src/jobs/` **with** a `config`
+export; this one is a CLI invoked by cron / the runbook.
+
 ```bash
 # first build of every active store's index (also after a settings change or a suspected drift)
-pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --all --full
+pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --all --full
 
 # catch up one store from the outbox (cron / after a deploy)
-pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --store brand-a
+pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --store brand-a
 
 # poll every 5 s until SIGINT/SIGTERM (first pass full when --full is given, then incremental)
-pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --all --loop 5000
+pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --all --loop 5000
 
 # dry run without an Algolia account (in-memory index, prints counts)
-pnpm --filter @platform/core exec tsx src/jobs/index-products.ts --store brand-a --full --fake
+pnpm --filter @platform/core exec tsx src/modules/search/cli/index-products.ts --store brand-a --full --fake
 ```
 
 The job needs `DATABASE_URL_APP` (runs as `platform_app` through `tenantClient`) and `CORE_ORGANIZATION_ID`
@@ -141,7 +178,7 @@ store is one batch; `--batch <n>` tunes it.
 - `algolia-client.test.ts` — REST shaping against a fake fetch (batches of 1000, headers, URL encoding, browse
   cursor loop, 404 settings → `{}`, task polling, key never in errors).
 - `search-live.test.ts` — real Algolia round trip on a throwaway index; skips without credentials.
-- `merchandising.test.ts` — seeded database + the proposed migration: router with dev-token principals
+- `merchandising.test.ts` — seeded database (migration 0130): router with dev-token principals
   (store_staff read / store_admin write, 403), validation (foreign category / product ids, pinned+buried,
   weights), one rule per scope (409), get/patch/delete, brand-b never sees brand-a's rule, publish → fake
   Algolia rules (active only, `published_at`), relevance search with pin/bury applied, 409 without an index,

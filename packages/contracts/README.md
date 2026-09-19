@@ -3,13 +3,19 @@
 OpenAPI contracts for the Store API and Admin API, generated types, and Prism mocks. Owner: main window.
 See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 
-| Spec                     | `info.version` | Operations | Areas                                                                                          |
-| ------------------------ | -------------- | ---------- | ---------------------------------------------------------------------------------------------- |
-| `openapi/store-api.yaml` | 0.3.0          | 20         | store, catalog, cart, checkout, orders, customers                                              |
-| `openapi/admin-api.yaml` | 0.3.0          | 87         | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing |
+| Spec                     | `info.version` | Operations | Areas                                                                                                  |
+| ------------------------ | -------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
+| `openapi/store-api.yaml` | 0.3.1          | 20         | store, catalog, cart, checkout, orders, customers                                                      |
+| `openapi/admin-api.yaml` | 0.4.3          | 105        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
 
-`CONTRACTS_VERSION` is `0.3.0` (tag contracts-v0.3). The marketing area (37 operations, 15 components) is specified in
-[docs/marketing-scope.md](../../docs/marketing-scope.md).
+`CONTRACTS_VERSION` is `0.4.3` (tag contracts-v0.4.3). The marketing area (37 operations, 15 components) is specified in
+[docs/marketing-scope.md](../../docs/marketing-scope.md); the search area (6 merchandising operations, 5 components) in
+CONTRACT CHANGE #162; 0.4.1 adds product media (5 operations, 5 components, #168), `getPromotion` / `updatePromotion`
+with `buy_x_get_y` and `stackable` / `exclusive` (#189) and a spelled-out `ProductFeed` (#194); 0.4.2 adds order
+line-item edits — `updateOrderLineItem` / `cancelOrderLineItem` before fulfilment (#172); 0.4.3 adds the shipment
+pick/pack lifecycle — `pickShipment` / `packShipment` / `listPickLists` with `picking` / `packed` status values
+(#225) and the Store API `price_changed` error code on completeCart (#228). Every admin operation documents `401`
+and `403` (#180), so `Prefer: code=403` works on the mock.
 
 ## Start the mocks
 

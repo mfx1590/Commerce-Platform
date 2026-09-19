@@ -331,6 +331,240 @@ describe('Admin API mock', () => {
   });
 });
 
+describe('Admin API mock (0.4.0)', () => {
+  it('merchandising (#162): create rule → publish → list; get / patch / delete; bad scope is 400', async () => {
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/merchandising`;
+    const created = await fetch(`${base}/rules`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        scope: { type: 'category', category_id: '00000000-0000-4000-8000-000000000201' },
+        pins: ['00000000-0000-4000-8000-000000000301'],
+        boosts: [{ product_id: '00000000-0000-4000-8000-000000000302', weight: 50 }],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const rule = await json(created);
+    expect((rule.scope as { type: string }).type).toBe('category');
+    expect(rule.published_at).toBeNull();
+
+    const badScope = await fetch(`${base}/rules`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ scope: { type: 'brand' } }),
+    });
+    expect(badScope.status).toBe(400);
+    const badWeight = await fetch(`${base}/rules`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        scope: { type: 'query', query: 'summer tee' },
+        boosts: [{ product_id: '00000000-0000-4000-8000-000000000302', weight: 101 }],
+      }),
+    });
+    expect(badWeight.status).toBe(400);
+
+    const published = await fetch(`${base}/publish`, { method: 'POST', headers: adminHeaders });
+    expect(published.status).toBe(200);
+    const result = await json(published);
+    expect(typeof result.index).toBe('string');
+    expect(typeof result.published).toBe('number');
+    expect(typeof result.skipped).toBe('number');
+
+    const list = await json(await fetch(`${base}/rules`, { headers: adminHeaders }));
+    const items = list.items as Array<{ id: string; scope: { type: string } }>;
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0]?.scope.type).toBe('category');
+
+    const one = await fetch(`${base}/rules/${rule.id}`, { headers: adminHeaders });
+    expect(one.status).toBe(200);
+    const patched = await fetch(`${base}/rules/${rule.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(patched.status).toBe(200);
+    expect(typeof (await json(patched)).enabled).toBe('boolean');
+    const badPatch = await fetch(`${base}/rules/${rule.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ scope: { type: 'query', query: 'x' }, enabled: 'yes' }),
+    });
+    expect(badPatch.status).toBe(400);
+    const deleted = await fetch(`${base}/rules/${rule.id}`, {
+      method: 'DELETE',
+      headers: adminHeaders,
+    });
+    expect(deleted.status).toBe(204);
+  });
+
+  it('401 / 403 are documented on every operation (#180): Prism can produce the refusal on demand', async () => {
+    for (const [path, method, body] of [
+      [`/admin/stores/${STORE_ID}/products`, 'POST', { handle: 'new-tee', title: 'New Tee' }],
+      [`/admin/stores/${STORE_ID}/merchandising/publish`, 'POST', undefined],
+      [`/admin/stores/${STORE_ID}/merchandising/rules`, 'GET', undefined],
+    ] as const) {
+      const forbidden = await fetch(`${ADMIN}${path}`, {
+        method,
+        headers: { ...adminHeaders, prefer: 'code=403' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      expect(forbidden.status, `${method} ${path}`).toBe(403);
+      const err = await json(forbidden);
+      expect(err.code).toBe('forbidden');
+      expect(typeof (err.details as { relation: string }).relation).toBe('string');
+    }
+    const unauthorized = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/products`, {
+      headers: { ...adminHeaders, prefer: 'code=401' },
+    });
+    expect(unauthorized.status).toBe(401);
+    expect((await json(unauthorized)).code).toBe('unauthorized');
+  });
+});
+
+describe('Admin API mock (0.4.1)', () => {
+  const PRODUCT_ID = '30000000-0000-4000-8000-000000000201';
+
+  it('product media (#168): upload params → add (alt required) → move → list → delete', async () => {
+    const params = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/media/upload-params`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ product_id: PRODUCT_ID, filename: 'front.jpg' }),
+    });
+    expect(params.status).toBe(200);
+    const signed = await json(params);
+    expect(typeof signed.signature).toBe('string');
+    expect(typeof signed.api_key).toBe('string');
+    expect(signed).not.toHaveProperty('api_secret');
+    expect((signed.params as { timestamp: number }).timestamp).toBe(signed.timestamp);
+    const noProduct = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/media/upload-params`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ filename: 'front.jpg' }),
+    });
+    expect(noProduct.status).toBe(400);
+
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/products/${PRODUCT_ID}/media`;
+    const noAlt = await fetch(base, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ url: 'https://res.cloudinary.com/demo/image/upload/front.jpg' }),
+    });
+    expect(noAlt.status).toBe(400);
+    const added = await fetch(base, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        url: 'https://res.cloudinary.com/demo/image/upload/front.jpg',
+        alt: 'Classic Tee, front',
+      }),
+    });
+    expect(added.status).toBe(201);
+    const item = await json(added);
+    expect(typeof item.position).toBe('number');
+    expect(Object.keys(item.variants as object).sort()).toEqual(['pdp', 'thumb', 'zoom']);
+
+    const moved = await fetch(`${base}/${item.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ position: 2 }),
+    });
+    expect(moved.status).toBe(200);
+    expect(typeof (await json(moved)).position).toBe('number');
+    const badMove = await fetch(`${base}/${item.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ position: -1 }),
+    });
+    expect(badMove.status).toBe(400);
+
+    const list = await json(await fetch(base, { headers: adminHeaders }));
+    const items = list.items as Array<{ position: number; variants: { thumb: string } }>;
+    expect(items[0]?.position).toBe(0);
+    expect(typeof items[0]?.variants.thumb).toBe('string');
+    const deleted = await fetch(`${base}/${item.id}`, { method: 'DELETE', headers: adminHeaders });
+    expect(deleted.status).toBe(204);
+  });
+
+  it('promotions (#189): create buy_x_get_y → get → update stackable; code / type stay out of the patch', async () => {
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/promotions`;
+    const created = await fetch(base, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        name: 'Buy 2 tees get 1 free',
+        type: 'buy_x_get_y',
+        rules: { buy_quantity: 2, get_quantity: 1, get_discount_bp: 10000 },
+        exclusive: true,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const promotion = await json(created);
+    expect(typeof promotion.stackable).toBe('boolean');
+    expect(typeof promotion.exclusive).toBe('boolean');
+    const badType = await fetch(base, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ name: 'x', type: 'bogo' }),
+    });
+    expect(badType.status).toBe(400);
+    const badBundle = await fetch(base, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ name: 'x', type: 'buy_x_get_y', rules: { buy_quantity: 0 } }),
+    });
+    expect(badBundle.status).toBe(400);
+
+    const one = await fetch(`${base}/${promotion.id}`, { headers: adminHeaders });
+    expect(one.status).toBe(200);
+    const got = await json(one);
+    expect(got.type).toBe('buy_x_get_y');
+    expect((got.rules as { buy_quantity: number }).buy_quantity).toBe(2);
+
+    const updated = await fetch(`${base}/${promotion.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ stackable: true, exclusive: false, status: 'disabled' }),
+    });
+    expect(updated.status).toBe(200);
+    expect(typeof (await json(updated)).stackable).toBe('boolean');
+    const badPatch = await fetch(`${base}/${promotion.id}`, {
+      method: 'PATCH',
+      headers: adminHeaders,
+      body: JSON.stringify({ rules: { get_discount_bp: 20000 } }),
+    });
+    expect(badPatch.status).toBe(400);
+  });
+
+  it('feeds (#194): a feed whose publish failed is a schema-valid ProductFeed with status error', async () => {
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/marketing/feeds/70000000-0000-4000-8000-000000000731`;
+    const failed = await fetch(`${base}/publish`, {
+      method: 'POST',
+      headers: { ...adminHeaders, prefer: 'example=googleError' },
+    });
+    expect(failed.status).toBe(200); // Prism validates the example against ProductFeed before answering
+    const feed = await json(failed);
+    expect(feed.status).toBe('error');
+    expect(feed.url).toBeNull();
+    expect((feed.errors as Array<{ code: string }>)[0]?.code).toBe('no_primary_domain');
+    const read = await fetch(base, { headers: { ...adminHeaders, prefer: 'example=googleError' } });
+    expect((await json(read)).status).toBe('error');
+    // the input still cannot claim `error`: that verdict belongs to publishing
+    const claimed = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/marketing/feeds`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        name: 'x',
+        channel: 'meta',
+        locale: 'en-GB',
+        currency: 'EUR',
+        status: 'error',
+      }),
+    });
+    expect(claimed.status).toBe(400);
+  });
+});
+
 describe('Store API mock (0.3.0 currency query)', () => {
   it('accepts a valid currency and rejects a malformed one', async () => {
     const ok = await fetch(`${STORE}/store/products/classic-tee?currency=EUR`, {

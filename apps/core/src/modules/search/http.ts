@@ -1,13 +1,14 @@
-// Admin API merchandising routes (task 2.2, #135) as a mountable Express router. The contract does not have
-// these operations yet (CONTRACT CHANGE #162), so permissions are the relations of the proposed YAML
-// (`store_staff` read / `store_admin` write) and bodies are validated by merchandising-types.ts; once the
-// contract lands both come from `loadSpec('admin-api.yaml')` like every other admin route. Window 1 mounts
-// `merchandisingRouter(...)` next to `adminRouter()` (REQUEST in #162); nothing here is reachable until then.
+// Admin API merchandising routes (task 2.2, #135) as a mountable Express router. Permissions are each
+// operation's `x-permission` from admin-api.yaml 0.4.0 (CONTRACT CHANGE #162: `store_staff` read /
+// `store_admin` write), read through `loadSpec` like every other admin route; bodies are validated by
+// merchandising-types.ts (same schemas as the spec). Mounted by window 1 through src/http/module-routers.ts
+// (`moduleAdminRouters()`, after `adminRouter()`).
 import { Router, type Request } from 'express';
 import type { ScopedClient } from '@platform/db';
 import { AppError } from '../../lib/errors';
 import { handle } from '../../http/errors';
-import { requirePermission } from '../../http/permissions';
+import { loadSpec } from '../../http/openapi';
+import { requirePermission, resolveObject } from '../../http/permissions';
 import { uuidParam } from '../../http/query';
 import { requirePrincipal, storeClientFor, type StaffPrincipal } from '../../http/staff-auth';
 import {
@@ -36,8 +37,13 @@ function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client
   return { p, storeId, client: storeClientFor(p, storeId) };
 }
 
-const permission = (relation: 'store_staff' | 'store_admin') =>
-  requirePermission(relation, (req) => `store:${uuidParam(req.params, 'storeId')}`);
+/** `requirePermission` for the operation's `x-permission`; `{storeId}` in the object comes from the path. */
+function permission(operationId: string) {
+  const perm = loadSpec('admin-api.yaml').permission(operationId);
+  return requirePermission(perm.relation, (req) =>
+    resolveObject(perm.object, { storeId: uuidParam(req.params, 'storeId') }),
+  );
+}
 
 /** Contract shape: `store_id` is internal. */
 function toContract(rule: MerchandisingRule): Omit<MerchandisingRule, 'store_id'> {
@@ -61,7 +67,7 @@ export function merchandisingRouter(opts: MerchandisingRouterOptions): Router {
 
   r.get(
     `${MERCHANDISING_BASE}/rules`,
-    permission('store_staff'),
+    permission('listMerchandisingRules'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       res.json({ items: (await listRules(client, storeId, repo)).map(toContract) });
@@ -69,7 +75,7 @@ export function merchandisingRouter(opts: MerchandisingRouterOptions): Router {
   );
   r.post(
     `${MERCHANDISING_BASE}/rules`,
-    permission('store_admin'),
+    permission('createMerchandisingRule'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       res.status(201).json(toContract(await createRule(client, storeId, req.body, repo)));
@@ -77,7 +83,7 @@ export function merchandisingRouter(opts: MerchandisingRouterOptions): Router {
   );
   r.get(
     `${MERCHANDISING_BASE}/rules/:ruleId`,
-    permission('store_staff'),
+    permission('getMerchandisingRule'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       res.json(toContract(await getRule(client, storeId, uuidParam(req.params, 'ruleId'), repo)));
@@ -85,7 +91,7 @@ export function merchandisingRouter(opts: MerchandisingRouterOptions): Router {
   );
   r.patch(
     `${MERCHANDISING_BASE}/rules/:ruleId`,
-    permission('store_admin'),
+    permission('updateMerchandisingRule'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       res.json(
@@ -97,7 +103,7 @@ export function merchandisingRouter(opts: MerchandisingRouterOptions): Router {
   );
   r.delete(
     `${MERCHANDISING_BASE}/rules/:ruleId`,
-    permission('store_admin'),
+    permission('deleteMerchandisingRule'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       await deleteRule(client, storeId, uuidParam(req.params, 'ruleId'), repo);
@@ -106,7 +112,7 @@ export function merchandisingRouter(opts: MerchandisingRouterOptions): Router {
   );
   r.post(
     `${MERCHANDISING_BASE}/publish`,
-    permission('store_admin'),
+    permission('publishMerchandisingRules'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       const store = await loadStore(client, storeId);

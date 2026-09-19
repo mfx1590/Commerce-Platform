@@ -15,12 +15,22 @@ export {
   loadLines,
   lockActiveCart,
   recalculate,
+  repriceLines,
   renderCart,
 } from './service';
+// Abandoned carts (task 2.6): the job in src/jobs/abandoned-carts.ts calls these with an injected clock.
+export { markAbandonedCarts, markAllAbandonedCarts } from './abandoned';
+export type { MarkAbandonedInput, MarkAbandonedResult } from './abandoned';
 // Pricing providers: windows 7 (tax, #127) and 8 (shipping rates, #130) replace the table-backed defaults at boot.
 export {
   currentShippingRateProvider,
+  currentPriceResolver,
   currentTaxCalculator,
+  defaultListPriceResolver,
+  lineTaxOf,
+  lineTotalWith,
+  pricesIncludeTaxFor,
+  setPriceResolver,
   setShippingRateProvider,
   setTaxCalculator,
   tableShippingRates,
@@ -34,7 +44,11 @@ export type {
   CartStatus,
   CartStoreContext,
   CreateCartInput,
+  LineTaxRecord,
   Money,
+  PriceChange,
+  PriceQuery,
+  PriceResolver,
   PricingContext,
   PricingLine,
   ShippingRate,
@@ -45,6 +59,7 @@ export type {
   StoreShippingOption,
   TaxCalculation,
   TaxCalculator,
+  TaxMode,
   TaxLine,
   UpdateCartInput,
 } from './types';

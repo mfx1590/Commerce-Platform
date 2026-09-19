@@ -59,13 +59,35 @@ export interface PricingContext {
   country: string;
   shippingAddress: Address | null;
   lines: PricingLine[];
+  /**
+   * `store.settings.tax.prices_include_tax` (#221; absent = false): when true every price in `lines` and the
+   * shipping price already CONTAIN the tax, and a calculator returns the contained amount, not one to add on top.
+   */
+  pricesIncludeTax?: boolean | undefined;
+}
+
+export type TaxMode = 'exclusive' | 'inclusive';
+
+/**
+ * The last calculation of one line, kept in `cart_line_item.metadata.tax` and frozen onto
+ * `order_line_item.metadata.tax` at placement (#221). One namespaced object so a later column migration is
+ * mechanical. Line metadata is internal: no Store API response renders it.
+ */
+export interface LineTaxRecord {
+  amount_minor: number;
+  mode: TaxMode;
+  bp: number;
 }
 
 export interface TaxLine {
   lineItemId: string;
   /** Effective rate in basis points, persisted on the line (`cart_line_item.tax_rate_bp`). */
   taxRateBp: number;
-  /** Tax on `quantity * unit − discount`, integer minor units. */
+  /**
+   * Tax on `quantity * unit − discount`, integer minor units: the amount to add on top (exclusive prices) or the
+   * amount contained in it (`pricesIncludeTax`). The cart shows and the order freezes THIS amount — it is never
+   * recomputed from `taxRateBp` (#221: a provider's per-line rounding is the truth).
+   */
   taxMinor: number;
 }
 
@@ -156,4 +178,37 @@ export interface ShippingOptionRow {
   carrier: string;
   price_minor: string;
   currency: string;
+}
+
+// ---- unit prices (#179 part 3) ----
+
+export interface PriceQuery {
+  /** The mutation's transaction (RLS scope = the store). */
+  tx: Queryable;
+  storeId: string;
+  currency: string;
+  salesChannelId: string | null;
+  /** The cart's customer, when signed in: a resolver derives customer groups from it. Null for guests. */
+  customerId: string | null;
+  /** One clock for the whole mutation: a quote and the placement that follows judge every price window alike. */
+  at: Date;
+  lines: { variantId: string; quantity: number }[];
+}
+
+/**
+ * The effective unit price per variant, integer minor units. A variant ABSENT from the result has no applicable
+ * price in the currency: not sellable. Default: `defaultListPriceResolver` (the store's default list, tiered by
+ * quantity). The server registers window 9's `resolvePrices` (sale > override/group > default) at boot through
+ * `setPriceResolver` — this module never imports the promotions module.
+ */
+export interface PriceResolver {
+  resolve(query: PriceQuery): Promise<Map<string, number>>;
+}
+
+/** One line whose unit price differs from what the cart holds (`unitPriceMinor: null` = no longer sellable). */
+export interface PriceChange {
+  lineItemId: string;
+  variantId: string;
+  previousUnitPriceMinor: number;
+  unitPriceMinor: number | null;
 }

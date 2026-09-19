@@ -232,4 +232,118 @@ describe('row-level security (platform_app role)', () => {
     const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
     expect((await other.query('SELECT id FROM segment')).rowCount).toBe(0);
   });
+
+  it('merchandising: a store-A session sees only its own rule; one rule per store + scope (0130)', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    await hq.transaction(async (tx) => {
+      for (const store of [STORE_A, STORE_B]) {
+        const category = await tx.query<{ id: string }>(
+          `INSERT INTO product_category (organization_id, store_id, handle, name) VALUES ($1, $2, 'tees', 'Tees') RETURNING id`,
+          [ORG, store],
+        );
+        await tx.query(
+          `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key, category_id, pins)
+           VALUES ($1, $2, 'category', $3::text, $3::uuid, '[]'), ($1, $2, 'query', 'summer tee', NULL, '[]')`,
+          [ORG, store, category.rows[0]!.id],
+        );
+      }
+    });
+
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const mine = await a.query<{ store_id: string; scope_type: string }>(
+      'SELECT store_id, scope_type FROM merchandising_rule ORDER BY scope_type',
+    );
+    expect(mine.rows).toEqual([
+      { store_id: STORE_A, scope_type: 'category' },
+      { store_id: STORE_A, scope_type: 'query' },
+    ]);
+    expect(
+      (await a.query('SELECT id FROM merchandising_rule WHERE store_id = $1', [STORE_B])).rowCount,
+    ).toBe(0);
+    await expect(
+      a.query(
+        `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key) VALUES ($1, $2, 'query', 'hack')`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // one rule per (store, scope_type, scope_key): a second query rule for the same words is refused
+    await expect(
+      a.query(
+        `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key) VALUES ($1, $2, 'query', 'summer tee')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/merchandising_rule_store_id_scope_type_scope_key_key/);
+    // a category scope must carry its category_id (and a query scope must not)
+    await expect(
+      a.query(
+        `INSERT INTO merchandising_rule (organization_id, store_id, scope_type, scope_key) VALUES ($1, $2, 'category', 'x')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/check constraint/);
+    expect((await hq.query('SELECT id FROM merchandising_rule')).rowCount).toBe(4);
+  });
+
+  it('promotions: buy_x_get_y inserts after 0150; unknown types are still refused; rows stay per store', async () => {
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const created = await a.query<{ id: string; type: string }>(
+      `INSERT INTO promotion (organization_id, store_id, name, type, rules)
+       VALUES ($1, $2, 'Buy 2 get 1', 'buy_x_get_y', '{"buy_quantity": 2, "get_quantity": 1, "exclusive": true}')
+       RETURNING id, type`,
+      [ORG, STORE_A],
+    );
+    expect(created.rows[0]?.type).toBe('buy_x_get_y');
+    await expect(
+      a.query(
+        `INSERT INTO promotion (organization_id, store_id, name, type) VALUES ($1, $2, 'Nope', 'bogo')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/promotion_type_check/);
+    await expect(
+      a.query(
+        `INSERT INTO promotion (organization_id, store_id, name, type) VALUES ($1, $2, 'Hack', 'buy_x_get_y')`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    expect(
+      (await b.query('SELECT id FROM promotion WHERE type = $1', ['buy_x_get_y'])).rowCount,
+    ).toBe(0);
+  });
+
+  it('webhook_event (0140): rows stay per store; a redelivery conflicts on (provider, provider_event_id)', async () => {
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    await a.query(
+      `INSERT INTO webhook_event (organization_id, store_id, provider, provider_event_id, event_type, payload_hash)
+       VALUES ($1, $2, 'stripe', 'evt_rls_case', 'payment_intent.succeeded', 'deadhash')`,
+      [ORG, STORE_A],
+    );
+    await expect(
+      a.query(
+        `INSERT INTO webhook_event (organization_id, store_id, provider, provider_event_id, event_type, payload_hash)
+         VALUES ($1, $2, 'stripe', 'evt_rls_hack', 'payment_intent.succeeded', 'deadhash')`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    // the dedupe key is intentionally NOT per store: the same delivery routed twice still inserts once
+    await expect(
+      a.query(
+        `INSERT INTO webhook_event (organization_id, store_id, provider, provider_event_id, event_type, payload_hash)
+         VALUES ($1, $2, 'stripe', 'evt_rls_case', 'payment_intent.succeeded', 'deadhash')`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/webhook_event_provider_provider_event_id_key/);
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    expect((await b.query('SELECT id FROM webhook_event')).rowCount).toBe(0);
+  });
+
+  it('shipment.status CHECK includes picking and packed after 0160', async () => {
+    const r = await db.owner.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'shipment_status_check'`,
+    );
+    // behaviour (legal transitions, refusals) is proven in the fulfillment module's suites;
+    // this pins the migration itself: the widened constraint is what a fresh database gets
+    expect(r.rows[0]!.def).toContain("'picking'");
+    expect(r.rows[0]!.def).toContain("'packed'");
+    expect(r.rows[0]!.def).not.toContain("'boxed'");
+  });
 });

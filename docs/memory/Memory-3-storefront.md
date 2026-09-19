@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `storefront/phase2` · Status: Phase 2 not started (Phase 1 complete)
+Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0 — the `currency` query is in use since 2.1); main merged 2026-09-09 carries Admin API 0.4.0, which this window does not consume · Branch: `storefront/phase2` · Status: Phase 2 · 2.1 in PR, 2.2 next
 
 ## Identity (does not change)
 
@@ -100,9 +100,27 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       it landed **inside PR #101**, which was still open when it was pushed, rather than the separate
       small PR the manager asked for: one branch means one open PR.
 
+- [x] **2.1 (#109) Real Store API wiring** — commit `d28aec7`, PR PENDING. Closes #102; folds in
+      REQUEST #169 (`9cb3204`, `@platform/ui` 0.3.0), REQUEST #178 (`a52e635`) and #167's
+      documentation lines (`f050020`) as three self-contained commits in the same PR.
+      The core is the default backend (`STORE_API_URL` wins, `MOCK_API_URL` selects Prism, the
+      unconfigured default moved from the mock to `http://localhost:9000`). `currency` (Store API
+      0.3.0) is sent on `listProducts`/`getProduct` from the reconciled currency cookie, so PLP/PDP
+      prices follow the switcher. Error mapping gained 401 `unauthorized` /
+      `invalid_publishable_key` / `forbidden` and 409 `conflict`. `picsum.photos` allowed in
+      `remotePatterns` scoped to `/seed/**`. The Playwright journey is data-independent.
+      213 app tests (15 files) + 47 kit tests green; lint, typecheck, format, `next build` green.
+      **Not verified: the e2e run against the core** — see In progress and #203.
+
 ## In progress
 
-- (nothing — Phase 2 starts with the first item under Next)
+- **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
+  See Done below for what shipped. **The e2e run against the core did not happen: the core does not
+  boot on main** — `apps/core/src/jobs/index-products.ts` (window 9, `d258257`) is a CLI script with
+  no Medusa job `config`, and the `JobLoader` refuses the boot before :9000 ever binds. Filed as
+  **#203**. Everything else in 2.1 is green against the mock, and the suite is written so the same
+  spec runs against the core the moment it starts. Re-run then:
+  `E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-starter e2e`.
 
 <!-- superseded plan, kept for the record:
 - **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
@@ -126,12 +144,36 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#109 · 2.1** Real Store API wiring (core first, mock only for what the core lacks) (includes #102)
 - [ ] **#110 · 2.2** SEO: metadata, structured data, sitemap, canonical/hreflang
 - [ ] **#111 · 2.3** Performance budget in CI and image pipeline
 - [ ] **#112 · 2.4** Marketing hooks: referral landing, review display, feed-friendly PDP data
 
 ## Decisions made (with reasons)
+
+- **A test may assert on our own copy; it may never assert on the dataset.** That is the line the
+  Phase 1 e2e crossed, and it is why the suite could not run against the core: the fixture's product
+  name, handle, price and SKU were baked into the journey, along with the mock's stateless cart that
+  always opened checkout at the payment step. The journey now takes whatever the first product is,
+  reads its name off the page, and drives whichever step it lands on. Message-catalogue copy, roles
+  and structure are ours and are stable; a product name is not.
+- **`currency` is passed into the catalog reads explicitly rather than resolved inside them.**
+  `src/lib/catalog.ts` stays free of `next/headers`, so it remains a pure, directly-testable module;
+  the two call sites (PLP view, PDP loader) resolve `getCurrency(await getStoreOrNull())`, both of
+  which are `cache()`d per render, so metadata and page still share one request. Both PLP and PDP
+  route groups already read a cookie in the layout, so nothing became dynamic that was not.
+- **The unconfigured default is the core, and `MOCK_API_URL` is what selects Prism.** Precedence is
+  `STORE_API_URL ?? MOCK_API_URL ?? core`. Playwright and CI set `MOCK_API_URL` explicitly, so they
+  keep their contract-example run without needing the stack, while a developer who configures
+  nothing gets the real thing — which is the behaviour that was wrong before.
+- **The attribution cookie is capped by reducing `last`, never `first`** (#102). Values are
+  truncated on both touches first; only if that still does not fit is `last` reduced to the fields
+  that identify a campaign. The first touch is what acquired the customer, so it is the one that
+  must survive — the same reasoning that makes `mergeAttribution` never overwrite it.
+- **The `content` namespace merge is tolerant of window 6 not having shipped yet** (#178). A hard
+  `import` of `src/lib/cms/messages/<locale>.json` fails the whole request while that folder is
+  empty; next-intl's own behaviour for a missing message is to log and render the key, so failing
+  louder than the library does would turn "window 6 has not shipped its strings" into a broken
+  storefront rather than an untranslated `(content)` route.
 
 - **PR flow (manager ruling, 2026-09-05, also in Memory-main global gotchas): ONE branch per window.**
   Stay on `storefront/phase1` for the whole phase. After each task: commit, open a PR from that
@@ -288,6 +330,31 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **The core does not boot on main (2026-09-09, issue #203).** `apps/core/src/jobs/index-products.ts`
+  is a CLI script with no `config` export, and Medusa's `JobLoader` scans `src/jobs/` at boot and
+  requires one from every file: "Config is required for scheduled jobs", before :9000 binds. Nothing
+  caught it because the core's tests mount `mountCoreMiddleware` on a bare Express app and never run
+  Medusa's loaders — the hq-rbac lesson again. **Check :9000 answers `/health` before planning any
+  work that depends on the core.**
+- **`playwright.config.ts` sets the app server's env explicitly**, so the repo-root `.env` is not
+  what decides the backend in an e2e run. Next only reads `apps/storefront-starter/.env*` anyway;
+  the root `.env` reaches a process only when something loads it (the core does, via `loadDotenv()`).
+  A worktree has no `.env` of its own until `pnpm dev` writes one — `cp .env.example .env` is enough
+  to run the core locally, and it is gitignored.
+- **`page.waitForURL(<pattern matching the current URL>)` returns immediately**, so a loop that
+  advances through steps re-processes the step it is already on: the second pass clicks a button the
+  first submit has already disabled (`aria-busy`), and the click hangs until the test times out.
+  Wait for the URL to *change* (`(url) => !url.pathname.endsWith('/' + step)`), not merely to match.
+- **Server-action forms detach their submit button at hydration** (`useActionState` replaces the
+  server-rendered form), so a click landing in that window fails with "element was detached from the
+  DOM". Waiting for the step's `<h1>` and `networkidle` before acting is what makes it deterministic.
+- **Rebuild `@platform/contracts` before believing a typecheck failure about contract types.** The
+  generated sources are committed but the `dist/` the app resolves is not, so a freshly merged
+  contract version reports as missing properties (`'currency' does not exist on type …`) until
+  `pnpm --filter @platform/contracts build`. Running package scripts directly also skips turbo's
+  `^build`, which is why the cms suites fail to resolve `@platform/cms` unless it is built first —
+  the root `pnpm test --filter …` does it for you.
 
 - **`metadata` does not exist anywhere in the Store API spec** (`grep -c metadata store-api.yaml`
   → 0), despite issue #62 stating it was free-form in contracts-v0.1. `completeCart` has no request

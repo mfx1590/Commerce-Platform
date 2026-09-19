@@ -339,10 +339,10 @@ Owner: window 1 (catalog).
 | product_id | uuid FK product | |
 | variant_id | uuid NULL FK product_variant | |
 | url | text | Cloudinary URL (window 9) |
-| alt | text NULL | |
-| position | int | |
+| alt | text NULL | required (non-blank) on the per-item Admin API operations since contracts-v0.4.1 (#168); the whole-set `ProductInput.media` path still allows NULL |
+| position | int | server-owned: contiguous 0..n-1 per product; add inserts at `position` (default append), move shifts the others, delete renumbers (#168) |
 
-Owner: window 1 (catalog); upload pipeline window 9.
+Owner: window 1 (catalog); upload pipeline window 9 (signed Cloudinary upload params, per-item add / patch / delete, contracts-v0.4.1).
 
 ### customer_group
 
@@ -397,10 +397,10 @@ Owner: window 1 (pricing).
 | organization_id / store_id | uuid | |
 | code | text NULL | coupon code, unique per store when set; NULL = automatic |
 | name | text | |
-| type | text | `percentage` / `fixed_amount` / `free_shipping` |
+| type | text | `percentage` / `fixed_amount` / `free_shipping` / `buy_x_get_y` (migration 0150, contracts-v0.4.1 #189) |
 | value | int | basis points for percentage (1000 = 10%), minor units for fixed |
 | currency | char(3) NULL | required for fixed_amount |
-| rules | jsonb | `{min_subtotal_minor, product_ids, category_ids, customer_group_ids, sales_channel_ids, first_order_only}` |
+| rules | jsonb | `{min_subtotal_minor, product_ids, category_ids, customer_group_ids, sales_channel_ids, first_order_only, buy_quantity, get_quantity, get_discount_bp, stackable, exclusive}` — the API lifts `stackable` / `exclusive` to top level; `buy_*` / `get_*` are `buy_x_get_y` only (#189, no extra columns) |
 | usage_limit | int NULL | |
 | usage_count | int | |
 | per_customer_limit | int NULL | |
@@ -618,7 +618,7 @@ Owner: window 7 (payments). Events: `refund.issued`, `refund.failed`.
 | label_url | text NULL | |
 | cost_minor | bigint NULL | what we pay the carrier |
 | currency | char(3) | |
-| status | text | `pending` / `label_created` / `shipped` / `in_transit` / `delivered` / `failed` / `cancelled` |
+| status | text | `pending` / `picking` / `packed` / `label_created` / `shipped` / `in_transit` / `delivered` / `failed` / `cancelled` — picking/packed since migration 0160 (CONTRACT CHANGE #225): forward-only, skips legal, cancel only before departure |
 | shipped_at / delivered_at | timestamptz NULL | |
 | metadata | jsonb | |
 
@@ -789,7 +789,7 @@ Owner: window 17 (materialise job). Events: none. No `updated_at`: rows are repl
 | filters | jsonb | `{category_ids, tags, in_stock_only, …}` |
 | mapping | jsonb | channel attribute → product field overrides |
 | url | text NULL | public URL once published |
-| status | text | `draft` / `active` / `paused` / `error` |
+| status | text | `draft` / `active` / `paused` / `error` — `error` is set by publishing only; `ProductFeedInput.status` is `draft` / `active` / `paused` (contracts-v0.4.1 #194: `ProductFeed` is spelled out, not `allOf[ProductFeedInput, …]`) |
 | last_published_at | timestamptz NULL | |
 | item_count | int | |
 | errors | jsonb | `[{code, message, product_id?}]` |
@@ -863,6 +863,46 @@ Owner: window 17. Events: `referral.converted`.
 
 Owner: window 17. Events: `review.published`.
 
+### merchandising_rule (search; migration 0130, contracts-v0.4)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | |
+| scope_type | text | `category` / `query` |
+| scope_key | text | category: the `product_category` id; query: the search query, trimmed and lower-cased; UNIQUE `(store_id, scope_type, scope_key)` — one rule per store + scope |
+| category_id | uuid NULL FK product_category | cascade; CHECK: set exactly when `scope_type = category` |
+| pins | jsonb | ordered product ids shown first (≤ 50) |
+| boosts | jsonb | `[{ product_id, weight 1..100 }]` (≤ 200) |
+| buries | jsonb | product ids hidden for this scope (≤ 200) |
+| enabled | boolean | |
+| starts_at / ends_at | timestamptz NULL | `ends_at > starts_at` when both set; outside the window a rule is skipped on publish |
+| published_at | timestamptz NULL | stamped by `publishMerchandisingRules`, which replaces the store's Algolia rules with every enabled rule |
+
+Owner: window 9 (search). Events: none — rules are pushed to Algolia synchronously on publish and no other system
+consumes them (CONTRACT CHANGE #162, open question left as is).
+
+### webhook_event (payments + shipping; migration 0140, contracts-v0.4.2)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | RLS kind `store`; the receiver resolves the store (route / signature secret) BEFORE inserting — an unresolvable delivery is rejected and never stored |
+| provider | text | `stripe` / `easypost` / … |
+| provider_event_id | text | Stripe `evt_…`, EasyPost event id; UNIQUE `(provider, provider_event_id)` — the dedupe key, intentionally NOT per store |
+| event_type | text | `payment_intent.succeeded`, `tracker.updated`, … |
+| provider_object_id | text NULL | the provider object the event is about (`pi_…`, `trk_…`) |
+| aggregate_type / aggregate_id | text CHECK payment/refund/shipment · uuid NULL | our row once resolved; NULL = unmatched |
+| occurred_at | timestamptz NULL | provider/carrier time FROM THE PAYLOAD; ordering logic must never depend on it |
+| received_at | timestamptz | when we got the delivery |
+| status | text | `received` → `processed` / `skipped` / `failed` (+ `failure_reason`); partial index feeds retry/replay listings |
+| payload | jsonb | the consumer's REDACTED extract — ids, amounts, statuses; never an address, email or name |
+| payload_hash | text | sha256 hex of the raw request body |
+| replay_count | integer | incremented by the replay CLI |
+
+Owner: shared — window 7 (Stripe receiver, #125) and window 8 (carrier tracking, #131) write through their own
+modules; exactly-once = `INSERT … ON CONFLICT DO NOTHING` before processing (CONTRACT CHANGE #187).
+
 ### abandoned carts (no table)
 
 Derived from `cart` with `status = 'active'` and no activity for the store's abandonment window; the core job flips
@@ -913,7 +953,7 @@ every mutation ─► outbox ─► bus ─► ledger_entry (Phase 4)
 | 2 auth | staff_user, role_assignment, audit_log helper |
 | 7 payments | payment, refund, tax_rate (Stripe Tax) |
 | 8 shipping | shipment, shipment_item, shipping_option |
-| 9 search | promotion, product_media pipeline, search index sync |
+| 9 search | promotion, product_media pipeline, search index sync, merchandising_rule |
 | 11 warehouse | warehouse, allocation policy over inventory_level |
 | 13 customers | customer, customer_address, customer_identity |
 | 14 events | outbox relay |

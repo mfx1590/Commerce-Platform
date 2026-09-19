@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SideNav } from '@/components/shell/side-nav';
+import { RailList } from '@/components/rail/rail-list';
 import { StoreSwitcher } from '@/components/shell/store-switcher';
 import { hqNavItems, storeNavItems } from '@/lib/nav/navigation';
 import { SEED, principals } from './fixtures/principals';
@@ -19,9 +19,9 @@ beforeEach(() => {
   pathname.current = '/';
 });
 
-describe('SideNav', () => {
+describe('RailList (the plain fallback)', () => {
   it('renders only the sections it is given, in order', () => {
-    render(<SideNav label="HQ" items={hqNavItems(principals.finance)} />);
+    render(<RailList label="HQ" items={hqNavItems(principals.finance)} />);
     const nav = screen.getByRole('navigation', { name: 'HQ' });
     expect(
       within(nav)
@@ -31,13 +31,13 @@ describe('SideNav', () => {
   });
 
   it('renders nothing at all for a principal with no sections in that scope', () => {
-    const { container } = render(<SideNav label="HQ" items={hqNavItems(principals.storeAdmin)} />);
+    const { container } = render(<RailList label="HQ" items={hqNavItems(principals.storeAdmin)} />);
     expect(container).toBeEmptyDOMElement();
   });
 
   it('marks the current section for screen readers', () => {
     pathname.current = '/finance';
-    render(<SideNav label="HQ" items={hqNavItems(principals.owner)} />);
+    render(<RailList label="HQ" items={hqNavItems(principals.owner)} />);
     expect(screen.getByRole('link', { name: 'Finance' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Stores' })).not.toHaveAttribute('aria-current');
   });
@@ -45,7 +45,7 @@ describe('SideNav', () => {
   it('marks a store section from a nested path', () => {
     pathname.current = `/${SEED.stores.brandA}/catalog/some-product`;
     render(
-      <SideNav label="Brand A" items={storeNavItems(principals.storeAdmin, SEED.stores.brandA)} />,
+      <RailList label="Brand A" items={storeNavItems(principals.storeAdmin, SEED.stores.brandA)} />,
     );
     expect(screen.getByRole('link', { name: 'Catalog' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Orders' })).not.toHaveAttribute('aria-current');
@@ -53,7 +53,7 @@ describe('SideNav', () => {
 
   it('does not offer Settings to store_staff', () => {
     render(
-      <SideNav label="Brand A" items={storeNavItems(principals.storeStaff, SEED.stores.brandA)} />,
+      <RailList label="Brand A" items={storeNavItems(principals.storeStaff, SEED.stores.brandA)} />,
     );
     expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Content' })).toBeInTheDocument();

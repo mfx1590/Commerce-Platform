@@ -29,12 +29,18 @@ module: `GET /store/carts/{cartId}/shipping-options`, `POST …/payment-session`
 3. Preconditions → 400 `validation_error` listing what is missing: items, `email`, `shipping_address`,
    `billing_address`, `shipping_option_id`, `payment_session`.
 4. Totals refreshed through the cart module (`recalculate`, providers included); a shipping option no longer
-   quotable → 400. Stock re-checked per line → 409 `out_of_stock` (reservations arrive with task 2.4).
+   quotable → 400. (The stock check is the reservation in step 6b since task 2.4.)
 5. `PaymentProvider.authorize()` for the session's provider; `failed` → 402 `payment_failed`, **nothing written**.
 6. `"order"` inserted with snapshots (addresses, `shipping_method {code,name,carrier,price_minor}`, totals frozen,
    `payment_status = 'authorized'`, `metadata = orderMetadataFromCart(cart.metadata)`), then `order_line_item`
    rows (`tax_minor` exact from the persisted `tax_rate_bp`, `total_minor = qty×unit − discount + tax`), then the
    `payment` row (provider, provider payment id, amount, `authorized`, the idempotency key).
+   6b. **Reservations** (`reserveForOrder`, inventory module): the stock check at placement under the level rows'
+   locks — greedy allocation across warehouses by priority; a non-backorderable shortfall → 409 `out_of_stock`
+   and the whole placement rolls back.
+   6c. **Void on failure**: every step after a successful `authorize` runs under a guard — any throw (out_of_stock,
+   a shipping-option race, a database error) rolls back AND calls `PaymentProvider.void` for the authorisation
+   before rethrowing, so no dangling hold survives (#174 review; tested on the manual provider's call log).
 7. `recordAttribution()` from `src/lib/attribution.ts` (Integration 1): one `attribution` row + one
    `attribution.recorded` per touch in `cart.metadata.attribution` — called, not reimplemented.
 8. `order.placed` v1 through `withEvents` (validated against `packages/events/schemas/order.placed/v1.json`;
@@ -52,6 +58,11 @@ transaction — fine for Phase 2, a Phase 3 scaling concern to revisit (per-stor
 
 ## PaymentProvider (public API; window 7 implements `stripe` against it, #127)
 
+Since task 2.5 the seam itself (types, the process-wide registry, the `manual` provider) lives in
+`src/lib/payment-seam.ts` so the orders and returns modules can use the registry without importing the checkout
+module (no checkout ↔ orders cycle; a guard test enforces it). This module re-exports everything unchanged:
+keep importing `setPaymentProvider` / `PaymentProvider` from `../checkout`.
+
 ```ts
 import { setPaymentProvider, type PaymentProvider } from '../checkout'; // from another module: '../modules/checkout'
 setPaymentProvider(stripeProvider); // at boot; returns the previous provider under that name
@@ -63,7 +74,10 @@ setPaymentProvider(stripeProvider); // at boot; returns the previous provider un
 - `authorize({ tx, cart, session, idempotencyKey }) → { status: 'authorized' | 'failed', providerPaymentId, failureReason? }`
   inside the placement transaction; `failed` aborts the placement with 402. Must be idempotent on
   `idempotencyKey` (the replay path never reaches it, but a provider may be retried after a crash).
-- `void({ tx, providerPaymentId, idempotencyKey, reason }) → { status: 'voided' | 'failed' }`: called by the
+- `void({ tx, organizationId, storeId, cartId?, providerPaymentId, idempotencyKey, reason }) → { status: 'voided' | 'failed' }`
+  — carries the **store** (per-store PSP credentials are resolved from it) because on the placement failure path
+  the transaction is being rolled back and may already be aborted: a provider must never run queries on `tx`
+  there (2.6, window 7's gap). `refund` carries `organizationId` / `storeId` for the same reason: called by the
   orders module when an order with an **authorised, uncaptured** payment is cancelled (`cancelOrder`, 2.3); a
   `failed` void aborts the cancellation with 402. `manual` is a no-op that always succeeds (nothing was ever
   captured); Stripe cancels the PaymentIntent.
@@ -92,6 +106,21 @@ The contract allows only 200 or 404, so an order id can never be confirmed by pr
 guest orders. The storefront's client never sends the customer token to cart paths.
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
+
+- **2026-09-19 · Placement never charges a price the customer did not see: 409 `price_changed` (#179 part 3,
+  CONTRACT CHANGE #228).** Under the cart lock `completeCart` re-resolves every line at one clock (`at`); any
+  difference rolls the placement back (nothing placed, nothing authorized), the cart is re-priced in a transaction
+  of its own so the storefront reads the new prices, and the answer is 409 with
+  `details: { currency, items: [{ line_item_id, variant_id, previous_unit_price_minor, unit_price_minor | null }] }`
+  (`null` = no longer sellable: the storefront removes the line). The same Idempotency-Key may be retried — no
+  order exists for it; the payment session is created again for the new total. The code comes from
+  `@platform/contracts` (`ERROR_CODES`, contracts-v0.4.3 / Store API 0.3.1).
+
+- **2026-09-19 · Placement freezes the calculator's per-line tax (#221).** `completeCart` reloads the lines
+  after its `recalculate` and writes `lineTaxOf(line)` into `order_line_item.tax_minor` / `total_minor` (and the
+  record into the order line's metadata) instead of recomputing from the rate; with
+  `prices_include_tax` the order and line totals carry no tax on top. `order.placed` carries the same numbers:
+  Σ `line_items[].tax_minor` + shipping tax = `totals.tax_minor`.
 
 - **2026-09-08 · Idempotency lives on `payment.idempotency_key`** (manager decision at the start of 2.2): placement
   creates exactly one payment row, the column is already UNIQUE, and the replay reads the order through it. No
