@@ -65,7 +65,12 @@ export interface RefundInput {
 }
 
 export interface RefundResult {
-  status: 'succeeded' | 'failed';
+  /**
+   * `pending`: the provider accepted the refund but settles it asynchronously (its webhook reports the final
+   * state). Callers must treat it as "asked, not done": never ask again under the same idempotency key, never
+   * mark anything refunded yet.
+   */
+  status: 'succeeded' | 'pending' | 'failed';
   providerRefundId: string | null;
   failureReason?: string | undefined;
 }

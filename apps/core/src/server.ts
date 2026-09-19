@@ -21,6 +21,7 @@ import {
   hqRbacAdapter,
   KeycloakStaffTokenVerifier,
   moduleAdminRouters,
+  moduleWebhookRouters,
   mountStoreRoutes,
   requestIdMiddleware,
   staffAuthMiddleware,
@@ -58,6 +59,11 @@ export interface CoreMiddlewareOptions {
    * behind the same middleware without the production one answering first.
    */
   moduleRouters?: express.Router[];
+  /**
+   * Provider webhook routers (raw body, signature = authentication), mounted outside the `/store` and `/admin`
+   * chains. createServer() passes `moduleWebhookRouters()`; the default is NONE, same rule as `moduleRouters`.
+   */
+  webhookRouters?: express.Router[];
 }
 
 /** The staff auth src/server.ts runs: real Keycloak tokens by default, `dev:` tokens only with CORE_DEV_TOKENS=1. */
@@ -159,6 +165,9 @@ export function mountCoreMiddleware(
   if (opts.storeApiFallbackUrl) {
     app.use('/store', storeApiFallbackProxy(opts.storeApiFallbackUrl));
   }
+  // Provider webhooks (src/http/module-routers.ts): before any JSON body parser and outside /store and /admin —
+  // each router reads the raw body itself and authenticates the provider's signature (#176 part 3).
+  for (const router of opts.webhookRouters ?? []) app.use(router);
   // Admin API: 401 without a valid staff token; req.principal otherwise. Our admin route files opt out of
   // Medusa's auth (`export const AUTHENTICATE = false`).
   app.use('/admin', staffAuthMiddleware(verifier));
@@ -203,6 +212,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
   if (opts.staffTokenVerifier) {
     mountCoreMiddleware(app, opts.staffTokenVerifier, {
       moduleRouters: moduleAdminRouters(),
+      webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
     });
   } else {
@@ -211,6 +221,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       fga: auth.fga,
       onRoleChange: auth.onRoleChange,
       moduleRouters: moduleAdminRouters(),
+      webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
     });
   }
