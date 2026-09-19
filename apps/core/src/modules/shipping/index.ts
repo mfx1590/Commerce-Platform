@@ -33,6 +33,7 @@ export {
   applyTransition,
   buyShipmentLabel,
   canTransition,
+  CARRIER_LABEL_METADATA_KEY,
   createShipment,
   getShipment,
   iso,
@@ -42,6 +43,7 @@ export {
   renderShipment,
   updateShipment,
   writeShipmentMetadata,
+  writeShipmentMetadataIn,
 } from './shipments';
 export {
   applyTrackingEvent,
@@ -91,6 +93,7 @@ export type {
   ShipmentLineRef,
 } from './ports';
 export type {
+  CarrierLabelRef,
   CreateShipmentInput,
   ShipmentItem,
   ShipmentRow,

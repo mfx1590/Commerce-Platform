@@ -20,8 +20,12 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   `fulfillment/lifecycle.ts` (`pickShipment` / `packShipment` / `listPickLists`), `lifecycle-events.ts` (the
   seam that writes to the outbox the moment events 0.3.0 exists and buffers with one warning until then),
   `fulfillment/http.ts` (three Admin API operations, permissions read from the real spec or #225's filed copy),
-  the widened status machine in `shipping/shipments.ts`, and all six review nits. Full core suite: 537 passed,
-  5 skipped, 0 failed.
+  the widened status machine in `shipping/shipments.ts`, and all six earlier review nits. **#235 BLOCK fixes**
+  (commit `SHA_FIX`): `fulfillment.requested` is emitted from `requestFulfillment` with `provider` and
+  `external_id`, in the same transaction as the reference; a 3PL-driven `picking` / `packed` goes through the
+  same `pickShipment` / `packShipment` call as the Admin API, so the stream never shows who moved the shipment;
+  and cancelling a shipment that holds a label voids it first, recording `needs_reconciliation` and raising when
+  the void itself fails. Full core suite: 591 passed, 6 skipped, 0 failed.
 - **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `23f3498` · PR #223
   New module `apps/core/src/modules/fulfillment`: `routeFulfillment` (pure; store country override → store default
   → same country → same region → priority), `FulfillmentProvider` (`push` / `status` / `cancel`) with the in-memory
@@ -52,12 +56,11 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **2.5 (#133) is PR #235** — contracts-v0.4.3 is on main (merge 1afc79a), so migration 0160, events
-  0.3.0 and the three Admin API operations are real. The proposed DDL and spec copies, their test-side
-  application in all three database suites, and the `permissionFor` fallback are deleted; the code behind them
-  needed no change, which is what the seam was for.
-- **Phase 2 is complete for this window** once 2.5 merges: 2.1 → 2.5 all delivered. REQUEST #226 (the
-  `apps/core/CLAUDE.md` rows) is window 1's; they have already added both module rows on main.
+- **2.5 is PR #235, BLOCK fixed and pushed** (sha recorded in the Done entry). Two real defects the review found:
+  `fulfillment.requested` was declared but never emitted, and a cancel from `label_created` never voided the
+  bought label. Both fixed with outbox-row and void-spy tests; manager re-reviews the fix diff only.
+- **Phase 2 is complete for this window** once #235 merges: 2.1 → 2.5 all delivered. REQUEST #226 is window 1's
+  and already on main; `fulfillmentAdminRouter()` still needs window 1's one-line mount (their next PR, not mine).
 
 ## Fold into 2.5 (#133) — DONE, all six
 - `buyShipmentLabel`'s carrier call is outside the transaction, with the bought label voided if the shipment moved.
@@ -75,6 +78,14 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - [x] **#133 · 2.5** Pick/pack state machine and events — PR #235; Phase 2 complete for window 8
 
 ## Decisions made (with reasons)
+- **A failed label void refuses the cancel** (#235 fix): the carrier still holds a live label nobody will use, so
+  the failure is written to `shipment.metadata.carrier_label` (`needs_reconciliation`) and raised, and the
+  shipment stays put. Cancelling anyway would hide a paid label from everyone. Same rule as `cancelFulfillment`.
+- **The provider's shipment id lives on `metadata.carrier_label`** (#235 fix): a void needs it and no contract
+  column holds it. `buyShipmentLabel` writes it in the same statement that records the label.
+- **One lifecycle call per move, whoever asked** (#235 fix): `applyFulfillmentUpdate` routes `picking` / `packed`
+  through `pickShipment` / `packShipment` rather than `updateShipment`, so a 3PL and an operator produce the same
+  events. A consumer must not be able to tell them apart.
 - **The lifecycle's legality check lives in the caller** (2.5): `applyTransition` writes what it is told, so
   `move()` in `fulfillment/lifecycle.ts` calls `canTransition` first. The first version did not, and the tests
   caught a backwards move writing `picking` over `shipped`.
@@ -156,6 +167,12 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   the tests create the proposed DDL. Delete `PROPOSED_WEBHOOK_EVENT_SQL` when 0140 is on main.
 
 ## Gotchas learned
+- After a contract lands, **rebuild the workspace packages** before judging anything: `@platform/events` generates
+  `EVENT_TOPICS` from its schemas at build time, so a stale build reports brand-new topics as unknown
+  (2026-09-19, after contracts-v0.4.3).
+- Declaring an event topic and carrying its payload branch is not emitting it. `fulfillment.requested` existed in
+  the seam and in the contract for a whole PR before the review noticed no caller ever wrote it — an outbox-row
+  assertion per topic is the only thing that catches this.
 - When a fix must go into an open PR while later work sits unpushed on the same branch: park the later commits on a
   local branch, reset to `origin/<branch>`, fix, push, then replay. Pushing first would have put 2.4 into #218.
 - Test fixtures that place many orders must rotate variants: since shipments consume real stock, one variant ran

@@ -16,7 +16,11 @@ file is the module's own history (linked from the PRs).
   `sha1=` or `v0=` is refused.
 - A tracking number matching two shipments is ambiguous: the delivery is recorded and skipped with a reason, and
   neither shipment moves.
-- `loadShipment` is exported for the fulfillment module's lifecycle.
+- Cancelling a shipment that holds a label now voids it first (#225): `buyShipmentLabel` records the provider's
+  shipment id on `metadata.carrier_label`, and `updateShipment` gives the label back before the status moves. A
+  failed void is recorded (`needs_reconciliation`) and raised — the shipment is not cancelled, because a live
+  label nobody will use must not disappear from view.
+- `loadShipment` and `writeShipmentMetadataIn` are exported for the fulfillment module's lifecycle.
 - Tests: the label-void race, the signature labels, the tracking collision, the new ranks, and a two-shipment
   order replayed from its own outbox stream back into the order the database holds.
 

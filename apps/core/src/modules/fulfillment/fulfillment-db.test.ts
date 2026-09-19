@@ -8,9 +8,12 @@ import { addLineItem, createCart, updateCart } from '../cart';
 import { completeCart, createPaymentSession } from '../checkout';
 import { confirmOrder } from '../orders';
 import {
+  buyShipmentLabel,
   coreInventoryPort,
+  createManualCarrierProvider,
   getShipment,
   readShipmentMetadata,
+  setCarrierProvider,
   setInventoryPort,
 } from '../shipping';
 import { createMemoryFulfillmentProvider, type MemoryFulfillmentProvider } from './memory-provider';
@@ -132,6 +135,13 @@ async function placedOrder(store: StoreFixture) {
   return placed.order.id;
 }
 
+const outboxFor = (shipmentId: string) =>
+  owner.query<{ topic: string; payload: Record<string, unknown> }>(
+    `SELECT topic, payload FROM outbox WHERE aggregate_type = 'shipment' AND aggregate_id = $1
+      ORDER BY occurred_at, seq`,
+    [shipmentId],
+  );
+
 const onHand = async (variant: string, warehouse: string) =>
   (
     await owner.query<{ on_hand: number }>(
@@ -188,6 +198,52 @@ describe('fulfilment routing', () => {
   });
 });
 
+describe('fulfilment events', () => {
+  it('emits fulfillment.requested when a warehouse accepts the work', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment, externalId } = await requestFulfillment(store.client, { orderId, actor });
+
+    const rows = await outboxFor(shipment.id);
+    expect(rows.rows.map((row) => row.topic)).toEqual([
+      'shipment.created',
+      'fulfillment.requested',
+    ]);
+    expect(rows.rows[1]!.payload).toEqual({
+      shipment_id: shipment.id,
+      order_id: orderId,
+      warehouse_id: SEED_IDS.warehouses.eu,
+      provider: 'memory',
+      external_id: externalId,
+      items: [expect.objectContaining({ quantity: 2 })],
+      occurred_at: expect.any(String),
+    });
+    // The request carries ids and quantities, never the address it was shipped to.
+    expect(JSON.stringify(rows.rows)).not.toMatch(/Unter den Linden|Berlin|Jane/);
+  });
+
+  it('writes the same fulfillment.* events whether the 3PL or an operator moved the shipment', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment, externalId } = await requestFulfillment(store.client, { orderId, actor });
+
+    // Driven entirely by the provider, through applyFulfillmentUpdate.
+    await applyFulfillmentUpdate(store.client, provider.advance(externalId, 'picking'), actor);
+    await applyFulfillmentUpdate(store.client, provider.advance(externalId, 'packed'), actor);
+
+    const rows = await outboxFor(shipment.id);
+    expect(rows.rows.map((row) => row.topic)).toEqual([
+      'shipment.created',
+      'fulfillment.requested',
+      'fulfillment.picking',
+      'fulfillment.packed',
+    ]);
+    expect((await getShipment(store.client, shipment.id)).status).toBe('packed');
+    // A consumer cannot tell who moved it: same topics, same payload shape as the admin path.
+    expect(rows.rows[2]!.payload).toMatchObject({ shipment_id: shipment.id, order_id: orderId });
+  });
+});
+
 describe('fulfilment cancel and updates', () => {
   it('cancel before pick releases the reservation through the inventory module', async () => {
     const store = stores.a!;
@@ -210,6 +266,27 @@ describe('fulfilment cancel and updates', () => {
     });
     // The order owes the goods again.
     await expect(requestFulfillment(store.client, { orderId, actor })).resolves.toBeTruthy();
+  });
+
+  it('gives a bought label back to the carrier when the fulfilment is cancelled', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment } = await requestFulfillment(store.client, { orderId, actor });
+
+    const carrier = createManualCarrierProvider();
+    const voided: string[] = [];
+    const realVoid = carrier.voidLabel.bind(carrier);
+    carrier.voidLabel = async (request) => {
+      voided.push(request.providerShipmentId);
+      return realVoid(request);
+    };
+    setCarrierProvider(carrier);
+    const labelled = await buyShipmentLabel(store.client, shipment.id, { actor });
+    expect(labelled.status).toBe('label_created');
+
+    await cancelFulfillment(store.client, shipment.id, actor);
+    expect(voided).toHaveLength(1);
+    expect((await getShipment(store.client, shipment.id)).status).toBe('cancelled');
   });
 
   it('refuses to cancel once picking has started and changes nothing', async () => {

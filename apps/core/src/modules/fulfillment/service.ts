@@ -21,9 +21,12 @@ import {
   readShipmentMetadata,
   updateShipment,
   writeShipmentMetadata,
+  writeShipmentMetadataIn,
   type ShipmentItem,
   type StoreShipment,
 } from '../shipping';
+import { emitLifecycleEvent } from './lifecycle-events';
+import { packShipment, pickShipment } from './lifecycle';
 import { fulfillmentProvider, fulfillmentProviderFor } from './registry';
 import { routeFulfillment, routingSettingsFrom } from './routing';
 import {
@@ -147,14 +150,34 @@ export async function requestFulfillment(
     );
   }
 
-  // 3. remember where it went.
-  await writeShipmentMetadata(client, shipment.id, FULFILLMENT_METADATA_KEY, {
-    provider: provider.name,
-    external_id: ack.externalId,
-    state: ack.state,
-    warehouse_code: warehouse.code,
-    updated_at: new Date().toISOString(),
-  } satisfies FulfillmentRef);
+  // 3. remember where it went, and tell the world a warehouse accepted it — one transaction, so the
+  //    reference and `fulfillment.requested` commit together (ADR 0003).
+  const occurredAt = new Date().toISOString();
+  await client.transaction(async (tx) => {
+    await writeShipmentMetadataIn(tx, shipment.id, FULFILLMENT_METADATA_KEY, {
+      provider: provider.name,
+      external_id: ack.externalId,
+      state: ack.state,
+      warehouse_code: warehouse.code,
+      updated_at: occurredAt,
+    } satisfies FulfillmentRef);
+    await emitLifecycleEvent(tx, {
+      topic: 'fulfillment.requested',
+      organizationId: order.organization_id,
+      storeId: order.store_id,
+      shipmentId: shipment.id,
+      orderId: order.id,
+      warehouseId: warehouse.id,
+      items: items.map((item) => ({
+        order_line_item_id: item.order_line_item_id,
+        quantity: item.quantity,
+      })),
+      occurredAt,
+      actor: input.actor,
+      provider: provider.name,
+      externalId: ack.externalId,
+    });
+  });
 
   return { shipment, routing, provider: provider.name, externalId: ack.externalId };
 }
@@ -225,25 +248,30 @@ export async function applyFulfillmentUpdate(
   }
   if (ref.state === update.state) return { applied: false, shipment: null };
 
-  const move = async (patch: Parameters<typeof updateShipment>[2]) => {
+  const swallowConflict = async (run: () => Promise<StoreShipment>) => {
     try {
-      return await updateShipment(client, update.reference, patch);
+      return await run();
     } catch (error) {
       // The carrier's tracking webhook may have moved the shipment already; the provider is simply late.
       if (error instanceof AppError && error.code === 'conflict') return null;
       throw error;
     }
   };
+  const move = (patch: Parameters<typeof updateShipment>[2]) =>
+    swallowConflict(() => updateShipment(client, update.reference, patch));
+  const lifecycleMove = swallowConflict;
 
   // The shipment moves FIRST. Writing the reference first would leave it advanced when the move fails for a
   // real reason, and the provider's retry would then find "already at this state" and do nothing.
   let shipment: StoreShipment | null = null;
   switch (update.state) {
+    // A consumer must not be able to tell whether a warehouse or an operator moved the shipment: both go
+    // through the same lifecycle call, so both write the same `fulfillment.*` event.
     case 'picking':
-      shipment = await move({ status: 'picking', actor });
+      shipment = await lifecycleMove(() => pickShipment(client, update.reference, actor));
       break;
     case 'packed':
-      shipment = await move({ status: 'packed', actor });
+      shipment = await lifecycleMove(() => packShipment(client, update.reference, { actor }));
       break;
     case 'shipped':
       shipment = await move({

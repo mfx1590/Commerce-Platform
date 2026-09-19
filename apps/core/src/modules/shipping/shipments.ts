@@ -371,9 +371,12 @@ export async function buyShipmentLabel(
           status: shipment.status,
         });
       }
+      // The provider's own shipment id is the only handle a void needs later, and it is nowhere in the
+      // contract columns — so it goes on `metadata.carrier_label`, this module's own jsonb.
       const updated = await tx.query<ShipmentRow>(
         `UPDATE shipment SET status = 'label_created', carrier = $2, service = $3, tracking_number = $4,
-                tracking_url = $5, label_url = $6, cost_minor = $7, updated_at = now()
+                tracking_url = $5, label_url = $6, cost_minor = $7,
+                metadata = jsonb_set(metadata, ARRAY[$8::text], $9::jsonb, true), updated_at = now()
           WHERE id = $1 RETURNING *`,
         [
           shipmentId,
@@ -383,6 +386,13 @@ export async function buyShipmentLabel(
           label.trackingUrl,
           label.labelUrl,
           label.costMinor,
+          CARRIER_LABEL_METADATA_KEY,
+          JSON.stringify({
+            provider: provider.name,
+            provider_shipment_id: label.providerShipmentId,
+            tracking_number: label.trackingNumber,
+            bought_at: new Date().toISOString(),
+          } satisfies CarrierLabelRef),
         ],
       );
       return renderShipment(updated.rows[0]!, items);
@@ -390,6 +400,89 @@ export async function buyShipmentLabel(
   } catch (error) {
     await voidQuietly(provider, label, shipmentId);
     throw error;
+  }
+}
+
+export const CARRIER_LABEL_METADATA_KEY = 'carrier_label';
+
+/** What `buyShipmentLabel` remembers so the label can be voided later. */
+export interface CarrierLabelRef {
+  provider: string;
+  provider_shipment_id: string;
+  tracking_number: string;
+  bought_at: string;
+  /** Set when a void failed and a human has to finish the job. */
+  needs_reconciliation?: boolean;
+  reconcile_reason?: string;
+}
+
+/**
+ * Voids the label of a shipment about to be cancelled. Does nothing when there is none, or when the carrier
+ * reference predates this behaviour and cannot be voided (nothing to call with).
+ *
+ * A **failed void is not swallowed**: the carrier still holds a live label that nobody will use, so the failure
+ * is written to `metadata.carrier_label` (`needs_reconciliation`) and raised. The shipment stays where it was —
+ * cancelling it anyway would hide a paid label from everyone (same rule as `cancelFulfillment` in the
+ * fulfillment module).
+ */
+async function voidLabelForCancel(client: ScopedClient, shipmentId: string): Promise<void> {
+  const r = await client.query<{
+    status: ShipmentStatus;
+    store_id: string;
+    metadata: Record<string, unknown>;
+  }>(`SELECT status, store_id, metadata FROM shipment WHERE id = $1`, [shipmentId]);
+  const row = r.rows[0];
+  if (!row) throw notFound('shipment', shipmentId);
+  const ref = row.metadata[CARRIER_LABEL_METADATA_KEY] as CarrierLabelRef | undefined;
+  if (!ref?.provider_shipment_id) return; // no label to give back
+  if (!canTransition(row.status, 'cancelled')) return; // the transition check will refuse it in a moment
+
+  const store = await client.query<{ code: string; settings: Record<string, unknown> | null }>(
+    `SELECT code, settings FROM store WHERE id = $1`,
+    [row.store_id],
+  );
+  const storeRow = store.rows[0];
+  const provider = storeRow
+    ? resolveProvider(carrierConfigFor(storeRow.settings).provider, storeRow.code)
+    : null;
+  if (!provider) {
+    throw new AppError(
+      'internal',
+      'the label cannot be voided: no carrier provider is configured for this store',
+      { shipment_id: shipmentId, provider: ref.provider },
+      502,
+    );
+  }
+
+  try {
+    const result = await provider.voidLabel({ providerShipmentId: ref.provider_shipment_id });
+    if (!result.voided) {
+      throw new CarrierError(
+        provider.name,
+        409,
+        'voidLabel',
+        result.refundStatus || 'the carrier refused to void the label',
+      );
+    }
+  } catch (error) {
+    const reason =
+      error instanceof CarrierError
+        ? error.message
+        : 'unexpected provider failure voiding the label';
+    await client.query(
+      `UPDATE shipment SET metadata = jsonb_set(metadata, ARRAY[$2::text], $3::jsonb, true), updated_at = now()
+        WHERE id = $1`,
+      [
+        shipmentId,
+        CARRIER_LABEL_METADATA_KEY,
+        JSON.stringify({ ...ref, needs_reconciliation: true, reconcile_reason: reason }),
+      ],
+    );
+    throw new AppError(
+      'conflict',
+      `the shipment was not cancelled: its label could not be voided (${reason})`,
+      { shipment_id: shipmentId, provider: ref.provider, tracking_number: ref.tracking_number },
+    );
   }
 }
 
@@ -423,6 +516,9 @@ export async function updateShipment(
   shipmentId: string,
   input: UpdateShipmentInput,
 ): Promise<StoreShipment> {
+  // A cancel gives the bought label back to the carrier first (#225). Outside the transaction, because it is a
+  // network call — and before the status moves, so a refused void leaves a shipment that still matches reality.
+  if (input.status === 'cancelled') await voidLabelForCancel(client, shipmentId);
   return client.transaction(async (tx) => {
     const { shipment, items } = await loadShipment(tx, shipmentId);
     if (input.status && !canTransition(shipment.status, input.status)) {
@@ -634,6 +730,21 @@ export async function readShipmentMetadata(
   const row = r.rows[0];
   if (!row) throw notFound('shipment', shipmentId);
   return row.value ?? null;
+}
+
+/** `writeShipmentMetadata` on the caller's transaction, for a module that is already in one. */
+export async function writeShipmentMetadataIn(
+  tx: Queryable,
+  shipmentId: string,
+  key: string,
+  value: Record<string, unknown>,
+): Promise<void> {
+  const r = await tx.query(
+    `UPDATE shipment SET metadata = jsonb_set(metadata, ARRAY[$2::text], $3::jsonb, true), updated_at = now()
+      WHERE id = $1`,
+    [shipmentId, key, JSON.stringify(value)],
+  );
+  if ((r.rowCount ?? 0) === 0) throw notFound('shipment', shipmentId);
 }
 
 /**

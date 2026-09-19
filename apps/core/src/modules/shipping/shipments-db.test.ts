@@ -24,6 +24,7 @@ import {
   createShipment,
   getShipment,
   listOrderShipments,
+  readShipmentMetadata,
   updateShipment,
 } from './shipments';
 import { shippingAdminRouter, shippingWebhookRouter } from './http';
@@ -371,6 +372,59 @@ describe('shipments', () => {
     });
     await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({ status: 502 });
     expect((await getShipment(a, planned.id)).status).toBe('pending');
+  });
+
+  it('voids the label when a shipment holding one is cancelled', async () => {
+    const carrier = createManualCarrierProvider();
+    const voided: string[] = [];
+    const realVoid = carrier.voidLabel.bind(carrier);
+    carrier.voidLabel = async (request) => {
+      voided.push(request.providerShipmentId);
+      return realVoid(request);
+    };
+    setCarrierProvider(carrier);
+
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    const labelled = await buyShipmentLabel(a, planned.id, { actor });
+    expect(labelled.status).toBe('label_created');
+
+    const cancelled = await updateShipment(a, planned.id, { status: 'cancelled', actor });
+    expect(cancelled.status).toBe('cancelled');
+    expect(voided).toHaveLength(1);
+  });
+
+  it('refuses the cancel when the void fails, and records the divergence', async () => {
+    const carrier = createManualCarrierProvider();
+    carrier.voidLabel = async () => {
+      throw new Error('carrier refused');
+    };
+    setCarrierProvider(carrier);
+
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await buyShipmentLabel(a, planned.id, { actor });
+
+    await expect(
+      updateShipment(a, planned.id, { status: 'cancelled', actor }),
+    ).rejects.toMatchObject({ code: 'conflict', details: { shipment_id: planned.id } });
+
+    // The shipment still matches reality: the carrier holds a live label.
+    expect((await getShipment(a, planned.id)).status).toBe('label_created');
+    const ref = await readShipmentMetadata(a, planned.id, 'carrier_label');
+    expect(ref).toMatchObject({ needs_reconciliation: true });
+    // A plain Error from a provider is not trusted verbatim; the recorded reason says what happened.
+    expect(String(ref!.reconcile_reason)).toContain('provider failure voiding the label');
   });
 
   it('emits exactly one event per legal transition and refuses an illegal one', async () => {

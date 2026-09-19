@@ -138,7 +138,14 @@ pending -> picking -> packed -> label_created -> shipped -> in_transit -> delive
 module, which owns the two moves; this module owns the machine they move through.
 
 Forward only, and `delivered` / `failed` / `cancelled` are final. Cancel is legal from `pending`, `picking`,
-`packed` and `label_created` — never once the parcel has gone, which is a return, not a cancel. An illegal transition through the admin route
+`packed` and `label_created` — never once the parcel has gone, which is a return, not a cancel.
+
+**Cancelling a shipment that holds a label gives the label back first** (#225). `updateShipment` voids it through
+the store's carrier before the status moves, outside the transaction, using the provider reference
+`buyShipmentLabel` kept on `metadata.carrier_label`. A **failed void is not swallowed**: the carrier still holds a
+live label nobody will use, so the failure is recorded on that key (`needs_reconciliation`) and raised, and the
+shipment stays where it was rather than hiding a paid label from everyone. A `cancelled` scan arriving from the
+carrier is the carrier's own cancel, so nothing is voided for it. An illegal transition through the admin route
 is a 409; the same transition arriving from a carrier scan is **skipped**, because carriers deliver events out of
 order and a late `in_transit` after `delivered` is normal, not an error.
 

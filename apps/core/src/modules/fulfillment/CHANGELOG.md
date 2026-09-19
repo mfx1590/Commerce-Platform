@@ -12,7 +12,10 @@ the module's own history (linked from the PRs).
   transaction. Skips forward are legal (`pending → packed` for a store that does not pick), backwards is not, and
   an operator's illegal move is a 409 — `applyTransition` writes what it is told, so the check lives here.
 - `lifecycle-events.ts` (new): `fulfillment.requested` / `.picking` / `.packed` (events 0.3.0) go to the outbox
-  through `withEvents` in the same transaction as the move. The topic is checked against `EVENT_TOPICS` first, so
+  through `withEvents` in the same transaction as the move. `requestFulfillment` writes `fulfillment.requested`
+  (with `provider` and `external_id`) together with the provider reference, and a 3PL-driven `picking` / `packed`
+  goes through the same `pickShipment` / `packShipment` call as the Admin API — so the event stream never shows
+  who moved the shipment. The topic is checked against `EVENT_TOPICS` first, so
   an unknown topic buffers with a warning instead of failing a correct warehouse operation.
 - `http.ts` (new): `fulfillmentAdminRouter()` with the three operations, permissions read from `admin-api.yaml`
   0.4.3 through `loadSpec`. The two shipment paths resolve the shipment's store first, so a shipment in another
