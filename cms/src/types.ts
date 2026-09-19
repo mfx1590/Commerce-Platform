@@ -6,6 +6,7 @@
 
 import type { Locale } from './datasets.js';
 import type { LEGAL_KINDS } from './schema/documents.js';
+import type { EmbedProvider } from './schema/embed.js';
 
 export interface SanityReference {
   _type: 'reference';
@@ -101,6 +102,19 @@ export interface ProductStoryBlock {
 
 export type PageBlock = Hero | RichTextBlock | ImageBlock | ProductStoryBlock | Cta;
 
+/** A sandboxed iframe on a campaign landing: a provider page by URL, or a pasted HTML snippet. */
+export interface EmbedBlock {
+  _type: 'embed';
+  _key?: string;
+  provider: EmbedProvider;
+  title: string;
+  url?: string;
+  html?: string;
+  height?: number;
+}
+
+export type CampaignBlock = PageBlock | EmbedBlock;
+
 export interface NavItem {
   _type: 'navItem';
   _key?: string;
@@ -146,7 +160,7 @@ export interface CampaignLandingDocument extends DocumentBase<'campaignLanding'>
   slug: Slug;
   campaignId?: string;
   hero: Hero;
-  blocks?: PageBlock[];
+  blocks?: CampaignBlock[];
   startsAt?: string;
   endsAt?: string;
   seo?: Seo;

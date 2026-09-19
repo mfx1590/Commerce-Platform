@@ -4,6 +4,7 @@
  */
 
 import { defineArrayMember, defineField, defineType } from './define.js';
+import { embed } from './embed.js';
 
 /**
  * A storefront path (`/en-GB/products` — exactly one leading slash, so `//host` is not a path) or
@@ -358,7 +359,11 @@ export const pageBlocks = [
   defineArrayMember({ type: 'cta' }),
 ];
 
+/** Campaign landings may also embed a Builder.io / Framer page or an HTML snippet. */
+export const campaignBlocks = [...pageBlocks, defineArrayMember({ type: 'embed' })];
+
 export const objectTypes = [
+  embed,
   imageWithAlt,
   link,
   cta,

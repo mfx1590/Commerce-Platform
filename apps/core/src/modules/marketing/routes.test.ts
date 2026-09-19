@@ -41,6 +41,7 @@ const as = (subject: string) => ({
     request(app).patch(path).set('Authorization', `Bearer dev:${subject}`).send(body),
   delete: (path: string) => request(app).delete(path).set('Authorization', `Bearer dev:${subject}`),
 });
+const owner = as('seed-owner');
 const storeAdmin = as('seed-store-admin');
 const storeStaff = as('seed-store-staff');
 const analyst = as('seed-analyst');
@@ -88,6 +89,9 @@ beforeEach(async () => {
   await db.owner.query('DELETE FROM "order"');
   await db.owner.query('DELETE FROM campaign');
   await db.owner.query('DELETE FROM product_feed');
+  await db.owner.query('DELETE FROM segment_member');
+  await db.owner.query('DELETE FROM segment');
+  await db.owner.query('DELETE FROM customer');
 });
 
 describe('campaign routes', () => {
@@ -314,6 +318,172 @@ describe('feed routes', () => {
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('forbidden');
     }
+  });
+});
+
+describe('segment routes', () => {
+  const vipRules = {
+    v: 1,
+    all: [{ any: [{ field: 'total_spent_minor', op: 'gte', value: 50_000 }] }],
+  };
+
+  async function createSegmentViaApi(payloadBody: Record<string, unknown>): Promise<string> {
+    const res = await storeAdmin.post(`${base}/segments`, payloadBody);
+    expect(res.status).toBe(201);
+    return res.body.id as string;
+  }
+
+  it('creates, reads, lists and updates in the contract shape', async () => {
+    const created = await storeAdmin.post(`${base}/segments`, {
+      name: 'vip-buyers',
+      description: 'Spent 500+ and opted in',
+      rules: vipRules,
+    });
+    expect(created.status).toBe(201);
+    spec.assertSchema('Segment', created.body);
+    expect(created.body).toMatchObject({
+      store_id: A,
+      name: 'vip-buyers',
+      materialised_count: 0,
+      last_materialised_at: null,
+      template_id: null,
+    });
+
+    const read = await storeStaff.get(`${base}/segments/${created.body.id}`);
+    expect(read.status).toBe(200);
+    spec.assertSchema('Segment', read.body);
+
+    const list = await storeStaff.get(`${base}/segments?sort=name&order=asc`);
+    expect(list.status).toBe(200);
+    spec.assertPage('Segment', list.body);
+    expect(list.body.items).toHaveLength(1);
+
+    const patched = await storeAdmin.patch(`${base}/segments/${created.body.id}`, {
+      name: 'vip-buyers',
+      rules: { v: 1, all: [] },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.rules).toEqual({ v: 1, all: [] });
+
+    expect((await storeAdmin.delete(`${base}/segments/${created.body.id}`)).status).toBe(204);
+  });
+
+  it('previews without writing and materialises with 202', async () => {
+    await db.owner.query(
+      `INSERT INTO customer (organization_id, store_id, email, status, consent)
+       VALUES ($1, $2, 'ada@example.test', 'registered', '{"marketing_email": {"granted": true}}'::jsonb),
+              ($1, $2, 'linus@example.test', 'registered', '{}'::jsonb)`,
+      [ORG, A],
+    );
+    const id = await createSegmentViaApi({
+      name: 'opted-in',
+      rules: { v: 1, all: [{ any: [{ field: 'consent', op: 'granted', value: 'email' }] }] },
+    });
+
+    const preview = await storeStaff.post(`${base}/segments/${id}/preview`);
+    expect(preview.status).toBe(200);
+    expect(preview.body).toEqual({ count: 1 });
+
+    // Rules in the body override the saved ones, so a rule builder can count before saving.
+    const whatIf = await storeStaff.post(`${base}/segments/${id}/preview`, {
+      rules: { v: 1, all: [] },
+    });
+    expect(whatIf.body).toEqual({ count: 2 });
+
+    const materialised = await storeAdmin.post(`${base}/segments/${id}/materialize`);
+    expect(materialised.status).toBe(202);
+    spec.assertSchema('Segment', materialised.body);
+    expect(materialised.body.materialised_count).toBe(1);
+  });
+
+  it('400s on rules outside the frozen grammar, naming the path', async () => {
+    const unknownPredicate = await storeAdmin.post(`${base}/segments`, {
+      name: 'bad-rules',
+      rules: { v: 1, all: [{ any: [{ field: 'moon_phase', op: 'eq', value: 1 }] }] },
+    });
+    expect(unknownPredicate.status).toBe(400);
+    spec.assertSchema('Error', unknownPredicate.body);
+    expect(unknownPredicate.body.details).toHaveProperty('rules.all[0].any[0].field');
+
+    // The shape the contract still documents is refused — that is what "frozen grammar" means (CONTRACT CHANGE).
+    const flatShape = await storeAdmin.post(`${base}/segments`, {
+      name: 'old-shape',
+      rules: { total_spent_minor: { gte: 50_000 } },
+    });
+    expect(flatShape.status).toBe(400);
+  });
+
+  it('store_staff reads and previews, store_admin writes and materialises', async () => {
+    const id = await createSegmentViaApi({ name: 'vip-buyers', rules: vipRules });
+
+    expect((await storeStaff.get(`${base}/segments`)).status).toBe(200);
+    expect((await storeStaff.post(`${base}/segments/${id}/preview`)).status).toBe(200);
+
+    for (const res of [
+      await storeStaff.post(`${base}/segments`, { name: 'nope', rules: vipRules }),
+      await storeStaff.patch(`${base}/segments/${id}`, { name: 'nope', rules: vipRules }),
+      await storeStaff.delete(`${base}/segments/${id}`),
+      await storeStaff.post(`${base}/segments/${id}/materialize`),
+    ]) {
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('forbidden');
+    }
+  });
+});
+
+describe('segment template routes (organization scope)', () => {
+  const templates = '/admin/marketing/segment-templates';
+  const vipRules = {
+    v: 1,
+    all: [{ any: [{ field: 'total_spent_minor', op: 'gte', value: 50_000 }] }],
+  };
+
+  it('owner writes templates, analyst reads them', async () => {
+    const created = await owner.post(templates, { name: 'vip-template', rules: vipRules });
+    expect(created.status).toBe(201);
+    spec.assertSchema('Segment', created.body);
+    expect(created.body.store_id).toBeNull();
+
+    const listed = await analyst.get(templates);
+    expect(listed.status).toBe(200);
+    spec.assertPage('Segment', listed.body);
+    expect(listed.body.items.map((t: { name: string }) => t.name)).toEqual(['vip-template']);
+
+    expect((await analyst.get(`${templates}/${created.body.id}`)).status).toBe(200);
+
+    const patched = await owner.patch(`${templates}/${created.body.id}`, {
+      name: 'vip-template',
+      rules: { v: 1, all: [] },
+    });
+    expect(patched.status).toBe(200);
+    expect((await owner.delete(`${templates}/${created.body.id}`)).status).toBe(204);
+  });
+
+  it('a store role cannot read or write templates at all', async () => {
+    const created = await owner.post(templates, { name: 'vip-template', rules: vipRules });
+    expect(created.status).toBe(201);
+
+    // Organization scope is the only scope templates exist in: a store admin is refused on read and on write.
+    expect((await storeAdmin.get(templates)).status).toBe(403);
+    expect((await storeStaff.get(templates)).status).toBe(403);
+    expect((await storeAdmin.post(templates, { name: 'nope', rules: vipRules })).status).toBe(403);
+
+    // An analyst may read but must not write — template writes are `owner`.
+    expect((await analyst.post(templates, { name: 'nope', rules: vipRules })).status).toBe(403);
+    expect((await analyst.delete(`${templates}/${created.body.id}`)).status).toBe(403);
+  });
+
+  it('a store segment copies a template a store role cannot otherwise see', async () => {
+    const template = await owner.post(templates, { name: 'vip-template', rules: vipRules });
+    expect(template.status).toBe(201);
+
+    const segment = await storeAdmin.post(`${base}/segments`, {
+      name: 'vip-buyers',
+      template_id: template.body.id,
+    });
+    expect(segment.status).toBe(201);
+    expect(segment.body.rules).toEqual(vipRules);
+    expect(segment.body.template_id).toBe(template.body.id);
   });
 });
 

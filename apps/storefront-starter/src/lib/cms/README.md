@@ -131,6 +131,36 @@ handler then calls `revalidateTag` for the tags above and answers `{ revalidated
 unknown document type still drops `cms`, so nothing can stay stale. Without a webhook secret the
 route answers 503: an unverifiable webhook is refused, never trusted.
 
+## Campaign landings and embeds
+
+`/[locale]/campaign/[slug]` renders a `campaignLanding`: live only between `startsAt` and `endsAt`
+(`schedule.ts`, fail-closed on unparseable dates; 404 outside the window), hero as the `<h1>`,
+blocks including the **embed**, and `data-campaign-id` on the article for tooling. Campaign
+fixtures ship `noIndex`, and the marketing UTM on a shared campaign link is captured by window 3's
+middleware exactly as everywhere else (`test/cms-campaign.test.ts` proves the cookie).
+
+`Embed` (`components/embed.tsx`) always renders an `<iframe>` and never a script in the page:
+
+| Source                                                                  | `sandbox`                                                  | Why                                                                                                              |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Builder.io / Framer URL (allow-listed https host, re-checked at render) | `allow-scripts allow-same-origin allow-forms allow-popups` | cross-origin frame: "same origin" is the provider's own, needed by their runtimes                                |
+| HTML snippet (`srcdoc`)                                                 | `allow-scripts allow-forms allow-popups`                   | a srcdoc frame inherits our origin — with `allow-same-origin` a script could reach the page, so it never gets it |
+
+Both get `referrerpolicy="strict-origin-when-cross-origin"`, `loading="lazy"`, an accessible
+`title` from the schema, a clamped height and an empty `allow` list (no camera/mic/payment).
+
+**CSP (for window 3's wave C paste):** the starter sets no `Content-Security-Policy` yet. When it
+does (`headers()` in `next.config.mjs`), the embeds need
+`frame-src https://builder.io https://cdn.builder.io https://*.builder.io https://*.framer.app https://*.framer.website;`
+and `srcdoc` frames are covered by `frame-src` via the page itself. Nothing else changes: no
+`script-src` additions, because no third-party script runs outside a frame.
+
+**Every CMS href** (portable text, CTAs, navigation, footer) renders through `SafeLink` over
+`safeHref()` (`safe-href.ts`): internal paths → locale-aware Link, `https://` → `<a rel="noopener
+noreferrer">`, anything else — a stored `javascript:`, `//host` or `http:` href that predates the
+schema rule — degrades to plain text. The schema validates at write time; the renderer still does
+not trust the dataset.
+
 ## Route handlers
 
 `src/app/api/cms/{preview,preview/exit,revalidate}/route.ts` are one-liners over `handlers.ts`,
