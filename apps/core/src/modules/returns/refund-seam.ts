@@ -29,9 +29,10 @@ export const manualRefundRequester: RefundRequester = {
       idempotencyKey: input.idempotencyKey,
       reason: input.reason,
     });
-    return result.status === 'succeeded'
-      ? { status: 'succeeded', refundId: null }
-      : { status: 'failed', refundId: null, failureReason: result.failureReason };
+    if (result.status === 'succeeded') return { status: 'succeeded', refundId: null };
+    // asynchronous settlement: the return stays `received` with a pending outcome until markReturnRefunded
+    if (result.status === 'pending') return { status: 'pending', refundId: null };
+    return { status: 'failed', refundId: null, failureReason: result.failureReason };
   },
 };
 
