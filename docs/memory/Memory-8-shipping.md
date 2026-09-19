@@ -46,9 +46,35 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#218 (2.3) review fixes pushed**; waiting for the manager's re-review of the diff.
-- **2.4 replayed locally** onto the fixed branch (the parked branch `shipping/phase2-2.4-parked` can be deleted).
-  NOT pushed: wait for the manager to confirm #218 merged, then merge main, push, open the 2.4 PR.
+- **#218 (2.3) is APPROVED (MERGE) and in the manager's queue** behind core #217. Pushed head `30fd3b2`.
+  **HOLD every push until the manager confirms the merge commit** (all-or-nothing push rule).
+- **2.4 (#132) is finished locally**, two commits on `shipping/phase2` (`23f3498` code + `7cb54de` memory), tree
+  clean, gates green. It becomes its own PR only after the #218 merge is confirmed.
+
+### The moment the manager confirms #218 merged
+1. `git merge main && pnpm install`, then push and open the **2.4 PR**. Body = the 2.4 CHANGELOG entry plus:
+   contracts-v0.4.1 and no new table (the 3PL reference lives on `shipment.metadata.fulfillment`); the four
+   routing rules and the store override; "no database transaction across a provider call" with the compensating
+   cancel on a failed push; the #132 acceptance criteria (EU→wh-eu, US→wh-us, store override, cancel before pick
+   releasing stock through the real inventory module, the documented real-3PL mapping); gates (16 unit + 9 database
+   tests, core suite 482 passed); and the "Fold into 2.5" list below as known follow-ups.
+2. The manager then lands #187 as **migration 0140**. After that merge main again and, **in the same commit as
+   that merge**, delete all three of these together:
+   - `apps/core/src/modules/shipping/proposed/0140_webhook_event.sql`
+   - the `readFileSync(join(__dirname, 'proposed', …))` DDL apply in `shipments-db.test.ts` `beforeAll`
+   - the drift test `byte-matches the payments copy of #187 while both proposed copies exist`
+   They must go in one commit: once 0140 is in `packages/db/migrations`, `createTestDatabase` already creates the
+   table, and the suite's own `CREATE TABLE` / `CREATE TRIGGER` would fail as duplicates. Also drop the
+   "proposed"/"#187 DDL" paragraphs from the shipping README and add a CHANGELOG line.
+
+## Fold into 2.5 (#133) — agreed nits from the #218 reviews, none blocking
+- `buyShipmentLabel` calls the carrier **inside** the database transaction; move the network call outside it, the
+  way `fulfillment/service.ts` already does (plan → call → record, with a compensating cancel).
+- `verifyEasyPostSignature` accepts **any** `label=` prefix: require the `hmac-sha256-hex` label (or a bare hex
+  digest) and reject anything else, rather than splitting on the first `=`.
+- `shipmentIdForTracking` silently picks the newest shipment when two share a tracking number; decide and test the
+  collision rule (most likely: refuse and record the delivery as `skipped` with a reason).
+- Add an explicit router test that a **guessed shipment id from another organization** is a 404, not a 403 leak.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
