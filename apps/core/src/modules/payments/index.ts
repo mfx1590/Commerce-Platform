@@ -84,6 +84,8 @@ export {
   type StripePaymentIntent,
   type StripeRefund,
   type StripeRequestOptions,
+  type StripeTaxCalculation,
+  type StripeTaxLineItem,
 } from './stripe-client';
 export { FakeStripe, type FakeCall } from './fake-stripe';
 export {

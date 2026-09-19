@@ -5,6 +5,12 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.3 → v0.4.1)
 
+### 2026-09-19 · 2.4 support for the tax module (#127)
+
+- `stripe-client.ts` / `fake-stripe.ts`: `createTaxCalculation` (`POST /v1/tax/calculations`) on `StripeApi`,
+  `StripeClient` and `FakeStripe` (`taxRateBp`, `outageNextTax`, `failNextTax`); `StripeTaxCalculation` /
+  `StripeTaxLineItem` types. Used by `src/modules/tax` through this module's index.
+
 ### 2026-09-15 · 2.3 Refunds (#126)
 
 - `refunds.ts`: `createRefundIn` / `createRefund` — replay on `<store_id>:<Idempotency-Key>`, captured payment
