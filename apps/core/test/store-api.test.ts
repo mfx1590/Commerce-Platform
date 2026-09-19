@@ -621,6 +621,51 @@ describe('checkout routes (contract replay, task 2.2)', () => {
     leaks(order.body);
   });
 
+  it('complete answers 409 price_changed (#228) when a price moved since the cart was priced; the cart then shows the new price', async () => {
+    const cart = await readyCart();
+    await json('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+    const before = await asA(`/store/carts/${cart.id}`);
+    const line = before.body.items[0];
+    await owner.query(
+      `UPDATE price SET amount_minor = amount_minor + 100 WHERE variant_id = $1 AND currency = 'EUR'`,
+      [line.variant_id],
+    );
+    try {
+      const refused = await json('post', `/store/carts/${cart.id}/complete`)
+        .set('Idempotency-Key', `idem-price-${cart.id}`)
+        .send();
+      expect(refused.status).toBe(409);
+      spec.assertSchema('Error', refused.body);
+      expect(refused.body).toMatchObject({
+        code: 'price_changed',
+        details: {
+          currency: 'EUR',
+          items: [
+            {
+              line_item_id: line.id,
+              variant_id: line.variant_id,
+              previous_unit_price_minor: line.unit_price.amount_minor,
+              unit_price_minor: line.unit_price.amount_minor + 100,
+            },
+          ],
+        },
+      });
+      const after = await asA(`/store/carts/${cart.id}`);
+      expect(after.body.status).toBe('active');
+      expect(after.body.items[0].unit_price.amount_minor).toBe(line.unit_price.amount_minor + 100);
+      const retry = await json('post', `/store/carts/${cart.id}/complete`)
+        .set('Idempotency-Key', `idem-price-${cart.id}`)
+        .send();
+      expect(retry.status).toBe(201);
+      expect(retry.body.items[0].unit_price.amount_minor).toBe(line.unit_price.amount_minor + 100);
+    } finally {
+      await owner.query(
+        `UPDATE price SET amount_minor = amount_minor - 100 WHERE variant_id = $1 AND currency = 'EUR'`,
+        [line.variant_id],
+      );
+    }
+  });
+
   it('complete refuses a cart that is not ready (400 with the missing fields)', async () => {
     const cart = (await request(app).post('/store/carts').set('X-Publishable-Key', KEY_A)).body;
     const res = await json('post', `/store/carts/${cart.id}/complete`)

@@ -97,7 +97,7 @@ Full order lifecycle (place, edit, cancel, split shipment, return, exchange), st
 - 2026-09-04 · Medusa's post-migration scripts are skipped (`skipScripts: true`): they fork the `medusa` CLI, which needs ts-node; a fresh schema has nothing for them to patch.
 
 ## Blocked / waiting
-- (none)
+- **#228 CONTRACT CHANGE: Store API `price_changed` (409 on completeCart)** — filed 2026-09-19, not blocking: `Error.code` is a free string, so I build #179 part 3 against a local `price_changed: 409` in `src/lib/errors.ts` and the `details` shape in the issue (`{ currency, items: [{ line_item_id, variant_id, previous_unit_price_minor, unit_price_minor | null }] }`). If the name or keys change in review: two lines on my side.
 
 ## Gotchas learned
 - **`completeCart` must load the cart lines AFTER `recalculate`** — anything frozen onto the order from a line (rate, `metadata.tax`) is only fresh then; the precondition check can use the earlier load.

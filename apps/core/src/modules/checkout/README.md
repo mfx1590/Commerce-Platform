@@ -107,6 +107,15 @@ guest orders. The storefront's client never sends the customer token to cart pat
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-19 · Placement never charges a price the customer did not see: 409 `price_changed` (#179 part 3,
+  CONTRACT CHANGE #228).** Under the cart lock `completeCart` re-resolves every line at one clock (`at`); any
+  difference rolls the placement back (nothing placed, nothing authorized), the cart is re-priced in a transaction
+  of its own so the storefront reads the new prices, and the answer is 409 with
+  `details: { currency, items: [{ line_item_id, variant_id, previous_unit_price_minor, unit_price_minor | null }] }`
+  (`null` = no longer sellable: the storefront removes the line). The same Idempotency-Key may be retried — no
+  order exists for it; the payment session is created again for the new total. Until #228 lands the code lives in
+  `src/lib/errors.ts` as a local union (`CoreErrorCode`).
+
 - **2026-09-19 · Placement freezes the calculator's per-line tax (#221).** `completeCart` reloads the lines
   after its `recalculate` and writes `lineTaxOf(line)` into `order_line_item.tax_minor` / `total_minor` (and the
   record into the order line's metadata) instead of recomputing from the rate; with

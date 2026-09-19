@@ -1,8 +1,10 @@
 // Default pricing providers of the cart module and the registry that lets other modules replace them.
 // Tax: our `tax_rate` table (window 7 swaps in Stripe Tax, #127). Shipping: our `shipping_option` table
 // (window 8 swaps in live carrier rates, #130). Both read through the mutation's transaction, so RLS keeps
-// them inside the cart's store. Prices are tax-EXCLUSIVE in Phase 2 (owner decision 2026-09-08); tax-inclusive
-// display is a later store setting.
+// them inside the cart's store. Prices are tax-exclusive by default; a store opts into tax-inclusive prices with
+// `store.settings.tax.prices_include_tax` (#221) and every calculator receives the mode as
+// `PricingContext.pricesIncludeTax`. Unit prices: the default price list, tiered by quantity (the server swaps in
+// window 9's `resolvePrices` at boot, #179 part 3).
 import type { Queryable } from '@platform/db';
 import type {
   PricingContext,
@@ -10,6 +12,8 @@ import type {
   ShippingRate,
   ShippingRateProvider,
   LineTaxRecord,
+  PriceQuery,
+  PriceResolver,
   TaxCalculation,
   TaxCalculator,
   TaxLine,
@@ -154,6 +158,42 @@ export const tableShippingRates: ShippingRateProvider = {
 };
 
 // ---- registry: process-wide, set once at boot by the module that owns the real provider ----
+/**
+ * Default unit prices: the store's active default list in the currency, the row with the greatest
+ * `min_quantity <= quantity` (ties: the lower amount). No sale lists, no customer groups — that is window 9's
+ * `resolvePrices`, registered at boot.
+ */
+export const defaultListPriceResolver: PriceResolver = {
+  async resolve(q: PriceQuery): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    for (const line of q.lines) {
+      const r = await q.tx.query<{ amount_minor: string }>(
+        `SELECT pr.amount_minor::text FROM price pr
+         JOIN price_list pl ON pl.id = pr.price_list_id AND pl.type = 'default' AND pl.status = 'active' AND pl.currency = $2
+         WHERE pr.variant_id = $1 AND pr.currency = $2 AND pr.min_quantity <= $3
+         ORDER BY pr.min_quantity DESC, pr.amount_minor LIMIT 1`,
+        [line.variantId, q.currency, Math.max(1, line.quantity)],
+      );
+      const amount = r.rows[0]?.amount_minor;
+      if (amount !== undefined) out.set(line.variantId, Number(amount));
+    }
+    return out;
+  },
+};
+
+let priceResolver: PriceResolver = defaultListPriceResolver;
+
+/** Replaces the unit price resolver (the server: window 9's price lists). Returns the previous one. */
+export function setPriceResolver(next: PriceResolver): PriceResolver {
+  const previous = priceResolver;
+  priceResolver = next;
+  return previous;
+}
+
+export function currentPriceResolver(): PriceResolver {
+  return priceResolver;
+}
+
 let taxCalculator: TaxCalculator = tableTaxCalculator;
 let shippingRates: ShippingRateProvider = tableShippingRates;
 

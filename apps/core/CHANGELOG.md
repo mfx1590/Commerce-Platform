@@ -2,6 +2,27 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · cart unit prices through price lists, 409 `price_changed`, boot wiring (#179 part 3, #228, #226)
+
+- **`PriceResolver` seam** (`setPriceResolver`, default `defaultListPriceResolver`: default list, tiered by
+  quantity). `addLineItem` / `updateLineItem` / `removeLineItem` re-price the whole cart through
+  `repriceLines`; the unit price follows the line quantity (tiers) up and down.
+- **`src/wiring.ts` → `registerModuleSeams()`**, called once by `createServer()`: `priceListResolver` over window
+  9's `resolvePrices` (sale > group/override > default, windows at the mutation's clock, channel, customer group)
+  **and the two boot calls that were never wired although #176 is closed — `registerPaymentProviders()` and
+  `registerCarrierProviders()`**: until now the running server had no `stripe` provider, no payments
+  `RefundRequester` and no live carrier rates.
+- **409 `price_changed`** at placement (CONTRACT CHANGE #228; local `CoreErrorCode` union in `src/lib/errors.ts`
+  until it lands): nothing placed or authorized, the cart re-priced, `details` lists the changed lines
+  (`unit_price_minor: null` = no longer sellable); the retry places at the new price.
+- **#224 review nits**: order edits re-price each line in the mode frozen on THAT line (one calculator call per
+  mode present; tax on top only for the exclusive part); cart README totals table and the `providers.ts` header
+  no longer say prices are only tax-exclusive. **#220 nits**: the EasyPost mount test asserts exactly 404 (a 401
+  would mean staff auth fronts the webhook); the over-long CLAUDE.md line is reflowed.
+- **Docs (#226, window 8's text)**: `CLAUDE.md` rows and Public API bullets for `src/modules/shipping` and
+  `src/modules/fulfillment`. Tests: `test/cart-pricing.test.ts` (5, with the server's resolver), store-api +1
+  (the 409 over HTTP, validated against the `Error` schema), guards +1 (cart/checkout never import promotions).
+
 ### 2026-09-19 · per-line tax from the calculator + `prices_include_tax` (#221, window 7's REQUEST)
 
 - **No more per-line recompute**: `recalculate` stores each line's calculation in
