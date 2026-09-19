@@ -638,7 +638,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(6);
+    expect(moduleAdminRouters()).toHaveLength(7);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -676,6 +676,19 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
       shipmentBody,
     );
     expect([400, 404]).toContain(missing.status); // the route answers (spec validation or unknown order)
+    // window 7: paymentsAdminRouter (#126) — support may refund, the key is required, store staff may not
+    const refundPath = `/admin/stores/${A}/orders/${orderId}/refunds`;
+    const refundBody = { amount_minor: 1, reason: 'goodwill' };
+    const unknownOrder = await request(app)
+      .post(refundPath)
+      .set('Authorization', 'Bearer dev:seed-support')
+      .set('Idempotency-Key', 'idem-refund-mount-check')
+      .send(refundBody);
+    expect(unknownOrder.status).toBe(404);
+    const noKey = await support.post(refundPath, refundBody);
+    expect(noKey.status).toBe(400);
+    const staffRefund = await storeStaff.post(refundPath, refundBody);
+    expect(staffRefund.status).toBe(403);
     for (const path of ['price-lists', 'promotions']) {
       const anonymous = await request(app).get(`/admin/stores/${A}/${path}`);
       expect(anonymous.status).toBe(401);
