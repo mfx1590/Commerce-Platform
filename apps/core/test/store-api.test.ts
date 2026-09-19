@@ -666,6 +666,37 @@ describe('checkout routes (contract replay, task 2.2)', () => {
     }
   });
 
+  it("window 8's pick/pack shipment statuses pass through the Store order read and validate against Order (contracts-v0.4.3)", async () => {
+    const cart = await readyCart();
+    await json('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+    const placed = await json('post', `/store/carts/${cart.id}/complete`)
+      .set('Idempotency-Key', `idem-pickpack-${cart.id}`)
+      .send();
+    expect(placed.status).toBe(201);
+    for (const status of ['picking', 'packed']) {
+      await owner.query(
+        `INSERT INTO shipment (organization_id, store_id, order_id, warehouse_id, carrier, currency, status)
+         VALUES ($1, $2, $3, $4, 'manual', 'EUR', $5)`,
+        [
+          SEED_IDS.organization,
+          SEED_IDS.stores.brandA,
+          placed.body.id,
+          SEED_IDS.warehouses.eu,
+          status,
+        ],
+      );
+    }
+    const order = await asA(
+      `/store/orders/${placed.body.id}?email=${encodeURIComponent(cart.email)}`,
+    );
+    expect(order.status).toBe(200);
+    spec.assertSchema('Order', order.body);
+    expect(order.body.shipments.map((x: { status: string }) => x.status)).toEqual([
+      'picking',
+      'packed',
+    ]);
+  });
+
   it('complete refuses a cart that is not ready (400 with the missing fields)', async () => {
     const cart = (await request(app).post('/store/carts').set('X-Publishable-Key', KEY_A)).body;
     const res = await json('post', `/store/carts/${cart.id}/complete`)

@@ -2,6 +2,25 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · cleanup: tax boot line, refunds router, guard + wiring tests (#127, #126 on main)
+
+- **`price_changed` comes from the contract** (contracts-v0.4.3, #228 landed): the local `CoreErrorCode` union in
+  `src/lib/errors.ts` is deleted; `AppError` is typed on `ErrorCode` again.
+- **Store order read vs contracts-v0.4.3**: window 8's `picking` / `packed` shipment statuses pass straight through
+  the read model; a Store API test inserts both and validates the response against `Order`.
+- **`paymentsAdminRouter()` mounted** (window 7, #176 part 4): `POST /admin/stores/{storeId}/orders/{orderId}/refunds`
+  answers on the running server (support → 404 on an unknown order, 400 without `Idempotency-Key`, store staff →
+  403). `module-routers.ts` header rewritten: nothing is pending, boot registrations live in `src/wiring.ts`.
+- **Guard widened**: cart and checkout may not reach `modules/promotions` by any spelling — deep path, roundabout
+  path, `import()` or `require()` — with a self-test of the pattern. **`test/wiring.test.ts`**:
+  `registerModuleSeams()` registers `stripe`, the payments refund requester, carrier rates, the tax calculator
+  and the price-list resolver without any configuration, and is idempotent.
+
+- `src/wiring.ts` → `registerModuleSeams()` now also calls window 7's `registerTaxProvider()`: the cart's
+  `TaxCalculator` is the tax module's (table or Stripe Tax per `store.settings.tax`). With default store settings
+  it answers exactly like the built-in table calculator; both read the same `prices_include_tax` setting and the
+  same `taxOn` rounding, so the per-line record of #221 stays consistent.
+
 ### 2026-09-19 · cart unit prices through price lists, 409 `price_changed`, boot wiring (#179 part 3, #228, #226)
 
 - **`PriceResolver` seam** (`setPriceResolver`, default `defaultListPriceResolver`: default list, tiered by

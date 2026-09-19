@@ -62,9 +62,36 @@ describe('structural guards', () => {
   it('the cart never imports the promotions module: prices arrive through the PriceResolver seam (src/wiring.ts, #179 part 3)', () => {
     const offenders = files
       .filter((f) => f.rel.startsWith('modules/cart/') || f.rel.startsWith('modules/checkout/'))
-      .filter((f) => /from\s+['"]\.\.\/promotions['"]/.test(f.text))
+      // `from '../promotions'`, a deep path (`../promotions/pricing`), a longer way round
+      // (`../../modules/promotions`), `import('…')` and `require('…')` — all of them
+      .filter((f) =>
+        /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/.test(
+          f.text,
+        ),
+      )
       .map((f) => f.rel);
     expect(offenders).toEqual([]);
+  });
+
+  it('the promotions-import pattern catches deep, roundabout, dynamic and require forms', () => {
+    const pattern =
+      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/;
+    for (const line of [
+      "import { resolvePrices } from '../promotions';",
+      "import { resolvePrices } from '../promotions/pricing';",
+      "import { resolvePrices } from '../../modules/promotions';",
+      "const m = await import('../promotions');",
+      "const m = require('../promotions/index');",
+    ]) {
+      expect(pattern.test(line)).toBe(true);
+    }
+    for (const line of [
+      "import { x } from '../cart';",
+      '// see the promotions module README',
+      "import { y } from './promotion-codes';",
+    ]) {
+      expect(pattern.test(line)).toBe(false);
+    }
   });
 
   it('modules import the outbox helper through its index only', () => {

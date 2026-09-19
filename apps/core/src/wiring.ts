@@ -7,6 +7,7 @@ import { setPriceResolver, type PriceQuery, type PriceResolver } from './modules
 import { registerPaymentProviders } from './modules/payments';
 import { resolvePrices } from './modules/promotions';
 import { registerCarrierProviders } from './modules/shipping';
+import { registerTaxProvider } from './modules/tax';
 
 async function customerGroupIds(tx: Queryable, customerId: string | null): Promise<string[]> {
   if (!customerId) return [];
@@ -48,12 +49,14 @@ export const priceListResolver: PriceResolver = {
 
 let registered = false;
 
-/** Idempotent. Payments (#176 part 1), carrier rates (#176 part 3, window 8), price lists (#179 part 3). */
+/** Idempotent. Payments (#176 part 1), carrier rates (window 8), tax (#127 / #221), price lists (#179 part 3). */
 export function registerModuleSeams(): void {
   if (registered) return;
   registered = true;
   registerPaymentProviders(); // stripe next to manual + the payments RefundRequester for returns
   registerCarrierProviders(); // live carrier rates, falling back to the shipping_option table
   setPriceResolver(priceListResolver); // window 9's price lists behind the cart's unit prices
-  // pending until src/modules/tax reaches main: registerTaxProvider() (#127 / #221)
+  // window 7's tax calculator (table | Stripe Tax per store.settings.tax); with default settings it answers
+  // exactly like the built-in table calculator, so nothing changes for a store until its settings say so
+  registerTaxProvider();
 }
