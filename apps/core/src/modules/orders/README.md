@@ -131,6 +131,18 @@ suite reuses it as is.
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-19 · The order carries a MIRROR of a fraud review; held orders cannot be confirmed (#231).**
+  `flagOrderForReview(tx, orderId, { reasonCode, provider, actor })` and
+  `resolveOrderReview(tx, orderId, { status: 'cleared' | 'confirmed_fraud', resolution, actor })` (+ the
+  client-taking `…With` twins) write `order.metadata.fraud = { status, reason_code, provider, flagged_at,
+resolved_at?, resolution? }` and emit ONE `order.updated` through `transition()`; both are idempotent on the
+  target status, and resolving an order that was never flagged returns null. The payment row stays the source of
+  truth (window 7). The reason code travels as `changed_fields` entries (`fraud`, `fraud.reason_code=<code>`,
+  `fraud.status=<status>`): `order.updated` v1 has no reason field and a real one waits for the Phase 4 events
+  window. `transition()` refuses `→ confirmed` with 409 while the status is `review` or `confirmed_fraud`;
+  `cleared` lifts the hold. **The key never crosses the Store API**: order metadata is rendered there since #100,
+  so `renderStoreOrder` strips `INTERNAL_ORDER_METADATA_KEYS` (`fraud`); the Admin read keeps it (HTTP leak test).
+
 - **2026-09-19 · Order edits re-price in the mode frozen at placement (#221).** `decreaseLineQuantity` /
   `cancelLine` pass the mode read from the order lines' `metadata.tax` to the TaxCalculator and apply the same
   total rule as the cart (tax on top only for exclusive prices) — a store that flips `prices_include_tax` later

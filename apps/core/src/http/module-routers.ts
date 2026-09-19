@@ -7,8 +7,10 @@
 // (#162), `mediaRouter` (#168), `pricingRouter` (#137), `promotionsRouter` (#138 / #189); window 17's
 // `marketingAdminRouter` (#181); window 8's `shippingAdminRouter` (#131); window 7's `paymentsAdminRouter`
 // (#126). `moduleWebhookRouters()`: window 7's `paymentsWebhookRouter` (#125) and window 8's
-// `shippingWebhookRouter` (#131). Nothing is pending. Boot-time registrations (payment providers, carrier rates,
-// tax, price lists) are not routers: they live in src/wiring.ts (`registerModuleSeams()`).
+// `shippingWebhookRouter` (#131). PENDING, one `routers.push(...)` line when its export reaches main: window 8's
+// `fulfillmentAdminRouter()` (pick/pack admin routes, shipping 2.5, PR #235) — until then those routes answer
+// from nowhere. Boot-time registrations (payment providers, carrier rates, tax, fraud, price lists) are not
+// routers: they live in src/wiring.ts (`registerModuleSeams()`).
 import type { Router } from 'express';
 import { marketingAdminRouter } from '../modules/marketing';
 import { paymentsAdminRouter, paymentsWebhookRouter } from '../modules/payments';

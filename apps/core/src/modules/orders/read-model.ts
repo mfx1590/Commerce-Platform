@@ -1,6 +1,7 @@
 // Order read models: the Store API `Order` (customer / guest, 200 or 404 only) and the Admin API `Order` +
 // `OrderSummary` list. Reads only; RLS (store-scoped client) decides visibility. Moved here from the checkout
 // module in task 2.3.
+import { stripInternalMetadata } from './fraud-flag';
 import type { Queryable, ScopedClient } from '@platform/db';
 import { notFound } from '../../lib/errors';
 import type {
@@ -128,7 +129,8 @@ export async function renderStoreOrder(tx: Queryable, orderId: string): Promise<
     fulfillment_status: o.fulfillment_status,
     total: money(o.total_minor, c),
     placed_at: o.placed_at.toISOString(),
-    metadata: o.metadata,
+    // order.metadata is storefront-owned and rendered (#100) — except our internal keys (fraud review, #231)
+    metadata: stripInternalMetadata(o.metadata),
     email: o.email,
     currency: c,
     items: lines.map((l) => {

@@ -73,6 +73,19 @@ describe('structural guards', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('checkout and orders never import the fraud module: it registers through src/lib/fraud-seam.ts (#231)', () => {
+    const offenders = files
+      .filter((f) => f.rel.startsWith('modules/checkout/') || f.rel.startsWith('modules/orders/'))
+      .filter((f) => !f.rel.endsWith('.test.ts'))
+      .filter((f) =>
+        /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/modules\/fraud(?:\/[^'"]*)?['"]|from\s+['"]\.\.\/fraud(?:\/[^'"]*)?['"]/.test(
+          f.text,
+        ),
+      )
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
   it('the promotions-import pattern catches deep, roundabout, dynamic and require forms', () => {
     const pattern =
       /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/;
