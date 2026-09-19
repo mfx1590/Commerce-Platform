@@ -1,40 +1,23 @@
 import type { FooterDocument, Link as CmsLink } from '@platform/cms';
-import { Link } from '@/i18n/navigation';
 import type { Store } from '@/lib/store-api';
 import type { ContentContext } from '../content';
+import { SafeLink } from './safe-link';
 
 /**
  * The footer for CMS-driven pages: link columns, legal links and social links from the CMS
  * `footer` document for the locale, with the copyright line always present. Without a document the
- * starter's minimal footer (copyright only) renders, so the page still ends properly.
+ * starter's minimal footer (copyright only) renders, so the page still ends properly. Every CMS
+ * href goes through `SafeLink`; list keys are the Studio `_key`, with the index as fallback.
  */
-
-function FooterLink({ link }: { link: CmsLink }) {
-  if (/^https?:\/\//.test(link.href)) {
-    return (
-      <a
-        href={link.href}
-        rel="noopener noreferrer"
-        target={link.openInNewTab ? '_blank' : undefined}
-        className="hover:underline"
-      >
-        {link.label}
-      </a>
-    );
-  }
-  return (
-    <Link href={link.href} className="hover:underline">
-      {link.label}
-    </Link>
-  );
-}
 
 function LinkList({ links }: { links: CmsLink[] }) {
   return (
     <ul className="flex flex-col gap-1">
-      {links.map((link) => (
-        <li key={link._key ?? link.href}>
-          <FooterLink link={link} />
+      {links.map((link, index) => (
+        <li key={link._key ?? `link-${index}`}>
+          <SafeLink href={link.href} openInNewTab={link.openInNewTab} className="hover:underline">
+            {link.label}
+          </SafeLink>
         </li>
       ))}
     </ul>
@@ -60,8 +43,8 @@ export function CmsFooter({ store, footer, ctx, year = new Date().getFullYear() 
       <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8 text-sm text-muted-foreground">
         {columns.length > 0 || legal.length > 0 || social.length > 0 ? (
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {columns.map((column) => (
-              <div key={column._key ?? column.heading}>
+            {columns.map((column, index) => (
+              <div key={column._key ?? `column-${index}`}>
                 <h2 className="mb-2 font-medium text-foreground">{column.heading}</h2>
                 <LinkList links={column.links} />
               </div>

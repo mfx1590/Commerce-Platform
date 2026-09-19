@@ -4,6 +4,7 @@ import { objectTypes } from './objects.js';
 
 export * from './define.js';
 export * from './documents.js';
+export * from './embed.js';
 export * from './objects.js';
 export * from './validators.js';
 
