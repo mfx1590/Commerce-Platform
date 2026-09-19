@@ -55,6 +55,31 @@ export interface StripeRefund {
   failure_reason?: string | null;
 }
 
+/** One line of a Stripe Tax calculation (`POST /v1/tax/calculations`, `expand[]=line_items`). */
+export interface StripeTaxLineItem {
+  /** Our reference (`cart_line_item.id`). */
+  reference: string;
+  amount: number;
+  /** Tax on the line, integer minor units (Stripe rounds per line). */
+  amount_tax: number;
+  tax_behavior: 'inclusive' | 'exclusive';
+  tax_breakdown?: {
+    amount: number;
+    tax_rate_details?: { percentage_decimal?: string | null } | null;
+  }[];
+}
+
+export interface StripeTaxCalculation {
+  id: string | null;
+  object: 'tax.calculation';
+  currency: string;
+  amount_total: number;
+  tax_amount_exclusive: number;
+  tax_amount_inclusive: number;
+  line_items?: { data: StripeTaxLineItem[] } | null;
+  shipping_cost?: { amount: number; amount_tax: number } | null;
+}
+
 /** Params are flattened Stripe-style: `{ metadata: { cart_id: 'x' } }` → `metadata[cart_id]=x`. */
 export type StripeParams = Record<string, unknown>;
 
@@ -110,6 +135,11 @@ export interface StripeApi {
   ): Promise<StripePaymentIntent>;
   cancelPaymentIntent(id: string, opts?: StripeRequestOptions): Promise<StripePaymentIntent>;
   createRefund(params: StripeParams, opts?: StripeRequestOptions): Promise<StripeRefund>;
+  /** Stripe Tax (task 2.4): amounts, ids and the destination address only. */
+  createTaxCalculation(
+    params: StripeParams,
+    opts?: StripeRequestOptions,
+  ): Promise<StripeTaxCalculation>;
 }
 
 export interface StripeClientOptions {
@@ -229,5 +259,9 @@ export class StripeClient implements StripeApi {
 
   createRefund(params: StripeParams, opts?: StripeRequestOptions) {
     return this.request<StripeRefund>('POST', '/v1/refunds', params, opts);
+  }
+
+  createTaxCalculation(params: StripeParams, opts?: StripeRequestOptions) {
+    return this.request<StripeTaxCalculation>('POST', '/v1/tax/calculations', params, opts);
   }
 }

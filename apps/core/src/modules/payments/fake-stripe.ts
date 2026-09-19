@@ -10,6 +10,8 @@ import {
   type StripePaymentIntent,
   type StripeRefund,
   type StripeRequestOptions,
+  type StripeTaxCalculation,
+  type StripeTaxLineItem,
 } from './stripe-client';
 
 export interface FakeCall {
@@ -43,6 +45,12 @@ export class FakeStripe implements StripeApi {
   failNextRefund: string | null = null;
   /** Script the next cancel to fail with a retryable 500 (then reset). */
   outageNextCancel = false;
+  /** Stripe Tax: the rate the fake applies to every line and to shipping, in basis points. */
+  taxRateBp = 2100;
+  /** Script the next tax calculation to fail with a retryable 500 (then reset). */
+  outageNextTax = false;
+  /** Script the next tax calculation to be refused definitively with this code (then reset). */
+  failNextTax: string | null = null;
 
   private log(call: FakeCall): void {
     this.calls.push(call);
@@ -258,5 +266,69 @@ export class FakeStripe implements StripeApi {
     this.refunds.set(refund.id, refund);
     if (opts.idempotencyKey) this.recorded.set(opts.idempotencyKey, refund.id);
     return refund;
+  }
+
+  /**
+   * Stripe Tax: `taxRateBp` on every line and on shipping, with the platform's single rounding rule (the tax
+   * rounded half-up; exclusive on top, inclusive contained) so fake results equal the table provider's.
+   */
+  async createTaxCalculation(
+    params: StripeParams,
+    opts: StripeRequestOptions = {},
+  ): Promise<StripeTaxCalculation> {
+    this.log({ method: 'createTaxCalculation', params, expand: opts.expand });
+    if (this.outageNextTax) {
+      this.outageNextTax = false;
+      throw new StripeError(500, 'Something went wrong on Stripe’s end', 'api_error');
+    }
+    if (this.failNextTax) {
+      const code = this.failNextTax;
+      this.failNextTax = null;
+      throw new StripeError(400, 'The tax location is invalid.', 'invalid_request_error', code);
+    }
+    const bp = this.taxRateBp;
+    // The platform's single rounding rule (the cart module's `taxOn`): the TAX rounded half-up —
+    // on top = amount × bp / 10000, contained = amount × bp / (10000 + bp).
+    const taxOf = (amount: number, behavior: string): number => {
+      const divisor = behavior === 'inclusive' ? 10000 + bp : 10000;
+      return amount <= 0 || bp <= 0 ? 0 : Math.floor((2 * amount * bp + divisor) / (2 * divisor));
+    };
+    const items = (params.line_items as Record<string, unknown>[] | undefined) ?? [];
+    const data: StripeTaxLineItem[] = items.map((i) => {
+      const amount = Number(i.amount);
+      const behavior = String(i.tax_behavior ?? 'exclusive') as 'inclusive' | 'exclusive';
+      const tax = taxOf(amount, behavior);
+      return {
+        reference: String(i.reference),
+        amount,
+        amount_tax: tax,
+        tax_behavior: behavior,
+        tax_breakdown: [
+          { amount: tax, tax_rate_details: { percentage_decimal: (bp / 100).toString() } },
+        ],
+      };
+    });
+    const ship = params.shipping_cost as Record<string, unknown> | undefined;
+    const shipping = ship
+      ? {
+          amount: Number(ship.amount),
+          amount_tax: taxOf(Number(ship.amount), String(ship.tax_behavior ?? 'exclusive')),
+        }
+      : null;
+    const exclusive =
+      data.filter((d) => d.tax_behavior === 'exclusive').reduce((n, d) => n + d.amount_tax, 0) +
+      (ship && String(ship.tax_behavior ?? 'exclusive') === 'exclusive' ? shipping!.amount_tax : 0);
+    const inclusive =
+      data.reduce((n, d) => n + d.amount_tax, 0) + (shipping?.amount_tax ?? 0) - exclusive;
+    return {
+      id: `taxcalc_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+      object: 'tax.calculation',
+      currency: String(params.currency),
+      amount_total: data.reduce((n, d) => n + d.amount, 0) + (shipping?.amount ?? 0) + exclusive,
+      tax_amount_exclusive: exclusive,
+      tax_amount_inclusive: inclusive,
+      line_items: { data },
+      shipping_cost: shipping,
+    };
   }
 }
