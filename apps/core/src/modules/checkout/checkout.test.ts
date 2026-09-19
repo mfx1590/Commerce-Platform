@@ -6,8 +6,16 @@ import { createHash } from 'node:crypto';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { addLineItem, createCart, updateCart } from '../cart';
-import { getStoreOrder } from '../orders';
+import {
+  addLineItem,
+  createCart,
+  setTaxCalculator,
+  tableTaxCalculator,
+  taxOn,
+  updateCart,
+  type TaxCalculator,
+} from '../cart';
+import { decreaseLineQuantity, getStoreOrder } from '../orders';
 import {
   completeCart,
   createPaymentSession,
@@ -71,6 +79,7 @@ afterAll(async () => {
 
 afterEach(() => {
   setPaymentProvider(manualPaymentProvider);
+  setTaxCalculator(tableTaxCalculator);
 });
 
 let counter = 0;
@@ -516,5 +525,133 @@ describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
     expect((await getStoreOrder(a, order.id, { customerId: otherCustomer.rows[0]!.id })).id).toBe(
       order.id,
     );
+  });
+});
+
+describe("tax: the calculator's per-line amounts and prices_include_tax (#221)", () => {
+  const lineRows = (orderId: string) =>
+    owner.query<{
+      id: string;
+      quantity: number;
+      unit_price_minor: string;
+      tax_rate_bp: number;
+      tax_minor: string;
+      total_minor: string;
+      metadata: Record<string, unknown>;
+    }>(
+      `SELECT id, quantity, unit_price_minor::text, tax_rate_bp, tax_minor::text, total_minor::text, metadata
+       FROM order_line_item WHERE order_id = $1`,
+      [orderId],
+    );
+  const orderRow = async (orderId: string) =>
+    (
+      await owner.query<{
+        subtotal_minor: string;
+        shipping_minor: string;
+        tax_minor: string;
+        total_minor: string;
+      }>(
+        `SELECT subtotal_minor::text, shipping_minor::text, tax_minor::text, total_minor::text FROM "order" WHERE id = $1`,
+        [orderId],
+      )
+    ).rows[0]!;
+
+  it('a provider whose per-line rounding differs from taxOn by a cent: cart, order rows and order.placed agree, Σ lines + shipping tax = order tax', async () => {
+    // Stripe-Tax-like: 8.875 % → 888 bp, but the provider's own line amount is one cent above our formula
+    const provider: TaxCalculator = {
+      async calculate(ctx) {
+        return {
+          lines: ctx.lines.map((l) => ({
+            lineItemId: l.lineItemId,
+            taxRateBp: 888,
+            taxMinor: taxOn(l.quantity * l.unitPriceMinor - l.discountMinor, 888) + 1,
+          })),
+          shippingTaxMinor: 2,
+        };
+      },
+    };
+    setTaxCalculator(provider);
+    const cart = await readyCart();
+    const { order } = await completeCart(a, {
+      cartId: cart.id,
+      idempotencyKey: `key-tax-${cart.id}`,
+      actor,
+    });
+    const rows = (await lineRows(order.id)).rows;
+    expect(rows).toHaveLength(1);
+    const l = rows[0]!;
+    const base = l.quantity * Number(l.unit_price_minor);
+    const expected = taxOn(base, 888) + 1;
+    expect(Number(l.tax_minor)).toBe(expected); // frozen from the calculator, not recomputed from the rate
+    expect(Number(l.total_minor)).toBe(base + expected);
+    expect(l.metadata.tax).toEqual({ amount_minor: expected, mode: 'exclusive', bp: 888 });
+    const o = await orderRow(order.id);
+    expect(Number(o.tax_minor)).toBe(expected + 2); // Σ line tax + shipping tax
+    expect(Number(o.total_minor)).toBe(
+      Number(o.subtotal_minor) + Number(o.shipping_minor) + expected + 2,
+    );
+    // the Store API order and the event carry the same numbers; the tax record itself stays internal
+    expect(order.items[0]!.tax.amount_minor).toBe(expected);
+    expect(order.totals.tax.amount_minor).toBe(expected + 2);
+    expect(order.items[0]).not.toHaveProperty('metadata');
+    expect(order.metadata ?? {}).not.toHaveProperty('tax');
+    expect(JSON.stringify(order)).not.toContain('"mode"');
+    const read = await getStoreOrder(a, order.id, { email: cart.email });
+    expect(JSON.stringify(read)).not.toContain('"mode"');
+    const placed = (await outboxFor(order.id)).rows.find((e) => e.topic === 'order.placed')!;
+    const items = placed.payload.line_items as { tax_minor: number; tax_rate_bp: number }[];
+    expect(items.map((i) => i.tax_minor)).toEqual([expected]);
+    expect(items[0]!.tax_rate_bp).toBe(888);
+    expect((placed.payload.totals as { tax_minor: number }).tax_minor).toBe(expected + 2);
+  });
+
+  it('prices_include_tax: order and line totals carry no tax on top; an edit re-prices in the frozen mode after the store flips', async () => {
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{tax}', '{"prices_include_tax": true}'::jsonb) WHERE id = $1`,
+      [A],
+    );
+    let orderId: string;
+    let lineId: string;
+    let unit: number;
+    let bp: number;
+    try {
+      const cart = await readyCart();
+      const { order } = await completeCart(a, {
+        cartId: cart.id,
+        idempotencyKey: `key-incl-${cart.id}`,
+        actor,
+      });
+      orderId = order.id;
+      const l = (await lineRows(order.id)).rows[0]!;
+      lineId = l.id;
+      unit = Number(l.unit_price_minor);
+      bp = l.tax_rate_bp;
+      expect(bp).toBeGreaterThan(0);
+      const contained = taxOn(2 * unit, bp, true);
+      expect(Number(l.tax_minor)).toBe(contained);
+      expect(Number(l.total_minor)).toBe(2 * unit); // gross: the tax is inside
+      expect(l.metadata.tax).toEqual({ amount_minor: contained, mode: 'inclusive', bp });
+      const o = await orderRow(order.id);
+      expect(Number(o.tax_minor)).toBe(contained); // reported
+      expect(Number(o.total_minor)).toBe(Number(o.subtotal_minor) + Number(o.shipping_minor));
+      expect(order.totals.total.amount_minor).toBe(Number(o.total_minor));
+      expect(order.items[0]!.total.amount_minor).toBe(2 * unit);
+    } finally {
+      await owner.query(
+        `UPDATE store SET settings = coalesce(settings, '{}'::jsonb) - 'tax' WHERE id = $1`,
+        [A],
+      );
+    }
+    // the store is exclusive again; the placed order keeps the mode it was priced in
+    const staff = { id: null, type: 'system' as const, requestId: 'req-checkout-edit' };
+    await decreaseLineQuantity(a, orderId, lineId, 1, staff);
+    const l = (await lineRows(orderId)).rows[0]!;
+    const contained = taxOn(unit, bp, true);
+    expect(Number(l.tax_minor)).toBe(contained);
+    expect(Number(l.total_minor)).toBe(unit);
+    expect(l.metadata.tax).toEqual({ amount_minor: contained, mode: 'inclusive', bp });
+    const o = await orderRow(orderId);
+    expect(Number(o.tax_minor)).toBe(contained);
+    expect(Number(o.total_minor)).toBe(Number(o.subtotal_minor) + Number(o.shipping_minor));
   });
 });
