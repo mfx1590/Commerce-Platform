@@ -10,6 +10,9 @@ Task [cms] 2.5 (issue #123): Cloudinary media for CMS content.
   shared loader in @platform/ui — the storefront tests assert the two agree). Alt text stays
   required for both sources; `SanityImage.asset` is now optional in the types.
 - Campaign fixture hero is Cloudinary-served, so every render path is exercised.
+- Review nit from PR #238: the embed HTML-snippet copy claimed a content security policy blocks
+  inline scripts — there is no CSP yet (REQUEST #199, window 3). The sandbox is the protection and
+  the Studio copy now says so.
 
 ## 0.3.0 — 2026-09-09
 
