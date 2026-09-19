@@ -526,6 +526,31 @@ describe('refund settlement through the webhook receiver', () => {
     expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'refunded' });
   });
 
+  it('settled money drives the order status, reserved money drives the ceiling: a pending remainder does not make the order refunded', async () => {
+    const { orderId, intentId, amount } = await capturedOrder();
+    const settledPart = await createRefund(a, refundInput(orderId, 300));
+    expect(settledPart.refund.status).toBe('succeeded');
+    fake.pendingNextRefund = true;
+    const rest = await createRefund(a, refundInput(orderId, amount - 300));
+    expect(rest.refund.status).toBe('pending');
+    // Everything is RESERVED (nothing more can be refunded) …
+    await expect(createRefund(a, refundInput(orderId, 1))).rejects.toMatchObject({
+      code: 'conflict',
+      details: { available_minor: 0 },
+    });
+    // … but only 300 has SETTLED: the order is partially refunded, not refunded.
+    expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'partially_refunded' });
+    await deliver(
+      refundEvent('refund.updated', {
+        id: rest.refund.provider_refund_id!,
+        amount: amount - 300,
+        status: 'succeeded',
+        intent: intentId,
+      }).raw,
+    );
+    expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'refunded' });
+  });
+
   it('a pending refund that FAILS at Stripe: refund.failed only — accounting never saw an issued refund', async () => {
     const { orderId, intentId } = await capturedOrder();
     fake.pendingNextRefund = true;
@@ -700,7 +725,12 @@ describe('POST /admin/stores/:storeId/orders/:orderId/refunds', () => {
 
   it('exemption: organization finance and owner refund above the limit; support is capped; staff has no permission', async () => {
     const { orderId, amount } = await capturedOrder();
-    expect(amount).toBeGreaterThan(2 * 5001 + 1000);
+    // Independent of the order's size: a small limit for this test only (restored below).
+    expect(amount).toBeGreaterThan(1000);
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(settings, '{support_refund_limit_minor}', '100') WHERE id = $1`,
+      [A],
+    );
     // Under the contract, createRefund needs `support` on the store, and finance alone does not hold it (FGA
     // model and ADR 0002 stub agree): a finance-only user is refused by the permission check, nothing written.
     const financeOnly = await post('seed-finance', orderId, {
@@ -716,18 +746,18 @@ describe('POST /admin/stores/:storeId/orders/:orderId/refunds', () => {
        VALUES ($1, $2, 'support', 'organization', $1)`,
       [ORG, SEED_IDS.users.finance],
     );
-    const finance = await post('seed-finance', orderId, { amount_minor: 5001, reason: 'goodwill' });
+    const finance = await post('seed-finance', orderId, { amount_minor: 101, reason: 'goodwill' });
     expect(finance.status).toBe(201);
-    const ownerRes = await post('seed-owner', orderId, { amount_minor: 5001, reason: 'goodwill' });
+    const ownerRes = await post('seed-owner', orderId, { amount_minor: 101, reason: 'goodwill' });
     expect(ownerRes.status).toBe(201);
-    const support = await post('seed-support', orderId, { amount_minor: 5001, reason: 'goodwill' });
+    const support = await post('seed-support', orderId, { amount_minor: 101, reason: 'goodwill' });
     expect(support.status).toBe(403);
     expect(support.body).toMatchObject({
       code: 'forbidden',
-      details: { limit_minor: 5000, requested_minor: 5001 },
+      details: { limit_minor: 100, requested_minor: 101 },
     });
     const supportOk = await post('seed-support', orderId, {
-      amount_minor: 1000,
+      amount_minor: 100,
       reason: 'goodwill',
     });
     expect(supportOk.status).toBe(201);
@@ -745,6 +775,10 @@ describe('POST /admin/stores/:storeId/orders/:orderId/refunds', () => {
       SEED_IDS.users.owner,
       SEED_IDS.users.support,
     ]);
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(settings, '{support_refund_limit_minor}', '5000') WHERE id = $1`,
+      [A],
+    );
   });
 
   it('a PSP failure is a literal 402 with the refund id, and the same key answers the same 402; pending is a 201', async () => {
