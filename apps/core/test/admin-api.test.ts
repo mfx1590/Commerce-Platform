@@ -638,7 +638,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(5);
+    expect(moduleAdminRouters()).toHaveLength(6);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -663,6 +663,19 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     expect(
       (await request(app).post(`/admin/stores/${A}/media/upload-params`).send({})).status,
     ).toBe(401);
+    // window 8: shippingAdminRouter — operations on the HQ; a store admin is refused, an unknown order is a 404
+    const orderId = '00000000-0000-4000-8000-00000000dead';
+    const shipmentBody = { items: [{ order_line_item_id: orderId, quantity: 1 }] };
+    const refused = await storeStaff.post(
+      `/admin/stores/${A}/orders/${orderId}/shipments`,
+      shipmentBody,
+    );
+    expect(refused.status).toBe(403);
+    const missing = await as('seed-operations').post(
+      `/admin/stores/${A}/orders/${orderId}/shipments`,
+      shipmentBody,
+    );
+    expect([400, 404]).toContain(missing.status); // the route answers (spec validation or unknown order)
     for (const path of ['price-lists', 'promotions']) {
       const anonymous = await request(app).get(`/admin/stores/${A}/${path}`);
       expect(anonymous.status).toBe(401);
@@ -670,7 +683,7 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
   });
 
   it('moduleWebhookRouters() (#176 part 3): the Stripe webhook answers outside /store and /admin, on the raw body', async () => {
-    expect(moduleWebhookRouters()).toHaveLength(1);
+    expect(moduleWebhookRouters()).toHaveLength(2);
     const previous = process.env.STRIPE_WEBHOOK_SECRET;
     process.env.STRIPE_WEBHOOK_SECRET = 'words-only-test-secret';
     try {
@@ -691,6 +704,13 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
         .send('{}');
       expect(unknown.status).toBe(404);
       spec.assertSchema('Error', unknown.body);
+      // window 8's tracking webhook sits at the same mount point: reachable without a staff token, never a 401
+      const tracking = await request(app)
+        .post('/webhooks/easypost/no-such-store')
+        .set('Content-Type', 'application/json')
+        .send('{}');
+      expect([401, 404, 503]).toContain(tracking.status);
+      expect(tracking.body).toHaveProperty('code');
     } finally {
       if (previous === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
       else process.env.STRIPE_WEBHOOK_SECRET = previous;

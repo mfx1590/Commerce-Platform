@@ -6,14 +6,15 @@
 // Wiring batch (2.4): window 9's merchandising router (#162 part 3 / #179 part 2) and window 17's marketing
 // router (#181 part 1). Quiet-state batch (#179 amendment, #176 part 3): window 9's `mediaRouter()` (#168),
 // `pricingRouter()` (#137) and `promotionsRouter()` (#138 / #189), and — through `moduleWebhookRouters()` —
-// window 7's `paymentsWebhookRouter()` (#125). Still to mount when their exports reach main, one line each:
-// window 8's `shippingAdminRouter()` here and `shippingWebhookRouter()` in `moduleWebhookRouters()` (#131 /
-// PR #218), window 7's `paymentsAdminRouter()` (#126). Boot-time registrations (`registerPaymentProviders()`,
+// window 7's `paymentsWebhookRouter()` (#125) — and window 8's `shippingAdminRouter()` /
+// `shippingWebhookRouter()` (#131, #176). Still to mount when its export reaches main, one line: window 7's
+// `paymentsAdminRouter()` (#126). Boot-time registrations (`registerPaymentProviders()`,
 // `registerCarrierProviders()`) are calls in src/server.ts, not routers.
 import type { Router } from 'express';
 import { marketingAdminRouter } from '../modules/marketing';
 import { paymentsWebhookRouter } from '../modules/payments';
 import { pricingRouter, promotionsRouter } from '../modules/promotions';
+import { shippingAdminRouter, shippingWebhookRouter } from '../modules/shipping';
 import {
   AlgoliaIndexClient,
   algoliaCredentialsFor,
@@ -44,6 +45,8 @@ export function moduleAdminRouters(): Router[] {
   routers.push(pricingRouter());
   // window 9 — promotions and coupons: /admin/stores/:storeId/promotions/** (#138 / #189)
   routers.push(promotionsRouter());
+  // window 8 — fulfilment: POST /admin/stores/:storeId/orders/:orderId/shipments, PATCH /admin/shipments/:id (#131)
+  routers.push(shippingAdminRouter());
   return routers;
 }
 
@@ -57,5 +60,7 @@ export function moduleWebhookRouters(): Router[] {
   const routers: Router[] = [];
   // window 7 — Stripe: POST /webhooks/stripe/:storeCode (STRIPE_WEBHOOK_SECRET[_<CODE>], #125 / #176 part 3)
   routers.push(paymentsWebhookRouter());
+  // window 8 — EasyPost tracking: POST /webhooks/easypost/:storeCode (EASYPOST_WEBHOOK_SECRET[_<CODE>], #131)
+  routers.push(shippingWebhookRouter());
   return routers;
 }

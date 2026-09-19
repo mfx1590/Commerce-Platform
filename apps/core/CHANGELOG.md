@@ -7,13 +7,16 @@
 - **Admin router mounts** (`src/http/module-routers.ts` → `moduleAdminRouters()`): window 9's `mediaRouter()`
   (#168: `…/media/upload-params`, `…/products/{productId}/media/**`), `pricingRouter()` (#137: `…/price-lists/**`)
   and `promotionsRouter()` (#138 / #189: `…/promotions/**`) next to merchandising and marketing — promotion and
-  price-list routes were 404s on the running server until now.
+  price-list routes were 404s on the running server until now. Window 8's `shippingAdminRouter()` (#131:
+  `POST …/orders/{orderId}/shipments`, `PATCH /admin/shipments/{shipmentId}`) joins them.
 - **Webhook mount point**: `moduleWebhookRouters()` + the `webhookRouters` option of `mountCoreMiddleware`
   (opt-in like `moduleRouters`; `createServer()` passes it). Mounted outside the `/store` and `/admin` chains and
   before any JSON body parser: window 7's `paymentsWebhookRouter()` — `POST /webhooks/stripe/:storeCode`, raw
   body, the Stripe signature is the authentication (stale signature → 400 `timestamp_out_of_tolerance`, unknown
-  store → 404). Pending until their exports reach main, one line each: window 8's `shippingAdminRouter()` /
-  `shippingWebhookRouter()` (PR #218) and window 7's `paymentsAdminRouter()` (#126).
+  store → 404) and window 8's `shippingWebhookRouter()` — `POST /webhooks/easypost/:storeCode` (HMAC over the
+  raw body; no secret → 503 naming the variable). Pending until its export reaches main, one line: window 7's
+  `paymentsAdminRouter()` (#126). Both webhook receivers record into `webhook_event` (migration 0140, #187): until
+  that migration is on main a correctly signed delivery cannot be stored.
 - **Payment seam (additive, pre-approved by the manager for window 7)**: `RefundResult.status` gains
   `'pending'` (`src/lib/payment-seam.ts`) for providers that settle refunds asynchronously; the default
   `manualRefundRequester` passes it through as a pending outcome (return stays `received`, never asked twice).
