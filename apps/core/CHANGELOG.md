@@ -12,6 +12,9 @@
 - **Orders**: `flagOrderForReview` / `resolveOrderReview` (+ `…With` twins), idempotent on the target status, one
   `order.updated` each with `fraud`, `fraud.reason_code=<code>`, `fraud.status=<status>` in `changed_fields`;
   `transition()` refuses `→ confirmed` (409) while the review is open or confirmed as fraud.
+- **Boot**: `registerModuleSeams()` calls window 7's `registerFraudCheck()` and hands the registered check to the
+  checkout's seam (their registration still targets the module's stand-in registry). `module-routers.ts` names
+  window 8's `fulfillmentAdminRouter()` as pending (PR #235).
 - **Store API**: `order.metadata.fraud` never leaves — `renderStoreOrder` strips internal metadata keys; the Admin
   read keeps it. Tests: checkout +3 (block vs a real decline, review end to end, outage), store-api +1 (HTTP leak
   test + the plain 402), guards +1 (checkout and orders never import the fraud module).
