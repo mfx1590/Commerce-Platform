@@ -16,7 +16,7 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.5 (#133) — pick/pack lifecycle, events, admin operations** · PR opened on contracts-v0.4.3
+- **2.5 (#133) — pick/pack lifecycle, events, admin operations** · PR #235 (contracts-v0.4.3)
   `fulfillment/lifecycle.ts` (`pickShipment` / `packShipment` / `listPickLists`), `lifecycle-events.ts` (the
   seam that writes to the outbox the moment events 0.3.0 exists and buffers with one warning until then),
   `fulfillment/http.ts` (three Admin API operations, permissions read from the real spec or #225's filed copy),
@@ -52,7 +52,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **2.5 (#133) pushed as its own PR** — contracts-v0.4.3 is on main (merge 1afc79a), so migration 0160, events
+- **2.5 (#133) is PR #235** — contracts-v0.4.3 is on main (merge 1afc79a), so migration 0160, events
   0.3.0 and the three Admin API operations are real. The proposed DDL and spec copies, their test-side
   application in all three database suites, and the `permissionFor` fallback are deleted; the code behind them
   needed no change, which is what the seam was for.
@@ -72,7 +72,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - [x] **#130 · 2.2** Rate shopping at checkout — done, PR #186 in review
 - [x] **#131 · 2.3** Labels and tracking webhooks — done, PR pending
 - [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — PR #223 in review
-- [x] **#133 · 2.5** Pick/pack state machine and events — PR open; Phase 2 complete for window 8
+- [x] **#133 · 2.5** Pick/pack state machine and events — PR #235; Phase 2 complete for window 8
 
 ## Decisions made (with reasons)
 - **The lifecycle's legality check lives in the caller** (2.5): `applyTransition` writes what it is told, so
