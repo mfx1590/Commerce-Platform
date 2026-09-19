@@ -5,6 +5,18 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.3 → v0.4.1)
 
+### 2026-09-19 · 2.5 shared credential loader + support for the fraud module (#128)
+
+- `credentials.ts`: `storeSecretFor` / `requireStoreSecret` — the per-store credential loader shared by
+  payments, tax and fraud (store-suffixed variable over the global one, read per call = rotation without a
+  restart, fail-closed error naming variables and path, never a value); `stripeCredentialsFor` and
+  `stripeWebhookSecretsFor` are built on it (behaviour unchanged, tests unchanged).
+- `webhook-receiver.ts`: `registerWebhookHandler` (other modules' event types under this receiver's rules);
+  `ProcessResult`, `WebhookHandler`, `WebhookStoreRow` exported. `webhook-extract.ts`: `reason`, `closed_reason`.
+- `capture.ts`: refuses an order held for fraud (`review` / `confirmed_fraud`) with 409.
+- `stripe-client.ts`: `StripeChargeOutcome` on `StripeCharge`; `fake-stripe.ts`: `setRadarOutcome`,
+  `outageNextRetrieve`.
+
 ### 2026-09-19 · 2.4 support for the tax module (#127)
 
 - Nits from the #219 re-review (manager-approved): the order's `payment_status` counts only SETTLED refunds
