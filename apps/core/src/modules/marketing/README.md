@@ -4,7 +4,7 @@ Owner: **window 17 (marketing)** · Branch prefix `marketing/` · Spec: [docs/ma
 Contracts: `contracts-v0.3` — Admin API 0.3.0, events 0.2.0, db 0.2.0 (migration `0120_marketing.sql`).
 
 Campaigns, attribution reporting, segments, feeds and referrals for a store. Phase 2.1 delivers **campaigns and
-the attribution report**, 2.2 **product feeds**; segments (2.3) and abandoned-cart recovery (2.4) land here too.
+the attribution report**, 2.2 **product feeds**, 2.3 **segments**; abandoned-cart recovery (2.4) lands here too.
 The feed _files_ are served by `apps/feeds` — this module generates and stores them.
 
 ## The one rule this module exists to keep
@@ -119,6 +119,98 @@ exact diff (spell the schema out instead of composing it; no field changes) — 
 `feed-types.ts` now uses the generated `ProductFeed` and the tests assert error-status responses against the
 document (`proposed/` removed).
 
+## Segments (2.3, #147)
+
+### The rule grammar is frozen
+
+    { v: 1, all: [ { any: [ { field, op, value }, … ] }, … ] }
+
+An **AND of ORs** over a **closed** predicate set. Every group in `all` must match; a group matches when any one
+of its predicates does. `all: []` matches every customer of the store — a new segment starts there.
+
+| field                | operators               | value                                    |
+| -------------------- | ----------------------- | ---------------------------------------- |
+| `orders_count`       | `gte` `lte` `eq`        | integer                                  |
+| `total_spent_minor`  | `gte` `lte` `eq`        | integer, minor units                     |
+| `last_order_at`      | `after` `before`        | RFC-3339, normalised to ISO-8601 on save |
+| `tags`               | `includes` `excludes`   | string                                   |
+| `consent`            | `granted` `not_granted` | `email` \| `sms`                         |
+| `country`            | `in` `not_in`           | array of ISO-3166-1 alpha-2              |
+| `customer_group_ids` | `in` `not_in`           | array of uuid                            |
+
+**Anything else is a 400** naming the exact path (`rules.all[0].any[2].op`). A segment that silently ignored a
+rule it did not understand would send the wrong campaign to the wrong people and nobody would find out; a
+refusal is a validation message. `SEGMENT_RULES_SCHEMA` publishes the same grammar as JSON Schema from
+`index.ts`, so window 16's worker and the admin rule builder validate without importing this module — and a test
+runs both the parser and the schema over the same fixtures so they can never drift apart.
+
+### Where each field actually reads from
+
+Decided with the manager on 2026-09-19 after checking the schema rather than the contract's description:
+
+- `orders_count` / `total_spent_minor` / `last_order_at` — aggregated from `"order"`, **excluding cancelled**.
+- `consent` — `customer.consent` jsonb, `{marketing_email: {granted: true}}`; the contract's `email`/`sms`
+  map to `marketing_email` / `marketing_sms`.
+- `country` — **the default shipping address only** (`customer_address.is_default_shipping`). A stale secondary
+  address must never pull someone into a geo campaign. "Any address ever" would be a separate additive
+  predicate later, deliberately not built now.
+- `tags` — `customer.metadata.tags`; there is no `customer.tags` column. A missing key or a non-array value is
+  simply "no tags", never an error.
+- `customer_group_ids` — membership-in-list against the single `customer.customer_group_id` FK.
+- Customers with status `erased` or `disabled` are never counted, in any segment.
+
+**Every predicate is total.** A customer with no orders, no address, no tags and no consent block still
+evaluates to true or false — never an error, and never a NULL that quietly drops them. That last one is not
+theoretical: `not_granted` is `IS DISTINCT FROM`, because `NOT (NULL = 'true')` is NULL, which silently excluded
+exactly the never-asked customers a re-consent campaign exists to reach. A test covers it.
+
+Nothing from a rule is ever interpolated into SQL — values are bound as parameters, and only field and operator
+names (already checked against the closed set) reach the query string.
+
+### Preview, materialise, and why they agree
+
+`previewSegment` counts and writes nothing; rules in the request body override the saved ones so a rule builder
+can show a live count before anything is saved. `materializeSegment` replaces `segment_member` in one
+transaction and updates `materialised_count` / `last_materialised_at`. Both go through the same `segmentQuery`,
+so "the preview count equals the materialised count" is a property of the code rather than two queries that
+happen to agree today. Members are **replaced, not merged** — a segment is a statement about the present, which
+is why `segment_member` has no `updated_at`.
+
+`materialize` answers **202**: the contract calls it a job, so moving it onto a worker later is not a contract
+change even though it currently completes inline.
+
+### Templates
+
+`store_id IS NULL` is an organization template. RLS kind `store_nullable` makes templates visible **only** in
+organization scope, so a store client cannot see one even by id — there is a test for that. Creating a store
+segment with `template_id` **copies** the rules at creation: editing the template afterwards never silently
+changes who a live campaign reaches, and deleting it leaves the segment working. `template_id` is history, not a
+live link.
+
+That copy has to be read in organization scope, and a `store_admin` has no HQ role — so `createSegment` reads the
+template through an injected organization-scoped client (`templateClient`), defaulting to one built from the core
+pool. Injected rather than always built, because a service that reaches for the process-global pool cannot be
+tested without `initDb()`.
+
+### The window 16 boundary
+
+`segmentSyncPayload(client, storeId, segmentId, { limit, after })` returns one page of the segment's
+**materialised** members. **No provider call happens in this module and none ever will** — window 16 owns
+delivery, credentials and Klaviyo's quirks.
+
+It reads `segment_member` rather than re-evaluating the rules on purpose: the worker must send to the set the
+segment was last materialised as, so that what was previewed, what was counted and what was sent are the same
+set. A member is `{ customer_id, email_hash, consent, materialised_at }` — **no address, name or phone**, the
+same convention the event envelopes use.
+
+### Known contract gap — `SegmentRules` (CONTRACT CHANGE filed)
+
+Admin API 0.4.3 still describes `SegmentRules` as the flat `{ orders_count, tags, consent, … }` bag with
+`additionalProperties: true` and "Unknown keys are kept, not rejected" — while its own description says the
+grammar is frozen by this window in Phase 2.3, which is what this task does. The filed change replaces that
+schema with the closed grammar above. Responses validate against the frozen document meanwhile precisely because
+it accepts additional properties, so nothing was blocked; the manager lands it after this PR merges.
+
 ### Known limitation — currency
 
 The report aggregates in the **store's default currency and excludes orders in any other currency**.
@@ -140,6 +232,5 @@ it; the route tests use dev tokens (`CORE_DEV_TOKENS=1`) for the seeded staff su
 
 ## Next in this folder
 
-2.3 segments (rule grammar frozen there, `SegmentRules` in the spec is deliberately loose), 2.4 the
-`cart.abandoned` consumer, 2.6 the promotions report. The feed _server_ is `apps/feeds`; the admin screens are
-in `apps/admin/src/app/(store)/[storeId]/marketing/**`.
+2.4 the `cart.abandoned` consumer, 2.6 the promotions report. The feed _server_ is `apps/feeds`; the admin
+screens are in `apps/admin/src/app/(store)/[storeId]/marketing/**`.

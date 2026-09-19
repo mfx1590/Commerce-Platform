@@ -64,6 +64,52 @@ export type {
   ProductFeedRow,
 } from './feed-types';
 export { attributionReport } from './reports';
+export {
+  createSegment,
+  createSegmentTemplate,
+  deleteSegment,
+  deleteSegmentTemplate,
+  getSegment,
+  getSegmentTemplate,
+  listSegments,
+  listSegmentTemplates,
+  materializeSegment,
+  normaliseSegmentInput,
+  previewSegment,
+  toSegment,
+  updateSegment,
+  updateSegmentTemplate,
+} from './segments';
+// The frozen rule grammar (2.3): the parser, the closed field table, and the JSON Schema window 16's worker and
+// the admin rule builder validate against without importing this module.
+export {
+  CONSENT_CHANNELS,
+  EMPTY_RULES,
+  parseSegmentRules,
+  SEGMENT_FIELDS,
+  SEGMENT_RULES_SCHEMA,
+  SEGMENT_RULES_VERSION,
+} from './segment-rules';
+export type {
+  ConsentChannel,
+  SegmentAnyGroup,
+  SegmentField,
+  SegmentPredicate,
+  SegmentRules,
+} from './segment-rules';
+export { compileSegmentRules, SEGMENT_FROM, segmentQuery } from './segment-sql';
+export type { CompiledRules } from './segment-sql';
+// The window 16 boundary: a typed payload and one function. No provider call ever happens in this module.
+export { emailHash, segmentSyncPayload } from './segment-sync';
+export type { SegmentSyncMember, SegmentSyncOptions, SegmentSyncPayload } from './segment-sync';
+export { SEGMENT_SORT_FIELDS } from './segment-types';
+export type {
+  Segment,
+  SegmentInput,
+  SegmentListQuery,
+  SegmentRow,
+  SegmentSortField,
+} from './segment-types';
 export { marketingAdminRouter } from './routes';
 export {
   CAMPAIGN_SORT_FIELDS,
