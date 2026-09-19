@@ -174,7 +174,8 @@ returns module's `RefundRequester` for return-driven refunds. `createRefundIn(tx
    check; the exemption applies to a user who holds finance AND passes that gate.
 4. **Ceiling**: `amount ≤ captured − Σ(pending + succeeded refunds)`; above it → 409 `conflict`
    `{ field: 'amount_minor', captured_minor, refunded_minor, available_minor, requested_minor }`. Failed rows never
-   hold money and never count; pending rows do.
+   hold money and never count; pending rows do (RESERVED money drives the ceiling). The order's `payment_status`
+   counts SETTLED money only (`succeeded` refunds): an order is never `refunded` while part of it is still pending.
 5. **Row first, then the PSP**: the row is inserted `pending` with the key, then `PaymentProvider.refund` runs with
    the same key (Stripe idempotency `refund_<store_id>:<key>`).
    - Stripe **settled** it (`succeeded`) → row `succeeded` + `provider_refund_id` + `refund.issued` (with

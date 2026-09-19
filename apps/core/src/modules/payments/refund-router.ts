@@ -68,10 +68,12 @@ export function paymentsAdminRouter(): Router {
       // Support limit: store admins of this store and organization finance (owner is implied by both) refund
       // any amount; everyone else is capped by the store setting.
       let limitMinor: number | null = null;
-      const exempt =
-        (await can(p, 'store_admin', `store:${storeId}`)) ||
-        (await can(p, 'finance', ORGANIZATION_OBJECT));
-      if (!exempt) {
+      // Two independent OpenFGA checks: asked in parallel (one round trip of latency, not two).
+      const [isStoreAdmin, isFinance] = await Promise.all([
+        can(p, 'store_admin', `store:${storeId}`),
+        can(p, 'finance', ORGANIZATION_OBJECT),
+      ]);
+      if (!isStoreAdmin && !isFinance) {
         const s = await client.query<{ settings: Record<string, unknown> | null }>(
           `SELECT settings FROM store WHERE id = $1`,
           [storeId],
