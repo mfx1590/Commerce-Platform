@@ -107,6 +107,18 @@ guest orders. The storefront's client never sends the customer token to cart pat
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-19 · Fraud is evaluated before authorization, through a seam (#231, window 7).** `setFraudCheck()`
+  (types and registry in `src/lib/fraud-seam.ts`, re-exported here) — `completeCart` calls the registered check
+  inside the placement transaction, after the cart is re-priced and BEFORE `PaymentProvider.authorize`, with facts
+  and codes only (`emailHash`, the two countries, amount, provider + session id — never the email or an address).
+  **`block`** answers 402 `payment_failed` with the generic message and `details.provider` — byte-identical to a
+  decline (tested against a real decline): a distinct answer would tell a probing fraudster which attempt tripped a
+  rule. Nothing is written and nothing was authorised, so there is nothing to void. **`review`** places the order:
+  the payment row is inserted with `metadata.fraud` (the source of truth, window 7's aggregate) and the orders
+  module writes the mirror (`flagOrderForReview`). **A check that throws is a `review`**
+  (`reason_code: provider_unavailable`): an outage never blocks a customer and never passes silently. No check
+  registered = every placement allowed, as before.
+
 - **2026-09-19 · Placement never charges a price the customer did not see: 409 `price_changed` (#179 part 3,
   CONTRACT CHANGE #228).** Under the cart lock `completeCart` re-resolves every line at one clock (`at`); any
   difference rolls the placement back (nothing placed, nothing authorized), the cart is re-priced in a transaction

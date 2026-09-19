@@ -14,7 +14,7 @@ import { coreErrorHandler, DevTokenVerifier } from '../../http';
 import { closePool, initDb } from '../../lib/db';
 import { mountCoreMiddleware } from '../../server';
 import { addLineItem, createCart, updateCart } from '../cart';
-import { confirmOrder } from '../orders';
+import { confirmOrder, projectOrder, type ProjectedEvent } from '../orders';
 import { completeCart, createPaymentSession } from '../checkout';
 import { createManualCarrierProvider } from './manual-provider';
 import { coreInventoryPort, setInventoryPort, type InventoryPort } from './ports';
@@ -24,6 +24,7 @@ import {
   createShipment,
   getShipment,
   listOrderShipments,
+  readShipmentMetadata,
   updateShipment,
 } from './shipments';
 import { shippingAdminRouter, shippingWebhookRouter } from './http';
@@ -322,6 +323,40 @@ describe('shipments', () => {
     ]);
   });
 
+  it('voids a label it could not record, and leaves the shipment where it found it', async () => {
+    // The shipment is cancelled WHILE the carrier is buying: step 3 must refuse, and the bought label — real
+    // money — goes back to the carrier instead of being orphaned.
+    const carrier = createManualCarrierProvider();
+    const voided: string[] = [];
+    const realBuy = carrier.buyLabel.bind(carrier);
+    const realVoid = carrier.voidLabel.bind(carrier);
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    carrier.buyLabel = async (request) => {
+      const label = await realBuy(request);
+      await updateShipment(a, planned.id, { status: 'cancelled', actor });
+      return label;
+    };
+    carrier.voidLabel = async (request) => {
+      voided.push(request.providerShipmentId);
+      return realVoid(request);
+    };
+    setCarrierProvider(carrier);
+
+    await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    expect(voided).toHaveLength(1);
+    const row = await getShipment(a, planned.id);
+    expect(row.status).toBe('cancelled');
+    expect(row.label_url).toBeNull();
+  });
+
   it('reports a carrier failure as 502 and leaves the shipment pending', async () => {
     const broken = createManualCarrierProvider();
     broken.rates = async () => {
@@ -337,6 +372,59 @@ describe('shipments', () => {
     });
     await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({ status: 502 });
     expect((await getShipment(a, planned.id)).status).toBe('pending');
+  });
+
+  it('voids the label when a shipment holding one is cancelled', async () => {
+    const carrier = createManualCarrierProvider();
+    const voided: string[] = [];
+    const realVoid = carrier.voidLabel.bind(carrier);
+    carrier.voidLabel = async (request) => {
+      voided.push(request.providerShipmentId);
+      return realVoid(request);
+    };
+    setCarrierProvider(carrier);
+
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    const labelled = await buyShipmentLabel(a, planned.id, { actor });
+    expect(labelled.status).toBe('label_created');
+
+    const cancelled = await updateShipment(a, planned.id, { status: 'cancelled', actor });
+    expect(cancelled.status).toBe('cancelled');
+    expect(voided).toHaveLength(1);
+  });
+
+  it('refuses the cancel when the void fails, and records the divergence', async () => {
+    const carrier = createManualCarrierProvider();
+    carrier.voidLabel = async () => {
+      throw new Error('carrier refused');
+    };
+    setCarrierProvider(carrier);
+
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await buyShipmentLabel(a, planned.id, { actor });
+
+    await expect(
+      updateShipment(a, planned.id, { status: 'cancelled', actor }),
+    ).rejects.toMatchObject({ code: 'conflict', details: { shipment_id: planned.id } });
+
+    // The shipment still matches reality: the carrier holds a live label.
+    expect((await getShipment(a, planned.id)).status).toBe('label_created');
+    const ref = await readShipmentMetadata(a, planned.id, 'carrier_label');
+    expect(ref).toMatchObject({ needs_reconciliation: true });
+    // A plain Error from a provider is not trusted verbatim; the recorded reason says what happened.
+    expect(String(ref!.reconcile_reason)).toContain('provider failure voiding the label');
   });
 
   it('emits exactly one event per legal transition and refuses an illegal one', async () => {
@@ -535,6 +623,63 @@ async function shippedShipment() {
   return { orderId: order.orderId, shipmentId: planned.id, tracking: labelled.tracking_number! };
 }
 
+describe('a two-shipment order, replayed', () => {
+  it('folds its own event stream back into the order the database holds', async () => {
+    // Two lines, one shipment each, despatched at different times — the partial-fulfilment path end to end.
+    const order = await placedOrder(2);
+    const [first, second] = order.lines;
+    const shipmentOne = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: first!.id, quantity: first!.quantity }],
+      actor,
+    });
+    await updateShipment(a, shipmentOne.id, { status: 'shipped', actor });
+    expect((await orderState(order.orderId)).fulfillment_status).toBe('partially_fulfilled');
+
+    const shipmentTwo = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: second!.id, quantity: second!.quantity }],
+      actor,
+    });
+    await updateShipment(a, shipmentTwo.id, { status: 'shipped', actor });
+    await updateShipment(a, shipmentOne.id, { status: 'delivered', actor });
+    await updateShipment(a, shipmentTwo.id, { status: 'delivered', actor });
+
+    // Every order event this order ever wrote, in order, folded from nothing.
+    const stream = await owner.query<ProjectedEvent>(
+      `SELECT topic, payload FROM outbox
+        WHERE aggregate_type = 'order' AND aggregate_id = $1 ORDER BY occurred_at, seq`,
+      [order.orderId],
+    );
+    const replayed = projectOrder(stream.rows);
+    const live = await owner.query<{
+      status: string;
+      payment_status: string;
+      fulfillment_status: string;
+    }>(`SELECT status, payment_status, fulfillment_status FROM "order" WHERE id = $1`, [
+      order.orderId,
+    ]);
+
+    expect(replayed).toMatchObject({
+      order_id: order.orderId,
+      status: live.rows[0]!.status,
+      payment_status: live.rows[0]!.payment_status,
+      fulfillment_status: live.rows[0]!.fulfillment_status,
+    });
+    // The shipments told the truth on the way: fulfilled, delivered, completed.
+    expect(replayed!.fulfillment_status).toBe('fulfilled');
+    expect(replayed!.status).toBe('completed');
+
+    // And each shipment's own stream is exactly one event per transition.
+    for (const id of [shipmentOne.id, shipmentTwo.id]) {
+      const topics = (await eventsFor(id)).rows.map((row) => row.topic);
+      expect(topics).toEqual(['shipment.created', 'shipment.shipped', 'shipment.delivered']);
+    }
+  });
+});
+
 describe('tracking webhooks', () => {
   it('applies a scan, stores a redacted extract with the raw body hash, and a duplicate changes nothing', async () => {
     const { shipmentId, tracking } = await shippedShipment();
@@ -625,6 +770,37 @@ describe('tracking webhooks', () => {
       }),
     ).rejects.toMatchObject({ code: 'validation_error' });
     expect(await webhookRow('evt_badsig')).toBeUndefined();
+  });
+
+  it('refuses to guess when two shipments share a tracking number', async () => {
+    const first = await shippedShipment();
+    const second = await shippedShipment();
+    // Force the collision the schema does not prevent.
+    await owner.query(`UPDATE shipment SET tracking_number = $2 WHERE id = $1`, [
+      second.shipmentId,
+      first.tracking,
+    ]);
+    const result = await handleEasyPostWebhook(
+      a,
+      webhook(
+        first.tracking,
+        'delivered',
+        `evt_ambig_${second.shipmentId}`,
+        '2026-09-09T11:00:00Z',
+      ),
+    );
+    expect(result).toMatchObject({
+      outcome: 'skipped',
+      shipmentId: null,
+      reason: 'more than one shipment has this tracking number',
+    });
+    // Neither shipment moved.
+    expect((await getShipment(a, first.shipmentId)).status).toBe('label_created');
+    expect((await getShipment(a, second.shipmentId)).status).toBe('label_created');
+    expect(await webhookRow(`evt_ambig_${second.shipmentId}`)).toMatchObject({
+      status: 'skipped',
+      aggregate_id: null,
+    });
   });
 
   it('records a scan for a tracking number we do not know as skipped', async () => {

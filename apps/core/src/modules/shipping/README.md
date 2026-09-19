@@ -120,19 +120,32 @@ before any store opts in.
 `createShipment` plans one from an order: it checks the requested quantities against what the order still owes
 (earlier live shipments counted), inserts `shipment` + `shipment_item`, consumes the reservations, refreshes the
 order's fulfilment status and emits `shipment.created` — one transaction, so the rows and the event commit
-together or not at all (ADR 0003). `buyShipmentLabel` then asks the store's carrier for a label and moves the
-shipment to `label_created`; it is idempotent (a shipment that already has a label is returned unchanged) and a
-carrier failure is a 502 that leaves the shipment `pending` and retryable.
+together or not at all (ADR 0003). `buyShipmentLabel` then asks the store's carrier for a label and moves the shipment to `label_created`. It never
+holds a transaction across the carrier call: it reads what it needs, quotes and buys with nothing held, then
+records in a second short transaction. A carrier failure is a 502 and the shipment is untouched. If the shipment
+moved while the carrier was working, the bought label — real money — is **voided again** rather than orphaned, and
+the call is a 409. It is idempotent: a shipment that already has a label is returned unchanged.
 
 ### Status machine
 
 ```
-pending -> label_created -> shipped -> in_transit -> delivered
+pending -> picking -> packed -> label_created -> shipped -> in_transit -> delivered
    |             |             \---------------------> delivered   (carrier skipped the scans)
    \-------------/--> cancelled                \----> failed
 ```
 
-Forward only, and `delivered` / `failed` / `cancelled` are final. An illegal transition through the admin route
+`picking` and `packed` came with migration 0160 (#225, contracts-v0.4.3) and belong to the sibling `fulfillment`
+module, which owns the two moves; this module owns the machine they move through.
+
+Forward only, and `delivered` / `failed` / `cancelled` are final. Cancel is legal from `pending`, `picking`,
+`packed` and `label_created` — never once the parcel has gone, which is a return, not a cancel.
+
+**Cancelling a shipment that holds a label gives the label back first** (#225). `updateShipment` voids it through
+the store's carrier before the status moves, outside the transaction, using the provider reference
+`buyShipmentLabel` kept on `metadata.carrier_label`. A **failed void is not swallowed**: the carrier still holds a
+live label nobody will use, so the failure is recorded on that key (`needs_reconciliation`) and raised, and the
+shipment stays where it was rather than hiding a paid label from everyone. A `cancelled` scan arriving from the
+carrier is the carrier's own cancel, so nothing is voided for it. An illegal transition through the admin route
 is a 409; the same transition arriving from a carrier scan is **skipped**, because carriers deliver events out of
 order and a late `in_transit` after `delivered` is normal, not an error.
 
@@ -167,8 +180,9 @@ to `processing`; `fulfilled_quantity` and `fulfillment_status` change when the s
 
 `handleEasyPostWebhook` does four things in this order, and the order is the design:
 
-1. **Verify first.** HMAC-SHA256 over the **raw** body, compared timing-safely. A missing, malformed or wrong
-   signature is a 401, and nothing is stored — anything else would let a stranger drive our shipment states.
+1. **Verify first.** HMAC-SHA256 over the **raw** body, compared timing-safely, and only under EasyPost's own
+   `hmac-sha256-hex` label (or a bare digest). A correct digest presented under another provider's label —
+   `sha1=`, `v0=` — is refused. A missing, malformed or wrong signature is a 401 and nothing is stored.
 2. **Extract, don't store.** The raw body is hashed (`payload_hash`, sha256 hex of the exact bytes) and reduced to
    the fields shipping processes: provider event id, event type, tracker id, tracking code, carrier, status and the
    carrier's timestamp. Addresses, recipient names and scan locations are dropped at extraction and never reach a
@@ -178,8 +192,9 @@ to `processing`; `fulfilled_quantity` and `fulfillment_status` change when the s
    shipment or emitting a second event.
 4. **Move forward only.** Ordering comes from the shipment's own state machine, never from the carrier's timestamp.
 
-The result is `applied`, `duplicate` or `skipped` (unknown tracking number, unmapped carrier status, or a scan the
-shipment is already past). A failure while applying rolls the row back with the change, so the carrier's retry
+The result is `applied`, `duplicate` or `skipped` (unknown tracking number, a number shared by two shipments,
+unmapped carrier status, or a scan the shipment is already past). A tracking number matching more than one
+shipment is **ambiguous, not newest-wins**: guessing would move the wrong customer's parcel. A failure while applying rolls the row back with the change, so the carrier's retry
 processes the event again instead of finding it "already seen".
 
 ### The shared `webhook_event` table (#187)

@@ -8,6 +8,7 @@ import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DevTokenVerifier } from '../src/http';
 import { closePool, initDb } from '../src/lib/db';
+import { setFraudCheck } from '../src/modules/checkout';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -695,6 +696,57 @@ describe('checkout routes (contract replay, task 2.2)', () => {
       'picking',
       'packed',
     ]);
+  });
+
+  it('a fraud review (#231) never crosses the Store API: not on complete, not on the order read; a block is a plain 402', async () => {
+    setFraudCheck({
+      async evaluate() {
+        return { outcome: 'review', reasonCode: 'country_mismatch', provider: 'rules' };
+      },
+    });
+    try {
+      const cart = await readyCart({ note: 'gift' });
+      await json('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+      const placed = await json('post', `/store/carts/${cart.id}/complete`)
+        .set('Idempotency-Key', `idem-fraud-${cart.id}`)
+        .send();
+      expect(placed.status).toBe(201);
+      spec.assertSchema('Order', placed.body);
+      const stored = await owner.query<{ metadata: Record<string, unknown> }>(
+        `SELECT metadata FROM "order" WHERE id = $1`,
+        [placed.body.id],
+      );
+      expect(stored.rows[0]!.metadata.fraud).toMatchObject({ status: 'review' }); // it IS on the row
+      const order = await asA(
+        `/store/orders/${placed.body.id}?email=${encodeURIComponent(cart.email)}`,
+      );
+      for (const body of [placed.body, order.body]) {
+        expect(body.metadata).toEqual({ note: 'gift' }); // the storefront's own metadata still round-trips
+        const text = JSON.stringify(body);
+        expect(text).not.toContain('fraud');
+        expect(text).not.toContain('country_mismatch');
+      }
+
+      setFraudCheck({
+        async evaluate() {
+          return { outcome: 'block', reasonCode: 'radar_highest', provider: 'radar' };
+        },
+      });
+      const second = await readyCart();
+      await json('post', `/store/carts/${second.id}/payment-session`).send({ provider: 'manual' });
+      const blocked = await json('post', `/store/carts/${second.id}/complete`)
+        .set('Idempotency-Key', `idem-fraud-block-${second.id}`)
+        .send();
+      expect(blocked.status).toBe(402);
+      spec.assertSchema('Error', blocked.body);
+      expect(blocked.body).toEqual({
+        code: 'payment_failed',
+        message: 'payment not authorized',
+        details: { provider: 'manual' },
+      });
+    } finally {
+      setFraudCheck(null);
+    }
   });
 
   it('complete refuses a cart that is not ready (400 with the missing fields)', async () => {

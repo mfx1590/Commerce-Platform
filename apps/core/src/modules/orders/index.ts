@@ -72,3 +72,12 @@ export type {
   TransitionChange,
   TransitionHooks,
 } from './types';
+// Fraud review mirror (#231): window 7 and the checkout call these; the payment row stays the source of truth.
+export {
+  flagOrderForReview,
+  flagOrderForReviewWith,
+  resolveOrderReview,
+  resolveOrderReviewWith,
+} from './fraud';
+export { INTERNAL_ORDER_METADATA_KEYS, orderFraudOf, stripInternalMetadata } from './fraud-flag';
+export type { OrderFraudFlag, OrderFraudStatus } from './fraud-flag';

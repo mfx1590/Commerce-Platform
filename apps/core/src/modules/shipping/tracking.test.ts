@@ -46,6 +46,19 @@ describe('EasyPost webhook signature', () => {
     expect(verifyEasyPostSignature(body, `  ${bare.toUpperCase()}  `, SECRET)).toBe(true);
   });
 
+  it("rejects another provider's label, even when the digest itself is right", () => {
+    const body = webhookBody();
+    const digest = sign(body).split('=')[1]!;
+    // A correct HMAC under a header shape we do not speak must not be accepted.
+    expect(verifyEasyPostSignature(body, `sha1=${digest}`, SECRET)).toBe(false);
+    expect(verifyEasyPostSignature(body, `v0=${digest}`, SECRET)).toBe(false);
+    expect(verifyEasyPostSignature(body, `t=123,v1=${digest}`, SECRET)).toBe(false);
+    // The label EasyPost actually sends, and a bare digest, still pass.
+    expect(verifyEasyPostSignature(body, `hmac-sha256-hex=${digest}`, SECRET)).toBe(true);
+    expect(verifyEasyPostSignature(body, `HMAC-SHA256-HEX=${digest}`, SECRET)).toBe(true);
+    expect(verifyEasyPostSignature(body, digest, SECRET)).toBe(true);
+  });
+
   it('rejects a wrong secret, a tampered body, a missing signature and an empty secret', () => {
     const body = webhookBody();
     expect(verifyEasyPostSignature(body, sign(body, 'other'), SECRET)).toBe(false);
@@ -124,6 +137,10 @@ describe('payloadHashOf', () => {
 
 describe('shipment transitions', () => {
   const forward: [ShipmentStatus, ShipmentStatus][] = [
+    ['pending', 'picking'],
+    ['picking', 'packed'],
+    ['packed', 'label_created'],
+    ['packed', 'shipped'],
     ['pending', 'label_created'],
     ['pending', 'shipped'],
     ['label_created', 'shipped'],
@@ -137,6 +154,10 @@ describe('shipment transitions', () => {
   });
 
   const backward: [ShipmentStatus, ShipmentStatus][] = [
+    ['picking', 'pending'],
+    ['packed', 'picking'],
+    ['label_created', 'packed'],
+    ['picking', 'picking'],
     ['delivered', 'in_transit'],
     ['in_transit', 'shipped'],
     ['shipped', 'label_created'],
@@ -158,6 +179,8 @@ describe('shipment transitions', () => {
 
   it('allows cancelling only before the parcel moves, and failing at any live status', () => {
     expect(canTransition('pending', 'cancelled')).toBe(true);
+    expect(canTransition('picking', 'cancelled')).toBe(true);
+    expect(canTransition('packed', 'cancelled')).toBe(true);
     expect(canTransition('label_created', 'cancelled')).toBe(true);
     expect(canTransition('shipped', 'cancelled')).toBe(false);
     expect(canTransition('in_transit', 'failed')).toBe(true);
