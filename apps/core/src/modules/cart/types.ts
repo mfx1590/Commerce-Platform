@@ -179,3 +179,36 @@ export interface ShippingOptionRow {
   price_minor: string;
   currency: string;
 }
+
+// ---- unit prices (#179 part 3) ----
+
+export interface PriceQuery {
+  /** The mutation's transaction (RLS scope = the store). */
+  tx: Queryable;
+  storeId: string;
+  currency: string;
+  salesChannelId: string | null;
+  /** The cart's customer, when signed in: a resolver derives customer groups from it. Null for guests. */
+  customerId: string | null;
+  /** One clock for the whole mutation: a quote and the placement that follows judge every price window alike. */
+  at: Date;
+  lines: { variantId: string; quantity: number }[];
+}
+
+/**
+ * The effective unit price per variant, integer minor units. A variant ABSENT from the result has no applicable
+ * price in the currency: not sellable. Default: `defaultListPriceResolver` (the store's default list, tiered by
+ * quantity). The server registers window 9's `resolvePrices` (sale > override/group > default) at boot through
+ * `setPriceResolver` — this module never imports the promotions module.
+ */
+export interface PriceResolver {
+  resolve(query: PriceQuery): Promise<Map<string, number>>;
+}
+
+/** One line whose unit price differs from what the cart holds (`unitPriceMinor: null` = no longer sellable). */
+export interface PriceChange {
+  lineItemId: string;
+  variantId: string;
+  previousUnitPriceMinor: number;
+  unitPriceMinor: number | null;
+}

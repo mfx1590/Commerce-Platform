@@ -6,6 +6,7 @@
 import type { Queryable, ScopedClient } from '@platform/db';
 import { AppError, notFound, validationError } from '../../lib/errors';
 import {
+  currentPriceResolver,
   currentShippingRateProvider,
   currentTaxCalculator,
   lineTaxOf,
@@ -20,6 +21,7 @@ import type {
   CartStoreContext,
   CreateCartInput,
   LineTaxRecord,
+  PriceChange,
   Money,
   PricingLine,
   ShippingOptionRow,
@@ -443,8 +445,61 @@ export async function assertStock(
 }
 
 /**
+ * Re-resolves every line's unit price through the PriceResolver at `at` (#179 part 3): sale lists, group lists and
+ * quantity tiers are judged against the line's CURRENT quantity. Returns the lines whose price differs from the
+ * stored one; with `apply` (default) those rows are updated — a line that is no longer sellable keeps its last
+ * price and is only reported (`unitPriceMinor: null`). Callers run `recalculate` afterwards.
+ */
+export async function repriceLines(
+  tx: Queryable,
+  cart: CartRow,
+  opts: { at?: Date; apply?: boolean } = {},
+): Promise<PriceChange[]> {
+  const lines = await loadLines(tx, cart.id);
+  if (lines.length === 0) return [];
+  const prices = await currentPriceResolver().resolve({
+    tx,
+    storeId: cart.store_id,
+    currency: cart.currency,
+    salesChannelId: cart.sales_channel_id,
+    customerId: cart.customer_id,
+    at: opts.at ?? new Date(),
+    lines: lines.map((l) => ({ variantId: l.variant_id, quantity: l.quantity })),
+  });
+  const changes: PriceChange[] = [];
+  for (const l of lines) {
+    const previous = Number(l.unit_price_minor);
+    const next = prices.get(l.variant_id) ?? null;
+    if (next === previous) continue;
+    changes.push({
+      lineItemId: l.id,
+      variantId: l.variant_id,
+      previousUnitPriceMinor: previous,
+      unitPriceMinor: next,
+    });
+    if (next !== null && opts.apply !== false) {
+      await tx.query(
+        `UPDATE cart_line_item SET unit_price_minor = $2, updated_at = now() WHERE id = $1`,
+        [l.id, next],
+      );
+    }
+  }
+  return changes;
+}
+
+/** A line mutation needs a price for ITS variant; other lines that lost theirs are placement's problem (409). */
+function assertSellable(changes: PriceChange[], variantId: string, currency: string): void {
+  if (changes.some((c) => c.variantId === variantId && c.unitPriceMinor === null)) {
+    throw validationError(`variant has no price in ${currency}`, {
+      variant_id: `not sold in ${currency}`,
+    });
+  }
+}
+
+/**
  * `POST /store/carts/{cartId}/line-items`: adds `quantity` of a variant (or increases the existing line). The unit
- * price is the default-list price in the cart currency at first add (snapshot); a variant without one → 400.
+ * price comes from the PriceResolver for the line's resulting quantity (tiers), and every line mutation re-prices
+ * the whole cart the same way; a variant without a price in the cart currency → 400.
  */
 export async function addLineItem(
   client: ScopedClient,
@@ -466,14 +521,16 @@ export async function addLineItem(
         [cartId, variant.id, newQuantity],
       );
     } else {
-      const price = await tx.query<{ amount_minor: string }>(
-        `SELECT pr.amount_minor::text FROM price pr
-         JOIN price_list pl ON pl.id = pr.price_list_id AND pl.type = 'default' AND pl.status = 'active' AND pl.currency = $2
-         WHERE pr.variant_id = $1 AND pr.currency = $2 AND pr.min_quantity = 1
-         ORDER BY pr.amount_minor LIMIT 1`,
-        [variant.id, cart.currency],
-      );
-      const unit = price.rows[0]?.amount_minor;
+      const price = await currentPriceResolver().resolve({
+        tx,
+        storeId: cart.store_id,
+        currency: cart.currency,
+        salesChannelId: cart.sales_channel_id,
+        customerId: cart.customer_id,
+        at: new Date(),
+        lines: [{ variantId: variant.id, quantity: input.quantity }],
+      });
+      const unit = price.get(variant.id);
       if (unit === undefined) {
         throw validationError(`variant has no price in ${cart.currency}`, {
           variant_id: `not sold in ${cart.currency}`,
@@ -501,6 +558,7 @@ export async function addLineItem(
         ],
       );
     }
+    assertSellable(await repriceLines(tx, cart), variant.id, cart.currency);
     await recalculate(tx, cart);
     return render(tx, cartId);
   });
@@ -536,6 +594,7 @@ export async function updateLineItem(
       `UPDATE cart_line_item SET quantity = $3, updated_at = now() WHERE id = $1 AND cart_id = $2`,
       [lineItemId, cartId, input.quantity],
     );
+    assertSellable(await repriceLines(tx, cart), variant.id, cart.currency);
     await recalculate(tx, cart);
     return render(tx, cartId);
   });
@@ -554,6 +613,7 @@ export async function removeLineItem(
       [lineItemId, cartId],
     );
     if (!r.rows[0]) throw notFound('line item', lineItemId);
+    await repriceLines(tx, cart);
     await recalculate(tx, cart);
     return render(tx, cartId);
   });

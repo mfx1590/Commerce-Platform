@@ -32,6 +32,7 @@ import {
 } from './http';
 import { formatReport, verifyBootstrap } from './bootstrap';
 import { closePool, initDb } from './lib/db';
+import { registerModuleSeams } from './wiring';
 
 export interface CoreServer {
   app: express.Express;
@@ -191,6 +192,8 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
   const directory = opts.directory ?? path.resolve(__dirname, '..');
   // Loads the repo-root .env (medusa-config.ts reads process.env only) and opens our platform_app pool.
   await initDb({ startDir: directory });
+  // Payments, carrier rates, price lists: other modules' implementations behind our seams (src/wiring.ts).
+  registerModuleSeams();
   // Readiness (issue #8): migrations + seed/onboarding present, every store resolvable, Medusa schema migrated.
   // Findings are logged; the boot aborts only with CORE_BOOTSTRAP_STRICT=1 (staging/production).
   const readiness = await verifyBootstrap();
