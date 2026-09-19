@@ -149,4 +149,6 @@ export interface OrderLineRow {
   total_minor: string;
   fulfilled_quantity: number;
   returned_quantity: number;
+  /** Internal (never rendered): `tax = { amount_minor, mode, bp }` frozen at placement (#221). */
+  metadata: Record<string, unknown>;
 }

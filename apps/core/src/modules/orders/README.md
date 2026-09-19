@@ -131,6 +131,11 @@ suite reuses it as is.
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-19 · Order edits re-price in the mode frozen at placement (#221).** `decreaseLineQuantity` /
+  `cancelLine` pass the mode read from the order lines' `metadata.tax` to the TaxCalculator and apply the same
+  total rule as the cart (tax on top only for exclusive prices) — a store that flips `prices_include_tax` later
+  never re-prices a placed order. Lines placed before #221 have no record and stay exclusive.
+
 - **2026-09-08 · One transition function, table-driven** (manager requirement): no code path updates `"order"`
   status fields except `transition()`; the tables are data, the README is checked against them.
 - **2026-09-08 · Wrappers are idempotent on the target state**; `transition()` itself is strict (a self-move is

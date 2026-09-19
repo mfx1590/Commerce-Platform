@@ -59,13 +59,35 @@ export interface PricingContext {
   country: string;
   shippingAddress: Address | null;
   lines: PricingLine[];
+  /**
+   * `store.settings.tax.prices_include_tax` (#221; absent = false): when true every price in `lines` and the
+   * shipping price already CONTAIN the tax, and a calculator returns the contained amount, not one to add on top.
+   */
+  pricesIncludeTax?: boolean | undefined;
+}
+
+export type TaxMode = 'exclusive' | 'inclusive';
+
+/**
+ * The last calculation of one line, kept in `cart_line_item.metadata.tax` and frozen onto
+ * `order_line_item.metadata.tax` at placement (#221). One namespaced object so a later column migration is
+ * mechanical. Line metadata is internal: no Store API response renders it.
+ */
+export interface LineTaxRecord {
+  amount_minor: number;
+  mode: TaxMode;
+  bp: number;
 }
 
 export interface TaxLine {
   lineItemId: string;
   /** Effective rate in basis points, persisted on the line (`cart_line_item.tax_rate_bp`). */
   taxRateBp: number;
-  /** Tax on `quantity * unit − discount`, integer minor units. */
+  /**
+   * Tax on `quantity * unit − discount`, integer minor units: the amount to add on top (exclusive prices) or the
+   * amount contained in it (`pricesIncludeTax`). The cart shows and the order freezes THIS amount — it is never
+   * recomputed from `taxRateBp` (#221: a provider's per-line rounding is the truth).
+   */
   taxMinor: number;
 }
 
