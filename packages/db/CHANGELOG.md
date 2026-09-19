@@ -33,3 +33,8 @@
 
 - Migration 0140: `webhook_event` — one row per delivered provider webhook (Stripe #125, carrier tracking #131), exactly-once via `UNIQUE (provider, provider_event_id)` (intentionally NOT per store: the same delivery routed to two store endpoints still processes once). `payload` is the consumer's REDACTED extract (never an address, email or name), `payload_hash` the sha256 of the raw body; `occurred_at` nullable provider time kept separate from `received_at`; `status` lifecycle received → processed | skipped | failed with a partial index for retry listings. RLS kind `store`, `set_updated_at` trigger. The SQL is #187's proposal verbatim (both consumers proved it byte-identical on their throwaway databases); the payments and shipping modules now rely on the migration instead of applying their `proposed/` copies.
 - test/rls.test.ts: one webhook_event case — store A's rows invisible to B, insert-for-B refused, duplicate `(provider, provider_event_id)` conflicts (15 cases).
+
+## 0.3.1 — 2026-09-19 (CONTRACT CHANGE #225, shipment pick/pack; contracts-v0.4.3)
+
+- Migration 0160: `shipment.status` CHECK widened to include `picking` and `packed` — the one db statement of #225 verbatim (window 8 proved it on its throwaway databases as its `proposed/` copy). No new column: the pick/pack lifecycle is `shipment.status` itself; `shipment.metadata.fulfillment` keeps only the 3PL reference. Forward-only state machine (skips legal, backwards refused) lives in the fulfillment module.
+- test/rls.test.ts: pins the widened constraint definition (16 cases).
