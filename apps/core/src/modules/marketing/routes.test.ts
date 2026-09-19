@@ -403,9 +403,16 @@ describe('segment routes', () => {
     });
     expect(unknownPredicate.status).toBe(400);
     spec.assertSchema('Error', unknownPredicate.body);
-    expect(unknownPredicate.body.details).toHaveProperty('rules.all[0].any[0].field');
+    // Since contracts-v0.4.4 froze SegmentRules in the document, the spec layer (validateBody) rejects
+    // out-of-grammar input BEFORE the module parser, with AJV's dotted paths (rules.all.0.any.0…). The
+    // module's own parser still names bracketed paths for direct calls — segments.test.ts covers those.
+    expect(
+      Object.keys(unknownPredicate.body.details as Record<string, string>).some((k) =>
+        k.startsWith('rules.all.0.any.0'),
+      ),
+    ).toBe(true);
 
-    // The shape the contract still documents is refused — that is what "frozen grammar" means (CONTRACT CHANGE).
+    // The old flat shape is refused — that is what "frozen grammar" means (CONTRACT CHANGE #239, landed).
     const flatShape = await storeAdmin.post(`${base}/segments`, {
       name: 'old-shape',
       rules: { total_spent_minor: { gte: 50_000 } },
