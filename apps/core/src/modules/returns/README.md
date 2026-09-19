@@ -53,7 +53,7 @@ Any throw rolls all of it back (tested with a failure injected after the outbox 
 → `{ status: 'succeeded' | 'failed' | 'pending', refundId, failureReason? }`.
 
 - **Default `manualRefundRequester`**: calls the checkout's `PaymentProvider.refund` for the captured payment's
-  provider and returns `refundId: null` — it writes no `refund` row and emits no `refund.*` event (window 7's).
+  provider (a provider's `pending` result — asynchronous settlement — is passed through as a pending outcome) and returns `refundId: null` — it writes no `refund` row and emits no `refund.*` event (window 7's).
   Window 7's requester writes its row + events and returns the id, which the return stores in `refund_id`.
 - **Idempotent per return**: `idempotencyKey = return:<return_id>`, and the outcome is recorded on the return
   (`metadata.refund = { status, amount_minor, currency, payment_id, refund_id, failure_reason, at }`) in the same

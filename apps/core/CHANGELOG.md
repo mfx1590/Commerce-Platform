@@ -14,6 +14,9 @@
   body, the Stripe signature is the authentication (stale signature → 400 `timestamp_out_of_tolerance`, unknown
   store → 404). Pending until their exports reach main, one line each: window 8's `shippingAdminRouter()` /
   `shippingWebhookRouter()` (PR #218) and window 7's `paymentsAdminRouter()` (#126).
+- **Payment seam (additive, pre-approved by the manager for window 7)**: `RefundResult.status` gains
+  `'pending'` (`src/lib/payment-seam.ts`) for providers that settle refunds asynchronously; the default
+  `manualRefundRequester` passes it through as a pending outcome (return stays `received`, never asked twice).
 - **Docs**: `CLAUDE.md` gains the `src/modules/promotions` row and the webhook mount rule; the
   `src/modules/search` row (there since 2.2, #159 part 2) now names merchandising + media and the CLI path.
   Tests: `admin-api.test.ts` +2 (five admin routers answer behind staff auth; the webhook answers without it).
