@@ -3,7 +3,31 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this file is
 the module's own history (linked from the PRs).
 
-## Phase 2 — shipping/phase2 (contracts-v0.4.1)
+## Phase 2 — shipping/phase2 (contracts-v0.4.3)
+
+### 2026-09-19 · 2.5 Pick/pack lifecycle, events and admin operations (#133, CONTRACT CHANGE #225)
+
+- `lifecycle.ts` (new): `pickShipment`, `packShipment` and `listPickLists`. Pick and pack are real
+  `shipment.status` values (#225), so a shipment has one state; each legal move writes one event in the same
+  transaction. Skips forward are legal (`pending → packed` for a store that does not pick), backwards is not, and
+  an operator's illegal move is a 409 — `applyTransition` writes what it is told, so the check lives here.
+- `lifecycle-events.ts` (new): `fulfillment.requested` / `.picking` / `.packed` (events 0.3.0) go to the outbox
+  through `withEvents` in the same transaction as the move. `requestFulfillment` writes `fulfillment.requested`
+  (with `provider` and `external_id`) together with the provider reference, and a 3PL-driven `picking` / `packed`
+  goes through the same `pickShipment` / `packShipment` call as the Admin API — so the event stream never shows
+  who moved the shipment. The topic is checked against `EVENT_TOPICS` first, so
+  an unknown topic buffers with a warning instead of failing a correct warehouse operation.
+- `http.ts` (new): `fulfillmentAdminRouter()` with the three operations, permissions read from `admin-api.yaml`
+  0.4.3 through `loadSpec`. The two shipment paths resolve the shipment's store first, so a shipment in another
+  organization is a 404 — never a 403 or a leak.
+- `service.ts`: `cancelFulfillment` records a divergence on the reference when the provider cancels but the
+  shipment cannot, instead of swallowing it; `applyFulfillmentUpdate` moves the shipment before recording the
+  provider state, so a failed move leaves the reference where a retry expects it.
+- Tests: 22 more (lifecycle, pick lists, the router, the two divergence regressions). The lifecycle tests assert
+  the outbox rows and their payloads directly.
+- contracts-v0.4.3 landed #225 in full (migration 0160, events 0.3.0, Admin API 0.4.3): the proposed DDL and spec
+  copies, their test-side application and the permission fallback are deleted, with no change to the code behind
+  them.
 
 ### 2026-09-15 · 2.4 3PL adapter interface, in-memory implementation, per-warehouse routing (#132)
 
