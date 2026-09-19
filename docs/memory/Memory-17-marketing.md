@@ -20,7 +20,7 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **2.4 (#148) abandoned-cart recovery** — commit `6bc512e` (2026-09-19), **not pushed**: held until #240's merge
+- **2.4 (#148) abandoned-cart recovery** — commit `d8187ba`, PR #250 (2026-09-19), pushed after #240's merge
   is confirmed. `recovery{,-token,-report,-types}.ts` + the report route. Outbox polling per store with the
   cursor in `marketing_cursor`; idempotency is `UNIQUE (cart_id)` in the schema, not consumer memory. Tokens:
   32 random bytes, sha256-only storage, single use via `UPDATE … WHERE redeemed_at IS NULL`, 7-day expiry, one
@@ -51,14 +51,13 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- **2.4 built and green, awaiting #240's merge before pushing.** Then: `git merge main`, push, open the PR
-  closing #148. 2.5 (admin Marketing section, #149) is next after that.
+- (nothing — 2.4 is PR #250, in review; 2.5 admin Marketing section (#149) is next)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
 - [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
-- [x] **#148 · 2.4** Abandoned-cart recovery — built and green, PR held for #240
+- [x] **#148 · 2.4** Abandoned-cart recovery — PR #250 in review
 - [ ] **#149 · 2.5** Admin Marketing section v1
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
 
@@ -118,7 +117,9 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
-- **#240 (2.3) merge confirmation** — in the merge queue; 2.4 stays local until it lands.
+- **#240 (2.3) merged** 2026-09-19 (4ea4abb); contracts-v0.4.4 tagged (5f79e6d), #239 landed in it. One
+  landing-commit change in my files: routes.test.ts grammar-400 now asserts the spec-layer rejection
+  (validateBody refuses before my parser, AJV dotted paths); parser tests untouched. Carried through and green.
 - **#244 / #245** (db 0170 + Admin/Store API) land bundled as **contracts-v0.4.5** after the 2.4 PR merges.
   Building against `proposed/0170_cart_recovery.sql`; the report route falls back to the proposed `viewer`
   permission only while the operation is absent from the spec. **Correction posted on #244**: drop
