@@ -1,13 +1,14 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.3.0
+  version: 0.3.1
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
     routes additionally send a Keycloak customers-realm JWT as a Bearer token.
     Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional cart/order `metadata` (additive);
-    0.3.0 adds the optional `currency` query on listProducts/getProduct (additive).
+    0.3.0 adds the optional `currency` query on listProducts/getProduct (additive);
+    0.3.1 adds the `price_changed` error code on completeCart's 409 (additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -410,16 +411,43 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
               example: { code: payment_failed, message: Card declined, details: {} }
         '409':
-          description: Cart already completed or stock no longer available
+          description: >-
+            Cart already completed (`cart_completed`), stock no longer available (`out_of_stock`), or a line's price
+            changed since the cart was last priced (`price_changed`). On `price_changed` nothing was placed or
+            authorized and the cart has been re-priced: read the cart again, show the new prices, create the payment
+            session again for the new total, then retry (the same Idempotency-Key is fine — no order exists for it).
+            `unit_price_minor: null` in an item means the variant has no applicable price in the cart's currency any
+            more (not sellable): the storefront removes the line.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-              example:
-                {
-                  code: cart_completed,
-                  message: Cart already completed,
-                  details: { order_id: 30000000-0000-4000-8000-000000000501 },
-                }
+              examples:
+                cart_completed:
+                  value:
+                    {
+                      code: cart_completed,
+                      message: Cart already completed,
+                      details: { order_id: 30000000-0000-4000-8000-000000000501 },
+                    }
+                price_changed:
+                  value:
+                    {
+                      code: price_changed,
+                      message: One or more prices changed,
+                      details:
+                        {
+                          currency: EUR,
+                          items:
+                            [
+                              {
+                                line_item_id: 30000000-0000-4000-8000-000000000601,
+                                variant_id: 30000000-0000-4000-8000-000000000201,
+                                previous_unit_price_minor: 1999,
+                                unit_price_minor: 2499,
+                              },
+                            ],
+                        },
+                    }
 
   /store/orders/{orderId}:
     get:
@@ -687,7 +715,7 @@ components:
         code:
           {
             type: string,
-            description: 'Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, conflict, internal',
+            description: 'Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -1063,7 +1091,17 @@ components:
                     {
                       type: string,
                       enum:
-                        [pending, label_created, shipped, in_transit, delivered, failed, cancelled],
+                        [
+                          pending,
+                          picking,
+                          packed,
+                          label_created,
+                          shipped,
+                          in_transit,
+                          delivered,
+                          failed,
+                          cancelled,
+                        ],
                     }
                   carrier: { type: string }
                   tracking_number: { type: [string, 'null'] }

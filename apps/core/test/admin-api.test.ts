@@ -709,7 +709,7 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
         .post('/webhooks/easypost/no-such-store')
         .set('Content-Type', 'application/json')
         .send('{}');
-      expect([401, 404, 503]).toContain(tracking.status);
+      expect(tracking.status).toBe(404); // the router answered (unknown store) — a 401 would mean staff auth fronts it
       expect(tracking.body).toHaveProperty('code');
     } finally {
       if (previous === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;

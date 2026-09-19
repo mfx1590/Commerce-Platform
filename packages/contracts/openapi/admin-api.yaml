@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.2
+  version: 0.4.3
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -1859,6 +1859,89 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/shipments/{shipmentId}/pick:
+    parameters:
+      - { name: shipmentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [fulfillment]
+      operationId: pickShipment
+      summary: Start picking a planned shipment (emits fulfillment.picking)
+      x-permission: { relation: operations, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/shipments/{shipmentId}/pack:
+    parameters:
+      - { name: shipmentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [fulfillment]
+      operationId: packShipment
+      summary: Mark a picked shipment packed and ready for the carrier (emits fulfillment.packed)
+      x-permission: { relation: operations, object: 'organization:hq' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parcel_count: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/pick-lists:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [fulfillment]
+      operationId: listPickLists
+      summary: Shipments waiting to be picked or packed, grouped by warehouse
+      x-permission: { relation: operations, object: 'organization:hq' }
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, picking, packed] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [warehouse_id, warehouse_code, shipments]
+                      properties:
+                        warehouse_id: { type: string, format: uuid }
+                        warehouse_code: { type: string }
+                        shipments:
+                          type: array
+                          items: { $ref: '#/components/schemas/Shipment' }
+                  page: { $ref: '#/components/schemas/Page' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   # ---------------------------------------------------------------- customers
   /admin/stores/{storeId}/customers:
@@ -4112,7 +4195,18 @@ components:
         status:
           {
             type: string,
-            enum: [pending, label_created, shipped, in_transit, delivered, failed, cancelled],
+            enum:
+              [
+                pending,
+                picking,
+                packed,
+                label_created,
+                shipped,
+                in_transit,
+                delivered,
+                failed,
+                cancelled,
+              ],
           }
         items:
           type: array

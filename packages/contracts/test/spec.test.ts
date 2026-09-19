@@ -68,8 +68,15 @@ describe('store-api.yaml', () => {
     expect(text).not.toMatch(/card_number|cvc|pan\b/i);
   });
 
+  it('0.3.1 (#228): price_changed is a stable machine code and completeCart documents it on the 409', () => {
+    expect(text).toMatch(/machine code: [^']*price_changed/);
+    const complete = ops.find((o) => o.id === 'completeCart')!;
+    expect(complete.body).toMatch(/price_changed/);
+    expect(complete.body).toMatch(/previous_unit_price_minor/);
+  });
+
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.3\.0/);
+    expect(text).toMatch(/version: 0\.3\.1/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -85,7 +92,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.2/);
+    expect(text).toMatch(/version: 0\.4\.3/);
     for (const tag of [
       'registry',
       'catalog',
@@ -229,6 +236,28 @@ describe('admin-api.yaml', () => {
     expect(patch).toMatch(/minimum: 1/);
     // both answer 409 (fulfilment already started / last line) with the standard error body
     for (const id of ['updateOrderLineItem', 'cancelOrderLineItem']) {
+      expect(ops.find((o) => o.id === id)!.body, id).toMatch(/'409':/);
+    }
+  });
+
+  it('pick/pack (0.4.3, #225): pick, pack and pick-lists operations, operations-on-hq, widened status enum', () => {
+    const ids = ops.map((o) => o.id);
+    for (const id of ['pickShipment', 'packShipment', 'listPickLists'])
+      expect(ids, id).toContain(id);
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    for (const id of ['pickShipment', 'packShipment', 'listPickLists']) {
+      expect(permission(id), id).toEqual(['operations', 'organization:hq']);
+    }
+    expect(text).toMatch(/\/admin\/shipments\/\{shipmentId\}\/pick:/);
+    expect(text).toMatch(/\/admin\/shipments\/\{shipmentId\}\/pack:/);
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/pick-lists:/);
+    // the response enum carries the two new states; pick/pack answer 409 on an illegal transition
+    expect(text).toMatch(/pending,\n\s+picking,\n\s+packed,\n\s+label_created,/);
+    for (const id of ['pickShipment', 'packShipment']) {
       expect(ops.find((o) => o.id === id)!.body, id).toMatch(/'409':/);
     }
   });
