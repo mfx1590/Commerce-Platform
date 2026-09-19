@@ -1,6 +1,6 @@
 # Memory 7 — Payments, tax, fraud
 Window: 7 · Key: `payments` · Branch prefix: `payments/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-09-19 · Contracts: contracts-v0.4.1 on main (v0.3 at Integration 1) · Branch: `payments/phase2` · Status: **PHASE 2 COMPLETE for window 7** (2.1 #183, 2.2 #215, 2.3 #219, 2.4 #227, 2.5 #234); follow-up PR after core #236 open; REQUEST #241 pending on window 1
+Last updated: 2026-09-19 · Contracts: contracts-v0.4.1 on main (v0.3 at Integration 1) · Branch: `payments/phase2` · Status: **PHASE 2 COMPLETE for window 7** (2.1 #183, 2.2 #215, 2.3 #219, 2.4 #227, 2.5 #234); follow-up PR #242 in full review — HOLD; then a two-line removal after window 1's #230 PR B (REQUEST #241) merges
 
 ## Identity (does not change)
 Owned paths (write):
@@ -28,8 +28,9 @@ Stripe + Adyen providers (hosted fields only), one local PSP, Avalara/Stripe Tax
   `apps/core/src/modules/payments/`: fetch-based `StripeClient` (no `stripe` npm dep; window 1 owns package.json), `FakeStripe` (idempotency map + call log), `stripe` PaymentProvider (manual-capture intents, ids-only metadata, session reuse via intent update, server-side confirm idempotent on `confirm_<sha256(placement key)>`, amount/currency check, declines→failed/outages rethrown), `capturePayment` (payment row + `payment.captured` w/ `fee_minor` in one tx, then orders `markPaymentCaptured`; failure → `payment.failed` + 402; replay converges), `stripeCredentialsFor` (store suffix wins, fail-closed naming variables, live keys refused, read-per-call rotation). 23 tests + live suite (skips w/o `STRIPE_SECRET_KEY`). REQUEST #176 filed (window 1: `registerPaymentProviders()` in server boot + `payment.authorized` after the payment insert in `completeCart`).
 
 ## In progress
-- (nothing being built — the six-item follow-up PR is open; window 7 is otherwise quiet.)
-- Waiting on window 1, REQUEST #241: `completeCart` calls `recordBlocked` after its rollback (then pass `deferredRecord: false` in `registerFraudCheck` and delete the deferred flush in `fraud/check.ts`), and the redundant bridge line in `src/wiring.ts` can go.
+- **HOLD (manager, 2026-09-19): PR #242 (the six-item follow-up, head ae7a453 + the memory-sha commit) is in FULL REVIEW. Do not push anything to `payments/phase2` until the verdict arrives** — a push would move the head under review. If BLOCK: fix exactly what the verdict names, reply with the sha.
+- **Item-5 interim APPROVED by the manager**: the deferred, un-awaited flush in `fraud/check.ts` (off in tests) stays until window 1's hook lands.
+- **REQUEST #241 ACCEPTED and routed into window 1's #230 "PR B"** (completeCart calls `recordBlocked` after its rollback; the redundant bridge line in `src/wiring.ts` goes). AFTER that PR merges and the manager confirms: `git merge main`, then the two-line removal — pass `deferredRecord: false` from `registerFraudCheck()` (or drop the option entirely) and delete the `setImmediate` flush scheduling in `fraud/check.ts`; read what landed first (the hook's exact shape: `recordBlocked?` on the seam's `FraudCheck`), keep `flushBlockRecords` only if something still needs it, update README/CHANGELOG, one tiny PR.
 
 <!-- 2.4 plan, kept for the record -->
 - ~~**#127 · 2.4 Tax adapter — plan written 2026-09-15.**~~ Built 2026-09-19 to the manager's two decisions (outage = fail closed, non-production opt-in only; tax-inclusive setting defined and computed in both modes, exclusive default, REQUEST #221 to window 1).
