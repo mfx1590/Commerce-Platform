@@ -15,6 +15,7 @@ import {
   resolveObject,
   resolveStaffPrincipal,
   moduleAdminRouters,
+  moduleWebhookRouters,
 } from '../src/http';
 import { closePool, initDb, tenantClient } from '../src/lib/db';
 import { addLineItem, createCart, updateCart } from '../src/modules/cart';
@@ -58,7 +59,10 @@ beforeAll(async () => {
   process.env.CORE_ORGANIZATION_ID = SEED_IDS.organization;
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
-  mountCoreMiddleware(app, new DevTokenVerifier(), { moduleRouters: moduleAdminRouters() });
+  mountCoreMiddleware(app, new DevTokenVerifier(), {
+    moduleRouters: moduleAdminRouters(),
+    webhookRouters: moduleWebhookRouters(),
+  });
   // The Admin API customers routes belong to window 13 and stay on the Prism mock in Phase 1; this probe
   // mounts the frozen `listCustomers` x-permission (support since contracts 0.2.1, issue #77) on our guard so
   // the PII gate is proven for everything window 1 owns.
@@ -634,7 +638,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(2);
+    expect(moduleAdminRouters()).toHaveLength(5);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -643,6 +647,54 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     expect(campaigns.body).toHaveProperty('items');
     const anonymous = await request(app).get(`/admin/stores/${A}/marketing/campaigns`);
     expect(anonymous.status).toBe(401); // our middleware still fronts them
+  });
+
+  it('quiet-state batch (#179): media, price-list and promotion routers answer behind our staff auth, never 404', async () => {
+    const lists = await storeAdmin.get(`/admin/stores/${A}/price-lists`);
+    expect(lists.status).toBe(200); // window 9: pricingRouter
+    expect(lists.body).toHaveProperty('items');
+    const promotions = await storeAdmin.get(`/admin/stores/${A}/promotions`);
+    expect(promotions.status).toBe(200); // window 9: promotionsRouter
+    expect(promotions.body).toHaveProperty('items');
+    // window 9: mediaRouter — the route exists (validation / configuration answers, not the Medusa fall-through)
+    const media = await storeAdmin.post(`/admin/stores/${A}/media/upload-params`, {});
+    expect(media.status).not.toBe(404);
+    expect([200, 201, 400, 409]).toContain(media.status); // 409 = no Cloudinary credentials for the store
+    expect(
+      (await request(app).post(`/admin/stores/${A}/media/upload-params`).send({})).status,
+    ).toBe(401);
+    for (const path of ['price-lists', 'promotions']) {
+      const anonymous = await request(app).get(`/admin/stores/${A}/${path}`);
+      expect(anonymous.status).toBe(401);
+    }
+  });
+
+  it('moduleWebhookRouters() (#176 part 3): the Stripe webhook answers outside /store and /admin, on the raw body', async () => {
+    expect(moduleWebhookRouters()).toHaveLength(1);
+    const previous = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = 'words-only-test-secret';
+    try {
+      // no staff token, no publishable key: the signature is the authentication — a stale one is a 400, not a 401
+      const stale = await request(app)
+        .post('/webhooks/stripe/brand-a')
+        .set('Stripe-Signature', 't=1,v1=00')
+        .set('Content-Type', 'application/json')
+        .send('{}');
+      expect(stale.status).toBe(400);
+      expect(stale.body).toMatchObject({
+        code: 'validation_error',
+        details: { reason: 'timestamp_out_of_tolerance' },
+      });
+      const unknown = await request(app)
+        .post('/webhooks/stripe/no-such-store')
+        .set('Stripe-Signature', 't=1,v1=00')
+        .send('{}');
+      expect(unknown.status).toBe(404);
+      spec.assertSchema('Error', unknown.body);
+    } finally {
+      if (previous === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+      else process.env.STRIPE_WEBHOOK_SECRET = previous;
+    }
   });
 });
 

@@ -2,6 +2,22 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · quiet-state wiring batch (#179 amendment, #176 part 3, #159 part 2)
+
+- **Admin router mounts** (`src/http/module-routers.ts` → `moduleAdminRouters()`): window 9's `mediaRouter()`
+  (#168: `…/media/upload-params`, `…/products/{productId}/media/**`), `pricingRouter()` (#137: `…/price-lists/**`)
+  and `promotionsRouter()` (#138 / #189: `…/promotions/**`) next to merchandising and marketing — promotion and
+  price-list routes were 404s on the running server until now.
+- **Webhook mount point**: `moduleWebhookRouters()` + the `webhookRouters` option of `mountCoreMiddleware`
+  (opt-in like `moduleRouters`; `createServer()` passes it). Mounted outside the `/store` and `/admin` chains and
+  before any JSON body parser: window 7's `paymentsWebhookRouter()` — `POST /webhooks/stripe/:storeCode`, raw
+  body, the Stripe signature is the authentication (stale signature → 400 `timestamp_out_of_tolerance`, unknown
+  store → 404). Pending until their exports reach main, one line each: window 8's `shippingAdminRouter()` /
+  `shippingWebhookRouter()` (PR #218) and window 7's `paymentsAdminRouter()` (#126).
+- **Docs**: `CLAUDE.md` gains the `src/modules/promotions` row and the webhook mount rule; the
+  `src/modules/search` row (there since 2.2, #159 part 2) now names merchandising + media and the CLI path.
+  Tests: `admin-api.test.ts` +2 (five admin routers answer behind staff auth; the webhook answers without it).
+
 ### 2026-09-15 · #214 follow-up (returns dust, throwing requester, release items, #191 shape, docs)
 
 - **Returns — no floor dust across partial returns**: `refundAmountFor` allocates a line total by cumulative

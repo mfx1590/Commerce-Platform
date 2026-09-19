@@ -4,14 +4,20 @@
 // run the spec's x-permission through requirePermission themselves (each router reads it from loadSpec).
 //
 // Wiring batch (2.4): window 9's merchandising router (#162 part 3 / #179 part 2) and window 17's marketing
-// router (#181 part 1). Still to mount as each export reaches main: window 9's `mediaRouter()` (#168) and the
-// promotions `pricingRouter()` (#179 part 2) — add one `routers.push(...)` line each; window 7's
-// `registerPaymentProviders()` (#176 part 1) is a boot-time call in src/server.ts, not a router.
+// router (#181 part 1). Quiet-state batch (#179 amendment, #176 part 3): window 9's `mediaRouter()` (#168),
+// `pricingRouter()` (#137) and `promotionsRouter()` (#138 / #189), and — through `moduleWebhookRouters()` —
+// window 7's `paymentsWebhookRouter()` (#125). Still to mount when their exports reach main, one line each:
+// window 8's `shippingAdminRouter()` here and `shippingWebhookRouter()` in `moduleWebhookRouters()` (#131 /
+// PR #218), window 7's `paymentsAdminRouter()` (#126). Boot-time registrations (`registerPaymentProviders()`,
+// `registerCarrierProviders()`) are calls in src/server.ts, not routers.
 import type { Router } from 'express';
 import { marketingAdminRouter } from '../modules/marketing';
+import { paymentsWebhookRouter } from '../modules/payments';
+import { pricingRouter, promotionsRouter } from '../modules/promotions';
 import {
   AlgoliaIndexClient,
   algoliaCredentialsFor,
+  mediaRouter,
   merchandisingRouter,
   PgRulesRepository,
   type IndexClient,
@@ -32,5 +38,24 @@ export function moduleAdminRouters(): Router[] {
   );
   // window 17 — marketing: /admin/stores/:storeId/marketing/** (Admin API 0.3.0, #181)
   routers.push(marketingAdminRouter());
+  // window 9 — product media: /admin/stores/:storeId/media/upload-params, …/products/:productId/media/** (#168)
+  routers.push(mediaRouter());
+  // window 9 — price lists: /admin/stores/:storeId/price-lists/** (#137)
+  routers.push(pricingRouter());
+  // window 9 — promotions and coupons: /admin/stores/:storeId/promotions/** (#138 / #189)
+  routers.push(promotionsRouter());
+  return routers;
+}
+
+/**
+ * Provider webhook routers: neither Store nor Admin API. No publishable key, no staff token — the provider's
+ * signature over the RAW body is the authentication, so each router carries its own `express.raw()` parser and is
+ * mounted OUTSIDE the `/store` and `/admin` chains (a body re-serialised by `express.json()` never matches a
+ * signature) and before `coreErrorHandler`. Same opt-in rule as the admin routers: the server passes this list.
+ */
+export function moduleWebhookRouters(): Router[] {
+  const routers: Router[] = [];
+  // window 7 — Stripe: POST /webhooks/stripe/:storeCode (STRIPE_WEBHOOK_SECRET[_<CODE>], #125 / #176 part 3)
+  routers.push(paymentsWebhookRouter());
   return routers;
 }
