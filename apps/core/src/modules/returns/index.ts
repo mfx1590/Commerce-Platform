@@ -8,6 +8,7 @@ export {
   receiveReturn,
   refundAmountFor,
   rejectReturn,
+  requestRefundFor,
   requestReturn,
   RETURN_TRANSITIONS,
   transitionReturn,

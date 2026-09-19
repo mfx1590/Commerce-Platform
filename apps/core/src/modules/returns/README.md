@@ -57,10 +57,16 @@ Any throw rolls all of it back (tested with a failure injected after the outbox 
   Window 7's requester writes its row + events and returns the id, which the return stores in `refund_id`.
 - **Idempotent per return**: `idempotencyKey = return:<return_id>`, and the outcome is recorded on the return
   (`metadata.refund = { status, amount_minor, currency, payment_id, refund_id, failure_reason, at }`) in the same
-  transaction — a retry after a provider timeout finds a `succeeded` / `pending` outcome and never asks twice
-  (tested with a counting requester). Requesters honour the key on their side too.
-- **Amount** = Σ over received items of the item's share of its line total, `floor(total_minor × qty / quantity)`;
-  shipping is not refunded. Goodwill refunds are window 7's `createRefund`.
+  transaction — a retry finds a `succeeded` / `pending` outcome and never asks twice (tested with a counting
+  requester); a `failed` outcome is retried through `requestRefundFor` under the same key. Requesters honour the
+  key on their side too. **A requester that throws** (provider timeout, SDK crash) is a `failed` outcome, not a lost
+  receipt: the call runs under a savepoint, whatever it wrote is rolled back to it, the receipt + restock + event
+  stay committed and `failure_reason` records `requester threw: <name>: <message>` (tested with a literal
+  throwing requester that first writes its refund row — the row is gone, the retry succeeds).
+- **Amount** = Σ over received items of the item's share of its line total by cumulative floor —
+  `floor(total × (returned_before + qty) / quantity) − floor(total × returned_before / quantity)` — so separate
+  partial returns of one line add up to the line total exactly (100 over 3 units → 33, 33, 34; the remainder lands
+  on the last unit returned, never on the merchant). Shipping is not refunded. Goodwill refunds are window 7's `createRefund`.
 - Requires a **captured** payment (`payment.status = 'captured'`): an order that is only authorised cannot be
   refunded → 409 with a clear message; window 7's capture (`markPaymentCaptured`) comes first.
 - `failed` → the return stays `received` with the failure recorded; `pending` → stays `received` until window 7

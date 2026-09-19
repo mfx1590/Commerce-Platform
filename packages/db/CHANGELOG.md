@@ -28,3 +28,8 @@
 
 - Migration 0150: `promotion.type` CHECK widened to `percentage | fixed_amount | free_shipping | buy_x_get_y` — the one db statement of #189 verbatim (window 9 proved it on its throwaway database as its `proposed/0131`; 0140 stays reserved for #187 webhook_event). `stackable` / `exclusive` and the buy-X-get-Y numbers live inside the existing `rules` jsonb column: no new columns. The promotions module now relies on the migration instead of applying the file itself.
 - test/rls.test.ts: one promotion case — `buy_x_get_y` inserts, an unknown type is still refused by `promotion_type_check`, store A cannot insert for B (14 cases).
+
+## 0.3.0 — 2026-09-19 (CONTRACT CHANGE #187, webhook_event; contracts-v0.4.2)
+
+- Migration 0140: `webhook_event` — one row per delivered provider webhook (Stripe #125, carrier tracking #131), exactly-once via `UNIQUE (provider, provider_event_id)` (intentionally NOT per store: the same delivery routed to two store endpoints still processes once). `payload` is the consumer's REDACTED extract (never an address, email or name), `payload_hash` the sha256 of the raw body; `occurred_at` nullable provider time kept separate from `received_at`; `status` lifecycle received → processed | skipped | failed with a partial index for retry listings. RLS kind `store`, `set_updated_at` trigger. The SQL is #187's proposal verbatim (both consumers proved it byte-identical on their throwaway databases); the payments and shipping modules now rely on the migration instead of applying their `proposed/` copies.
+- test/rls.test.ts: one webhook_event case — store A's rows invisible to B, insert-for-B refused, duplicate `(provider, provider_event_id)` conflicts (15 cases).

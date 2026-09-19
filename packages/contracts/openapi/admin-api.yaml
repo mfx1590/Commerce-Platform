@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.1
+  version: 0.4.2
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -1248,6 +1248,57 @@ paths:
                 order: { $ref: '#/components/examples/OrderDetail' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { $ref: '#/components/parameters/OrderId' }
+      - { name: lineItemId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [orders]
+      operationId: updateOrderLineItem
+      summary: Lower a line's quantity before fulfilment (totals recomputed, difference recorded in order.metadata.edits for the refund flow; no money moved)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quantity]
+              properties:
+                quantity:
+                  {
+                    type: integer,
+                    minimum: 1,
+                    description: Must be lower than the current quantity,
+                  }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [orders]
+      operationId: cancelOrderLineItem
+      summary: Cancel a line before fulfilment (the last line cannot be cancelled — cancel the order)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/orders/{orderId}/refunds:

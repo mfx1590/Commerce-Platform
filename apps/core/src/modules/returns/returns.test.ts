@@ -21,6 +21,7 @@ import {
   projectReturn,
   receiveReturn,
   refundAmountFor,
+  requestRefundFor,
   requestReturn,
   RETURN_TRANSITIONS,
   setRefundRequester,
@@ -339,8 +340,18 @@ describe('receiveReturn', () => {
     expect(calls).toHaveLength(1);
     const expected = refundAmountFor(
       [
-        { id: l0!.id, quantity: 3, total_minor: String(l0!.total.amount_minor) },
-        { id: l1!.id, quantity: 3, total_minor: String(l1!.total.amount_minor) },
+        {
+          id: l0!.id,
+          quantity: 3,
+          total_minor: String(l0!.total.amount_minor),
+          returned_quantity: 0,
+        },
+        {
+          id: l1!.id,
+          quantity: 3,
+          total_minor: String(l1!.total.amount_minor),
+          returned_quantity: 0,
+        },
       ],
       [
         { order_line_item_id: l0!.id, quantity: 2 },
@@ -419,6 +430,122 @@ describe('receiveReturn', () => {
       currency: 'EUR',
       refund_id: null,
     });
+  });
+
+  it('allocates a line total over separate partial returns without dust (#214): 100 over 3 units → 33, 33, 34', async () => {
+    const line = { id: 'L', quantity: 3, total_minor: '100' };
+    const one = (returned: number) =>
+      refundAmountFor(
+        [{ ...line, returned_quantity: returned }],
+        [{ order_line_item_id: 'L', quantity: 1 }],
+      );
+    expect([one(0), one(1), one(2)]).toEqual([33, 33, 34]);
+    // one receipt of all three units = the whole line; a receipt listing the same line twice is cumulative too
+    expect(
+      refundAmountFor(
+        [{ ...line, returned_quantity: 0 }],
+        [{ order_line_item_id: 'L', quantity: 3 }],
+      ),
+    ).toBe(100);
+    expect(
+      refundAmountFor(
+        [{ ...line, returned_quantity: 0 }],
+        [
+          { order_line_item_id: 'L', quantity: 2 },
+          { order_line_item_id: 'L', quantity: 1 },
+        ],
+      ),
+    ).toBe(100);
+    // over the line quantity is capped at the line total; nothing for an unknown line
+    expect(
+      refundAmountFor(
+        [{ ...line, returned_quantity: 2 }],
+        [{ order_line_item_id: 'L', quantity: 5 }],
+      ),
+    ).toBe(34);
+    expect(
+      refundAmountFor(
+        [{ ...line, returned_quantity: 0 }],
+        [{ order_line_item_id: 'X', quantity: 1 }],
+      ),
+    ).toBe(0);
+
+    // end to end: three returns of one unit each refund exactly the line total, whatever the rounding
+    const { requester, calls } = countingRequester();
+    setRefundRequester(requester);
+    const order = await shippedOrder(1);
+    const l = order.items[0]!;
+    for (let k = 0; k < 3; k++) {
+      const ret = await requestReturn(a, order.id, {
+        items: [{ order_line_item_id: l.id, quantity: 1 }],
+        actor,
+      });
+      const done = await receiveReturn(a, ret.id, {
+        warehouseId: EU,
+        items: [{ order_line_item_id: l.id, quantity: 1, condition: 'resellable' }],
+        actor,
+      });
+      expect(done.status).toBe('refunded');
+    }
+    expect(calls).toHaveLength(3);
+    expect(calls.reduce((n, c) => n + c.amountMinor, 0)).toBe(l.total.amount_minor);
+  });
+
+  it('a requester that throws (provider timeout) is a failed outcome, not a lost receipt; the retry reuses return:<id> (#214)', async () => {
+    const throwing: RefundRequester = {
+      async request(input) {
+        await insertRefundRow(input.tx, input, 'pending'); // whatever it wrote before the timeout must vanish
+        throw new Error('ETIMEDOUT');
+      },
+    };
+    setRefundRequester(throwing);
+    const order = await shippedOrder(1);
+    const l = order.items[0]!;
+    const before = await levelOf(l.variant_id);
+    const ret = await requestReturn(a, order.id, {
+      items: [{ order_line_item_id: l.id, quantity: 2 }],
+      actor,
+    });
+    const r1 = await receiveReturn(a, ret.id, {
+      warehouseId: EU,
+      items: [{ order_line_item_id: l.id, quantity: 2, condition: 'resellable' }],
+      actor,
+    });
+    expect(r1.status).toBe('received'); // the receipt + restock committed
+    expect(await levelOf(l.variant_id)).toBe(before + 2);
+    const meta = await owner.query<{ metadata: { refund: Record<string, unknown> } }>(
+      `SELECT metadata FROM "return" WHERE id = $1`,
+      [ret.id],
+    );
+    expect(meta.rows[0]!.metadata.refund).toMatchObject({
+      status: 'failed',
+      failure_reason: 'requester threw: Error: ETIMEDOUT',
+      idempotency_key: `return:${ret.id}`,
+      refund_id: null,
+    });
+    const rows = await owner.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM refund WHERE return_id = $1`,
+      [ret.id],
+    );
+    expect(rows.rows[0]!.n).toBe('0'); // rolled back to the savepoint
+    const received = await stream(ret.id, 'return.received');
+    expect(received).toHaveLength(1);
+
+    // the retry (window 7's webhook / an operator) asks again under the same key and finishes the return
+    const { requester, calls } = countingRequester();
+    setRefundRequester(requester);
+    const amount = Number(meta.rows[0]!.metadata.refund.amount_minor);
+    await a.transaction((tx) => requestRefundFor(tx, ret.id, amount, actor));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.idempotencyKey).toBe(`return:${ret.id}`);
+    const after = await owner.query<{ status: string; refund_id: string | null }>(
+      `SELECT status, refund_id FROM "return" WHERE id = $1`,
+      [ret.id],
+    );
+    expect(after.rows[0]).toMatchObject({ status: 'refunded' });
+    expect(after.rows[0]!.refund_id).not.toBeNull();
+    await a.transaction((tx) => requestRefundFor(tx, ret.id, amount, actor)); // succeeded: never twice
+    expect(calls).toHaveLength(1);
   });
 
   it('failed and pending outcomes leave the return received; markReturnRefunded finishes a pending one; retries never refund twice', async () => {
