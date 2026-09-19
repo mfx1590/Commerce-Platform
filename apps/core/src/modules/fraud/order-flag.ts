@@ -1,30 +1,31 @@
-// The review flag of an order (task 2.5, #128): `payment.metadata.fraud` + one `order.updated`, same transaction.
+// The review flag of an order (task 2.5, #128; mirror since core #236).
 //
-// WHERE THE FLAG LIVES. Only the orders module may update the `"order"` row (window 1's structural guard in
-// test/guards.test.ts) and it has no function for flagging an order yet (REQUEST #231). So this module does NOT
-// touch the order row: the flag is written on the order's PAYMENT row — the payments side's own aggregate, the
-// thing a fraud review actually holds — and the order-level signal is the `order.updated` event, emitted through
-// the orders module's public `transition()`, never hand-built. When #231 lands, `order.metadata.fraud` becomes a
-// mirror written by the orders module's function and the two writers here call it as well.
+// SOURCE OF TRUTH = the order's PAYMENT row (`payment.metadata.fraud`) — the payments side's own aggregate and the
+// thing a review actually holds: `capturePayment` refuses a payment in `review` or `confirmed_fraud`. The ORDER
+// carries a MIRROR (`order.metadata.fraud`) written ONLY by the orders module's own functions (only that module
+// may update the `"order"` row — its structural guard), which also emit the ONE `order.updated` of each change,
+// with the reason code in `changed_fields` (`fraud.reason_code=<code>`; `order.updated` v1 has no reason field).
 //
-// What "held" means: the order stays `pending` (nothing here confirms it), and the payments module refuses to
-// CAPTURE a payment whose `metadata.fraud.status` is `review` or `confirmed_fraud` (`capturePayment` → 409). The
-// authorization hold stays on the card until a human clears the review or cancels the order (which voids it).
-//
-// `order.updated` v1 has no reason field and forbids extra properties, so the reason code travels as a
-// `changed_fields` entry: `fraud.reason_code=<code>`. Codes are a closed set — no PII can ride along.
+// Every flag change made by this module goes through the two writers below — the Radar `review.*` webhook
+// handlers included — so a review opened AFTER placement gets its order mirror exactly like one decided at
+// placement (that one is written by the checkout itself: payment row + mirror, core #236). This module never
+// builds an `order.updated` and never touches the order row.
 import type { Queryable } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { notFound } from '../../lib/errors';
-import { transition } from '../orders';
+import {
+  flagOrderForReview as mirrorFlagOnOrder,
+  resolveOrderReview as mirrorResolveOnOrder,
+} from '../orders';
 import type { FraudProviderName, FraudReasonCode } from './types';
 
 export type OrderFraudStatus = 'review' | 'cleared' | 'confirmed_fraud';
 
 export interface OrderFraudFlag {
   status: OrderFraudStatus;
-  reason_code: FraudReasonCode;
-  provider: FraudProviderName;
+  /** One of `FRAUD_REASON_CODES` for flags this module wrote; the checkout writes what the check decided. */
+  reason_code: FraudReasonCode | string;
+  provider: FraudProviderName | string;
   flagged_at: string;
   resolved_at?: string;
   /** How the review ended: `approved`, `refunded_as_fraud`, `disputed`, `manual` … (a code). */
@@ -50,6 +51,7 @@ async function paymentOfOrder(
   return r.rows[0] ?? null;
 }
 
+/** The review flag of an order — read from the payment row, the source of truth. */
 export async function readOrderFraud(
   tx: Queryable,
   orderId: string,
@@ -57,22 +59,22 @@ export async function readOrderFraud(
   return (await paymentOfOrder(tx, orderId, false))?.fraud ?? null;
 }
 
-async function writeFlag(
+async function writePaymentFlag(
   tx: Queryable,
-  orderId: string,
   paymentId: string,
   flag: OrderFraudFlag,
-  changed: string[],
-  actor: Actor,
 ): Promise<void> {
   await tx.query(
     `UPDATE payment SET metadata = jsonb_set(metadata, '{fraud}', $2::jsonb), updated_at = now() WHERE id = $1`,
     [paymentId, JSON.stringify(flag)],
   );
-  await transition(tx, orderId, { changed_fields: ['fraud', ...changed], actor });
 }
 
-/** Holds the order for review. Idempotent: an order already under review is left as it is (no second event). */
+/**
+ * Holds the order for review: payment row first, then the order mirror (one `order.updated`, from the orders
+ * module). Idempotent — and a review a human (or Radar) already RESOLVED is never re-opened by a later signal:
+ * a `cleared` or `confirmed_fraud` flag is returned as it is, nothing is written, no event.
+ */
 export async function flagOrderForReview(
   tx: Queryable,
   orderId: string,
@@ -80,27 +82,28 @@ export async function flagOrderForReview(
 ): Promise<OrderFraudFlag> {
   const payment = await paymentOfOrder(tx, orderId, true);
   if (!payment) throw notFound('payment for order', orderId);
-  if (payment.fraud?.status === 'review') return payment.fraud;
+  if (payment.fraud) return payment.fraud; // in review already, or resolved: never re-flag
   const flag: OrderFraudFlag = {
     status: 'review',
     reason_code: input.reasonCode,
     provider: input.provider,
     flagged_at: new Date().toISOString(),
   };
-  await writeFlag(
-    tx,
-    orderId,
-    payment.id,
-    flag,
-    ['fraud.status=review', `fraud.reason_code=${input.reasonCode}`],
-    input.actor,
-  );
+  await writePaymentFlag(tx, payment.id, flag);
+  await mirrorFlagOnOrder(tx, orderId, {
+    reasonCode: flag.reason_code,
+    provider: flag.provider,
+    flaggedAt: flag.flagged_at,
+    actor: input.actor,
+  });
   return flag;
 }
 
 /**
  * Ends a review: `cleared` (the payment may be captured) or `confirmed_fraud` (it stays uncapturable; cancel
- * the order). Idempotent on the target status; an order that was never flagged is left alone.
+ * the order). Idempotent on the target status; an order that was never flagged is left alone. The order mirror
+ * follows; a payment flagged before the mirror existed (pre-#236 rows) gets its mirror first, then the
+ * resolution, so the two never disagree.
  */
 export async function resolveOrderReview(
   tx: Queryable,
@@ -110,12 +113,23 @@ export async function resolveOrderReview(
   const payment = await paymentOfOrder(tx, orderId, true);
   if (!payment?.fraud) return null;
   if (payment.fraud.status === input.status) return payment.fraud;
+  const resolution = input.resolution.replace(/[^a-z0-9_]/gi, '_').slice(0, 40);
   const flag: OrderFraudFlag = {
     ...payment.fraud,
     status: input.status,
     resolved_at: new Date().toISOString(),
-    resolution: input.resolution.replace(/[^a-z0-9_]/gi, '_').slice(0, 40),
+    resolution,
   };
-  await writeFlag(tx, orderId, payment.id, flag, [`fraud.status=${input.status}`], input.actor);
+  await writePaymentFlag(tx, payment.id, flag);
+  const mirror = { status: input.status, resolution, actor: input.actor };
+  if ((await mirrorResolveOnOrder(tx, orderId, mirror)) === null) {
+    await mirrorFlagOnOrder(tx, orderId, {
+      reasonCode: payment.fraud.reason_code,
+      provider: payment.fraud.provider,
+      flaggedAt: payment.fraud.flagged_at,
+      actor: input.actor,
+    });
+    await mirrorResolveOnOrder(tx, orderId, mirror);
+  }
   return flag;
 }

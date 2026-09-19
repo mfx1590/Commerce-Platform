@@ -175,9 +175,18 @@ export async function createRefundIn(
   );
   const prior = existing.rows[0];
   if (prior) {
-    if (prior.order_id !== order.id || Number(prior.amount_minor) !== input.amountMinor) {
+    // A replay must be the SAME refund in every field the caller controls: a key reused with another reason,
+    // return or payment is a different request, never a silent replay of the old one.
+    const differs: string[] = [];
+    if (prior.order_id !== order.id) differs.push('order_id');
+    if (Number(prior.amount_minor) !== input.amountMinor) differs.push('amount_minor');
+    if (prior.reason !== input.reason) differs.push('reason');
+    if ((prior.return_id ?? null) !== (input.returnId ?? null)) differs.push('return_id');
+    if (input.paymentId && prior.payment_id !== input.paymentId) differs.push('payment_id');
+    if (differs.length > 0) {
       throw conflict('Idempotency-Key was already used for a different refund', {
-        'Idempotency-Key': 'reuse with the same order and amount only',
+        'Idempotency-Key': 'reuse with the same order, amount, reason, return and payment only',
+        differs,
         refund_id: prior.id,
       });
     }

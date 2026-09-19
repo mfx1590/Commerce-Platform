@@ -5,6 +5,12 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.3 → v0.4.1)
 
+### 2026-09-19 · follow-up: refund replay match (nit from the #219 review)
+
+- `refunds.ts`: an Idempotency-Key replay must be the same refund in EVERY field the caller controls — order,
+  amount, `reason`, `return_id` and (when given) `payment_id`; a key reused with another reason used to replay the
+  old refund silently, now it is 409 `conflict` with `details.differs`. Test added.
+
 ### 2026-09-19 · 2.5 shared credential loader + support for the fraud module (#128)
 
 - `credentials.ts`: `storeSecretFor` / `requireStoreSecret` — the per-store credential loader shared by
