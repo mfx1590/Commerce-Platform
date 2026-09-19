@@ -5,6 +5,8 @@
 // The shared `webhook_event` table (#187) comes from migration 0140 in @platform/db.
 // The router tests run the real core middleware with dev tokens.
 import { createHash, createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
@@ -55,6 +57,13 @@ let counter = 0;
 beforeAll(async () => {
   db = await createTestDatabase('core_shipments');
   await seed(db.owner, { log: () => {} });
+  // #225's DDL (pick/pack statuses), applied by this suite only until migration 0160 lands.
+  await db.owner.query(
+    readFileSync(
+      join(__dirname, '..', 'fulfillment', 'proposed', '0160_shipment_pick_pack.sql'),
+      'utf8',
+    ),
+  );
   // The router resolves stores and scopes through the app pool, like the running server.
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
@@ -320,6 +329,40 @@ describe('shipments', () => {
     expect((await eventsFor(planned.id)).rows.map((row) => row.topic)).toEqual([
       'shipment.created',
     ]);
+  });
+
+  it('voids a label it could not record, and leaves the shipment where it found it', async () => {
+    // The shipment is cancelled WHILE the carrier is buying: step 3 must refuse, and the bought label — real
+    // money — goes back to the carrier instead of being orphaned.
+    const carrier = createManualCarrierProvider();
+    const voided: string[] = [];
+    const realBuy = carrier.buyLabel.bind(carrier);
+    const realVoid = carrier.voidLabel.bind(carrier);
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    carrier.buyLabel = async (request) => {
+      const label = await realBuy(request);
+      await updateShipment(a, planned.id, { status: 'cancelled', actor });
+      return label;
+    };
+    carrier.voidLabel = async (request) => {
+      voided.push(request.providerShipmentId);
+      return realVoid(request);
+    };
+    setCarrierProvider(carrier);
+
+    await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    expect(voided).toHaveLength(1);
+    const row = await getShipment(a, planned.id);
+    expect(row.status).toBe('cancelled');
+    expect(row.label_url).toBeNull();
   });
 
   it('reports a carrier failure as 502 and leaves the shipment pending', async () => {
@@ -625,6 +668,37 @@ describe('tracking webhooks', () => {
       }),
     ).rejects.toMatchObject({ code: 'validation_error' });
     expect(await webhookRow('evt_badsig')).toBeUndefined();
+  });
+
+  it('refuses to guess when two shipments share a tracking number', async () => {
+    const first = await shippedShipment();
+    const second = await shippedShipment();
+    // Force the collision the schema does not prevent.
+    await owner.query(`UPDATE shipment SET tracking_number = $2 WHERE id = $1`, [
+      second.shipmentId,
+      first.tracking,
+    ]);
+    const result = await handleEasyPostWebhook(
+      a,
+      webhook(
+        first.tracking,
+        'delivered',
+        `evt_ambig_${second.shipmentId}`,
+        '2026-09-09T11:00:00Z',
+      ),
+    );
+    expect(result).toMatchObject({
+      outcome: 'skipped',
+      shipmentId: null,
+      reason: 'more than one shipment has this tracking number',
+    });
+    // Neither shipment moved.
+    expect((await getShipment(a, first.shipmentId)).status).toBe('label_created');
+    expect((await getShipment(a, second.shipmentId)).status).toBe('label_created');
+    expect(await webhookRow(`evt_ambig_${second.shipmentId}`)).toMatchObject({
+      status: 'skipped',
+      aggregate_id: null,
+    });
   });
 
   it('records a scan for a tracking number we do not know as skipped', async () => {

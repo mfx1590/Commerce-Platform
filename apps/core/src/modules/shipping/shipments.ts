@@ -19,23 +19,40 @@ import { createEasyPostProvider } from './easypost-provider';
 import { carrierProvider } from './registry';
 import { CarrierError, toCarrierAddress } from './redact';
 import { currentInventoryPort, currentOrdersPort } from './ports';
-import type { CarrierProvider, ContractAddress, Parcel } from './types';
+import type { CarrierLabel, CarrierProvider, ContractAddress, Parcel } from './types';
 
 export type ShipmentStatus =
-  'pending' | 'label_created' | 'shipped' | 'in_transit' | 'delivered' | 'failed' | 'cancelled';
+  | 'pending'
+  | 'picking'
+  | 'packed'
+  | 'label_created'
+  | 'shipped'
+  | 'in_transit'
+  | 'delivered'
+  | 'failed'
+  | 'cancelled';
 
-/** How far along a status is. A transition to a lower or equal rank is a no-op (except the terminal two). */
+/**
+ * How far along a status is. Forward only: a move to an equal or lower rank is refused. `picking` and `packed`
+ * come from CONTRACT CHANGE #225 (migration 0160 widens the column's CHECK); until it lands, the module's tests
+ * apply `../fulfillment/proposed/0160_shipment_pick_pack.sql` themselves.
+ */
 const RANK: Record<ShipmentStatus, number> = {
   pending: 0,
-  label_created: 1,
-  shipped: 2,
-  in_transit: 3,
-  delivered: 4,
-  failed: 5,
-  cancelled: 5,
+  picking: 1,
+  packed: 2,
+  label_created: 3,
+  shipped: 4,
+  in_transit: 5,
+  delivered: 6,
+  failed: 7,
+  cancelled: 7,
 };
 
 const TERMINAL: ShipmentStatus[] = ['delivered', 'failed', 'cancelled'];
+
+/** Cancel is legal only while nothing has left the building; a bought label is voided first. */
+const CANCELLABLE: ShipmentStatus[] = ['pending', 'picking', 'packed', 'label_created'];
 
 export interface ShipmentRow {
   id: string;
@@ -252,10 +269,11 @@ export async function buyShipmentLabel(
   shipmentId: string,
   input: { actor: Actor; parcel?: Parcel | undefined },
 ): Promise<StoreShipment> {
-  return client.transaction(async (tx) => {
+  // ---- 1. read what the carrier call needs (short transaction; nothing is held over the network) ----
+  const prepared = await client.transaction(async (tx) => {
     const { shipment, items } = await loadShipment(tx, shipmentId);
-    if (shipment.label_url) return renderShipment(shipment, items);
-    if (shipment.status !== 'pending') {
+    if (shipment.label_url) return { already: renderShipment(shipment, items) } as const;
+    if (!canTransition(shipment.status, 'label_created')) {
       throw conflict('shipment is past label creation', {
         shipment_id: shipmentId,
         status: shipment.status,
@@ -282,70 +300,118 @@ export async function buyShipmentLabel(
         shipment_id: shipmentId,
       });
     }
+    return {
+      provider,
+      config,
+      origin,
+      destination,
+      service: shipment.service,
+      currency: shipment.currency,
+    } as const;
+  });
+  if ('already' in prepared) return prepared.already;
 
-    const parcel = input.parcel ?? config.defaultParcel;
-    let label;
-    try {
-      const rates = await provider.rates({
-        from: origin,
-        to: destination,
-        parcels: [parcel],
-        currency: shipment.currency,
-        ...(config.carrierAccountIds.length > 0
-          ? { carrierAccountIds: config.carrierAccountIds }
-          : {}),
-        ...(shipment.service ? { services: [shipment.service] } : {}),
-      });
-      const chosen =
-        rates.find((rate) => rate.service === shipment.service) ??
-        [...rates].sort((a, b) => a.priceMinor - b.priceMinor)[0];
-      if (!chosen) {
-        throw new CarrierError(
-          provider.name,
-          404,
-          'rates',
-          'carrier quoted nothing for this shipment',
-        );
-      }
-      label = await provider.buyLabel({
-        rateId: chosen.rateId,
-        reference: shipment.id,
-        labelFormat: config.labelFormat,
-      });
-    } catch (error) {
-      const carrierError =
-        error instanceof CarrierError
-          ? error
-          : new CarrierError(provider.name, 0, 'buyLabel', 'unexpected provider failure');
-      // 502: our request was fine, the carrier was not. The shipment stays `pending` and can be retried.
-      throw new AppError(
-        'internal',
-        `carrier could not produce a label: ${carrierError.message}`,
-        {
-          shipment_id: shipmentId,
-          provider: carrierError.provider,
-          status: carrierError.status,
-        },
-        502,
+  // ---- 2. quote and buy — NO transaction open, because a carrier can take seconds or time out ----
+  const { provider, config } = prepared;
+  const parcel = input.parcel ?? config.defaultParcel;
+  let label;
+  try {
+    const rates = await provider.rates({
+      from: prepared.origin,
+      to: prepared.destination,
+      parcels: [parcel],
+      currency: prepared.currency,
+      ...(config.carrierAccountIds.length > 0
+        ? { carrierAccountIds: config.carrierAccountIds }
+        : {}),
+      ...(prepared.service ? { services: [prepared.service] } : {}),
+    });
+    const chosen =
+      rates.find((rate) => rate.service === prepared.service) ??
+      [...rates].sort((a, b) => a.priceMinor - b.priceMinor)[0];
+    if (!chosen) {
+      throw new CarrierError(
+        provider.name,
+        404,
+        'rates',
+        'carrier quoted nothing for this shipment',
       );
     }
-
-    const updated = await tx.query<ShipmentRow>(
-      `UPDATE shipment SET status = 'label_created', carrier = $2, service = $3, tracking_number = $4,
-              tracking_url = $5, label_url = $6, cost_minor = $7, updated_at = now()
-        WHERE id = $1 RETURNING *`,
-      [
-        shipmentId,
-        label.carrier,
-        label.service,
-        label.trackingNumber,
-        label.trackingUrl,
-        label.labelUrl,
-        label.costMinor,
-      ],
+    label = await provider.buyLabel({
+      rateId: chosen.rateId,
+      reference: shipmentId,
+      labelFormat: config.labelFormat,
+    });
+  } catch (error) {
+    const carrierError =
+      error instanceof CarrierError
+        ? error
+        : new CarrierError(provider.name, 0, 'buyLabel', 'unexpected provider failure');
+    // 502: our request was fine, the carrier was not. The shipment is untouched and can be retried.
+    throw new AppError(
+      'internal',
+      `carrier could not produce a label: ${carrierError.message}`,
+      { shipment_id: shipmentId, provider: carrierError.provider, status: carrierError.status },
+      502,
     );
-    return renderShipment(updated.rows[0]!, items);
-  });
+  }
+
+  // ---- 3. record it (short transaction). Someone may have moved the shipment while we were on the network:
+  //         the label is real money, so it is voided again rather than left orphaned at the carrier. ----
+  try {
+    return await client.transaction(async (tx) => {
+      const { shipment, items } = await loadShipment(tx, shipmentId);
+      if (shipment.label_url) {
+        // A concurrent call already bought one; ours is surplus (voided by the catch below).
+        throw conflict('shipment already has a label', { shipment_id: shipmentId });
+      }
+      if (!canTransition(shipment.status, 'label_created')) {
+        throw conflict('shipment moved while the label was being bought', {
+          shipment_id: shipmentId,
+          status: shipment.status,
+        });
+      }
+      const updated = await tx.query<ShipmentRow>(
+        `UPDATE shipment SET status = 'label_created', carrier = $2, service = $3, tracking_number = $4,
+                tracking_url = $5, label_url = $6, cost_minor = $7, updated_at = now()
+          WHERE id = $1 RETURNING *`,
+        [
+          shipmentId,
+          label.carrier,
+          label.service,
+          label.trackingNumber,
+          label.trackingUrl,
+          label.labelUrl,
+          label.costMinor,
+        ],
+      );
+      return renderShipment(updated.rows[0]!, items);
+    });
+  } catch (error) {
+    await voidQuietly(provider, label, shipmentId);
+    throw error;
+  }
+}
+
+/**
+ * Gives a bought-but-unrecorded label back to the carrier. A failure here is logged, not thrown: the caller is
+ * already failing for a better reason, and the label id is enough for an operator to finish the job by hand.
+ */
+async function voidQuietly(
+  provider: CarrierProvider,
+  label: CarrierLabel,
+  shipmentId: string,
+): Promise<void> {
+  try {
+    await provider.voidLabel({ providerShipmentId: label.providerShipmentId });
+  } catch (error) {
+    console.warn('shipping: could not void an unrecorded label', {
+      shipment_id: shipmentId,
+      provider: provider.name,
+      tracking_number: label.trackingNumber,
+      reason: error instanceof CarrierError ? error.message : 'unexpected provider failure',
+    });
+  }
 }
 
 /**
@@ -381,7 +447,7 @@ export async function updateShipment(
 export function canTransition(from: ShipmentStatus, to: ShipmentStatus): boolean {
   if (from === to) return false;
   if (TERMINAL.includes(from)) return false;
-  if (to === 'cancelled') return from === 'pending' || from === 'label_created';
+  if (to === 'cancelled') return CANCELLABLE.includes(from);
   if (to === 'failed') return true;
   return RANK[to] > RANK[from];
 }

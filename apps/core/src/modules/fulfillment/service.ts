@@ -182,9 +182,29 @@ export async function cancelFulfillment(
       reason: result.reason ?? null,
     });
   }
-  const shipment = await updateShipment(client, shipmentId, { status: 'cancelled', actor });
-  await writeRef(client, shipmentId, { ...ref, state: 'cancelled' });
-  return shipment;
+  // The provider has stopped. Our row must catch up — and if it cannot, the divergence is written down
+  // rather than lost: the provider will not pick this shipment, so nobody may believe it is still coming.
+  try {
+    const shipment = await updateShipment(client, shipmentId, { status: 'cancelled', actor });
+    await writeRef(client, shipmentId, { ...ref, state: 'cancelled' });
+    return shipment;
+  } catch (error) {
+    await writeRef(client, shipmentId, {
+      ...ref,
+      state: 'cancelled',
+      needs_reconciliation: true,
+      reconcile_reason: 'provider cancelled the fulfilment; the shipment could not be cancelled',
+    });
+    throw new AppError(
+      'conflict',
+      'the provider cancelled the fulfilment but the shipment could not be cancelled; it needs reconciling',
+      {
+        shipment_id: shipmentId,
+        provider: ref.provider,
+        cause: error instanceof AppError ? error.message : 'unexpected failure',
+      },
+    );
+  }
 }
 
 /**
@@ -205,8 +225,6 @@ export async function applyFulfillmentUpdate(
   }
   if (ref.state === update.state) return { applied: false, shipment: null };
 
-  await writeRef(client, update.reference, { ...ref, state: update.state });
-
   const move = async (patch: Parameters<typeof updateShipment>[2]) => {
     try {
       return await updateShipment(client, update.reference, patch);
@@ -217,24 +235,35 @@ export async function applyFulfillmentUpdate(
     }
   };
 
+  // The shipment moves FIRST. Writing the reference first would leave it advanced when the move fails for a
+  // real reason, and the provider's retry would then find "already at this state" and do nothing.
+  let shipment: StoreShipment | null = null;
   switch (update.state) {
+    case 'picking':
+      shipment = await move({ status: 'picking', actor });
+      break;
+    case 'packed':
+      shipment = await move({ status: 'packed', actor });
+      break;
     case 'shipped':
-      return {
-        applied: true,
-        shipment: await move({
-          status: 'shipped',
-          ...(update.trackingNumber ? { trackingNumber: update.trackingNumber } : {}),
-          ...(update.trackingUrl ? { trackingUrl: update.trackingUrl } : {}),
-          actor,
-        }),
-      };
+      shipment = await move({
+        status: 'shipped',
+        ...(update.trackingNumber ? { trackingNumber: update.trackingNumber } : {}),
+        ...(update.trackingUrl ? { trackingUrl: update.trackingUrl } : {}),
+        actor,
+      });
+      break;
     case 'cancelled':
-      return { applied: true, shipment: await move({ status: 'cancelled', actor }) };
+      shipment = await move({ status: 'cancelled', actor });
+      break;
     case 'failed':
-      return { applied: true, shipment: await move({ status: 'failed', actor }) };
+      shipment = await move({ status: 'failed', actor });
+      break;
     default:
-      return { applied: true, shipment: null };
+      shipment = null; // `accepted` reports no state of ours
   }
+  await writeRef(client, update.reference, { ...ref, state: update.state });
+  return { applied: true, shipment };
 }
 
 // ---- internals ----
