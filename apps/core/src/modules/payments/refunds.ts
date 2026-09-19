@@ -96,11 +96,27 @@ export function renderRefund(r: RefundRow): AdminRefund {
   };
 }
 
-/** Σ refunds that hold or will hold money (`pending` + `succeeded`); failed ones never count. */
+/**
+ * RESERVED money: Σ refunds that hold or will hold money (`pending` + `succeeded`); failed ones never count.
+ * Drives the CEILING — a pending refund may still settle, so its amount cannot be refunded a second time.
+ */
 export async function refundedMinor(tx: Queryable, paymentId: string): Promise<number> {
   const r = await tx.query<{ n: string }>(
     `SELECT coalesce(sum(amount_minor), 0)::text AS n FROM refund
      WHERE payment_id = $1 AND status IN ('pending', 'succeeded')`,
+    [paymentId],
+  );
+  return Number(r.rows[0]!.n);
+}
+
+/**
+ * SETTLED money: Σ `succeeded` refunds only. Drives the order's `payment_status` — an order is `refunded` when
+ * the money has actually gone back, never while part of it is still pending at the PSP (and may fail).
+ */
+export async function settledRefundedMinor(tx: Queryable, paymentId: string): Promise<number> {
+  const r = await tx.query<{ n: string }>(
+    `SELECT coalesce(sum(amount_minor), 0)::text AS n FROM refund
+     WHERE payment_id = $1 AND status = 'succeeded'`,
     [paymentId],
   );
   return Number(r.rows[0]!.n);
@@ -115,8 +131,9 @@ export function paymentStatusAfterRefund(
 }
 
 /**
- * Moves the order's payment_status to where the refunded total says it should be, through the orders
- * module's `transition()` on the caller's transaction (one `order.updated`); a no-op when already there.
+ * Moves the order's payment_status to where the SETTLED refunded total says it should be (settled money
+ * drives status; reserved money drives the ceiling), through the orders module's `transition()` on the caller's
+ * transaction (one `order.updated`); a no-op when already there.
  */
 export async function syncOrderPaymentStatus(
   tx: Queryable,
@@ -126,7 +143,7 @@ export async function syncOrderPaymentStatus(
   actor: Actor,
 ): Promise<void> {
   const order = await loadOrder(tx, orderId, true);
-  const total = await refundedMinor(tx, paymentId);
+  const total = await settledRefundedMinor(tx, paymentId);
   if (total <= 0) return;
   const target = paymentStatusAfterRefund(total, capturedMinor);
   if (order.payment_status === target) return;

@@ -59,6 +59,7 @@ export {
   refundedMinor,
   refundIdempotencyKey,
   renderRefund,
+  settledRefundedMinor,
   syncOrderPaymentStatus,
   type AdminRefund,
   type CreateRefundInput,
