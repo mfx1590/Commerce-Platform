@@ -618,7 +618,7 @@ Owner: window 7 (payments). Events: `refund.issued`, `refund.failed`.
 | label_url | text NULL | |
 | cost_minor | bigint NULL | what we pay the carrier |
 | currency | char(3) | |
-| status | text | `pending` / `label_created` / `shipped` / `in_transit` / `delivered` / `failed` / `cancelled` |
+| status | text | `pending` / `picking` / `packed` / `label_created` / `shipped` / `in_transit` / `delivered` / `failed` / `cancelled` — picking/packed since migration 0160 (CONTRACT CHANGE #225): forward-only, skips legal, cancel only before departure |
 | shipped_at / delivered_at | timestamptz NULL | |
 | metadata | jsonb | |
 

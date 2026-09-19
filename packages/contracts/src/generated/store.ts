@@ -290,7 +290,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, conflict, internal */
+            /** @description Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, internal */
             code: string;
             message: string;
             details?: {
@@ -508,7 +508,7 @@ export interface components {
                 /** Format: uuid */
                 id: string;
                 /** @enum {string} */
-                status: "pending" | "label_created" | "shipped" | "in_transit" | "delivered" | "failed" | "cancelled";
+                status: "pending" | "picking" | "packed" | "label_created" | "shipped" | "in_transit" | "delivered" | "failed" | "cancelled";
                 carrier: string;
                 tracking_number: string | null;
                 tracking_url: string | null;
@@ -1067,21 +1067,12 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Cart already completed or stock no longer available */
+            /** @description Cart already completed (`cart_completed`), stock no longer available (`out_of_stock`), or a line's price changed since the cart was last priced (`price_changed`). On `price_changed` nothing was placed or authorized and the cart has been re-priced: read the cart again, show the new prices, create the payment session again for the new total, then retry (the same Idempotency-Key is fine — no order exists for it). `unit_price_minor: null` in an item means the variant has no applicable price in the cart's currency any more (not sellable): the storefront removes the line. */
             409: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    /**
-                     * @example {
-                     *       "code": "cart_completed",
-                     *       "message": "Cart already completed",
-                     *       "details": {
-                     *         "order_id": "30000000-0000-4000-8000-000000000501"
-                     *       }
-                     *     }
-                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };

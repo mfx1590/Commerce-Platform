@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/fulfillment.requested/v1.json",
+  "title": "fulfillment.requested v1",
+  "description": "A fulfilment request for a shipment was accepted by a warehouse or 3PL.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "shipment_id",
+    "order_id",
+    "warehouse_id",
+    "provider",
+    "external_id",
+    "items",
+    "occurred_at"
+  ],
+  "properties": {
+    "shipment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "warehouse_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "provider": { "type": "string", "minLength": 1 },
+    "external_id": { "type": ["string", "null"] },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_line_item_id", "quantity"],
+        "properties": {
+          "order_line_item_id": {
+            "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+          },
+          "quantity": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "occurred_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}
