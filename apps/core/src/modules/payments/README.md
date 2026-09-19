@@ -201,8 +201,8 @@ canonical extract)`, so "payload no longer matches payload_hash" is checkable wi
 
 ## Tests
 
-`webhooks.test.ts` (18; FakeStripe + seeded throwaway database with `proposed/0140_webhook_event.sql` applied by
-the suite until migration 0140 lands): signature parse/verify/roll/tolerance/tamper; extract redaction + seal
+`webhooks.test.ts` (18; FakeStripe + seeded throwaway database — `webhook_event` comes from migration 0140 in
+@platform/db): signature parse/verify/roll/tolerance/tamper; extract redaction + seal
 (tamper either side, key-order independence); gate (bad signature → 400 nothing written, store secret beats the
 global one, missing secret names the variables, bad JSON / non-event, another store's client → 404);
 `payment_intent.succeeded` end to end (row + `payment.captured` + order `captured`, row redacted, hash + seal
