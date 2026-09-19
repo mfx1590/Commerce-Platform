@@ -20,7 +20,7 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **2.3 (#147) segments** — commit `<sha>`, PR #<pr> (2026-09-19). Frozen rule grammar
+- **2.3 (#147) segments** — commit `ae09724`, PR #240 (2026-09-19). Frozen rule grammar
   `{ v:1, all:[{ any:[{field,op,value}] }] }` over a closed 7-field set, 400 on anything else naming the exact
   path; `SEGMENT_RULES_SCHEMA` published from index.ts for window 16 + the admin, with a test running parser and
   schema over the same fixtures. `segment-sql.ts` compiles rules to one parameterised predicate, total over
@@ -48,7 +48,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
-- [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR in review
+- [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
 - [ ] **#148 · 2.4** Abandoned-cart recovery
 - [ ] **#149 · 2.5** Admin Marketing section v1
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
