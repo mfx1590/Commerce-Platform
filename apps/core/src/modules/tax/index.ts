@@ -12,7 +12,7 @@ export {
   type TaxProviderName,
   type TaxSettings,
 } from './types';
-export { inclusiveTaxOn, tableTaxProvider, taxFor } from './table-provider';
+export { tableTaxProvider, taxFor } from './table-provider';
 export {
   createStripeTaxProvider,
   rateBpOf,

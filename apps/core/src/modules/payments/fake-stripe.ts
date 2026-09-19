@@ -269,8 +269,8 @@ export class FakeStripe implements StripeApi {
   }
 
   /**
-   * Stripe Tax: `taxRateBp` on every line and on shipping. Exclusive → tax on top (`round(amount × bp / 10000)`);
-   * inclusive → tax extracted from the amount (`amount − round(amount × 10000 / (10000 + bp))`), like Stripe.
+   * Stripe Tax: `taxRateBp` on every line and on shipping, with the platform's single rounding rule (the tax
+   * rounded half-up; exclusive on top, inclusive contained) so fake results equal the table provider's.
    */
   async createTaxCalculation(
     params: StripeParams,
@@ -287,10 +287,12 @@ export class FakeStripe implements StripeApi {
       throw new StripeError(400, 'The tax location is invalid.', 'invalid_request_error', code);
     }
     const bp = this.taxRateBp;
-    const taxOf = (amount: number, behavior: string): number =>
-      behavior === 'inclusive'
-        ? amount - Math.floor((amount * 10000 + (10000 + bp) / 2) / (10000 + bp))
-        : Math.floor((amount * bp + 5000) / 10000);
+    // The platform's single rounding rule (the cart module's `taxOn`): the TAX rounded half-up —
+    // on top = amount × bp / 10000, contained = amount × bp / (10000 + bp).
+    const taxOf = (amount: number, behavior: string): number => {
+      const divisor = behavior === 'inclusive' ? 10000 + bp : 10000;
+      return amount <= 0 || bp <= 0 ? 0 : Math.floor((2 * amount * bp + divisor) / (2 * divisor));
+    };
     const items = (params.line_items as Record<string, unknown>[] | undefined) ?? [];
     const data: StripeTaxLineItem[] = items.map((i) => {
       const amount = Number(i.amount);

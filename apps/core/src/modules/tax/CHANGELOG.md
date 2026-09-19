@@ -5,12 +5,19 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.4.1)
 
+#### 2026-09-19 · review fix on #227 — one rounding seam
+
+- `table-provider.ts`: `inclusiveTaxOn` deleted; `taxFor` is the cart module's `taxOn(amount, bp, included)` (core
+  #224: the TAX rounds half-up in both modes). The old rule rounded the NET and differed at half-cent ties
+  (gross 9 at 2000 bp: 1 vs the platform's 2). `FakeStripe.createTaxCalculation`, the tests (tie case, sweep
+  against `taxOn`) and the README "Rounding" section follow the same single rule.
+
 ### 2026-09-19 · 2.4 Tax adapter: table rates + Stripe Tax behind the cart's TaxCalculator (#127)
 
 - `types.ts`: `TaxProvider`, `TaxSettings` (`store.settings.tax`: `provider`, `prices_include_tax`,
   `shipping_taxable`), `taxSettingsFrom` (malformed → defaults, never throws).
 - `table-provider.ts`: the cart's `tableTaxCalculator` for the rates (called, not reimplemented), tax-inclusive
-  extraction (`inclusiveTaxOn`: round the net, tax is the remainder), taxable shipping via a synthetic line.
+  extraction (through the cart's `taxOn(…, included)` since the #227 review fix), taxable shipping via a synthetic line.
 - `stripe-provider.ts`: Stripe Tax through the payments module's `createTaxCalculation`; amounts, ids and the
   destination only; Stripe's per-line integers used as they are; `rateBpOf`.
 - `provider.ts`: `createTaxCalculator` — reads the store's settings per pricing pass and dispatches; Stripe

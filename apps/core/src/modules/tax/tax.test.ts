@@ -20,7 +20,6 @@ import { FakeStripe, StripeError } from '../payments';
 import {
   createTaxCalculator,
   DEFAULT_TAX_SETTINGS,
-  inclusiveTaxOn,
   rateBpOf,
   registerTaxProvider,
   TAX_FALLBACK_FLAG,
@@ -127,24 +126,24 @@ function priced(
 // ---------------------------------------------------------------------------------------------- arithmetic
 
 describe('rounding and settings', () => {
-  it('inclusive extraction is integer, half-up on the net, and net + tax === gross for every amount', () => {
-    expect(inclusiveTaxOn(12100, 2100)).toBe(2100);
-    expect(inclusiveTaxOn(100, 2100)).toBe(17); // 100 / 1.21 = 82.64 → net 83
-    expect(inclusiveTaxOn(1999, 2000)).toBe(333); // 1999 / 1.2 = 1665.83 → net 1666
-    expect(inclusiveTaxOn(10000, 888)).toBe(816); // 10000 / 1.0888 = 9184.42 → net 9184
-    expect(inclusiveTaxOn(0, 2100)).toBe(0);
-    expect(inclusiveTaxOn(500, 0)).toBe(0);
-    for (const bp of [888, 2000, 2100, 2500]) {
-      for (let gross = 1; gross <= 3000; gross += 7) {
-        const tax = inclusiveTaxOn(gross, bp);
-        expect(Number.isInteger(tax)).toBe(true);
-        expect(tax).toBeGreaterThanOrEqual(0);
-        // The net the tax was extracted from re-taxes to within a cent of the extracted tax.
-        expect(Math.abs(taxOn(gross - tax, bp) - tax)).toBeLessThanOrEqual(1);
-      }
-    }
+  it("one rounding seam: taxFor IS the cart module's taxOn in both modes, ties included", () => {
+    expect(taxFor(12100, 2100, true)).toBe(2100);
+    expect(taxFor(100, 2100, true)).toBe(17); // 100 × 2100 / 12100 = 17.36
+    expect(taxFor(1999, 2000, true)).toBe(333); // 333.17
+    expect(taxFor(10000, 888, true)).toBe(816); // 815.58
+    expect(taxFor(9, 2000, true)).toBe(2); // 1.5 → the TAX rounds half-up (core #224), not the net
+    expect(taxFor(0, 2100, true)).toBe(0);
+    expect(taxFor(500, 0, true)).toBe(0);
     expect(taxFor(2000, 2100, false)).toBe(420);
     expect(taxFor(2000, 2100, true)).toBe(347);
+    for (const bp of [888, 2000, 2100, 2500]) {
+      for (let amount = 1; amount <= 3000; amount += 7) {
+        for (const included of [false, true]) {
+          expect(taxFor(amount, bp, included)).toBe(taxOn(amount, bp, included));
+          expect(Number.isInteger(taxFor(amount, bp, included))).toBe(true);
+        }
+      }
+    }
   });
 
   it('store.settings.tax: defaults, malformed input never throws, known values are read', () => {
@@ -242,7 +241,7 @@ describe('table provider — the three seeded markets', () => {
     });
     expect(inclusive.lines).toEqual([
       { lineItemId: l1, taxRateBp: 2100, taxMinor: 347 },
-      { lineItemId: l2, taxRateBp: 2100, taxMinor: inclusiveTaxOn(4499, 2100) },
+      { lineItemId: l2, taxRateBp: 2100, taxMinor: taxOn(4499, 2100, true) },
     ]);
     expect(inclusive.shippingTaxMinor).toBe(0);
   });
@@ -266,7 +265,7 @@ describe('table provider — the three seeded markets', () => {
       shippingMinor: 495,
     });
     expect(inclusive.lines[0]).toEqual({ lineItemId: l1, taxRateBp: 2000, taxMinor: 333 });
-    expect(inclusive.shippingTaxMinor).toBe(inclusiveTaxOn(495, 2000));
+    expect(inclusive.shippingTaxMinor).toBe(taxOn(495, 2000, true));
   });
 
   it('US (NY 8.88 %): the region decides; another state or country is untaxed, not an error', async () => {

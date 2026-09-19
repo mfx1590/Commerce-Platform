@@ -2,28 +2,20 @@
 // cart module's own `tableTaxCalculator` (category over store-wide, region over country-wide, no row → 0 bp) —
 // called, never reimplemented — and this provider adds what the built-in calculator does not have:
 //
-//   - **tax-inclusive prices** (`prices_include_tax`): the tax is extracted from the gross amount,
-//     `gross − round(gross × 10000 / (10000 + bp))`, instead of `round(net × bp / 10000)` on top;
+//   - **tax-inclusive prices** (`prices_include_tax`): the tax CONTAINED in the gross amount, through the cart
+//     module's single rounding seam `taxOn(amount, bp, included)`;
 //   - **taxable shipping** (`shipping_taxable`): the shipping price is taxed at the destination's store-wide
 //     rate (the rate a line without a category gets), in the same inclusive/exclusive mode.
 //
-// Rounding: integer arithmetic only, half-up, per LINE (and once for shipping) — never on the cart total — so the
-// amounts frozen on order lines add up exactly to the order's tax. Inclusive extraction rounds the NET half-up
-// and takes the tax as the remainder, so `net + tax === gross` always holds to the cent.
+// Rounding: ONE rule, the cart module's `taxOn(base, bp, included)` (core #224) — integer arithmetic, the TAX
+// rounded half-up, per LINE (and once for shipping), never on the cart total: on top = base × bp / 10000,
+// contained = base × bp / (10000 + bp). This module has no rounding of its own.
 import { tableTaxCalculator, taxOn, type TaxCalculation } from '../cart';
 import type { TaxContext, TaxProvider, TaxSettings } from './types';
 
-/** Tax contained in a gross (tax-inclusive) amount: `gross − round(gross / (1 + rate))`, integer, half-up net. */
-export function inclusiveTaxOn(grossMinor: number, rateBp: number): number {
-  if (grossMinor <= 0 || rateBp <= 0) return 0;
-  const divisor = 10000 + rateBp;
-  const net = Math.floor((grossMinor * 10000 + Math.floor(divisor / 2)) / divisor);
-  return grossMinor - net;
-}
-
-/** Tax on an amount in the store's pricing mode. */
+/** Tax on an amount in the store's pricing mode — the cart module's single rounding seam, nothing else. */
 export function taxFor(amountMinor: number, rateBp: number, pricesIncludeTax: boolean): number {
-  return pricesIncludeTax ? inclusiveTaxOn(amountMinor, rateBp) : taxOn(amountMinor, rateBp);
+  return taxOn(amountMinor, rateBp, pricesIncludeTax);
 }
 
 const SHIPPING_REFERENCE = '__shipping__';

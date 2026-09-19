@@ -13,7 +13,7 @@ and this module plugs in. Contracts: contracts-v0.4.1 (nothing in packages/\* ch
 | `createTaxCalculator(opts?)`                                                    | the dispatching calculator; `opts.apiFactory` / `opts.env` / `opts.log` are test seams                                                                                    |
 | `tableTaxProvider` / `createStripeTaxProvider(opts?)`                           | the two `TaxProvider`s                                                                                                                                                    |
 | `taxSettingsFrom(store.settings)` / `DEFAULT_TAX_SETTINGS` / `TAX_SETTINGS_KEY` | the store setting reader (window 1 can use it for #221)                                                                                                                   |
-| `inclusiveTaxOn(gross, bp)` / `taxFor(amount, bp, inclusive)`                   | the rounding rules below                                                                                                                                                  |
+| `taxFor(amount, bp, inclusive)`                                                 | the cart module's `taxOn(amount, bp, included)` — the platform's single rounding seam; this module has no rounding of its own                                             |
 | `rateBpOf(stripeLine)`                                                          | basis points of a Stripe Tax line                                                                                                                                         |
 | `TAX_FALLBACK_FLAG` / `taxFallbackEnabled(env)`                                 | the outage opt-in (non-production only)                                                                                                                                   |
 
@@ -35,15 +35,17 @@ registering it changes nothing for a store until its settings say so.
 
 ## Rounding (documented because money)
 
-Integer minor units everywhere, no floats, half-up, **per line** (and once for shipping) — never on the cart
-total — so the amounts frozen on order lines add up to the order's tax.
+**One rule for the whole platform: the cart module's `taxOn(base, bp, included)`** (core #224). Integer minor
+units, no floats, the TAX rounded half-up, **per line** (and once for shipping) — never on the cart total — so the
+amounts frozen on order lines add up to the order's tax. This module calls it and adds no rounding of its own.
 
-- Exclusive: `tax = round(net × bp / 10000)` — the cart module's own `taxOn`, reused.
-- Inclusive: `net = round(gross × 10000 / (10000 + bp))`, `tax = gross − net`. The NET is rounded and the tax is
-  the remainder, so `net + tax === gross` to the cent for every amount (tested over a range of amounts/rates).
+- Exclusive: `tax = round(base × bp / 10000)`.
+- Inclusive: `tax = round(base × bp / (10000 + bp))` — the tax contained in the gross amount. At a half-cent tie
+  the TAX rounds up (gross 9 at 20 % → 1.5 → 2), exactly as the cart and the checkout compute it.
 - Stripe Tax: Stripe's per-line `amount_tax` is used as it is (already integer minor units; Stripe rounds per
   line); we never re-round. `taxRateBp` (persisted on cart/order lines) = Σ `tax_breakdown[].percentage_decimal`
   × 100 rounded to a basis point (US 8.875 % → 888 bp), or derived from the amounts when there is no breakdown.
+  `FakeStripe` applies the same single rule, so fake results equal the table provider's.
 
 ## The table provider
 
@@ -73,21 +75,16 @@ Failure modes:
   `CORE_STORE_API_FALLBACK`. With the opt-in, an outage prices with the table rates and logs one line (store id
   only).
 
-## What is window 1's (REQUEST #221)
+## Window 1's side (REQUEST #221 — landed with core #224)
 
-- The cart and the checkout recompute per-LINE tax as `taxOn(base, tax_rate_bp)` (exclusive formula) instead of
-  using the calculator's `taxMinor`; only the cart-level `tax_minor` uses the calculator's sum. With the table
-  provider in exclusive mode these agree by construction; with Stripe Tax (cent differences) or inclusive prices
-  they drift.
-- The cart total always adds tax on top; for `prices_include_tax` it must not.
-- Until #221 lands: keep stores on the defaults (`table`, exclusive). This module computes both modes
-  correctly; the tests assert the calculator's output in both modes and the cart totals in exclusive mode only.
-- Order snapshots: the checkout already freezes `tax_rate_bp` / `tax_minor` on order lines at placement.
+The cart and the checkout now show and freeze the calculator's per-line `taxMinor`, honour
+`store.settings.tax.prices_include_tax` in the totals (tax is reported, never added on top of a gross price), and
+pass `pricesIncludeTax` in the pricing context. `registerTaxProvider()` is mounted by window 1 (its #179 part 3
+wiring PR). Order snapshots: the checkout freezes `tax_rate_bp` / `tax_minor` on order lines at placement.
 
 ## Tests
 
-`tax.test.ts` (13; seeded throwaway database + FakeStripe): rounding (inclusive extraction examples, integer and
-consistency sweep), settings reader, the fallback flag incl. production refusal at registration, basis points;
+`tax.test.ts` (13; seeded throwaway database + FakeStripe): rounding (`taxFor` equals the cart's `taxOn` in both modes over a sweep, the half-cent tie), settings reader, the fallback flag incl. production refusal at registration, basis points;
 table provider for EU / UK / US in both modes, taxable shipping, region precedence, parity with the cart's
 built-in calculator; Stripe provider request shape (no PII), mapping, inclusive behaviour + `state`, fail-closed
 without a key, refusals, outage rethrow, opt-in fallback (one log line, refusals still fail); registered with
