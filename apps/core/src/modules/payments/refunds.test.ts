@@ -499,10 +499,117 @@ describe('refund settlement through the webhook receiver', () => {
     expect((await getWebhookEvent(a, conflict.eventId))!.status).toBe('failed');
   });
 
+  it('a refund Stripe only ACCEPTS stays pending: no refund.issued, order untouched, ceiling held; the webhook issues it', async () => {
+    const { orderId, intentId, amount } = await capturedOrder();
+    fake.pendingNextRefund = true;
+    const { refund } = await createRefund(a, refundInput(orderId, amount));
+    expect(refund).toMatchObject({
+      status: 'pending',
+      provider_refund_id: expect.stringMatching(/^re_/),
+    });
+    // Accounting sees NOTHING yet, and the order has not moved.
+    expect(await eventsFor(refund.id)).toEqual([]);
+    expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'captured' });
+    // The pending row holds its money: nothing more can be refunded meanwhile.
+    await expect(createRefund(a, refundInput(orderId, 1))).rejects.toMatchObject({
+      code: 'conflict',
+      details: { available_minor: 0, refunded_minor: amount },
+    });
+    // Stripe settles it → the webhook path is the one and only emitter of refund.issued.
+    const settled = await deliver(
+      refundEvent('refund.updated', {
+        id: refund.provider_refund_id!,
+        amount,
+        status: 'succeeded',
+        intent: intentId,
+      }).raw,
+    );
+    expect(settled).toMatchObject({ kind: 'processed' });
+    expect((await eventsFor(refund.id)).map((e) => e.topic)).toEqual(['refund.issued']);
+    expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'refunded' });
+  });
+
+  it('a pending refund that FAILS at Stripe: refund.failed only — accounting never saw an issued refund', async () => {
+    const { orderId, intentId } = await capturedOrder();
+    fake.pendingNextRefund = true;
+    const { refund } = await createRefund(a, refundInput(orderId, 300));
+    expect(refund.status).toBe('pending');
+    const r = await deliver(
+      refundEvent('refund.failed', {
+        id: refund.provider_refund_id!,
+        amount: 300,
+        status: 'failed',
+        intent: intentId,
+        failure_reason: 'expired_or_canceled_card',
+      }).raw,
+    );
+    expect(r).toMatchObject({ kind: 'processed' });
+    const ev = await eventsFor(refund.id);
+    expect(ev.map((e) => e.topic)).toEqual(['refund.failed']);
+    expect(ev[0]!.payload).toMatchObject({ failure_reason: 'expired_or_canceled_card' });
+    expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'captured' });
+    // The failed row released its money: the full amount is refundable again.
+    const retry = await createRefund(a, refundInput(orderId, 300));
+    expect(retry.refund.status).toBe('succeeded');
+  });
+
+  it('return-driven + pending: the return stays received until the webhook settles, then it is refunded and the order moves', async () => {
+    const { orderId, intentId } = await capturedOrder();
+    await owner.query(
+      `UPDATE "order" SET status = 'processing', fulfillment_status = 'fulfilled' WHERE id = $1`,
+      [orderId],
+    );
+    await owner.query(
+      `UPDATE order_line_item SET fulfilled_quantity = quantity WHERE order_id = $1`,
+      [orderId],
+    );
+    const line = await owner.query<{ id: string }>(
+      `SELECT id FROM order_line_item WHERE order_id = $1`,
+      [orderId],
+    );
+    const ret = await requestReturn(a, orderId, {
+      items: [{ order_line_item_id: line.rows[0]!.id, quantity: 1 }],
+      reason: 'wrong size',
+      actor: staff,
+    });
+    fake.pendingNextRefund = true;
+    const received = await receiveReturn(a, ret.id, {
+      warehouseId,
+      items: [{ order_line_item_id: line.rows[0]!.id, quantity: 1, condition: 'resellable' }],
+      actor: staff,
+    });
+    expect(received.status).toBe('received'); // not refunded yet
+    const row = await owner.query<{
+      id: string;
+      status: string;
+      provider_refund_id: string;
+      amount_minor: string;
+    }>(
+      `SELECT id, status, provider_refund_id, amount_minor::text FROM refund WHERE order_id = $1`,
+      [orderId],
+    );
+    expect(row.rows[0]).toMatchObject({ status: 'pending' });
+    expect(await eventsFor(row.rows[0]!.id)).toEqual([]);
+    expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'captured' });
+    const settled = await deliver(
+      refundEvent('refund.updated', {
+        id: row.rows[0]!.provider_refund_id,
+        amount: Number(row.rows[0]!.amount_minor),
+        status: 'succeeded',
+        intent: intentId,
+      }).raw,
+    );
+    expect(settled).toMatchObject({ kind: 'processed' });
+    expect((await eventsFor(row.rows[0]!.id)).map((e) => e.topic)).toEqual(['refund.issued']);
+    const after = await getReturn(a, ret.id);
+    expect(after).toMatchObject({ status: 'refunded', refund_id: row.rows[0]!.id });
+    expect(await orderStatus(orderId)).toMatchObject({ payment_status: 'partially_refunded' });
+  });
+
   it('refund.updated succeeded on a pending refund → row succeeded + refund.issued + order transition; then a duplicate is skipped', async () => {
     const { orderId, intentId, amount } = await capturedOrder();
     const { refund } = await createRefund(a, refundInput(orderId, amount));
-    // Simulate a provider that answered "pending" (a future provider; Stripe's pending maps to succeeded here).
+    // A row left `pending` (here forced, to cover settling a row whatever produced it).
     await owner.query(`UPDATE refund SET status = 'pending' WHERE id = $1`, [refund.id]);
     await owner.query(`DELETE FROM outbox WHERE aggregate_id = $1`, [refund.id]);
     await owner.query(`UPDATE "order" SET payment_status = 'captured' WHERE id = $1`, [orderId]);
@@ -592,6 +699,90 @@ describe('POST /admin/stores/:storeId/orders/:orderId/refunds', () => {
     });
     expect(staffRes.status).toBe(403);
     expect(staffRes.body).toMatchObject({ code: 'forbidden' });
+  });
+
+  it('exemption: organization finance and owner refund above the limit; support is capped; staff has no permission', async () => {
+    const { orderId, amount } = await capturedOrder();
+    expect(amount).toBeGreaterThan(2 * 5001 + 1000);
+    // Under the contract, createRefund needs `support` on the store, and finance alone does not hold it (FGA
+    // model and ADR 0002 stub agree): a finance-only user is refused by the permission check, nothing written.
+    const financeOnly = await post('seed-finance', orderId, {
+      amount_minor: 1,
+      reason: 'goodwill',
+    });
+    expect(financeOnly.status).toBe(403);
+    expect(fake.callsOf('createRefund')).toHaveLength(0);
+    // A finance user who ALSO holds support passes the gate and is exempt from the support limit through
+    // `finance` on the organization — finance is NOT a store admin in the model, hence the second check.
+    await owner.query(
+      `INSERT INTO role_assignment (organization_id, staff_user_id, relation, object_type, object_id)
+       VALUES ($1, $2, 'support', 'organization', $1)`,
+      [ORG, SEED_IDS.users.finance],
+    );
+    const finance = await post('seed-finance', orderId, { amount_minor: 5001, reason: 'goodwill' });
+    expect(finance.status).toBe(201);
+    const ownerRes = await post('seed-owner', orderId, { amount_minor: 5001, reason: 'goodwill' });
+    expect(ownerRes.status).toBe(201);
+    const support = await post('seed-support', orderId, { amount_minor: 5001, reason: 'goodwill' });
+    expect(support.status).toBe(403);
+    expect(support.body).toMatchObject({
+      code: 'forbidden',
+      details: { limit_minor: 5000, requested_minor: 5001 },
+    });
+    const supportOk = await post('seed-support', orderId, {
+      amount_minor: 1000,
+      reason: 'goodwill',
+    });
+    expect(supportOk.status).toBe(201);
+    const staffRes = await post('seed-store-staff', orderId, {
+      amount_minor: 1,
+      reason: 'goodwill',
+    });
+    expect(staffRes.status).toBe(403);
+    const rows = await owner.query<{ requested_by: string }>(
+      `SELECT requested_by FROM refund WHERE order_id = $1 ORDER BY created_at`,
+      [orderId],
+    );
+    expect(rows.rows.map((r) => r.requested_by)).toEqual([
+      SEED_IDS.users.finance,
+      SEED_IDS.users.owner,
+      SEED_IDS.users.support,
+    ]);
+  });
+
+  it('a PSP failure is a literal 402 with the refund id, and the same key answers the same 402; pending is a 201', async () => {
+    const { orderId } = await capturedOrder();
+    const key = `http-fail-${randomUUID()}`;
+    fake.failNextRefund = 'charge_already_refunded';
+    const failed = await post(
+      'seed-store-admin',
+      orderId,
+      { amount_minor: 10, reason: 'goodwill' },
+      key,
+    );
+    expect(failed.status).toBe(402);
+    expect(failed.body).toMatchObject({
+      code: 'payment_failed',
+      details: { refund_id: expect.any(String), replayed: false },
+    });
+    const again = await post(
+      'seed-store-admin',
+      orderId,
+      { amount_minor: 10, reason: 'goodwill' },
+      key,
+    );
+    expect(again.status).toBe(402);
+    expect(again.body.details).toMatchObject({
+      refund_id: failed.body.details.refund_id,
+      replayed: true,
+    });
+    fake.pendingNextRefund = true;
+    const pending = await post('seed-store-admin', orderId, {
+      amount_minor: 10,
+      reason: 'goodwill',
+    });
+    expect(pending.status).toBe(201);
+    expect(pending.body).toMatchObject({ status: 'pending' });
   });
 
   it('400 without Idempotency-Key or with a body the spec rejects; 409 ceiling renders the contract error', async () => {

@@ -164,19 +164,30 @@ returns module's `RefundRequester` for return-driven refunds. `createRefundIn(tx
    provider call; the same key with another order or amount → 409.
 2. **The captured payment**, locked: `payment_id` when given (404 if it is not the order's), else the order's
    captured payment (409 `{ field: 'payment_status', from, to: 'captured' }` when there is none).
-3. **Ceiling**: `amount ≤ captured − Σ(pending + succeeded refunds)`; above it → 409 `conflict`
+3. **Support limit, before the ceiling** (authorization first: a capped caller gets their 403, never a 409 that
+   reveals the refundable amount). The route passes `store.settings.support_refund_limit_minor` (seed 5000)
+   unless the caller holds `store_admin` on the store OR `finance` on the organization — two checks, because in
+   the OpenFGA model finance is NOT a store admin (`store_admin: [user] or owner from organization`; finance
+   reaches a store as `viewer` only); `owner` is implied by both. Above the limit → 403
+   `{ limit_minor, requested_minor }`, nothing written. Note the contract's `x-permission` for this operation is
+   `support` on the store, which finance alone does not hold: a finance-only user is refused by the permission
+   check; the exemption applies to a user who holds finance AND passes that gate.
+4. **Ceiling**: `amount ≤ captured − Σ(pending + succeeded refunds)`; above it → 409 `conflict`
    `{ field: 'amount_minor', captured_minor, refunded_minor, available_minor, requested_minor }`. Failed rows never
-   hold money and never count.
-4. **Support limit**: the route passes `store.settings.support_refund_limit_minor` (seed 5000) unless the caller
-   holds `store_admin` on the store (organization `owner` / `finance` reach it through that relation); above the
-   limit → 403 `{ limit_minor, requested_minor }`, nothing written.
+   hold money and never count; pending rows do.
 5. **Row first, then the PSP**: the row is inserted `pending` with the key, then `PaymentProvider.refund` runs with
-   the same key (Stripe idempotency `refund_<store_id>:<key>`). Succeeded → row `succeeded` +
-   `provider_refund_id` + `refund.issued` (with `legal_entity_id`, `return_id`) + the order's `payment_status`
-   (`partially_refunded`, or `refunded` once the total reaches the captured amount) through the orders module's
-   `transition()` on the same transaction. Failed → row `failed` + `refund.failed`, order untouched; the Admin
-   route then answers **402 `payment_failed` `{ refund_id }`**, and a replay of that key answers the same 402 — the
-   PSP is never asked twice for one key; a new key may try again. An outage rethrows with nothing written.
+   the same key (Stripe idempotency `refund_<store_id>:<key>`).
+   - Stripe **settled** it (`succeeded`) → row `succeeded` + `provider_refund_id` + `refund.issued` (with
+     `legal_entity_id`, `return_id`) + the order's `payment_status` (`partially_refunded`, or `refunded` once the
+     total reaches the captured amount) through the orders module's `transition()` on the same transaction.
+   - Stripe only **accepted** it (`pending` / `requires_action`) → the row STAYS `pending` with the provider id:
+     no `refund.issued`, no order transition, 201 with `status: pending`. **`refund.issued` is emitted only when
+     the webhook settles the refund** — accounting never sees a refund that can still fail. The core seam's
+     `RefundResult` knows succeeded/failed only (window 1's interface, not edited); Stripe's own status travels
+     inside this module (`StripeRefundResult.providerStatus`, `refundPendingAtProvider()`).
+   - Failed → row `failed` + `refund.failed`, order untouched; the Admin route answers **402 `payment_failed`
+     `{ refund_id }`**, and a replay of that key answers the same 402 — the PSP is never asked twice for one key; a
+     new key may try again. An outage rethrows with nothing written.
 
 **Return-driven refunds** (`paymentsRefundRequester`, registered by `registerPaymentProviders()`): the returns
 module calls the requester inside its own transaction with `reason: 'return'`, the return id and its
@@ -184,12 +195,11 @@ module calls the requester inside its own transaction with `reason: 'return'`, t
 the order's `payment_status` there — the returns module does that itself after a succeeded refund (one writer
 of that field per transaction).
 
-**Stripe `pending`**: the provider seam (`PaymentProvider.refund`, window 1's interface) answers
-succeeded/failed only, and Stripe's `pending` maps to succeeded (funds are on their way). A refund that later
-fails at Stripe arrives as `refund.updated` / `refund.failed` → row `failed` + `refund.failed` ("needs manual
-action", docs/domain.md); the order's `payment_status` stays where it is because the transition tables have no
-way back from `(partially_)refunded` — a human re-issues the refund. A provider that answers `pending` (none in
-Phase 2) leaves a `pending` row that the same webhook settles to `succeeded` + `refund.issued` + order sync.
+**Settlement by webhook**: `refund.updated` / `refund.failed` for a `pending` row → `succeeded` +
+`refund.issued` + order sync (return-driven: `markReturnRefunded`, the returns module moves the order), or
+`failed` + `refund.failed` with no `refund.issued` ever written. A refund Stripe had already settled and later
+reverses (rare) → row `failed` + `refund.failed` after its `refund.issued` — the "needs manual action" signal
+(docs/domain.md); the order's `payment_status` has no transition back from `(partially_)refunded`.
 
 ## Credentials (ADR 0006)
 
@@ -235,8 +245,11 @@ refunds a real test-mode PaymentIntent.
   instead of refunding twice; failed rows are kept (402 replays) and never count against the ceiling.
 - **2026-09-15 · Return-driven refunds do not touch the order's payment_status**: the returns module owns that
   transition after its refund (`finishRefund`); the requester only writes the row + events and returns the id.
-- **2026-09-15 · Stripe `pending` = issued** (the provider seam has no pending state); a later failure arrives
-  by webhook as `refund.failed` and is a manual-action signal, not a reversal of the order's payment_status.
+- **2026-09-19 · `refund.issued` only at settlement** (review of #219): a refund Stripe has only accepted stays
+  a `pending` row; the webhook receiver is the emitter when it settles. Stripe's raw status is carried inside
+  this module because the core seam's `RefundResult` has no pending state.
+- **2026-09-19 · Support-limit exemption = `store_admin` on the store OR `finance` on the organization**, and
+  the limit is checked before the ceiling (review of #219; finance is not a store admin in the FGA model).
 - **2026-09-15 · Seal keyed on the webhook secret** (review nit on #215): HMAC instead of a plain hash, with
   `_PREVIOUS` so a secret roll keeps stored rows replayable.
 - **2026-09-15 · Webhook extract is sealed, not the raw body stored**: `payload_hash` stays sha256 of the raw

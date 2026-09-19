@@ -23,6 +23,7 @@ import {
   StripeError,
   type StripeApi,
   type StripePaymentIntent,
+  type StripeRefund,
 } from './stripe-client';
 
 export interface StripeProviderOptions {
@@ -43,6 +44,21 @@ const UNEXPECTED_STATE = 'payment_intent_unexpected_state';
 
 function sessionStatus(intent: StripePaymentIntent): PaymentSessionStatus {
   return AUTHORIZED_STATUSES.includes(intent.status) ? 'authorized' : 'pending';
+}
+
+/**
+ * `RefundResult` of the core seam (succeeded | failed — window 1's interface, not edited here) plus Stripe's own
+ * refund status, carried INSIDE this module: accounting must never see `refund.issued` for a refund Stripe has
+ * only accepted (`pending`, `requires_action`) and may still fail.
+ */
+export interface StripeRefundResult extends RefundResult {
+  providerStatus: StripeRefund['status'] | null;
+}
+
+/** True when the provider accepted the refund but has not settled it yet (row stays `pending`, no event). */
+export function refundPendingAtProvider(result: RefundResult): boolean {
+  const status = (result as Partial<StripeRefundResult>).providerStatus;
+  return result.status === 'succeeded' && (status === 'pending' || status === 'requires_action');
 }
 
 /** The Stripe idempotency key for the server-side confirm, derived from the placement `Idempotency-Key`. */
@@ -265,8 +281,10 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
 
     /**
      * `POST /v1/refunds` on the PaymentIntent with the refund's own idempotency key. The store is resolved from
-     * the `payment` row (the input carries only the provider payment id); `pending` counts as succeeded — funds
-     * are on their way, the 2.2 webhook receiver picks up a later failure.
+     * the `payment` row (the input carries only the provider payment id). Stripe's `pending` /
+     * `requires_action` come back as the seam's `succeeded` (= accepted) WITH `providerStatus` set, and
+     * `refundPendingAtProvider()` tells the refund use case not to issue yet: the row stays `pending` and the
+     * webhook receiver emits `refund.issued` only when Stripe settles it.
      */
     async refund({
       tx,
@@ -293,8 +311,19 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
           { payment_intent: providerPaymentId, amount: amountMinor, metadata: { reason } },
           { idempotencyKey: `refund_${idempotencyKey}` },
         );
-        if (refund.status === 'succeeded' || refund.status === 'pending') {
-          return { status: 'succeeded', providerRefundId: refund.id };
+        if (
+          refund.status === 'succeeded' ||
+          refund.status === 'pending' ||
+          refund.status === 'requires_action'
+        ) {
+          // The core seam knows succeeded/failed only: `succeeded` here means "accepted by Stripe". Stripe's OWN
+          // status rides along for this module — a `pending` refund is NOT issued yet (see refunds.ts).
+          const accepted: StripeRefundResult = {
+            status: 'succeeded',
+            providerRefundId: refund.id,
+            providerStatus: refund.status,
+          };
+          return accepted;
         }
         return {
           status: 'failed',

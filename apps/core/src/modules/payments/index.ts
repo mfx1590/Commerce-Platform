@@ -89,8 +89,10 @@ export { FakeStripe, type FakeCall } from './fake-stripe';
 export {
   confirmIdempotencyKey,
   createStripePaymentProvider,
+  refundPendingAtProvider,
   voidIdempotencyKey,
   type StripeProviderOptions,
+  type StripeRefundResult,
 } from './provider';
 export {
   capturePayment,

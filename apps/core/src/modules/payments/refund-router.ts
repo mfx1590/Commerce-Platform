@@ -2,8 +2,11 @@
 // /admin/stores/:storeId/orders/:orderId/refunds`. Permission is the operation's `x-permission` from
 // admin-api.yaml (`support` on the store) through `requirePermission`, the body is validated against the spec,
 // `Idempotency-Key` is required like the checkout's completion route. The spec's "`support` may refund up to
-// the store's support_refund_limit_minor": callers who are not `store_admin` on the store (organization
-// `owner` / `finance` reach every store through that relation) get `store.settings.support_refund_limit_minor`
+// the store's support_refund_limit_minor": the limit applies to every caller EXCEPT those who hold
+// `store_admin` on the store OR `finance` on the organization. Two checks, because the OpenFGA model
+// (infra/openfga/model.fga) does not make finance a store admin — `store_admin: [user] or owner from
+// organization`, while `finance` only reaches a store as `viewer`; `owner` is implied by both relations. Everyone
+// else (support, and whoever else passes the `support` permission) gets `store.settings.support_refund_limit_minor`
 // as a ceiling; a missing setting means no limit. Mounted by window 1 through `moduleAdminRouters()` in
 // src/http/module-routers.ts (REQUEST #176 part 4) — after `adminRouter()`, so it has the staff principal, the
 // JSON body parser and the error handler.
@@ -19,6 +22,8 @@ import { createRefund, type RefundReason } from './refunds';
 export const REFUNDS_PATH = '/admin/stores/:storeId/orders/:orderId/refunds';
 const IDEMPOTENCY_HEADER = 'idempotency-key';
 export const SUPPORT_REFUND_LIMIT_SETTING = 'support_refund_limit_minor';
+/** The organization object of `x-permission` in admin-api.yaml (single organization until Phase 3). */
+const ORGANIZATION_OBJECT = 'organization:hq';
 
 function idempotencyKeyOf(req: Request): string {
   const raw = req.headers[IDEMPOTENCY_HEADER];
@@ -60,9 +65,13 @@ export function paymentsAdminRouter(): Router {
       const body = req.body as CreateRefundBody;
       const client = storeClientFor(p, storeId);
 
-      // Support limit: store admins (and the organization roles that imply it) refund any amount.
+      // Support limit: store admins of this store and organization finance (owner is implied by both) refund
+      // any amount; everyone else is capped by the store setting.
       let limitMinor: number | null = null;
-      if (!(await can(p, 'store_admin', `store:${storeId}`))) {
+      const exempt =
+        (await can(p, 'store_admin', `store:${storeId}`)) ||
+        (await can(p, 'finance', ORGANIZATION_OBJECT));
+      if (!exempt) {
         const s = await client.query<{ settings: Record<string, unknown> | null }>(
           `SELECT settings FROM store WHERE id = $1`,
           [storeId],

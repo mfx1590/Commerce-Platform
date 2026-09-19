@@ -31,6 +31,8 @@ export class FakeStripe implements StripeApi {
   private readonly recorded = new Map<string, string>(); // idempotency key → object id
   /** Fee the fake charges on capture (minor units); asserted as `payment.fee_minor`. */
   captureFee = 123;
+  /** Script the next refund to be accepted but not settled: Stripe answers `pending` (then reset). */
+  pendingNextRefund = false;
   /** Script the next confirm to decline with this code (then reset). */
   declineNextConfirm: string | null = null;
   /** Script the next capture to fail definitively (then reset). */
@@ -244,10 +246,12 @@ export class FakeStripe implements StripeApi {
       throw new StripeError(402, 'The refund failed.', 'card_error', code);
     }
     const intent = this.intent(String(params.payment_intent));
+    const pending = this.pendingNextRefund;
+    this.pendingNextRefund = false;
     const refund: StripeRefund = {
       id: `re_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
       object: 'refund',
-      status: 'succeeded',
+      status: pending ? 'pending' : 'succeeded',
       amount: params.amount === undefined ? intent.amount : Number(params.amount),
       currency: intent.currency,
     };

@@ -2,7 +2,9 @@
 // module's `RefundRequester` seam. One transaction: replay on the Idempotency-Key → captured payment locked →
 // ceiling (captured − already refunded) → support limit → `PaymentProvider.refund` → `refund` row +
 // `refund.issued` / `refund.failed` through the outbox → the order's `payment_status` through the orders
-// module's `transition()` on the same transaction. A provider failure keeps its row (`failed`) so the same key
+// module's `transition()` on the same transaction. A refund the PSP has only ACCEPTED (Stripe `pending`) stays a
+// `pending` row with no event: `refund.issued` is emitted when the webhook settles it, never before. A provider
+// failure keeps its row (`failed`) so the same key
 // replays the failure instead of charging the PSP again; a new key may try again (failed rows do not count
 // against the ceiling). Outages rethrow with nothing written.
 import type { Queryable, ScopedClient } from '@platform/db';
@@ -12,6 +14,7 @@ import type { Actor } from '../../lib/audit';
 import { AppError, conflict, notFound } from '../../lib/errors';
 import { paymentProvider } from '../checkout';
 import { loadOrder, transition, type PaymentStatus } from '../orders';
+import { refundPendingAtProvider } from './provider';
 
 export type RefundReason = 'return' | 'cancellation' | 'goodwill' | 'chargeback';
 export type RefundStatus = 'pending' | 'succeeded' | 'failed';
@@ -197,7 +200,18 @@ export async function createRefundIn(
     });
   }
 
-  // ---- ceiling + support limit ----
+  // ---- support limit FIRST (authorization: a capped caller gets their 403, never a 409 that reveals the
+  // refundable amount), then the ceiling ----
+  if (
+    input.limitMinor !== null &&
+    input.limitMinor !== undefined &&
+    input.amountMinor > input.limitMinor
+  ) {
+    throw new AppError('forbidden', `refund exceeds the support limit of ${input.limitMinor}`, {
+      limit_minor: input.limitMinor,
+      requested_minor: input.amountMinor,
+    });
+  }
   const captured = Number(payment.amount_minor);
   const refunded = await refundedMinor(tx, payment.id);
   const available = captured - refunded;
@@ -207,16 +221,6 @@ export async function createRefundIn(
       captured_minor: captured,
       refunded_minor: refunded,
       available_minor: available,
-      requested_minor: input.amountMinor,
-    });
-  }
-  if (
-    input.limitMinor !== null &&
-    input.limitMinor !== undefined &&
-    input.amountMinor > input.limitMinor
-  ) {
-    throw new AppError('forbidden', `refund exceeds the support limit of ${input.limitMinor}`, {
-      limit_minor: input.limitMinor,
       requested_minor: input.amountMinor,
     });
   }
@@ -262,6 +266,21 @@ export async function createRefundIn(
     reason: input.reason,
   });
   const now = new Date();
+
+  // Accepted but not settled (Stripe `pending` / `requires_action`): the row stays `pending` with the provider
+  // id, NO `refund.issued`, NO order transition — accounting must never see a refund that can still fail. The
+  // webhook receiver settles it (`refund.updated` → succeeded + `refund.issued` + order / return; or failed +
+  // `refund.failed`). A pending row already holds its money against the ceiling.
+  if (refundPendingAtProvider(result)) {
+    await tx.query(`UPDATE refund SET provider_refund_id = $2, updated_at = now() WHERE id = $1`, [
+      row.id,
+      result.providerRefundId,
+    ]);
+    const pending = await tx.query<RefundRow>(`SELECT ${REFUND_COLS} FROM refund WHERE id = $1`, [
+      row.id,
+    ]);
+    return { refund: pending.rows[0]!, replayed: false, failureReason: null };
+  }
 
   if (result.status === 'succeeded') {
     await tx.query(

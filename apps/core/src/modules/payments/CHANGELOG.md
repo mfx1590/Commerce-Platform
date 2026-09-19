@@ -25,6 +25,21 @@ file is the module's own history (linked from the PRs).
   tests (409 while in flight, blocked at the unique index while the insert transaction is open).
 - Tests: `refunds.test.ts` (11), `webhooks.test.ts` 18 → 21. README: refunds section, keyed seal, rotation.
 
+#### 2026-09-19 · review fixes on #219
+
+- `provider.ts` / `refunds.ts`: a refund Stripe only ACCEPTS (`pending`, `requires_action`) is no longer
+  collapsed into succeeded — `StripeRefundResult.providerStatus` + `refundPendingAtProvider()` carry Stripe's
+  status inside the module, the row stays `pending` (no `refund.issued`, no order transition, 201
+  `status: pending`), and the existing webhook path emits `refund.issued` at settlement.
+- `refund-router.ts`: support-limit exemption = `store_admin` on the store OR `finance` on the organization
+  (finance is not a store admin in infra/openfga/model.fga); comment corrected.
+- `refunds.ts`: the support limit is checked BEFORE the ceiling (a capped caller gets 403, not a 409 that
+  reveals the refundable amount).
+- `fake-stripe.ts`: `pendingNextRefund`. Tests: pending stays pending and holds the ceiling, webhook issues it;
+  pending that fails → `refund.failed` only; return-driven pending (return stays `received` until settled);
+  exemption (finance-only refused by the contract's `support` permission, finance + support exempt, owner
+  exempt, support capped, staff 403); literal 402 + replayed 402 over HTTP; pending → 201.
+
 ### 2026-09-15 · 2.2 Signed webhook receiver with idempotency and replay protection (#125)
 
 - `webhook-signature.ts`: `Stripe-Signature` parsing, HMAC-SHA256 over `"<t>.<raw body>"`, ±300 s tolerance,
