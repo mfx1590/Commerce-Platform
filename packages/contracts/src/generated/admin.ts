@@ -684,6 +684,63 @@ export interface paths {
         patch: operations["updateShipment"];
         trace?: never;
     };
+    "/admin/shipments/{shipmentId}/pick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start picking a planned shipment (emits fulfillment.picking) */
+        post: operations["pickShipment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/shipments/{shipmentId}/pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a picked shipment packed and ready for the carrier (emits fulfillment.packed) */
+        post: operations["packShipment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/pick-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /** Shipments waiting to be picked or packed, grouped by warehouse */
+        get: operations["listPickLists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/customers": {
         parameters: {
             query?: never;
@@ -1786,7 +1843,7 @@ export interface components {
             label_url: string | null;
             cost: components["schemas"]["Money"] | null;
             /** @enum {string} */
-            status: "pending" | "label_created" | "shipped" | "in_transit" | "delivered" | "failed" | "cancelled";
+            status: "pending" | "picking" | "packed" | "label_created" | "shipped" | "in_transit" | "delivered" | "failed" | "cancelled";
             items: {
                 /** Format: uuid */
                 order_line_item_id: string;
@@ -4675,6 +4732,101 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    pickShipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Shipment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    packShipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    parcel_count?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Shipment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listPickLists: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                status?: "pending" | "picking" | "packed";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            warehouse_id: string;
+                            warehouse_code: string;
+                            shipments: components["schemas"]["Shipment"][];
+                        }[];
+                        page: components["schemas"]["Page"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listCustomers: {

@@ -33,7 +33,7 @@ const ORDER_COLS_O = ORDER_COLS.split(',')
 
 const LINE_COLS = `li.id, li.variant_id, v.product_id, p.category_id, li.sku, li.title, li.variant_title, li.thumbnail_url,
   li.quantity, li.unit_price_minor::text, li.discount_minor::text, li.tax_rate_bp, li.tax_minor::text,
-  li.total_minor::text, li.fulfilled_quantity, li.returned_quantity`;
+  li.total_minor::text, li.fulfilled_quantity, li.returned_quantity, li.metadata`;
 
 const money = (amount: string | number, currency: string): Money => ({
   amount_minor: Number(amount),

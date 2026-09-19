@@ -5,6 +5,52 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.3 → v0.4.1)
 
+### 2026-09-19 · 2.4 support for the tax module (#127)
+
+- Nits from the #219 re-review (manager-approved): the order's `payment_status` counts only SETTLED refunds
+  (`settledRefundedMinor`, `succeeded` only) while the ceiling keeps counting RESERVED money (`pending` +
+  `succeeded`) — an order is never `refunded` while part of the money is still pending at Stripe; the two
+  OpenFGA exemption checks in `refund-router.ts` run in parallel.
+
+- `stripe-client.ts` / `fake-stripe.ts`: `createTaxCalculation` (`POST /v1/tax/calculations`) on `StripeApi`,
+  `StripeClient` and `FakeStripe` (`taxRateBp`, `outageNextTax`, `failNextTax`); `StripeTaxCalculation` /
+  `StripeTaxLineItem` types. Used by `src/modules/tax` through this module's index.
+
+### 2026-09-15 · 2.3 Refunds (#126)
+
+- `refunds.ts`: `createRefundIn` / `createRefund` — replay on `<store_id>:<Idempotency-Key>`, captured payment
+  locked, ceiling (409 with `captured_minor / refunded_minor / available_minor`), support limit (403), row
+  inserted `pending` before `PaymentProvider.refund`, `refund.issued` / `refund.failed`, order `payment_status`
+  through the orders module's `transition()` on the same transaction, 402 with the refund id on a PSP failure;
+  `renderRefund`, `getRefund`, `refundedMinor`, `syncOrderPaymentStatus`, `paymentStatusAfterRefund`.
+- `refund-requester.ts`: `paymentsRefundRequester` for the returns module's seam (`reason: 'return'`,
+  `return_id`, no order transition — the returns module does it); registered by `registerPaymentProviders()`.
+- `refund-router.ts`: `paymentsAdminRouter()` — Admin API `createRefund` with the spec's `x-permission`, body
+  validation, `Idempotency-Key`, `store.settings.support_refund_limit_minor` for non-admins; mount line on #176.
+- `webhook-receiver.ts`: `refund.updated` / `refund.failed` / `charge.refund.updated` settle refund rows
+  (`failed` + `refund.failed`; `pending → succeeded` + `refund.issued` + order sync / `markReturnRefunded`);
+  `charge.refunded` informational. `webhook-extract.ts`: `failure_reason` (code only).
+- Review nits from #215 folded in: the extract seal is an HMAC under the webhook secret (`sealExtract` /
+  `verifySeal` take the secret(s); `stripeWebhookSecretsFor` returns `[current, previous]` from
+  `STRIPE_WEBHOOK_SECRET[_<CODE>]_PREVIOUS`; signatures verify under either); two real two-connection duplicate
+  tests (409 while in flight, blocked at the unique index while the insert transaction is open).
+- Tests: `refunds.test.ts` (11), `webhooks.test.ts` 18 → 21. README: refunds section, keyed seal, rotation.
+
+#### 2026-09-19 · review fixes on #219
+
+- `provider.ts` / `refunds.ts`: a refund Stripe only ACCEPTS (`pending`, `requires_action`) is no longer
+  collapsed into succeeded — `StripeRefundResult.providerStatus` + `refundPendingAtProvider()` carry Stripe's
+  status inside the module, the row stays `pending` (no `refund.issued`, no order transition, 201
+  `status: pending`), and the existing webhook path emits `refund.issued` at settlement.
+- `refund-router.ts`: support-limit exemption = `store_admin` on the store OR `finance` on the organization
+  (finance is not a store admin in infra/openfga/model.fga); comment corrected.
+- `refunds.ts`: the support limit is checked BEFORE the ceiling (a capped caller gets 403, not a 409 that
+  reveals the refundable amount).
+- `fake-stripe.ts`: `pendingNextRefund`. Tests: pending stays pending and holds the ceiling, webhook issues it;
+  pending that fails → `refund.failed` only; return-driven pending (return stays `received` until settled);
+  exemption (finance-only refused by the contract's `support` permission, finance + support exempt, owner
+  exempt, support capped, staff 403); literal 402 + replayed 402 over HTTP; pending → 201.
+
 ### 2026-09-15 · 2.2 Signed webhook receiver with idempotency and replay protection (#125)
 
 - `webhook-signature.ts`: `Stripe-Signature` parsing, HMAC-SHA256 over `"<t>.<raw body>"`, ±300 s tolerance,

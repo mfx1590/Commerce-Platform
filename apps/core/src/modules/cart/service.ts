@@ -6,9 +6,12 @@
 import type { Queryable, ScopedClient } from '@platform/db';
 import { AppError, notFound, validationError } from '../../lib/errors';
 import {
+  currentPriceResolver,
   currentShippingRateProvider,
   currentTaxCalculator,
-  taxOn,
+  lineTaxOf,
+  lineTotalWith,
+  pricesIncludeTaxFor,
   type PricingContext,
 } from './providers';
 import type {
@@ -17,6 +20,8 @@ import type {
   CartRow,
   CartStoreContext,
   CreateCartInput,
+  LineTaxRecord,
+  PriceChange,
   Money,
   PricingLine,
   ShippingOptionRow,
@@ -91,7 +96,7 @@ function toStoreLineItem(l: CartLineRow, currency: string): StoreLineItem {
   const unit = Number(l.unit_price_minor);
   const subtotal = l.quantity * unit;
   const discount = Number(l.discount_minor);
-  const tax = taxOn(subtotal - discount, l.tax_rate_bp);
+  const tax = lineTaxOf(l); // the calculator's amount as last calculated, never a recompute from the rate (#221)
   return {
     id: l.id,
     variant_id: l.variant_id,
@@ -103,8 +108,8 @@ function toStoreLineItem(l: CartLineRow, currency: string): StoreLineItem {
     unit_price: money(unit, currency),
     subtotal: money(subtotal, currency),
     discount: money(discount, currency),
-    tax: money(tax, currency),
-    total: money(subtotal - discount + tax, currency),
+    tax: money(tax.amount_minor, currency),
+    total: money(lineTotalWith(subtotal - discount, tax), currency),
   };
 }
 
@@ -164,7 +169,9 @@ interface RecalculateOptions {
 /**
  * Recomputes every derived amount of a cart inside the mutation's transaction: shipping through the
  * ShippingRateProvider (a selection that is no longer quotable — e.g. after a country change — is dropped), tax
- * through the TaxCalculator (per-line `tax_rate_bp` persisted), then subtotal / discount / shipping / tax / total.
+ * through the TaxCalculator (per line `tax_rate_bp` + `metadata.tax = { amount_minor, mode, bp }` persisted — the
+ * calculator's own amounts, #221), then subtotal / discount / shipping / tax / total. With
+ * `store.settings.tax.prices_include_tax` the tax is contained in the prices: reported, never added on top.
  * Discounts stay 0 until window 9's promotions API prices the stored codes.
  */
 export async function recalculate(
@@ -191,7 +198,9 @@ export async function recalculate(
     country: cart.country,
     shippingAddress: cart.shipping_address,
     lines: pricingLines,
+    pricesIncludeTax: await pricesIncludeTaxFor(tx, cart.store_id),
   };
+  const mode = ctx.pricesIncludeTax ? 'inclusive' : 'exclusive';
 
   let shippingOptionId = cart.shipping_option_id;
   let shippingMinor = 0;
@@ -219,10 +228,17 @@ export async function recalculate(
     const t = taxByLine.get(l.id);
     taxMinor += t?.taxMinor ?? 0;
     const bp = t?.taxRateBp ?? 0;
-    if (bp !== l.tax_rate_bp) {
+    const record: LineTaxRecord = { amount_minor: t?.taxMinor ?? 0, mode, bp };
+    const stored = l.metadata?.tax as Partial<LineTaxRecord> | undefined;
+    if (
+      bp !== l.tax_rate_bp ||
+      stored?.amount_minor !== record.amount_minor ||
+      stored?.mode !== record.mode ||
+      stored?.bp !== record.bp
+    ) {
       await tx.query(
-        `UPDATE cart_line_item SET tax_rate_bp = $2, updated_at = now() WHERE id = $1`,
-        [l.id, bp],
+        `UPDATE cart_line_item SET tax_rate_bp = $2, metadata = $3::jsonb, updated_at = now() WHERE id = $1`,
+        [l.id, bp, JSON.stringify({ ...(l.metadata ?? {}), tax: record })],
       );
     }
   }
@@ -237,7 +253,8 @@ export async function recalculate(
       discount,
       shippingMinor,
       taxMinor,
-      subtotal - discount + shippingMinor + taxMinor,
+      // exclusive prices: tax on top; inclusive: already inside subtotal and shipping (still reported in tax_minor)
+      subtotal - discount + shippingMinor + (ctx.pricesIncludeTax ? 0 : taxMinor),
     ],
   );
 }
@@ -428,8 +445,61 @@ export async function assertStock(
 }
 
 /**
+ * Re-resolves every line's unit price through the PriceResolver at `at` (#179 part 3): sale lists, group lists and
+ * quantity tiers are judged against the line's CURRENT quantity. Returns the lines whose price differs from the
+ * stored one; with `apply` (default) those rows are updated — a line that is no longer sellable keeps its last
+ * price and is only reported (`unitPriceMinor: null`). Callers run `recalculate` afterwards.
+ */
+export async function repriceLines(
+  tx: Queryable,
+  cart: CartRow,
+  opts: { at?: Date; apply?: boolean } = {},
+): Promise<PriceChange[]> {
+  const lines = await loadLines(tx, cart.id);
+  if (lines.length === 0) return [];
+  const prices = await currentPriceResolver().resolve({
+    tx,
+    storeId: cart.store_id,
+    currency: cart.currency,
+    salesChannelId: cart.sales_channel_id,
+    customerId: cart.customer_id,
+    at: opts.at ?? new Date(),
+    lines: lines.map((l) => ({ variantId: l.variant_id, quantity: l.quantity })),
+  });
+  const changes: PriceChange[] = [];
+  for (const l of lines) {
+    const previous = Number(l.unit_price_minor);
+    const next = prices.get(l.variant_id) ?? null;
+    if (next === previous) continue;
+    changes.push({
+      lineItemId: l.id,
+      variantId: l.variant_id,
+      previousUnitPriceMinor: previous,
+      unitPriceMinor: next,
+    });
+    if (next !== null && opts.apply !== false) {
+      await tx.query(
+        `UPDATE cart_line_item SET unit_price_minor = $2, updated_at = now() WHERE id = $1`,
+        [l.id, next],
+      );
+    }
+  }
+  return changes;
+}
+
+/** A line mutation needs a price for ITS variant; other lines that lost theirs are placement's problem (409). */
+function assertSellable(changes: PriceChange[], variantId: string, currency: string): void {
+  if (changes.some((c) => c.variantId === variantId && c.unitPriceMinor === null)) {
+    throw validationError(`variant has no price in ${currency}`, {
+      variant_id: `not sold in ${currency}`,
+    });
+  }
+}
+
+/**
  * `POST /store/carts/{cartId}/line-items`: adds `quantity` of a variant (or increases the existing line). The unit
- * price is the default-list price in the cart currency at first add (snapshot); a variant without one → 400.
+ * price comes from the PriceResolver for the line's resulting quantity (tiers), and every line mutation re-prices
+ * the whole cart the same way; a variant without a price in the cart currency → 400.
  */
 export async function addLineItem(
   client: ScopedClient,
@@ -451,14 +521,16 @@ export async function addLineItem(
         [cartId, variant.id, newQuantity],
       );
     } else {
-      const price = await tx.query<{ amount_minor: string }>(
-        `SELECT pr.amount_minor::text FROM price pr
-         JOIN price_list pl ON pl.id = pr.price_list_id AND pl.type = 'default' AND pl.status = 'active' AND pl.currency = $2
-         WHERE pr.variant_id = $1 AND pr.currency = $2 AND pr.min_quantity = 1
-         ORDER BY pr.amount_minor LIMIT 1`,
-        [variant.id, cart.currency],
-      );
-      const unit = price.rows[0]?.amount_minor;
+      const price = await currentPriceResolver().resolve({
+        tx,
+        storeId: cart.store_id,
+        currency: cart.currency,
+        salesChannelId: cart.sales_channel_id,
+        customerId: cart.customer_id,
+        at: new Date(),
+        lines: [{ variantId: variant.id, quantity: input.quantity }],
+      });
+      const unit = price.get(variant.id);
       if (unit === undefined) {
         throw validationError(`variant has no price in ${cart.currency}`, {
           variant_id: `not sold in ${cart.currency}`,
@@ -486,6 +558,7 @@ export async function addLineItem(
         ],
       );
     }
+    assertSellable(await repriceLines(tx, cart), variant.id, cart.currency);
     await recalculate(tx, cart);
     return render(tx, cartId);
   });
@@ -521,6 +594,7 @@ export async function updateLineItem(
       `UPDATE cart_line_item SET quantity = $3, updated_at = now() WHERE id = $1 AND cart_id = $2`,
       [lineItemId, cartId, input.quantity],
     );
+    assertSellable(await repriceLines(tx, cart), variant.id, cart.currency);
     await recalculate(tx, cart);
     return render(tx, cartId);
   });
@@ -539,6 +613,7 @@ export async function removeLineItem(
       [lineItemId, cartId],
     );
     if (!r.rows[0]) throw notFound('line item', lineItemId);
+    await repriceLines(tx, cart);
     await recalculate(tx, cart);
     return render(tx, cartId);
   });

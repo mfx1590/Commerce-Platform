@@ -10,8 +10,10 @@ import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { SYSTEM_ACTOR, type Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { cancelOrder } from '../orders';
+import { markReturnRefunded } from '../returns';
 import { markPaymentCaptured, markPaymentFailed } from './orders-seam';
-import { envSuffix, stripeWebhookSecretFor } from './credentials';
+import { syncOrderPaymentStatus, type RefundRow } from './refunds';
+import { envSuffix, stripeWebhookSecretsFor } from './credentials';
 import {
   MalformedEventError,
   redactStripeEvent,
@@ -70,6 +72,11 @@ export interface StripeWebhookInput {
   actor?: Actor;
   /** One line per delivery, ids only. Default `console.info`. */
   log?: (line: string) => void;
+  /** Test seams (concurrency tests): pause inside the insert transaction, or between its commit and the follow-ups. */
+  hooks?: {
+    afterInsert?: ((tx: Queryable) => Promise<void>) | undefined;
+    beforeFollowUps?: (() => Promise<void>) | undefined;
+  };
 }
 
 interface StoreRow {
@@ -279,10 +286,107 @@ async function processEvent(
         : skipped(`no payment row for ${intentId} yet`);
     }
 
-    default:
-      if (extract.type.startsWith('charge.refund') || extract.type.startsWith('refund.')) {
-        return skipped('unhandled_type: refunds arrive with task 2.3 (replay after it lands)');
+    // ---- refunds (task 2.3): Stripe settles or fails a refund asynchronously ----
+    case 'refund.updated':
+    case 'refund.failed':
+    case 'charge.refund.updated': {
+      if (obj.object !== 'refund') return skipped(`event object is ${obj.object}, not a refund`);
+      const r = await tx.query<RefundRow & { captured_minor: string }>(
+        `SELECT r.id, r.organization_id, r.store_id, r.order_id, r.payment_id, r.return_id, r.amount_minor::text,
+                r.currency, r.reason, r.status, r.provider_refund_id, r.requested_by, r.idempotency_key,
+                r.created_at, p.amount_minor::text AS captured_minor
+         FROM refund r JOIN payment p ON p.id = r.payment_id
+         WHERE p.provider = 'stripe' AND r.provider_refund_id = $1 FOR UPDATE OF r`,
+        [obj.id],
+      );
+      const refund = r.rows[0];
+      if (!refund) return skipped(`no refund row for ${obj.id}`);
+      const aggregate = { type: 'refund' as const, id: refund.id };
+      const now = new Date();
+      if (obj.status === 'failed' || obj.status === 'canceled') {
+        if (refund.status === 'failed') return skipped('already failed', aggregate);
+        await tx.query(`UPDATE refund SET status = 'failed', updated_at = now() WHERE id = $1`, [
+          refund.id,
+        ]);
+        await withEvents(tx, [
+          await buildEvent({
+            topic: 'refund.failed',
+            organizationId: refund.organization_id,
+            storeId: refund.store_id,
+            aggregateType: 'refund',
+            aggregateId: refund.id,
+            actor: eventActor(actor),
+            occurredAt: now,
+            payload: {
+              refund_id: refund.id,
+              payment_id: refund.payment_id,
+              order_id: refund.order_id,
+              amount_minor: Number(refund.amount_minor),
+              currency: refund.currency,
+              failure_reason: obj.failure_reason ?? obj.status,
+              failed_at: now.toISOString(),
+            },
+          }),
+        ]);
+        // The order's payment_status has no transition back from (partially_)refunded: `refund.failed` is the
+        // "needs manual action" signal (docs/domain.md); the money is still with us until a human re-issues it.
+        return { status: 'processed', reason: null, aggregate, followUps: [] };
       }
+      if (obj.status === 'succeeded') {
+        if (refund.status === 'succeeded') return skipped('already succeeded', aggregate);
+        if (refund.status === 'failed') {
+          return failed('state_conflict: stripe says succeeded, refund row is failed', aggregate);
+        }
+        await tx.query(`UPDATE refund SET status = 'succeeded', updated_at = now() WHERE id = $1`, [
+          refund.id,
+        ]);
+        await withEvents(tx, [
+          await buildEvent({
+            topic: 'refund.issued',
+            organizationId: refund.organization_id,
+            storeId: refund.store_id,
+            aggregateType: 'refund',
+            aggregateId: refund.id,
+            actor: eventActor(actor),
+            occurredAt: now,
+            payload: {
+              refund_id: refund.id,
+              payment_id: refund.payment_id,
+              order_id: refund.order_id,
+              return_id: refund.return_id,
+              legal_entity_id: store.legal_entity_id,
+              amount_minor: Number(refund.amount_minor),
+              currency: refund.currency,
+              reason: refund.reason,
+              provider_refund_id: refund.provider_refund_id,
+              issued_at: now.toISOString(),
+            },
+          }),
+        ]);
+        const followUps: FollowUp[] = [];
+        if (refund.return_id) {
+          // Return-driven: the returns module records the settlement and moves the order itself.
+          const returnId = refund.return_id;
+          followUps.push(async (client) => {
+            await markReturnRefunded(client, returnId, refund.id, actor);
+          });
+        } else {
+          await syncOrderPaymentStatus(
+            tx,
+            refund.order_id,
+            refund.payment_id,
+            Number(refund.captured_minor),
+            actor,
+          );
+        }
+        return { status: 'processed', reason: null, aggregate, followUps };
+      }
+      return skipped(`refund is ${obj.status ?? 'unknown'}`, aggregate);
+    }
+    case 'charge.refunded':
+      return skipped('informational: the refund.* events carry the refund id');
+
+    default:
       return skipped('unhandled_type');
   }
 }
@@ -340,8 +444,8 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
   const log = input.log ?? ((line: string) => console.info(line));
 
   // ---- 1. signature over the raw body, before any parsing or database work ----
-  const secret = stripeWebhookSecretFor(input.storeCode, env);
-  if (!secret) {
+  const secrets = stripeWebhookSecretsFor(input.storeCode, env);
+  if (secrets.length === 0) {
     const suffix = envSuffix(input.storeCode);
     throw validationError(
       `no stripe webhook secret for store ${input.storeCode}: set STRIPE_WEBHOOK_SECRET_${suffix} or STRIPE_WEBHOOK_SECRET`,
@@ -351,7 +455,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
   const verdict = verifyStripeSignature({
     rawBody: input.rawBody,
     header: input.signatureHeader,
-    secret,
+    secret: secrets,
     ...(input.nowSeconds !== undefined ? { nowSeconds: input.nowSeconds } : {}),
   });
   if (!verdict.ok) {
@@ -375,7 +479,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
     throw err;
   }
   const payloadHash = sha256Hex(input.rawBody);
-  const sealed = sealExtract(extract, payloadHash);
+  const sealed = sealExtract(extract, payloadHash, secrets[0]!); // always the CURRENT secret
 
   // ---- 3. insert-or-skip + processing, one transaction ----
   const first = await input.client.transaction(
@@ -429,6 +533,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
         }
         rowId = row.id;
       }
+      if (input.hooks?.afterInsert) await input.hooks.afterInsert(tx); // test seam: hold the transaction open
       const result = await processEvent(tx, store, sealed, actor);
       await tx.query(
         `UPDATE webhook_event SET aggregate_type = $2, aggregate_id = $3, status = $4, failure_reason = $5,
@@ -455,6 +560,7 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
   let status = first.result.status;
   let reason = first.result.reason;
   if (first.result.followUps.length > 0) {
+    if (input.hooks?.beforeFollowUps) await input.hooks.beforeFollowUps(); // test seam: row is `received`
     const failure = await runFollowUps(input.client, first.result.followUps);
     if (failure) {
       status = 'failed';
@@ -469,6 +575,8 @@ export async function handleStripeWebhook(input: StripeWebhookInput): Promise<We
 export interface ReplayOptions {
   actor?: Actor;
   log?: (line: string) => void;
+  /** Where the store's webhook secrets come from (seal verification); default process.env. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -492,17 +600,27 @@ export async function replayWebhookEvent(
       );
       const row = r.rows[0];
       if (!row) throw new AppError('not_found', `webhook event ${providerEventId} not found`);
-      if (!verifySeal(row.payload, row.payload_hash)) {
+      const store = await tx.query<StoreRow & { code: string }>(
+        `SELECT id, organization_id, legal_entity_id, code FROM store WHERE id = $1`,
+        [row.store_id],
+      );
+      const storeRow = store.rows[0]!;
+      // The seal is an HMAC under the store's webhook secret (current, then previous during a roll): a row that
+      // was edited by hand, or copied from another environment, cannot carry a valid one.
+      const secrets = stripeWebhookSecretsFor(storeRow.code, opts.env ?? process.env);
+      if (secrets.length === 0) {
+        throw validationError(
+          `no stripe webhook secret for store ${storeRow.code}: cannot verify the stored event before replaying`,
+          { provider: 'stripe' },
+        );
+      }
+      if (!verifySeal(row.payload, row.payload_hash, secrets)) {
         throw conflict(
-          `webhook event ${providerEventId}: stored payload does not match payload_hash; refusing to replay`,
+          `webhook event ${providerEventId}: stored payload does not match payload_hash under the store's webhook secret; refusing to replay`,
           { provider_event_id: providerEventId, status: row.status },
         );
       }
-      const store = await tx.query<StoreRow>(
-        `SELECT id, organization_id, legal_entity_id FROM store WHERE id = $1`,
-        [row.store_id],
-      );
-      const result = await processEvent(tx, store.rows[0]!, row.payload, actor);
+      const result = await processEvent(tx, storeRow, row.payload, actor);
       await tx.query(
         `UPDATE webhook_event SET aggregate_type = coalesce($2, aggregate_type), aggregate_id = coalesce($3, aggregate_id),
            status = $4, failure_reason = $5, replay_count = replay_count + 1,

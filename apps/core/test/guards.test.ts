@@ -59,6 +59,14 @@ describe('structural guards', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('the cart never imports the promotions module: prices arrive through the PriceResolver seam (src/wiring.ts, #179 part 3)', () => {
+    const offenders = files
+      .filter((f) => f.rel.startsWith('modules/cart/') || f.rel.startsWith('modules/checkout/'))
+      .filter((f) => /from\s+['"]\.\.\/promotions['"]/.test(f.text))
+      .map((f) => f.rel);
+    expect(offenders).toEqual([]);
+  });
+
   it('modules import the outbox helper through its index only', () => {
     const offenders = files
       .filter((f) => !f.rel.startsWith('outbox/'))

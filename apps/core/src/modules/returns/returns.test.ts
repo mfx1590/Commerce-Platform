@@ -6,7 +6,12 @@ import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@p
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { addLineItem, createCart, updateCart } from '../cart';
-import { completeCart, createPaymentSession } from '../checkout';
+import {
+  completeCart,
+  createPaymentSession,
+  manualPaymentProvider,
+  setPaymentProvider,
+} from '../checkout';
 import {
   confirmOrder,
   markPaymentCaptured,
@@ -546,6 +551,42 @@ describe('receiveReturn', () => {
     expect(after.rows[0]!.refund_id).not.toBeNull();
     await a.transaction((tx) => requestRefundFor(tx, ret.id, amount, actor)); // succeeded: never twice
     expect(calls).toHaveLength(1);
+  });
+
+  it("the default requester passes a provider's pending refund through: the return stays received and is never asked twice", async () => {
+    let refunds = 0;
+    setPaymentProvider({
+      ...manualPaymentProvider,
+      async refund() {
+        refunds += 1;
+        return { status: 'pending', providerRefundId: 'manref_async' };
+      },
+    });
+    try {
+      const order = await shippedOrder(1);
+      const l = order.items[0]!;
+      const ret = await requestReturn(a, order.id, {
+        items: [{ order_line_item_id: l.id, quantity: 1 }],
+        actor,
+      });
+      const received = await receiveReturn(a, ret.id, {
+        warehouseId: EU,
+        items: [{ order_line_item_id: l.id, quantity: 1, condition: 'resellable' }],
+        actor,
+      });
+      expect(received.status).toBe('received');
+      const meta = await owner.query<{ metadata: { refund: Record<string, unknown> } }>(
+        `SELECT metadata FROM "return" WHERE id = $1`,
+        [ret.id],
+      );
+      expect(meta.rows[0]!.metadata.refund).toMatchObject({ status: 'pending', refund_id: null });
+      await a.transaction((tx) =>
+        requestRefundFor(tx, ret.id, Number(meta.rows[0]!.metadata.refund.amount_minor), actor),
+      );
+      expect(refunds).toBe(1); // pending is "asked": no second request under return:<id>
+    } finally {
+      setPaymentProvider(manualPaymentProvider);
+    }
   });
 
   it('failed and pending outcomes leave the return received; markReturnRefunded finishes a pending one; retries never refund twice', async () => {

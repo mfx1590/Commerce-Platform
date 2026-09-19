@@ -60,7 +60,7 @@ export {
   updateLineItemRoute,
 } from './store-routes';
 export { adminRouter } from './admin-routes';
-export { moduleAdminRouters } from './module-routers';
+export { moduleAdminRouters, moduleWebhookRouters } from './module-routers';
 export { loadSpec, openApiDir } from './openapi';
 export type { Spec, SpecFile } from './openapi';
 export {
