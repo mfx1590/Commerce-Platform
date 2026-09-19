@@ -16,7 +16,7 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `23f3498` · local, PR after #218 merges
+- **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `23f3498` · PR #223
   New module `apps/core/src/modules/fulfillment`: `routeFulfillment` (pure; store country override → store default
   → same country → same region → priority), `FulfillmentProvider` (`push` / `status` / `cancel`) with the in-memory
   3PL (cancel refused once picking), `requestFulfillment` / `cancelFulfillment` / `applyFulfillmentUpdate` with no
@@ -46,26 +46,11 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#218 (2.3) is APPROVED (MERGE) and in the manager's queue** behind core #217. Pushed head `30fd3b2`.
-  **HOLD every push until the manager confirms the merge commit** (all-or-nothing push rule).
-- **2.4 (#132) is finished locally**, two commits on `shipping/phase2` (`23f3498` code + `7cb54de` memory), tree
-  clean, gates green. It becomes its own PR only after the #218 merge is confirmed.
-
-### The moment the manager confirms #218 merged
-1. `git merge main && pnpm install`, then push and open the **2.4 PR**. Body = the 2.4 CHANGELOG entry plus:
-   contracts-v0.4.1 and no new table (the 3PL reference lives on `shipment.metadata.fulfillment`); the four
-   routing rules and the store override; "no database transaction across a provider call" with the compensating
-   cancel on a failed push; the #132 acceptance criteria (EU→wh-eu, US→wh-us, store override, cancel before pick
-   releasing stock through the real inventory module, the documented real-3PL mapping); gates (16 unit + 9 database
-   tests, core suite 482 passed); and the "Fold into 2.5" list below as known follow-ups.
-2. The manager then lands #187 as **migration 0140**. After that merge main again and, **in the same commit as
-   that merge**, delete all three of these together:
-   - `apps/core/src/modules/shipping/proposed/0140_webhook_event.sql`
-   - the `readFileSync(join(__dirname, 'proposed', …))` DDL apply in `shipments-db.test.ts` `beforeAll`
-   - the drift test `byte-matches the payments copy of #187 while both proposed copies exist`
-   They must go in one commit: once 0140 is in `packages/db/migrations`, `createTestDatabase` already creates the
-   table, and the suite's own `CREATE TABLE` / `CREATE TRIGGER` would fail as duplicates. Also drop the
-   "proposed"/"#187 DDL" paragraphs from the shipping README and add a CHANGELOG line.
+- **2.4 (#132) is in review as PR #223** (head pushed; the merge of main `0866f31` brings migration 0140).
+- 2.3 merged as `968c93f`. Migration 0140 landed with contracts-v0.4.2, and the manager's commit removed the
+  proposed copy, the test-side DDL and the drift test — nothing left for this window to clean up there.
+- **2.5 (#133) starting locally**: fulfilment lifecycle `requested → picking → packed → shipped` with one event per
+  transition, admin pick/pack operations, partial shipments through the orders module, plus the four folded nits.
 
 ## Fold into 2.5 (#133) — agreed nits from the #218 reviews, none blocking
 - `buyShipmentLabel` calls the carrier **inside** the database transaction; move the network call outside it, the
@@ -80,7 +65,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
 - [x] **#130 · 2.2** Rate shopping at checkout — done, PR #186 in review
 - [x] **#131 · 2.3** Labels and tracking webhooks — done, PR pending
-- [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — done locally, PR after #218
+- [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — PR #223 in review
 - [ ] **#133 · 2.5** Pick/pack state machine and events
 
 ## Decisions made (with reasons)
