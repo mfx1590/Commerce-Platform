@@ -21,7 +21,7 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   seam that writes to the outbox the moment events 0.3.0 exists and buffers with one warning until then),
   `fulfillment/http.ts` (three Admin API operations, permissions read from the real spec or #225's filed copy),
   the widened status machine in `shipping/shipments.ts`, and all six earlier review nits. **#235 BLOCK fixes**
-  (commit `SHA_FIX`): `fulfillment.requested` is emitted from `requestFulfillment` with `provider` and
+  (commit `133b03e`): `fulfillment.requested` is emitted from `requestFulfillment` with `provider` and
   `external_id`, in the same transaction as the reference; a 3PL-driven `picking` / `packed` goes through the
   same `pickShipment` / `packShipment` call as the Admin API, so the stream never shows who moved the shipment;
   and cancelling a shipment that holds a label voids it first, recording `needs_reconciliation` and raising when
