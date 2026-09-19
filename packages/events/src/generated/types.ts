@@ -5,7 +5,7 @@
  */
 export interface EventEnvelopeV1Base {
 event_id: string
-topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.shipped" | "shipment.delivered" | "return.requested" | "return.received" | "stock.moved" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
+topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.shipped" | "shipment.delivered" | "fulfillment.requested" | "fulfillment.picking" | "fulfillment.packed" | "return.requested" | "return.received" | "stock.moved" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
 version: number
 occurred_at: string
 organization_id: string
@@ -160,6 +160,48 @@ currency: string
 item_count: number
 url: string
 published_at: string
+}
+/**
+ * A shipment was packed and is ready for the carrier.
+ */
+export interface FulfillmentPackedV1 {
+shipment_id: string
+order_id: string
+warehouse_id: string
+items: {
+order_line_item_id: string
+quantity: number
+}[]
+parcel_count?: (number | null)
+occurred_at: string
+}
+/**
+ * Picking started for a shipment.
+ */
+export interface FulfillmentPickingV1 {
+shipment_id: string
+order_id: string
+warehouse_id: string
+items: {
+order_line_item_id: string
+quantity: number
+}[]
+occurred_at: string
+}
+/**
+ * A fulfilment request for a shipment was accepted by a warehouse or 3PL.
+ */
+export interface FulfillmentRequestedV1 {
+shipment_id: string
+order_id: string
+warehouse_id: string
+provider: string
+external_id: (string | null)
+items: {
+order_line_item_id: string
+quantity: number
+}[]
+occurred_at: string
 }
 /**
  * Order cancelled before completion. Reverses sales accounting.
@@ -559,6 +601,9 @@ export interface EventPayloads {
   'customer.erased@1': CustomerErasedV1;
   'customer.updated@1': CustomerUpdatedV1;
   'feed.published@1': FeedPublishedV1;
+  'fulfillment.packed@1': FulfillmentPackedV1;
+  'fulfillment.picking@1': FulfillmentPickingV1;
+  'fulfillment.requested@1': FulfillmentRequestedV1;
   'order.cancelled@1': OrderCancelledV1;
   'order.completed@1': OrderCompletedV1;
   'order.confirmed@1': OrderConfirmedV1;
@@ -593,6 +638,9 @@ export interface LatestPayloads {
   'customer.erased': CustomerErasedV1;
   'customer.updated': CustomerUpdatedV1;
   'feed.published': FeedPublishedV1;
+  'fulfillment.packed': FulfillmentPackedV1;
+  'fulfillment.picking': FulfillmentPickingV1;
+  'fulfillment.requested': FulfillmentRequestedV1;
   'order.cancelled': OrderCancelledV1;
   'order.completed': OrderCompletedV1;
   'order.confirmed': OrderConfirmedV1;

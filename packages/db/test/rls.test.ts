@@ -335,4 +335,15 @@ describe('row-level security (platform_app role)', () => {
     const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
     expect((await b.query('SELECT id FROM webhook_event')).rowCount).toBe(0);
   });
+
+  it('shipment.status CHECK includes picking and packed after 0160', async () => {
+    const r = await db.owner.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'shipment_status_check'`,
+    );
+    // behaviour (legal transitions, refusals) is proven in the fulfillment module's suites;
+    // this pins the migration itself: the widened constraint is what a fresh database gets
+    expect(r.rows[0]!.def).toContain("'picking'");
+    expect(r.rows[0]!.def).toContain("'packed'");
+    expect(r.rows[0]!.def).not.toContain("'boxed'");
+  });
 });
