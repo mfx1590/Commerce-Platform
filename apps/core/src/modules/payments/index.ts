@@ -7,9 +7,12 @@ import { paymentsRefundRequester } from './refund-requester';
 
 export {
   envSuffix,
+  requireStoreSecret,
+  storeSecretFor,
   stripeCredentialsFor,
   stripeWebhookSecretFor,
   stripeWebhookSecretsFor,
+  type StoreSecret,
   type StripeCredentials,
 } from './credentials';
 // Webhook receiver (task 2.2, #125): signature, redacted extract + seal, exactly-once processing, replay.
@@ -35,14 +38,18 @@ export {
 export {
   getWebhookEvent,
   handleStripeWebhook,
+  registerWebhookHandler,
   IN_FLIGHT_TAKEOVER_SECONDS,
   replayWebhookEvent,
   WEBHOOK_PROVIDER,
+  type ProcessResult,
   type ReplayOptions,
   type StripeWebhookInput,
   type WebhookEventRow,
   type WebhookEventStatus,
+  type WebhookHandler,
   type WebhookOutcome,
+  type WebhookStoreRow,
 } from './webhook-receiver';
 export {
   paymentsWebhookRouter,
@@ -78,6 +85,7 @@ export {
   type StripeApi,
   type StripeBalanceTransaction,
   type StripeCharge,
+  type StripeChargeOutcome,
   type StripeClientOptions,
   type StripeIntentStatus,
   type StripeLastPaymentError,

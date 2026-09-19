@@ -87,6 +87,23 @@ export async function capturePayment(
       });
     }
 
+    // An order held for fraud review — or confirmed as fraud — is never captured: the hold on the card stays
+    // until a human clears the review, or cancels the order (which voids it) (2.5).
+    const held = await tx.query<{ fraud_status: string | null; reason_code: string | null }>(
+      `SELECT metadata->'fraud'->>'status' AS fraud_status, metadata->'fraud'->>'reason_code' AS reason_code
+       FROM payment WHERE id = $1`,
+      [payment.id],
+    );
+    const fraudStatus = held.rows[0]?.fraud_status;
+    if (fraudStatus === 'review' || fraudStatus === 'confirmed_fraud') {
+      throw conflict(`order is held for fraud (${fraudStatus}); it cannot be captured`, {
+        field: 'payment.metadata.fraud.status',
+        from: fraudStatus,
+        to: 'cleared',
+        reason_code: held.rows[0]?.reason_code ?? null,
+      });
+    }
+
     const code = await tx.query<{ code: string; legal_entity_id: string }>(
       `SELECT code, legal_entity_id FROM store WHERE id = $1`,
       [payment.store_id],

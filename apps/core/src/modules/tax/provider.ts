@@ -49,6 +49,10 @@ export function createTaxCalculator(opts: TaxCalculatorOptions = {}): TaxCalcula
   return {
     async calculate(ctx: TaxContext): Promise<TaxCalculation> {
       const settings = await settingsFor(ctx);
+      // The cart resolves `prices_include_tax` once per pricing pass and hands it over (core #224): use ITS
+      // value so totals and tax can never disagree about the mode; the setting read stays for `provider`.
+      if (ctx.pricesIncludeTax !== undefined)
+        settings.pricesIncludeTax = ctx.pricesIncludeTax === true;
       const provider = providers[settings.provider];
       try {
         return await provider.calculate(ctx, settings);
