@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import type { Queryable, ScopedClient } from '@platform/db';
 import { orderMetadataFromCart, recordAttribution } from '../../lib/attribution';
 import { AppError, notFound, validationError } from '../../lib/errors';
+import { evaluateFraud } from '../../lib/fraud-seam';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import {
   currentShippingRateProvider,
@@ -23,7 +24,7 @@ import {
   type PricingContext,
 } from '../cart';
 import { reserveForOrder } from '../inventory';
-import { renderStoreOrder } from '../orders';
+import { flagOrderForReview, renderStoreOrder } from '../orders';
 import { paymentProvider, registeredPaymentProviders } from './payment';
 import type {
   CompleteCartInput,
@@ -254,6 +255,28 @@ async function placeOrder(
         payment_session: 'provider not available; create a new session',
       });
     }
+    // ---- fraud (#231): BEFORE any authorisation. `block` answers exactly like a decline — same status, code,
+    // message and details; no fraud wording, no distinct code (it would be an oracle for a probing fraudster).
+    // Nothing was written and nothing was authorised, so there is nothing to void; the fraud module records the
+    // real reason in its own transaction. `review` places the order and flags it below.
+    const fraud = await evaluateFraud({
+      tx,
+      organizationId: cart.organization_id,
+      storeId: cart.store_id,
+      cartId,
+      amountMinor: Number(cart.total_minor),
+      currency: cart.currency,
+      emailHash: emailHash(cart.email!.trim()),
+      shippingCountry: cart.shipping_address?.country ?? null,
+      billingCountry: cart.billing_address?.country ?? null,
+      paymentProvider: provider.name,
+      providerSessionId: session.session_id ?? null,
+      actor: input.actor,
+    });
+    if (fraud.outcome === 'block') {
+      throw new AppError('payment_failed', 'payment not authorized', { provider: provider.name });
+    }
+
     const auth = await provider.authorize({ tx, cart: cartRef(cart), session, idempotencyKey });
     if (auth.status !== 'authorized' || !auth.providerPaymentId) {
       throw new AppError('payment_failed', auth.failureReason ?? 'payment not authorized', {
@@ -360,6 +383,15 @@ async function placeOrder(
           .map((l) => ({ variantId: l.variant_id!, quantity: l.quantity })),
       });
 
+      const fraudFlag =
+        fraud.outcome === 'review'
+          ? {
+              status: 'review' as const,
+              reason_code: fraud.reasonCode ?? 'unknown',
+              provider: fraud.provider ?? 'unknown',
+              flagged_at: at.toISOString(),
+            }
+          : null;
       // ---- payment row (the one money movement; carries the Idempotency-Key) ----
       const paymentRow = await tx.query<{ id: string; authorized_at: Date }>(
         `INSERT INTO payment (organization_id, store_id, order_id, provider, provider_payment_id, amount_minor, currency,
@@ -374,9 +406,22 @@ async function placeOrder(
           cart.total_minor,
           cart.currency,
           storedKey,
-          JSON.stringify({ session_id: session.session_id }),
+          // the payment row is the source of truth of a fraud review (window 7's aggregate); the order carries
+          // the mirror written by the orders module right below
+          JSON.stringify({
+            session_id: session.session_id,
+            ...(fraudFlag ? { fraud: fraudFlag } : {}),
+          }),
         ],
       );
+      if (fraudFlag) {
+        await flagOrderForReview(tx, order.id, {
+          reasonCode: fraudFlag.reason_code,
+          provider: fraudFlag.provider,
+          flaggedAt: fraudFlag.flagged_at,
+          actor: input.actor,
+        });
+      }
 
       // ---- attribution (Integration 1 helper) + order.placed ----
       await recordAttribution(tx, {
