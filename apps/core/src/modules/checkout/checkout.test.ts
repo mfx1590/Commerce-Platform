@@ -15,14 +15,23 @@ import {
   updateCart,
   type TaxCalculator,
 } from '../cart';
-import { decreaseLineQuantity, getStoreOrder } from '../orders';
+import {
+  confirmOrder,
+  decreaseLineQuantity,
+  flagOrderForReviewWith,
+  getAdminOrder,
+  getStoreOrder,
+  resolveOrderReviewWith,
+} from '../orders';
 import {
   completeCart,
   createPaymentSession,
   emailHash,
   listShippingOptions,
   manualPaymentProvider,
+  setFraudCheck,
   setPaymentProvider,
+  type FraudContext,
   type PaymentProvider,
 } from './index';
 
@@ -80,6 +89,7 @@ afterAll(async () => {
 afterEach(() => {
   setPaymentProvider(manualPaymentProvider);
   setTaxCalculator(tableTaxCalculator);
+  setFraudCheck(null);
 });
 
 let counter = 0;
@@ -653,5 +663,183 @@ describe("tax: the calculator's per-line amounts and prices_include_tax (#221)",
     const o = await orderRow(orderId);
     expect(Number(o.tax_minor)).toBe(contained);
     expect(Number(o.total_minor)).toBe(Number(o.subtotal_minor) + Number(o.shipping_minor));
+  });
+});
+
+describe('fraud seam (#231): evaluated before authorization', () => {
+  const staff = { id: null, type: 'system' as const, requestId: 'req-checkout-fraud' };
+  const counts = async (cartId: string) =>
+    (
+      await owner.query<{ orders: string; payments: string }>(
+        `SELECT (SELECT count(*) FROM "order" WHERE cart_id = $1)::text AS orders,
+                (SELECT count(*) FROM payment p JOIN "order" o ON o.id = p.order_id WHERE o.cart_id = $1)::text AS payments`,
+        [cartId],
+      )
+    ).rows[0]!;
+  const failure = async (cartId: string, key: string) => {
+    try {
+      await completeCart(a, { cartId, idempotencyKey: key, actor });
+    } catch (e) {
+      const err = e as { status: number; toBody(): unknown };
+      return { status: err.status, body: err.toBody() };
+    }
+    throw new Error('expected completeCart to fail');
+  };
+
+  it('block = a plain decline: same status, code, message and details; authorize never called; nothing written', async () => {
+    let authorizeCalls = 0;
+    let seen: FraudContext | undefined;
+    setPaymentProvider({
+      ...manualPaymentProvider,
+      async authorize(input) {
+        authorizeCalls++;
+        return manualPaymentProvider.authorize(input);
+      },
+    });
+    setFraudCheck({
+      async evaluate(ctx) {
+        seen = ctx;
+        return { outcome: 'block', reasonCode: 'radar_highest', provider: 'radar' };
+      },
+    });
+    const cart = await readyCart();
+    const blocked = await failure(cart.id, `key-block-${cart.id}`);
+    expect(blocked).toEqual({
+      status: 402,
+      body: {
+        code: 'payment_failed',
+        message: 'payment not authorized',
+        details: { provider: 'manual' },
+      },
+    });
+    expect(authorizeCalls).toBe(0);
+    expect(await counts(cart.id)).toEqual({ orders: '0', payments: '0' });
+    // facts and codes only: the hash, never the email; the countries, never the address
+    expect(seen).toMatchObject({
+      cartId: cart.id,
+      storeId: A,
+      currency: 'EUR',
+      emailHash: emailHash(cart.email),
+      shippingCountry: 'NL',
+      billingCountry: 'NL',
+      paymentProvider: 'manual',
+    });
+    expect(seen!.amountMinor).toBeGreaterThan(0);
+    expect(JSON.stringify({ ...seen, tx: undefined }).toLowerCase()).not.toContain('jane.doe');
+
+    // the oracle test: a real decline from the provider is byte-identical
+    setFraudCheck(null);
+    setPaymentProvider({
+      ...manualPaymentProvider,
+      async authorize() {
+        return { status: 'failed', providerPaymentId: null };
+      },
+    });
+    const declinedCart = await readyCart();
+    expect(await failure(declinedCart.id, `key-decline-${declinedCart.id}`)).toEqual(blocked);
+  });
+
+  it('review places the order, flags payment (truth) and order (mirror), emits one order.updated, holds confirm until cleared; the Store order never shows it', async () => {
+    setFraudCheck({
+      async evaluate() {
+        return { outcome: 'review', reasonCode: 'velocity_email', provider: 'rules' };
+      },
+    });
+    const cart = await readyCart();
+    const { order } = await completeCart(a, {
+      cartId: cart.id,
+      idempotencyKey: `key-review-${cart.id}`,
+      actor,
+    });
+    setFraudCheck(null);
+    expect(order.status).toBe('pending');
+    expect(order.metadata ?? {}).not.toHaveProperty('fraud');
+    expect(JSON.stringify(order)).not.toContain('velocity_email');
+    const read = await getStoreOrder(a, order.id, { email: cart.email });
+    expect(JSON.stringify(read)).not.toContain('fraud');
+
+    const rows = await owner.query<{ om: Record<string, unknown>; pm: Record<string, unknown> }>(
+      `SELECT o.metadata AS om, p.metadata AS pm FROM "order" o JOIN payment p ON p.order_id = o.id WHERE o.id = $1`,
+      [order.id],
+    );
+    const flag = { status: 'review', reason_code: 'velocity_email', provider: 'rules' };
+    expect(rows.rows[0]!.pm.fraud).toMatchObject(flag);
+    expect(rows.rows[0]!.om.fraud).toEqual(rows.rows[0]!.pm.fraud); // the mirror equals the truth
+    const admin = await getAdminOrder(a, order.id);
+    expect(admin.metadata.fraud).toMatchObject(flag); // staff see it
+
+    const updates = (await outboxFor(order.id)).rows.filter((e) => e.topic === 'order.updated');
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.payload.changed_fields).toEqual(
+      expect.arrayContaining(['fraud', 'fraud.reason_code=velocity_email', 'fraud.status=review']),
+    );
+    // idempotent on the target status: flagging again changes and emits nothing
+    await flagOrderForReviewWith(a, order.id, {
+      reasonCode: 'country_mismatch',
+      provider: 'rules',
+      actor: staff,
+    });
+    expect(
+      (await outboxFor(order.id)).rows.filter((e) => e.topic === 'order.updated'),
+    ).toHaveLength(1);
+
+    await expect(confirmOrder(a, order.id, staff)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { fraud_status: 'review' },
+    });
+    const fraudulent = await resolveOrderReviewWith(a, order.id, {
+      status: 'confirmed_fraud',
+      resolution: 'manual',
+      actor: staff,
+    });
+    expect(fraudulent).toMatchObject({ status: 'confirmed_fraud', resolution: 'manual' });
+    await expect(confirmOrder(a, order.id, staff)).rejects.toMatchObject({ code: 'conflict' });
+    const cleared = await resolveOrderReviewWith(a, order.id, {
+      status: 'cleared',
+      resolution: 'approved',
+      actor: staff,
+    });
+    expect(cleared).toMatchObject({
+      status: 'cleared',
+      resolution: 'approved',
+      reason_code: 'velocity_email',
+    });
+    expect((await confirmOrder(a, order.id, staff)).status).toBe('confirmed');
+  });
+
+  it('a check that throws is a review (outage rule): never a block, never a silent pass; an unflagged order resolves to null', async () => {
+    setFraudCheck({
+      async evaluate() {
+        throw new Error('radar timeout');
+      },
+    });
+    const cart = await readyCart();
+    const { order } = await completeCart(a, {
+      cartId: cart.id,
+      idempotencyKey: `key-outage-${cart.id}`,
+      actor,
+    });
+    const admin = await getAdminOrder(a, order.id);
+    expect(admin.metadata.fraud).toMatchObject({
+      status: 'review',
+      reason_code: 'provider_unavailable',
+    });
+
+    setFraudCheck(null);
+    const plain = await readyCart();
+    const placed = await completeCart(a, {
+      cartId: plain.id,
+      idempotencyKey: `key-nofraud-${plain.id}`,
+      actor,
+    });
+    expect((await getAdminOrder(a, placed.order.id)).metadata).not.toHaveProperty('fraud');
+    expect(
+      await resolveOrderReviewWith(a, placed.order.id, {
+        status: 'cleared',
+        resolution: 'manual',
+        actor: staff,
+      }),
+    ).toBeNull();
+    expect((await confirmOrder(a, placed.order.id, staff)).status).toBe('confirmed');
   });
 });

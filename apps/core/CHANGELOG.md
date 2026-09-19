@@ -2,6 +2,23 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · fraud seam before authorization, order review mirror, confirm hold (#231, window 7's REQUEST)
+
+- **`setFraudCheck()`** (`src/lib/fraud-seam.ts`, re-exported by the checkout): `completeCart` evaluates the
+  registered check inside the placement transaction before `authorize`, with facts and codes only. `block` → 402
+  `payment_failed`, byte-identical to a provider decline, nothing written, nothing to void. `review` → the order is
+  placed, the payment row carries `metadata.fraud` (source of truth) and the order gets the mirror. A check that
+  throws → `review` with `provider_unavailable`. No check registered → unchanged behaviour.
+- **Orders**: `flagOrderForReview` / `resolveOrderReview` (+ `…With` twins), idempotent on the target status, one
+  `order.updated` each with `fraud`, `fraud.reason_code=<code>`, `fraud.status=<status>` in `changed_fields`;
+  `transition()` refuses `→ confirmed` (409) while the review is open or confirmed as fraud.
+- **Boot**: `registerModuleSeams()` calls window 7's `registerFraudCheck()` and hands the registered check to the
+  checkout's seam (their registration still targets the module's stand-in registry). `module-routers.ts` names
+  window 8's `fulfillmentAdminRouter()` as pending (PR #235).
+- **Store API**: `order.metadata.fraud` never leaves — `renderStoreOrder` strips internal metadata keys; the Admin
+  read keeps it. Tests: checkout +3 (block vs a real decline, review end to end, outage), store-api +1 (HTTP leak
+  test + the plain 402), guards +1 (checkout and orders never import the fraud module).
+
 ### 2026-09-19 · cleanup: tax boot line, refunds router, guard + wiring tests (#127, #126 on main)
 
 - **`price_changed` comes from the contract** (contracts-v0.4.3, #228 landed): the local `CoreErrorCode` union in

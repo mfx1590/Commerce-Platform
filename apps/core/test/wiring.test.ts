@@ -11,7 +11,16 @@ import {
   tableShippingRates,
   tableTaxCalculator,
 } from '../src/modules/cart';
-import { manualPaymentProvider, registeredPaymentProviders } from '../src/modules/checkout';
+import {
+  currentFraudCheck,
+  manualPaymentProvider,
+  registeredPaymentProviders,
+  setFraudCheck,
+} from '../src/modules/checkout';
+import {
+  currentFraudCheck as fraudModuleCheck,
+  setFraudCheck as setFraudModuleCheck,
+} from '../src/modules/fraud';
 import {
   currentRefundRequester,
   manualRefundRequester,
@@ -24,6 +33,8 @@ afterAll(() => {
   setTaxCalculator(tableTaxCalculator);
   setShippingRateProvider(tableShippingRates);
   setRefundRequester(manualRefundRequester);
+  setFraudCheck(null);
+  setFraudModuleCheck(null);
 });
 
 describe('registerModuleSeams()', () => {
@@ -33,6 +44,7 @@ describe('registerModuleSeams()', () => {
     expect(currentShippingRateProvider()).toBe(tableShippingRates);
     expect(currentRefundRequester()).toBe(manualRefundRequester);
     expect(registeredPaymentProviders()).toEqual([manualPaymentProvider.name]);
+    expect(currentFraudCheck()).toBeNull();
   });
 
   it('registers payments (+ the refund requester), carrier rates, tax and price lists — without any configuration', () => {
@@ -42,6 +54,9 @@ describe('registerModuleSeams()', () => {
     expect(currentShippingRateProvider()).not.toBe(tableShippingRates);
     expect(currentTaxCalculator()).not.toBe(tableTaxCalculator);
     expect(currentPriceResolver()).toBe(priceListResolver);
+    // the fraud check reaches the seam completeCart actually reads — the same object the fraud module registered
+    expect(currentFraudCheck()).not.toBeNull();
+    expect(currentFraudCheck()).toBe(fraudModuleCheck());
   });
 
   it('is idempotent: a second call registers nothing again', () => {

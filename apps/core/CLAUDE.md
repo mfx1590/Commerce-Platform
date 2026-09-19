@@ -87,12 +87,19 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - Boot-time registrations live in `src/wiring.ts` (`registerModuleSeams()`, called once by `createServer()`):
   `registerPaymentProviders()` (window 7), `registerCarrierProviders()` (window 8) and the cart's
   `priceListResolver` over window 9's `resolvePrices`, and `registerTaxProvider()` (window 7: table or Stripe Tax
-  per `store.settings.tax`; identical to the built-in calculator with default settings). Plain registry writes —
-  no I/O, no configuration read.
+  per `store.settings.tax`; identical to the built-in calculator with default settings), and window 7's
+  `registerFraudCheck()` — handed on to the checkout's `setFraudCheck` seam in the same place (#231). Plain
+  registry writes — no I/O, no configuration read.
 - Payment seam (`src/modules/checkout`): `setPaymentProvider()` registers window 7's `stripe` (#127) next to the
   built-in `manual` provider; `createSession` / `authorize` / `void` / `refund` exchange ids and amounts only (hosted
   fields — card data never reaches this process). Placement is one transaction; idempotency = `payment.idempotency_key`
   (stored as `<store_id>:<key>`: per store by construction).
+- Fraud seam (`src/modules/checkout`, #231): `setFraudCheck()` — evaluated inside the placement transaction BEFORE
+  `authorize`. `block` = 402 `payment_failed`, byte-identical to a decline (no fraud wording ever reaches the Store
+  API); `review` places the order, flags the payment row (truth, window 7) and the order mirror
+  (`flagOrderForReview` / `resolveOrderReview` in the orders module, one `order.updated` each); a check that throws
+  is a `review`. `confirmOrder` answers 409 while an order is held; `order.metadata.fraud` is stripped from the
+  Store order read (Admin keeps it).
 - Order lifecycle (`src/modules/orders`): every status change goes through `transition()` (table-driven, one event
   each); windows 7 and 8 call `confirmOrder`, `markPayment*`, `markShipmentCreated`, `markShipped`, `markDelivered`,
   `markReturned`, `cancelOrder` with a scoped client + ids (idempotent on the target state). Edits before fulfilment
@@ -130,7 +137,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `adminRouter()`): window 9's `merchandisingRouter` (#162) and window 17's `marketingAdminRouter` (#181) are
   mounted, and since the quiet-state batch window 9's `mediaRouter` (#168), `pricingRouter` (#137) and
   `promotionsRouter` (#138 / #189), window 8's `shippingAdminRouter` (#131) and window 7's
-  `paymentsAdminRouter` (#126, refunds); add one `routers.push(...)` line per new router. Nothing is pending.
+  `paymentsAdminRouter` (#126, refunds); add one `routers.push(...)` line per new router. Pending: window 8's
+  `fulfillmentAdminRouter` (pick/pack routes, PR #235) once its export is on main.
 - Provider webhooks mount through `moduleWebhookRouters()` (same file): outside the `/store` and `/admin` chains,
   before any JSON body parser, each router with its own `express.raw()` — the provider's signature over the raw
   body is the authentication. Mounted: window 7's `paymentsWebhookRouter` (`POST /webhooks/stripe/:storeCode`,
@@ -153,6 +161,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   | `src/modules/promotions`  | window 9 (search) — do not edit. Price lists (`resolvePrices`: sale > override/group > default, priority, windows, groups, tiers) and the promotion/coupon engine (`evaluatePromotions`: conditions, stacking/exclusion, per-line allocation); `promotionReportData` feeds window 17's `getPromotionReport`; Admin routers `pricingRouter` / `promotionsRouter` mounted through `src/http/module-routers.ts` | — (no price or promotion topics in the events contract)                        | `src/modules/promotions/README.md`  |
   | `src/modules/shipping`    | window 8 (shipping) — do not edit. Carrier providers (`manual` + EasyPost test mode), rate shopping behind the cart's `ShippingRateProvider`, shipments and their forward-only status machine, labels, the EasyPost tracking webhook (verify → record in `webhook_event` → apply), Admin `createShipment` / `updateShipment`                                                                                 | `shipment.created`, `shipment.shipped`, `shipment.delivered`                   | `src/modules/shipping/README.md`    |
   | `src/modules/fulfillment` | window 8 (shipping) — do not edit. The 3PL boundary: per-warehouse routing (store override → store default → same country → same region → priority), `FulfillmentProvider` (`push` / `status` / `cancel`) with an in-memory 3PL, request / cancel / apply-update with no database transaction held across a provider call                                                                                    | — (pick/pack events arrive with 2.5)                                           | `src/modules/fulfillment/README.md` |
+  | `src/modules/payments`    | window 7 (payments) — do not edit. Stripe `PaymentProvider` (hosted fields, manual capture, void, refund), capture, refunds (Admin `createRefund`, returns seam), signed webhook receiver with exactly-once + replay, shared per-store credential loader                                                                                                                                                     | `payment.captured`, `payment.failed`, `refund.issued`, `refund.failed`         | `src/modules/payments/README.md`    |
+  | `src/modules/tax`         | window 7 (payments) — do not edit. The cart's `TaxCalculator`: table rates + Stripe Tax per `store.settings.tax`                                                                                                                                                                                                                                                                                             | —                                                                              | `src/modules/tax/README.md`         |
+  | `src/modules/fraud`       | window 7 (payments) — do not edit. Fraud check before authorization (local rules + Stripe Radar, settings per store), the review flag on the payment row, Radar review webhooks; registered behind the checkout's `setFraudCheck` seam                                                                                                                                                                       | `order.updated` (via orders `transition()`)                                    | `src/modules/fraud/README.md`       |
   | `src/modules/hq-rbac`     | window 2 (auth) — do not edit                                                                                                                                                                                                                                                                                                                                                                                | —                                                                              | theirs                              |
   | `src/outbox`              | `withEvents` / `buildEvent` — the only writer of `outbox` (lint-enforced)                                                                                                                                                                                                                                                                                                                                    | —                                                                              | `src/outbox/README.md`              |
   | `src/bootstrap`           | read-only readiness verifier (CLI + server start)                                                                                                                                                                                                                                                                                                                                                            | —                                                                              | `src/bootstrap/README.md`           |
