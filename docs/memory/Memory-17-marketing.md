@@ -43,7 +43,54 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — 2.3 is in review; 2.4 abandoned-cart recovery is next)
+### 2.4 (#148) abandoned-cart recovery — plan written 2026-09-19, awaiting the manager on the contract surface
+2.3 is PR #240, in full review; **no push until its merge is confirmed** (standing rule). Building locally.
+#239 accepted as filed → contracts-v0.4.4 after #240 merges. #195 was already closed: `apps/feeds/Dockerfile`
+landed with infra #210 and the manifest guard is green — my own feeds docs said otherwise and are now fixed.
+
+**The gap: 2.4 has no schema and no endpoint.** Checked, not assumed:
+- `packages/db` has **no recovery table** (0120 marketing = campaign, segment, segment_member, product_feed,
+  attribution, referral_program, referral, review; 0130–0160 are other windows'). A recovery record needs one.
+- `admin-api.yaml` has **no `reports/abandoned-carts`** and no `abandoned` anywhere. #148 anticipates both
+  ("file the CONTRACT CHANGE: if not in 0.3").
+- The outbox cursor has nowhere to live. Window 9 parked theirs in Algolia index settings *because* the db was
+  frozen; marketing has no external store to hide one in, so it belongs in the same proposed migration.
+
+**Three pieces of contract surface, one of them mine to build against a mock:**
+1. `CONTRACT CHANGE:` db migration `0170_cart_recovery.sql` — `cart_recovery` + `marketing_cursor`, RLS `store`,
+   `updated_at` triggers. Kept verbatim in `proposed/` and applied by the module tests to their throwaway
+   database, exactly the #162 pattern window 9 used for `merchandising_rule`.
+2. `CONTRACT CHANGE:` Admin API `GET …/marketing/reports/abandoned-carts` (`viewer`, like the other reports)
+   + an `AbandonedCartReport` component.
+3. `REQUEST:` to window 3 (and 10 for brand A) — the storefront route `GET /cart/recover/{token}` with the
+   exact token semantics below. Their path, not mine.
+
+**Plan (module `apps/core/src/modules/marketing`):**
+- `recovery-types.ts` — the record, its status enum (`pending` → `link_sent` → `opened` → `recovered`, plus
+  `expired`), the report shape.
+- `recovery-consumer.ts` — outbox polling per store on `cart.abandoned`, window 9's shape: read rows with
+  `seq > cursor`, upsert one record per cart, advance the cursor in the same transaction. **One record per
+  cart** is the unique constraint, so a replayed event is a no-op rather than a second record — the acceptance
+  criterion is enforced by the schema, not by the code remembering.
+- `recovery-token.ts` — mint/verify/redeem. Random 32 bytes base64url; **only `sha256(token)` is stored**, the
+  same way `registry` hashes API keys; single-use (`token_used_at`), expiring (`token_expires_at`, default 7
+  days). The token carries no customer id, email or cart id — it *is* the lookup key, so the link leaks nothing
+  if it ends up in a referrer header or a support ticket.
+- `recovery-report.ts` — recovery rate from `cart_recovery` joined to `"order"`: abandoned, recovered, rate,
+  recovered revenue. A cart counts **once**, on the record, so a customer who opens the link three times and
+  orders once is one recovery.
+- Attribution: the link carries `utm_source=abandoned_cart`, the storefront writes it into
+  `cart.metadata.attribution` as it already does, and window 1's placement writes the `attribution` row. **This
+  module writes no attribution** — it reads it, which is what keeps the 2.1 report and this one consistent.
+- Routes: the report (`viewer`). Redemption is a Store API concern the storefront calls; the token check lives
+  here and is exported from index.ts for whoever mounts it.
+- Tests: consumer idempotency over a replayed outbox, token randomness/single-use/expiry, recovery detection
+  and the rate, RLS across stores, spec-validated report route.
+
+**Open question for the manager (in the response):** whether redemption should be a Store API route in the core
+(window 1's `src/http/store-routes.ts` — not my path, another REQUEST) or whether the storefront calls the
+existing cart read and this module only validates the token through an exported function. I lean to the second:
+fewer moving parts, no new public surface, and window 3 already owns the cart page.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
