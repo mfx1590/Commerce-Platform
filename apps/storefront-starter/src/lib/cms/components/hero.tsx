@@ -1,21 +1,19 @@
 import type { Cta, Hero as HeroValue } from '@platform/cms';
 import { buttonVariants } from '@platform/ui';
-import { Link } from '@/i18n/navigation';
 import type { ContentContext } from '../content';
+import { SafeLink } from './safe-link';
 import { SanityImage } from './sanity-image';
 
-/** A link that looks like a button: an `<a>` inside a `<button>` would be invalid HTML. */
+/**
+ * A link that looks like a button: an `<a>` inside a `<button>` would be invalid HTML. Rendered
+ * through `SafeLink`, so an unsafe stored href degrades to a label without a destination.
+ */
 export function CtaLink({ cta, size = 'md' }: { cta: Cta; size?: 'md' | 'lg' }) {
   const variant = cta.variant === 'secondary' ? 'outline' : 'primary';
-  const className = buttonVariants({ variant, size });
-  return /^https?:\/\//.test(cta.href) ? (
-    <a href={cta.href} rel="noopener noreferrer" className={className}>
+  return (
+    <SafeLink href={cta.href} className={buttonVariants({ variant, size })}>
       {cta.label}
-    </a>
-  ) : (
-    <Link href={cta.href} className={className}>
-      {cta.label}
-    </Link>
+    </SafeLink>
   );
 }
 

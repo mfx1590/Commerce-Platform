@@ -2054,29 +2054,85 @@ export interface components {
             updated_at: string;
         };
         /**
-         * @description Rule set evaluated against the store's customers when previewing or materialising. Keys are documented
-         *     loosely here; window 17 freezes the grammar in Phase 2.3. Unknown keys are kept, not rejected.
+         * @example {
+         *       "v": 1,
+         *       "all": [
+         *         {
+         *           "any": [
+         *             {
+         *               "field": "total_spent_minor",
+         *               "op": "gte",
+         *               "value": 50000
+         *             },
+         *             {
+         *               "field": "orders_count",
+         *               "op": "gte",
+         *               "value": 3
+         *             }
+         *           ]
+         *         },
+         *         {
+         *           "any": [
+         *             {
+         *               "field": "consent",
+         *               "op": "granted",
+         *               "value": "email"
+         *             }
+         *           ]
+         *         }
+         *       ]
+         *     }
          */
         SegmentRules: {
-            /** @description { gte?, lte? } */
-            orders_count?: {
-                [key: string]: unknown;
-            };
-            /** @description { after?, before? } (RFC-3339) */
-            last_order_at?: {
-                [key: string]: unknown;
-            };
-            /** @description { gte?, lte? } in minor units */
-            total_spent_minor?: {
-                [key: string]: unknown;
-            };
-            tags?: string[];
-            /** @description opted-in channels */
-            consent?: ("email" | "sms")[];
-            country?: string[];
-            customer_group_ids?: string[];
-        } & {
-            [key: string]: unknown;
+            /** @enum {integer} */
+            v: 1;
+            /** @description Groups combined with AND */
+            all: {
+                /** @description Predicates combined with OR */
+                any: components["schemas"]["SegmentPredicate"][];
+            }[];
+        };
+        SegmentPredicate: {
+            /** @enum {string} */
+            field: "orders_count" | "total_spent_minor";
+            /** @enum {string} */
+            op: "gte" | "lte" | "eq";
+            /** @description total_spent_minor is in minor units */
+            value: number;
+        } | {
+            /** @enum {string} */
+            field: "last_order_at";
+            /** @enum {string} */
+            op: "after" | "before";
+            /** Format: date-time */
+            value: string;
+        } | {
+            /** @enum {string} */
+            field: "tags";
+            /** @enum {string} */
+            op: "includes" | "excludes";
+            /** @description One tag from customer.metadata.tags */
+            value: string;
+        } | {
+            /** @enum {string} */
+            field: "consent";
+            /** @enum {string} */
+            op: "granted" | "not_granted";
+            /** @enum {string} */
+            value: "email" | "sms";
+        } | {
+            /** @enum {string} */
+            field: "country";
+            /** @enum {string} */
+            op: "in" | "not_in";
+            /** @description Matched against the customer's DEFAULT SHIPPING address only */
+            value: string[];
+        } | {
+            /** @enum {string} */
+            field: "customer_group_ids";
+            /** @enum {string} */
+            op: "in" | "not_in";
+            value: string[];
         };
         SegmentInput: {
             name: string;
@@ -5564,14 +5620,35 @@ export interface operations {
                      *           "name": "VIP",
                      *           "description": "Spent 500+ in the last year and opted in to email",
                      *           "rules": {
-                     *             "total_spent_minor": {
-                     *               "gte": 50000
-                     *             },
-                     *             "last_order_at": {
-                     *               "after": "2025-09-01T00:00:00Z"
-                     *             },
-                     *             "consent": [
-                     *               "email"
+                     *             "v": 1,
+                     *             "all": [
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "total_spent_minor",
+                     *                     "op": "gte",
+                     *                     "value": 50000
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "last_order_at",
+                     *                     "op": "after",
+                     *                     "value": "2025-09-01T00:00:00Z"
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "consent",
+                     *                     "op": "granted",
+                     *                     "value": "email"
+                     *                   }
+                     *                 ]
+                     *               }
                      *             ]
                      *           },
                      *           "template_id": "70000000-0000-4000-8000-000000000711",
@@ -6580,14 +6657,35 @@ export interface operations {
                      *           "name": "VIP",
                      *           "description": "Spent 500+ in the last year and opted in to email",
                      *           "rules": {
-                     *             "total_spent_minor": {
-                     *               "gte": 50000
-                     *             },
-                     *             "last_order_at": {
-                     *               "after": "2025-09-01T00:00:00Z"
-                     *             },
-                     *             "consent": [
-                     *               "email"
+                     *             "v": 1,
+                     *             "all": [
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "total_spent_minor",
+                     *                     "op": "gte",
+                     *                     "value": 50000
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "last_order_at",
+                     *                     "op": "after",
+                     *                     "value": "2025-09-01T00:00:00Z"
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "consent",
+                     *                     "op": "granted",
+                     *                     "value": "email"
+                     *                   }
+                     *                 ]
+                     *               }
                      *             ]
                      *           },
                      *           "template_id": null,

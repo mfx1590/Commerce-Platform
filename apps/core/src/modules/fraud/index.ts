@@ -1,8 +1,8 @@
 // Public API of the fraud module (window 7, task 2.5, #128). Nothing outside this folder may import from its
 // other files (ADR 0005).
 import { registerWebhookHandler } from '../payments';
-import { createFraudCheck, type FraudCheckOptions } from './check';
-import { setFraudCheck, type FraudCheck } from './seam';
+import { createFraudCheck, type FraudCheckOptions, type ModuleFraudCheck } from './check';
+import { setFraudCheck } from './seam';
 import { RADAR_WEBHOOK_HANDLERS } from './webhooks';
 
 export {
@@ -22,7 +22,12 @@ export {
 } from './types';
 export { ordersForEmailHash, rulesFraudProvider } from './rules-provider';
 export { createRadarFraudProvider, type RadarProviderOptions } from './radar-provider';
-export { createFraudCheck, type FraudCheckOptions } from './check';
+export {
+  createFraudCheck,
+  type BlockedPlacement,
+  type FraudCheckOptions,
+  type ModuleFraudCheck,
+} from './check';
 export { fraudMetrics, type FraudMetricsSnapshot } from './metrics';
 export {
   flagOrderForReview,
@@ -31,25 +36,21 @@ export {
   type OrderFraudFlag,
   type OrderFraudStatus,
 } from './order-flag';
-export {
-  applyDecisionToOrder,
-  currentFraudCheck,
-  enforceDecision,
-  setFraudCheck,
-  type FraudCheck,
-} from './seam';
+// The checkout's real seam (core #236), re-exported: `currentFraudCheck()` here IS the checkout's.
+export { currentFraudCheck, setFraudCheck, type FraudCheck } from './seam';
 export { RADAR_WEBHOOK_HANDLERS, reviewClosedHandler, reviewOpenedHandler } from './webhooks';
 
 /**
- * Boot mount point (REQUEST #231 to window 1): one line in `registerModuleSeams()` of `src/wiring.ts`, next to
- * `registerPaymentProviders()` / `registerTaxProvider()`:
- * registers the fraud check with the seam and Radar's `review.*` handlers with the payments webhook receiver.
- * Returns the previous check. A store without settings runs both providers with the defaults; a non-stripe
- * payment is simply `allow` for Radar.
+ * Boot mount point — `registerModuleSeams()` in `src/wiring.ts` calls it: registers the fraud check with the
+ * CHECKOUT's seam (`setFraudCheck`, the registry `completeCart` reads) and Radar's `review.*` handlers with the
+ * payments webhook receiver. Returns the check it registered. A store without settings runs both providers with
+ * the defaults; a non-stripe payment is simply `allow` for Radar.
  */
-export function registerFraudCheck(opts: FraudCheckOptions = {}): FraudCheck | null {
+export function registerFraudCheck(opts: FraudCheckOptions = {}): ModuleFraudCheck {
   for (const [type, handler] of Object.entries(RADAR_WEBHOOK_HANDLERS)) {
     registerWebhookHandler(type, handler);
   }
-  return setFraudCheck(createFraudCheck(opts));
+  const check = createFraudCheck(opts);
+  setFraudCheck(check);
+  return check;
 }
