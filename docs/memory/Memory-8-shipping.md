@@ -49,8 +49,32 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - **2.4 (#132) is in review as PR #223** (head pushed; the merge of main `0866f31` brings migration 0140).
 - 2.3 merged as `968c93f`. Migration 0140 landed with contracts-v0.4.2, and the manager's commit removed the
   proposed copy, the test-side DDL and the drift test — nothing left for this window to clean up there.
-- **2.5 (#133) starting locally**: fulfilment lifecycle `requested → picking → packed → shipped` with one event per
-  transition, admin pick/pack operations, partial shipments through the orders module, plus the four folded nits.
+- **2.5 (#133) started. It needs a CONTRACT CHANGE before the lifecycle can ship — the manager decides scope.**
+  Findings on contracts-v0.4.2 (checked 2026-09-19):
+  - `admin-api.yaml` has **no** pick or pack operation (`grep operationId: pick|pack|fulfil` → nothing).
+  - `packages/events/schemas` has only `shipment.created` / `shipment.shipped` / `shipment.delivered`; there is no
+    topic for a fulfilment being requested, picked or packed. events is at 0.2.0.
+  - `shipment.status` CHECK is `pending, label_created, shipped, in_transit, delivered, failed, cancelled` — it
+    has **no `picking` / `packed`**, so the pick/pack states cannot live in that column without a migration.
+
+  Plan (order matters):
+  1. **File `CONTRACT CHANGE: fulfilment pick/pack lifecycle`** with the exact diff, then keep building against a
+     local mock (project rule). Proposed, smallest shape that satisfies #133:
+     - events 0.3.0: new `fulfillment.requested`, `fulfillment.picking`, `fulfillment.packed` v1 schemas
+       (`shipment_id`, `order_id`, `warehouse_id`, `items`, `occurred_at`; no address, no PII) + `EVENT_TOPICS`.
+       `shipment.shipped` already covers the last transition.
+     - Admin API 0.5.0: `POST /admin/shipments/{shipmentId}/pick` and `.../pack` (x-permission `operations` on
+       `organization:hq`, like `updateShipment`), and `GET /admin/stores/{storeId}/pick-lists` for the queue,
+       plus a `fulfillment_state` field on the `Shipment` schema (additive).
+     - **No db migration**: the pick/pack state stays on `shipment.metadata.fulfillment.state`, which 2.4 already
+       writes, so `shipment.status` and its CHECK are untouched. Say so explicitly in the issue — it is the reason
+       this change is additive only.
+  2. Implement the state machine in `modules/fulfillment` over that state: `requested → picking → packed →
+     shipped`, forward only, illegal → 409, exactly one event per legal transition through `withEvents`.
+  3. Partial shipments keep going through the orders module (`markShippedInTx`), already wired in 2.3.
+  4. The four folded nits below.
+  5. Close-out: module READMEs + CHANGELOGs, memory "Phase 2 done", and a REQUEST to window 1 for the
+     `apps/core/CLAUDE.md` rows for `shipping` and `fulfillment` (that file is theirs, #133 asks for the rows).
 
 ## Fold into 2.5 (#133) — agreed nits from the #218 reviews, none blocking
 - `buyShipmentLabel` calls the carrier **inside** the database transaction; move the network call outside it, the
