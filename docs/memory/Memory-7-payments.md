@@ -1,6 +1,6 @@
 # Memory 7 — Payments, tax, fraud
 Window: 7 · Key: `payments` · Branch prefix: `payments/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-09-19 · Contracts: contracts-v0.4.1 on main (v0.3 at Integration 1) · Branch: `payments/phase2` · Status: 2.1 merged (#183 → d839a93), 2.2 merged (#215 → c21229c, #125 closed); 2.3 built, PR pending (Phase 2)
+Last updated: 2026-09-19 · Contracts: contracts-v0.4.1 on main (v0.3 at Integration 1) · Branch: `payments/phase2` · Status: 2.1 merged (#183), 2.2 merged (#215); 2.3 (#219) verdict MERGE, main merged in (d3cbc54), queued by the manager; 2.4 built LOCALLY, push held
 
 ## Identity (does not change)
 Owned paths (write):
@@ -45,6 +45,7 @@ Stripe + Adyen providers (hosted fields only), one local PSP, Avalara/Stripe Tax
 - [x] **#126 · 2.3** Refunds (PR pending)
 - [x] **#127 · 2.4** Tax adapter (Stripe Tax) at checkout (built locally, push held)
 - [ ] **#128 · 2.5** Fraud hooks (Radar) and per-store credential pattern
+- [ ] Nits from the #219 re-review (manager: fold into 2.4/2.5): (a) `syncOrderPaymentStatus` can read `refunded` while other refunds on the payment are still `pending` — count only `succeeded` for the order status, keep `pending + succeeded` for the ceiling; (b) run the two FGA exemption checks in `refund-router.ts` in parallel (`Promise.all`). Earlier nits still open: replay match compares only order + amount (same key with another reason/return_id replays silently).
 
 ## Decisions made (with reasons)
 - 2026-09-19 · **Tax (manager decisions)**: Stripe Tax outage = fail closed; table fallback only behind `CORE_TAX_FALLBACK_TO_TABLE=1`, non-production, refused in production at registration. Tax-inclusive pricing = `store.settings.tax.prices_include_tax`, computed correctly in both modes, exclusive default; window 1 honours it in totals (#221).
