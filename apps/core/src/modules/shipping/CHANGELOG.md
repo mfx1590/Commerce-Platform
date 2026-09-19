@@ -5,6 +5,22 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
+### 2026-09-19 · 2.5 Status machine widened, and the review fixes (#133, CONTRACT CHANGE #225)
+
+- `shipment.status` gains `picking` and `packed` (#225, migration 0160 widens the column's CHECK; both database
+  suites apply `../fulfillment/proposed/0160_shipment_pick_pack.sql` until it lands). Cancel is legal from
+  `pending`, `picking`, `packed` and `label_created`. The moves themselves live in the `fulfillment` module.
+- `buyShipmentLabel` no longer calls the carrier inside a transaction: read, then quote and buy with nothing
+  held, then record. A shipment that moved meanwhile makes the call a 409 and the bought label is voided again
+  rather than orphaned at the carrier.
+- `verifyEasyPostSignature` accepts only the `hmac-sha256-hex` label or a bare digest; a correct digest under
+  `sha1=` or `v0=` is refused.
+- A tracking number matching two shipments is ambiguous: the delivery is recorded and skipped with a reason, and
+  neither shipment moves.
+- `loadShipment` is exported for the fulfillment module's lifecycle.
+- Tests: the label-void race, the signature labels, the tracking collision, the new ranks, and a two-shipment
+  order replayed from its own outbox stream back into the order the database holds.
+
 ### 2026-09-15 · 2.3 review fixes (#218)
 
 - **`webhook_event` now matches #187 exactly.** `proposed/0140_webhook_event.sql` is a byte-for-byte copy of #187's

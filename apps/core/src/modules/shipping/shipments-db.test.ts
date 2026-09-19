@@ -16,7 +16,7 @@ import { coreErrorHandler, DevTokenVerifier } from '../../http';
 import { closePool, initDb } from '../../lib/db';
 import { mountCoreMiddleware } from '../../server';
 import { addLineItem, createCart, updateCart } from '../cart';
-import { confirmOrder } from '../orders';
+import { confirmOrder, projectOrder, type ProjectedEvent } from '../orders';
 import { completeCart, createPaymentSession } from '../checkout';
 import { createManualCarrierProvider } from './manual-provider';
 import { coreInventoryPort, setInventoryPort, type InventoryPort } from './ports';
@@ -577,6 +577,63 @@ async function shippedShipment() {
   const labelled = await buyShipmentLabel(a, planned.id, { actor });
   return { orderId: order.orderId, shipmentId: planned.id, tracking: labelled.tracking_number! };
 }
+
+describe('a two-shipment order, replayed', () => {
+  it('folds its own event stream back into the order the database holds', async () => {
+    // Two lines, one shipment each, despatched at different times — the partial-fulfilment path end to end.
+    const order = await placedOrder(2);
+    const [first, second] = order.lines;
+    const shipmentOne = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: first!.id, quantity: first!.quantity }],
+      actor,
+    });
+    await updateShipment(a, shipmentOne.id, { status: 'shipped', actor });
+    expect((await orderState(order.orderId)).fulfillment_status).toBe('partially_fulfilled');
+
+    const shipmentTwo = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: second!.id, quantity: second!.quantity }],
+      actor,
+    });
+    await updateShipment(a, shipmentTwo.id, { status: 'shipped', actor });
+    await updateShipment(a, shipmentOne.id, { status: 'delivered', actor });
+    await updateShipment(a, shipmentTwo.id, { status: 'delivered', actor });
+
+    // Every order event this order ever wrote, in order, folded from nothing.
+    const stream = await owner.query<ProjectedEvent>(
+      `SELECT topic, payload FROM outbox
+        WHERE aggregate_type = 'order' AND aggregate_id = $1 ORDER BY occurred_at, seq`,
+      [order.orderId],
+    );
+    const replayed = projectOrder(stream.rows);
+    const live = await owner.query<{
+      status: string;
+      payment_status: string;
+      fulfillment_status: string;
+    }>(`SELECT status, payment_status, fulfillment_status FROM "order" WHERE id = $1`, [
+      order.orderId,
+    ]);
+
+    expect(replayed).toMatchObject({
+      order_id: order.orderId,
+      status: live.rows[0]!.status,
+      payment_status: live.rows[0]!.payment_status,
+      fulfillment_status: live.rows[0]!.fulfillment_status,
+    });
+    // The shipments told the truth on the way: fulfilled, delivered, completed.
+    expect(replayed!.fulfillment_status).toBe('fulfilled');
+    expect(replayed!.status).toBe('completed');
+
+    // And each shipment's own stream is exactly one event per transition.
+    for (const id of [shipmentOne.id, shipmentTwo.id]) {
+      const topics = (await eventsFor(id)).rows.map((row) => row.topic);
+      expect(topics).toEqual(['shipment.created', 'shipment.shipped', 'shipment.delivered']);
+    }
+  });
+});
 
 describe('tracking webhooks', () => {
   it('applies a scan, stores a redacted extract with the raw body hash, and a duplicate changes nothing', async () => {

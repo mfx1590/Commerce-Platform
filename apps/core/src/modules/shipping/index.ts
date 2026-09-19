@@ -37,6 +37,7 @@ export {
   getShipment,
   iso,
   listOrderShipments,
+  loadShipment,
   readShipmentMetadata,
   renderShipment,
   updateShipment,

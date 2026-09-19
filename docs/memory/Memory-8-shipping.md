@@ -16,6 +16,12 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
+- **2.5 (#133) — pick/pack lifecycle, events, admin operations** · local commits (see git log) · PR after 0.4.3
+  `fulfillment/lifecycle.ts` (`pickShipment` / `packShipment` / `listPickLists`), `lifecycle-events.ts` (the
+  seam that writes to the outbox the moment events 0.3.0 exists and buffers with one warning until then),
+  `fulfillment/http.ts` (three Admin API operations, permissions read from the real spec or #225's filed copy),
+  the widened status machine in `shipping/shipments.ts`, and all six review nits. Full core suite: 537 passed,
+  5 skipped, 0 failed.
 - **2.4 (#132) — 3PL adapter + per-warehouse routing** · commit `23f3498` · PR #223
   New module `apps/core/src/modules/fulfillment`: `routeFulfillment` (pure; store country override → store default
   → same country → same region → priority), `FulfillmentProvider` (`push` / `status` / `cancel`) with the in-memory
@@ -46,55 +52,39 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **2.4 (#132) is in review as PR #223** (head pushed; the merge of main `0866f31` brings migration 0140).
-- 2.3 merged as `968c93f`. Migration 0140 landed with contracts-v0.4.2, and the manager's commit removed the
-  proposed copy, the test-side DDL and the drift test — nothing left for this window to clean up there.
-- **2.5 (#133) started. It needs a CONTRACT CHANGE before the lifecycle can ship — the manager decides scope.**
-  Findings on contracts-v0.4.2 (checked 2026-09-19):
-  - `admin-api.yaml` has **no** pick or pack operation (`grep operationId: pick|pack|fulfil` → nothing).
-  - `packages/events/schemas` has only `shipment.created` / `shipment.shipped` / `shipment.delivered`; there is no
-    topic for a fulfilment being requested, picked or packed. events is at 0.2.0.
-  - `shipment.status` CHECK is `pending, label_created, shipped, in_transit, delivered, failed, cancelled` — it
-    has **no `picking` / `packed`**, so the pick/pack states cannot live in that column without a migration.
+- **2.5 (#133) is code-complete locally**, three commits on `shipping/phase2` after the 2.4 ones. Waiting on the
+  manager's landing order: #227 → #229 → contracts-v0.4.3 (#225 + #228) → confirmation → then push 2.5 as its
+  own PR. **Do not push before that confirmation.**
+- When 0.4.3 is on main, in the PR that merges it: delete `fulfillment/proposed/0160_shipment_pick_pack.sql`,
+  `fulfillment/proposed/admin-api.pick-pack.yaml`, the test-side DDL in `lifecycle-db.test.ts` and
+  `shipments-db.test.ts`, and the `permissionFor` fallback in `fulfillment/http.ts`. The lifecycle events start
+  reaching the outbox on their own — `lifecycleEmitter` checks `EVENT_TOPICS` at call time — so the only change
+  needed there is deleting the buffer assertions in the "not in the outbox yet" test.
 
-  Plan (order matters):
-  1. **DONE — filed as #225** (manager's shape: pick/pack are REAL `shipment.status` values, not metadata).
-     Migration 0160 widens the status CHECK (0150's pattern), events 0.3.0 adds `fulfillment.requested` /
-     `.picking` / `.packed`, Admin API 0.4.3 adds `pickShipment` / `packShipment` / `listPickLists` with
-     `updateShipment`'s permission. The transition table is spelled out in the issue — it is the review surface.
-     Local copy of the DDL: `apps/core/src/modules/fulfillment/proposed/0160_shipment_pick_pack.sql`, applied by
-     tests only, deleted in the PR that merges the real migration. The manager lands it as contracts-v0.4.3 after
-     #223 merges. **REQUEST #226** filed for the `apps/core/CLAUDE.md` rows (window 1's file).
-  1b. **The events cannot be emitted until events 0.3.0 lands**: `withEvents` validates against the envelope's
-     topic enum in `@platform/events`, and `buildEvent`'s `topic` is a typed union, so `fulfillment.picking` fails
-     to typecheck and would fail validation at runtime. 2.5 therefore emits through a **local seam** in the
-     fulfillment module (`lifecycle-events.ts`): the payloads are built and handed to an emitter whose default
-     records them (asserted by tests); once 0.3.0 is on main the emitter delegates to `withEvents` and the seam's
-     default is deleted. The emission code path is written and tested now — only the last hop waits.
-  2. Implement the state machine in `modules/fulfillment` over that state: `requested → picking → packed →
-     shipped`, forward only, illegal → 409, exactly one event per legal transition through `withEvents`.
-  3. Partial shipments keep going through the orders module (`markShippedInTx`), already wired in 2.3.
-  4. The four folded nits below.
-  5. Close-out: module READMEs + CHANGELOGs, memory "Phase 2 done", and a REQUEST to window 1 for the
-     `apps/core/CLAUDE.md` rows for `shipping` and `fulfillment` (that file is theirs, #133 asks for the rows).
-
-## Fold into 2.5 (#133) — agreed nits from the #218 reviews, none blocking
-- `buyShipmentLabel` calls the carrier **inside** the database transaction; move the network call outside it, the
-  way `fulfillment/service.ts` already does (plan → call → record, with a compensating cancel).
-- `verifyEasyPostSignature` accepts **any** `label=` prefix: require the `hmac-sha256-hex` label (or a bare hex
-  digest) and reject anything else, rather than splitting on the first `=`.
-- `shipmentIdForTracking` silently picks the newest shipment when two share a tracking number; decide and test the
-  collision rule (most likely: refuse and record the delivery as `skipped` with a reason).
-- Add an explicit router test that a **guessed shipment id from another organization** is a 404, not a 403 leak.
+## Fold into 2.5 (#133) — DONE, all six
+- `buyShipmentLabel`'s carrier call is outside the transaction, with the bought label voided if the shipment moved.
+- `verifyEasyPostSignature` accepts only `hmac-sha256-hex` or a bare digest.
+- A tracking number matching two shipments is ambiguous: recorded, skipped, neither shipment moves.
+- A cross-organization shipment id is a 404 from the router (tested against a second organization).
+- `cancelFulfillment` records a divergence instead of swallowing it when the provider cancels what we cannot.
+- `applyFulfillmentUpdate` moves the shipment before recording the provider state, so a retry still works.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — done, PR #175 in review
 - [x] **#130 · 2.2** Rate shopping at checkout — done, PR #186 in review
 - [x] **#131 · 2.3** Labels and tracking webhooks — done, PR pending
 - [x] **#132 · 2.4** 3PL adapter interface + in-memory implementation — PR #223 in review
-- [ ] **#133 · 2.5** Pick/pack state machine and events
+- [x] **#133 · 2.5** Pick/pack state machine and events — code-complete locally, PR after 0.4.3
 
 ## Decisions made (with reasons)
+- **The lifecycle's legality check lives in the caller** (2.5): `applyTransition` writes what it is told, so
+  `move()` in `fulfillment/lifecycle.ts` calls `canTransition` first. The first version did not, and the tests
+  caught a backwards move writing `picking` over `shipped`.
+- **An operator's illegal move is a 409, a carrier's is a skip** (2.5): a person pressing the wrong button should
+  hear about it; a carrier delivering scans out of order should not create noise.
+- **Permissions are read from a spec even when the spec is still proposed** (2.5): `permissionFor` prefers the real
+  `admin-api.yaml` and falls back to `proposed/admin-api.pick-pack.yaml`, so no permission is ever hard-coded and
+  the fallback deletion is a one-line change.
 - **No database transaction across a provider call** (2.4): a 3PL can take seconds or time out, and a held
   transaction pins a connection and the order row's locks. Flows are short transactions around the network call
   with explicit compensation — a failed push cancels the shipment, which releases its stock.

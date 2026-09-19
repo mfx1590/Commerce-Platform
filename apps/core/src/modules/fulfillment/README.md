@@ -111,8 +111,68 @@ event id in `webhook_event` (migration 0140), then call `applyFulfillmentUpdate`
 - `memory-provider.test.ts` — progression, cancel refusal after picking, push failure, the registry (6 tests).
 - `fulfillment-db.test.ts` — on a seeded database: EU order to `wh-eu`, US order to `wh-us`, store override, cancel
   before pick releasing stock through the real inventory module, cancel after pick refused, failed push compensated,
-  the provider's `shipped` moving the shipment and the order (9 tests).
+  the provider's states moving the shipment, the divergence record when a provider cancels what we cannot, and the
+  reference that stays put when a move fails (11 tests).
+- `lifecycle-db.test.ts` — pick and pack on a seeded database: the two moves and their events, skips, refusals,
+  parcel counts, the pick list (grouping, filters, paging), and the router with dev tokens including the
+  cross-organization 404 (11 tests).
+
+## The pick/pack lifecycle (task 2.5, CONTRACT CHANGE #225)
+
+Pick and pack are **`shipment.status` values**, not a second state on the side: one column every guard, listing
+and consumer reads. `pickShipment` and `packShipment` move a shipment forward and write one event each, in the
+same transaction as the move.
+
+```
+pending ─→ picking ─→ packed ─→ label_created ─→ shipped ─→ in_transit ─→ delivered
+```
+
+- **Forward only, skips allowed.** A small store that packs without picking goes straight from `pending` to
+  `packed`; a shipment that already shipped refuses both moves. Backwards is never allowed — `applyTransition`
+  writes what it is told, so the legality check belongs to the caller and this module makes it.
+- **An operator's illegal move is a 409**, unlike a carrier's out-of-order scan, which the tracking receiver
+  records and skips. A person pressing the wrong button deserves to hear about it.
+- **`parcel_count`** is optional on pack and must be a positive integer.
+- `listPickLists` is the floor's queue: open shipments (`pending`, `picking`, `packed`) grouped by warehouse,
+  oldest first, filterable by warehouse and status, paged over shipments rather than groups.
+
+### The three events, and why they are not in the outbox yet
+
+`fulfillment.requested`, `fulfillment.picking` and `fulfillment.packed` are part of #225 (events 0.3.0) and do
+**not** exist in `@platform/events` yet. `withEvents` validates against the topics compiled into that package, so
+emitting one today would fail validation — and `buildEvent`'s topic argument would not even typecheck.
+
+`lifecycle-events.ts` is therefore the seam: the payloads are built and handed to an emitter that checks
+`EVENT_TOPICS` at call time.
+
+| Topic known to `@platform/events`? | What happens                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| yes (once 0.3.0 lands)             | straight to the outbox through `withEvents`, in the caller's transaction (ADR 0003) |
+| not yet                            | buffered in memory, one warning per process; the state change still commits         |
+
+Nothing changes on the day 0.3.0 lands: the same call starts writing to the outbox and the buffer stays empty.
+`pendingLifecycleEvents()` is a test seam, not a queue — a process restart drops it, which is why the events are
+worth nothing until the contract is real.
+
+## HTTP (task 2.5)
+
+`fulfillmentAdminRouter()` serves the three operations; mount it with one line in `src/http/module-routers.ts`
+(REQUEST #176). Permissions come from a spec, never hard-coded: the real `admin-api.yaml` first, and while #225 is
+open, `proposed/admin-api.pick-pack.yaml` — the same operations, filed verbatim. When Admin API 0.4.3 lands, the
+fallback and the proposed file are deleted and nothing else changes.
+
+| Route                                     | Notes                                                          |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `POST /admin/shipments/{shipmentId}/pick` | 200 `Shipment`; 409 when the move is illegal                   |
+| `POST /admin/shipments/{shipmentId}/pack` | optional `parcel_count`; 400 when it is not a positive integer |
+| `GET /admin/stores/{storeId}/pick-lists`  | `warehouse_id`, `status`, `page`, `limit`; 400 on a bad query  |
+
+The two shipment paths name no store, so the shipment's store is resolved through an organization-scoped client
+and a store-scoped client is used for the work. A shipment in **another organization** is a 404 — the same answer
+as an id that does not exist, so guessing ids reveals nothing (tested).
 
 ## Next
 
-Task 2.5 turns `picking` and `packed` into a pick/pack state machine with events and admin operations.
+Phase 2 is complete for this module. When events 0.3.0 and Admin API 0.4.3 land (#225), delete
+`proposed/0160_shipment_pick_pack.sql`, `proposed/admin-api.pick-pack.yaml`, the test-side DDL and the
+`permissionFor` fallback — the code behind them already works.

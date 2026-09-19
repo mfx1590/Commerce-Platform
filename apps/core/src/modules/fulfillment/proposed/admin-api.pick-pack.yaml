@@ -1,0 +1,24 @@
+# The three operations of CONTRACT CHANGE #225, exactly as filed, kept here so the router can read each
+# operation's `x-permission` from a spec rather than hard-coding it. `permissionFor()` in http.ts prefers the real
+# admin-api.yaml and only falls back to this file; when Admin API 0.4.3 lands, this file and the fallback go.
+paths:
+  /admin/shipments/{shipmentId}/pick:
+    post:
+      tags: [fulfillment]
+      operationId: pickShipment
+      summary: Start picking a planned shipment (emits fulfillment.picking)
+      x-permission: { relation: operations, object: 'organization:hq' }
+
+  /admin/shipments/{shipmentId}/pack:
+    post:
+      tags: [fulfillment]
+      operationId: packShipment
+      summary: Mark a picked shipment packed and ready for the carrier (emits fulfillment.packed)
+      x-permission: { relation: operations, object: 'organization:hq' }
+
+  /admin/stores/{storeId}/pick-lists:
+    get:
+      tags: [fulfillment]
+      operationId: listPickLists
+      summary: Shipments waiting to be picked or packed, grouped by warehouse
+      x-permission: { relation: operations, object: 'organization:hq' }
