@@ -74,11 +74,11 @@ beforeAll(async () => {
      JOIN price_list pl ON pl.id = pr.price_list_id AND pl.type = 'default' AND pl.status = 'active'
      WHERE v.store_id = $1 AND pr.amount_minor >= 1000
        AND (SELECT coalesce(sum(il.available), 0) FROM inventory_level il WHERE il.variant_id = v.id) >= 5
-     ORDER BY v.product_id, v.sku LIMIT 12`,
+     ORDER BY v.product_id, v.sku LIMIT 24`,
     [A],
   );
   pool = variants.rows;
-  expect(pool.length).toBeGreaterThanOrEqual(8);
+  expect(pool.length).toBeGreaterThanOrEqual(18);
   setDiscountEvaluator(promotionsDiscountEvaluator);
 }, 180_000);
 
@@ -331,5 +331,86 @@ describe('a code that has not started yet is conditional: time makes it applicab
     );
     const live = await updateLineItem(a, cart.id, added.items[0]!.id, { quantity: 2 });
     expect(Math.abs(live.totals.discount.amount_minor - (2 * v.price) / 10)).toBeLessThan(1);
+  });
+});
+
+describe('tax-inclusive fixed amounts are exact on awkward carts (#243 re-review)', () => {
+  /** A cart of tiny, small and ordinary lines — the sizes where a net → gross round trip overshoots a line. */
+  async function mixedCart(prices: number[]) {
+    const variants = prices.map(() => freshVariant());
+    for (const [i, v] of variants.entries()) {
+      await owner.query(
+        `UPDATE price SET amount_minor = $2 WHERE variant_id = $1 AND currency = 'EUR'`,
+        [v.id, prices[i]],
+      );
+    }
+    return variants;
+  }
+  const fill = async (variants: { id: string }[]) => {
+    const cart = await createCart(a, scopeA);
+    for (const v of variants) await addLineItem(a, cart.id, { variant_id: v.id, quantity: 1 });
+    return cart;
+  };
+
+  it('mixed line sizes: whatever the rounding drift, the displayed total drops by exactly the configured amount and no line goes below zero', async () => {
+    const prices = [3, 101, 1999];
+    const variants = await mixedCart(prices);
+    const displayed = prices.reduce((n, p) => n + p, 0);
+    const amounts = [7, 50, 333, 1500];
+    for (const amount of amounts) {
+      await promo({
+        code: `MIX${amount}`,
+        name: `${amount} off the mixed cart`,
+        type: 'fixed_amount',
+        value: amount,
+        currency: 'EUR',
+        rules: { product_ids: variants.map((v) => v.product_id) },
+      });
+    }
+    await owner.query(INCLUSIVE_ON, [A]);
+    try {
+      for (const amount of amounts) {
+        const cart = await fill(variants);
+        const c = await updateCart(a, cart.id, { promotion_codes: [`MIX${amount}`] });
+        expect(c.totals.subtotal.amount_minor).toBe(displayed);
+        expect(c.totals.discount.amount_minor).toBe(amount);
+        expect(c.totals.total.amount_minor).toBe(displayed - amount);
+        expect(c.items.reduce((n, i) => n + i.discount.amount_minor, 0)).toBe(amount);
+        for (const item of c.items) {
+          expect(item.discount.amount_minor).toBeGreaterThanOrEqual(0);
+          expect(item.discount.amount_minor).toBeLessThanOrEqual(item.subtotal.amount_minor);
+          expect(item.total.amount_minor).toBe(
+            item.subtotal.amount_minor - item.discount.amount_minor,
+          );
+        }
+      }
+    } finally {
+      await owner.query(INCLUSIVE_OFF, [A]);
+    }
+  });
+
+  it("the reviewer's case — lines 3 + 100, 200 off: the discount is exactly the eligible displayed subtotal (103), not 102; a line outside the promotion is untouched", async () => {
+    const [tiny, small, outside] = await mixedCart([3, 100, 1200]);
+    await promo({
+      code: 'TOOBIG',
+      name: 'More than the eligible lines are worth',
+      type: 'fixed_amount',
+      value: 200,
+      currency: 'EUR',
+      rules: { product_ids: [tiny!.product_id, small!.product_id] },
+    });
+    await owner.query(INCLUSIVE_ON, [A]);
+    try {
+      const cart = await fill([tiny!, small!, outside!]);
+      const c = await updateCart(a, cart.id, { promotion_codes: ['TOOBIG'] });
+      const line = (variantId: string) => c.items.find((i) => i.variant_id === variantId)!;
+      expect(line(tiny!.id).discount.amount_minor).toBe(3);
+      expect(line(small!.id).discount.amount_minor).toBe(100);
+      expect(line(outside!.id).discount.amount_minor).toBe(0);
+      expect(c.totals.discount.amount_minor).toBe(Math.min(200, 103));
+      expect(c.totals.total.amount_minor).toBe(1303 - 103);
+    } finally {
+      await owner.query(INCLUSIVE_OFF, [A]);
+    }
   });
 });

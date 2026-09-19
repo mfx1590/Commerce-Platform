@@ -13,7 +13,10 @@
 - **Tax-inclusive stores**: the adapter converts to tax-exclusive money for the engine and back to the cart's
   gross base (same `taxOn` rounding); window 9's engine is unchanged. Fixed amounts and `min_subtotal`
   thresholds are GROSS figures: "5.00 off" is exactly 5.00 off the displayed total, "spend 100" compares the
-  displayed subtotal (#243 ruling). `not_started` is a conditional rejection: a launch code stays stored.
+  displayed subtotal (#243 ruling). `not_started` is a conditional rejection: a launch code stays stored. The
+  fixed-amount conversion clamps every share to its line's displayed subtotal and spreads the rounding drift only
+  over eligible lines with headroom, so the discount is exactly `min(configured, eligible displayed subtotal)`
+  even on tiny lines (#243 re-review).
 - **`fulfillmentAdminRouter()` mounted** (window 8, #133: pick, pack, pick lists) — those routes were dead on the
   running server; the "pending on #235" notes are gone, router count 8.
 - **#236 review nits**: an unattributable fraud outage is booked on `rules` (inside the provider-name set) and a

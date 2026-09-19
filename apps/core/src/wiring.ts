@@ -110,8 +110,10 @@ async function customerPromotionFacts(
  * GROSS. This adapter converts both ways through the cart's own `taxOn` seam:
  * - unit prices: `net = gross − taxOn(gross, bp, true)` per line;
  * - a `fixed_amount` value: gross → net at the blended rate of the promotion's eligible lines, and after the
- *   evaluation its per-line allocations are brought back so that they sum to EXACTLY the configured gross amount
- *   ("5.00 off" drops the displayed total by exactly 5.00; capped at the eligible lines' displayed subtotal);
+ *   evaluation its per-line allocations are brought back so that they sum to EXACTLY
+ *   `min(configured gross amount, eligible lines' displayed subtotal)` — each share clamped to its line's displayed
+ *   subtotal, the rounding drift spread only over eligible lines with headroom ("5.00 off" drops the displayed
+ *   total by exactly 5.00, a coupon larger than the eligible lines takes exactly those lines to zero);
  * - a `min_subtotal_minor` threshold is compared here against the DISPLAYED (gross) cart subtotal — the engine
  *   only receives the outcome (threshold 0 when met, an unreachable one when not);
  * - every other allocation (percentages, buy-x-get-y): `gross = net + taxOn(net, bp)` per line, so a percentage
@@ -179,24 +181,39 @@ export const promotionsDiscountEvaluator: DiscountEvaluator = {
     const configured = new Map(stored.map((p) => [p.id, p]));
     const allocations = new Map<string, number>();
     const applied = result.applied.map((a) => {
-      const perLine = Object.entries(a.allocations).map(
-        ([lineId, net]) => [lineId, toCartBase(net, bpOf.get(lineId) ?? 0)] as [string, number],
-      );
       const p = configured.get(a.promotion_id);
-      if (inclusive && p?.type === 'fixed_amount' && perLine.length > 0) {
-        // exactly the configured gross amount (or the eligible lines' displayed subtotal when that is smaller):
-        // the conversion's rounding remainder goes onto the largest share
-        const target = Math.min(p.value, grossEligible(p));
-        const drift = target - perLine.reduce((n, [, d]) => n + d, 0);
-        if (drift !== 0) perLine.sort((x, y) => y[1] - x[1])[0]![1] += drift;
+      // A net → gross round trip can overshoot a small line (gross 3 at 19 %: net 3, back to gross 4), so every
+      // converted share is clamped to its line's DISPLAYED subtotal — the cart would clamp it anyway, silently.
+      const share = new Map<string, number>();
+      for (const [lineId, net] of Object.entries(a.allocations)) {
+        const cap = grossOf.get(lineId) ?? 0;
+        share.set(lineId, Math.max(0, Math.min(cap, toCartBase(net, bpOf.get(lineId) ?? 0))));
       }
-      for (const [lineId, d] of perLine)
+      if (inclusive && p?.type === 'fixed_amount') {
+        // Exactly min(configured amount, eligible lines' displayed subtotal): the rounding drift is spread one
+        // line at a time over the promotion's ELIGIBLE lines that still have headroom (up) or a share (down),
+        // largest room first, until the target is met or every line is saturated — and when all are saturated the
+        // target IS the eligible subtotal (the cap case), so the sum is exact there too (#243 re-review).
+        const lineIds = eligibleLines(engineLines, p.rules).map((l) => l.id);
+        const target = Math.min(p.value, grossEligible(p));
+        let drift = target - [...share.values()].reduce((n, d) => n + d, 0);
+        while (drift !== 0) {
+          const room = (id: string) =>
+            drift > 0 ? (grossOf.get(id) ?? 0) - (share.get(id) ?? 0) : (share.get(id) ?? 0);
+          const id = lineIds.filter((x) => room(x) > 0).sort((x, y) => room(y) - room(x))[0];
+          if (id === undefined) break; // every line saturated
+          const step = Math.sign(drift) * Math.min(Math.abs(drift), room(id));
+          share.set(id, (share.get(id) ?? 0) + step);
+          drift -= step;
+        }
+      }
+      let discountMinor = 0;
+      for (const [lineId, d] of share) {
+        if (d === 0) continue;
         allocations.set(lineId, (allocations.get(lineId) ?? 0) + d);
-      return {
-        promotionId: a.promotion_id,
-        code: a.code,
-        discountMinor: perLine.reduce((n, [, d]) => n + d, 0),
-      };
+        discountMinor += d;
+      }
+      return { promotionId: a.promotion_id, code: a.code, discountMinor };
     });
     return {
       allocations,

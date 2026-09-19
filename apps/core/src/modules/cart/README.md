@@ -99,8 +99,9 @@ abandoned (nothing to recover).
   the cart knows no reason names. **Tax-inclusive stores** (manager decision + ruling on #243): the engine always works in
   tax-exclusive money, and everything a merchant configures or a customer sees is GROSS. OUR adapter converts
   both ways through `taxOn`: unit prices gross → net; a fixed amount gross → net at the blended rate of its
-  eligible lines, its allocations brought back to sum to EXACTLY the configured amount ("5.00 off" is 5.00 off the
-  displayed total); a `min_subtotal` compared against the DISPLAYED cart subtotal; percentages converted per line
+  eligible lines, its allocations brought back to sum to EXACTLY `min(configured amount, eligible lines' displayed
+subtotal)` — each share clamped to its line, the rounding drift spread only where there is headroom ("5.00 off"
+  is 5.00 off the displayed total); a `min_subtotal` compared against the DISPLAYED cart subtotal; percentages converted per line
   (the same percentage of what the customer sees). For that conversion `recalculate` asks the TaxCalculator
   for the lines' rates once before discounting (tax-inclusive stores only).
 
