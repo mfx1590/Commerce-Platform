@@ -1,0 +1,54 @@
+// src/wiring.ts: what createServer() registers behind the seams, once. No database: every call is a registry write.
+import { afterAll, describe, expect, it } from 'vitest';
+import {
+  currentPriceResolver,
+  currentShippingRateProvider,
+  currentTaxCalculator,
+  defaultListPriceResolver,
+  setPriceResolver,
+  setShippingRateProvider,
+  setTaxCalculator,
+  tableShippingRates,
+  tableTaxCalculator,
+} from '../src/modules/cart';
+import { manualPaymentProvider, registeredPaymentProviders } from '../src/modules/checkout';
+import {
+  currentRefundRequester,
+  manualRefundRequester,
+  setRefundRequester,
+} from '../src/modules/returns';
+import { priceListResolver, registerModuleSeams } from '../src/wiring';
+
+afterAll(() => {
+  setPriceResolver(defaultListPriceResolver);
+  setTaxCalculator(tableTaxCalculator);
+  setShippingRateProvider(tableShippingRates);
+  setRefundRequester(manualRefundRequester);
+});
+
+describe('registerModuleSeams()', () => {
+  it('starts from the built-in defaults', () => {
+    expect(currentPriceResolver()).toBe(defaultListPriceResolver);
+    expect(currentTaxCalculator()).toBe(tableTaxCalculator);
+    expect(currentShippingRateProvider()).toBe(tableShippingRates);
+    expect(currentRefundRequester()).toBe(manualRefundRequester);
+    expect(registeredPaymentProviders()).toEqual([manualPaymentProvider.name]);
+  });
+
+  it('registers payments (+ the refund requester), carrier rates, tax and price lists — without any configuration', () => {
+    expect(() => registerModuleSeams()).not.toThrow();
+    expect(registeredPaymentProviders()).toEqual(expect.arrayContaining(['manual', 'stripe']));
+    expect(currentRefundRequester()).not.toBe(manualRefundRequester);
+    expect(currentShippingRateProvider()).not.toBe(tableShippingRates);
+    expect(currentTaxCalculator()).not.toBe(tableTaxCalculator);
+    expect(currentPriceResolver()).toBe(priceListResolver);
+  });
+
+  it('is idempotent: a second call registers nothing again', () => {
+    setPriceResolver(defaultListPriceResolver); // what a test (or an operator script) put back …
+    const tax = currentTaxCalculator();
+    registerModuleSeams();
+    expect(currentPriceResolver()).toBe(defaultListPriceResolver); // … stays put
+    expect(currentTaxCalculator()).toBe(tax);
+  });
+});

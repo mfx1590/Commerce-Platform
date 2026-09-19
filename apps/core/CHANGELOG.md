@@ -2,7 +2,15 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
-### 2026-09-19 · `registerTaxProvider()` at boot (#127 on main)
+### 2026-09-19 · cleanup: tax boot line, refunds router, guard + wiring tests (#127, #126 on main)
+
+- **`paymentsAdminRouter()` mounted** (window 7, #176 part 4): `POST /admin/stores/{storeId}/orders/{orderId}/refunds`
+  answers on the running server (support → 404 on an unknown order, 400 without `Idempotency-Key`, store staff →
+  403). `module-routers.ts` header rewritten: nothing is pending, boot registrations live in `src/wiring.ts`.
+- **Guard widened**: cart and checkout may not reach `modules/promotions` by any spelling — deep path, roundabout
+  path, `import()` or `require()` — with a self-test of the pattern. **`test/wiring.test.ts`**:
+  `registerModuleSeams()` registers `stripe`, the payments refund requester, carrier rates, the tax calculator
+  and the price-list resolver without any configuration, and is idempotent.
 
 - `src/wiring.ts` → `registerModuleSeams()` now also calls window 7's `registerTaxProvider()`: the cart's
   `TaxCalculator` is the tax module's (table or Stripe Tax per `store.settings.tax`). With default store settings

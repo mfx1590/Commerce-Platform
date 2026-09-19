@@ -129,8 +129,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - Other modules' Admin routers mount through `src/http/module-routers.ts` (`moduleAdminRouters()`, after
   `adminRouter()`): window 9's `merchandisingRouter` (#162) and window 17's `marketingAdminRouter` (#181) are
   mounted, and since the quiet-state batch window 9's `mediaRouter` (#168), `pricingRouter` (#137) and
-  `promotionsRouter` (#138 / #189) and window 8's `shippingAdminRouter` (#131); add one `routers.push(...)`
-  line per new router (pending on main: window 7's `paymentsAdminRouter`).
+  `promotionsRouter` (#138 / #189), window 8's `shippingAdminRouter` (#131) and window 7's
+  `paymentsAdminRouter` (#126, refunds); add one `routers.push(...)` line per new router. Nothing is pending.
 - Provider webhooks mount through `moduleWebhookRouters()` (same file): outside the `/store` and `/admin` chains,
   before any JSON body parser, each router with its own `express.raw()` — the provider's signature over the raw
   body is the authentication. Mounted: window 7's `paymentsWebhookRouter` (`POST /webhooks/stripe/:storeCode`,
