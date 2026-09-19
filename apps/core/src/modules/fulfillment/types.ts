@@ -94,6 +94,9 @@ export interface FulfillmentRef {
   state: FulfillmentState;
   warehouse_code: string;
   updated_at: string;
+  /** Set when the provider and our shipment disagree and a human has to finish the job. */
+  needs_reconciliation?: boolean;
+  reconcile_reason?: string;
 }
 
 export interface WarehouseCandidate {

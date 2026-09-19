@@ -9,6 +9,30 @@ export {
   resetFulfillmentProviders,
   setFulfillmentProvider,
 } from './registry';
+export {
+  clearPendingLifecycleEvents,
+  currentLifecycleEmitter,
+  emitLifecycleEvent,
+  lifecycleEmitter,
+  LIFECYCLE_TOPICS,
+  pendingLifecycleEvents,
+  setLifecycleEmitter,
+  topicIsKnown,
+} from './lifecycle-events';
+export type {
+  LifecycleEmitter,
+  LifecycleEvent,
+  LifecycleLine,
+  LifecycleTopic,
+} from './lifecycle-events';
+export { listPickLists, packShipment, pickShipment, PICK_LIST_STATUSES } from './lifecycle';
+export {
+  fulfillmentAdminRouter,
+  PACK_SHIPMENT_PATH,
+  PICK_LISTS_PATH,
+  PICK_SHIPMENT_PATH,
+} from './http';
+export type { PickListGroup, PickListPage, PickListQuery } from './lifecycle';
 export { regionOf, routeFulfillment, routingSettingsFrom } from './routing';
 export {
   applyFulfillmentUpdate,

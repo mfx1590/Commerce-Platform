@@ -67,9 +67,12 @@ export function verifyEasyPostSignature(
   secret: string,
 ): boolean {
   if (!signature || !secret) return false;
-  const provided = signature.includes('=')
-    ? signature.slice(signature.indexOf('=') + 1)
-    : signature;
+  // Only EasyPost's own label is accepted. Splitting on the first `=` would let any label through, so a
+  // `sha1=…` or `v0=…` header meant for another provider could be presented as if it were this one.
+  const trimmed = signature.trim();
+  const marked = trimmed.indexOf('=');
+  if (marked !== -1 && trimmed.slice(0, marked).toLowerCase() !== 'hmac-sha256-hex') return false;
+  const provided = marked === -1 ? trimmed : trimmed.slice(marked + 1);
   const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
   const a = Buffer.from(expected, 'utf8');
   const b = Buffer.from(provided.trim().toLowerCase(), 'utf8');
@@ -179,7 +182,19 @@ export async function applyTrackingEvent(
       };
     }
 
-    const shipmentId = await shipmentIdForTracking(tx, extract.tracking_code);
+    const match = await shipmentIdForTracking(tx, extract.tracking_code);
+    if (match && 'ambiguous' in match) {
+      const reason = 'more than one shipment has this tracking number';
+      await finishWebhookEvent(tx, rowId, { status: 'skipped', shipmentId: null, reason });
+      return {
+        outcome: 'skipped',
+        eventId: extract.provider_event_id,
+        shipmentId: null,
+        status: null,
+        reason,
+      };
+    }
+    const shipmentId = match?.id ?? null;
     if (!shipmentId) {
       const reason = 'no shipment with this tracking number';
       await finishWebhookEvent(tx, rowId, { status: 'skipped', shipmentId: null, reason });
@@ -219,13 +234,20 @@ export async function applyTrackingEvent(
   });
 }
 
+/**
+ * The shipment a tracking number belongs to. Carrier numbers are unique in practice but nothing in the schema
+ * enforces it, and guessing wrong moves the wrong customer's parcel — so two matches is **ambiguous**, not
+ * "newest wins": the delivery is recorded and skipped for a human to sort out.
+ */
 async function shipmentIdForTracking(
   tx: Queryable,
   trackingNumber: string,
-): Promise<string | null> {
+): Promise<{ id: string } | { ambiguous: true } | null> {
   const r = await tx.query<{ id: string }>(
-    `SELECT id FROM shipment WHERE tracking_number = $1 ORDER BY created_at DESC LIMIT 1`,
+    `SELECT id FROM shipment WHERE tracking_number = $1 ORDER BY created_at DESC LIMIT 2`,
     [trackingNumber],
   );
-  return r.rows[0]?.id ?? null;
+  if (r.rows.length === 0) return null;
+  if (r.rows.length > 1) return { ambiguous: true };
+  return { id: r.rows[0]!.id };
 }

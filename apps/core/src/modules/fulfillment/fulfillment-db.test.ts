@@ -7,7 +7,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { addLineItem, createCart, updateCart } from '../cart';
 import { completeCart, createPaymentSession } from '../checkout';
 import { confirmOrder } from '../orders';
-import { getShipment, readShipmentMetadata } from '../shipping';
+import {
+  buyShipmentLabel,
+  coreInventoryPort,
+  createManualCarrierProvider,
+  getShipment,
+  readShipmentMetadata,
+  setCarrierProvider,
+  setInventoryPort,
+} from '../shipping';
 import { createMemoryFulfillmentProvider, type MemoryFulfillmentProvider } from './memory-provider';
 import { resetFulfillmentProviders, setFulfillmentProvider } from './registry';
 import { applyFulfillmentUpdate, cancelFulfillment, requestFulfillment } from './service';
@@ -127,6 +135,13 @@ async function placedOrder(store: StoreFixture) {
   return placed.order.id;
 }
 
+const outboxFor = (shipmentId: string) =>
+  owner.query<{ topic: string; payload: Record<string, unknown> }>(
+    `SELECT topic, payload FROM outbox WHERE aggregate_type = 'shipment' AND aggregate_id = $1
+      ORDER BY occurred_at, seq`,
+    [shipmentId],
+  );
+
 const onHand = async (variant: string, warehouse: string) =>
   (
     await owner.query<{ on_hand: number }>(
@@ -183,6 +198,52 @@ describe('fulfilment routing', () => {
   });
 });
 
+describe('fulfilment events', () => {
+  it('emits fulfillment.requested when a warehouse accepts the work', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment, externalId } = await requestFulfillment(store.client, { orderId, actor });
+
+    const rows = await outboxFor(shipment.id);
+    expect(rows.rows.map((row) => row.topic)).toEqual([
+      'shipment.created',
+      'fulfillment.requested',
+    ]);
+    expect(rows.rows[1]!.payload).toEqual({
+      shipment_id: shipment.id,
+      order_id: orderId,
+      warehouse_id: SEED_IDS.warehouses.eu,
+      provider: 'memory',
+      external_id: externalId,
+      items: [expect.objectContaining({ quantity: 2 })],
+      occurred_at: expect.any(String),
+    });
+    // The request carries ids and quantities, never the address it was shipped to.
+    expect(JSON.stringify(rows.rows)).not.toMatch(/Unter den Linden|Berlin|Jane/);
+  });
+
+  it('writes the same fulfillment.* events whether the 3PL or an operator moved the shipment', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment, externalId } = await requestFulfillment(store.client, { orderId, actor });
+
+    // Driven entirely by the provider, through applyFulfillmentUpdate.
+    await applyFulfillmentUpdate(store.client, provider.advance(externalId, 'picking'), actor);
+    await applyFulfillmentUpdate(store.client, provider.advance(externalId, 'packed'), actor);
+
+    const rows = await outboxFor(shipment.id);
+    expect(rows.rows.map((row) => row.topic)).toEqual([
+      'shipment.created',
+      'fulfillment.requested',
+      'fulfillment.picking',
+      'fulfillment.packed',
+    ]);
+    expect((await getShipment(store.client, shipment.id)).status).toBe('packed');
+    // A consumer cannot tell who moved it: same topics, same payload shape as the admin path.
+    expect(rows.rows[2]!.payload).toMatchObject({ shipment_id: shipment.id, order_id: orderId });
+  });
+});
+
 describe('fulfilment cancel and updates', () => {
   it('cancel before pick releases the reservation through the inventory module', async () => {
     const store = stores.a!;
@@ -205,6 +266,27 @@ describe('fulfilment cancel and updates', () => {
     });
     // The order owes the goods again.
     await expect(requestFulfillment(store.client, { orderId, actor })).resolves.toBeTruthy();
+  });
+
+  it('gives a bought label back to the carrier when the fulfilment is cancelled', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment } = await requestFulfillment(store.client, { orderId, actor });
+
+    const carrier = createManualCarrierProvider();
+    const voided: string[] = [];
+    const realVoid = carrier.voidLabel.bind(carrier);
+    carrier.voidLabel = async (request) => {
+      voided.push(request.providerShipmentId);
+      return realVoid(request);
+    };
+    setCarrierProvider(carrier);
+    const labelled = await buyShipmentLabel(store.client, shipment.id, { actor });
+    expect(labelled.status).toBe('label_created');
+
+    await cancelFulfillment(store.client, shipment.id, actor);
+    expect(voided).toHaveLength(1);
+    expect((await getShipment(store.client, shipment.id)).status).toBe('cancelled');
   });
 
   it('refuses to cancel once picking has started and changes nothing', async () => {
@@ -237,19 +319,24 @@ describe('fulfilment cancel and updates', () => {
     expect(shipments.rows.map((row) => row.status)).toEqual(['cancelled']);
   });
 
-  it("applies the provider's shipped update once, with tracking, and records picking without moving", async () => {
+  it("applies the provider's states in order: picking, packed, then shipped with tracking", async () => {
     const store = stores.a!;
     const orderId = await placedOrder(store);
     const { shipment, externalId } = await requestFulfillment(store.client, { orderId, actor });
 
     const picking = provider.advance(externalId, 'picking');
-    expect(await applyFulfillmentUpdate(store.client, picking, actor)).toEqual({
-      applied: true,
-      shipment: null,
-    });
-    expect((await getShipment(store.client, shipment.id)).status).toBe('pending');
+    const started = await applyFulfillmentUpdate(store.client, picking, actor);
+    // Since #225 the pick/pack lifecycle IS the shipment status, so this moves the row.
+    expect(started.applied).toBe(true);
+    expect(started.shipment).toMatchObject({ status: 'picking' });
+    expect((await getShipment(store.client, shipment.id)).status).toBe('picking');
 
-    provider.advance(externalId, 'packed');
+    const packed = await applyFulfillmentUpdate(
+      store.client,
+      provider.advance(externalId, 'packed'),
+      actor,
+    );
+    expect(packed.shipment).toMatchObject({ status: 'packed' });
     const shipped = provider.advance(externalId, 'shipped', { trackingNumber: 'TRK-2-4' });
     const applied = await applyFulfillmentUpdate(store.client, shipped, actor);
     expect(applied.shipment).toMatchObject({ status: 'shipped', tracking_number: 'TRK-2-4' });
@@ -263,6 +350,64 @@ describe('fulfilment cancel and updates', () => {
       [orderId],
     );
     expect(order.rows[0]!.fulfillment_status).toBe('fulfilled');
+  });
+
+  it('records a divergence when the provider cancels but the shipment cannot', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment, externalId } = await requestFulfillment(store.client, { orderId, actor });
+    // The parcel has left: cancelling the shipment is no longer legal, but the provider still accepts a cancel
+    // (it thinks the job is fresh). The divergence must be written down, not swallowed.
+    provider.advance(externalId, 'picking');
+    provider.advance(externalId, 'packed');
+    provider.advance(externalId, 'shipped', { trackingNumber: 'TRK-DIVERGE' });
+    await applyFulfillmentUpdate(store.client, await provider.status(externalId), actor);
+    expect((await getShipment(store.client, shipment.id)).status).toBe('shipped');
+
+    // A provider that agrees to cancel an already-shipped job — exactly the state that must not be lost.
+    provider.cancel = async () => ({ cancelled: true });
+    await expect(cancelFulfillment(store.client, shipment.id, actor)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { shipment_id: shipment.id, provider: 'memory' },
+    });
+    expect(await readShipmentMetadata(store.client, shipment.id, 'fulfillment')).toMatchObject({
+      state: 'cancelled',
+      needs_reconciliation: true,
+      reconcile_reason: 'provider cancelled the fulfilment; the shipment could not be cancelled',
+    });
+    // Our row is untouched: the parcel really is on its way.
+    expect((await getShipment(store.client, shipment.id)).status).toBe('shipped');
+  });
+
+  it('leaves the reference where it was when the move fails, so the retry still works', async () => {
+    const store = stores.a!;
+    const orderId = await placedOrder(store);
+    const { shipment, externalId } = await requestFulfillment(store.client, { orderId, actor });
+    const cancelled = { ...(await provider.status(externalId)), state: 'cancelled' as const };
+
+    // Releasing stock fails for a reason that is not a conflict: the whole update must fail, and the
+    // reference must NOT record `cancelled`, or the provider's retry would find nothing to do.
+    setInventoryPort({
+      consumeReservations: async () => {},
+      releaseReservations: async () => {
+        throw new Error('inventory unavailable');
+      },
+    });
+    await expect(applyFulfillmentUpdate(store.client, cancelled, actor)).rejects.toThrow(
+      'inventory unavailable',
+    );
+    expect(await readShipmentMetadata(store.client, shipment.id, 'fulfillment')).toMatchObject({
+      state: 'accepted',
+    });
+    expect((await getShipment(store.client, shipment.id)).status).toBe('pending');
+
+    // With inventory back, the same update lands.
+    setInventoryPort(coreInventoryPort);
+    const retried = await applyFulfillmentUpdate(store.client, cancelled, actor);
+    expect(retried.shipment).toMatchObject({ status: 'cancelled' });
+    expect(await readShipmentMetadata(store.client, shipment.id, 'fulfillment')).toMatchObject({
+      state: 'cancelled',
+    });
   });
 
   it('rejects an update whose external id does not match the shipment', async () => {
