@@ -3,7 +3,50 @@
 import { setPaymentProvider } from '../checkout';
 import { createStripePaymentProvider, type StripeProviderOptions } from './provider';
 
-export { envSuffix, stripeCredentialsFor, type StripeCredentials } from './credentials';
+export {
+  envSuffix,
+  stripeCredentialsFor,
+  stripeWebhookSecretFor,
+  type StripeCredentials,
+} from './credentials';
+// Webhook receiver (task 2.2, #125): signature, redacted extract + seal, exactly-once processing, replay.
+export {
+  computeStripeSignature,
+  DEFAULT_TOLERANCE_SECONDS,
+  parseStripeSignature,
+  signStripePayload,
+  verifyStripeSignature,
+  type SignatureVerdict,
+} from './webhook-signature';
+export {
+  canonicalJson,
+  computeSeal,
+  MalformedEventError,
+  redactStripeEvent,
+  sealExtract,
+  sha256Hex,
+  verifySeal,
+  type ExtractObject,
+  type WebhookExtract,
+} from './webhook-extract';
+export {
+  getWebhookEvent,
+  handleStripeWebhook,
+  IN_FLIGHT_TAKEOVER_SECONDS,
+  replayWebhookEvent,
+  WEBHOOK_PROVIDER,
+  type ReplayOptions,
+  type StripeWebhookInput,
+  type WebhookEventRow,
+  type WebhookEventStatus,
+  type WebhookOutcome,
+} from './webhook-receiver';
+export {
+  paymentsWebhookRouter,
+  STRIPE_WEBHOOK_BODY_LIMIT,
+  STRIPE_WEBHOOK_PATH,
+  type PaymentsWebhookRouterOptions,
+} from './webhook-router';
 export {
   formEncode,
   STRIPE_API_VERSION,
