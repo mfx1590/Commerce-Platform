@@ -86,8 +86,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `completeCart` answers 409 `price_changed` (#228) instead of placing at a price the customer did not see.
 - Boot-time registrations live in `src/wiring.ts` (`registerModuleSeams()`, called once by `createServer()`):
   `registerPaymentProviders()` (window 7), `registerCarrierProviders()` (window 8) and the cart's
-  `priceListResolver` over window 9's `resolvePrices`. Plain registry writes — no I/O, no configuration read.
-  Pending: `registerTaxProvider()` when window 7's tax module reaches main.
+  `priceListResolver` over window 9's `resolvePrices`, and `registerTaxProvider()` (window 7: table or Stripe Tax
+  per `store.settings.tax`; identical to the built-in calculator with default settings). Plain registry writes —
+  no I/O, no configuration read.
 - Payment seam (`src/modules/checkout`): `setPaymentProvider()` registers window 7's `stripe` (#127) next to the
   built-in `manual` provider; `createSession` / `authorize` / `void` / `refund` exchange ids and amounts only (hosted
   fields — card data never reaches this process). Placement is one transaction; idempotency = `payment.idempotency_key`
@@ -128,8 +129,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - Other modules' Admin routers mount through `src/http/module-routers.ts` (`moduleAdminRouters()`, after
   `adminRouter()`): window 9's `merchandisingRouter` (#162) and window 17's `marketingAdminRouter` (#181) are
   mounted, and since the quiet-state batch window 9's `mediaRouter` (#168), `pricingRouter` (#137) and
-  `promotionsRouter` (#138 / #189) and window 8's `shippingAdminRouter` (#131); add one `routers.push(...)`
-  line per new router (pending on main: window 7's `paymentsAdminRouter`).
+  `promotionsRouter` (#138 / #189), window 8's `shippingAdminRouter` (#131) and window 7's
+  `paymentsAdminRouter` (#126, refunds); add one `routers.push(...)` line per new router. Nothing is pending.
 - Provider webhooks mount through `moduleWebhookRouters()` (same file): outside the `/store` and `/admin` chains,
   before any JSON body parser, each router with its own `express.raw()` — the provider's signature over the raw
   body is the authentication. Mounted: window 7's `paymentsWebhookRouter` (`POST /webhooks/stripe/:storeCode`,

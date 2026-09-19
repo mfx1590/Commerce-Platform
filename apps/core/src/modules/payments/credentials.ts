@@ -16,6 +16,54 @@ export function envSuffix(storeCode: string): string {
   return storeCode.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 }
 
+/** A per-store secret and the variable that supplied it (names are loggable, values never are). */
+export interface StoreSecret {
+  value: string;
+  /** The environment variable that supplied the value. */
+  variable: string;
+  source: 'store' | 'global';
+}
+
+/**
+ * THE per-store credential loader shared by payments, tax and fraud (task 2.5, #128; ADR 0006): for a secret
+ * named `NAME`, `NAME_<STORE_CODE>` wins over the global `NAME`. Deployed, both are injected from
+ * `<env>/stores/<store_code>/<provider>` by External Secrets; locally they come from `.env`. Read on EVERY call —
+ * a rotated value is picked up without a restart — and never cached, logged or embedded in an error.
+ * Returns null when neither variable is set; `requireStoreSecret` is the fail-closed form.
+ */
+export function storeSecretFor(
+  storeCode: string,
+  name: string,
+  env: NodeJS.ProcessEnv = process.env,
+): StoreSecret | null {
+  const storeVariable = `${name}_${envSuffix(storeCode)}`;
+  const storeValue = env[storeVariable];
+  if (storeValue) return { value: storeValue, variable: storeVariable, source: 'store' };
+  const globalValue = env[name];
+  if (globalValue) return { value: globalValue, variable: name, source: 'global' };
+  return null;
+}
+
+/**
+ * Fails closed at first use: a missing secret throws an error that names BOTH variables and the secret-store
+ * path — never a value — so the operator knows exactly what to set.
+ */
+export function requireStoreSecret(
+  storeCode: string,
+  name: string,
+  provider: string,
+  env: NodeJS.ProcessEnv = process.env,
+): StoreSecret {
+  const secret = storeSecretFor(storeCode, name, env);
+  if (!secret) {
+    throw new Error(
+      `${provider} is not configured for store ${storeCode}: set ${name}_${envSuffix(storeCode)} or ${name} ` +
+        `(locally in .env; deployed via <env>/stores/${storeCode}/${provider}, ADR 0006)`,
+    );
+  }
+  return secret;
+}
+
 /**
  * `STRIPE_SECRET_KEY_<CODE>` (else `STRIPE_SECRET_KEY`) + `STRIPE_WEBHOOK_SECRET_<CODE>` (else
  * `STRIPE_WEBHOOK_SECRET`). Fails closed: no secret key → an error naming both variables; a live-mode key
@@ -26,23 +74,14 @@ export function stripeCredentialsFor(
   storeCode: string,
   env: NodeJS.ProcessEnv = process.env,
 ): StripeCredentials {
-  const suffix = envSuffix(storeCode);
-  const storeVar = `STRIPE_SECRET_KEY_${suffix}`;
-  const storeKey = env[storeVar];
-  const globalKey = env.STRIPE_SECRET_KEY;
-  const secretKey = storeKey || globalKey;
-  if (!secretKey) {
-    throw new Error(
-      `stripe is not configured for store ${storeCode}: set ${storeVar} or STRIPE_SECRET_KEY ` +
-        `(locally in .env; deployed via <env>/stores/${storeCode}/stripe, ADR 0006)`,
-    );
-  }
+  const secret = requireStoreSecret(storeCode, 'STRIPE_SECRET_KEY', 'stripe', env);
+  const secretKey = secret.value;
   if (secretKey.startsWith('sk_live_') || secretKey.startsWith('rk_live_')) {
     throw new Error(
-      `${storeKey ? storeVar : 'STRIPE_SECRET_KEY'} is a LIVE-mode key: Phase 2 is Stripe test mode only ` +
-        `(sk_test_…); refusing to use it`,
+      `${secret.variable} is a LIVE-mode key: Phase 2 is Stripe test mode only (sk_test_…); refusing to use it`,
     );
   }
+  const storeKey = secret.source === 'store';
   const webhookSecret = stripeWebhookSecretFor(storeCode, env);
   return { secretKey, webhookSecret, source: storeKey ? 'store' : 'global' };
 }
@@ -68,8 +107,9 @@ export function stripeWebhookSecretsFor(
   storeCode: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
+  const current = storeSecretFor(storeCode, 'STRIPE_WEBHOOK_SECRET', env)?.value ?? null;
+  // `_PREVIOUS` keeps its historical name order: STRIPE_WEBHOOK_SECRET_<CODE>_PREVIOUS, else the global one.
   const suffix = envSuffix(storeCode);
-  const current = env[`STRIPE_WEBHOOK_SECRET_${suffix}`] || env.STRIPE_WEBHOOK_SECRET || null;
   const previous =
     env[`STRIPE_WEBHOOK_SECRET_${suffix}_PREVIOUS`] || env.STRIPE_WEBHOOK_SECRET_PREVIOUS || null;
   const out: string[] = [];

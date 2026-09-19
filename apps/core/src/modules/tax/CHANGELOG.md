@@ -5,6 +5,11 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.4.1)
 
+#### 2026-09-19 · with 2.5 (nit from the #227 review)
+
+- `provider.ts`: the pricing mode comes from the cart's `ctx.pricesIncludeTax` when the cart passes it (core
+  #224), so totals and tax can never disagree; the store setting read stays for `provider` / `shipping_taxable`.
+
 #### 2026-09-19 · review fix on #227 — one rounding seam
 
 - `table-provider.ts`: `inclusiveTaxOn` deleted; `taxFor` is the cart module's `taxOn(amount, bp, included)` (core

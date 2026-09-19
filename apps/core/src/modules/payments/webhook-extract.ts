@@ -21,6 +21,9 @@ export interface ExtractObject {
   canceled_at: number | null;
   cancellation_reason: string | null;
   last_payment_error: { code: string | null; decline_code: string | null } | null;
+  /** Radar review objects: why it was opened / how it was closed (codes: `rule`, `manual`, `approved`, `refunded_as_fraud`, …). */
+  reason: string | null;
+  closed_reason: string | null;
   /** Refund objects: Stripe's failure code (`lost_or_stolen_card`, …) — a code, never free text. */
   failure_reason: string | null;
   /** Only the ids we put there at session creation. */
@@ -111,6 +114,8 @@ export function redactStripeEvent(event: unknown): WebhookExtract {
       canceled_at: num(obj.canceled_at),
       cancellation_reason: str(obj.cancellation_reason),
       failure_reason: str(obj.failure_reason),
+      reason: str(obj.reason),
+      closed_reason: str(obj.closed_reason),
       last_payment_error:
         lpe && typeof lpe === 'object'
           ? { code: str(lpe.code), decline_code: str(lpe.decline_code) }

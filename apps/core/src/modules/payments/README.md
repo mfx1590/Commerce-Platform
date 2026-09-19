@@ -8,28 +8,30 @@ Phase 2 (decisions.md #10): live-mode keys are refused. Contracts: contracts-v0.
 
 ## Public API (`index.ts`)
 
-| Export                                                                    | Purpose                                                                                                                                        |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `registerPaymentProviders()`                                              | registers `stripe` with the checkout registry; src/server.ts calls it at boot (REQUEST #176)                                                   |
-| `createStripePaymentProvider(opts?)`                                      | the `PaymentProvider`; `opts.apiFactory` / `opts.env` are test seams                                                                           |
-| `capturePayment(client, paymentId, { actor })`                            | capture on confirm; see below                                                                                                                  |
-| `stripeCredentialsFor(storeCode, env?)`                                   | per-store credentials, fail-closed; see below                                                                                                  |
-| `StripeClient` / `StripeError` / `StripeApi`                              | thin fetch-based REST client (no `stripe` npm dependency — apps/core/package.json is window 1's; same precedent as search's Algolia client)    |
-| `FakeStripe`                                                              | in-memory `StripeApi` for tests: idempotency map, call log, scriptable declines                                                                |
-| `confirmIdempotencyKey(placementKey)`                                     | `confirm_<sha256(placement Idempotency-Key)>` — exported for tests                                                                             |
-| `voidIdempotencyKey(voidKey)`                                             | `void_<sha256(orders' `<payment.idempotency_key>:void`)>` — exported for tests                                                                 |
-| `paymentsWebhookRouter()`                                                 | `POST /webhooks/stripe/:storeCode` (2.2); mounted by src/server.ts outside `/store` and `/admin` (REQUEST #176 part 3)                         |
-| `handleStripeWebhook(input)`                                              | the receiver behind the router (signature → extract → exactly-once → process); see below                                                       |
-| `replayWebhookEvent(client, evt_id)`                                      | reprocess a stored event idempotently; refuses a tampered extract (seal ≠ `payload_hash`)                                                      |
-| `getWebhookEvent(client, evt_id)`                                         | one stored event (runbook / tests)                                                                                                             |
-| `verifyStripeSignature` / `signStripePayload`                             | Stripe-Signature verification (constant time, raw body, secret-roll aware) and the header builder tests use                                    |
-| `redactStripeEvent` / `sealExtract` / `verifySeal`                        | the redacted extract of an event and its integrity seal                                                                                        |
-| `stripeWebhookSecretFor(storeCode, env?)`                                 | `STRIPE_WEBHOOK_SECRET_<CODE>`, else `STRIPE_WEBHOOK_SECRET`, else null (receiver fails closed)                                                |
-| `stripeWebhookSecretsFor(storeCode, env?)`                                | `[current, previous]` — the `_PREVIOUS` variable keeps pre-roll rows verifiable during a secret roll                                           |
-| `createRefund(client, input)` / `createRefundIn(tx, input)`               | the refund use case (2.3): own transaction, or the caller's (returns module); see below                                                        |
-| `paymentsRefundRequester`                                                 | the returns module's `RefundRequester`, registered by `registerPaymentProviders()`                                                             |
-| `paymentsAdminRouter()`                                                   | `POST /admin/stores/:storeId/orders/:orderId/refunds` (Admin API `createRefund`); mounted through `moduleAdminRouters()` (REQUEST #176 part 4) |
-| `getRefund` / `renderRefund` / `refundedMinor` / `syncOrderPaymentStatus` | refund read helpers and the order `payment_status` sync used by the use case and the webhook receiver                                          |
+| Export                                                                    | Purpose                                                                                                                                                 |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerPaymentProviders()`                                              | registers `stripe` with the checkout registry; src/server.ts calls it at boot (REQUEST #176)                                                            |
+| `createStripePaymentProvider(opts?)`                                      | the `PaymentProvider`; `opts.apiFactory` / `opts.env` are test seams                                                                                    |
+| `capturePayment(client, paymentId, { actor })`                            | capture on confirm; see below                                                                                                                           |
+| `stripeCredentialsFor(storeCode, env?)`                                   | per-store credentials, fail-closed; see below                                                                                                           |
+| `StripeClient` / `StripeError` / `StripeApi`                              | thin fetch-based REST client (no `stripe` npm dependency — apps/core/package.json is window 1's; same precedent as search's Algolia client)             |
+| `FakeStripe`                                                              | in-memory `StripeApi` for tests: idempotency map, call log, scriptable declines                                                                         |
+| `confirmIdempotencyKey(placementKey)`                                     | `confirm_<sha256(placement Idempotency-Key)>` — exported for tests                                                                                      |
+| `voidIdempotencyKey(voidKey)`                                             | `void_<sha256(orders' `<payment.idempotency_key>:void`)>` — exported for tests                                                                          |
+| `paymentsWebhookRouter()`                                                 | `POST /webhooks/stripe/:storeCode` (2.2); mounted by src/server.ts outside `/store` and `/admin` (REQUEST #176 part 3)                                  |
+| `handleStripeWebhook(input)`                                              | the receiver behind the router (signature → extract → exactly-once → process); see below                                                                |
+| `replayWebhookEvent(client, evt_id)`                                      | reprocess a stored event idempotently; refuses a tampered extract (seal ≠ `payload_hash`)                                                               |
+| `getWebhookEvent(client, evt_id)`                                         | one stored event (runbook / tests)                                                                                                                      |
+| `verifyStripeSignature` / `signStripePayload`                             | Stripe-Signature verification (constant time, raw body, secret-roll aware) and the header builder tests use                                             |
+| `redactStripeEvent` / `sealExtract` / `verifySeal`                        | the redacted extract of an event and its integrity seal                                                                                                 |
+| `stripeWebhookSecretFor(storeCode, env?)`                                 | `STRIPE_WEBHOOK_SECRET_<CODE>`, else `STRIPE_WEBHOOK_SECRET`, else null (receiver fails closed)                                                         |
+| `stripeWebhookSecretsFor(storeCode, env?)`                                | `[current, previous]` — the `_PREVIOUS` variable keeps pre-roll rows verifiable during a secret roll                                                    |
+| `createRefund(client, input)` / `createRefundIn(tx, input)`               | the refund use case (2.3): own transaction, or the caller's (returns module); see below                                                                 |
+| `paymentsRefundRequester`                                                 | the returns module's `RefundRequester`, registered by `registerPaymentProviders()`                                                                      |
+| `paymentsAdminRouter()`                                                   | `POST /admin/stores/:storeId/orders/:orderId/refunds` (Admin API `createRefund`); mounted through `moduleAdminRouters()` (REQUEST #176 part 4)          |
+| `getRefund` / `renderRefund` / `refundedMinor` / `syncOrderPaymentStatus` | refund read helpers and the order `payment_status` sync used by the use case and the webhook receiver                                                   |
+| `storeSecretFor(storeCode, name, env?)` / `requireStoreSecret(…)`         | THE per-store credential loader shared by payments, tax and fraud (2.5): `NAME_<CODE>` over `NAME`, read per call, fail-closed form names the variables |
+| `registerWebhookHandler(eventType, handler)`                              | lets another module own an event type inside this receiver (fraud: `review.opened` / `review.closed`)                                                   |
 
 ## The provider
 
@@ -78,6 +80,9 @@ v1 through `withEvents`, same transaction. Then, in its own transaction, the ord
 - A **definitive** Stripe failure (4xx, not 429) writes row `failed` + `failure_reason` + `payment.failed` in
   the same transaction, then `markPaymentFailed`, then throws 402 `payment_failed`. An outage writes NOTHING
   and rethrows: retry later, the idempotency key makes the retry safe.
+- **Held for fraud**: a payment whose `metadata.fraud.status` is `review` or `confirmed_fraud` (fraud module, 2.5)
+  is never captured — 409 `conflict` with the reason code; the authorization hold stays until a human clears
+  the review or cancels the order.
 - **Replay**: a `captured` row makes no Stripe call and emits nothing new, but still calls
   `markPaymentCaptured` — so a crash between the payment transaction and the order transition is healed by
   calling `capturePayment` again. Returns `{ payment, replayed: true }`.
@@ -126,6 +131,11 @@ decline_code` and our three metadata ids — never billing details, receipt emai
 | `refund.updated` / `refund.failed` / `charge.refund.updated` (object `refund`, matched by `provider_refund_id`) | `failed`/`canceled` → refund row `failed` + `refund.failed` (the order's `payment_status` has no way back: manual action) · `succeeded` on a `pending` row → `succeeded` + `refund.issued` + order sync (return-driven: `markReturnRefunded`) · already there → `skipped` · succeeded after failed → `failed state_conflict` |                              |                              | `skipped` (no refund row)             |
 | `charge.refunded`                                                                                               | `skipped` (informational; the `refund.*` events carry the id)                                                                                                                                                                                                                                                                | same                         | same                         | same                                  |
 | anything else                                                                                                   | `skipped unhandled_type` (stored, replayable)                                                                                                                                                                                                                                                                                | same                         | same                         | same                                  |
+
+**Handlers owned by other modules**: `registerWebhookHandler(eventType, handler)` lets a module process an event
+type this receiver does not handle itself, inside the delivery's transaction and under the same exactly-once,
+replay and state-guard rules (the fraud module registers Radar's `review.opened` / `review.closed`). A registry
+rather than an import keeps the modules acyclic: fraud imports payments, never the reverse.
 
 `webhook_event.status`: `received` (in flight) → `processed` | `skipped` | `failed` (+ `failure_reason`);
 `replay_count` counts CLI replays; `aggregate_type/id` point at our payment row once resolved.
@@ -203,6 +213,14 @@ reverses (rare) → row `failed` + `refund.failed` after its `refund.issued` —
 (docs/domain.md); the order's `payment_status` has no transition back from `(partially_)refunded`.
 
 ## Credentials (ADR 0006)
+
+**One loader for payments, tax and fraud** (task 2.5): `storeSecretFor(storeCode, NAME, env)` — `NAME_<CODE>`
+(`brand-a` → `_BRAND_A`) wins over the global `NAME`; values are read from the environment on EVERY call, so a
+rotated secret is picked up without a restart, and nothing is cached, logged or put in an error.
+`requireStoreSecret(storeCode, NAME, provider)` is the fail-closed form: a missing secret throws at first use
+with an error naming both variables and the secret-store path (`<env>/stores/<store_code>/<provider>`), never a
+value. `stripeCredentialsFor` and `stripeWebhookSecretsFor` are built on it; the tax and fraud modules reach
+Stripe through `stripeCredentialsFor`.
 
 `stripeCredentialsFor(storeCode)` reads, in order: `STRIPE_SECRET_KEY_<CODE>` (per store; `brand-a` →
 `_BRAND_A`), else `STRIPE_SECRET_KEY`. Webhook secret the same way (`STRIPE_WEBHOOK_SECRET[_<CODE>]`, used by

@@ -113,8 +113,8 @@ guest orders. The storefront's client never sends the customer token to cart pat
   of its own so the storefront reads the new prices, and the answer is 409 with
   `details: { currency, items: [{ line_item_id, variant_id, previous_unit_price_minor, unit_price_minor | null }] }`
   (`null` = no longer sellable: the storefront removes the line). The same Idempotency-Key may be retried — no
-  order exists for it; the payment session is created again for the new total. Until #228 lands the code lives in
-  `src/lib/errors.ts` as a local union (`CoreErrorCode`).
+  order exists for it; the payment session is created again for the new total. The code comes from
+  `@platform/contracts` (`ERROR_CODES`, contracts-v0.4.3 / Store API 0.3.1).
 
 - **2026-09-19 · Placement freezes the calculator's per-line tax (#221).** `completeCart` reloads the lines
   after its `recalculate` and writes `lineTaxOf(line)` into `order_line_item.tax_minor` / `total_minor` (and the
