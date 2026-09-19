@@ -4,6 +4,8 @@
 // use, so a store without them keeps the built-in behaviour (manual payments, table shipping rates, table tax).
 import type { Queryable } from '@platform/db';
 import { setPriceResolver, type PriceQuery, type PriceResolver } from './modules/cart';
+import { setFraudCheck } from './modules/checkout';
+import { currentFraudCheck as fraudModuleCheck, registerFraudCheck } from './modules/fraud';
 import { registerPaymentProviders } from './modules/payments';
 import { resolvePrices } from './modules/promotions';
 import { registerCarrierProviders } from './modules/shipping';
@@ -49,7 +51,7 @@ export const priceListResolver: PriceResolver = {
 
 let registered = false;
 
-/** Idempotent. Payments (#176 part 1), carrier rates (window 8), tax (#127 / #221), price lists (#179 part 3). */
+/** Idempotent. Payments (#176), carrier rates (window 8), tax (#127 / #221), fraud (#231), price lists (#179). */
 export function registerModuleSeams(): void {
   if (registered) return;
   registered = true;
@@ -59,4 +61,10 @@ export function registerModuleSeams(): void {
   // window 7's tax calculator (table | Stripe Tax per store.settings.tax); with default settings it answers
   // exactly like the built-in table calculator, so nothing changes for a store until its settings say so
   registerTaxProvider();
+  // window 7's fraud check (rules + Stripe Radar) and Radar's review.* webhook handlers (#231). Its
+  // registerFraudCheck() still writes to the module's own stand-in registry (built before the checkout seam
+  // existed), so the same check is handed to the checkout's seam here; once window 7 repoints its registration at
+  // `setFraudCheck` from the checkout this second line is redundant and harmless.
+  registerFraudCheck();
+  setFraudCheck(fraudModuleCheck());
 }

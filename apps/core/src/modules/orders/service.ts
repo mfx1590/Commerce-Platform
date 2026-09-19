@@ -11,6 +11,7 @@ import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { paymentProvider } from '../../lib/payment-seam';
 import { releaseForOrder } from '../inventory';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
+import { assertNotHeldByFraud } from './fraud-flag';
 import { allowed } from './transitions';
 import type {
   AdminOrder,
@@ -58,6 +59,9 @@ export async function transition(
     if (!allowed(field, from, to)) {
       throw conflict(`order ${field} cannot go from ${from} to ${to}`, { field, from, to });
     }
+    // an order held by a fraud review stays pending until the review is cleared (#231)
+    if (field === 'status' && to === 'confirmed' && from !== to)
+      assertNotHeldByFraud(before.metadata, to);
     set(field, to);
     changed.push(field);
   }

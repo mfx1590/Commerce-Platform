@@ -4,21 +4,22 @@
 // service → contract shape).
 //
 // Mounting: `src/http` and `src/server.ts` belong to window 1, so this router is exported from the module's
-// index.ts and mounted by ONE line there — requested in a REQUEST issue together with windows 7 and 8, the same
-// route #162 took for the merchandising rules. Until that line lands, the router is mounted by this module's own
-// route tests on a bare Express app, which is what proves the contract shapes; nothing else in the core imports
-// it, so an unmounted router cannot break the running server (the hq-rbac lesson in Memory-main: a
-// framework-neutral API is not done until something mounts it — hence the explicit REQUEST).
+// index.ts and mounted by one line in `src/http/module-routers.ts` (REQUEST #181, merged). The route tests still
+// mount it themselves on a bare Express app behind the real middleware chain, which is what proves the contract
+// shapes without depending on window 1's file.
 import { Router, type Request, type RequestHandler } from 'express';
 import type { ScopedClient } from '@platform/db';
 import {
+  enumParam,
   handle,
   loadSpec,
   one,
+  organizationClientFor,
   pageParams,
   requirePermission,
   requirePrincipal,
   resolveObject,
+  sortParams,
   storeClientFor,
   throwIfProblems,
   uuidParam,
@@ -45,6 +46,21 @@ import {
 import { FEED_CHANNELS, FEED_STATUSES, type FeedChannel, type FeedStatus } from './feed-types';
 import { attributionReport } from './reports';
 import {
+  createSegment,
+  createSegmentTemplate,
+  deleteSegment,
+  deleteSegmentTemplate,
+  getSegment,
+  getSegmentTemplate,
+  listSegments,
+  listSegmentTemplates,
+  materializeSegment,
+  previewSegment,
+  updateSegment,
+  updateSegmentTemplate,
+} from './segments';
+import { SEGMENT_SORT_FIELDS, type SegmentSortField } from './segment-types';
+import {
   CAMPAIGN_SORT_FIELDS,
   CAMPAIGN_STATUSES,
   CAMPAIGN_TYPES,
@@ -52,7 +68,6 @@ import {
   type CampaignSortField,
   type CampaignStatus,
   type CampaignType,
-  type SortOrder,
   type Touch,
 } from './types';
 
@@ -86,28 +101,6 @@ function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client
   return { p, storeId, client: storeClientFor(p, storeId) };
 }
 
-/**
- * A query parameter restricted to a contract enum. `src/http/query.ts` has the same helper but does not export
- * it through `src/http/index.ts`, and reaching past a folder's public API is exactly what the module rules
- * forbid — so it lives here until window 1 exports theirs (noted in the REQUEST).
- */
-function enumParam<T extends string>(
-  query: Request['query'],
-  name: string,
-  values: readonly T[],
-  problems: Record<string, string>,
-): T | undefined {
-  const raw = one(query[name]);
-  if (raw === undefined || raw === '') return undefined;
-  if (!(values as readonly string[]).includes(raw)) {
-    problems[name] = `one of ${values.join(', ')}`;
-    return undefined;
-  }
-  return raw as T;
-}
-
-const ORDERS: readonly SortOrder[] = ['asc', 'desc'];
-
 export function marketingAdminRouter(): Router {
   const r = Router();
 
@@ -120,8 +113,7 @@ export function marketingAdminRouter(): Router {
       const problems: Record<string, string> = {};
       const status = enumParam<CampaignStatus>(req.query, 'status', CAMPAIGN_STATUSES, problems);
       const type = enumParam<CampaignType>(req.query, 'type', CAMPAIGN_TYPES, problems);
-      const sort = enumParam<CampaignSortField>(req.query, 'sort', CAMPAIGN_SORT_FIELDS, problems);
-      const order = enumParam<SortOrder>(req.query, 'order', ORDERS, problems);
+      const sorting = sortParams<CampaignSortField>(req.query, CAMPAIGN_SORT_FIELDS, problems);
       const { page, limit } = pageParams(req.query, 20, problems);
       throwIfProblems(problems);
       res.json(
@@ -130,8 +122,7 @@ export function marketingAdminRouter(): Router {
           limit,
           ...(status ? { status } : {}),
           ...(type ? { type } : {}),
-          ...(sort ? { sort } : {}),
-          ...(sort && order ? { order } : {}),
+          ...sorting,
         }),
       );
     }),
@@ -199,6 +190,157 @@ export function marketingAdminRouter(): Router {
     handle(async (req, res) => {
       const { client, storeId, p } = storeClient(req);
       res.json(await endCampaign(client, storeId, uuidParam(req.params, 'campaignId'), p.actor));
+    }),
+  );
+
+  // ---- segments --------------------------------------------------------------------------------------------
+  r.get(
+    `${BASE}/segments`,
+    permission('listSegments'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const sorting = sortParams<SegmentSortField>(req.query, SEGMENT_SORT_FIELDS, problems);
+      const { page, limit } = pageParams(req.query, 20, problems);
+      throwIfProblems(problems);
+      res.json(await listSegments(client, storeId, { page, limit, ...sorting }));
+    }),
+  );
+
+  r.post(
+    `${BASE}/segments`,
+    permission('createSegment'),
+    body('createSegment'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      res.status(201).json(await createSegment(client, storeId, req.body, p.actor));
+    }),
+  );
+
+  r.get(
+    `${BASE}/segments/:segmentId`,
+    permission('getSegment'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(await getSegment(client, storeId, uuidParam(req.params, 'segmentId')));
+    }),
+  );
+
+  r.patch(
+    `${BASE}/segments/:segmentId`,
+    permission('updateSegment'),
+    body('updateSegment'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      res.json(
+        await updateSegment(client, storeId, uuidParam(req.params, 'segmentId'), req.body, p.actor),
+      );
+    }),
+  );
+
+  r.delete(
+    `${BASE}/segments/:segmentId`,
+    permission('deleteSegment'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      await deleteSegment(client, storeId, uuidParam(req.params, 'segmentId'), p.actor);
+      res.status(204).end();
+    }),
+  );
+
+  // Writes nothing; `store_staff` may run it, because previewing a count is reading.
+  r.post(
+    `${BASE}/segments/:segmentId/preview`,
+    permission('previewSegment'),
+    body('previewSegment'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const override = (req.body as { rules?: unknown } | undefined)?.rules;
+      res.json(await previewSegment(client, storeId, uuidParam(req.params, 'segmentId'), override));
+    }),
+  );
+
+  // 202 per the contract: the refresh is a job as far as the caller is concerned, even though it currently
+  // completes inline — so moving it onto a worker later is not a contract change.
+  r.post(
+    `${BASE}/segments/:segmentId/materialize`,
+    permission('materializeSegment'),
+    handle(async (req, res) => {
+      const { client, storeId, p } = storeClient(req);
+      res
+        .status(202)
+        .json(
+          await materializeSegment(client, storeId, uuidParam(req.params, 'segmentId'), p.actor),
+        );
+    }),
+  );
+
+  // ---- organization segment templates ------------------------------------------------------------------
+  // Organization scope, not store scope: `store_id IS NULL` rows are invisible to a tenant client (RLS
+  // `store_nullable`), so these handlers use an organization client. Reads are `viewer`, writes are `owner`.
+  r.get(
+    '/admin/marketing/segment-templates',
+    permission('listSegmentTemplates'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const problems: Record<string, string> = {};
+      const { page, limit } = pageParams(req.query, 20, problems);
+      throwIfProblems(problems);
+      res.json(await listSegmentTemplates(organizationClientFor(p), { page, limit }));
+    }),
+  );
+
+  r.post(
+    '/admin/marketing/segment-templates',
+    permission('createSegmentTemplate'),
+    body('createSegmentTemplate'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      res
+        .status(201)
+        .json(await createSegmentTemplate(organizationClientFor(p), req.body, p.actor));
+    }),
+  );
+
+  r.get(
+    '/admin/marketing/segment-templates/:templateId',
+    permission('getSegmentTemplate'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      res.json(
+        await getSegmentTemplate(organizationClientFor(p), uuidParam(req.params, 'templateId')),
+      );
+    }),
+  );
+
+  r.patch(
+    '/admin/marketing/segment-templates/:templateId',
+    permission('updateSegmentTemplate'),
+    body('updateSegmentTemplate'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      res.json(
+        await updateSegmentTemplate(
+          organizationClientFor(p),
+          uuidParam(req.params, 'templateId'),
+          req.body,
+          p.actor,
+        ),
+      );
+    }),
+  );
+
+  r.delete(
+    '/admin/marketing/segment-templates/:templateId',
+    permission('deleteSegmentTemplate'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      await deleteSegmentTemplate(
+        organizationClientFor(p),
+        uuidParam(req.params, 'templateId'),
+        p.actor,
+      );
+      res.status(204).end();
     }),
   );
 

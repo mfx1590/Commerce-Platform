@@ -257,6 +257,17 @@ describe('createRefund', () => {
       code: 'conflict',
       details: { refund_id: first.refund.id },
     });
+    // Same key, same order and amount, but another REASON / payment: a different request, never a silent replay.
+    await expect(
+      createRefund(a, { ...refundInput(orderId, 250, key), reason: 'chargeback' }),
+    ).rejects.toMatchObject({
+      code: 'conflict',
+      details: { differs: ['reason'], refund_id: first.refund.id },
+    });
+    await expect(
+      createRefund(a, { ...refundInput(orderId, 250, key), paymentId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'conflict', details: { differs: ['payment_id'] } });
+    expect(fake.callsOf('createRefund')).toHaveLength(1);
     const { orderId: other } = await capturedOrder();
     await expect(createRefund(a, refundInput(other, 250, key))).rejects.toMatchObject({
       code: 'conflict',

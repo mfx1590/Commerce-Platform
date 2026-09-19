@@ -92,7 +92,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.3/);
+    expect(text).toMatch(/version: 0\.4\.4/);
     for (const tag of [
       'registry',
       'catalog',
@@ -238,6 +238,24 @@ describe('admin-api.yaml', () => {
     for (const id of ['updateOrderLineItem', 'cancelOrderLineItem']) {
       expect(ops.find((o) => o.id === id)!.body, id).toMatch(/'409':/);
     }
+  });
+
+  it('segment rules (0.4.4, #239): frozen closed grammar, no flat-shape leftovers', () => {
+    const component = (name: string) =>
+      text
+        .slice(text.indexOf(`\n    ${name}:\n`) + 1)
+        .match(/^ {4}\w+:\n[\s\S]*?(?=^ {4}\w+:\n)/m)![0];
+    const rules = component('SegmentRules');
+    expect(rules).toMatch(/additionalProperties: false/);
+    expect(rules).toMatch(/required: \[v, all\]/);
+    expect(rules).not.toMatch(/additionalProperties: true/);
+    expect(text).toMatch(/^ {4}SegmentPredicate:$/m);
+    // the old flat bag is gone everywhere: no rules example carries a bare field key
+    expect(text).not.toMatch(/rules:\n\s+total_spent_minor:/);
+    // every predicate branch is closed and the country branch names the default-shipping rule
+    const predicate = component('SegmentPredicate');
+    expect((predicate.match(/additionalProperties: false/g) ?? []).length).toBe(6);
+    expect(predicate).toMatch(/DEFAULT SHIPPING address only/);
   });
 
   it('pick/pack (0.4.3, #225): pick, pack and pick-lists operations, operations-on-hq, widened status enum', () => {

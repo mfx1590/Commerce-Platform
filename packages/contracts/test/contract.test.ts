@@ -312,10 +312,20 @@ describe('Admin API mock', () => {
     const preview = await fetch(`${base}/segments/70000000-0000-4000-8000-000000000721/preview`, {
       method: 'POST',
       headers: adminHeaders,
-      body: JSON.stringify({ rules: { consent: ['email'] } }),
+      body: JSON.stringify({
+        rules: { v: 1, all: [{ any: [{ field: 'consent', op: 'granted', value: 'email' }] }] },
+      }),
     });
     expect(preview.status).toBe(200);
     expect(typeof (await json(preview)).count).toBe('number');
+
+    // 0.4.4 (#239): the old flat shape is refused by the frozen grammar
+    const flat = await fetch(`${base}/segments/70000000-0000-4000-8000-000000000721/preview`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ rules: { consent: ['email'] } }),
+    });
+    expect(flat.status).toBe(400);
 
     for (const p of [
       `/admin/marketing/dashboard?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z`,
