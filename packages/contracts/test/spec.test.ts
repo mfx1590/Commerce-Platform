@@ -85,7 +85,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.1/);
+    expect(text).toMatch(/version: 0\.4\.2/);
     for (const tag of [
       'registry',
       'catalog',
@@ -208,6 +208,28 @@ describe('admin-api.yaml', () => {
     expect(component('Promotion')).toMatch(/required:\n[\s\S]*stackable,\n\s+exclusive,/);
     for (const rule of ['buy_quantity', 'get_quantity', 'get_discount_bp']) {
       expect(component('PromotionRules'), rule).toMatch(new RegExp(`^\\s{8}${rule}:`, 'm'));
+    }
+  });
+
+  it('order line-item edits (0.4.2, #172): patch lowers a quantity, delete cancels a line, store_admin only', () => {
+    const ids = ops.map((o) => o.id);
+    for (const id of ['updateOrderLineItem', 'cancelOrderLineItem']) expect(ids, id).toContain(id);
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(permission('updateOrderLineItem')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('cancelOrderLineItem')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(text).toMatch(
+      /\/admin\/stores\/\{storeId\}\/orders\/\{orderId\}\/line-items\/\{lineItemId\}:/,
+    );
+    const patch = ops.find((o) => o.id === 'updateOrderLineItem')!.body;
+    expect(patch).toMatch(/required: \[quantity\]/);
+    expect(patch).toMatch(/minimum: 1/);
+    // both answer 409 (fulfilment already started / last line) with the standard error body
+    for (const id of ['updateOrderLineItem', 'cancelOrderLineItem']) {
+      expect(ops.find((o) => o.id === id)!.body, id).toMatch(/'409':/);
     }
   });
 

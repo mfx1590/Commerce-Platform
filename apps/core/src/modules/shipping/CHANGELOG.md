@@ -111,3 +111,7 @@ file is the module's own history (linked from the PRs).
   at the currency's exponent, with the ISO-4217 zero- and three-decimal currencies.
 - Tests: 48 unit tests plus a live EasyPost round trip that skips without `EASYPOST_API_KEY` and refuses a
   non-test key.
+
+## 2026-09-19 — migration 0140 landed (contracts-v0.4.2, manager)
+
+- `proposed/0140_webhook_event.sql` and the byte-drift test against payments' copy deleted; `webhook_event` now comes from `@platform/db` migration 0140 (db 0.3.0). `shipments-db.test.ts` no longer applies the DDL itself.

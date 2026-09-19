@@ -184,10 +184,7 @@ processes the event again instead of finding it "already seen".
 
 ### The shared `webhook_event` table (#187)
 
-Accepted as migration **0140**, shared with payments, landing after both consumers merge. Until then
-`proposed/0140_webhook_event.sql` is a **byte-for-byte copy of #187's SQL** — identical to payments' copy, and a
-test fails if the two ever drift — and only this module's test suite applies it. The manager's 0140 commit removes
-both copies.
+Landed as migration **0140** in `@platform/db` (db 0.3.0, contracts-v0.4.2), shared with payments.
 
 | Column                                             | What shipping writes                                                          |
 | -------------------------------------------------- | ----------------------------------------------------------------------------- |
