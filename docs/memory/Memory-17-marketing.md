@@ -20,6 +20,14 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.4 (#148) abandoned-cart recovery** — commit `6bc512e` (2026-09-19), **not pushed**: held until #240's merge
+  is confirmed. `recovery{,-token,-report,-types}.ts` + the report route. Outbox polling per store with the
+  cursor in `marketing_cursor`; idempotency is `UNIQUE (cart_id)` in the schema, not consumer memory. Tokens:
+  32 random bytes, sha256-only storage, single use via `UPDATE … WHERE redeemed_at IS NULL`, 7-day expiry, one
+  404 for unknown/expired/used and 409 for an already-ordered cart. Tests drive **window 1's real
+  `markAllAbandonedCarts`**, not a fixture payload. Filed #244 (db 0170), #245 (Admin report + Store API
+  recover), #246 (window 1 mounts the route), #247 (windows 3/10 storefront page).
+
 - **2.3 (#147) segments** — commit `ae09724`, PR #240 (2026-09-19). Frozen rule grammar
   `{ v:1, all:[{ any:[{field,op,value}] }] }` over a closed 7-field set, 400 on anything else naming the exact
   path; `SEGMENT_RULES_SCHEMA` published from index.ts for window 16 + the admin, with a test running parser and
@@ -43,64 +51,28 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-### 2.4 (#148) abandoned-cart recovery — plan written 2026-09-19, awaiting the manager on the contract surface
-2.3 is PR #240, in full review; **no push until its merge is confirmed** (standing rule). Building locally.
-#239 accepted as filed → contracts-v0.4.4 after #240 merges. #195 was already closed: `apps/feeds/Dockerfile`
-landed with infra #210 and the manifest guard is green — my own feeds docs said otherwise and are now fixed.
-
-**The gap: 2.4 has no schema and no endpoint.** Checked, not assumed:
-- `packages/db` has **no recovery table** (0120 marketing = campaign, segment, segment_member, product_feed,
-  attribution, referral_program, referral, review; 0130–0160 are other windows'). A recovery record needs one.
-- `admin-api.yaml` has **no `reports/abandoned-carts`** and no `abandoned` anywhere. #148 anticipates both
-  ("file the CONTRACT CHANGE: if not in 0.3").
-- The outbox cursor has nowhere to live. Window 9 parked theirs in Algolia index settings *because* the db was
-  frozen; marketing has no external store to hide one in, so it belongs in the same proposed migration.
-
-**Three pieces of contract surface, one of them mine to build against a mock:**
-1. `CONTRACT CHANGE:` db migration `0170_cart_recovery.sql` — `cart_recovery` + `marketing_cursor`, RLS `store`,
-   `updated_at` triggers. Kept verbatim in `proposed/` and applied by the module tests to their throwaway
-   database, exactly the #162 pattern window 9 used for `merchandising_rule`.
-2. `CONTRACT CHANGE:` Admin API `GET …/marketing/reports/abandoned-carts` (`viewer`, like the other reports)
-   + an `AbandonedCartReport` component.
-3. `REQUEST:` to window 3 (and 10 for brand A) — the storefront route `GET /cart/recover/{token}` with the
-   exact token semantics below. Their path, not mine.
-
-**Plan (module `apps/core/src/modules/marketing`):**
-- `recovery-types.ts` — the record, its status enum (`pending` → `link_sent` → `opened` → `recovered`, plus
-  `expired`), the report shape.
-- `recovery-consumer.ts` — outbox polling per store on `cart.abandoned`, window 9's shape: read rows with
-  `seq > cursor`, upsert one record per cart, advance the cursor in the same transaction. **One record per
-  cart** is the unique constraint, so a replayed event is a no-op rather than a second record — the acceptance
-  criterion is enforced by the schema, not by the code remembering.
-- `recovery-token.ts` — mint/verify/redeem. Random 32 bytes base64url; **only `sha256(token)` is stored**, the
-  same way `registry` hashes API keys; single-use (`token_used_at`), expiring (`token_expires_at`, default 7
-  days). The token carries no customer id, email or cart id — it *is* the lookup key, so the link leaks nothing
-  if it ends up in a referrer header or a support ticket.
-- `recovery-report.ts` — recovery rate from `cart_recovery` joined to `"order"`: abandoned, recovered, rate,
-  recovered revenue. A cart counts **once**, on the record, so a customer who opens the link three times and
-  orders once is one recovery.
-- Attribution: the link carries `utm_source=abandoned_cart`, the storefront writes it into
-  `cart.metadata.attribution` as it already does, and window 1's placement writes the `attribution` row. **This
-  module writes no attribution** — it reads it, which is what keeps the 2.1 report and this one consistent.
-- Routes: the report (`viewer`). Redemption is a Store API concern the storefront calls; the token check lives
-  here and is exported from index.ts for whoever mounts it.
-- Tests: consumer idempotency over a replayed outbox, token randomness/single-use/expiry, recovery detection
-  and the rate, RLS across stores, spec-validated report route.
-
-**Open question for the manager (in the response):** whether redemption should be a Store API route in the core
-(window 1's `src/http/store-routes.ts` — not my path, another REQUEST) or whether the storefront calls the
-existing cart read and this module only validates the token through an exported function. I lean to the second:
-fewer moving parts, no new public surface, and window 3 already owns the cart page.
+- **2.4 built and green, awaiting #240's merge before pushing.** Then: `git merge main`, push, open the PR
+  closing #148. 2.5 (admin Marketing section, #149) is next after that.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
 - [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
-- [ ] **#148 · 2.4** Abandoned-cart recovery
+- [x] **#148 · 2.4** Abandoned-cart recovery — built and green, PR held for #240
 - [ ] **#149 · 2.5** Admin Marketing section v1
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
 
 ## Decisions made (with reasons)
+- 2026-09-19 (manager, 2.4) · Redemption is a **Store API route in the core**, not an exported function the
+  storefront calls. The token deliberately carries no cart id, so only a server round trip can resolve it, and
+  window 3's app speaks nothing but the publishable-key Store API. My own lean to the exported function was
+  wrong for exactly that reason. → `validateRecoveryToken` + REQUEST #246.
+- 2026-09-19 (manager, 2.4) · Unique-per-cart is the replay guard; sha256-only token storage, single use,
+  7-day expiry, nothing identifying inside the token; this module writes no attribution.
+- 2026-09-19 (me, 2.4) · `expired` is **not** a stored status — it is `pending AND token_expires_at < now()`.
+  A status column that needs a cron to stay honest is a bug waiting for an outage.
+- 2026-09-19 (me, 2.4) · The report's `recovered_value` is the **order** total, not the cart total: what the
+  customer actually paid after coming back is the number anyone weighing recovery against its cost wants.
 - 2026-09-19 (manager, 2.3) · Rule grammar is `{ v:1, all:[{ any:[predicate…] }…] }` — AND of ORs, **closed**
   predicate set, **400 on any unknown predicate**, and the module publishes both the TypeScript type and a JSON
   Schema from index.ts. Reason: a segment that silently ignores a rule it does not understand sends the wrong
@@ -146,6 +118,13 @@ fewer moving parts, no new public surface, and window 3 already owns the cart pa
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
+- **#240 (2.3) merge confirmation** — in the merge queue; 2.4 stays local until it lands.
+- **#244 / #245** (db 0170 + Admin/Store API) land bundled as **contracts-v0.4.5** after the 2.4 PR merges.
+  Building against `proposed/0170_cart_recovery.sql`; the report route falls back to the proposed `viewer`
+  permission only while the operation is absent from the spec. **Correction posted on #244**: drop
+  `CHECK (redeemed_at >= created_at)` — see Gotchas.
+- **#246** window 1 mounts `POST /store/cart-recovery/{token}`; **#247** windows 3/10 build the page. Neither
+  blocks the module.
 - **CONTRACT CHANGE #239 (SegmentRules)** — filed 2026-09-19, manager lands it after the 2.3 PR merges (the
   0140/0160 pattern). No `proposed/` copy needed: responses validate against the frozen document today because
   it still accepts additional properties. A route test asserts the **old flat shape is refused**, which is the
@@ -172,6 +151,16 @@ fewer moving parts, no new public surface, and window 3 already owns the cart pa
   fails the build as soon as `apps/feeds` exists until every Dockerfile's deps stage lists it (intended prompt).
 
 ## Gotchas learned
+- 2.4: **never CHECK an app-supplied timestamp against a database-generated one.**
+  `CHECK (redeemed_at >= created_at)` with `created_at DEFAULT now()` compares the Postgres clock to the Node
+  clock and fails on ordinary skew. Four tests passed in isolation and failed in the full run; corrected on
+  #244 before the migration landed.
+- 2.4: the schema's `app.set_updated_at` trigger fires BEFORE UPDATE, so **you cannot back-date a row with an
+  UPDATE** — it stamps `now()` over your value. Set the timestamp in the INSERT and never touch the row again;
+  this is why window 1's abandoned-cart job found nothing at first.
+- 2.4: `cart.order_id` is a FK onto `"order"`, so test cleanup must null it before deleting orders.
+- 2.4: single use must be `UPDATE … WHERE redeemed_at IS NULL`, not check-then-write — two clicks arriving
+  together would otherwise both succeed.
 - 2.3: **`NOT (NULL = x)` is NULL, not true.** `consent not_granted` written as `NOT (… = 'true')` silently
   dropped every customer with no consent block — exactly the people a re-consent campaign targets. Use
   `IS DISTINCT FROM`. Any negated predicate over a nullable column needs the same treatment; a test caught it.

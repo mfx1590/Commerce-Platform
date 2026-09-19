@@ -4,6 +4,7 @@
 //
 // This file is also what proves the router works before window 1 mounts it in `src/http` (the REQUEST): it
 // mounts `marketingAdminRouter()` exactly where `adminRouter()` sits in the chain.
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -64,6 +65,8 @@ async function createDraft(): Promise<string> {
 beforeAll(async () => {
   db = await createTestDatabase('core_marketing_routes');
   await seed(db.owner, { productsPerStore: 4, log: () => {} });
+  // PROPOSED schema for 2.4 (CONTRACT CHANGE #244) — goes away when migration 0170 lands on main.
+  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0170_cart_recovery.sql'), 'utf8'));
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
   await initDb({ connectionString: db.app.options.connectionString! });
@@ -92,6 +95,7 @@ beforeEach(async () => {
   await db.owner.query('DELETE FROM segment_member');
   await db.owner.query('DELETE FROM segment');
   await db.owner.query('DELETE FROM customer');
+  await db.owner.query('DELETE FROM cart_recovery');
 });
 
 describe('campaign routes', () => {
@@ -484,6 +488,41 @@ describe('segment template routes (organization scope)', () => {
     expect(segment.status).toBe(201);
     expect(segment.body.rules).toEqual(vipRules);
     expect(segment.body.template_id).toBe(template.body.id);
+  });
+});
+
+describe('abandoned-cart report route', () => {
+  // The operation is CONTRACT CHANGE #245 and is not in Admin API 0.4.3 yet, so the route falls back to the
+  // proposed `viewer` permission and the response is asserted by shape rather than against the document. When
+  // #245 lands, `spec.assertSchema('AbandonedCartReport', …)` replaces this and the fallback goes away.
+  const report = `${base}/reports/abandoned-carts?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z`;
+
+  it('answers the proposed shape and is readable by staff and the HQ analyst alike', async () => {
+    for (const who of [storeStaff, analyst]) {
+      const res = await who.get(report);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        currency: 'EUR',
+        abandoned_count: 0,
+        redeemed_count: 0,
+        recovered_count: 0,
+        recovery_rate: 0,
+      });
+      expect(res.body.abandoned_value).toEqual({ amount_minor: 0, currency: 'EUR' });
+      expect(res.body.recovered_value).toEqual({ amount_minor: 0, currency: 'EUR' });
+    }
+  });
+
+  it('400s on a missing window and 401s without a token', async () => {
+    const missing = await storeStaff.get(`${base}/reports/abandoned-carts`);
+    expect(missing.status).toBe(400);
+    spec.assertSchema('Error', missing.body);
+    expect((await request(app).get(report)).status).toBe(401);
+  });
+
+  it('is refused for a store outside the principal scope', async () => {
+    const other = `/admin/stores/${B}/marketing/reports/abandoned-carts?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z`;
+    expect((await storeStaff.get(other)).status).toBe(403);
   });
 });
 
