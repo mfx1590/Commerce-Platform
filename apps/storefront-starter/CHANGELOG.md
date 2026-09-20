@@ -34,6 +34,11 @@ Task [storefront] 2.2 (issue #110), contracts `contracts-v0.4.4` (Store API 0.3.
   companion headers. The embed host list is **imported from `@platform/cms`**, not copied, so the
   CSP and window 6's Studio validation cannot disagree. `script-src` still needs `'unsafe-inline'`
   for Next's inline bootstrap: this policy is not XSS protection and the README says so.
+  `form-action` lists the identity provider as well as `'self'` — Chrome evaluates it against the
+  URL **after** redirects, and sign-out answers `303` to Keycloak's `end_session` endpoint, so
+  `'self'` alone blocked the submission and the SSO session was never ended (caught by the account
+  e2e on CI, reproduced in the browser). That origin is baked at **build** time while the OIDC
+  config reads `KEYCLOAK_URL` at runtime, so the variable must be set when the image is built.
 - PDP metadata no longer depends on the currency cookie — nothing in it is priced, and asking for a
   currency fragmented the fetch cache for no gain.
 - Lighthouse config targets `127.0.0.1` (Windows resolves `localhost` to `::1` first, where nothing

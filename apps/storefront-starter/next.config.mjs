@@ -19,6 +19,28 @@ const frameSrc = Object.values(EMBED_HOSTS)
   .map((host) => `https://${host}`);
 
 /**
+ * The identity provider's origin, for `form-action` (see below).
+ *
+ * Read from the same variable the OIDC config uses. A malformed value falls back to the local
+ * default rather than emitting a broken directive that would silently disable the whole policy.
+ *
+ * **This is baked at BUILD time**, unlike the OIDC config, which reads `KEYCLOAK_URL` at runtime:
+ * `headers()` is evaluated once and written into the routes manifest, so setting `KEYCLOAK_URL`
+ * only when starting the server leaves the old origin in the policy. Verified, not assumed —
+ * building with the default and starting with a different value keeps the default in the header.
+ * A deployment whose build and runtime disagree gets a sign-out that fails **in the browser only**:
+ * the redirect to Keycloak is blocked, the SSO session survives, and the customer is silently
+ * signed back in. So `KEYCLOAK_URL` must be set at image build time, not just at boot.
+ */
+const keycloakOrigin = (() => {
+  try {
+    return new URL(process.env.KEYCLOAK_URL ?? 'http://localhost:8180').origin;
+  } catch {
+    return 'http://localhost:8180';
+  }
+})();
+
+/**
  * Content Security Policy.
  *
  * This is the **second** layer under campaign embeds, not the first: window 6 sandboxes every embed
@@ -46,8 +68,12 @@ const csp = [
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
-  // A form on our page may only post to us — an injected form cannot exfiltrate a filled address.
-  "form-action 'self'",
+  // Our own origin, plus the identity provider: signing out POSTs to `/auth/sign-out`, which
+  // answers 303 to Keycloak's `end_session` endpoint, and Chrome evaluates `form-action` against
+  // the URL **after** redirects — with `'self'` alone it blocks the submission outright and the
+  // SSO session is never ended, so the customer is silently signed back in. Nothing else on the
+  // storefront posts across origins, so an injected form still cannot exfiltrate a filled address.
+  `form-action 'self' ${keycloakOrigin}`,
   'upgrade-insecure-requests',
 ].join('; ');
 

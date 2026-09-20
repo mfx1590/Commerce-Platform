@@ -367,6 +367,17 @@ naming different hosts would either block an embed the Studio accepted or permit
 This is the second layer: window 6 sandboxes every embed iframe, and that is what contains a hostile
 page; the CSP stops an embed being pointed at an unreviewed host in the first place.
 
+**`form-action` must list the identity provider.** Signing out POSTs to `/auth/sign-out`, which
+answers `303` to Keycloak's `end_session` endpoint, and Chrome evaluates `form-action` against the
+URL **after** redirects — with `'self'` alone it blocks the submission outright, the SSO session is
+never ended, and the customer is silently signed back in on their next visit. Nothing about the page
+looks wrong when this happens; it only shows up in the console and in the account e2e.
+
+That origin comes from `KEYCLOAK_URL`, and **it is baked at build time**: `headers()` is evaluated
+once and written into the routes manifest, while the OIDC config reads the same variable at runtime.
+Set `KEYCLOAK_URL` when **building** the image, not only when starting it, or the two disagree and
+sign-out breaks in exactly the silent way described above.
+
 **`script-src` still needs `'unsafe-inline'`.** Next's App Router emits inline bootstrap and
 flight-data scripts, and removing that needs a per-request nonce threaded through the middleware and
 every `<Script>`. So this policy is worth having for what it does enforce — framing, plugins, form

@@ -385,6 +385,19 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- **`form-action 'self'` breaks OIDC sign-out, silently and only in a browser.** Chrome evaluates
+  `form-action` against the URL **after** redirects, so a POST to our own `/auth/sign-out` that
+  answers `303` to Keycloak's `end_session` endpoint is blocked outright — the local cookie is
+  already gone, the SSO session survives, and the customer is signed straight back in. Nothing on
+  the page looks wrong; `curl` sees a perfectly good 303. Caught by the account e2e on CI (which
+  requires Keycloak, where locally it skips) and reproduced in the browser console. The policy must
+  list the identity provider's origin.
+- **`headers()` in `next.config.mjs` is evaluated at BUILD time**, even though `next start` loads
+  the config file at runtime — the headers are written into the routes manifest. Verified by
+  building with one `KEYCLOAK_URL` and starting with another: the built-in value wins. Anything
+  environment-dependent in a header must therefore be set at image build time, or moved to the
+  middleware (which the matcher would limit to non-`/auth`, non-`/api` routes).
+
 - **`localhost` resolves to `::1` on this machine and nothing listens there.** Every local HTTP
   check must use `127.0.0.1` — `curl http://localhost:4010/store` returns 000 while the Prism
   container is plainly up and serving, and `lighthouserc.json` could not connect to a running
