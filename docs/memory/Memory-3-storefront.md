@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0 — the `currency` query is in use since 2.1); main merged 2026-09-09 carries Admin API 0.4.0, which this window does not consume · Branch: `storefront/phase2` · Status: Phase 2 · 2.1 in PR, 2.2 next
+Last updated: 2026-09-20 · Contracts: contracts-v0.4.4 (Store API 0.3.1; the `currency` query is in use since 2.1) · Branch: `storefront/phase2` · Status: Phase 2 · 2.1 merged, 2.2 in PR, 2.3 next
 
 ## Identity (does not change)
 
@@ -113,6 +113,19 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       213 app tests (15 files) + 47 kit tests green; lint, typecheck, format, `next build` green.
       **Not verified: the e2e run against the core** — see In progress and #203.
 
+- [x] **2.2 (#110) SEO: metadata, structured data, sitemap, canonical/hreflang** — commit
+      `1c17497`, PR PENDING. Folds in REQUEST #199 (CSP `frame-src`, commit `50c2b2c`).
+      `src/brand/config.ts` (new, **fourth brand-override layer — announced to window 10**) holds
+      the static identity so root metadata never awaits `GET /store`. `src/lib/seo.ts` is the pure
+      core: `alternatesFor` (canonical + `hreflang` + `x-default`), `canonicalFor`, `productJsonLd`
+      (one `Offer` per variant), `breadcrumbJsonLd`, `organizationJsonLd`, the sitemap paging maths.
+      `/sitemap.xml` is a hand-written index over Next's `/sitemap/<n>.xml` pages; `/robots.txt`
+      refuses everything outside production. PDP gains `Product` + `BreadcrumbList` JSON-LD and an
+      `next/og` share card; home gains `Organization`. CSP imports `EMBED_HOSTS` from
+      `@platform/cms` so it cannot drift from window 6's Studio validation.
+      292 app tests (21 files) + 47 kit tests; lint, typecheck, format, `next build`, Playwright
+      (5 passed / 4 skipped — Keycloak not running locally) and Lighthouse all green.
+
 ## In progress
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
@@ -127,32 +140,20 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   `E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-starter e2e`.
   PR #204 merged with the gap recorded in its description.
 
-- **2.2 (#110) SEO — PLAN written 2026-09-09, awaiting confirmation (~20-tool-call rule).**
-  Branch is level with main after #204; 234 app + 47 kit tests green on the merge.
-  1. **Static root metadata.** The Phase 1 finding to fix first: the root layout's
-     `generateMetadata` is async because it awaits `GET /store` for the title template, so Next
-     streams the tags into `<body>` and Lighthouse scores `meta-description` 0 — SEO 91 on the PLP
-     with the tag present and correct in the DOM. Take the brand name and description from build
-     config (`src/brand/`) instead of the API so root metadata is synchronous and lands in `<head>`.
-     **This touches `src/brand/**`, window 10's override surface — announce it in the PR** (they
-     cloned the starter at `59d4830`; a re-clone is how it reaches brand-a).
-  2. **PLP/PDP metadata**: title/description templates from brand config, canonical per locale,
-     `hreflang` alternates for every store locale (the existing `alternates` work moves here).
-  3. **JSON-LD on the PDP**: `Product` + `BreadcrumbList`, price and availability from the core's
-     real data (not the mock's examples), `gtin`/`brand` emitted when the contract carries them —
-     window 17 needs those fields for feeds. Typed with `schema-dts` (dev dependency) so the shape
-     is compile-checked, plus a fixture test asserting required properties.
-  4. **`sitemap.xml` + `robots.txt`** as route handlers built from the Store API, paged at 5 000
-     URLs, tagged and revalidated like the catalogue reads. Must page the API, not assume one call.
-  5. **OG images via `next/og`** per product and for the brand default.
-  6. **Ownership check before starting:** #110 says "PLP/PDP/**content** routes", but `(content)/**`
-     is window 6's path (docs/ownership.md) and they are active in it. Their 2.3 shipped those
-     routes. So either they own the `(content)` metadata and I file a REQUEST with the exact
-     `generateMetadata` to add, or the manager reassigns. **Needs a ruling before I touch it.**
-  7. **Gates**: lint, typecheck, format, both test suites, `next build`, Lighthouse SEO ≥ 95 on
-     PLP/PDP through the existing `lighthouserc.json`, README + CHANGELOG + memory, one PR.
-  Open question for the manager: Lighthouse currently runs against the mock. Against the core the
-  numbers are the real ones but need the stack up — and #203 blocks that too.
+- **2.2 (#110) is code-complete and in PR; one acceptance criterion is met only partly.**
+  See Done. **"Lighthouse SEO ≥ 95" is not reliably reachable on these routes and needs a ruling.**
+  What I found, measured rather than assumed: Next emits page metadata in `<head>` only when it
+  resolves before the shell is flushed; otherwise the tags are appended to `<body>` and React hoists
+  them at hydration. The DOM is correct either way — every e2e assertion passes — but Lighthouse's
+  `meta-description` audit and a raw-HTML crawler see nothing. Taking `GET /store` out of the root
+  layout's metadata removed the biggest cause, and it is a real improvement. It did **not** make
+  placement deterministic: both catalogue routes still render dynamically because pricing reads the
+  currency cookie, so with a cold fetch cache the metadata can still be flushed late. **The same
+  build measures SEO anywhere between 92 and 100.** A 95 gate would therefore be flaky, so the
+  budget stays at 90 and the README explains why. Making it deterministic means making the catalogue
+  routes statically renderable, i.e. taking per-request currency out of the server render — a trade
+  against the behaviour 2.1 shipped deliberately, and the manager's call, not mine. Worth revisiting
+  when partial prerendering is stable in Next.
 
 <!-- superseded plan, kept for the record:
 - **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
@@ -176,11 +177,32 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#110 · 2.2** SEO: metadata, structured data, sitemap, canonical/hreflang
 - [ ] **#111 · 2.3** Performance budget in CI and image pipeline
 - [ ] **#112 · 2.4** Marketing hooks: referral landing, review display, feed-friendly PDP data
 
 ## Decisions made (with reasons)
+
+- **Brand identity is build configuration; everything priced or per-store stays API data.**
+  `src/brand/config.ts` exists because metadata that awaits `GET /store` resolves too late to reach
+  `<head>`. The line is drawn at identity (name, description, canonical origin) — prices,
+  availability, locales and the theme still come from the Store API, so a brand cannot drift from
+  what it actually sells by editing a config file.
+- **A relative `seo.canonical` from the API is localised; an absolute one is obeyed.** The API
+  returns a locale-less path because it does not know which locale is rendering, and using it
+  verbatim pointed the canonical at a URL that only redirects. An absolute value is a deliberate
+  cross-site pin (a syndicated product naming its origin) and is left alone.
+- **The sitemap is paged in URLs, not products**, because every path appears once per locale — the
+  distinction is invisible until a two-locale store passes 2 500 products. `/sitemap.xml` is a
+  hand-written index because Next publishes none for `generateSitemaps`, and both read the same
+  `sitemapPaths()` so the index can never advertise a page that 404s.
+- **A failed catalogue read degrades the sitemap instead of failing it.** A short sitemap costs
+  crawl efficiency; a 500 tells the crawler the whole file is broken and it backs off from all of it.
+- **The CSP imports `EMBED_HOSTS` from `@platform/cms` rather than copying the host list.** It is
+  the same list window 6's Studio validates an editor's embed URL against, so a copy that drifts
+  would either block an embed the Studio accepted or permit one it rejected.
+- **The Lighthouse SEO budget stays at 90, deliberately, and the README says why.** The score moves
+  between 92 and 100 on the same build (see In progress); a 95 gate would be flaky, and turning off
+  the `meta-description` audit to force a pass would hide a real signal.
 
 - **A test may assert on our own copy; it may never assert on the dataset.** That is the line the
   Phase 1 e2e crossed, and it is why the suite could not run against the core: the fixture's product
@@ -362,6 +384,24 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`localhost` resolves to `::1` on this machine and nothing listens there.** Every local HTTP
+  check must use `127.0.0.1` — `curl http://localhost:4010/store` returns 000 while the Prism
+  container is plainly up and serving, and `lighthouserc.json` could not connect to a running
+  server until its URLs were changed. This wasted real time twice, and it is also why a "the core is
+  not answering" conclusion should always be confirmed from the process log rather than from curl.
+- **Next puts page metadata in `<head>` only when it resolves before the shell is flushed.**
+  Otherwise the tags go at the end of `<body>` and React hoists them at hydration: the DOM is
+  correct, every Playwright assertion passes, and Lighthouse's `meta-description` audit still fails.
+  It is timing-dependent, not a static property — the same build scores 92 with a cold fetch cache
+  and 100 with a warm one. Do not conclude "fixed" from one curl; measure repeatedly.
+- **`generateSitemaps()` serves `/sitemap/<n>.xml` and publishes no `/sitemap.xml` index.** A
+  `robots.txt` pointing at `/sitemap.xml` therefore advertises a 404. Verified by requesting it,
+  not assumed.
+- **Lighthouse writes `.lighthouseci/` into the package**, which `pnpm format:check` then flags in
+  26 files. Gitignored locally; the root `.prettierignore` line belongs to the main window, and CI
+  never sees the directory, so it is only a local annoyance — worth folding into 2.3's REQUEST to
+  window 5 if the Lighthouse job ever shares a runner with the format check.
 
 - **`/tmp` is shared by every worktree on this machine — never use a predictable name there.**
   All windows run on one Windows box, so `/tmp/<something>.log` is one file for all of them.
