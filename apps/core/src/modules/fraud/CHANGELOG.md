@@ -5,6 +5,21 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.4.2)
 
+### 2026-09-19 · follow-up to 2.5 after core #236 (the checkout seam landed)
+
+- `seam.ts`: the local stand-in registry is gone — `setFraudCheck` / `currentFraudCheck` are re-exports of the
+  checkout's, so `registerFraudCheck()` registers where `completeCart` reads and window 1's wiring bridge is a
+  no-op (its identity test passes unchanged). `enforceDecision` / `applyDecisionToOrder` removed: the checkout
+  does both.
+- `order-flag.ts`: the two flag writers now also call the orders module's mirror functions
+  (`order.metadata.fraud` + the one `order.updated`), so reviews opened AFTER placement by Radar's webhooks get an
+  order mirror; this module no longer emits `order.updated` itself. **A resolved review is never re-flagged.**
+- `check.ts`: the block record is written AFTER the placement transaction rolled back (manager decision):
+  `evaluate()` writes nothing; `recordBlocked` / `flushBlockRecords` / `pendingBlockRecords` on the check
+  (`ModuleFraudCheck`); deferred flush until the checkout calls `recordBlocked` (REQUEST #241).
+- `types.ts`: `max_orders` JSDoc says `>=` like the code and the README.
+- Tests 14 → 16, block and review now through the real `completeCart`.
+
 ### 2026-09-19 · 2.5 Fraud hooks (rules + Stripe Radar), review flag, shared credential loader (#128)
 
 - `types.ts`: `FraudProvider`, `FraudContext` (facts and the checkout's `email_hash` only), `FraudDecision`, a

@@ -1,19 +1,16 @@
 import type { PortableTextBlock, PortableTextSpan, RichTextContent } from '@platform/cms';
 import type { ReactNode } from 'react';
-import { Link } from '@/i18n/navigation';
 import type { ContentContext } from '../content';
+import { SafeLink } from './safe-link';
 import { SanityImage } from './sanity-image';
 
 /**
  * Renders the portable text our `richText` schema allows — styles normal/h2/h3/blockquote, bullet
  * and numbered lists, strong/em, and link annotations — and nothing else, so a new mark in the
  * Studio is a visible gap here rather than unexpected HTML. Hand-rolled instead of
- * `@portabletext/react` to keep the storefront's dependency list where window 3 left it.
+ * `@portabletext/react` to keep the storefront's dependency list where window 3 left it. Link
+ * annotations render through `SafeLink`: an unsafe stored href degrades to plain text.
  */
-
-function isExternal(href: string): boolean {
-  return /^https?:\/\//.test(href);
-}
 
 function Spans({ block }: { block: PortableTextBlock }) {
   return block.children.map((span: PortableTextSpan) => {
@@ -24,14 +21,10 @@ function Spans({ block }: { block: PortableTextBlock }) {
       else {
         const def = block.markDefs?.find((d) => d._key === mark);
         if (def?._type === 'link') {
-          node = isExternal(def.href) ? (
-            <a key={mark} href={def.href} rel="noopener noreferrer" className="underline">
+          node = (
+            <SafeLink key={mark} href={def.href} className="underline">
               {node}
-            </a>
-          ) : (
-            <Link key={mark} href={def.href} className="underline">
-              {node}
-            </Link>
+            </SafeLink>
           );
         }
       }

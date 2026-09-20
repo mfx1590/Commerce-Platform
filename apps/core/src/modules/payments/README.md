@@ -171,7 +171,8 @@ Admin API `POST /admin/stores/{storeId}/orders/{orderId}/refunds` (`x-permission
 returns module's `RefundRequester` for return-driven refunds. `createRefundIn(tx, …)` is ONE transaction:
 
 1. **Replay** — a `refund` row with this key (stored as `<store_id>:<key>`, like payments) is returned as is, no
-   provider call; the same key with another order or amount → 409.
+   provider call — only when it is the SAME refund in every field the caller controls; the same key with another
+   order, amount, reason, return or payment → 409 `conflict` with `details.differs`.
 2. **The captured payment**, locked: `payment_id` when given (404 if it is not the order's), else the order's
    captured payment (409 `{ field: 'payment_status', from, to: 'captured' }` when there is none).
 3. **Support limit, before the ceiling** (authorization first: a capped caller gets their 403, never a 409 that

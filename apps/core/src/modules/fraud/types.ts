@@ -30,7 +30,7 @@ export interface FraudDecision {
 
 export const ALLOW: FraudDecision = { outcome: 'allow', reasonCode: null, provider: null };
 
-/** What the checkout hands to the fraud check BEFORE authorizing (REQUEST to window 1; local seam in ./seam). */
+/** What the checkout hands to the fraud check BEFORE authorizing — structurally the checkout seam's `FraudContext`. */
 export interface FraudContext {
   /** The placement transaction (RLS scope = the cart's store). */
   tx: Queryable;
@@ -53,7 +53,8 @@ export interface FraudContext {
  * `store.settings.fraud`:
  *
  * - `providers` — which engines run, in order (default both: local rules, then Stripe Radar);
- * - `velocity` — more than `max_orders` orders for one email hash within `window_minutes` → review;
+ * - `velocity` — the store ALREADY has `max_orders` or more orders for one email hash within `window_minutes`
+ *   (`>=`: with the default 3, the 4th order in the window is the first one held) → review;
  * - `country_mismatch` — shipping ≠ billing country: `review` (default) or `allow`;
  * - `radar_highest` — Radar risk level `highest`: `block` (default) or `review`.
  */
