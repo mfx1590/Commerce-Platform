@@ -21,7 +21,7 @@ Branch prefix → allowed write paths. Everything else is read-only for that bra
 | `events/` | 14 — Event bus & outbox relay | `apps/core/src/outbox/**`, `infra/redpanda/**`, `packages/events/** (exception this phase only)` |
 | `accounting/` | 15 — Automatic accounting | `apps/accounting/**` |
 | `engagement/` | 16 — CRM, notifications & support | `apps/notifications/**`, `apps/support/**`, `data/cdp/**` |
-| `marketing/` | 17 — Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | `apps/core/src/modules/marketing/**`, `apps/feeds/**`, `apps/admin/src/app/(store)/[storeId]/marketing/**`, `apps/admin/src/app/(hq)/marketing/**` |
+| `marketing/` | 17 — Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | `apps/core/src/modules/marketing/**`, `apps/feeds/**`, `apps/admin/src/app/(store)/[storeId]/marketing/**`, `apps/admin/src/app/(hq)/marketing/**`, `apps/admin/test/marketing/**`, `apps/admin/test-contract/marketing/**` |
 
 Rules:
 1. A window that needs a change outside its paths files a GitHub issue titled `CONTRACT CHANGE: …` or `REQUEST: …` and keeps building against a local mock.
