@@ -638,7 +638,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(7);
+    expect(moduleAdminRouters()).toHaveLength(8);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -689,6 +689,12 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     expect(noKey.status).toBe(400);
     const staffRefund = await storeStaff.post(refundPath, refundBody);
     expect(staffRefund.status).toBe(403);
+    // window 8: fulfillmentAdminRouter (#133) — pick lists answer behind staff auth; an unknown shipment is a 404
+    const pickLists = await as('seed-operations').get(`/admin/stores/${A}/pick-lists`);
+    expect(pickLists.status).toBe(200);
+    const pick = await as('seed-operations').post(`/admin/shipments/${orderId}/pick`, {});
+    expect(pick.status).toBe(404);
+    expect((await request(app).get(`/admin/stores/${A}/pick-lists`)).status).toBe(401);
     for (const path of ['price-lists', 'promotions']) {
       const anonymous = await request(app).get(`/admin/stores/${A}/${path}`);
       expect(anonymous.status).toBe(401);

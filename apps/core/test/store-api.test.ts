@@ -9,6 +9,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DevTokenVerifier } from '../src/http';
 import { closePool, initDb } from '../src/lib/db';
 import { setFraudCheck } from '../src/modules/checkout';
+import { setDiscountEvaluator } from '../src/modules/cart';
+import { promotionsDiscountEvaluator } from '../src/wiring';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -746,6 +748,27 @@ describe('checkout routes (contract replay, task 2.2)', () => {
       });
     } finally {
       setFraudCheck(null);
+    }
+  });
+
+  it('PATCH with a promotion code that can never apply → 400 with the reason per code (#230), validated against Error; nothing is stored', async () => {
+    const previous = setDiscountEvaluator(promotionsDiscountEvaluator); // what createServer() registers
+    try {
+      const cart = await readyCart();
+      const refused = await json('patch', `/store/carts/${cart.id}`).send({
+        promotion_codes: ['no-such-code'],
+      });
+      expect(refused.status).toBe(400);
+      spec.assertSchema('Error', refused.body);
+      expect(refused.body).toMatchObject({
+        code: 'validation_error',
+        details: { promotion_codes: { 'NO-SUCH-CODE': 'not_found' } },
+      });
+      const after = await asA(`/store/carts/${cart.id}`);
+      expect(after.body.promotion_codes).toEqual([]);
+      spec.assertSchema('Cart', after.body);
+    } finally {
+      setDiscountEvaluator(previous);
     }
   });
 

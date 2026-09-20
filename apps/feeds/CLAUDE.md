@@ -34,5 +34,6 @@ window 17 (marketing). `Dockerfile` is window 5's (infra) per docs/ownership.md.
 
 - The artifact root must be the same `FEEDS_DIR` the core publishes into; the core also needs
   `FEEDS_PUBLIC_URL` set to this app's public base URL, because that is what lands in `product_feed.url`.
-- `infra/ci/check-image-manifests.sh` fails until window 5's Dockerfile lists `apps/feeds/package.json` in every
-  image's `deps` stage. That is the intended prompt for the REQUEST, not a regression.
+- `infra/ci/check-image-manifests.sh` checks that every app image's `deps` stage copies all workspace
+  manifests. `apps/feeds/package.json` is in all of them since infra #210, which also added this app's
+  `Dockerfile`; adding another workspace package turns the guard red until every Dockerfile lists it.

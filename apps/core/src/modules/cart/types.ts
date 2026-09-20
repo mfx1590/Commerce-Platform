@@ -212,3 +212,70 @@ export interface PriceChange {
   previousUnitPriceMinor: number;
   unitPriceMinor: number | null;
 }
+
+// ---- discounts (#230 PR A) ----
+
+export interface DiscountLine {
+  lineItemId: string;
+  variantId: string;
+  productId: string;
+  categoryId: string | null;
+  quantity: number;
+  /** The line's unit price as the cart holds it: gross for a `pricesIncludeTax` store, net otherwise. */
+  unitPriceMinor: number;
+  /** The line's tax rate — what an evaluator needs to derive a net price for a tax-inclusive store. */
+  taxRateBp: number;
+}
+
+export interface DiscountQuery {
+  /** The mutation's transaction (RLS scope = the store). */
+  tx: Queryable;
+  organizationId: string;
+  storeId: string;
+  currency: string;
+  salesChannelId: string | null;
+  /** The cart's customer, when signed in (groups, first order, per-customer limits). Null for guests. */
+  customerId: string | null;
+  /** `cart.promotion_codes` as stored (normalised). */
+  codes: string[];
+  /** One clock per mutation: a quote and the placement that follows judge every window alike. */
+  at: Date;
+  pricesIncludeTax: boolean;
+  lines: DiscountLine[];
+}
+
+export interface AppliedDiscount {
+  promotionId: string;
+  code: string | null;
+  /** In the cart's own price base (gross for a tax-inclusive store). */
+  discountMinor: number;
+}
+
+export interface RejectedCode {
+  code: string | null;
+  /** The evaluator's machine-readable reason (window 9's `RejectReason`). */
+  reason: string;
+  /**
+   * True when the code can never apply to this cart (unknown, inactive, expired, used up — store-wide or for this
+   * customer — or the wrong currency, which is fixed at cart creation): entering it is a 400. False = conditional
+   * (minimum subtotal, eligible lines, group, channel, first order, or NOT STARTED YET — time, not the cart, makes
+   * a launch code applicable): the code stays stored and applies as soon as it can.
+   */
+  permanent: boolean;
+}
+
+export interface DiscountQuote {
+  /** lineItemId → discount in the cart's own price base; absent = 0. Never more than the line's subtotal. */
+  allocations: Map<string, number>;
+  freeShipping: boolean;
+  applied: AppliedDiscount[];
+  rejected: RejectedCode[];
+}
+
+/**
+ * Prices the cart's discounts. Default: `noDiscounts`. The server registers window 9's promotions engine through
+ * `setDiscountEvaluator` (src/wiring.ts) — this module never imports the promotions module.
+ */
+export interface DiscountEvaluator {
+  evaluate(query: DiscountQuery): Promise<DiscountQuote>;
+}

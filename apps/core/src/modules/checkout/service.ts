@@ -7,7 +7,11 @@ import { createHash } from 'node:crypto';
 import type { Queryable, ScopedClient } from '@platform/db';
 import { orderMetadataFromCart, recordAttribution } from '../../lib/attribution';
 import { AppError, notFound, validationError } from '../../lib/errors';
-import { evaluateFraud } from '../../lib/fraud-seam';
+import {
+  evaluateFraud,
+  FRAUD_CHECK_UNAVAILABLE,
+  FRAUD_OUTAGE_PROVIDER,
+} from '../../lib/fraud-seam';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import {
   currentShippingRateProvider,
@@ -266,7 +270,7 @@ async function placeOrder(
       cartId,
       amountMinor: Number(cart.total_minor),
       currency: cart.currency,
-      emailHash: emailHash(cart.email!.trim()),
+      emailHash: emailHash(cart.email!), // emailHash trims and lowercases itself
       shippingCountry: cart.shipping_address?.country ?? null,
       billingCountry: cart.billing_address?.country ?? null,
       paymentProvider: provider.name,
@@ -387,8 +391,10 @@ async function placeOrder(
         fraud.outcome === 'review'
           ? {
               status: 'review' as const,
-              reason_code: fraud.reasonCode ?? 'unknown',
-              provider: fraud.provider ?? 'unknown',
+              // a review without a code or provider is a malformed answer: booked as an outage, so both
+              // values stay inside the fraud module's closed sets (#236 review)
+              reason_code: fraud.reasonCode ?? FRAUD_CHECK_UNAVAILABLE,
+              provider: fraud.provider ?? FRAUD_OUTAGE_PROVIDER,
               flagged_at: at.toISOString(),
             }
           : null;
