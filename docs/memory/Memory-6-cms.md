@@ -85,6 +85,15 @@ Headless CMS with one workspace per brand: schemas (page, hero, blocks, campaign
 - **2.3: nits from #163 landed in cms 0.2.0** — `uniqueLocaleKey` (navigation.key) / `uniqueLocale` (footer.locale) via a shared `uniqueWithin()`; `HREF_PATTERN = /^(?:\/(?!\/)|https:\/\/[^\s/?#]+)/` replaces `uri({allowRelative})`.
 - **Seed via Sanity's HTTP API from a `.mjs` runner over the built `dist/`** (no `@sanity/client` dep, no tsx): uploads a 1×1 PNG placeholder and rewrites fixture asset refs, because Sanity rejects strong references to missing assets. Without credentials prints manual steps, exits 0, writes nothing.
 
+## Wave-C-support era (after the #249 merge — manager verdict MERGE 2026-09-20, queued behind core #243 and marketing #250; merge sha lands in the next manager paste)
+Phase 2 is COMPLETE at that merge. Stay QUIET: no new tasks; wake only for wave-C support — REQUEST #178 (window 3 mounts CmsHeader/CmsFooter/HomeContent + content-namespace merge) and #141 (window 10 brand-A content questions; they clone the fixtures per the cms README "Adding a locale"). Standing rules at the top still apply.
+First wave-C-support change folds in the #249 review nits (manager: "not now"):
+- [ ] `sanity-image.tsx` https guard is case-SENSITIVE (`/^https:\/\//` on `cloudinaryUrl`) while `safeHref` was fixed to be insensitive — same bug class; it fails closed (uppercase https renders nothing), fix with `/i` + test.
+- [ ] `metadata.ts` og:image can diverge from the rendered image: an unrecognised https `cloudinaryUrl` renders as the source URL on the page but `shareImageUrl` skips it (falls to the Sanity asset or nothing) — make both resolve through one helper.
+- [ ] Cloudinary branch emits no width/height → CLS. Options: optional schema width/height fields, or accept Cloudinary's `w_`/`h_` from the URL when present; keep alt contract.
+- [ ] Move 2.5 to Done with shas 01ee1a3 (2.5) + da32729 (nits) + the merge sha from the manager's confirmation; drop the In progress entry.
+- [ ] With real Studio access (needs `SANITY_PROJECT_ID`): confirm `cloudinaryUrl` and `alt` are reachable in the image field's edit dialog BEFORE any file is uploaded (Sanity image fields can hide their object fields behind the edit pencil until an asset exists). If not, promote the fields or add `options.metadata`/field-level `options` accordingly.
+
 ## Blocked / waiting
 - (none)
 
