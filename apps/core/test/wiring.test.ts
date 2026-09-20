@@ -1,10 +1,13 @@
 // src/wiring.ts: what createServer() registers behind the seams, once. No database: every call is a registry write.
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  currentDiscountEvaluator,
   currentPriceResolver,
   currentShippingRateProvider,
   currentTaxCalculator,
   defaultListPriceResolver,
+  noDiscounts,
+  setDiscountEvaluator,
   setPriceResolver,
   setShippingRateProvider,
   setTaxCalculator,
@@ -26,10 +29,11 @@ import {
   manualRefundRequester,
   setRefundRequester,
 } from '../src/modules/returns';
-import { priceListResolver, registerModuleSeams } from '../src/wiring';
+import { priceListResolver, promotionsDiscountEvaluator, registerModuleSeams } from '../src/wiring';
 
 afterAll(() => {
   setPriceResolver(defaultListPriceResolver);
+  setDiscountEvaluator(noDiscounts);
   setTaxCalculator(tableTaxCalculator);
   setShippingRateProvider(tableShippingRates);
   setRefundRequester(manualRefundRequester);
@@ -40,6 +44,7 @@ afterAll(() => {
 describe('registerModuleSeams()', () => {
   it('starts from the built-in defaults', () => {
     expect(currentPriceResolver()).toBe(defaultListPriceResolver);
+    expect(currentDiscountEvaluator()).toBe(noDiscounts);
     expect(currentTaxCalculator()).toBe(tableTaxCalculator);
     expect(currentShippingRateProvider()).toBe(tableShippingRates);
     expect(currentRefundRequester()).toBe(manualRefundRequester);
@@ -54,6 +59,7 @@ describe('registerModuleSeams()', () => {
     expect(currentShippingRateProvider()).not.toBe(tableShippingRates);
     expect(currentTaxCalculator()).not.toBe(tableTaxCalculator);
     expect(currentPriceResolver()).toBe(priceListResolver);
+    expect(currentDiscountEvaluator()).toBe(promotionsDiscountEvaluator);
     // the fraud check reaches the seam completeCart actually reads — the same object the fraud module registered
     expect(currentFraudCheck()).not.toBeNull();
     expect(currentFraudCheck()).toBe(fraudModuleCheck());
