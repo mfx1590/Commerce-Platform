@@ -20,6 +20,12 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.5 (#149) admin Marketing section** — 2026-09-20. Four Store screens + the HQ page, in
+  `apps/admin/src/app/(store)/[storeId]/marketing/**` and `(hq)/marketing/**`; wrappers and server actions in
+  the section (window 4's files untouched); rule builder over the frozen grammar with a live preview count.
+  Tests: 9 pure + 8 Prism contract (every field/op posted as a `SegmentInput`). REQUEST #251 filed (202 branch
+  missing from window 4's `SuccessBody`). Section README documents the boundary.
+
 - **2.4 (#148) abandoned-cart recovery** — commit `d8187ba`, PR #250 (2026-09-19), pushed after #240's merge
   is confirmed. `recovery{,-token,-report,-types}.ts` + the report route. Outbox polling per store with the
   cursor in `marketing_cursor`; idempotency is `UNIQUE (cart_id)` in the schema, not consumer memory. Tokens:
@@ -51,60 +57,25 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-### 2.5 (#149) admin Marketing section — plan written 2026-09-20, pasted to the manager, not started
-2.4 is PR #250, in review. Findings from reading window 4's app before planning:
-
-**Ownership is fine for the pages, NOT for the tests.** My row covers
-`apps/admin/src/app/(store)/[storeId]/marketing/**` and `(hq)/marketing/**`, and both directories exist
-(window 4's #63 placeholders, one self-contained `page.tsx` each, no API calls). But
-`apps/admin/vitest.config.ts` has `include: ['test/**/*.test.ts(x)']` and the Prism contract suites live in
-`apps/admin/test-contract/` — **both window 4's paths**. #149 requires "contract tests against Prism per
-screen", so the task cannot be finished without an ownership extension. → **REQUEST 1**.
-
-**The analyst acceptance criterion does not match the nav gate.** `src/lib/nav/sections.ts` (window 4's) gates
-the *store* Marketing section on `store_staff`; an HQ analyst has no `store_staff` on a store, so it never
-appears for them. #149 says "analyst sees Overview only (nav + 403 panel tests)". Two readings, and it is the
-manager's call — → **question in the plan**, recommending (a):
-  (a) the analyst's Overview is the **HQ** Marketing page (`requires: ['analyst']`), which is also what
-      docs/marketing-scope.md says is organization-level. No change to window 4's file. 2.5 then also builds
-      `(hq)/marketing` against `/admin/marketing/dashboard` + `segment-templates`.
-  (b) soften the store section's gate to `viewer` so an analyst sees Marketing with only Overview readable and
-      403 panels elsewhere → a REQUEST to window 4 to edit `sections.ts`.
-
-**Good news that removes a duplication risk:** contracts-v0.4.4 landed #239, so `SegmentRules` +
-`SegmentPredicate` are in `admin-api.yaml` as the frozen grammar. The rule builder validates against the
-**contract's own schema** (ajv over `#/components/schemas/SegmentRules`) — #149's "emits the exact
-SegmentRules JSON the contract defines" is testable without copying the grammar into the admin.
-
-**Shape of the work** (all inside my two owned folders):
-- `marketing/_api.ts` — typed wrappers over window 4's exported `adminCall` (`src/lib/api/admin.ts` stays
-  untouched; `AdminResponse<'listCampaigns'>` etc. keep the operationId as the type parameter, their pattern).
-- `marketing/_section-nav.tsx` + a plain `_sections.ts` constants module — in-section navigation for
-  Overview / Campaigns / Segments / Feeds. **No `'use client'` constants** (global gotcha) and **no motion**:
-  the design brief puts motion in the rail only, never on content panels.
-- `marketing/page.tsx` Overview — attribution report, promotions report, abandoned-cart rate (the last one
-  only once 0.4.5 lands; until then the tile is omitted rather than faked).
-- `marketing/campaigns/{page,[campaignId]/page}.tsx` — DataTable list, create/edit through
-  `use-contract-form`, launch/end as server actions bound with `.bind(null, …)` (global gotcha).
-- `marketing/segments/{page,[segmentId]/page}.tsx` — rule builder emitting the frozen grammar, live preview
-  count through `previewSegment` with rules in the body (no draft row needed).
-- `marketing/feeds/{page,[feedId]/page}.tsx` — status, item count, errors, publish, paged items.
-- `(hq)/marketing/page.tsx` — cross-store dashboard + segment templates (under reading (a)).
-- Reuse window 4's primitives only: `Card`, `Badge`, `Button`, `DataTable`, `fields`/`money-field`/
-  `use-contract-form`, `StatePanel`/`ActionRefusal`/`RetryButton`, `StoreSectionGuard`/`HqSectionGuard`.
-  Nothing new in their component space.
-- UI permission gating from `GET /admin/me` relations (reads `store_staff`, writes `store_admin`, reports
-  `viewer`, templates `owner`) — convenience only; the server decides, and a 403 renders `ActionRefusal`.
+- (nothing — 2.5 is built and green; next is the 0.4.5 cleanup follow-up, then 2.6)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
 - [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
 - [x] **#148 · 2.4** Abandoned-cart recovery — PR #250 in review
-- [ ] **#149 · 2.5** Admin Marketing section v1
+- [x] **#149 · 2.5** Admin Marketing section v1 — built and green
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
 
 ## Decisions made (with reasons)
+- 2026-09-20 (manager, 2.5) · The analyst's marketing Overview is the **HQ** page, not the store one. The
+  store section is gated on `store_staff` — authoring work an analyst has no relation for — and the scope doc
+  already puts the cross-brand dashboard at organization level. Window 4's `sections.ts` stays untouched.
+- 2026-09-20 (me, 2.5) · The rule builder's contract proof is a **Prism contract test**, not ajv in the admin:
+  posting `toRules(draft)` as a `SegmentInput` makes the spec itself the validator, so no copy of the grammar
+  lives in the admin and no new dependency lands in window 4's package.
+- 2026-09-20 (me, 2.5) · The abandoned-cart tile is omitted until 0.4.5 rather than built on an untyped fetch.
+  A tile that might be wrong is worse than a tile that is missing.
 - 2026-09-19 (manager, 2.4) · Redemption is a **Store API route in the core**, not an exported function the
   storefront calls. The token deliberately carries no cart id, so only a server round trip can resolve it, and
   window 3's app speaks nothing but the publishable-key Store API. My own lean to the exported function was
@@ -221,6 +192,14 @@ Opens once #244/#245 land. Four things, three of them review nits from #250 (man
   fails the build as soon as `apps/feeds` exists until every Dockerfile's deps stage lists it (intended prompt).
 
 ## Gotchas learned
+- 2.5: window 4's `SuccessBody` maps 200 → 201 → `null`, so **a 202-with-body types as `null` silently** —
+  no error, the call site just gets nothing. Hit `materializeSegment`; window 13's `eraseCustomer` is the other
+  one. REQUEST #251.
+- 2.5: `useContractForm` returns `{ form, submit, formError, refusal, isSubmitting }` — field errors are
+  `form.formState.errors.x` through `errorMessage()`, and `SelectField` takes `options`, not children.
+- 2.5: the admin's unit vitest only includes `test/**`, so tests for anything under `src/app/**` must live in
+  `apps/admin/test/` — which is why the ownership row needed extending before 2.5 could be finished.
+- 2.5: `me.data.stores[].store_id`, not `.id`, is the store key on the principal.
 - 2.4: **never CHECK an app-supplied timestamp against a database-generated one.**
   `CHECK (redeemed_at >= created_at)` with `created_at DEFAULT now()` compares the Postgres clock to the Node
   clock and fails on ordinary skew. Four tests passed in isolation and failed in the full run; corrected on

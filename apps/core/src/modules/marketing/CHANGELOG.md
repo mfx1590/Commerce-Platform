@@ -10,6 +10,37 @@ file is the module's own history (linked from the PRs).
 - `proposed/product-feed.schema.json` removed; `feed-types.ts` takes `ProductFeed` / `FeedStatus` from the
   generated types and `routes.test.ts` asserts the error-status feed against the document itself.
 
+### 2026-09-20 · 2.5 Admin Marketing section (#149)
+
+Window 17's first work outside `apps/core`. Files are in `apps/admin/src/app/(store)/[storeId]/marketing/**`,
+`(hq)/marketing/**`, `test/marketing/**` and `test-contract/marketing/**` — the ownership row was extended for
+the two test folders (manager, main commit e390675). Details and the boundary with window 4 are in that
+section's own `README.md`.
+
+- Four Store screens — Overview (attribution + promotions reports), Campaigns (list, create, detail with
+  launch/end), Segments (list, detail with the rule builder), Feeds (list, detail with publish, items and the
+  per-item problems) — and the HQ screen (cross-brand dashboard + shared segment templates).
+- The analyst's Overview is the **HQ** page, not the store one: the store section is gated on `store_staff`,
+  which an analyst does not hold, and docs/marketing-scope.md puts the cross-brand dashboard at organization
+  level (manager decision 2026-09-20, reading (a)). Window 4's `sections.ts` is untouched.
+- `_api.ts` and `_actions.ts` live in the section, not in window 4's `src/lib/api/admin.ts` or
+  `src/app/actions/`; they use window 4's `adminCall` transport and their operationId convention. No new
+  component was added to their component space.
+- **Rule builder**: `segments/_rules.ts` is a plain module with two pure functions between the editing model
+  and the contract's `SegmentRules`. `toRules` returns `null` while any row is incomplete, drops empty groups
+  (the schema requires `any` to be non-empty), and treats `all: []` as _every_ customer rather than none.
+  Country codes are accepted in any case and upper-cased on the way out.
+- **REQUEST #251** filed against window 4: their `SuccessBody` maps 200 and 201 but not 202, so
+  `materializeSegment` — and window 13's `eraseCustomer` — type as `null`. `_api.ts` declares that one return
+  type explicitly until it lands.
+- Tests (+17): `test/marketing/rule-builder.test.ts` (9, pure) and `test-contract/marketing/marketing.test.ts`
+  (8, Prism) — the latter posts the builder's output as a `SegmentInput` for **every field and operator of the
+  closed set**, so #149's "emits the exact SegmentRules JSON the contract defines" is proven by the spec
+  accepting it rather than by a copy of the grammar living in the admin.
+- Deliberately not built: the abandoned-cart tile on Overview (`getAbandonedCartReport` is CONTRACT CHANGE
+  #245 and not in the frozen document — it joins the 0.4.5 cleanup), and creation forms for feeds and
+  segments (campaigns has one; the other two are created through the API and edited here).
+
 ### 2026-09-19 · 2.4 Abandoned-cart recovery (#148)
 
 - `recovery.ts`: `consumeAbandonedCarts` — outbox polling per store on `cart.abandoned` (window 9's shape),
