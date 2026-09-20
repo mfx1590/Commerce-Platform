@@ -4,7 +4,6 @@
 //
 // This file is also what proves the router works before window 1 mounts it in `src/http` (the REQUEST): it
 // mounts `marketingAdminRouter()` exactly where `adminRouter()` sits in the chain.
-import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,8 +64,7 @@ async function createDraft(): Promise<string> {
 beforeAll(async () => {
   db = await createTestDatabase('core_marketing_routes');
   await seed(db.owner, { productsPerStore: 4, log: () => {} });
-  // PROPOSED schema for 2.4 (CONTRACT CHANGE #244) — goes away when migration 0170 lands on main.
-  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0170_cart_recovery.sql'), 'utf8'));
+  // cart_recovery / marketing_cursor come from migration 0170 (#244, contracts-v0.4.5).
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
   await initDb({ connectionString: db.app.options.connectionString! });

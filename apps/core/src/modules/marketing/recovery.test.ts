@@ -5,10 +5,7 @@
 // that actually runs in production rather than against a hand-written fixture payload. If window 1 changes the
 // payload, this file fails — which is the point.
 //
-// Schema: `proposed/0170_cart_recovery.sql` (CONTRACT CHANGE #244), applied here because `packages/db` is frozen.
-// When the migration lands on main, this block and the file go away in a small follow-up (#162's pattern).
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Schema: `cart_recovery` / `marketing_cursor` come from migration 0170 (#244, contracts-v0.4.5).
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -133,8 +130,6 @@ async function placeOrderFor(cartId: string, storeId = A, totalMinor = 12_000): 
 beforeAll(async () => {
   db = await createTestDatabase('core_recovery');
   await seed(db.owner, { productsPerStore: 3, log: () => {} });
-  // PROPOSED schema (#244) — delete with the file when migration 0170 lands on main.
-  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0170_cart_recovery.sql'), 'utf8'));
 
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A], actorId: actor.id });
   b = createTenantClient(db.app, { organizationId: ORG, storeIds: [B], actorId: actor.id });
