@@ -40,6 +40,13 @@ export const FRAUD_ALLOW: FraudDecision = { outcome: 'allow', reasonCode: null, 
 /** Reason recorded when the registered check itself throws: an outage is a review — never a block, never a pass. */
 export const FRAUD_CHECK_UNAVAILABLE = 'provider_unavailable';
 
+/**
+ * Provider recorded for an outage of the check as a whole. It stays inside the fraud module's provider-name set
+ * (`rules` | `radar`): `rules` is the local engine that always runs first, so an outage we cannot attribute is
+ * booked on it (#236 review — `checkout` was outside the set).
+ */
+export const FRAUD_OUTAGE_PROVIDER = 'rules';
+
 let current: FraudCheck | null = null;
 
 /** Registers the fraud check (null = none: every placement is allowed). Returns the previous one. */
@@ -64,6 +71,10 @@ export async function evaluateFraud(ctx: FraudContext): Promise<FraudDecision> {
   try {
     return await check.evaluate(ctx);
   } catch {
-    return { outcome: 'review', reasonCode: FRAUD_CHECK_UNAVAILABLE, provider: 'checkout' };
+    return {
+      outcome: 'review',
+      reasonCode: FRAUD_CHECK_UNAVAILABLE,
+      provider: FRAUD_OUTAGE_PROVIDER,
+    };
   }
 }
