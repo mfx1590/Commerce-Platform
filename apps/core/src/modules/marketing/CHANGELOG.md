@@ -10,6 +10,41 @@ file is the module's own history (linked from the PRs).
 - `proposed/product-feed.schema.json` removed; `feed-types.ts` takes `ProductFeed` / `FeedStatus` from the
   generated types and `routes.test.ts` asserts the error-status feed against the document itself.
 
+### 2026-09-19 · 2.4 Abandoned-cart recovery (#148)
+
+- `recovery.ts`: `consumeAbandonedCarts` — outbox polling per store on `cart.abandoned` (window 9's shape),
+  creating one record per cart and advancing the `marketing_cursor` position in the same transaction.
+  Idempotency is `UNIQUE (cart_id)` in the schema rather than the consumer remembering, so a replayed event or
+  a rewound cursor is a no-op **and the original token keeps working**. `reconcileRecoveries` flips records
+  whose carts became orders, reading `cart.order_id` — marketing never decides what an order is — and is
+  idempotent on the target state, so a cart counts once. `validateRecoveryToken` is what window 1's Store API
+  route calls (REQUEST #246).
+- `recovery-token.ts`: 32 random bytes base64url; **only `sha256(token)` is stored**, the plaintext returned
+  once at mint. Single use enforced by `UPDATE … WHERE redeemed_at IS NULL` (not check-then-write, so two
+  simultaneous clicks cannot both win), 7-day expiry, constant-time hash comparison. Unknown, expired and used
+  tokens answer an identical 404; a cart already ordered answers 409.
+- `recovery-report.ts`: abandoned / redeemed / recovered / rate, in the store's default currency.
+  `recovered_value` is the **order** total, not the cart's. No carts abandoned is `0`, not a division by zero.
+- `recovery-types.ts`: the record, the read model (no `token_hash`, ever), and the report shape — declared
+  locally until #245 lands, the way `ProductFeed` was before #194.
+- One new route, `GET …/marketing/reports/abandoned-carts`, behind `permissionOrProposed`: it reads the
+  operation's `x-permission` from the spec when present and falls back to the proposed `viewer` otherwise, so
+  the document wins automatically once #245 lands — including if the manager lands a different relation.
+- **This module writes no attribution.** The link carries `utm_source=abandoned_cart`, the storefront captures
+  it, window 1's placement writes the row.
+- Contract surface filed: **#244** (db `0170_cart_recovery.sql` — `cart_recovery` with the per-cart UNIQUE,
+  `token_hash`, expiry, `redeemed_at`, plus `marketing_cursor`), **#245** (Admin API report + Store API
+  `POST /store/cart-recovery/{token}`), **#246** (window 1 mounts the store route), **#247** (windows 3 and 10,
+  the storefront page). Built against `proposed/0170_cart_recovery.sql`, applied by the tests to their own
+  database (#162's pattern); both CCs land bundled as contracts-v0.4.5 after this PR merges.
+- Tests (+19): `recovery.test.ts` (16) drives **window 1's real `markAllAbandonedCarts`** rather than a
+  hand-written payload, so the consumer is exercised against the emitter that runs in production — if window 1
+  changes the payload, this fails. Covers consumption, replay, batching, per-store cursors, token storage and
+  randomness, single use, the identical-404 set, the 409, recovery detection, the rate and its edges. Plus 3
+  route tests for the report.
+- Housekeeping: `apps/feeds` docs no longer claim there is no Dockerfile — it landed with infra #210 and #195
+  is closed.
+
 ### 2026-09-19 · 2.3 Segments, templates and the messaging sync contract (#147)
 
 - `segment-rules.ts`: **the frozen grammar** — `{ v: 1, all: [{ any: [{ field, op, value }] }] }`, an AND of ORs

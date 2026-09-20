@@ -16,7 +16,9 @@ export function safeHref(raw: string | undefined | null): SafeHref {
   if (value.startsWith('/') && !value.startsWith('//') && !value.includes('\\')) {
     return { kind: 'internal', href: value };
   }
-  if (/^https:\/\/[^\s/?#]+/.test(value)) {
+  // URL schemes are case-insensitive (`HTTPS://` is https), so classify without regard to case —
+  // otherwise a legitimately uppercased link would silently degrade to plain text.
+  if (/^https:\/\/[^\s/?#]+/i.test(value)) {
     return { kind: 'external', href: value };
   }
   return { kind: 'unsafe', href: null };

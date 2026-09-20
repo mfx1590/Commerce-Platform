@@ -4,7 +4,7 @@ Owner: **window 17 (marketing)** · Branch prefix `marketing/` · Spec: [docs/ma
 Contracts: `contracts-v0.3` — Admin API 0.3.0, events 0.2.0, db 0.2.0 (migration `0120_marketing.sql`).
 
 Campaigns, attribution reporting, segments, feeds and referrals for a store. Phase 2.1 delivers **campaigns and
-the attribution report**, 2.2 **product feeds**, 2.3 **segments**; abandoned-cart recovery (2.4) lands here too.
+the attribution report**, 2.2 **product feeds**, 2.3 **segments**, 2.4 **abandoned-cart recovery**.
 The feed _files_ are served by `apps/feeds` — this module generates and stores them.
 
 ## The one rule this module exists to keep
@@ -211,6 +211,87 @@ grammar is frozen by this window in Phase 2.3, which is what this task does. The
 schema with the closed grammar above. Responses validate against the frozen document meanwhile precisely because
 it accepts additional properties, so nothing was blocked; the manager lands it after this PR merges.
 
+## Abandoned-cart recovery (2.4, #148)
+
+Four moving parts, none of which sends anything: window 1 emits `cart.abandoned`, this module turns it into a
+recovery record with a link, window 16 sends the email, and the customer's click comes back through a Store API
+route that window 1 mounts.
+
+```
+window 1 job → cart.abandoned → consumeAbandonedCarts  → cart_recovery (+ token)
+                                                       ↘ window 16 sends the link
+customer clicks → POST /store/cart-recovery/{token} → validateRecoveryToken → the cart, reactivated
+order placed   → reconcileRecoveries → status `recovered` → the rate report
+```
+
+### The consumer
+
+Outbox polling per store, the shape window 9's search sync uses: read `cart.abandoned` rows with `seq > cursor`,
+create a record each, advance the cursor **in the same transaction as the inserts**. The cursor lives in
+`marketing_cursor` (one row per store and consumer) — window 9 could park theirs in Algolia's settings because
+the database was frozen; marketing has nowhere to hide one, and a position that is not durable means re-reading
+the whole outbox after every restart.
+
+**Idempotency is the schema's job, not the consumer's.** `UNIQUE (cart_id)` on `cart_recovery` makes a
+re-delivered or replayed event a no-op, so "one recovery record per cart" (#148) holds even if the cursor is
+rewound from a restore. The tests rewind it on purpose and check that the _original_ token still works — a
+replay must never invalidate a link already sitting in someone's inbox.
+
+A cart abandoned, recovered and abandoned again keeps its first record: the rate counts carts, not episodes,
+and minting a second token would leave the first one live.
+
+### Tokens
+
+32 random bytes, base64url. **Only `sha256(token)` is stored** — the same treatment as `store_api_key.key_hash` —
+and the plaintext exists exactly once, in the `tokens` map `consumeAbandonedCarts` returns, for whoever sends the
+link. Single use (`redeemed_at`), 7-day expiry (`token_expires_at`).
+
+**The token carries nothing**: no cart id, customer id or email is encoded in it. That is what makes a link safe
+to put in an email, a referrer header or a support ticket — and it is also _why_ redemption has to be a server
+round trip, which is why the Store API route exists rather than an exported function the storefront could call
+(manager decision 2026-09-19; the storefront only speaks the publishable-key Store API).
+
+**Unknown, expired and already-redeemed all answer the same 404.** A recovery link is a bearer credential;
+distinguishing the cases would let someone holding a guessed token learn whether it ever existed. A cart that
+was already ordered answers **409** instead — that customer is confused rather than lost, the storefront should
+say "you already placed this order", and it leaks nothing because the caller already proved they hold a valid
+token.
+
+Single use is enforced by `UPDATE … WHERE redeemed_at IS NULL` returning no row, not by the read above it: two
+clicks arriving together must not both succeed, and check-then-write would let them.
+
+### Recovery detection and the rate
+
+`reconcileRecoveries` reads `cart.order_id`, which window 1's placement sets — marketing never decides what an
+order is. It is idempotent on the target state, so a cart counts **once** however often it runs.
+
+The report counts over `cart_recovery` rows (one per cart, so no double counting) in the store's default
+currency, with `recovered_value` taken from the **order** total rather than the cart's: what the customer
+actually paid after coming back. `redeemed_count` sits between abandoned and recovered because "sent vs opened
+vs bought" is the only way to tell a bad link from a bad offer, and window 16 owns sending. No carts abandoned
+is a rate of `0`, not a division by zero.
+
+### Attribution
+
+The link carries `utm_source=abandoned_cart`; the storefront captures it into `cart.metadata.attribution` as it
+already does, and window 1's placement writes the `attribution` row. **This module writes no attribution** — it
+reads it, which is what keeps the 2.1 report and the recovery rate telling the same story about the same order.
+
+### What is not here yet
+
+| Piece                                                       | Owner            | Issue                |
+| ----------------------------------------------------------- | ---------------- | -------------------- |
+| `cart_recovery` + `marketing_cursor` migration              | main window      | CONTRACT CHANGE #244 |
+| `reports/abandoned-carts` + the Store API recover operation | main window      | CONTRACT CHANGE #245 |
+| Mounting `POST /store/cart-recovery/{token}`                | window 1         | REQUEST #246         |
+| The storefront page at `/cart/recover/{token}`              | windows 3 and 10 | REQUEST #247         |
+| Sending the email                                           | window 16        | Phase 4              |
+
+Until #244 lands, `proposed/0170_cart_recovery.sql` is the schema and the module tests apply it to their own
+throwaway database — the pattern window 9 used for `merchandising_rule` (#162). Until #245 lands, the report
+route reads its permission from the spec if the operation is there and falls back to the proposed `viewer`
+otherwise, so the spec wins the moment it carries the operation.
+
 ### Known limitation — currency
 
 The report aggregates in the **store's default currency and excludes orders in any other currency**.
@@ -232,5 +313,5 @@ it; the route tests use dev tokens (`CORE_DEV_TOKENS=1`) for the seeded staff su
 
 ## Next in this folder
 
-2.4 the `cart.abandoned` consumer, 2.6 the promotions report. The feed _server_ is `apps/feeds`; the admin
-screens are in `apps/admin/src/app/(store)/[storeId]/marketing/**`.
+2.6 the promotions report. The feed _server_ is `apps/feeds`; the admin screens are in
+`apps/admin/src/app/(store)/[storeId]/marketing/**` (2.5).

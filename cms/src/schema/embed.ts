@@ -96,7 +96,7 @@ export const embed = defineType({
       type: 'text',
       rows: 10,
       description:
-        'Static markup only. It runs in a sandbox with no access to the storefront, its cookies or its scripts; inline scripts are blocked by the storefront’s content security policy.',
+        'Static markup only. It runs inside a sandboxed frame with its own throwaway origin: no access to the storefront, its cookies or its customers. Scripts may run inside the frame, but can reach nothing outside it.',
       validation: (rule) => rule.max(EMBED_HTML_MAX_LENGTH),
     }),
     defineField({

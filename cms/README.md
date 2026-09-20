@@ -183,6 +183,24 @@ No developer at any step.
    `https://shop.brand-a.com/en-GB/campaign/spring-sale?utm_campaign=spring-2026`. The storefront
    records the touch first-party and it lands on the order for attribution reporting.
 
+## Media via Cloudinary (task 2.5)
+
+An image field accepts two sources, and alt text is required either way:
+
+1. **Upload into Sanity** — the default; assets live on the Sanity CDN.
+2. **Cloudinary URL** — paste the delivery URL from the brand's Cloudinary library into the
+   image's "Cloudinary URL" field. The storefront then serves responsive renditions through the
+   shared `@platform/ui` loader (`c_limit,w_<width>,q_auto,f_auto`), and the URL wins over any
+   upload on the same field.
+
+Per-brand Cloudinary configuration is environment only (`.env`, ADR 0006): `CLOUDINARY_CLOUD_NAME`
+with per-store overrides `CLOUDINARY_CLOUD_NAME_<CODE>` (`brand-a` → `BRAND_A`); API key/secret are
+for window 9's server-side signing and never reach the CMS or the browser. Marketer setup, once
+per brand, in the Cloudinary console: a folder `cms/` in the brand's cloud and (optional, for
+direct uploads later) an unsigned upload preset named `cms-<store-code>`. Without any Cloudinary
+credentials nothing breaks: uploads into Sanity keep working, and a pasted URL still renders
+because the loader only rewrites public delivery URLs.
+
 ## Validation without a Studio
 
 Sanity enforces validation only in the Studio. `validateDocument(doc, schemaTypes)` runs the same

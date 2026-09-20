@@ -64,6 +64,32 @@ export type {
   ProductFeedRow,
 } from './feed-types';
 export { attributionReport } from './reports';
+// Abandoned-cart recovery (2.4). `validateRecoveryToken` is what window 1's Store API route calls (#246).
+export {
+  consumeAbandonedCarts,
+  getRecoveryByCart,
+  listRecoveries,
+  reconcileRecoveries,
+  toRecovery,
+  validateRecoveryToken,
+} from './recovery';
+export type { ConsumeOptions, ConsumeResult } from './recovery';
+export { abandonedCartReport } from './recovery-report';
+export {
+  DEFAULT_TTL_MS,
+  hashToken,
+  mintToken,
+  redeemToken,
+  tokenHashEquals,
+} from './recovery-token';
+export { RECOVERY_CURSOR, RECOVERY_STATUSES } from './recovery-types';
+export type {
+  AbandonedCartReport,
+  AbandonedCartReportQuery,
+  CartRecovery,
+  CartRecoveryRow,
+  RecoveryStatus,
+} from './recovery-types';
 export {
   createSegment,
   createSegmentTemplate,
