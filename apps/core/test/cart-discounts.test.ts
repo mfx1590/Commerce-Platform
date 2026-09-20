@@ -11,6 +11,8 @@ import {
   getCart,
   noDiscounts,
   setDiscountEvaluator,
+  setShippingRateProvider,
+  tableShippingRates,
   taxOn,
   updateCart,
   updateLineItem,
@@ -411,6 +413,82 @@ describe('tax-inclusive fixed amounts are exact on awkward carts (#243 re-review
       expect(c.totals.total.amount_minor).toBe(1303 - 103);
     } finally {
       await owner.query(INCLUSIVE_OFF, [A]);
+    }
+  });
+});
+
+describe('free shipping does not ask the carrier for a price it will zero (#230 PR B)', () => {
+  it('the rate provider is asked when the request picks the option (that validates it) and on no other mutation while shipping is free', async () => {
+    const v = freshVariant();
+    await promo({
+      code: 'NOQUOTE',
+      name: 'Free shipping',
+      type: 'free_shipping',
+      rules: { product_ids: [v.product_id] },
+    });
+    let quotes = 0;
+    setShippingRateProvider({
+      list: (ctx) => tableShippingRates.list(ctx),
+      quote: (ctx, optionId) => {
+        quotes++;
+        return tableShippingRates.quote(ctx, optionId);
+      },
+    });
+    try {
+      const cart = await createCart(a, scopeA);
+      const added = await addLineItem(a, cart.id, { variant_id: v.id, quantity: 1 });
+      await updateCart(a, cart.id, { promotion_codes: ['NOQUOTE'] });
+      quotes = 0;
+      const picked = await updateCart(a, cart.id, {
+        shipping_address: address,
+        shipping_option_id: standardOptionId,
+      });
+      expect(quotes).toBe(1); // the explicit choice is validated once
+      expect(picked.totals.shipping.amount_minor).toBe(0);
+      await updateLineItem(a, cart.id, added.items[0]!.id, { quantity: 2 });
+      await updateCart(a, cart.id, { email: 'free.shipping@example.com' });
+      expect(quotes).toBe(1); // nothing to price: no carrier call
+      const paid = await updateCart(a, cart.id, { promotion_codes: [] });
+      expect(quotes).toBe(2); // shipping costs again, so it is priced again
+      expect(paid.totals.shipping.amount_minor).toBeGreaterThan(0);
+    } finally {
+      setShippingRateProvider(tableShippingRates);
+    }
+  });
+});
+
+describe('stacking rule (#230 PR B): each promotion only gets what the ones before it left on a line', () => {
+  it('two stackable fixed amounts larger than the line together: the line goes to zero, never below, in both tax modes', async () => {
+    const v = freshVariant();
+    await owner.query(
+      `UPDATE price SET amount_minor = 100 WHERE variant_id = $1 AND currency = 'EUR'`,
+      [v.id],
+    );
+    for (const code of ['STACKA', 'STACKB']) {
+      await promo({
+        code,
+        name: `${code} eighty off`,
+        type: 'fixed_amount',
+        value: 80,
+        currency: 'EUR',
+        stackable: true,
+        rules: { product_ids: [v.product_id] },
+      });
+    }
+    for (const inclusive of [false, true]) {
+      if (inclusive) await owner.query(INCLUSIVE_ON, [A]);
+      try {
+        const cart = await createCart(a, scopeA);
+        await addLineItem(a, cart.id, { variant_id: v.id, quantity: 1 });
+        const one = await updateCart(a, cart.id, { promotion_codes: ['STACKA'] });
+        expect(one.totals.discount.amount_minor).toBe(80);
+        const both = await updateCart(a, cart.id, { promotion_codes: ['STACKA', 'STACKB'] });
+        expect(both.totals.discount.amount_minor).toBe(100); // 80, then exactly the 20 that were left
+        expect(both.items[0]!.discount.amount_minor).toBe(100);
+        expect(both.items[0]!.total.amount_minor).toBeGreaterThanOrEqual(0);
+      } finally {
+        if (inclusive) await owner.query(INCLUSIVE_OFF, [A]);
+      }
     }
   });
 });

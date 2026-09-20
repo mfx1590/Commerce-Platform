@@ -107,6 +107,29 @@ guest orders. The storefront's client never sends the customer token to cart pat
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-20 · Promotions at placement: re-evaluated under the lock, counted before authorisation, frozen on the
+  order (#230 PR B).** `completeCart` re-runs `recalculate` with the placement clock; a discount — or a
+  free-shipping grant — that is no longer what the customer saw follows the price rule: rollback, re-quote in a
+  transaction of its own, 409 `price_changed` whose `details` carry `discount_minor` / `shipping_minor`
+  `{ previous, current }` (when they moved) and `total_minor` next to `items`. Then, still before `authorize`,
+  `DiscountEvaluator.recordUse` counts ONE use per applied promotion inside the placement transaction: a race
+  lost on the last use is window 9's 409 `conflict`, nothing was authorised so nothing is voided, and any later
+  failure (a decline, out of stock) rolls the use back — a failed placement never burns one. The order freezes
+  the line and order discounts, `promotion_codes` = the APPLIED codes only (a conditional code that sat on the
+  cart is not the order's), and `metadata.promotions = [{ promotion_id, code, discount_minor }]` — what
+  per-customer limits count later. `order.placed` carries the same codes and amounts.
+- **2026-09-20 · The storefront cannot pre-write the core's order metadata.** Order metadata starts as the cart's
+  (storefront-owned) metadata; the keys the core writes itself — `fraud`, `promotions` — are dropped from that
+  copy at placement. Without this a storefront could hold its own order in a fake review or spoof applied
+  promotions.
+- **2026-09-20 · A fraud block is recorded AFTER the rollback, through an opt-in hook (#241, window 7).**
+  `placeOrder` signals a block out of the transaction (the `PriceChangedSignal` pattern); `completeCart`'s catch
+  calls `FraudCheck.recordBlocked(facts + decision)` — never the transaction handle — once the placement's
+  connection is released, best effort (a throw is swallowed), then answers the unchanged plain 402. The hook fires
+  only for a check that sets `recordsBlockedAfterRollback`: window 7's check still queues and flushes its blocks by
+  itself (the approved interim), so calling it unconditionally would record every block twice. The day their
+  check opts in and stops its own flush, nothing changes here.
+
 - **2026-09-19 · Fraud is evaluated before authorization, through a seam (#231, window 7).** `setFraudCheck()`
   (types and registry in `src/lib/fraud-seam.ts`, re-exported here) — `completeCart` calls the registered check
   inside the placement transaction, after the cart is re-priced and BEFORE `PaymentProvider.authorize`, with facts

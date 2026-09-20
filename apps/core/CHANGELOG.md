@@ -2,6 +2,28 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-20 · promotions at placement, order freeze, pro-rata edits; fraud block hook (#230 PR B, #241)
+
+- **Placement re-evaluates promotions under the cart lock** at its own clock. A changed discount or a lost/gained
+  free-shipping grant → 409 `price_changed` (`details.discount_minor` / `shipping_minor` `{ previous, current }`,
+  `total_minor`), the cart re-quoted, nothing placed; the retry places what the customer now sees.
+- **Uses counted inside the placement transaction, before `authorize`** (`DiscountEvaluator.recordUse` →
+  window 9's `recordPromotionUse`): a lost race on the last use = 409 `conflict` with nothing authorised; a
+  decline or any later failure rolls the use back.
+- **Order freeze**: line + order discounts, `promotion_codes` = applied codes only,
+  `metadata.promotions = [{ promotion_id, code, discount_minor }]`; `order.placed` agrees. **Reserved keys**:
+  `fraud` and `promotions` are dropped from the cart metadata copied onto the order.
+- **Order edits** scale the frozen line discount pro rata from the line as placed (cumulative floor).
+- **Adapter rulings**: "orders that count" (not cancelled, payment at least authorised, not fraud-held) for
+  first-order state and per-customer uses; stacking = each promotion gets the headroom left on a line;
+  `mulDivRound` (BigInt) for the blended conversion; no carrier quote for a free-shipping cart unless the request
+  picks the option.
+- **#241**: `FraudCheck.recordBlocked` is called by `completeCart` after the rollback (facts + decision, never
+  the transaction), best effort, for a check that opts in with `recordsBlockedAfterRollback`; the 402 is
+  unchanged. The redundant fraud bridge line in `src/wiring.ts` is gone.
+- Tests: `test/placement-promotions.test.ts` (8), checkout +2 (#241), cart-discounts +2 (free-shipping skip,
+  stacking in both tax modes).
+
 ### 2026-09-19 · promotions quote: discounts, free shipping, code rejection (#230 PR A); pick/pack routes mounted
 
 - **`DiscountEvaluator` seam** in the cart (`setDiscountEvaluator`, default `noDiscounts`); `recalculate` now runs
