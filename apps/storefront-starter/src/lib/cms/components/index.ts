@@ -18,4 +18,10 @@ export { PortableText } from './portable-text';
 export { SafeLink } from './safe-link';
 export { PreviewBanner } from './preview-banner';
 export { ProductStory, type ProductStoryProps } from './product-story';
-export { SanityImage, parseAssetRef, sanityImageUrl, type AssetRef } from './sanity-image';
+export {
+  IMAGE_WIDTHS,
+  SanityImage,
+  parseAssetRef,
+  sanityImageUrl,
+  type AssetRef,
+} from './sanity-image';

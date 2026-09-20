@@ -118,7 +118,11 @@ export const campaignLandingFixture: CampaignLandingDocument = {
     _type: 'hero',
     eyebrow: 'Limited time',
     headline: 'Up to 30% off last season',
-    image: image('Folded jackets in spring colours on a white shelf'),
+    image: {
+      ...image('Folded jackets in spring colours on a white shelf'),
+      // Served from the brand's Cloudinary library (task 2.5); wins over the Sanity asset.
+      cloudinaryUrl: 'https://res.cloudinary.com/brand-alpha/image/upload/cms/spring-shelf.jpg',
+    },
     ctas: [
       {
         _type: 'cta',

@@ -154,14 +154,18 @@ describe('safeHref (the renderer does not trust stored hrefs)', () => {
     });
     for (const bad of [
       'javascript:alert(1)',
+      'JavaScript:alert(1)',
       '//evil.example',
       'http://x.example',
+      'HTTP://x.example',
       '/\\evil',
       '',
       undefined,
     ]) {
       expect(safeHref(bad).kind, String(bad)).toBe('unsafe');
     }
+    // Schemes are case-insensitive: an uppercased https link stays a link.
+    expect(safeHref('HTTPS://x.example')).toEqual({ kind: 'external', href: 'HTTPS://x.example' });
   });
 
   it('SafeLink renders an unsafe stored href as plain text', async () => {

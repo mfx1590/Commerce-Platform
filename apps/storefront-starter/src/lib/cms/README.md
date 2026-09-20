@@ -46,16 +46,16 @@ webhook.
 
 ## Components (`components/`)
 
-| Component                 | Renders                                                                                       |
-| ------------------------- | --------------------------------------------------------------------------------------------- |
-| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image, up to two CTAs, three layouts           |
-| `Blocks`                  | `richText`, `imageBlock` (figure + caption), `productStory`, `cta`, `hero`; unknown → nothing |
-| `PortableText`            | normal / h2 / h3 / blockquote, bullet and numbered lists, strong / em, links, inline images   |
-| `ProductStory`            | CMS copy around a live product from `getProduct(handle)`; API failure → copy only             |
-| `SanityImage`             | `<img>` with alt, intrinsic size and a CDN URL built from the asset ref (2.5 adds the loader) |
-| `CmsHeader` / `CmsFooter` | navigation and footer documents, with the starter's static links / copyright as fallback      |
-| `HomeContent`             | hero + blocks of the `home` page; nothing when unpublished                                    |
-| `PreviewBanner`           | a `role="status"` strip with an exit link while the preview cookie is valid                   |
+| Component                 | Renders                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image, up to two CTAs, three layouts                           |
+| `Blocks`                  | `richText`, `imageBlock` (figure + caption), `productStory`, `cta`, `hero`; unknown → nothing                 |
+| `PortableText`            | normal / h2 / h3 / blockquote, bullet and numbered lists, strong / em, links, inline images                   |
+| `ProductStory`            | CMS copy around a live product from `getProduct(handle)`; API failure → copy only                             |
+| `SanityImage`             | responsive `<img>` from either source: Cloudinary via the shared @platform/ui loader, or the Sanity asset ref |
+| `CmsHeader` / `CmsFooter` | navigation and footer documents, with the starter's static links / copyright as fallback                      |
+| `HomeContent`             | hero + blocks of the `home` page; nothing when unpublished                                                    |
+| `PreviewBanner`           | a `role="status"` strip with an exit link while the preview cookie is valid                                   |
 
 **Mount points for window 3 (REQUEST #178):** `CmsHeader` / `CmsFooter` in `src/layouts/defaults.tsx`
 so the shop chrome follows the CMS, and `HomeContent` in `src/app/[locale]/(shop)/page.tsx`. A brand
@@ -89,6 +89,17 @@ same reasons `src/lib/store-api` is one: a single module knows the URLs and the 
 GROQ parameters travel as `$name=<json>` query parameters and are never interpolated into the
 query. Queries return whole documents; image assets stay references, resolved from the ref without
 a second round trip.
+
+## Images (task 2.5)
+
+`SanityImage` renders every CMS image from one of two sources. A `cloudinaryUrl` on the image wins:
+the `src` and a `srcset` over the width steps (384–1600) are built with `cloudinaryImageLoader`
+from `@platform/ui` — window 9's shared loader; this module never hand-rolls a transformation URL.
+An https URL the loader does not recognise falls back to the source URL unchanged; a non-https
+stored value renders nothing (the renderer does not trust the dataset, same rule as `safeHref`).
+Without a `cloudinaryUrl` the Sanity asset ref provides the URL, intrinsic size and a CDN `w=`
+srcset. Alt text is schema-required for both, and `test/cms-image.test.ts` asserts the schema's
+`CLOUDINARY_URL_PATTERN` and the loader's `isCloudinaryUrl` agree.
 
 ## Cache tags
 
