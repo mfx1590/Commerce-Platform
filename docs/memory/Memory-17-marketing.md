@@ -51,7 +51,50 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — 2.4 is PR #250, in review; 2.5 admin Marketing section (#149) is next)
+### 2.5 (#149) admin Marketing section — plan written 2026-09-20, pasted to the manager, not started
+2.4 is PR #250, in review. Findings from reading window 4's app before planning:
+
+**Ownership is fine for the pages, NOT for the tests.** My row covers
+`apps/admin/src/app/(store)/[storeId]/marketing/**` and `(hq)/marketing/**`, and both directories exist
+(window 4's #63 placeholders, one self-contained `page.tsx` each, no API calls). But
+`apps/admin/vitest.config.ts` has `include: ['test/**/*.test.ts(x)']` and the Prism contract suites live in
+`apps/admin/test-contract/` — **both window 4's paths**. #149 requires "contract tests against Prism per
+screen", so the task cannot be finished without an ownership extension. → **REQUEST 1**.
+
+**The analyst acceptance criterion does not match the nav gate.** `src/lib/nav/sections.ts` (window 4's) gates
+the *store* Marketing section on `store_staff`; an HQ analyst has no `store_staff` on a store, so it never
+appears for them. #149 says "analyst sees Overview only (nav + 403 panel tests)". Two readings, and it is the
+manager's call — → **question in the plan**, recommending (a):
+  (a) the analyst's Overview is the **HQ** Marketing page (`requires: ['analyst']`), which is also what
+      docs/marketing-scope.md says is organization-level. No change to window 4's file. 2.5 then also builds
+      `(hq)/marketing` against `/admin/marketing/dashboard` + `segment-templates`.
+  (b) soften the store section's gate to `viewer` so an analyst sees Marketing with only Overview readable and
+      403 panels elsewhere → a REQUEST to window 4 to edit `sections.ts`.
+
+**Good news that removes a duplication risk:** contracts-v0.4.4 landed #239, so `SegmentRules` +
+`SegmentPredicate` are in `admin-api.yaml` as the frozen grammar. The rule builder validates against the
+**contract's own schema** (ajv over `#/components/schemas/SegmentRules`) — #149's "emits the exact
+SegmentRules JSON the contract defines" is testable without copying the grammar into the admin.
+
+**Shape of the work** (all inside my two owned folders):
+- `marketing/_api.ts` — typed wrappers over window 4's exported `adminCall` (`src/lib/api/admin.ts` stays
+  untouched; `AdminResponse<'listCampaigns'>` etc. keep the operationId as the type parameter, their pattern).
+- `marketing/_section-nav.tsx` + a plain `_sections.ts` constants module — in-section navigation for
+  Overview / Campaigns / Segments / Feeds. **No `'use client'` constants** (global gotcha) and **no motion**:
+  the design brief puts motion in the rail only, never on content panels.
+- `marketing/page.tsx` Overview — attribution report, promotions report, abandoned-cart rate (the last one
+  only once 0.4.5 lands; until then the tile is omitted rather than faked).
+- `marketing/campaigns/{page,[campaignId]/page}.tsx` — DataTable list, create/edit through
+  `use-contract-form`, launch/end as server actions bound with `.bind(null, …)` (global gotcha).
+- `marketing/segments/{page,[segmentId]/page}.tsx` — rule builder emitting the frozen grammar, live preview
+  count through `previewSegment` with rules in the body (no draft row needed).
+- `marketing/feeds/{page,[feedId]/page}.tsx` — status, item count, errors, publish, paged items.
+- `(hq)/marketing/page.tsx` — cross-store dashboard + segment templates (under reading (a)).
+- Reuse window 4's primitives only: `Card`, `Badge`, `Button`, `DataTable`, `fields`/`money-field`/
+  `use-contract-form`, `StatePanel`/`ActionRefusal`/`RetryButton`, `StoreSectionGuard`/`HqSectionGuard`.
+  Nothing new in their component space.
+- UI permission gating from `GET /admin/me` relations (reads `store_staff`, writes `store_admin`, reports
+  `viewer`, templates `owner`) — convenience only; the server decides, and a 403 renders `ActionRefusal`.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
@@ -115,6 +158,32 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Campaigns/feeds/reviews/referrals are store-level; segment templates and the dashboard are organization-level — same tenancy model as the core.
 - 2026-09-05 (manager) · Attribution is server-side from UTM/referrer captured on the cart (window 3 does the capture in Phase 1); pixels are optional extras, never the source of reported numbers.
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
+
+## Queued — the contracts-v0.4.5 cleanup PR (do not lose this)
+Opens once #244/#245 land. Four things, three of them review nits from #250 (manager, 2026-09-20):
+
+1. **Delete the scaffolding** the contract changes replace: `proposed/0170_cart_recovery.sql`, the
+   `readFileSync(...0170...)` block in `recovery.test.ts` and `routes.test.ts`, the locally declared
+   `AbandonedCartReport` type in `recovery-types.ts` (→ `AdminComponents['schemas']['AbandonedCartReport']`),
+   and the `permissionOrProposed` fallback in `routes.ts` (→ plain `permission('getAbandonedCartReport')`).
+   Same shape as the #194 follow-up.
+2. **Make the recovery report internally consistent.** Today `recovered_count` filters only on
+   `r.status = 'recovered'`, while `recovered_value` sums through a LEFT JOIN that already excludes cancelled
+   orders — so a recovery whose order was later cancelled counts as **1 recovery worth 0**. Resolution:
+   **exclude cancelled from both**, i.e. add `AND o.id IS NOT NULL` to the count's FILTER. Reason: the 2.1
+   attribution report's house rule is already "orders that count as revenue: … not cancelled", and the same
+   order must not be revenue in one marketing report and not the other — someone reconciling the two would
+   find a discrepancy neither report explains. Document that the *record* keeps `status = 'recovered'` (what
+   happened to the cart) while the *report* counts recoveries that stuck (what it was worth), and that a
+   record whose `recovered_order_id` went NULL is excluded too.
+3. **Export the UTM source as a constant** — `RECOVERY_UTM_SOURCE = 'abandoned_cart'` from the module index,
+   referenced by the README and by REQUEST #247, so window 16 and window 3 pin a value instead of reading
+   prose.
+4. **Drop the vacuous `tokenHashEquals` self-comparison.** `redeemToken` does
+   `tokenHashEquals(hashToken(token), hash)` where `hash` *is* `hashToken(token)` — comparing a value with
+   itself, always true. Remove the call, and remove the function and its export with it: the lookup is
+   `WHERE token_hash = $2` on an indexed column, so a constant-time compare was never protecting anything and
+   reading like a security measure is worse than not having it.
 
 ## Blocked / waiting
 - **#240 (2.3) merged** 2026-09-19 (4ea4abb); contracts-v0.4.4 tagged (5f79e6d), #239 landed in it. One
