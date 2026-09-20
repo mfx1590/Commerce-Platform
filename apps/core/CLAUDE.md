@@ -84,12 +84,18 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `store.settings.tax.prices_include_tax` switches a store to contained tax (#221). Unit prices come through the
   `PriceResolver` seam (`setPriceResolver()`, #179 part 3): every line mutation re-prices the cart, and
   `completeCart` answers 409 `price_changed` (#228) instead of placing at a price the customer did not see.
+  Discounts come through the `DiscountEvaluator` seam (`setDiscountEvaluator()`, #230): per-line `discount_minor`
+  BEFORE shipping and tax, free shipping, and the code rule — a code that can never apply is a 400 with the reason
+  per code; a conditional one (including a promotion that has not started yet) stays stored.
 - Boot-time registrations live in `src/wiring.ts` (`registerModuleSeams()`, called once by `createServer()`):
   `registerPaymentProviders()` (window 7), `registerCarrierProviders()` (window 8) and the cart's
   `priceListResolver` over window 9's `resolvePrices`, and `registerTaxProvider()` (window 7: table or Stripe Tax
   per `store.settings.tax`; identical to the built-in calculator with default settings), and window 7's
-  `registerFraudCheck()` — handed on to the checkout's `setFraudCheck` seam in the same place (#231). Plain
-  registry writes — no I/O, no configuration read.
+  `registerFraudCheck()` — handed on to the checkout's `setFraudCheck` seam in the same place (#231) — and the
+  cart's `promotionsDiscountEvaluator` over window 9's promotions engine (#230; for tax-inclusive stores it
+  converts prices, fixed amounts and minimum subtotals gross → net for the engine and the allocations back — what
+  a merchant configures and a customer sees is always gross; the engine never changes). Plain registry writes — no I/O, no configuration
+  read.
 - Payment seam (`src/modules/checkout`): `setPaymentProvider()` registers window 7's `stripe` (#127) next to the
   built-in `manual` provider; `createSession` / `authorize` / `void` / `refund` exchange ids and amounts only (hosted
   fields — card data never reaches this process). Placement is one transaction; idempotency = `payment.idempotency_key`
@@ -137,8 +143,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `adminRouter()`): window 9's `merchandisingRouter` (#162) and window 17's `marketingAdminRouter` (#181) are
   mounted, and since the quiet-state batch window 9's `mediaRouter` (#168), `pricingRouter` (#137) and
   `promotionsRouter` (#138 / #189), window 8's `shippingAdminRouter` (#131) and window 7's
-  `paymentsAdminRouter` (#126, refunds); add one `routers.push(...)` line per new router. Pending: window 8's
-  `fulfillmentAdminRouter` (pick/pack routes, PR #235) once its export is on main.
+  `paymentsAdminRouter` (#126, refunds) and window 8's `fulfillmentAdminRouter` (#133, pick / pack / pick lists);
+  add one `routers.push(...)` line per new router. Nothing is pending.
 - Provider webhooks mount through `moduleWebhookRouters()` (same file): outside the `/store` and `/admin` chains,
   before any JSON body parser, each router with its own `express.raw()` — the provider's signature over the raw
   body is the authentication. Mounted: window 7's `paymentsWebhookRouter` (`POST /webhooks/stripe/:storeCode`,
@@ -151,7 +157,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------- |
   | `src/modules/registry`    | stores, domains, locales, currencies, sales channels, API keys, warehouses/legal entities (read)                                                                                                                                                                                                                                                                                                             | `store.created`, `store.updated`                                               | `src/modules/registry/README.md`    |
   | `src/modules/catalog`     | categories, products, options, variants, media; Store API read model (price + availability)                                                                                                                                                                                                                                                                                                                  | `product.updated`, `product.published`, `product.archived`                     | `src/modules/catalog/README.md`     |
-  | `src/modules/cart`        | Store API cart: create/read/update, line items, promotion codes (stored), totals through the tax + shipping provider seams; abandoned-cart marking with reactivation; bypasses Medusa's cart                                                                                                                                                                                                                 | `cart.abandoned`                                                               | `src/modules/cart/README.md`        |
+  | `src/modules/cart`        | Store API cart: create/read/update, line items, promotion codes and discounts, totals through the price, discount, shipping and tax seams; abandoned-cart marking with reactivation; bypasses Medusa's cart                                                                                                                                                                                                  | `cart.abandoned`                                                               | `src/modules/cart/README.md`        |
   | `src/modules/checkout`    | shipping options, payment session (`PaymentProvider` seam, `manual` built in), placement as one transaction (order + lines + payment + attribution + cart completed), Store API order read                                                                                                                                                                                                                   | `order.placed` (+ `attribution.recorded` via src/lib/attribution)              | `src/modules/checkout/README.md`    |
   | `src/modules/orders`      | order state machine (`transition()` over the transition tables), wrappers for windows 7/8, cancel (payment void), edits before fulfilment, Store + Admin order reads, outbox projection/replay                                                                                                                                                                                                               | `order.confirmed`, `order.updated`, `order.cancelled`, `order.completed`       | `src/modules/orders/README.md`      |
   | `src/modules/inventory`   | levels per (variant, warehouse), `moveStock` (append-only ledger + `stock.moved`), reservations at placement / release on cancel / consume on shipment, Admin `listInventoryLevels` + `createStockMovement`                                                                                                                                                                                                  | `stock.moved`                                                                  | `src/modules/inventory/README.md`   |

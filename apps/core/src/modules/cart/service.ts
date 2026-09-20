@@ -6,11 +6,13 @@
 import type { Queryable, ScopedClient } from '@platform/db';
 import { AppError, notFound, validationError } from '../../lib/errors';
 import {
+  currentDiscountEvaluator,
   currentPriceResolver,
   currentShippingRateProvider,
   currentTaxCalculator,
   lineTaxOf,
   lineTotalWith,
+  noDiscounts,
   pricesIncludeTaxFor,
   type PricingContext,
 } from './providers';
@@ -20,6 +22,7 @@ import type {
   CartRow,
   CartStoreContext,
   CreateCartInput,
+  DiscountQuote,
   LineTaxRecord,
   PriceChange,
   Money,
@@ -164,32 +167,32 @@ export async function render(tx: Queryable, cartId: string): Promise<StoreCart> 
 interface RecalculateOptions {
   /** The request set `shipping_option_id`: an option the provider cannot quote is a 400, not a silent drop. */
   explicitShippingOption?: boolean;
+  /** The mutation's clock for every promotion window (default: now). Placement passes its own. */
+  at?: Date;
 }
 
 /**
- * Recomputes every derived amount of a cart inside the mutation's transaction: shipping through the
- * ShippingRateProvider (a selection that is no longer quotable — e.g. after a country change — is dropped), tax
- * through the TaxCalculator (per line `tax_rate_bp` + `metadata.tax = { amount_minor, mode, bp }` persisted — the
- * calculator's own amounts, #221), then subtotal / discount / shipping / tax / total. With
- * `store.settings.tax.prices_include_tax` the tax is contained in the prices: reported, never added on top.
- * Discounts stay 0 until window 9's promotions API prices the stored codes.
+ * Recomputes every derived amount of a cart inside the mutation's transaction, in this order:
+ * 1. **discounts** through the DiscountEvaluator (#230) — per-line `discount_minor` from its allocations, in the
+ *    cart's own price base; a tax-inclusive store first asks the TaxCalculator for the lines' rates, because the
+ *    evaluator needs them to derive net prices;
+ * 2. **shipping** through the ShippingRateProvider (a selection that is no longer quotable — e.g. after a country
+ *    change — is dropped); free when a promotion says so;
+ * 3. **tax** through the TaxCalculator on the DISCOUNTED base (per line `tax_rate_bp` +
+ *    `metadata.tax = { amount_minor, mode, bp }` persisted — the calculator's own amounts, #221);
+ * 4. subtotal / discount / shipping / tax / total. With `store.settings.tax.prices_include_tax` the tax is
+ *    contained in the prices: reported, never added on top.
+ * Returns the discount quote so the caller can answer for the codes it was given.
  */
 export async function recalculate(
   tx: Queryable,
   cart: CartRow,
   opts: RecalculateOptions = {},
-): Promise<void> {
+): Promise<DiscountQuote> {
   const lines = await loadLines(tx, cart.id);
-  const pricingLines: PricingLine[] = lines.map((l) => ({
-    lineItemId: l.id,
-    variantId: l.variant_id,
-    productId: l.product_id,
-    categoryId: l.category_id,
-    quantity: l.quantity,
-    unitPriceMinor: Number(l.unit_price_minor),
-    discountMinor: Number(l.discount_minor),
-  }));
-  const ctx: PricingContext = {
+  const pricesIncludeTax = await pricesIncludeTaxFor(tx, cart.store_id);
+  const mode = pricesIncludeTax ? 'inclusive' : 'exclusive';
+  const contextWith = (discounts: Map<string, number>): PricingContext => ({
     tx,
     organizationId: cart.organization_id,
     storeId: cart.store_id,
@@ -197,17 +200,70 @@ export async function recalculate(
     currency: cart.currency,
     country: cart.country,
     shippingAddress: cart.shipping_address,
-    lines: pricingLines,
-    pricesIncludeTax: await pricesIncludeTaxFor(tx, cart.store_id),
-  };
-  const mode = ctx.pricesIncludeTax ? 'inclusive' : 'exclusive';
+    pricesIncludeTax,
+    lines: lines.map((l): PricingLine => ({
+      lineItemId: l.id,
+      variantId: l.variant_id,
+      productId: l.product_id,
+      categoryId: l.category_id,
+      quantity: l.quantity,
+      unitPriceMinor: Number(l.unit_price_minor),
+      discountMinor: discounts.get(l.id) ?? 0,
+    })),
+  });
 
+  // ---- 1. discounts ----
+  const evaluator = currentDiscountEvaluator();
+  const rates = new Map(lines.map((l) => [l.id, l.tax_rate_bp]));
+  if (pricesIncludeTax && evaluator !== noDiscounts && lines.length > 0) {
+    const pre = await currentTaxCalculator().calculate({
+      ...contextWith(new Map()),
+      shippingMinor: 0,
+    });
+    for (const t of pre.lines) rates.set(t.lineItemId, t.taxRateBp);
+  }
+  const quote = await evaluator.evaluate({
+    tx,
+    organizationId: cart.organization_id,
+    storeId: cart.store_id,
+    currency: cart.currency,
+    salesChannelId: cart.sales_channel_id,
+    customerId: cart.customer_id,
+    codes: cart.promotion_codes ?? [],
+    at: opts.at ?? new Date(),
+    pricesIncludeTax,
+    lines: lines.map((l) => ({
+      lineItemId: l.id,
+      variantId: l.variant_id,
+      productId: l.product_id,
+      categoryId: l.category_id,
+      quantity: l.quantity,
+      unitPriceMinor: Number(l.unit_price_minor),
+      taxRateBp: rates.get(l.id) ?? 0,
+    })),
+  });
+  const discounts = new Map<string, number>();
+  for (const l of lines) {
+    const lineSubtotal = l.quantity * Number(l.unit_price_minor);
+    const allocated = Math.trunc(quote.allocations.get(l.id) ?? 0);
+    const lineDiscount = Math.max(0, Math.min(lineSubtotal, allocated)); // never below zero, never above the line
+    discounts.set(l.id, lineDiscount);
+    if (lineDiscount !== Number(l.discount_minor)) {
+      await tx.query(
+        `UPDATE cart_line_item SET discount_minor = $2, updated_at = now() WHERE id = $1`,
+        [l.id, lineDiscount],
+      );
+    }
+  }
+  const ctx = contextWith(discounts);
+
+  // ---- 2. shipping ----
   let shippingOptionId = cart.shipping_option_id;
   let shippingMinor = 0;
   if (shippingOptionId) {
     const rate = await currentShippingRateProvider().quote(ctx, shippingOptionId);
     if (rate) {
-      shippingMinor = rate.priceMinor;
+      shippingMinor = quote.freeShipping ? 0 : rate.priceMinor;
     } else if (opts.explicitShippingOption) {
       throw validationError('shipping option is not available for this cart', {
         shipping_option_id: 'not available for this cart (store, currency, country, channel)',
@@ -217,6 +273,7 @@ export async function recalculate(
     }
   }
 
+  // ---- 3. tax, on the discounted base ----
   const tax = await currentTaxCalculator().calculate({ ...ctx, shippingMinor });
   const taxByLine = new Map(tax.lines.map((t) => [t.lineItemId, t]));
   let subtotal = 0;
@@ -224,7 +281,7 @@ export async function recalculate(
   let taxMinor = tax.shippingTaxMinor;
   for (const l of lines) {
     subtotal += l.quantity * Number(l.unit_price_minor);
-    discount += Number(l.discount_minor);
+    discount += discounts.get(l.id) ?? 0;
     const t = taxByLine.get(l.id);
     taxMinor += t?.taxMinor ?? 0;
     const bp = t?.taxRateBp ?? 0;
@@ -242,6 +299,8 @@ export async function recalculate(
       );
     }
   }
+
+  // ---- 4. totals ----
   await tx.query(
     `UPDATE cart SET shipping_option_id = $2, subtotal_minor = $3, discount_minor = $4, shipping_minor = $5,
        tax_minor = $6, total_minor = $7, updated_at = now()
@@ -254,9 +313,10 @@ export async function recalculate(
       shippingMinor,
       taxMinor,
       // exclusive prices: tax on top; inclusive: already inside subtotal and shipping (still reported in tax_minor)
-      subtotal - discount + shippingMinor + (ctx.pricesIncludeTax ? 0 : taxMinor),
+      subtotal - discount + shippingMinor + (pricesIncludeTax ? 0 : taxMinor),
     ],
   );
+  return quote;
 }
 
 // ---- use cases ----
@@ -344,8 +404,10 @@ export function normalizePromotionCodes(codes: string[]): string[] {
 /**
  * `PATCH /store/carts/{cartId}`: email, addresses, shipping option, promotion codes, country, metadata. Only the
  * fields present are changed; `metadata` replaces the stored object as a whole (the storefront owns it).
- * Promotion codes are stored as given (normalised) — window 9's promotions public API will validate and price
- * them; until then they carry no discount.
+ * Promotion codes (#230): a code the evaluator can NEVER apply to this cart — unknown, inactive, expired, used
+ * up, wrong currency — is a 400 with the reason per code and nothing is stored. A conditional rejection (minimum
+ * subtotal, eligible lines, group, channel, first order, not started yet) keeps the code: it applies as soon as
+ * the cart qualifies or the promotion starts.
  */
 export async function updateCart(
   client: ScopedClient,
@@ -377,9 +439,23 @@ export async function updateCart(
       );
     }
     const updated = await loadCart(tx, cartId, false);
-    await recalculate(tx, updated, {
+    const quote = await recalculate(tx, updated, {
       explicitShippingOption: input.shipping_option_id !== undefined,
     });
+    if (input.promotion_codes !== undefined) {
+      const entered = new Set(
+        normalizePromotionCodes(input.promotion_codes).map((c) => c.toUpperCase()),
+      );
+      const refused = quote.rejected.filter(
+        (r) => r.permanent && r.code !== null && entered.has(r.code.toUpperCase()),
+      );
+      if (refused.length > 0) {
+        // the whole PATCH rolls back: a refused code is never stored
+        throw validationError('promotion code cannot be used', {
+          promotion_codes: Object.fromEntries(refused.map((r) => [r.code, r.reason])),
+        });
+      }
+    }
     return render(tx, cartId);
   });
 }

@@ -81,14 +81,14 @@ To see a real feed end to end: publish one through the Admin API with `FEEDS_DIR
 
 The default is the local filesystem, which is correct for development and for a single-node deployment. The
 seam it sits behind (`FeedStorage` in the core) takes an S3-style implementation without touching the publish
-job — window 5 provisions the bucket (requested with this task). This app then grows an S3 reader beside
-`FeedReader`, with the same key convention and the same refusals.
+job — window 5 provisions the bucket. This app then grows an S3 reader beside `FeedReader`, with the same key
+convention and the same refusals.
+
+The image is `apps/feeds/Dockerfile` (window 5, landed with infra #210): build
+`pnpm --filter "@platform/feeds..." build`, start `pnpm start`, health `GET /health` on `$PORT`.
 
 ## Not done yet
 
-- **No Dockerfile.** `**/Dockerfile` is window 5's path; requested with the first PR of #146. Until it lands
-  `infra/ci/check-image-manifests.sh` fails, because every image's `deps` stage must list
-  `apps/feeds/package.json` — that failure is the intended prompt, not a regression.
 - Feeds are rendered in memory by the publish job. Fine at Phase 2 volumes; streaming or a background job is a
   Phase 3 concern.
 - `tiktok` and `pinterest` are legal feed channels in the contract but have no writer yet, so publishing one is
