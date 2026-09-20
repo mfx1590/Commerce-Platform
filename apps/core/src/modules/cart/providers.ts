@@ -11,6 +11,8 @@ import type {
   ShippingOptionRow,
   ShippingRate,
   ShippingRateProvider,
+  DiscountEvaluator,
+  DiscountQuote,
   LineTaxRecord,
   PriceQuery,
   PriceResolver,
@@ -192,6 +194,26 @@ export function setPriceResolver(next: PriceResolver): PriceResolver {
 
 export function currentPriceResolver(): PriceResolver {
   return priceResolver;
+}
+
+/** No promotions: every line keeps a zero discount and shipping is never free. */
+export const noDiscounts: DiscountEvaluator = {
+  async evaluate(): Promise<DiscountQuote> {
+    return { allocations: new Map(), freeShipping: false, applied: [], rejected: [] };
+  },
+};
+
+let discountEvaluator: DiscountEvaluator = noDiscounts;
+
+/** Replaces the discount evaluator (the server: window 9's promotions engine). Returns the previous one. */
+export function setDiscountEvaluator(next: DiscountEvaluator): DiscountEvaluator {
+  const previous = discountEvaluator;
+  discountEvaluator = next;
+  return previous;
+}
+
+export function currentDiscountEvaluator(): DiscountEvaluator {
+  return discountEvaluator;
 }
 
 let taxCalculator: TaxCalculator = tableTaxCalculator;
