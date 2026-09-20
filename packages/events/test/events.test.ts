@@ -79,10 +79,13 @@ describe('event schemas', () => {
       'referral.converted',
       'review.published',
       'cart.abandoned',
+      'fulfillment.requested',
+      'fulfillment.picking',
+      'fulfillment.packed',
     ]) {
       expect(EVENT_TOPICS).toContain(t);
     }
-    expect(EVENT_TOPICS).toHaveLength(31);
+    expect(EVENT_TOPICS).toHaveLength(34);
   });
 
   it('compiles every schema and has a v1 for every topic', () => {

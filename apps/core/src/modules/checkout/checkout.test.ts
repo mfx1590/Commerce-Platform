@@ -6,15 +6,32 @@ import { createHash } from 'node:crypto';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { addLineItem, createCart, updateCart } from '../cart';
-import { getStoreOrder } from '../orders';
+import {
+  addLineItem,
+  createCart,
+  setTaxCalculator,
+  tableTaxCalculator,
+  taxOn,
+  updateCart,
+  type TaxCalculator,
+} from '../cart';
+import {
+  confirmOrder,
+  decreaseLineQuantity,
+  flagOrderForReviewWith,
+  getAdminOrder,
+  getStoreOrder,
+  resolveOrderReviewWith,
+} from '../orders';
 import {
   completeCart,
   createPaymentSession,
   emailHash,
   listShippingOptions,
   manualPaymentProvider,
+  setFraudCheck,
   setPaymentProvider,
+  type FraudContext,
   type PaymentProvider,
 } from './index';
 
@@ -71,6 +88,8 @@ afterAll(async () => {
 
 afterEach(() => {
   setPaymentProvider(manualPaymentProvider);
+  setTaxCalculator(tableTaxCalculator);
+  setFraudCheck(null);
 });
 
 let counter = 0;
@@ -516,5 +535,311 @@ describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
     expect((await getStoreOrder(a, order.id, { customerId: otherCustomer.rows[0]!.id })).id).toBe(
       order.id,
     );
+  });
+});
+
+describe("tax: the calculator's per-line amounts and prices_include_tax (#221)", () => {
+  const lineRows = (orderId: string) =>
+    owner.query<{
+      id: string;
+      quantity: number;
+      unit_price_minor: string;
+      tax_rate_bp: number;
+      tax_minor: string;
+      total_minor: string;
+      metadata: Record<string, unknown>;
+    }>(
+      `SELECT id, quantity, unit_price_minor::text, tax_rate_bp, tax_minor::text, total_minor::text, metadata
+       FROM order_line_item WHERE order_id = $1`,
+      [orderId],
+    );
+  const orderRow = async (orderId: string) =>
+    (
+      await owner.query<{
+        subtotal_minor: string;
+        shipping_minor: string;
+        tax_minor: string;
+        total_minor: string;
+      }>(
+        `SELECT subtotal_minor::text, shipping_minor::text, tax_minor::text, total_minor::text FROM "order" WHERE id = $1`,
+        [orderId],
+      )
+    ).rows[0]!;
+
+  it('a provider whose per-line rounding differs from taxOn by a cent: cart, order rows and order.placed agree, Σ lines + shipping tax = order tax', async () => {
+    // Stripe-Tax-like: 8.875 % → 888 bp, but the provider's own line amount is one cent above our formula
+    const provider: TaxCalculator = {
+      async calculate(ctx) {
+        return {
+          lines: ctx.lines.map((l) => ({
+            lineItemId: l.lineItemId,
+            taxRateBp: 888,
+            taxMinor: taxOn(l.quantity * l.unitPriceMinor - l.discountMinor, 888) + 1,
+          })),
+          shippingTaxMinor: 2,
+        };
+      },
+    };
+    setTaxCalculator(provider);
+    const cart = await readyCart();
+    const { order } = await completeCart(a, {
+      cartId: cart.id,
+      idempotencyKey: `key-tax-${cart.id}`,
+      actor,
+    });
+    const rows = (await lineRows(order.id)).rows;
+    expect(rows).toHaveLength(1);
+    const l = rows[0]!;
+    const base = l.quantity * Number(l.unit_price_minor);
+    const expected = taxOn(base, 888) + 1;
+    expect(Number(l.tax_minor)).toBe(expected); // frozen from the calculator, not recomputed from the rate
+    expect(Number(l.total_minor)).toBe(base + expected);
+    expect(l.metadata.tax).toEqual({ amount_minor: expected, mode: 'exclusive', bp: 888 });
+    const o = await orderRow(order.id);
+    expect(Number(o.tax_minor)).toBe(expected + 2); // Σ line tax + shipping tax
+    expect(Number(o.total_minor)).toBe(
+      Number(o.subtotal_minor) + Number(o.shipping_minor) + expected + 2,
+    );
+    // the Store API order and the event carry the same numbers; the tax record itself stays internal
+    expect(order.items[0]!.tax.amount_minor).toBe(expected);
+    expect(order.totals.tax.amount_minor).toBe(expected + 2);
+    expect(order.items[0]).not.toHaveProperty('metadata');
+    expect(order.metadata ?? {}).not.toHaveProperty('tax');
+    expect(JSON.stringify(order)).not.toContain('"mode"');
+    const read = await getStoreOrder(a, order.id, { email: cart.email });
+    expect(JSON.stringify(read)).not.toContain('"mode"');
+    const placed = (await outboxFor(order.id)).rows.find((e) => e.topic === 'order.placed')!;
+    const items = placed.payload.line_items as { tax_minor: number; tax_rate_bp: number }[];
+    expect(items.map((i) => i.tax_minor)).toEqual([expected]);
+    expect(items[0]!.tax_rate_bp).toBe(888);
+    expect((placed.payload.totals as { tax_minor: number }).tax_minor).toBe(expected + 2);
+  });
+
+  it('prices_include_tax: order and line totals carry no tax on top; an edit re-prices in the frozen mode after the store flips', async () => {
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{tax}', '{"prices_include_tax": true}'::jsonb) WHERE id = $1`,
+      [A],
+    );
+    let orderId: string;
+    let lineId: string;
+    let unit: number;
+    let bp: number;
+    try {
+      const cart = await readyCart();
+      const { order } = await completeCart(a, {
+        cartId: cart.id,
+        idempotencyKey: `key-incl-${cart.id}`,
+        actor,
+      });
+      orderId = order.id;
+      const l = (await lineRows(order.id)).rows[0]!;
+      lineId = l.id;
+      unit = Number(l.unit_price_minor);
+      bp = l.tax_rate_bp;
+      expect(bp).toBeGreaterThan(0);
+      const contained = taxOn(2 * unit, bp, true);
+      expect(Number(l.tax_minor)).toBe(contained);
+      expect(Number(l.total_minor)).toBe(2 * unit); // gross: the tax is inside
+      expect(l.metadata.tax).toEqual({ amount_minor: contained, mode: 'inclusive', bp });
+      const o = await orderRow(order.id);
+      expect(Number(o.tax_minor)).toBe(contained); // reported
+      expect(Number(o.total_minor)).toBe(Number(o.subtotal_minor) + Number(o.shipping_minor));
+      expect(order.totals.total.amount_minor).toBe(Number(o.total_minor));
+      expect(order.items[0]!.total.amount_minor).toBe(2 * unit);
+    } finally {
+      await owner.query(
+        `UPDATE store SET settings = coalesce(settings, '{}'::jsonb) - 'tax' WHERE id = $1`,
+        [A],
+      );
+    }
+    // the store is exclusive again; the placed order keeps the mode it was priced in
+    const staff = { id: null, type: 'system' as const, requestId: 'req-checkout-edit' };
+    await decreaseLineQuantity(a, orderId, lineId, 1, staff);
+    const l = (await lineRows(orderId)).rows[0]!;
+    const contained = taxOn(unit, bp, true);
+    expect(Number(l.tax_minor)).toBe(contained);
+    expect(Number(l.total_minor)).toBe(unit);
+    expect(l.metadata.tax).toEqual({ amount_minor: contained, mode: 'inclusive', bp });
+    const o = await orderRow(orderId);
+    expect(Number(o.tax_minor)).toBe(contained);
+    expect(Number(o.total_minor)).toBe(Number(o.subtotal_minor) + Number(o.shipping_minor));
+  });
+});
+
+describe('fraud seam (#231): evaluated before authorization', () => {
+  const staff = { id: null, type: 'system' as const, requestId: 'req-checkout-fraud' };
+  const counts = async (cartId: string) =>
+    (
+      await owner.query<{ orders: string; payments: string }>(
+        `SELECT (SELECT count(*) FROM "order" WHERE cart_id = $1)::text AS orders,
+                (SELECT count(*) FROM payment p JOIN "order" o ON o.id = p.order_id WHERE o.cart_id = $1)::text AS payments`,
+        [cartId],
+      )
+    ).rows[0]!;
+  const failure = async (cartId: string, key: string) => {
+    try {
+      await completeCart(a, { cartId, idempotencyKey: key, actor });
+    } catch (e) {
+      const err = e as { status: number; toBody(): unknown };
+      return { status: err.status, body: err.toBody() };
+    }
+    throw new Error('expected completeCart to fail');
+  };
+
+  it('block = a plain decline: same status, code, message and details; authorize never called; nothing written', async () => {
+    let authorizeCalls = 0;
+    let seen: FraudContext | undefined;
+    setPaymentProvider({
+      ...manualPaymentProvider,
+      async authorize(input) {
+        authorizeCalls++;
+        return manualPaymentProvider.authorize(input);
+      },
+    });
+    setFraudCheck({
+      async evaluate(ctx) {
+        seen = ctx;
+        return { outcome: 'block', reasonCode: 'radar_highest', provider: 'radar' };
+      },
+    });
+    const cart = await readyCart();
+    const blocked = await failure(cart.id, `key-block-${cart.id}`);
+    expect(blocked).toEqual({
+      status: 402,
+      body: {
+        code: 'payment_failed',
+        message: 'payment not authorized',
+        details: { provider: 'manual' },
+      },
+    });
+    expect(authorizeCalls).toBe(0);
+    expect(await counts(cart.id)).toEqual({ orders: '0', payments: '0' });
+    // facts and codes only: the hash, never the email; the countries, never the address
+    expect(seen).toMatchObject({
+      cartId: cart.id,
+      storeId: A,
+      currency: 'EUR',
+      emailHash: emailHash(cart.email),
+      shippingCountry: 'NL',
+      billingCountry: 'NL',
+      paymentProvider: 'manual',
+    });
+    expect(seen!.amountMinor).toBeGreaterThan(0);
+    expect(JSON.stringify({ ...seen, tx: undefined }).toLowerCase()).not.toContain('jane.doe');
+
+    // the oracle test: a real decline from the provider is byte-identical
+    setFraudCheck(null);
+    setPaymentProvider({
+      ...manualPaymentProvider,
+      async authorize() {
+        return { status: 'failed', providerPaymentId: null };
+      },
+    });
+    const declinedCart = await readyCart();
+    expect(await failure(declinedCart.id, `key-decline-${declinedCart.id}`)).toEqual(blocked);
+  });
+
+  it('review places the order, flags payment (truth) and order (mirror), emits one order.updated, holds confirm until cleared; the Store order never shows it', async () => {
+    setFraudCheck({
+      async evaluate() {
+        return { outcome: 'review', reasonCode: 'velocity_email', provider: 'rules' };
+      },
+    });
+    const cart = await readyCart();
+    const { order } = await completeCart(a, {
+      cartId: cart.id,
+      idempotencyKey: `key-review-${cart.id}`,
+      actor,
+    });
+    setFraudCheck(null);
+    expect(order.status).toBe('pending');
+    expect(order.metadata ?? {}).not.toHaveProperty('fraud');
+    expect(JSON.stringify(order)).not.toContain('velocity_email');
+    const read = await getStoreOrder(a, order.id, { email: cart.email });
+    expect(JSON.stringify(read)).not.toContain('fraud');
+
+    const rows = await owner.query<{ om: Record<string, unknown>; pm: Record<string, unknown> }>(
+      `SELECT o.metadata AS om, p.metadata AS pm FROM "order" o JOIN payment p ON p.order_id = o.id WHERE o.id = $1`,
+      [order.id],
+    );
+    const flag = { status: 'review', reason_code: 'velocity_email', provider: 'rules' };
+    expect(rows.rows[0]!.pm.fraud).toMatchObject(flag);
+    expect(rows.rows[0]!.om.fraud).toEqual(rows.rows[0]!.pm.fraud); // the mirror equals the truth
+    const admin = await getAdminOrder(a, order.id);
+    expect(admin.metadata.fraud).toMatchObject(flag); // staff see it
+
+    const updates = (await outboxFor(order.id)).rows.filter((e) => e.topic === 'order.updated');
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.payload.changed_fields).toEqual(
+      expect.arrayContaining(['fraud', 'fraud.reason_code=velocity_email', 'fraud.status=review']),
+    );
+    // idempotent on the target status: flagging again changes and emits nothing
+    await flagOrderForReviewWith(a, order.id, {
+      reasonCode: 'country_mismatch',
+      provider: 'rules',
+      actor: staff,
+    });
+    expect(
+      (await outboxFor(order.id)).rows.filter((e) => e.topic === 'order.updated'),
+    ).toHaveLength(1);
+
+    await expect(confirmOrder(a, order.id, staff)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { fraud_status: 'review' },
+    });
+    const fraudulent = await resolveOrderReviewWith(a, order.id, {
+      status: 'confirmed_fraud',
+      resolution: 'manual',
+      actor: staff,
+    });
+    expect(fraudulent).toMatchObject({ status: 'confirmed_fraud', resolution: 'manual' });
+    await expect(confirmOrder(a, order.id, staff)).rejects.toMatchObject({ code: 'conflict' });
+    const cleared = await resolveOrderReviewWith(a, order.id, {
+      status: 'cleared',
+      resolution: 'approved',
+      actor: staff,
+    });
+    expect(cleared).toMatchObject({
+      status: 'cleared',
+      resolution: 'approved',
+      reason_code: 'velocity_email',
+    });
+    expect((await confirmOrder(a, order.id, staff)).status).toBe('confirmed');
+  });
+
+  it('a check that throws is a review (outage rule): never a block, never a silent pass; an unflagged order resolves to null', async () => {
+    setFraudCheck({
+      async evaluate() {
+        throw new Error('radar timeout');
+      },
+    });
+    const cart = await readyCart();
+    const { order } = await completeCart(a, {
+      cartId: cart.id,
+      idempotencyKey: `key-outage-${cart.id}`,
+      actor,
+    });
+    const admin = await getAdminOrder(a, order.id);
+    expect(admin.metadata.fraud).toMatchObject({
+      status: 'review',
+      reason_code: 'provider_unavailable',
+    });
+
+    setFraudCheck(null);
+    const plain = await readyCart();
+    const placed = await completeCart(a, {
+      cartId: plain.id,
+      idempotencyKey: `key-nofraud-${plain.id}`,
+      actor,
+    });
+    expect((await getAdminOrder(a, placed.order.id)).metadata).not.toHaveProperty('fraud');
+    expect(
+      await resolveOrderReviewWith(a, placed.order.id, {
+        status: 'cleared',
+        resolution: 'manual',
+        actor: staff,
+      }),
+    ).toBeNull();
+    expect((await confirmOrder(a, placed.order.id, staff)).status).toBe('confirmed');
   });
 });

@@ -1,32 +1,59 @@
 @import 'tailwindcss';
 
 /*
- * Tailwind v4 keeps the design tokens in CSS, not in a JS config. Screens should use these
- * semantic names (bg-surface, text-muted, border-line) rather than raw palette values, so the
- * per-brand theming planned for Phase 3 only has to change this block.
+ * The Medusa design tokens (docs/admin-design.md). This block is the ONLY place a colour or a font
+ * family is written down: components use the semantic utilities (bg-surface, text-muted,
+ * border-line, text-accent) and the rail's stylesheet reads the same variables, so the whole app
+ * restyles from here. Dark, committed — there is no light theme for the admin.
+ *
+ * Mapping from the brief: canvas = ground, muted = stone, accent = verdigris, danger = critical,
+ * warning = warn, success = ok. `gold` exists for the serpents' eyes and highlights and is never
+ * used for text (contrast is not the reason — it is the brief's rule).
+ *
+ * Measured contrast (WCAG): stone on ground 6.3:1, stone on surface 5.8:1, ink on ground 16:1,
+ * verdigris on surface 9.6:1, critical on surface 4.8:1, accent-ink on verdigris 9.4:1.
  */
 @theme {
-  --color-canvas: oklch(98.4% 0.003 247);
-  --color-surface: oklch(100% 0 0);
-  --color-line: oklch(92% 0.005 247);
-  --color-ink: oklch(21% 0.02 258);
-  --color-muted: oklch(52% 0.02 258);
-  --color-accent: oklch(54% 0.16 259);
-  --color-accent-ink: oklch(99% 0 0);
-  --color-danger: oklch(52% 0.19 25);
-  --color-warning: oklch(70% 0.15 75);
-  --color-success: oklch(58% 0.13 152);
+  --color-canvas: #0b0f14;
+  --color-surface: #131a22;
+  --color-surface-2: #19222c;
+  --color-line: #22303c;
+  --color-ink: #e6ebf0;
+  --color-muted: #8b95a3;
+  --color-accent: #5fd3b9;
+  --color-accent-deep: #2f8f7c;
+  --color-accent-ink: #06201a;
+  --color-gold: #d9b25f;
+  --color-danger: #e0566b;
+  --color-warning: #d9a04a;
+  --color-success: #5fd3b9;
+
+  --font-display: var(--font-cinzel), 'Times New Roman', serif;
+  --font-sans: var(--font-plex-sans), 'Segoe UI', system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), Consolas, monospace;
 }
 
 @layer base {
   html {
-    color-scheme: light;
+    color-scheme: dark;
   }
 
   body {
     background-color: var(--color-canvas);
     color: var(--color-ink);
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* Cinzel is for the wordmark and page titles only (the brief); body copy stays Plex Sans. */
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  /* Numbers line up in tables: tabular figures everywhere the mono face is used. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
   }
 
   /* Keyboard users must always be able to see where they are (issue #26 accessibility criteria). */

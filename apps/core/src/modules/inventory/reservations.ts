@@ -7,6 +7,7 @@
 // goes negative (the backorder). `releaseForOrder` (cancel, through the orders module's transition) and
 // `consumeForShipment` (window 8 at ship time: reservation → `sale` movement) close the loop.
 import type { Queryable } from '@platform/db';
+import type { Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { ensureLevel, moveStock } from './service';
 import type {
@@ -263,4 +264,165 @@ export async function consumeForShipment(
     }
   }
   return out;
+}
+
+// ---- window 8's port shapes (#191): per-shipment, by order line item, idempotent per shipment ----
+
+interface ShipmentLine {
+  orderLineItemId: string;
+  quantity: number;
+}
+
+async function variantsOfLines(
+  tx: Queryable,
+  orderId: string,
+  items: readonly ShipmentLine[],
+): Promise<{ variantId: string; quantity: number }[]> {
+  const ids = items.map((i) => i.orderLineItemId);
+  const rows = await tx.query<{ id: string; variant_id: string | null }>(
+    `SELECT id, variant_id FROM order_line_item WHERE order_id = $1 AND id = ANY($2)`,
+    [orderId, ids],
+  );
+  const byId = new Map(rows.rows.map((r) => [r.id, r.variant_id]));
+  const out: { variantId: string; quantity: number }[] = [];
+  for (const i of items) {
+    if (!byId.has(i.orderLineItemId)) {
+      throw validationError('unknown order line item', { order_line_item_id: i.orderLineItemId });
+    }
+    const variantId = byId.get(i.orderLineItemId);
+    if (!variantId) continue; // variant deleted since: nothing to move
+    out.push({ variantId, quantity: i.quantity });
+  }
+  return out;
+}
+
+/**
+ * `consumeReservations` for shipping (#191): the shipment's lines by order line item, idempotent per shipment —
+ * a `sale` movement referencing this shipment already exists for a variant → that line is skipped, so a retry
+ * never double-decrements.
+ */
+export async function consumeReservationsForShipment(
+  tx: Queryable,
+  input: {
+    organizationId: string;
+    storeId: string;
+    orderId: string;
+    shipmentId: string;
+    warehouseId?: string | undefined;
+    items: readonly ShipmentLine[];
+    actor: Actor;
+  },
+): Promise<ConsumeResult[]> {
+  const lines = await variantsOfLines(tx, input.orderId, input.items);
+  const done = await tx.query<{ variant_id: string }>(
+    `SELECT DISTINCT variant_id FROM stock_movement
+     WHERE reference_type = 'shipment' AND reference_id = $1 AND reason = 'sale'`,
+    [input.shipmentId],
+  );
+  const already = new Set(done.rows.map((r) => r.variant_id));
+  const pending = lines.filter((l) => !already.has(l.variantId));
+  if (pending.length === 0) return [];
+  return consumeForShipment(tx, {
+    organizationId: input.organizationId,
+    storeId: input.storeId,
+    orderId: input.orderId,
+    shipmentId: input.shipmentId,
+    lines: pending.map((l) => ({
+      variantId: l.variantId,
+      quantity: l.quantity,
+      warehouseId: input.warehouseId,
+    })),
+    actor: input.actor,
+  });
+}
+
+/**
+ * `releaseReservations` for shipping (#191): a planned shipment cancelled before picking. Reverses what
+ * `consumeReservationsForShipment` did for this shipment: the goods go back on hand (`adjustment` movement
+ * referencing `shipment_release:<id>`) and the order's reservation is re-opened. `items` says which order lines
+ * (and how many units) to release: per variant the target is `min(consumed, asked)`, what earlier calls already
+ * released under this shipment is subtracted, and the rest is spent across the variant's warehouse rows in the
+ * canonical order (warehouse priority, then code) — so the same call twice releases once, a larger later call
+ * releases the difference, and an empty `items` means everything the shipment consumed. Returns the units
+ * released now.
+ */
+export async function releaseReservationsForShipment(
+  tx: Queryable,
+  input: {
+    organizationId: string;
+    storeId: string;
+    orderId: string;
+    shipmentId: string;
+    items: readonly ShipmentLine[];
+    actor: Actor;
+  },
+): Promise<number> {
+  // canonical order: the asked quantity is spent warehouse by warehouse in this order (priority, then code)
+  const consumed = await tx.query<{ variant_id: string; warehouse_id: string; quantity: string }>(
+    `SELECT m.variant_id, m.warehouse_id, sum(-m.delta)::text AS quantity
+     FROM stock_movement m JOIN warehouse w ON w.id = m.warehouse_id
+     WHERE m.reference_type = 'shipment' AND m.reference_id = $1 AND m.reason = 'sale'
+     GROUP BY m.variant_id, m.warehouse_id, w.priority, w.code
+     ORDER BY m.variant_id, w.priority, w.code`,
+    [input.shipmentId],
+  );
+  const released = await tx.query<{ variant_id: string; warehouse_id: string; quantity: string }>(
+    `SELECT variant_id, warehouse_id, sum(delta)::text AS quantity FROM stock_movement
+     WHERE reference_type = 'shipment_release' AND reference_id = $1
+     GROUP BY variant_id, warehouse_id`,
+    [input.shipmentId],
+  );
+  const releasedBefore = new Map(
+    released.rows.map((r) => [`${r.variant_id}:${r.warehouse_id}`, Number(r.quantity)]),
+  );
+  // asked units per variant (undefined = no cap: release everything the shipment consumed)
+  let asked: Map<string, number> | undefined;
+  if (input.items.length > 0) {
+    asked = new Map();
+    for (const l of await variantsOfLines(tx, input.orderId, input.items)) {
+      asked.set(l.variantId, (asked.get(l.variantId) ?? 0) + l.quantity);
+    }
+  }
+  // per variant: target = min(all consumed, asked) − all released so far; then spend it row by row
+  const remaining = new Map<string, number>();
+  for (const c of consumed.rows) {
+    if (remaining.has(c.variant_id)) continue;
+    const rows = consumed.rows.filter((r) => r.variant_id === c.variant_id);
+    const consumedAll = rows.reduce((n, r) => n + Number(r.quantity), 0);
+    const releasedAll = rows.reduce(
+      (n, r) => n + (releasedBefore.get(`${r.variant_id}:${r.warehouse_id}`) ?? 0),
+      0,
+    );
+    const target = asked ? Math.min(consumedAll, asked.get(c.variant_id) ?? 0) : consumedAll;
+    remaining.set(c.variant_id, target - releasedAll);
+  }
+  let total = 0;
+  for (const c of consumed.rows) {
+    const key = `${c.variant_id}:${c.warehouse_id}`;
+    const left = remaining.get(c.variant_id) ?? 0;
+    const capacity = Number(c.quantity) - (releasedBefore.get(key) ?? 0); // still held at this warehouse
+    const quantity = Math.min(capacity, left);
+    if (quantity <= 0) continue;
+    remaining.set(c.variant_id, left - quantity);
+    const { level } = await moveStock(tx, {
+      organizationId: input.organizationId,
+      storeId: input.storeId,
+      variantId: c.variant_id,
+      warehouseId: c.warehouse_id,
+      delta: quantity,
+      reason: 'adjustment',
+      referenceType: 'shipment_release',
+      referenceId: input.shipmentId,
+      note: 'planned shipment cancelled before picking',
+      actor: input.actor,
+    });
+    await tx.query(
+      `INSERT INTO reservation (organization_id, store_id, variant_id, warehouse_id, order_id, quantity)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [input.organizationId, input.storeId, c.variant_id, c.warehouse_id, input.orderId, quantity],
+    );
+    await bumpReserved(tx, level.id, quantity);
+    total += quantity;
+  }
+  return total;
 }

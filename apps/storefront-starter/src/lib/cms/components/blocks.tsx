@@ -1,5 +1,6 @@
-import type { PageBlock } from '@platform/cms';
+import type { CampaignBlock } from '@platform/cms';
 import type { ContentContext } from '../content';
+import { Embed } from './embed';
 import { CtaLink, Hero } from './hero';
 import { PortableText } from './portable-text';
 import { ProductStory } from './product-story';
@@ -10,7 +11,13 @@ import { SanityImage } from './sanity-image';
  * does not know (a schema added before the storefront caught up) renders nothing instead of
  * breaking the page.
  */
-export function Blocks({ blocks, ctx }: { blocks: PageBlock[] | undefined; ctx: ContentContext }) {
+export function Blocks({
+  blocks,
+  ctx,
+}: {
+  blocks: CampaignBlock[] | undefined;
+  ctx: ContentContext;
+}) {
   if (!blocks || blocks.length === 0) return null;
   return (
     <div className="flex flex-col gap-12">
@@ -40,6 +47,8 @@ export function Blocks({ blocks, ctx }: { blocks: PageBlock[] | undefined; ctx: 
                 <CtaLink cta={block} size="lg" />
               </div>
             );
+          case 'embed':
+            return <Embed key={key} block={block} />;
           default:
             return null;
         }

@@ -10,8 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
-import { Ajv2020 } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -36,33 +34,6 @@ let db: TestDatabase;
 let app: express.Express;
 let feedsDir: string;
 
-/**
- * A feed whose publish failed cannot be validated against the frozen document: Admin API 0.3.0 defines
- * `ProductFeed` as `allOf[ProductFeedInput, …]` and `ProductFeedInput.status` excludes `error`, so the schema
- * rejects the very status `publishFeed` documents. Filed as a CONTRACT CHANGE; until it lands, error-status
- * responses are checked against `proposed/product-feed.schema.json` and everything else against the document.
- */
-const proposedFeedSchema = (() => {
-  const ajv = new Ajv2020({ strict: false, allErrors: true, allowUnionTypes: true });
-  const applyFormats = ((addFormats as unknown as { default?: unknown }).default ?? addFormats) as (
-    a: Ajv2020,
-  ) => void;
-  applyFormats(ajv);
-  const schema = JSON.parse(
-    readFileSync(join(__dirname, 'proposed', 'product-feed.schema.json'), 'utf8'),
-  ) as object;
-  const validate = ajv.compile(schema);
-  return (body: unknown) => {
-    if (!validate(body)) {
-      throw new Error(
-        `ProductFeed (proposed) mismatch: ${(validate.errors ?? [])
-          .map((e) => `${e.instancePath || '/'} ${e.message ?? ''}`)
-          .join('; ')}`,
-      );
-    }
-  };
-})();
-
 const as = (subject: string) => ({
   get: (path: string) => request(app).get(path).set('Authorization', `Bearer dev:${subject}`),
   post: (path: string, body?: unknown) =>
@@ -71,6 +42,7 @@ const as = (subject: string) => ({
     request(app).patch(path).set('Authorization', `Bearer dev:${subject}`).send(body),
   delete: (path: string) => request(app).delete(path).set('Authorization', `Bearer dev:${subject}`),
 });
+const owner = as('seed-owner');
 const storeAdmin = as('seed-store-admin');
 const storeStaff = as('seed-store-staff');
 const analyst = as('seed-analyst');
@@ -93,6 +65,8 @@ async function createDraft(): Promise<string> {
 beforeAll(async () => {
   db = await createTestDatabase('core_marketing_routes');
   await seed(db.owner, { productsPerStore: 4, log: () => {} });
+  // PROPOSED schema for 2.4 (CONTRACT CHANGE #244) — goes away when migration 0170 lands on main.
+  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0170_cart_recovery.sql'), 'utf8'));
   process.env.CORE_DEV_TOKENS = '1';
   process.env.CORE_ORGANIZATION_ID = ORG;
   await initDb({ connectionString: db.app.options.connectionString! });
@@ -118,6 +92,10 @@ beforeEach(async () => {
   await db.owner.query('DELETE FROM "order"');
   await db.owner.query('DELETE FROM campaign');
   await db.owner.query('DELETE FROM product_feed');
+  await db.owner.query('DELETE FROM segment_member');
+  await db.owner.query('DELETE FROM segment');
+  await db.owner.query('DELETE FROM customer');
+  await db.owner.query('DELETE FROM cart_recovery');
 });
 
 describe('campaign routes', () => {
@@ -294,7 +272,7 @@ describe('feed routes', () => {
     expect(items.body.items).toHaveLength(3);
   });
 
-  it('reports a broken feed as status error (asserted against the proposed schema, see #CONTRACT)', async () => {
+  it('reports a broken feed as status error (a schema-valid ProductFeed since 0.4.1, #194)', async () => {
     await db.owner.query(`DELETE FROM store_domain WHERE store_id = $1`, [A]);
     try {
       const id = await createFeedViaApi();
@@ -302,10 +280,7 @@ describe('feed routes', () => {
       expect(published.status).toBe(200);
       expect(published.body.status).toBe('error');
       expect(published.body.item_count).toBe(0);
-      proposedFeedSchema(published.body);
-
-      // The frozen document cannot express this response — that is the bug the CONTRACT CHANGE fixes.
-      expect(() => spec.assertSchema('ProductFeed', published.body)).toThrow();
+      spec.assertSchema('ProductFeed', published.body);
     } finally {
       await db.owner.query(
         `INSERT INTO store_domain (organization_id, store_id, hostname, is_primary)
@@ -347,6 +322,214 @@ describe('feed routes', () => {
       expect(res.status).toBe(403);
       expect(res.body.code).toBe('forbidden');
     }
+  });
+});
+
+describe('segment routes', () => {
+  const vipRules = {
+    v: 1,
+    all: [{ any: [{ field: 'total_spent_minor', op: 'gte', value: 50_000 }] }],
+  };
+
+  async function createSegmentViaApi(payloadBody: Record<string, unknown>): Promise<string> {
+    const res = await storeAdmin.post(`${base}/segments`, payloadBody);
+    expect(res.status).toBe(201);
+    return res.body.id as string;
+  }
+
+  it('creates, reads, lists and updates in the contract shape', async () => {
+    const created = await storeAdmin.post(`${base}/segments`, {
+      name: 'vip-buyers',
+      description: 'Spent 500+ and opted in',
+      rules: vipRules,
+    });
+    expect(created.status).toBe(201);
+    spec.assertSchema('Segment', created.body);
+    expect(created.body).toMatchObject({
+      store_id: A,
+      name: 'vip-buyers',
+      materialised_count: 0,
+      last_materialised_at: null,
+      template_id: null,
+    });
+
+    const read = await storeStaff.get(`${base}/segments/${created.body.id}`);
+    expect(read.status).toBe(200);
+    spec.assertSchema('Segment', read.body);
+
+    const list = await storeStaff.get(`${base}/segments?sort=name&order=asc`);
+    expect(list.status).toBe(200);
+    spec.assertPage('Segment', list.body);
+    expect(list.body.items).toHaveLength(1);
+
+    const patched = await storeAdmin.patch(`${base}/segments/${created.body.id}`, {
+      name: 'vip-buyers',
+      rules: { v: 1, all: [] },
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.rules).toEqual({ v: 1, all: [] });
+
+    expect((await storeAdmin.delete(`${base}/segments/${created.body.id}`)).status).toBe(204);
+  });
+
+  it('previews without writing and materialises with 202', async () => {
+    await db.owner.query(
+      `INSERT INTO customer (organization_id, store_id, email, status, consent)
+       VALUES ($1, $2, 'ada@example.test', 'registered', '{"marketing_email": {"granted": true}}'::jsonb),
+              ($1, $2, 'linus@example.test', 'registered', '{}'::jsonb)`,
+      [ORG, A],
+    );
+    const id = await createSegmentViaApi({
+      name: 'opted-in',
+      rules: { v: 1, all: [{ any: [{ field: 'consent', op: 'granted', value: 'email' }] }] },
+    });
+
+    const preview = await storeStaff.post(`${base}/segments/${id}/preview`);
+    expect(preview.status).toBe(200);
+    expect(preview.body).toEqual({ count: 1 });
+
+    // Rules in the body override the saved ones, so a rule builder can count before saving.
+    const whatIf = await storeStaff.post(`${base}/segments/${id}/preview`, {
+      rules: { v: 1, all: [] },
+    });
+    expect(whatIf.body).toEqual({ count: 2 });
+
+    const materialised = await storeAdmin.post(`${base}/segments/${id}/materialize`);
+    expect(materialised.status).toBe(202);
+    spec.assertSchema('Segment', materialised.body);
+    expect(materialised.body.materialised_count).toBe(1);
+  });
+
+  it('400s on rules outside the frozen grammar, naming the path', async () => {
+    const unknownPredicate = await storeAdmin.post(`${base}/segments`, {
+      name: 'bad-rules',
+      rules: { v: 1, all: [{ any: [{ field: 'moon_phase', op: 'eq', value: 1 }] }] },
+    });
+    expect(unknownPredicate.status).toBe(400);
+    spec.assertSchema('Error', unknownPredicate.body);
+    // Since contracts-v0.4.4 froze SegmentRules in the document, the spec layer (validateBody) rejects
+    // out-of-grammar input BEFORE the module parser, with AJV's dotted paths (rules.all.0.any.0…). The
+    // module's own parser still names bracketed paths for direct calls — segments.test.ts covers those.
+    expect(
+      Object.keys(unknownPredicate.body.details as Record<string, string>).some((k) =>
+        k.startsWith('rules.all.0.any.0'),
+      ),
+    ).toBe(true);
+
+    // The old flat shape is refused — that is what "frozen grammar" means (CONTRACT CHANGE #239, landed).
+    const flatShape = await storeAdmin.post(`${base}/segments`, {
+      name: 'old-shape',
+      rules: { total_spent_minor: { gte: 50_000 } },
+    });
+    expect(flatShape.status).toBe(400);
+  });
+
+  it('store_staff reads and previews, store_admin writes and materialises', async () => {
+    const id = await createSegmentViaApi({ name: 'vip-buyers', rules: vipRules });
+
+    expect((await storeStaff.get(`${base}/segments`)).status).toBe(200);
+    expect((await storeStaff.post(`${base}/segments/${id}/preview`)).status).toBe(200);
+
+    for (const res of [
+      await storeStaff.post(`${base}/segments`, { name: 'nope', rules: vipRules }),
+      await storeStaff.patch(`${base}/segments/${id}`, { name: 'nope', rules: vipRules }),
+      await storeStaff.delete(`${base}/segments/${id}`),
+      await storeStaff.post(`${base}/segments/${id}/materialize`),
+    ]) {
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('forbidden');
+    }
+  });
+});
+
+describe('segment template routes (organization scope)', () => {
+  const templates = '/admin/marketing/segment-templates';
+  const vipRules = {
+    v: 1,
+    all: [{ any: [{ field: 'total_spent_minor', op: 'gte', value: 50_000 }] }],
+  };
+
+  it('owner writes templates, analyst reads them', async () => {
+    const created = await owner.post(templates, { name: 'vip-template', rules: vipRules });
+    expect(created.status).toBe(201);
+    spec.assertSchema('Segment', created.body);
+    expect(created.body.store_id).toBeNull();
+
+    const listed = await analyst.get(templates);
+    expect(listed.status).toBe(200);
+    spec.assertPage('Segment', listed.body);
+    expect(listed.body.items.map((t: { name: string }) => t.name)).toEqual(['vip-template']);
+
+    expect((await analyst.get(`${templates}/${created.body.id}`)).status).toBe(200);
+
+    const patched = await owner.patch(`${templates}/${created.body.id}`, {
+      name: 'vip-template',
+      rules: { v: 1, all: [] },
+    });
+    expect(patched.status).toBe(200);
+    expect((await owner.delete(`${templates}/${created.body.id}`)).status).toBe(204);
+  });
+
+  it('a store role cannot read or write templates at all', async () => {
+    const created = await owner.post(templates, { name: 'vip-template', rules: vipRules });
+    expect(created.status).toBe(201);
+
+    // Organization scope is the only scope templates exist in: a store admin is refused on read and on write.
+    expect((await storeAdmin.get(templates)).status).toBe(403);
+    expect((await storeStaff.get(templates)).status).toBe(403);
+    expect((await storeAdmin.post(templates, { name: 'nope', rules: vipRules })).status).toBe(403);
+
+    // An analyst may read but must not write — template writes are `owner`.
+    expect((await analyst.post(templates, { name: 'nope', rules: vipRules })).status).toBe(403);
+    expect((await analyst.delete(`${templates}/${created.body.id}`)).status).toBe(403);
+  });
+
+  it('a store segment copies a template a store role cannot otherwise see', async () => {
+    const template = await owner.post(templates, { name: 'vip-template', rules: vipRules });
+    expect(template.status).toBe(201);
+
+    const segment = await storeAdmin.post(`${base}/segments`, {
+      name: 'vip-buyers',
+      template_id: template.body.id,
+    });
+    expect(segment.status).toBe(201);
+    expect(segment.body.rules).toEqual(vipRules);
+    expect(segment.body.template_id).toBe(template.body.id);
+  });
+});
+
+describe('abandoned-cart report route', () => {
+  // The operation is CONTRACT CHANGE #245 and is not in Admin API 0.4.3 yet, so the route falls back to the
+  // proposed `viewer` permission and the response is asserted by shape rather than against the document. When
+  // #245 lands, `spec.assertSchema('AbandonedCartReport', …)` replaces this and the fallback goes away.
+  const report = `${base}/reports/abandoned-carts?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z`;
+
+  it('answers the proposed shape and is readable by staff and the HQ analyst alike', async () => {
+    for (const who of [storeStaff, analyst]) {
+      const res = await who.get(report);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        currency: 'EUR',
+        abandoned_count: 0,
+        redeemed_count: 0,
+        recovered_count: 0,
+        recovery_rate: 0,
+      });
+      expect(res.body.abandoned_value).toEqual({ amount_minor: 0, currency: 'EUR' });
+      expect(res.body.recovered_value).toEqual({ amount_minor: 0, currency: 'EUR' });
+    }
+  });
+
+  it('400s on a missing window and 401s without a token', async () => {
+    const missing = await storeStaff.get(`${base}/reports/abandoned-carts`);
+    expect(missing.status).toBe(400);
+    spec.assertSchema('Error', missing.body);
+    expect((await request(app).get(report)).status).toBe(401);
+  });
+
+  it('is refused for a store outside the principal scope', async () => {
+    const other = `/admin/stores/${B}/marketing/reports/abandoned-carts?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z`;
+    expect((await storeStaff.get(other)).status).toBe(403);
   });
 });
 

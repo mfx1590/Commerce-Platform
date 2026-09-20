@@ -160,18 +160,46 @@ Brand content for `de-DE` is a copy of the `en-GB` documents with the locale cha
    locale"). To preview drafts before publishing, use the Studio's preview link
    (`/api/cms/preview?…`); a banner marks preview mode and offers the way out.
 
-## How a marketer builds a landing page
+## How a marketer builds a landing page alone
 
-Task 2.4 (#122) delivers the route and the embed block; the authoring side is already in place:
+No developer at any step.
 
 1. Open the Studio, pick the brand workspace, **Campaign landing page → New**.
-2. Title, slug (`spring-sale` becomes `/campaign/spring-sale`), language. Paste the campaign id
-   from Admin → Marketing so reporting can attribute the page.
+2. Title, slug (`spring-sale` becomes `/<locale>/campaign/spring-sale`), language. Paste the
+   campaign id from Admin → Marketing → Campaigns so reporting can attribute the page.
 3. Fill the hero (headline, image with alt text, up to two buttons). Add blocks: text, image,
-   product story (type the product handle from the shop URL), call to action.
-4. SEO tab: meta title and description; tick "Hide from search engines" for paid-only pages.
-5. Set "Starts at" / "Ends at" to publish on a schedule. **Publish.** The storefront revalidates
-   the page within seconds (task 2.2 webhook); no developer is involved.
+   product story (type the product handle from the shop URL — price and stock stay live), call to
+   action.
+4. Designed the page in **Builder.io or Framer** instead? Add an **Embed** block, choose the
+   provider, paste the published page URL (it must live on builder.io / framer.app /
+   framer.website), give it a title and a height. Or choose **HTML snippet** and paste static
+   markup. Either way the content runs in a sandbox: it cannot read the shop, its cookies or its
+   customers.
+5. SEO tab: meta title and description; tick "Hide from search engines" for paid-only pages.
+6. Set "Starts at" / "Ends at": outside that window the page answers 404, so an expired link
+   cannot keep selling last season. **Publish** — the storefront updates within seconds (the
+   publish webhook).
+7. Share the link with the campaign UTM, e.g.
+   `https://shop.brand-a.com/en-GB/campaign/spring-sale?utm_campaign=spring-2026`. The storefront
+   records the touch first-party and it lands on the order for attribution reporting.
+
+## Media via Cloudinary (task 2.5)
+
+An image field accepts two sources, and alt text is required either way:
+
+1. **Upload into Sanity** — the default; assets live on the Sanity CDN.
+2. **Cloudinary URL** — paste the delivery URL from the brand's Cloudinary library into the
+   image's "Cloudinary URL" field. The storefront then serves responsive renditions through the
+   shared `@platform/ui` loader (`c_limit,w_<width>,q_auto,f_auto`), and the URL wins over any
+   upload on the same field.
+
+Per-brand Cloudinary configuration is environment only (`.env`, ADR 0006): `CLOUDINARY_CLOUD_NAME`
+with per-store overrides `CLOUDINARY_CLOUD_NAME_<CODE>` (`brand-a` → `BRAND_A`); API key/secret are
+for window 9's server-side signing and never reach the CMS or the browser. Marketer setup, once
+per brand, in the Cloudinary console: a folder `cms/` in the brand's cloud and (optional, for
+direct uploads later) an unsigned upload preset named `cms-<store-code>`. Without any Cloudinary
+credentials nothing breaks: uploads into Sanity keep working, and a pasted URL still renders
+because the loader only rewrites public delivery URLs.
 
 ## Validation without a Studio
 

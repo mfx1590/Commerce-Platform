@@ -165,6 +165,57 @@ expiry. Switching keeps you on the same section (Orders on brand-a → Orders on
 `src/app/(hq)/` or `src/app/(store)/[storeId]/`, and a row in the test matrix in
 `test/navigation.test.ts`. Nothing else knows the list.
 
+## The Medusa rail (task 2.1b, issue #192)
+
+The product is called Medusa, so the navigation **is** Medusa: the head artwork sits top-left and
+one procedural SVG serpent grows per section the principal may see, its label at the tip. The brief
+is `docs/admin-design.md` and the behaviour reference is `docs/design/medusa-rail-prototype.html`;
+pixel parity was never the goal, the sequence and the accessibility rules were.
+
+**Where the sections come from.** Exactly where they came from before: the shell still calls
+`hqNavItems` / `storeNavItems` and hands the already permission-filtered lists to
+`src/components/rail/MedusaRail`. A section the user lacks never grows a serpent; the Store/HQ scope
+switch appears only when both scopes have sections. The rail fetches nothing and decides nothing —
+the API re-checks every `x-permission` underneath, as always.
+
+**What moves, and when** (`rail.config.ts` holds every number, `serpent-geometry.ts` every
+position — pure arithmetic, no `getTotalLength`, so the same code runs in jsdom):
+
+- _Load sequence_, once per session (`sessionStorage`): the head surfaces (1.6 s), then each
+  serpent draws itself out of the crown (1.1 s, staggered 160 ms) and its head and label arrive.
+- _At rest_: the head breathes (7 s), each serpent sways on two sine terms (≤ 9 px), teal motes
+  drift up on a canvas behind the head.
+- _Hover / focus_: the serpent lifts toward the pointer, thickens by 2 px, the gold eye pulses and
+  the tongue flicks; the active serpent stays lifted. _Gaze_: head and serpents lean a few pixels
+  toward the pointer.
+- One `requestAnimationFrame` loop writes attributes directly (React is not re-rendered per frame)
+  and pauses while the tab is hidden. Nothing on the content side ever animates.
+
+**Accessibility and fallbacks (non-negotiable).** Every serpent is a real button —
+`role="button"`, `tabindex="0"`, `aria-pressed`, a visible focus ring at the label — and Enter or
+Space follows it. **List view** (`RailList`: plain links with `aria-current`) replaces the serpents
+under `prefers-reduced-motion` (toggle locked on, no animation is set up and the session's intro
+flag is not consumed), by default on touch devices (`hover: none`), or whenever the user ticks the
+toggle, which persists per browser in `localStorage` (`medusa-list`). Under 860 px the rail becomes
+a 520 px band above the content. axe runs on both views in `test/rail.test.tsx`.
+
+**Design tokens.** `src/app/globals.css` is the only file that names a colour or a font family: the
+brief's dark set (ground, surface, line, stone, ink, verdigris, gold, critical/warn/ok) mapped onto
+the semantic utilities components already used (`bg-surface`, `text-muted`, `text-accent`, …), so
+the data-table, forms, state panels and pills restyled without a rewrite. `gold` is for the
+serpents' eyes and highlights and is never used for text. Measured contrast sits next to the
+tokens. Fonts (Cinzel for the wordmark and page titles, IBM Plex Sans, IBM Plex Mono for numbers)
+are committed as latin woff2 under `public/fonts` with their OFL licences and loaded with
+`next/font/local`, so no build touches the network and no page loads a third-party script.
+
+**Screenshots** for the PR are taken by `e2e/rail.spec.ts` into `docs/medusa-rail/` (store scope,
+list view; the HQ scope needs a principal with HQ relations, which the Prism example never is, so
+that test runs with `E2E_API=core` signed in as the seeded `finance` user). For task 2.1b the core
+could not boot from `main` (#202: Medusa's job loader rejects `src/jobs/index-products.ts`), so
+`hq-scope.png` was rendered by the same test against a Prism started on a scratch copy of the spec
+whose `/admin/me` example is the `finance` principal — the real app, a real Keycloak sign-in, a
+mocked principal. Re-take it against the core once #202 lands.
+
 ## Lists: the data-table primitive
 
 Every list screen uses one component, [`DataTable`](./src/components/table/data-table.tsx). It is a
@@ -395,7 +446,9 @@ message may contain whatever the server was holding, and this app handles tokens
 | `src/lib/forms/`                       | Contract schemas, server-error mapping, money parsing (all pure)     |
 | `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
 | `src/components/table/`                | The `DataTable` primitive                                            |
-| `src/components/shell/`                | The frame: header, side nav, store switcher, section guards          |
+| `src/components/rail/`                 | The Medusa rail: serpents, geometry (pure), config, list fallback    |
+| `src/components/shell/`                | The frame: rail + top bar, store switcher, section guards            |
+| `public/`                              | The head artwork and the committed fonts (OFL)                       |
 | `src/components/states/`               | Every state panel plus the `ApiStatePanel` dispatcher                |
 | `src/components/ui/`                   | Presentational primitives (`cn`, Button, Card, Badge)                |
 | `test/`                                | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |

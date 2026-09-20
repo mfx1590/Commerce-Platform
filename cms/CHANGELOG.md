@@ -1,5 +1,30 @@
 # Changelog — @platform/cms
 
+## 0.4.0 — 2026-09-19
+
+Task [cms] 2.5 (issue #123): Cloudinary media for CMS content.
+
+- `imageWithAlt` gains an optional `cloudinaryUrl`: paste a delivery URL from the brand Cloudinary
+  library and it wins over the Sanity upload. `imageSource` requires a source once the image is
+  present (upload or URL) and validates the URL shape (`CLOUDINARY_URL_PATTERN`, mirroring the
+  shared loader in @platform/ui — the storefront tests assert the two agree). Alt text stays
+  required for both sources; `SanityImage.asset` is now optional in the types.
+- Campaign fixture hero is Cloudinary-served, so every render path is exercised.
+- Review nit from PR #238: the embed HTML-snippet copy claimed a content security policy blocks
+  inline scripts — there is no CSP yet (REQUEST #199, window 3). The sandbox is the protection and
+  the Studio copy now says so.
+
+## 0.3.0 — 2026-09-09
+
+Task [cms] 2.4 (issue #122): the campaign embed.
+
+- New object `embed` on `campaignLanding.blocks` only (`campaignBlocks`): provider `builder` |
+  `framer` | `html`, required accessible `title`, `url` (https on the provider host allow-list,
+  `isAllowedEmbedUrl`; wildcards allow exactly one subdomain label) or `html` (≤ 20 kB), `height`
+  200–4000/800. `embedSource` enforces exactly one source matching the provider.
+- Campaign fixture gains a Framer embed; `EmbedBlock` / `CampaignBlock` exported for the
+  storefront. Tests in `test/embed.test.ts`.
+
 ## 0.2.0 — 2026-09-08
 
 Task [cms] 2.3 (issue #121): the two "later" nits from the PR #163 review.

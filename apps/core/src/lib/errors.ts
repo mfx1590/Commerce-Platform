@@ -8,6 +8,7 @@ const STATUS: Record<ErrorCode, number> = {
   conflict: 409,
   out_of_stock: 409,
   cart_completed: 409,
+  price_changed: 409,
   payment_failed: 402,
   internal: 500,
 };

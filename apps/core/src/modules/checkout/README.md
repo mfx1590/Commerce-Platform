@@ -58,6 +58,11 @@ transaction — fine for Phase 2, a Phase 3 scaling concern to revisit (per-stor
 
 ## PaymentProvider (public API; window 7 implements `stripe` against it, #127)
 
+Since task 2.5 the seam itself (types, the process-wide registry, the `manual` provider) lives in
+`src/lib/payment-seam.ts` so the orders and returns modules can use the registry without importing the checkout
+module (no checkout ↔ orders cycle; a guard test enforces it). This module re-exports everything unchanged:
+keep importing `setPaymentProvider` / `PaymentProvider` from `../checkout`.
+
 ```ts
 import { setPaymentProvider, type PaymentProvider } from '../checkout'; // from another module: '../modules/checkout'
 setPaymentProvider(stripeProvider); // at boot; returns the previous provider under that name
@@ -69,7 +74,10 @@ setPaymentProvider(stripeProvider); // at boot; returns the previous provider un
 - `authorize({ tx, cart, session, idempotencyKey }) → { status: 'authorized' | 'failed', providerPaymentId, failureReason? }`
   inside the placement transaction; `failed` aborts the placement with 402. Must be idempotent on
   `idempotencyKey` (the replay path never reaches it, but a provider may be retried after a crash).
-- `void({ tx, providerPaymentId, idempotencyKey, reason }) → { status: 'voided' | 'failed' }`: called by the
+- `void({ tx, organizationId, storeId, cartId?, providerPaymentId, idempotencyKey, reason }) → { status: 'voided' | 'failed' }`
+  — carries the **store** (per-store PSP credentials are resolved from it) because on the placement failure path
+  the transaction is being rolled back and may already be aborted: a provider must never run queries on `tx`
+  there (2.6, window 7's gap). `refund` carries `organizationId` / `storeId` for the same reason: called by the
   orders module when an order with an **authorised, uncaptured** payment is cancelled (`cancelOrder`, 2.3); a
   `failed` void aborts the cancellation with 402. `manual` is a no-op that always succeeds (nothing was ever
   captured); Stripe cancels the PaymentIntent.
@@ -98,6 +106,33 @@ The contract allows only 200 or 404, so an order id can never be confirmed by pr
 guest orders. The storefront's client never sends the customer token to cart paths.
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
+
+- **2026-09-19 · Fraud is evaluated before authorization, through a seam (#231, window 7).** `setFraudCheck()`
+  (types and registry in `src/lib/fraud-seam.ts`, re-exported here) — `completeCart` calls the registered check
+  inside the placement transaction, after the cart is re-priced and BEFORE `PaymentProvider.authorize`, with facts
+  and codes only (`emailHash`, the two countries, amount, provider + session id — never the email or an address).
+  **`block`** answers 402 `payment_failed` with the generic message and `details.provider` — byte-identical to a
+  decline (tested against a real decline): a distinct answer would tell a probing fraudster which attempt tripped a
+  rule. Nothing is written and nothing was authorised, so there is nothing to void. **`review`** places the order:
+  the payment row is inserted with `metadata.fraud` (the source of truth, window 7's aggregate) and the orders
+  module writes the mirror (`flagOrderForReview`). **A check that throws is a `review`**
+  (`reason_code: provider_unavailable`): an outage never blocks a customer and never passes silently. No check
+  registered = every placement allowed, as before.
+
+- **2026-09-19 · Placement never charges a price the customer did not see: 409 `price_changed` (#179 part 3,
+  CONTRACT CHANGE #228).** Under the cart lock `completeCart` re-resolves every line at one clock (`at`); any
+  difference rolls the placement back (nothing placed, nothing authorized), the cart is re-priced in a transaction
+  of its own so the storefront reads the new prices, and the answer is 409 with
+  `details: { currency, items: [{ line_item_id, variant_id, previous_unit_price_minor, unit_price_minor | null }] }`
+  (`null` = no longer sellable: the storefront removes the line). The same Idempotency-Key may be retried — no
+  order exists for it; the payment session is created again for the new total. The code comes from
+  `@platform/contracts` (`ERROR_CODES`, contracts-v0.4.3 / Store API 0.3.1).
+
+- **2026-09-19 · Placement freezes the calculator's per-line tax (#221).** `completeCart` reloads the lines
+  after its `recalculate` and writes `lineTaxOf(line)` into `order_line_item.tax_minor` / `total_minor` (and the
+  record into the order line's metadata) instead of recomputing from the rate; with
+  `prices_include_tax` the order and line totals carry no tax on top. `order.placed` carries the same numbers:
+  Σ `line_items[].tax_minor` + shipping tax = `totals.tax_minor`.
 
 - **2026-09-08 · Idempotency lives on `payment.idempotency_key`** (manager decision at the start of 2.2): placement
   creates exactly one payment row, the column is already UNIQUE, and the replay reads the order through it. No

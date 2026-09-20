@@ -20,6 +20,22 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.4 (#148) abandoned-cart recovery** — commit `d8187ba`, PR #250 (2026-09-19), pushed after #240's merge
+  is confirmed. `recovery{,-token,-report,-types}.ts` + the report route. Outbox polling per store with the
+  cursor in `marketing_cursor`; idempotency is `UNIQUE (cart_id)` in the schema, not consumer memory. Tokens:
+  32 random bytes, sha256-only storage, single use via `UPDATE … WHERE redeemed_at IS NULL`, 7-day expiry, one
+  404 for unknown/expired/used and 409 for an already-ordered cart. Tests drive **window 1's real
+  `markAllAbandonedCarts`**, not a fixture payload. Filed #244 (db 0170), #245 (Admin report + Store API
+  recover), #246 (window 1 mounts the route), #247 (windows 3/10 storefront page).
+
+- **2.3 (#147) segments** — commit `ae09724`, PR #240 (2026-09-19). Frozen rule grammar
+  `{ v:1, all:[{ any:[{field,op,value}] }] }` over a closed 7-field set, 400 on anything else naming the exact
+  path; `SEGMENT_RULES_SCHEMA` published from index.ts for window 16 + the admin, with a test running parser and
+  schema over the same fixtures. `segment-sql.ts` compiles rules to one parameterised predicate, total over
+  ragged data. CRUD + preview + materialise (202) + organization templates (copy-at-creation) + the window 16
+  sync payload (ids and `email_hash`, no provider call). 12 new routes. CONTRACT CHANGE #239 filed.
+  Also deleted the local `enumParam` copy now that #181 exports `enumParam`/`sortParams`.
+
 - **2.2 (#146) product feeds** — commit `c787e41`, merged main in `47608e3`, PR #200 (2026-09-09).
   Core: `feed-types/feed-items/feed-validation/feed-render/storage/feeds.ts` + 7 routes on the same router.
   New app `apps/feeds` (Node `http`, no runtime deps, serves artifacts only).
@@ -35,18 +51,40 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- **2.3 (#147) segments** — starting 2026-09-09. Blocked on the local Docker stack for DB-backed tests (see
-  Blocked); pure work (rule grammar, evaluator, validation) can proceed without it.
+- (nothing — 2.4 is PR #250, in review; 2.5 admin Marketing section (#149) is next)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
-- [ ] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract
-- [ ] **#148 · 2.4** Abandoned-cart recovery
+- [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
+- [x] **#148 · 2.4** Abandoned-cart recovery — PR #250 in review
 - [ ] **#149 · 2.5** Admin Marketing section v1
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
 
 ## Decisions made (with reasons)
+- 2026-09-19 (manager, 2.4) · Redemption is a **Store API route in the core**, not an exported function the
+  storefront calls. The token deliberately carries no cart id, so only a server round trip can resolve it, and
+  window 3's app speaks nothing but the publishable-key Store API. My own lean to the exported function was
+  wrong for exactly that reason. → `validateRecoveryToken` + REQUEST #246.
+- 2026-09-19 (manager, 2.4) · Unique-per-cart is the replay guard; sha256-only token storage, single use,
+  7-day expiry, nothing identifying inside the token; this module writes no attribution.
+- 2026-09-19 (me, 2.4) · `expired` is **not** a stored status — it is `pending AND token_expires_at < now()`.
+  A status column that needs a cron to stay honest is a bug waiting for an outage.
+- 2026-09-19 (me, 2.4) · The report's `recovered_value` is the **order** total, not the cart total: what the
+  customer actually paid after coming back is the number anyone weighing recovery against its cost wants.
+- 2026-09-19 (manager, 2.3) · Rule grammar is `{ v:1, all:[{ any:[predicate…] }…] }` — AND of ORs, **closed**
+  predicate set, **400 on any unknown predicate**, and the module publishes both the TypeScript type and a JSON
+  Schema from index.ts. Reason: a segment that silently ignores a rule it does not understand sends the wrong
+  campaign to the wrong people and nobody finds out.
+- 2026-09-19 (manager, 2.3) · `tags` = `customer.metadata.tags`; a missing key or non-array value is "no tags",
+  never an evaluation error — metadata is free-form and the grammar must be total over real rows.
+- 2026-09-19 (manager, 2.3) · `country` = the **default shipping address only**. Segments must be deterministic
+  and reflect who the customer is today; a stale secondary address must not pull someone into a geo campaign.
+  "Any address ever" would be a separate additive predicate (`country_any`) later — explicitly not built now.
+- 2026-09-19 (me, 2.3) · `template_id` copies rules **at creation** and is history, not a live link: editing a
+  template must never silently change who a live campaign reaches, and deleting it must not break the segment.
+- 2026-09-19 (me, 2.3) · The sync payload reads `segment_member`, not the rules, so preview, count and send are
+  the same set; re-evaluating at send time would let the audience drift from the count that was approved.
 - 2026-09-08 (manager, 2.2) · **The core renders and stores feed files; `apps/feeds` only serves them.** A core
   module and an app cannot import each other, so the writers live in exactly one place. Chose the core because
   the publish job needs bytes to hash for idempotency, and because the process on the public URL then has no
@@ -79,6 +117,19 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
+- **#240 (2.3) merged** 2026-09-19 (4ea4abb); contracts-v0.4.4 tagged (5f79e6d), #239 landed in it. One
+  landing-commit change in my files: routes.test.ts grammar-400 now asserts the spec-layer rejection
+  (validateBody refuses before my parser, AJV dotted paths); parser tests untouched. Carried through and green.
+- **#244 / #245** (db 0170 + Admin/Store API) land bundled as **contracts-v0.4.5** after the 2.4 PR merges.
+  Building against `proposed/0170_cart_recovery.sql`; the report route falls back to the proposed `viewer`
+  permission only while the operation is absent from the spec. **Correction posted on #244**: drop
+  `CHECK (redeemed_at >= created_at)` — see Gotchas.
+- **#246** window 1 mounts `POST /store/cart-recovery/{token}`; **#247** windows 3/10 build the page. Neither
+  blocks the module.
+- **CONTRACT CHANGE #239 (SegmentRules)** — filed 2026-09-19, manager lands it after the 2.3 PR merges (the
+  0140/0160 pattern). No `proposed/` copy needed: responses validate against the frozen document today because
+  it still accepts additional properties. A route test asserts the **old flat shape is refused**, which is the
+  behaviour #239 documents.
 - **Local Docker stack is DOWN (2026-09-09)** — Docker Desktop is not running on this machine, so every suite
   calling `createTestDatabase` fails with `ECONNREFUSED :5433` (window 9's search suites too, not just mine).
   Lint/typecheck/format still run. Restarting the shared stack is the manager's call at a quiet moment
@@ -101,6 +152,27 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   fails the build as soon as `apps/feeds` exists until every Dockerfile's deps stage lists it (intended prompt).
 
 ## Gotchas learned
+- 2.4: **never CHECK an app-supplied timestamp against a database-generated one.**
+  `CHECK (redeemed_at >= created_at)` with `created_at DEFAULT now()` compares the Postgres clock to the Node
+  clock and fails on ordinary skew. Four tests passed in isolation and failed in the full run; corrected on
+  #244 before the migration landed.
+- 2.4: the schema's `app.set_updated_at` trigger fires BEFORE UPDATE, so **you cannot back-date a row with an
+  UPDATE** — it stamps `now()` over your value. Set the timestamp in the INSERT and never touch the row again;
+  this is why window 1's abandoned-cart job found nothing at first.
+- 2.4: `cart.order_id` is a FK onto `"order"`, so test cleanup must null it before deleting orders.
+- 2.4: single use must be `UPDATE … WHERE redeemed_at IS NULL`, not check-then-write — two clicks arriving
+  together would otherwise both succeed.
+- 2.3: **`NOT (NULL = x)` is NULL, not true.** `consent not_granted` written as `NOT (… = 'true')` silently
+  dropped every customer with no consent block — exactly the people a re-consent campaign targets. Use
+  `IS DISTINCT FROM`. Any negated predicate over a nullable column needs the same treatment; a test caught it.
+- 2.3: RLS kind `store_nullable` = organization rows (`store_id IS NULL`) are visible **only** when
+  `app.current_scope() = 'organization'`. A tenant client cannot read a template even by id, so copying one
+  needs an organization-scoped client — and `organizationClientFor(principal)` refuses a store_admin (no HQ
+  relations), so the client is injected into the service instead.
+- 2.3: a service that builds a client from `lib/db`'s process-global pool cannot be tested without `initDb()`.
+  Inject the client and default to the global one; three tests failed on this before the seam went in.
+- 2.3: the seed creates **no customers** — DB tests for anything customer-shaped build their own fixtures.
+- 2.3: `#181` landed, so `src/http` now exports `enumParam`/`sortParams`; the local copies are gone.
 - 2.2: `apps/feeds` is ESM (`"type": "module"`) under `nodenext`, so **relative imports need the `.js`
   extension** (`./server.js`) even in TypeScript. The core does not, because it is CommonJS — do not copy its
   import style into a new app.

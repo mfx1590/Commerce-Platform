@@ -58,3 +58,24 @@ services:
     build:
       <<: *app-build
       dockerfile: apps/notifications/Dockerfile
+
+  feeds:
+    image: commerce-platform/feeds:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/feeds/Dockerfile
+    # Runtime, not build: the image sets NODE_ENV=production and the feed server refuses to start in
+    # production without an allowlist of the store codes it serves. This placeholder is only so that
+    # `docker compose -f infra/docker/docker-compose.build.yml up feeds` starts something on a laptop.
+    # It is deliberately NOT a default in the Dockerfile — an image that silently served brand-a would
+    # defeat the guard the app has for exactly that mistake. Real deployments set it per instance.
+    environment:
+      FEEDS_STORE_CODES: brand-a
+
+  # Brand storefronts live one level deeper than the other apps (window 10 owns
+  # apps/storefronts/<brand>/**); only the Dockerfile path differs.
+  storefront-brand-a:
+    image: commerce-platform/storefront-brand-a:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/storefronts/brand-a/Dockerfile

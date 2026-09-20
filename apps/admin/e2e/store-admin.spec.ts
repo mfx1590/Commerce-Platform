@@ -33,11 +33,13 @@ test.describe('store-admin', () => {
     await signIn(page);
     await page.waitForURL(/\/catalog/);
 
+    // The Medusa rail (#192): each permitted section is a serpent, a real button with aria-pressed.
     const storeNav = page.getByRole('navigation', { name: 'Brand A' });
-    await expect(storeNav.getByRole('link', { name: 'Catalog' })).toBeVisible();
-    await expect(storeNav.getByRole('link', { name: 'Settings' })).toBeVisible();
-    // store_admin holds nothing on organization:hq, so the HQ nav is not rendered.
+    await expect(storeNav.getByRole('button', { name: 'Catalog' })).toBeVisible();
+    await expect(storeNav.getByRole('button', { name: 'Settings' })).toBeVisible();
+    // store_admin holds nothing on organization:hq, so there is no HQ nav and no scope switch.
     await expect(page.getByRole('navigation', { name: 'HQ' })).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Scope' })).toHaveCount(0);
   });
 
   test('the switcher offers exactly brand-a and brand-b', async ({ page }) => {

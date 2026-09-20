@@ -7,20 +7,28 @@ import { createHash } from 'node:crypto';
 import type { Queryable, ScopedClient } from '@platform/db';
 import { orderMetadataFromCart, recordAttribution } from '../../lib/attribution';
 import { AppError, notFound, validationError } from '../../lib/errors';
+import {
+  evaluateFraud,
+  FRAUD_CHECK_UNAVAILABLE,
+  FRAUD_OUTAGE_PROVIDER,
+} from '../../lib/fraud-seam';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import {
   currentShippingRateProvider,
   loadCart,
   loadLines,
   lockActiveCart,
+  lineTaxOf,
+  lineTotalWith,
   recalculate,
-  taxOn,
+  repriceLines,
   type CartLineRow,
+  type PriceChange,
   type CartRow,
   type PricingContext,
 } from '../cart';
 import { reserveForOrder } from '../inventory';
-import { renderStoreOrder } from '../orders';
+import { flagOrderForReview, renderStoreOrder } from '../orders';
 import { paymentProvider, registeredPaymentProviders } from './payment';
 import type {
   CompleteCartInput,
@@ -151,7 +159,47 @@ export async function completeCart(
   client: ScopedClient,
   input: CompleteCartInput,
 ): Promise<CompleteCartResult> {
+  try {
+    return await placeOrder(client, input);
+  } catch (error) {
+    if (!(error instanceof PriceChangedSignal)) throw error;
+    // The placement transaction is gone (nothing placed, nothing authorized). Persist the new prices in a
+    // transaction of their own so the storefront reads them, then answer 409 `price_changed` (#228): the customer
+    // never pays an amount they did not see.
+    await client.transaction(async (tx) => {
+      const cart = await lockActiveCart(tx, input.cartId);
+      await repriceLines(tx, cart, { at: error.at });
+      await recalculate(tx, cart);
+    });
+    throw new AppError('price_changed', 'One or more prices changed', {
+      currency: error.currency,
+      items: error.changes.map((c) => ({
+        line_item_id: c.lineItemId,
+        variant_id: c.variantId,
+        previous_unit_price_minor: c.previousUnitPriceMinor,
+        unit_price_minor: c.unitPriceMinor,
+      })),
+    });
+  }
+}
+
+/** Thrown inside the placement transaction to roll it back; `completeCart` turns it into the 409. */
+class PriceChangedSignal extends Error {
+  constructor(
+    readonly changes: PriceChange[],
+    readonly currency: string,
+    readonly at: Date,
+  ) {
+    super('price changed');
+  }
+}
+
+async function placeOrder(
+  client: ScopedClient,
+  input: CompleteCartInput,
+): Promise<CompleteCartResult> {
   const { cartId, idempotencyKey } = input;
+  const at = new Date(); // one clock for every price window judged by this placement
   return client.transaction(async (tx) => {
     // ---- replay ---- Keys are per store: `payment.idempotency_key` is UNIQUE table-wide (0006) while RLS hides
     // other stores' rows from this lookup, so the stored value is `<store_id>:<Idempotency-Key>` — the same key
@@ -178,7 +226,7 @@ export async function completeCart(
 
     // ---- lock + preconditions ----
     const locked = await lockActiveCart(tx, cartId); // 409 cart_completed carries the order id
-    const lines = await loadLines(tx, cartId);
+    let lines = await loadLines(tx, cartId);
     const missing: Record<string, string> = {};
     if (lines.length === 0) missing.items = 'cart is empty';
     if (!locked.email?.trim()) missing.email = 'required';
@@ -189,8 +237,13 @@ export async function completeCart(
     if (Object.keys(missing).length)
       throw validationError('cart is not ready for checkout', missing);
 
+    // Prices as of now (sale ended, tier or group list changed since the cart was priced): never place silently.
+    const priceChanges = await repriceLines(tx, locked, { at, apply: false });
+    if (priceChanges.length > 0) throw new PriceChangedSignal(priceChanges, locked.currency, at);
+
     await recalculate(tx, locked, { explicitShippingOption: true });
     const cart = await loadCart(tx, cartId, false);
+    lines = await loadLines(tx, cartId); // as just priced: rate + metadata.tax are what the order freezes (#221)
     if (!cart.shipping_option_id) {
       throw validationError('cart is not ready for checkout', {
         shipping_option_id: 'no longer available for this destination',
@@ -206,6 +259,28 @@ export async function completeCart(
         payment_session: 'provider not available; create a new session',
       });
     }
+    // ---- fraud (#231): BEFORE any authorisation. `block` answers exactly like a decline — same status, code,
+    // message and details; no fraud wording, no distinct code (it would be an oracle for a probing fraudster).
+    // Nothing was written and nothing was authorised, so there is nothing to void; the fraud module records the
+    // real reason in its own transaction. `review` places the order and flags it below.
+    const fraud = await evaluateFraud({
+      tx,
+      organizationId: cart.organization_id,
+      storeId: cart.store_id,
+      cartId,
+      amountMinor: Number(cart.total_minor),
+      currency: cart.currency,
+      emailHash: emailHash(cart.email!), // emailHash trims and lowercases itself
+      shippingCountry: cart.shipping_address?.country ?? null,
+      billingCountry: cart.billing_address?.country ?? null,
+      paymentProvider: provider.name,
+      providerSessionId: session.session_id ?? null,
+      actor: input.actor,
+    });
+    if (fraud.outcome === 'block') {
+      throw new AppError('payment_failed', 'payment not authorized', { provider: provider.name });
+    }
+
     const auth = await provider.authorize({ tx, cart: cartRef(cart), session, idempotencyKey });
     if (auth.status !== 'authorized' || !auth.providerPaymentId) {
       throw new AppError('payment_failed', auth.failureReason ?? 'payment not authorized', {
@@ -272,7 +347,9 @@ export async function completeCart(
         const unit = Number(l.unit_price_minor);
         const discount = Number(l.discount_minor);
         const base = l.quantity * unit - discount;
-        const tax = taxOn(base, l.tax_rate_bp);
+        // the calculator's own per-line amount and mode, frozen — never recomputed from the rate (#221); the
+        // record travels on in the order line's metadata so an order edit re-prices in the same mode
+        const tax = lineTaxOf(l);
         const r = await tx.query<LineInsertRow>(
           `INSERT INTO order_line_item (organization_id, store_id, order_id, variant_id, sku, title, variant_title,
            thumbnail_url, quantity, unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor, metadata)
@@ -292,8 +369,8 @@ export async function completeCart(
             unit,
             discount,
             l.tax_rate_bp,
-            tax,
-            base + tax,
+            tax.amount_minor,
+            lineTotalWith(base, tax),
             JSON.stringify(l.metadata ?? {}),
           ],
         );
@@ -310,6 +387,17 @@ export async function completeCart(
           .map((l) => ({ variantId: l.variant_id!, quantity: l.quantity })),
       });
 
+      const fraudFlag =
+        fraud.outcome === 'review'
+          ? {
+              status: 'review' as const,
+              // a review without a code or provider is a malformed answer: booked as an outage, so both
+              // values stay inside the fraud module's closed sets (#236 review)
+              reason_code: fraud.reasonCode ?? FRAUD_CHECK_UNAVAILABLE,
+              provider: fraud.provider ?? FRAUD_OUTAGE_PROVIDER,
+              flagged_at: at.toISOString(),
+            }
+          : null;
       // ---- payment row (the one money movement; carries the Idempotency-Key) ----
       const paymentRow = await tx.query<{ id: string; authorized_at: Date }>(
         `INSERT INTO payment (organization_id, store_id, order_id, provider, provider_payment_id, amount_minor, currency,
@@ -324,9 +412,22 @@ export async function completeCart(
           cart.total_minor,
           cart.currency,
           storedKey,
-          JSON.stringify({ session_id: session.session_id }),
+          // the payment row is the source of truth of a fraud review (window 7's aggregate); the order carries
+          // the mirror written by the orders module right below
+          JSON.stringify({
+            session_id: session.session_id,
+            ...(fraudFlag ? { fraud: fraudFlag } : {}),
+          }),
         ],
       );
+      if (fraudFlag) {
+        await flagOrderForReview(tx, order.id, {
+          reasonCode: fraudFlag.reason_code,
+          provider: fraudFlag.provider,
+          flaggedAt: fraudFlag.flagged_at,
+          actor: input.actor,
+        });
+      }
 
       // ---- attribution (Integration 1 helper) + order.placed ----
       await recordAttribution(tx, {
@@ -417,7 +518,10 @@ export async function completeCart(
     } catch (err) {
       await provider
         .void({
-          tx,
+          tx, // being rolled back — the provider must resolve everything from the fields below
+          organizationId: cart.organization_id,
+          storeId: cart.store_id,
+          cartId: cart.id,
           providerPaymentId: auth.providerPaymentId,
           idempotencyKey: `${idempotencyKey}:void`,
           reason: 'placement failed',

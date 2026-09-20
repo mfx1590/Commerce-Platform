@@ -15,10 +15,17 @@ import {
   resolveObject,
   resolveStaffPrincipal,
   moduleAdminRouters,
+  moduleWebhookRouters,
 } from '../src/http';
 import { closePool, initDb, tenantClient } from '../src/lib/db';
 import { addLineItem, createCart, updateCart } from '../src/modules/cart';
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
+import {
+  confirmOrder,
+  markPaymentCaptured,
+  markShipmentCreated,
+  markShipped,
+} from '../src/modules/orders';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -52,7 +59,10 @@ beforeAll(async () => {
   process.env.CORE_ORGANIZATION_ID = SEED_IDS.organization;
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
-  mountCoreMiddleware(app, new DevTokenVerifier(), { moduleRouters: moduleAdminRouters() });
+  mountCoreMiddleware(app, new DevTokenVerifier(), {
+    moduleRouters: moduleAdminRouters(),
+    webhookRouters: moduleWebhookRouters(),
+  });
   // The Admin API customers routes belong to window 13 and stay on the Prism mock in Phase 1; this probe
   // mounts the frozen `listCustomers` x-permission (support since contracts 0.2.1, issue #77) on our guard so
   // the PII gate is proven for everything window 1 owns.
@@ -628,7 +638,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(2);
+    expect(moduleAdminRouters()).toHaveLength(8);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -637,5 +647,222 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     expect(campaigns.body).toHaveProperty('items');
     const anonymous = await request(app).get(`/admin/stores/${A}/marketing/campaigns`);
     expect(anonymous.status).toBe(401); // our middleware still fronts them
+  });
+
+  it('quiet-state batch (#179): media, price-list and promotion routers answer behind our staff auth, never 404', async () => {
+    const lists = await storeAdmin.get(`/admin/stores/${A}/price-lists`);
+    expect(lists.status).toBe(200); // window 9: pricingRouter
+    expect(lists.body).toHaveProperty('items');
+    const promotions = await storeAdmin.get(`/admin/stores/${A}/promotions`);
+    expect(promotions.status).toBe(200); // window 9: promotionsRouter
+    expect(promotions.body).toHaveProperty('items');
+    // window 9: mediaRouter — the route exists (validation / configuration answers, not the Medusa fall-through)
+    const media = await storeAdmin.post(`/admin/stores/${A}/media/upload-params`, {});
+    expect(media.status).not.toBe(404);
+    expect([200, 201, 400, 409]).toContain(media.status); // 409 = no Cloudinary credentials for the store
+    expect(
+      (await request(app).post(`/admin/stores/${A}/media/upload-params`).send({})).status,
+    ).toBe(401);
+    // window 8: shippingAdminRouter — operations on the HQ; a store admin is refused, an unknown order is a 404
+    const orderId = '00000000-0000-4000-8000-00000000dead';
+    const shipmentBody = { items: [{ order_line_item_id: orderId, quantity: 1 }] };
+    const refused = await storeStaff.post(
+      `/admin/stores/${A}/orders/${orderId}/shipments`,
+      shipmentBody,
+    );
+    expect(refused.status).toBe(403);
+    const missing = await as('seed-operations').post(
+      `/admin/stores/${A}/orders/${orderId}/shipments`,
+      shipmentBody,
+    );
+    expect([400, 404]).toContain(missing.status); // the route answers (spec validation or unknown order)
+    // window 7: paymentsAdminRouter (#126) — support may refund, the key is required, store staff may not
+    const refundPath = `/admin/stores/${A}/orders/${orderId}/refunds`;
+    const refundBody = { amount_minor: 1, reason: 'goodwill' };
+    const unknownOrder = await request(app)
+      .post(refundPath)
+      .set('Authorization', 'Bearer dev:seed-support')
+      .set('Idempotency-Key', 'idem-refund-mount-check')
+      .send(refundBody);
+    expect(unknownOrder.status).toBe(404);
+    const noKey = await support.post(refundPath, refundBody);
+    expect(noKey.status).toBe(400);
+    const staffRefund = await storeStaff.post(refundPath, refundBody);
+    expect(staffRefund.status).toBe(403);
+    // window 8: fulfillmentAdminRouter (#133) — pick lists answer behind staff auth; an unknown shipment is a 404
+    const pickLists = await as('seed-operations').get(`/admin/stores/${A}/pick-lists`);
+    expect(pickLists.status).toBe(200);
+    const pick = await as('seed-operations').post(`/admin/shipments/${orderId}/pick`, {});
+    expect(pick.status).toBe(404);
+    expect((await request(app).get(`/admin/stores/${A}/pick-lists`)).status).toBe(401);
+    for (const path of ['price-lists', 'promotions']) {
+      const anonymous = await request(app).get(`/admin/stores/${A}/${path}`);
+      expect(anonymous.status).toBe(401);
+    }
+  });
+
+  it('moduleWebhookRouters() (#176 part 3): the Stripe webhook answers outside /store and /admin, on the raw body', async () => {
+    expect(moduleWebhookRouters()).toHaveLength(2);
+    const previous = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = 'words-only-test-secret';
+    try {
+      // no staff token, no publishable key: the signature is the authentication — a stale one is a 400, not a 401
+      const stale = await request(app)
+        .post('/webhooks/stripe/brand-a')
+        .set('Stripe-Signature', 't=1,v1=00')
+        .set('Content-Type', 'application/json')
+        .send('{}');
+      expect(stale.status).toBe(400);
+      expect(stale.body).toMatchObject({
+        code: 'validation_error',
+        details: { reason: 'timestamp_out_of_tolerance' },
+      });
+      const unknown = await request(app)
+        .post('/webhooks/stripe/no-such-store')
+        .set('Stripe-Signature', 't=1,v1=00')
+        .send('{}');
+      expect(unknown.status).toBe(404);
+      spec.assertSchema('Error', unknown.body);
+      // window 8's tracking webhook sits at the same mount point: reachable without a staff token, never a 401
+      const tracking = await request(app)
+        .post('/webhooks/easypost/no-such-store')
+        .set('Content-Type', 'application/json')
+        .send('{}');
+      expect(tracking.status).toBe(404); // the router answered (unknown store) — a 401 would mean staff auth fronts it
+      expect(tracking.body).toHaveProperty('code');
+    } finally {
+      if (previous === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+      else process.env.STRIPE_WEBHOOK_SECRET = previous;
+    }
+  });
+});
+
+describe('returns (task 2.5): createReturn, receiveReturn', () => {
+  const customer = { id: null, type: 'customer' as const, requestId: 'req-admin-returns' };
+  const system = { id: null, type: 'system' as const, requestId: 'req-admin-returns' };
+  const operations = as('seed-operations');
+  let orderId: string;
+  let lineId: string;
+
+  beforeAll(async () => {
+    const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
+    const channel = await client.query<{ id: string }>(
+      `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+      [A],
+    );
+    const cart = await createCart(client, {
+      organizationId: SEED_IDS.organization,
+      storeId: A,
+      salesChannelId: channel.rows[0]!.id,
+    });
+    const variant = await client.query<{ id: string }>(
+      `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
+       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       WHERE v.store_id = $1 ORDER BY v.sku DESC LIMIT 1`,
+      [A],
+    );
+    await addLineItem(client, cart.id, { variant_id: variant.rows[0]!.id, quantity: 2 });
+    const option = await client.query<{ id: string }>(
+      `SELECT id FROM shipping_option WHERE store_id = $1 AND code = 'standard'`,
+      [A],
+    );
+    const address = {
+      first_name: 'Ret',
+      last_name: 'Urn',
+      line1: 'Dam 1',
+      city: 'Amsterdam',
+      postal_code: '1012 JS',
+      country: 'NL',
+    };
+    await updateCart(client, cart.id, {
+      email: 'ret.urn@example.com',
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: option.rows[0]!.id,
+    });
+    await createPaymentSession(client, cart.id, { provider: 'manual' });
+    const { order } = await completeCart(client, {
+      cartId: cart.id,
+      idempotencyKey: `admin-returns-${cart.id}`,
+      actor: customer,
+    });
+    orderId = order.id;
+    lineId = order.items[0]!.id;
+    await confirmOrder(client, orderId, system);
+    await markPaymentCaptured(client, orderId, system);
+    await db.owner.query(
+      `UPDATE payment SET status = 'captured', captured_at = now() WHERE order_id = $1`,
+      [orderId],
+    );
+    await markShipmentCreated(client, orderId, system);
+    await markShipped(client, orderId, [{ lineItemId: lineId, quantity: 2 }], system);
+  });
+
+  it('POST …/orders/{orderId}/returns: support; body validated; 201 Return; over the shipped quantity → 409', async () => {
+    const forbidden = await analyst.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+    });
+    expect(forbidden.status).toBe(403);
+    const bad = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, { items: [] });
+    expect(bad.status).toBe(400);
+    const over = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 5 }],
+    });
+    expect(over.status).toBe(409);
+    spec.assertSchema('Error', over.body);
+    const res = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+      reason: 'wrong size',
+    });
+    expect(res.status).toBe(201);
+    spec.assertSchema('Return', res.body);
+    expect(res.body).toMatchObject({
+      order_id: orderId,
+      status: 'requested',
+      reason: 'wrong size',
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: null }],
+    });
+    const viaB = await support.post(`/admin/stores/${B}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+    });
+    expect(viaB.status).toBe(404);
+  });
+
+  it('POST …/returns/{returnId}/receive: operations only; store path must match; 200 Return refunded (manual)', async () => {
+    const created = await support.post(`/admin/stores/${A}/orders/${orderId}/returns`, {
+      items: [{ order_line_item_id: lineId, quantity: 1 }],
+    });
+    expect(created.status).toBe(201);
+    const returnId = created.body.id as string;
+    const forbidden = await storeAdmin.post(`/admin/stores/${A}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    expect(forbidden.status).toBe(403);
+    const wrongStore = await operations.post(`/admin/stores/${B}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    expect(wrongStore.status).toBe(404);
+    const badBody = await operations.post(`/admin/stores/${A}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'meh' }],
+    });
+    expect(badBody.status).toBe(400);
+    const res = await operations.post(`/admin/stores/${A}/returns/${returnId}/receive`, {
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    expect(res.status).toBe(200);
+    spec.assertSchema('Return', res.body);
+    expect(res.body).toMatchObject({
+      status: 'refunded',
+      warehouse_id: SEED_IDS.warehouses.eu,
+      items: [{ order_line_item_id: lineId, quantity: 1, condition: 'resellable' }],
+    });
+    const order = await storeStaff.get(`/admin/stores/${A}/orders/${orderId}`);
+    expect(order.body.returns.map((r: { id: string }) => r.id)).toContain(returnId);
+    expect(order.body.items[0].returned_quantity).toBe(1);
   });
 });

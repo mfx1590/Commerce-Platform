@@ -258,6 +258,68 @@ export interface paths {
         patch: operations["updateVariant"];
         trace?: never;
     };
+    "/admin/stores/{storeId}/media/upload-params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Signed parameters for a direct browser → Cloudinary upload (the API secret never leaves the server) */
+        post: operations["createMediaUploadParams"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/products/{productId}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+            };
+            cookie?: never;
+        };
+        /** The product's media ordered by position (contiguous from 0) */
+        get: operations["listProductMedia"];
+        put?: never;
+        /** Append one media item (alt text required); becomes the thumbnail when it is the first */
+        post: operations["addProductMedia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/products/{productId}/media/{mediaId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+                mediaId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove one item; the remaining positions are renumbered 0..n-1 in their existing order */
+        delete: operations["deleteProductMedia"];
+        options?: never;
+        head?: never;
+        /** Change alt / variant / position (move; the others shift, positions stay contiguous) */
+        patch: operations["updateProductMedia"];
+        trace?: never;
+    };
     "/admin/stores/{storeId}/price-lists": {
         parameters: {
             query?: never;
@@ -312,6 +374,26 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/promotions/{promotionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                promotionId: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getPromotion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Partial update; `code` and `type` are immutable (create a new promotion instead) */
+        patch: operations["updatePromotion"];
         trace?: never;
     };
     "/admin/stores/{storeId}/orders": {
@@ -369,6 +451,28 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancel a line before fulfilment (the last line cannot be cancelled — cancel the order) */
+        delete: operations["cancelOrderLineItem"];
+        options?: never;
+        head?: never;
+        /** Lower a line's quantity before fulfilment (totals recomputed, difference recorded in order.metadata.edits for the refund flow; no money moved) */
+        patch: operations["updateOrderLineItem"];
         trace?: never;
     };
     "/admin/stores/{storeId}/orders/{orderId}/refunds": {
@@ -578,6 +682,63 @@ export interface paths {
         head?: never;
         /** Advance status / attach tracking and label (emits shipment.shipped / shipment.delivered) */
         patch: operations["updateShipment"];
+        trace?: never;
+    };
+    "/admin/shipments/{shipmentId}/pick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start picking a planned shipment (emits fulfillment.picking) */
+        post: operations["pickShipment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/shipments/{shipmentId}/pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a picked shipment packed and ready for the carrier (emits fulfillment.packed) */
+        post: operations["packShipment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/pick-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /** Shipments waiting to be picked or packed, grouped by warehouse */
+        get: operations["listPickLists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/admin/stores/{storeId}/customers": {
@@ -1445,6 +1606,63 @@ export interface components {
                 available: number;
             }[];
         };
+        MediaUploadRequest: {
+            /**
+             * Format: uuid
+             * @description the product the upload is for (must belong to the store)
+             */
+            product_id: string;
+            /** @description used to derive a readable public_id */
+            filename?: string;
+            content_type?: string;
+        };
+        MediaUploadParams: {
+            /** Format: uri */
+            upload_url: string;
+            cloud_name: string;
+            /** @description public key id */
+            api_key: string;
+            timestamp: number;
+            /** @description SHA-1 over the sorted signed params + api secret (server side) */
+            signature: string;
+            /** @description every parameter that is part of the signature; send them verbatim with the file */
+            params: {
+                [key: string]: string | number;
+            };
+            max_bytes: number;
+            allowed_formats: string[];
+        };
+        ProductMediaInput: {
+            /** Format: uri */
+            url: string;
+            /** @description required for accessibility */
+            alt: string;
+            /** Format: uuid */
+            variant_id?: string | null;
+            /** @description insert at; default = append */
+            position?: number;
+        };
+        ProductMediaPatch: {
+            alt?: string;
+            /** Format: uuid */
+            variant_id?: string | null;
+            position?: number;
+        };
+        ProductMedia: {
+            /** Format: uuid */
+            id: string;
+            url: string;
+            alt: string | null;
+            position: number;
+            /** Format: uuid */
+            variant_id: string | null;
+            /** @description Cloudinary delivery URLs per rendition (the original url for non-Cloudinary hosts) */
+            variants: {
+                thumb: string;
+                pdp: string;
+                zoom: string;
+            };
+        };
         PriceListInput: {
             code: string;
             name: string;
@@ -1467,22 +1685,36 @@ export interface components {
             /** Format: uuid */
             id: string;
         };
+        /**
+         * @description Conditions of a promotion; `buy_quantity` / `get_quantity` / `get_discount_bp` apply to `buy_x_get_y` only
+         *     (0.4.1, #189). Stored in the `promotion.rules` jsonb column together with `stackable` / `exclusive`.
+         */
+        PromotionRules: {
+            min_subtotal_minor?: number;
+            product_ids?: string[];
+            category_ids?: string[];
+            customer_group_ids?: string[];
+            sales_channel_ids?: string[];
+            first_order_only?: boolean;
+            /** @description buy_x_get_y — units that must be bought */
+            buy_quantity?: number;
+            /** @description buy_x_get_y — units discounted per bundle */
+            get_quantity?: number;
+            /**
+             * @description discount on the free units in basis points (10000 = free)
+             * @default 10000
+             */
+            get_discount_bp: number;
+        };
         PromotionInput: {
             code?: string | null;
             name: string;
             /** @enum {string} */
-            type: "percentage" | "fixed_amount" | "free_shipping";
+            type: "percentage" | "fixed_amount" | "free_shipping" | "buy_x_get_y";
             /** @description basis points for percentage */
             value?: number;
             currency?: string | null;
-            rules?: {
-                min_subtotal_minor?: number;
-                product_ids?: string[];
-                category_ids?: string[];
-                customer_group_ids?: string[];
-                sales_channel_ids?: string[];
-                first_order_only?: boolean;
-            };
+            rules?: components["schemas"]["PromotionRules"];
             usage_limit?: number | null;
             per_customer_limit?: number | null;
             /** Format: date-time */
@@ -1491,6 +1723,34 @@ export interface components {
             ends_at?: string | null;
             /** @enum {string} */
             status?: "active" | "draft" | "disabled";
+            /**
+             * @description may combine with other stackable promotions
+             * @default false
+             */
+            stackable: boolean;
+            /**
+             * @description applies alone; the best exclusive wins over everything else
+             * @default false
+             */
+            exclusive: boolean;
+        };
+        /** @description Every PromotionInput property except `code` and `type` (immutable), all optional (0.4.1, */
+        PromotionPatch: {
+            name?: string;
+            /** @description basis points for percentage */
+            value?: number;
+            currency?: string | null;
+            rules?: components["schemas"]["PromotionRules"];
+            usage_limit?: number | null;
+            per_customer_limit?: number | null;
+            /** Format: date-time */
+            starts_at?: string | null;
+            /** Format: date-time */
+            ends_at?: string | null;
+            /** @enum {string} */
+            status?: "active" | "draft" | "disabled";
+            stackable?: boolean;
+            exclusive?: boolean;
         };
         Promotion: components["schemas"]["PromotionInput"] & {
             /** Format: uuid */
@@ -1583,7 +1843,7 @@ export interface components {
             label_url: string | null;
             cost: components["schemas"]["Money"] | null;
             /** @enum {string} */
-            status: "pending" | "label_created" | "shipped" | "in_transit" | "delivered" | "failed" | "cancelled";
+            status: "pending" | "picking" | "packed" | "label_created" | "shipped" | "in_transit" | "delivered" | "failed" | "cancelled";
             items: {
                 /** Format: uuid */
                 order_line_item_id: string;
@@ -1794,29 +2054,85 @@ export interface components {
             updated_at: string;
         };
         /**
-         * @description Rule set evaluated against the store's customers when previewing or materialising. Keys are documented
-         *     loosely here; window 17 freezes the grammar in Phase 2.3. Unknown keys are kept, not rejected.
+         * @example {
+         *       "v": 1,
+         *       "all": [
+         *         {
+         *           "any": [
+         *             {
+         *               "field": "total_spent_minor",
+         *               "op": "gte",
+         *               "value": 50000
+         *             },
+         *             {
+         *               "field": "orders_count",
+         *               "op": "gte",
+         *               "value": 3
+         *             }
+         *           ]
+         *         },
+         *         {
+         *           "any": [
+         *             {
+         *               "field": "consent",
+         *               "op": "granted",
+         *               "value": "email"
+         *             }
+         *           ]
+         *         }
+         *       ]
+         *     }
          */
         SegmentRules: {
-            /** @description { gte?, lte? } */
-            orders_count?: {
-                [key: string]: unknown;
-            };
-            /** @description { after?, before? } (RFC-3339) */
-            last_order_at?: {
-                [key: string]: unknown;
-            };
-            /** @description { gte?, lte? } in minor units */
-            total_spent_minor?: {
-                [key: string]: unknown;
-            };
-            tags?: string[];
-            /** @description opted-in channels */
-            consent?: ("email" | "sms")[];
-            country?: string[];
-            customer_group_ids?: string[];
-        } & {
-            [key: string]: unknown;
+            /** @enum {integer} */
+            v: 1;
+            /** @description Groups combined with AND */
+            all: {
+                /** @description Predicates combined with OR */
+                any: components["schemas"]["SegmentPredicate"][];
+            }[];
+        };
+        SegmentPredicate: {
+            /** @enum {string} */
+            field: "orders_count" | "total_spent_minor";
+            /** @enum {string} */
+            op: "gte" | "lte" | "eq";
+            /** @description total_spent_minor is in minor units */
+            value: number;
+        } | {
+            /** @enum {string} */
+            field: "last_order_at";
+            /** @enum {string} */
+            op: "after" | "before";
+            /** Format: date-time */
+            value: string;
+        } | {
+            /** @enum {string} */
+            field: "tags";
+            /** @enum {string} */
+            op: "includes" | "excludes";
+            /** @description One tag from customer.metadata.tags */
+            value: string;
+        } | {
+            /** @enum {string} */
+            field: "consent";
+            /** @enum {string} */
+            op: "granted" | "not_granted";
+            /** @enum {string} */
+            value: "email" | "sms";
+        } | {
+            /** @enum {string} */
+            field: "country";
+            /** @enum {string} */
+            op: "in" | "not_in";
+            /** @description Matched against the customer's DEFAULT SHIPPING address only */
+            value: string[];
+        } | {
+            /** @enum {string} */
+            field: "customer_group_ids";
+            /** @enum {string} */
+            op: "in" | "not_in";
+            value: string[];
         };
         SegmentInput: {
             name: string;
@@ -1862,14 +2178,34 @@ export interface components {
             mapping?: {
                 [key: string]: unknown;
             };
-            /** @enum {string} */
+            /**
+             * @description Omitted on create → draft; pause / resume on update. `error` is only ever set by publishing.
+             * @enum {string}
+             */
             status?: "draft" | "active" | "paused";
         };
-        ProductFeed: components["schemas"]["ProductFeedInput"] & {
+        ProductFeed: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             store_id: string;
+            name: string;
+            /** @enum {string} */
+            channel: "google_merchant" | "meta" | "tiktok" | "pinterest";
+            locale: string;
+            /** @description Must be one of the store's currencies */
+            currency: string;
+            filters: {
+                category_ids?: string[];
+                tags?: string[];
+                in_stock_only?: boolean;
+            } & {
+                [key: string]: unknown;
+            };
+            /** @description Channel attribute → product field overrides (e.g. { brand: Brand A }) */
+            mapping: {
+                [key: string]: unknown;
+            };
             /** @description Public feed URL once published */
             url: string | null;
             /** @enum {string} */
@@ -3052,6 +3388,201 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    createMediaUploadParams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "upload_url": "https://api.cloudinary.com/v1_1/demo/image/upload",
+                     *       "cloud_name": "demo",
+                     *       "api_key": "123456789012345",
+                     *       "timestamp": 1757332800,
+                     *       "signature": "5f2d1c0a9b8e7d6c5b4a39281706f5e4d3c2b1a0",
+                     *       "params": {
+                     *         "folder": "products/brand-a",
+                     *         "public_id": "classic-tee-8f3a2c",
+                     *         "timestamp": 1757332800
+                     *       },
+                     *       "max_bytes": 10485760,
+                     *       "allowed_formats": [
+                     *         "jpg",
+                     *         "jpeg",
+                     *         "png",
+                     *         "webp",
+                     *         "avif",
+                     *         "gif"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MediaUploadParams"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The store has no media credentials configured (conflict) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listProductMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK (ordered by position, contiguous from 0) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "30000000-0000-4000-8000-000000000221",
+                     *           "url": "https://res.cloudinary.com/demo/image/upload/v1757332800/products/brand-a/classic-tee.jpg",
+                     *           "alt": "Classic Tee",
+                     *           "position": 0,
+                     *           "variant_id": null,
+                     *           "variants": {
+                     *             "thumb": "https://res.cloudinary.com/demo/image/upload/c_fill,w_400,h_400,g_auto,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg",
+                     *             "pdp": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1200,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg",
+                     *             "zoom": "https://res.cloudinary.com/demo/image/upload/c_limit,w_2400,q_auto,f_auto/v1757332800/products/brand-a/classic-tee.jpg"
+                     *           }
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: components["schemas"]["ProductMedia"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    addProductMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductMediaInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductMedia"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteProductMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+                mediaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateProductMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+                mediaId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductMediaPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductMedia"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listPriceLists: {
         parameters: {
             query?: never;
@@ -3231,7 +3762,9 @@ export interface operations {
                      *           "per_customer_limit": 1,
                      *           "starts_at": null,
                      *           "ends_at": null,
-                     *           "status": "active"
+                     *           "status": "active",
+                     *           "stackable": false,
+                     *           "exclusive": false
                      *         }
                      *       ]
                      *     }
@@ -3282,7 +3815,62 @@ export interface operations {
                      *       "per_customer_limit": 1,
                      *       "starts_at": null,
                      *       "ends_at": null,
-                     *       "status": "active"
+                     *       "status": "active",
+                     *       "stackable": false,
+                     *       "exclusive": false
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Promotion"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getPromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                promotionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "50000000-0000-4000-8000-000000000102",
+                     *       "code": null,
+                     *       "name": "Buy 2 tees get 1 free",
+                     *       "type": "buy_x_get_y",
+                     *       "value": 0,
+                     *       "currency": null,
+                     *       "rules": {
+                     *         "category_ids": [
+                     *           "00000000-0000-4000-8000-000000000201"
+                     *         ],
+                     *         "buy_quantity": 2,
+                     *         "get_quantity": 1,
+                     *         "get_discount_bp": 10000
+                     *       },
+                     *       "usage_limit": null,
+                     *       "usage_count": 3,
+                     *       "per_customer_limit": null,
+                     *       "starts_at": null,
+                     *       "ends_at": null,
+                     *       "status": "active",
+                     *       "stackable": false,
+                     *       "exclusive": true
                      *     }
                      */
                     "application/json": components["schemas"]["Promotion"];
@@ -3290,7 +3878,64 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            409: components["responses"]["Conflict"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updatePromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                promotionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromotionPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "50000000-0000-4000-8000-000000000102",
+                     *       "code": null,
+                     *       "name": "Buy 2 tees get 1 free",
+                     *       "type": "buy_x_get_y",
+                     *       "value": 0,
+                     *       "currency": null,
+                     *       "rules": {
+                     *         "category_ids": [
+                     *           "00000000-0000-4000-8000-000000000201"
+                     *         ],
+                     *         "buy_quantity": 2,
+                     *         "get_quantity": 1,
+                     *         "get_discount_bp": 10000
+                     *       },
+                     *       "usage_limit": null,
+                     *       "usage_count": 3,
+                     *       "per_customer_limit": null,
+                     *       "starts_at": null,
+                     *       "ends_at": null,
+                     *       "status": "active",
+                     *       "stackable": false,
+                     *       "exclusive": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Promotion"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listOrders: {
@@ -3410,6 +4055,70 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    cancelOrderLineItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateOrderLineItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                lineItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Must be lower than the current quantity */
+                    quantity: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
     };
@@ -4079,6 +4788,101 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    pickShipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Shipment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    packShipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    parcel_count?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Shipment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listPickLists: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                status?: "pending" | "picking" | "packed";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            warehouse_id: string;
+                            warehouse_code: string;
+                            shipments: components["schemas"]["Shipment"][];
+                        }[];
+                        page: components["schemas"]["Page"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listCustomers: {
@@ -4816,14 +5620,35 @@ export interface operations {
                      *           "name": "VIP",
                      *           "description": "Spent 500+ in the last year and opted in to email",
                      *           "rules": {
-                     *             "total_spent_minor": {
-                     *               "gte": 50000
-                     *             },
-                     *             "last_order_at": {
-                     *               "after": "2025-09-01T00:00:00Z"
-                     *             },
-                     *             "consent": [
-                     *               "email"
+                     *             "v": 1,
+                     *             "all": [
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "total_spent_minor",
+                     *                     "op": "gte",
+                     *                     "value": 50000
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "last_order_at",
+                     *                     "op": "after",
+                     *                     "value": "2025-09-01T00:00:00Z"
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "consent",
+                     *                     "op": "granted",
+                     *                     "value": "email"
+                     *                   }
+                     *                 ]
+                     *               }
                      *             ]
                      *           },
                      *           "template_id": "70000000-0000-4000-8000-000000000711",
@@ -5832,14 +6657,35 @@ export interface operations {
                      *           "name": "VIP",
                      *           "description": "Spent 500+ in the last year and opted in to email",
                      *           "rules": {
-                     *             "total_spent_minor": {
-                     *               "gte": 50000
-                     *             },
-                     *             "last_order_at": {
-                     *               "after": "2025-09-01T00:00:00Z"
-                     *             },
-                     *             "consent": [
-                     *               "email"
+                     *             "v": 1,
+                     *             "all": [
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "total_spent_minor",
+                     *                     "op": "gte",
+                     *                     "value": 50000
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "last_order_at",
+                     *                     "op": "after",
+                     *                     "value": "2025-09-01T00:00:00Z"
+                     *                   }
+                     *                 ]
+                     *               },
+                     *               {
+                     *                 "any": [
+                     *                   {
+                     *                     "field": "consent",
+                     *                     "op": "granted",
+                     *                     "value": "email"
+                     *                   }
+                     *                 ]
+                     *               }
                      *             ]
                      *           },
                      *           "template_id": null,

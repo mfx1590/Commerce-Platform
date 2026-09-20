@@ -6,6 +6,7 @@
 
 import type { Locale } from './datasets.js';
 import type { LEGAL_KINDS } from './schema/documents.js';
+import type { EmbedProvider } from './schema/embed.js';
 
 export interface SanityReference {
   _type: 'reference';
@@ -15,7 +16,10 @@ export interface SanityReference {
 
 export interface SanityImage {
   _type: 'image';
-  asset: SanityReference;
+  /** Absent when the image is served from Cloudinary instead of a Sanity upload. */
+  asset?: SanityReference;
+  /** Cloudinary delivery URL; when set it wins over the Sanity asset (task 2.5). */
+  cloudinaryUrl?: string;
   alt: string;
   hotspot?: { x: number; y: number; height: number; width: number };
   crop?: { top: number; bottom: number; left: number; right: number };
@@ -101,6 +105,19 @@ export interface ProductStoryBlock {
 
 export type PageBlock = Hero | RichTextBlock | ImageBlock | ProductStoryBlock | Cta;
 
+/** A sandboxed iframe on a campaign landing: a provider page by URL, or a pasted HTML snippet. */
+export interface EmbedBlock {
+  _type: 'embed';
+  _key?: string;
+  provider: EmbedProvider;
+  title: string;
+  url?: string;
+  html?: string;
+  height?: number;
+}
+
+export type CampaignBlock = PageBlock | EmbedBlock;
+
 export interface NavItem {
   _type: 'navItem';
   _key?: string;
@@ -146,7 +163,7 @@ export interface CampaignLandingDocument extends DocumentBase<'campaignLanding'>
   slug: Slug;
   campaignId?: string;
   hero: Hero;
-  blocks?: PageBlock[];
+  blocks?: CampaignBlock[];
   startsAt?: string;
   endsAt?: string;
   seo?: Seo;

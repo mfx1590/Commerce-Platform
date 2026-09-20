@@ -1,4 +1,5 @@
 import type { Seo } from '@platform/cms';
+import { cloudinaryImageLoader, isCloudinaryUrl } from '@platform/ui';
 import type { Metadata } from 'next';
 import { routing } from '@/i18n/routing';
 import type { ContentContext } from './content';
@@ -25,10 +26,21 @@ export function documentMetadata(
   };
   if (seo?.metaDescription) metadata.description = seo.metaDescription;
   if (seo?.noIndex) metadata.robots = { index: false, follow: false };
-  const image =
-    seo?.ogImage && ctx.images
-      ? sanityImageUrl(ctx.images, seo.ogImage.asset._ref, { width: 1200 })
-      : null;
+  const image = shareImageUrl(seo, ctx);
   if (image) metadata.openGraph = { images: [{ url: image, alt: seo!.ogImage!.alt }] };
   return metadata;
+}
+
+/** The share image from either source: Cloudinary (via the shared loader) wins, then the Sanity asset. */
+function shareImageUrl(seo: Seo | undefined, ctx: ContentContext): string | null {
+  const ogImage = seo?.ogImage;
+  if (!ogImage) return null;
+  const cloudinary = ogImage.cloudinaryUrl?.trim();
+  if (cloudinary && isCloudinaryUrl(cloudinary)) {
+    return cloudinaryImageLoader({ src: cloudinary, width: 1200 });
+  }
+  if (ogImage.asset && ctx.images) {
+    return sanityImageUrl(ctx.images, ogImage.asset._ref, { width: 1200 });
+  }
+  return null;
 }

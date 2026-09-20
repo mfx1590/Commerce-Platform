@@ -3,7 +3,18 @@
 // objects; every status change goes through `transition()` and writes exactly one event.
 export {
   cancelOrder,
+  cancelOrderInTx,
   confirmOrder,
+  confirmOrderInTx,
+  markDeliveredInTx,
+  markPaymentAuthorizedInTx,
+  markPaymentCapturedInTx,
+  markPaymentFailedInTx,
+  markPaymentPartiallyRefundedInTx,
+  markPaymentRefundedInTx,
+  markReturnedInTx,
+  markShipmentCreatedInTx,
+  markShippedInTx,
   markDelivered,
   markPaymentAuthorized,
   markPaymentCaptured,
@@ -11,7 +22,12 @@ export {
   markPaymentPartiallyRefunded,
   markPaymentRefunded,
   markReturned,
+  markReturnedIn,
   markShipmentCreated,
+  mergeOrderMetadataIn,
+  movePaymentStatusIn,
+  setFulfillmentStatus,
+  setFulfillmentStatusIn,
   markShipped,
   transition,
 } from './service';
@@ -56,3 +72,12 @@ export type {
   TransitionChange,
   TransitionHooks,
 } from './types';
+// Fraud review mirror (#231): window 7 and the checkout call these; the payment row stays the source of truth.
+export {
+  flagOrderForReview,
+  flagOrderForReviewWith,
+  resolveOrderReview,
+  resolveOrderReviewWith,
+} from './fraud';
+export { INTERNAL_ORDER_METADATA_KEYS, orderFraudOf, stripInternalMetadata } from './fraud-flag';
+export type { OrderFraudFlag, OrderFraudStatus } from './fraud-flag';

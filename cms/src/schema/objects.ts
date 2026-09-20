@@ -3,7 +3,9 @@
  * (link, CTA, SEO, image with alt text) they are built on. Documents live in `documents.ts`.
  */
 
+import type { CustomValidator } from './define.js';
 import { defineArrayMember, defineField, defineType } from './define.js';
+import { embed } from './embed.js';
 
 /**
  * A storefront path (`/en-GB/products` — exactly one leading slash, so `//host` is not a path) or
@@ -22,6 +24,30 @@ const HREF_RULE = (label: string) =>
       rule.required().regex(HREF_PATTERN, { name: 'a storefront path (/…) or an https:// URL' }),
   });
 
+/**
+ * The Cloudinary delivery-URL shape, mirroring `isCloudinaryUrl` in @platform/ui's shared loader
+ * (this package stays dependency-free; `test/cms-image.test.ts` in the storefront asserts the two
+ * agree). A validation pattern only — transformation URLs are never built here.
+ */
+export const CLOUDINARY_URL_PATTERN =
+  /^https:\/\/res\.cloudinary\.com\/[^/]+\/(?:image|video|raw)\/upload\//;
+
+/**
+ * An image, once present, needs a source: a Sanity upload or a Cloudinary delivery URL
+ * (task 2.5). An absent optional image is the enclosing field's own concern, so it passes.
+ */
+export const imageSource: CustomValidator = (value) => {
+  if (value === undefined || value === null) return true;
+  const image = value as { asset?: { _ref?: string }; cloudinaryUrl?: string };
+  if (image.cloudinaryUrl && !CLOUDINARY_URL_PATTERN.test(image.cloudinaryUrl)) {
+    return 'Must be a Cloudinary delivery URL (https://res.cloudinary.com/<cloud>/image/upload/…)';
+  }
+  if (!image.asset?._ref && !image.cloudinaryUrl) {
+    return 'Upload an image or paste its Cloudinary URL';
+  }
+  return true;
+};
+
 /** Sanity's `image` with a mandatory `alt`: an image without alt text cannot be published. */
 export const imageWithAlt = defineType({
   name: 'imageWithAlt',
@@ -30,6 +56,13 @@ export const imageWithAlt = defineType({
   options: { hotspot: true },
   fields: [
     defineField({
+      name: 'cloudinaryUrl',
+      title: 'Cloudinary URL',
+      type: 'string',
+      description:
+        'Optional: serve this image from the brand Cloudinary library instead of an upload — paste the delivery URL',
+    }),
+    defineField({
       name: 'alt',
       title: 'Alternative text',
       type: 'string',
@@ -37,6 +70,7 @@ export const imageWithAlt = defineType({
       validation: (rule) => rule.required().max(160),
     }),
   ],
+  validation: (rule) => rule.custom(imageSource),
 });
 
 export const link = defineType({
@@ -358,7 +392,11 @@ export const pageBlocks = [
   defineArrayMember({ type: 'cta' }),
 ];
 
+/** Campaign landings may also embed a Builder.io / Framer page or an HTML snippet. */
+export const campaignBlocks = [...pageBlocks, defineArrayMember({ type: 'embed' })];
+
 export const objectTypes = [
+  embed,
   imageWithAlt,
   link,
   cta,

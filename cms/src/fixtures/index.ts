@@ -65,9 +65,9 @@ export const pageFixture: PageDocument = {
       _type: 'richText',
       _key: 'intro',
       content: [
-        paragraph('h', 'How we make things', 'h2'),
+        paragraph('heading-craft', 'How we make things', 'h2'),
         paragraph(
-          'p1',
+          'para-guarantee',
           'Every Brand A piece is cut in our own workshop and guaranteed for ten years.',
         ),
       ],
@@ -84,7 +84,7 @@ export const pageFixture: PageDocument = {
       _key: 'story',
       productHandle: 'alpine-backpack',
       headline: 'The pack that started it all',
-      body: [paragraph('s1', 'Thirty litres, one pocket, no fuss.')],
+      body: [paragraph('para-story', 'Thirty litres, one pocket, no fuss.')],
       image: image('The Alpine backpack on a granite boulder'),
       cta: {
         _type: 'cta',
@@ -118,7 +118,11 @@ export const campaignLandingFixture: CampaignLandingDocument = {
     _type: 'hero',
     eyebrow: 'Limited time',
     headline: 'Up to 30% off last season',
-    image: image('Folded jackets in spring colours on a white shelf'),
+    image: {
+      ...image('Folded jackets in spring colours on a white shelf'),
+      // Served from the brand's Cloudinary library (task 2.5); wins over the Sanity asset.
+      cloudinaryUrl: 'https://res.cloudinary.com/brand-alpha/image/upload/cms/spring-shelf.jpg',
+    },
     ctas: [
       {
         _type: 'cta',
@@ -142,6 +146,14 @@ export const campaignLandingFixture: CampaignLandingDocument = {
         href: '/products/alpine-backpack',
         variant: 'primary',
       },
+    },
+    {
+      _type: 'embed',
+      _key: 'lookbook',
+      provider: 'framer',
+      title: 'Spring lookbook',
+      url: 'https://spring-sale.framer.website/',
+      height: 900,
     },
   ],
   startsAt: '2026-03-01T00:00:00.000Z',
@@ -217,8 +229,11 @@ export const legalFixture: LegalDocument = {
   body: {
     _type: 'richText',
     content: [
-      paragraph('h', 'What we collect', 'h2'),
-      paragraph('p1', 'Only what an order needs: your name, address and email. We never sell it.'),
+      paragraph('heading-collect', 'What we collect', 'h2'),
+      paragraph(
+        'para-collect',
+        'Only what an order needs: your name, address and email. We never sell it.',
+      ),
     ],
   },
   lastReviewed: '2026-09-01',

@@ -19,7 +19,9 @@ import {
 import { cancelOrder, confirmOrder } from '../orders';
 import {
   consumeForShipment,
+  consumeReservationsForShipment,
   createStockMovement,
+  releaseReservationsForShipment,
   listInventoryLevels,
   moveStock,
   releaseForOrder,
@@ -260,7 +262,7 @@ describe('reservations at placement', () => {
       },
       async void(input) {
         calls.push(
-          `void:${input.providerPaymentId.startsWith('manpay_') ? 'ok' : 'bad'}:${input.reason}`,
+          `void:${input.providerPaymentId.startsWith('manpay_') ? 'ok' : 'bad'}:${input.reason}:${input.storeId === A && input.organizationId === ORG && !!input.cartId ? 'store' : 'nostore'}`,
         );
         return { status: 'voided' };
       },
@@ -272,7 +274,8 @@ describe('reservations at placement', () => {
       code: 'out_of_stock',
       details: { variant_id: v.id, available: 2 },
     });
-    expect(calls).toEqual(['authorize', 'void:ok:placement failed']);
+    // the void carries the store (window 7 resolves per-store credentials from it; the tx is being rolled back)
+    expect(calls).toEqual(['authorize', 'void:ok:placement failed:store']);
     expect(
       (await owner.query(`SELECT 1 FROM "order" WHERE cart_id = $1`, [cartId])).rows,
     ).toHaveLength(0);
@@ -465,5 +468,144 @@ describe('admin services and RLS', () => {
       on_hand: before.on_hand + 3,
     });
     expect(out.available).toBe(out.on_hand - out.reserved);
+  });
+});
+
+describe("window 8's port shapes (#191): consume / release per shipment, by order line item, idempotent", () => {
+  it('consumeReservationsForShipment moves once per shipment; releaseReservationsForShipment reverses once', async () => {
+    const vs = await variantsA();
+    const v = vs[10]!;
+    await setStock(v.id, 6, 6);
+    const cartId = await readyCart([{ variantId: v.id, quantity: 4 }]);
+    const { order } = await place(cartId);
+    const line = order.items[0]!;
+    const shipmentId = '80000000-0000-4000-8000-000000000042';
+    const input = {
+      organizationId: ORG,
+      storeId: A,
+      orderId: order.id,
+      shipmentId,
+      items: [{ orderLineItemId: line.id, quantity: 4 }],
+      actor,
+    };
+    const first = await a.transaction((tx) => consumeReservationsForShipment(tx, input));
+    expect(first.reduce((n, c) => n + c.quantity, 0)).toBe(4);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 2, reserved: 0 });
+    const retry = await a.transaction((tx) => consumeReservationsForShipment(tx, input));
+    expect(retry).toEqual([]);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 2, reserved: 0 });
+    const sales = await owner.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM stock_movement WHERE reference_type = 'shipment' AND reference_id = $1`,
+      [shipmentId],
+    );
+    expect(sales.rows[0]!.n).toBe('1');
+    await expect(
+      a.transaction((tx) =>
+        consumeReservationsForShipment(tx, {
+          ...input,
+          items: [{ orderLineItemId: order.id, quantity: 1 }],
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'validation_error' });
+
+    // the planned shipment is cancelled before picking: goods back on hand, reservation re-opened, once
+    const released = await a.transaction((tx) => releaseReservationsForShipment(tx, input));
+    expect(released).toBe(4);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 6, reserved: 4, available: 2 });
+    const again = await a.transaction((tx) => releaseReservationsForShipment(tx, input));
+    expect(again).toBe(0);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 6, reserved: 4 });
+    const open = await owner.query<{ quantity: number }>(
+      `SELECT quantity FROM reservation WHERE order_id = $1 AND released_at IS NULL`,
+      [order.id],
+    );
+    expect(open.rows.reduce((n, r) => n + r.quantity, 0)).toBe(4);
+  });
+
+  it('releaseReservationsForShipment honours items: one line of two, same call twice = once, empty items = the rest (#214)', async () => {
+    const vs = await variantsA();
+    const [v1, v2] = [vs[11]!, vs[12]!];
+    await setStock(v1.id, 5, 5);
+    await setStock(v2.id, 5, 5);
+    const cartId = await readyCart([
+      { variantId: v1.id, quantity: 3 },
+      { variantId: v2.id, quantity: 2 },
+    ]);
+    const { order } = await place(cartId);
+    const lineOf = (variantId: string) => order.items.find((i) => i.variant_id === variantId)!;
+    const shipmentId = '80000000-0000-4000-8000-000000000043';
+    const base = { organizationId: ORG, storeId: A, orderId: order.id, shipmentId, actor };
+    await a.transaction((tx) =>
+      consumeReservationsForShipment(tx, {
+        ...base,
+        items: [
+          { orderLineItemId: lineOf(v1.id).id, quantity: 3 },
+          { orderLineItemId: lineOf(v2.id).id, quantity: 2 },
+        ],
+      }),
+    );
+    expect(await level(v1.id, EU)).toMatchObject({ on_hand: 2, reserved: 0 });
+    expect(await level(v2.id, EU)).toMatchObject({ on_hand: 3, reserved: 0 });
+
+    const onlyV1 = { ...base, items: [{ orderLineItemId: lineOf(v1.id).id, quantity: 3 }] };
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, onlyV1))).toBe(3);
+    expect(await level(v1.id, EU)).toMatchObject({ on_hand: 5, reserved: 3 });
+    expect(await level(v2.id, EU)).toMatchObject({ on_hand: 3, reserved: 0 }); // untouched
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, onlyV1))).toBe(0);
+    expect(await level(v1.id, EU)).toMatchObject({ on_hand: 5, reserved: 3 });
+    // a partial quantity is a target, not an increment: asking 1 of v2 releases 1, asking 1 again releases nothing
+    const oneV2 = { ...base, items: [{ orderLineItemId: lineOf(v2.id).id, quantity: 1 }] };
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, oneV2))).toBe(1);
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, oneV2))).toBe(0);
+    expect(await level(v2.id, EU)).toMatchObject({ on_hand: 4, reserved: 1 });
+    // empty items: everything the shipment still holds
+    expect(
+      await a.transaction((tx) => releaseReservationsForShipment(tx, { ...base, items: [] })),
+    ).toBe(1);
+    expect(await level(v2.id, EU)).toMatchObject({ on_hand: 5, reserved: 2 });
+    expect(
+      await a.transaction((tx) => releaseReservationsForShipment(tx, { ...base, items: [] })),
+    ).toBe(0);
+  });
+
+  it('release spends the asked quantity across a variant split over two warehouses in canonical order (#217 review)', async () => {
+    const v = (await variantsA())[13]!;
+    await setStock(v.id, 3, 5); // 3 at EU (priority), the rest of a 5-unit order lands at US
+    const cartId = await readyCart([{ variantId: v.id, quantity: 5 }]);
+    const { order } = await place(cartId);
+    expect(await level(v.id, EU)).toMatchObject({ reserved: 3 });
+    expect(await level(v.id, US)).toMatchObject({ reserved: 2 });
+    const line = order.items[0]!;
+    const shipmentId = '80000000-0000-4000-8000-000000000044';
+    const base = { organizationId: ORG, storeId: A, orderId: order.id, shipmentId, actor };
+    await a.transaction((tx) =>
+      consumeReservationsForShipment(tx, {
+        ...base,
+        items: [{ orderLineItemId: line.id, quantity: 5 }],
+      }),
+    );
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 0, reserved: 0 });
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 3, reserved: 0 });
+
+    // asked 3 of 5: EU (canonical first) gets its 3 back, US stays consumed — not 3 + 2
+    const three = { ...base, items: [{ orderLineItemId: line.id, quantity: 3 }] };
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, three))).toBe(3);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 3, reserved: 3 });
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 3, reserved: 0 });
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, three))).toBe(0);
+    // asked 4: one more unit, at US; then everything: the last one
+    const four = { ...base, items: [{ orderLineItemId: line.id, quantity: 4 }] };
+    expect(await a.transaction((tx) => releaseReservationsForShipment(tx, four))).toBe(1);
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 4, reserved: 1 });
+    expect(
+      await a.transaction((tx) => releaseReservationsForShipment(tx, { ...base, items: [] })),
+    ).toBe(1);
+    expect(await level(v.id, EU)).toMatchObject({ on_hand: 3, reserved: 3 });
+    expect(await level(v.id, US)).toMatchObject({ on_hand: 5, reserved: 2 });
+    const open = await owner.query<{ n: string }>(
+      `SELECT coalesce(sum(quantity), 0)::text AS n FROM reservation WHERE order_id = $1 AND released_at IS NULL`,
+      [order.id],
+    );
+    expect(open.rows[0]!.n).toBe('5');
   });
 });

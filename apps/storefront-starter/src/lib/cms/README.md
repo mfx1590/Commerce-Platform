@@ -46,16 +46,16 @@ webhook.
 
 ## Components (`components/`)
 
-| Component                 | Renders                                                                                       |
-| ------------------------- | --------------------------------------------------------------------------------------------- |
-| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image, up to two CTAs, three layouts           |
-| `Blocks`                  | `richText`, `imageBlock` (figure + caption), `productStory`, `cta`, `hero`; unknown → nothing |
-| `PortableText`            | normal / h2 / h3 / blockquote, bullet and numbered lists, strong / em, links, inline images   |
-| `ProductStory`            | CMS copy around a live product from `getProduct(handle)`; API failure → copy only             |
-| `SanityImage`             | `<img>` with alt, intrinsic size and a CDN URL built from the asset ref (2.5 adds the loader) |
-| `CmsHeader` / `CmsFooter` | navigation and footer documents, with the starter's static links / copyright as fallback      |
-| `HomeContent`             | hero + blocks of the `home` page; nothing when unpublished                                    |
-| `PreviewBanner`           | a `role="status"` strip with an exit link while the preview cookie is valid                   |
+| Component                 | Renders                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image, up to two CTAs, three layouts                           |
+| `Blocks`                  | `richText`, `imageBlock` (figure + caption), `productStory`, `cta`, `hero`; unknown → nothing                 |
+| `PortableText`            | normal / h2 / h3 / blockquote, bullet and numbered lists, strong / em, links, inline images                   |
+| `ProductStory`            | CMS copy around a live product from `getProduct(handle)`; API failure → copy only                             |
+| `SanityImage`             | responsive `<img>` from either source: Cloudinary via the shared @platform/ui loader, or the Sanity asset ref |
+| `CmsHeader` / `CmsFooter` | navigation and footer documents, with the starter's static links / copyright as fallback                      |
+| `HomeContent`             | hero + blocks of the `home` page; nothing when unpublished                                                    |
+| `PreviewBanner`           | a `role="status"` strip with an exit link while the preview cookie is valid                                   |
 
 **Mount points for window 3 (REQUEST #178):** `CmsHeader` / `CmsFooter` in `src/layouts/defaults.tsx`
 so the shop chrome follows the CMS, and `HomeContent` in `src/app/[locale]/(shop)/page.tsx`. A brand
@@ -89,6 +89,17 @@ same reasons `src/lib/store-api` is one: a single module knows the URLs and the 
 GROQ parameters travel as `$name=<json>` query parameters and are never interpolated into the
 query. Queries return whole documents; image assets stay references, resolved from the ref without
 a second round trip.
+
+## Images (task 2.5)
+
+`SanityImage` renders every CMS image from one of two sources. A `cloudinaryUrl` on the image wins:
+the `src` and a `srcset` over the width steps (384–1600) are built with `cloudinaryImageLoader`
+from `@platform/ui` — window 9's shared loader; this module never hand-rolls a transformation URL.
+An https URL the loader does not recognise falls back to the source URL unchanged; a non-https
+stored value renders nothing (the renderer does not trust the dataset, same rule as `safeHref`).
+Without a `cloudinaryUrl` the Sanity asset ref provides the URL, intrinsic size and a CDN `w=`
+srcset. Alt text is schema-required for both, and `test/cms-image.test.ts` asserts the schema's
+`CLOUDINARY_URL_PATTERN` and the loader's `isCloudinaryUrl` agree.
 
 ## Cache tags
 
@@ -130,6 +141,36 @@ Sanity signs each call as `sanity-webhook-signature: t=<ms>,v1=<base64url HMAC-S
 handler then calls `revalidateTag` for the tags above and answers `{ revalidated: [...] }`. An
 unknown document type still drops `cms`, so nothing can stay stale. Without a webhook secret the
 route answers 503: an unverifiable webhook is refused, never trusted.
+
+## Campaign landings and embeds
+
+`/[locale]/campaign/[slug]` renders a `campaignLanding`: live only between `startsAt` and `endsAt`
+(`schedule.ts`, fail-closed on unparseable dates; 404 outside the window), hero as the `<h1>`,
+blocks including the **embed**, and `data-campaign-id` on the article for tooling. Campaign
+fixtures ship `noIndex`, and the marketing UTM on a shared campaign link is captured by window 3's
+middleware exactly as everywhere else (`test/cms-campaign.test.ts` proves the cookie).
+
+`Embed` (`components/embed.tsx`) always renders an `<iframe>` and never a script in the page:
+
+| Source                                                                  | `sandbox`                                                  | Why                                                                                                              |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Builder.io / Framer URL (allow-listed https host, re-checked at render) | `allow-scripts allow-same-origin allow-forms allow-popups` | cross-origin frame: "same origin" is the provider's own, needed by their runtimes                                |
+| HTML snippet (`srcdoc`)                                                 | `allow-scripts allow-forms allow-popups`                   | a srcdoc frame inherits our origin — with `allow-same-origin` a script could reach the page, so it never gets it |
+
+Both get `referrerpolicy="strict-origin-when-cross-origin"`, `loading="lazy"`, an accessible
+`title` from the schema, a clamped height and an empty `allow` list (no camera/mic/payment).
+
+**CSP (for window 3's wave C paste):** the starter sets no `Content-Security-Policy` yet. When it
+does (`headers()` in `next.config.mjs`), the embeds need
+`frame-src https://builder.io https://cdn.builder.io https://*.builder.io https://*.framer.app https://*.framer.website;`
+and `srcdoc` frames are covered by `frame-src` via the page itself. Nothing else changes: no
+`script-src` additions, because no third-party script runs outside a frame.
+
+**Every CMS href** (portable text, CTAs, navigation, footer) renders through `SafeLink` over
+`safeHref()` (`safe-href.ts`): internal paths → locale-aware Link, `https://` → `<a rel="noopener
+noreferrer">`, anything else — a stored `javascript:`, `//host` or `http:` href that predates the
+schema rule — degrades to plain text. The schema validates at write time; the renderer still does
+not trust the dataset.
 
 ## Route handlers
 

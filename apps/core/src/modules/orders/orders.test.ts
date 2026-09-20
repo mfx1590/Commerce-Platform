@@ -29,6 +29,7 @@ import {
   markShipped,
   PAYMENT_TRANSITIONS,
   projectOrder,
+  setFulfillmentStatus,
   STATUS_TRANSITIONS,
   transition,
   transitionTableMarkdown,
@@ -472,5 +473,70 @@ describe('admin read model', () => {
       fulfilled_quantity: 0,
       returned_quantity: 0,
     });
+  });
+});
+
+describe("tx-taking markers (window 8, #191): no deadlock behind a shipment insert's FOR KEY SHARE lock", () => {
+  it('confirm → shipment created → shipped → delivered inside ONE transaction that also inserts the shipment row', async () => {
+    const {
+      confirmOrderInTx,
+      markShipmentCreatedInTx,
+      markShippedInTx,
+      markDeliveredInTx,
+      markPaymentCapturedInTx,
+    } = await import('./index');
+    const order = await placeOrder();
+    await a.transaction(async (tx) => {
+      await confirmOrderInTx(tx, order.id, actor);
+      await markPaymentCapturedInTx(tx, order.id, actor);
+      // window 8's INSERT INTO shipment (FK → order) takes FOR KEY SHARE on the order row in this transaction
+      await tx.query(
+        `INSERT INTO shipment (organization_id, store_id, order_id, warehouse_id, carrier, currency, status)
+         VALUES ($1, $2, $3, $4, 'manual', 'EUR', 'pending')`,
+        [ORG, A, order.id, SEED_IDS.warehouses.eu],
+      );
+      await markShipmentCreatedInTx(tx, order.id, actor); // would deadlock on a second connection
+      await markShippedInTx(
+        tx,
+        order.id,
+        order.items.map((l) => ({ lineItemId: l.id, quantity: 2 })),
+        actor,
+      );
+      await markDeliveredInTx(tx, order.id, actor);
+    });
+    const r = await row(order.id);
+    expect(r).toMatchObject({
+      status: 'completed',
+      payment_status: 'captured',
+      fulfillment_status: 'fulfilled',
+    });
+    expect((await stream(order.id)).map((e) => e.topic)).toEqual([
+      'order.placed',
+      'order.confirmed',
+      'order.updated',
+      'order.updated',
+      'order.updated',
+      'order.completed',
+    ]);
+  });
+});
+
+describe("#191's object shape (#214)", () => {
+  it('setFulfillmentStatus({ tx, orderId, status, actor }) is the positional twin: applies, idempotent on the target, 409 per the table', async () => {
+    const order = await placeOrder();
+    await confirmOrder(a, order.id, actor);
+    await a.transaction((tx) =>
+      setFulfillmentStatus({ tx, orderId: order.id, status: 'partially_fulfilled', actor }),
+    );
+    expect((await row(order.id)).fulfillment_status).toBe('partially_fulfilled');
+    await a.transaction((tx) =>
+      setFulfillmentStatus({ tx, orderId: order.id, status: 'partially_fulfilled', actor }),
+    );
+    expect((await row(order.id)).fulfillment_status).toBe('partially_fulfilled');
+    await expect(
+      a.transaction((tx) =>
+        setFulfillmentStatus({ tx, orderId: order.id, status: 'returned', actor }),
+      ),
+    ).rejects.toMatchObject({ code: 'conflict' });
   });
 });

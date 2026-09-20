@@ -2,6 +2,204 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-19 · promotions quote: discounts, free shipping, code rejection (#230 PR A); pick/pack routes mounted
+
+- **`DiscountEvaluator` seam** in the cart (`setDiscountEvaluator`, default `noDiscounts`); `recalculate` now runs
+  discounts → shipping → tax on the discounted base → totals and returns the quote. `src/wiring.ts` registers
+  `promotionsDiscountEvaluator` over window 9's `loadCandidatePromotions` + `evaluatePromotions` (groups,
+  first order, prior uses; one clock per mutation).
+- **Code rule**: a code that can never apply to the cart → 400 with the reason per code, the PATCH rolls back;
+  a conditional rejection keeps the code stored.
+- **Tax-inclusive stores**: the adapter converts to tax-exclusive money for the engine and back to the cart's
+  gross base (same `taxOn` rounding); window 9's engine is unchanged. Fixed amounts and `min_subtotal`
+  thresholds are GROSS figures: "5.00 off" is exactly 5.00 off the displayed total, "spend 100" compares the
+  displayed subtotal (#243 ruling). `not_started` is a conditional rejection: a launch code stays stored. The
+  fixed-amount conversion clamps every share to its line's displayed subtotal and spreads the rounding drift only
+  over eligible lines with headroom, so the discount is exactly `min(configured, eligible displayed subtotal)`
+  even on tiny lines (#243 re-review).
+- **`fulfillmentAdminRouter()` mounted** (window 8, #133: pick, pack, pick lists) — those routes were dead on the
+  running server; the "pending on #235" notes are gone, router count 8.
+- **#236 review nits**: an unattributable fraud outage is booked on `rules` (inside the provider-name set) and a
+  review without a code on `provider_unavailable` (inside the closed code set); no redundant `trim()` before
+  `emailHash`.
+- Tests: `test/cart-discounts.test.ts` (6, with the server's evaluator), store-api +1 (the 400 over HTTP),
+  admin-api (fulfillment acceptance, 8 routers), wiring (the evaluator is registered). Not yet: placement
+  re-evaluation, use counting and order freezing — PR B.
+
+### 2026-09-19 · fraud seam before authorization, order review mirror, confirm hold (#231, window 7's REQUEST)
+
+- **`setFraudCheck()`** (`src/lib/fraud-seam.ts`, re-exported by the checkout): `completeCart` evaluates the
+  registered check inside the placement transaction before `authorize`, with facts and codes only. `block` → 402
+  `payment_failed`, byte-identical to a provider decline, nothing written, nothing to void. `review` → the order is
+  placed, the payment row carries `metadata.fraud` (source of truth) and the order gets the mirror. A check that
+  throws → `review` with `provider_unavailable`. No check registered → unchanged behaviour.
+- **Orders**: `flagOrderForReview` / `resolveOrderReview` (+ `…With` twins), idempotent on the target status, one
+  `order.updated` each with `fraud`, `fraud.reason_code=<code>`, `fraud.status=<status>` in `changed_fields`;
+  `transition()` refuses `→ confirmed` (409) while the review is open or confirmed as fraud.
+- **Boot**: `registerModuleSeams()` calls window 7's `registerFraudCheck()` and hands the registered check to the
+  checkout's seam (their registration still targets the module's stand-in registry). `module-routers.ts` names
+  window 8's `fulfillmentAdminRouter()` as pending (PR #235).
+- **Store API**: `order.metadata.fraud` never leaves — `renderStoreOrder` strips internal metadata keys; the Admin
+  read keeps it. Tests: checkout +3 (block vs a real decline, review end to end, outage), store-api +1 (HTTP leak
+  test + the plain 402), guards +1 (checkout and orders never import the fraud module).
+
+### 2026-09-19 · cleanup: tax boot line, refunds router, guard + wiring tests (#127, #126 on main)
+
+- **`price_changed` comes from the contract** (contracts-v0.4.3, #228 landed): the local `CoreErrorCode` union in
+  `src/lib/errors.ts` is deleted; `AppError` is typed on `ErrorCode` again.
+- **Store order read vs contracts-v0.4.3**: window 8's `picking` / `packed` shipment statuses pass straight through
+  the read model; a Store API test inserts both and validates the response against `Order`.
+- **`paymentsAdminRouter()` mounted** (window 7, #176 part 4): `POST /admin/stores/{storeId}/orders/{orderId}/refunds`
+  answers on the running server (support → 404 on an unknown order, 400 without `Idempotency-Key`, store staff →
+  403). `module-routers.ts` header rewritten: nothing is pending, boot registrations live in `src/wiring.ts`.
+- **Guard widened**: cart and checkout may not reach `modules/promotions` by any spelling — deep path, roundabout
+  path, `import()` or `require()` — with a self-test of the pattern. **`test/wiring.test.ts`**:
+  `registerModuleSeams()` registers `stripe`, the payments refund requester, carrier rates, the tax calculator
+  and the price-list resolver without any configuration, and is idempotent.
+
+- `src/wiring.ts` → `registerModuleSeams()` now also calls window 7's `registerTaxProvider()`: the cart's
+  `TaxCalculator` is the tax module's (table or Stripe Tax per `store.settings.tax`). With default store settings
+  it answers exactly like the built-in table calculator; both read the same `prices_include_tax` setting and the
+  same `taxOn` rounding, so the per-line record of #221 stays consistent.
+
+### 2026-09-19 · cart unit prices through price lists, 409 `price_changed`, boot wiring (#179 part 3, #228, #226)
+
+- **`PriceResolver` seam** (`setPriceResolver`, default `defaultListPriceResolver`: default list, tiered by
+  quantity). `addLineItem` / `updateLineItem` / `removeLineItem` re-price the whole cart through
+  `repriceLines`; the unit price follows the line quantity (tiers) up and down.
+- **`src/wiring.ts` → `registerModuleSeams()`**, called once by `createServer()`: `priceListResolver` over window
+  9's `resolvePrices` (sale > group/override > default, windows at the mutation's clock, channel, customer group)
+  **and the two boot calls that were never wired although #176 is closed — `registerPaymentProviders()` and
+  `registerCarrierProviders()`**: until now the running server had no `stripe` provider, no payments
+  `RefundRequester` and no live carrier rates.
+- **409 `price_changed`** at placement (CONTRACT CHANGE #228; local `CoreErrorCode` union in `src/lib/errors.ts`
+  until it lands): nothing placed or authorized, the cart re-priced, `details` lists the changed lines
+  (`unit_price_minor: null` = no longer sellable); the retry places at the new price.
+- **#224 review nits**: order edits re-price each line in the mode frozen on THAT line (one calculator call per
+  mode present; tax on top only for the exclusive part); cart README totals table and the `providers.ts` header
+  no longer say prices are only tax-exclusive. **#220 nits**: the EasyPost mount test asserts exactly 404 (a 401
+  would mean staff auth fronts the webhook); the over-long CLAUDE.md line is reflowed.
+- **Docs (#226, window 8's text)**: `CLAUDE.md` rows and Public API bullets for `src/modules/shipping` and
+  `src/modules/fulfillment`. Tests: `test/cart-pricing.test.ts` (5, with the server's resolver), store-api +1
+  (the 409 over HTTP, validated against the `Error` schema), guards +1 (cart/checkout never import promotions).
+
+### 2026-09-19 · per-line tax from the calculator + `prices_include_tax` (#221, window 7's REQUEST)
+
+- **No more per-line recompute**: `recalculate` stores each line's calculation in
+  `cart_line_item.metadata.tax = { amount_minor, mode, bp }`; the cart line, `order_line_item.tax_minor` /
+  `total_minor` and `order.placed` read it through `lineTaxOf` instead of `taxOn(base, tax_rate_bp)`. A provider
+  whose per-line rounding differs from ours (Stripe Tax) no longer makes Σ line tax drift from the order tax.
+  `completeCart` reloads the lines after its `recalculate` so it freezes what was just priced.
+- **Tax-inclusive stores**: `store.settings.tax.prices_include_tax` (default false = unchanged behaviour) →
+  `PricingContext.pricesIncludeTax` (additive, optional). Totals: tax is reported but not added on top, for the
+  cart, its lines, the order and its lines. `taxOn(base, bp, included)` is the single half-up rounding for both
+  modes; `tableTaxCalculator` returns the contained tax when the flag is set.
+- **Order edits** re-price in the mode frozen on the order lines, whatever the store's setting is by then.
+- New cart exports: `lineTaxOf`, `lineTotalWith`, `pricesIncludeTaxFor`, types `LineTaxRecord`, `TaxMode`.
+  One changed expectation: the 2.1 seam test asserted the old recompute (line tax from the rate); it now asserts
+  the calculator's amount. Pending boot line: `registerTaxProvider()` — window 7's `src/modules/tax` is not on
+  main yet. Tests: cart +2, checkout +2, store-api +1 (the record never appears in a Store API response).
+
+### 2026-09-19 · quiet-state wiring batch (#179 amendment, #176 part 3, #159 part 2)
+
+- **Admin router mounts** (`src/http/module-routers.ts` → `moduleAdminRouters()`): window 9's `mediaRouter()`
+  (#168: `…/media/upload-params`, `…/products/{productId}/media/**`), `pricingRouter()` (#137: `…/price-lists/**`)
+  and `promotionsRouter()` (#138 / #189: `…/promotions/**`) next to merchandising and marketing — promotion and
+  price-list routes were 404s on the running server until now. Window 8's `shippingAdminRouter()` (#131:
+  `POST …/orders/{orderId}/shipments`, `PATCH /admin/shipments/{shipmentId}`) joins them.
+- **Webhook mount point**: `moduleWebhookRouters()` + the `webhookRouters` option of `mountCoreMiddleware`
+  (opt-in like `moduleRouters`; `createServer()` passes it). Mounted outside the `/store` and `/admin` chains and
+  before any JSON body parser: window 7's `paymentsWebhookRouter()` — `POST /webhooks/stripe/:storeCode`, raw
+  body, the Stripe signature is the authentication (stale signature → 400 `timestamp_out_of_tolerance`, unknown
+  store → 404) and window 8's `shippingWebhookRouter()` — `POST /webhooks/easypost/:storeCode` (HMAC over the
+  raw body; no secret → 503 naming the variable). Pending until its export reaches main, one line: window 7's
+  `paymentsAdminRouter()` (#126). Both webhook receivers record into `webhook_event` (migration 0140, #187): until
+  that migration is on main a correctly signed delivery cannot be stored.
+- **Payment seam (additive, pre-approved by the manager for window 7)**: `RefundResult.status` gains
+  `'pending'` (`src/lib/payment-seam.ts`) for providers that settle refunds asynchronously; the default
+  `manualRefundRequester` passes it through as a pending outcome (return stays `received`, never asked twice).
+- **Docs**: `CLAUDE.md` gains the `src/modules/promotions` row and the webhook mount rule; the
+  `src/modules/search` row (there since 2.2, #159 part 2) now names merchandising + media and the CLI path.
+  Tests: `admin-api.test.ts` +2 (five admin routers answer behind staff auth; the webhook answers without it).
+
+### 2026-09-15 · #214 follow-up (returns dust, throwing requester, release items, #191 shape, docs)
+
+- **Returns — no floor dust across partial returns**: `refundAmountFor` allocates a line total by cumulative
+  floor over the line's units (`returned_quantity` before the receipt as the base), so three returns of one unit
+  from a 100-minor line refund 33 + 33 + 34; the signature now reads `returned_quantity` from the lines.
+- **Returns — a throwing `RefundRequester` is a failed outcome**: `requestRefundFor` runs the requester under
+  a savepoint; a throw rolls back to it, keeps the receipt + restock + `return.received`, records
+  `{ status: "failed", failure_reason: "requester threw: …", idempotency_key: "return:<id>" }` and a later
+  `requestRefundFor` (now exported) retries under the same key. `metadata.refund` carries `idempotency_key`.
+- **Inventory — `releaseReservationsForShipment` honours `items`**: per variant the release target is
+  `min(consumed, asked)` minus what earlier calls released under the shipment, spent across the variant's
+  warehouse rows in canonical order — priority, then code (same call twice = once, larger
+  call = the difference, empty `items` = everything still held).
+- **Orders — `setFulfillmentStatus({ tx, orderId, status, actor })`**: #191's object shape, exported next to
+  the positional `setFulfillmentStatusIn` (kept for window 8's current adapter).
+- **Docs**: `CLAUDE.md` `src/jobs` row lists only `abandoned-carts.ts`; window 9's CLI path corrected to
+  `src/modules/search/cli/index-products.ts`. Tests: returns +2, inventory +1, orders +1.
+
+### 2026-09-15 · declare `@medusajs/draft-order` (#207)
+
+- `apps/core/package.json` declares `@medusajs/draft-order` at the `@medusajs/medusa` version (2.20.1). Medusa 2.20
+  resolves a default plugin set from the app directory, and pnpm's isolated `node_modules` only links direct
+  dependencies — without the declaration the built server died in the plugin loader (`Unable to resolve plugin
+"@medusajs/draft-order"`) right after the bootstrap check. Verified: `pnpm --filter @platform/core start` reaches
+  `GET /health` → 200.
+
+### 2026-09-09 · 2.6 `cart.abandoned` job, lifecycle replay, module docs (issue #108) — Phase 2 core complete
+
+- Cart: `markAbandonedCarts` / `markAllAbandonedCarts` (injected clock; idle active carts with lines → `abandoned`
+  - one `cart.abandoned` v1, `email_hash` only; `FOR UPDATE SKIP LOCKED`; empty carts skipped). **Reactivation**:
+    a mutation on an abandoned cart flips it back to `active` and restarts the idle clock; a later abandonment is a
+    new event; `completed` stays 409. Job `src/jobs/abandoned-carts.ts`: Medusa scheduled job (`config.schedule`
+    from `CORE_ABANDONED_CART_CRON`, default hourly; threshold `CORE_ABANDONED_CART_AFTER_HOURS`, default 6) running
+    one organization-scoped pass under `MEDUSA_WORKER_MODE = shared | worker`, plus a one-shot CLI.
+- `test/lifecycle-replay.test.ts`: place → confirm → capture → shipment created → shipped (reservation consumed
+  through window 8's port shape) → delivered → return → received (restock + refund) — one event per transition
+  asserted end to end, and the order, return and stock projections folded from the outbox equal the rows; the
+  cancel branch (reservations released) and the abandoned branch.
+- #191 (window 8's port shapes): `setFulfillmentStatusIn(tx, orderId, status, actor)` (orders),
+  `consumeReservationsForShipment` / `releaseReservationsForShipment` (inventory; by order line item, idempotent
+  per shipment via the movement reference).
+- #179 part 1: catalog `addMedia` / `updateMedia` / `deleteMedia` (positions contiguous, thumbnail = position 0,
+  audit + `product.updated` `["media"]`).
+- Window 7's gap: the placement failure path's `PaymentProvider.void` now carries `organizationId` / `storeId` /
+  `cartId` (per-store credentials without touching the rolled-back transaction); `RefundInput` carries the store
+  too. Tested on the manual provider's call log.
+- #191: `…InTx(tx, …)` twins of every order marker (`confirmOrderInTx`, `markPayment*InTx`,
+  `markShipmentCreatedInTx`, `markShippedInTx`, `markDeliveredInTx`, `markReturnedInTx`, `cancelOrderInTx`) so
+  shipping runs them on its own transaction (a shipment insert's `FOR KEY SHARE` on the order row deadlocked the
+  client-taking ones); tested with a shipment row inserted in the same transaction.
+- Docs: module table complete (cart … returns, jobs), READMEs with the ADR-style decisions, "What is real" jobs row.
+- Tests: `abandoned.test.ts` (3), `lifecycle-replay.test.ts` (3), catalog media +1, inventory ports +1.
+
+### 2026-09-08 · 2.5 returns and exchanges (issue #107)
+
+- `src/modules/returns` (new): `requestReturn` (per line ≤ shipped − returned − open requests, 409 otherwise;
+  unshipped order 409; `return.requested`), `receiveReturn` in one transaction (received ≤ requested, unreceived
+  items dropped; `received`; orders `markReturnedIn` → returned quantities + fulfillment_status; inventory
+  `moveStock(reason 'return')` for resellable goods only; `return.received`; the refund through the seam),
+  `approveReturn` / `rejectReturn` (support flows, no event), `markReturnRefunded` (window 7 settles a pending
+  refund), `linkExchange` (return + linked order, no money coupling), `renderReturn` / `getReturn`, pure
+  `projectReturn`. **Refund seam** `RefundRequester` + `setRefundRequester`: the manual default calls
+  `PaymentProvider.refund` and returns no id; window 7's requester writes the `refund` row + `refund.*` events and
+  returns the id the return stores. Idempotent per return (`return:<id>`, outcome recorded on the row: a retry
+  never refunds twice). Amount = received items' share of the line total (floor), shipping excluded; requires a
+  captured payment (409 otherwise). Order `payment_status` follows (partially_refunded | refunded).
+- Orders: `markReturnedIn`, `movePaymentStatusIn`, `mergeOrderMetadataIn` — transaction-level variants for the
+  returns module (no nested transactions while the order row is locked).
+- Admin API: `POST /admin/stores/{storeId}/orders/{orderId}/returns` (support) → 201, `POST
+/admin/stores/{storeId}/returns/{returnId}/receive` (operations on HQ; the store in the path must be the
+  return's → 404) → 200; live suite: createReturn through OpenFGA.
+- Wiring batch: `payment.authorized` emitted in `completeCart` next to `order.placed` (#176 part 2);
+  `enumParam` / `sortParams` exported from `src/http/index.ts` (#181 part 2). The mount lines (#176 part 1,
+  #179 part 2, #181 part 1) land in `src/http/module-routers.ts` as each module's export reaches main.
+- Tests: `src/modules/returns/returns.test.ts` (6: request rules, receive + restock + seam once + amount rule +
+  replay, full refund, failed/pending + markReturnRefunded + retry never twice, captured-only + rollback after the
+  outbox insert, RLS + exchange), `test/admin-api.test.ts` +2, `test/auth-live.test.ts` +1.
+
 ### 2026-09-08 · 2.4 inventory: levels per warehouse, reservations at placement, backorders (issue #106)
 
 - `src/modules/inventory` (new): `moveStock` — the only writer of `on_hand` (locked level, append-only

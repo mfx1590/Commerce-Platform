@@ -5,6 +5,82 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — marketing/phase2 (contracts-v0.3)
 
+### 2026-09-14 · contracts-v0.4.1 landed (#194 applied by the main window)
+
+- `proposed/product-feed.schema.json` removed; `feed-types.ts` takes `ProductFeed` / `FeedStatus` from the
+  generated types and `routes.test.ts` asserts the error-status feed against the document itself.
+
+### 2026-09-19 · 2.4 Abandoned-cart recovery (#148)
+
+- `recovery.ts`: `consumeAbandonedCarts` — outbox polling per store on `cart.abandoned` (window 9's shape),
+  creating one record per cart and advancing the `marketing_cursor` position in the same transaction.
+  Idempotency is `UNIQUE (cart_id)` in the schema rather than the consumer remembering, so a replayed event or
+  a rewound cursor is a no-op **and the original token keeps working**. `reconcileRecoveries` flips records
+  whose carts became orders, reading `cart.order_id` — marketing never decides what an order is — and is
+  idempotent on the target state, so a cart counts once. `validateRecoveryToken` is what window 1's Store API
+  route calls (REQUEST #246).
+- `recovery-token.ts`: 32 random bytes base64url; **only `sha256(token)` is stored**, the plaintext returned
+  once at mint. Single use enforced by `UPDATE … WHERE redeemed_at IS NULL` (not check-then-write, so two
+  simultaneous clicks cannot both win), 7-day expiry, constant-time hash comparison. Unknown, expired and used
+  tokens answer an identical 404; a cart already ordered answers 409.
+- `recovery-report.ts`: abandoned / redeemed / recovered / rate, in the store's default currency.
+  `recovered_value` is the **order** total, not the cart's. No carts abandoned is `0`, not a division by zero.
+- `recovery-types.ts`: the record, the read model (no `token_hash`, ever), and the report shape — declared
+  locally until #245 lands, the way `ProductFeed` was before #194.
+- One new route, `GET …/marketing/reports/abandoned-carts`, behind `permissionOrProposed`: it reads the
+  operation's `x-permission` from the spec when present and falls back to the proposed `viewer` otherwise, so
+  the document wins automatically once #245 lands — including if the manager lands a different relation.
+- **This module writes no attribution.** The link carries `utm_source=abandoned_cart`, the storefront captures
+  it, window 1's placement writes the row.
+- Contract surface filed: **#244** (db `0170_cart_recovery.sql` — `cart_recovery` with the per-cart UNIQUE,
+  `token_hash`, expiry, `redeemed_at`, plus `marketing_cursor`), **#245** (Admin API report + Store API
+  `POST /store/cart-recovery/{token}`), **#246** (window 1 mounts the store route), **#247** (windows 3 and 10,
+  the storefront page). Built against `proposed/0170_cart_recovery.sql`, applied by the tests to their own
+  database (#162's pattern); both CCs land bundled as contracts-v0.4.5 after this PR merges.
+- Tests (+19): `recovery.test.ts` (16) drives **window 1's real `markAllAbandonedCarts`** rather than a
+  hand-written payload, so the consumer is exercised against the emitter that runs in production — if window 1
+  changes the payload, this fails. Covers consumption, replay, batching, per-store cursors, token storage and
+  randomness, single use, the identical-404 set, the 409, recovery detection, the rate and its edges. Plus 3
+  route tests for the report.
+- Housekeeping: `apps/feeds` docs no longer claim there is no Dockerfile — it landed with infra #210 and #195
+  is closed.
+
+### 2026-09-19 · 2.3 Segments, templates and the messaging sync contract (#147)
+
+- `segment-rules.ts`: **the frozen grammar** — `{ v: 1, all: [{ any: [{ field, op, value }] }] }`, an AND of ORs
+  over a closed seven-field predicate set. `parseSegmentRules` 400s on any unknown field, operator, extra key or
+  wrong value type, naming the exact path (`rules.all[0].any[2].op`). `SEGMENT_RULES_SCHEMA` publishes the same
+  grammar as JSON Schema from the module index for window 16 and the admin rule builder; a test runs the parser
+  and the schema over the same fixtures so they cannot drift.
+- `segment-sql.ts`: rules → one parameterised SQL predicate. Values are always bound, never interpolated (there
+  is an injection test). Every predicate is **total** over ragged data — no orders, no address, no
+  `metadata.tags`, no consent block all still evaluate. `not_granted` uses `IS DISTINCT FROM`: `NOT (NULL =
+'true')` is NULL, which silently dropped never-asked customers from re-consent segments (caught by a test).
+- `segments.ts`: CRUD for store segments and organization templates over one table, `previewSegment` (counts,
+  writes nothing, accepts override rules from the body), `materializeSegment` (replaces `segment_member` in one
+  transaction, updates the counters), template instantiation by copy. Deleting a segment a non-ended campaign
+  points at is a 409 rather than letting the FK quietly unlink it.
+- `segment-sync.ts`: the window 16 contract — a typed payload and one paged function over the **materialised**
+  members, so preview, count and send are the same set. Ids, `email_hash` and granted channels only; no address,
+  name or phone ever crosses the boundary. No provider call in this module.
+- `segment-types.ts`: `Segment` with `rules` typed as the frozen grammar; the table row; the sort enum.
+- 12 new routes: 7 store-scoped (`materialize` answers 202 per the contract) and 5 organization-level for
+  templates (`viewer` reads, `owner` writes on `organization:hq`).
+- Data-model decisions, checked against the schema rather than the contract's prose: `tags` is
+  `customer.metadata.tags` (no `customer.tags` column exists); `country` is the **default shipping address
+  only**; `customer_group_ids` is membership-in-list against the single FK; `erased`/`disabled` customers are
+  never counted.
+- Cleanup now that #181 landed: the local `enumParam` copy in `routes.ts` is gone in favour of `src/http`'s
+  exported `enumParam`/`sortParams`, as its comment promised, and the router header no longer says "not mounted".
+- CONTRACT CHANGE filed for `SegmentRules` (still the loose flat bag in 0.4.3, with "Unknown keys are kept, not
+  rejected" — the opposite of a frozen grammar). Responses validate meanwhile because the document accepts
+  additional properties; the manager lands the change after this PR merges.
+- Tests (+75): `segment-rules.test.ts` (35, pure — accept/reject per field and operator, parser/schema
+  agreement, SQL shape and injection), `segments.test.ts` (20, database — every operator against real orders and
+  customers, preview == materialised count, consent exclusion incl. malformed blocks, template RLS and copying,
+  store isolation, the sync payload and its paging), and 8 more in `routes.test.ts`. The seed creates no
+  customers, so the database tests build their own; keys and names are words, never digit or hex tails.
+
 ### 2026-09-08 · 2.2 Product feeds for Google Merchant and Meta (#146)
 
 - `feed-types.ts`: `ProductFeedRow` (table) vs `ProductFeed` (contract), the channel/status enums,

@@ -63,6 +63,50 @@ export {
 } from './repository';
 export { MERCHANDISING_BASE, merchandisingRouter, type MerchandisingRouterOptions } from './http';
 export type { AlgoliaRule, SearchParams, SearchResponse } from './types';
+// ---- product media / Cloudinary (task 2.3, #136) ----
+export {
+  buildUploadParams,
+  cloudinaryCredentialsFor,
+  cloudinaryImageLoader,
+  isCloudinaryUrl,
+  MEDIA_RENDITIONS,
+  publicIdSlug,
+  RENDITION_TRANSFORMS,
+  renditionUrl,
+  renditionUrls,
+  signParams,
+  transformUrl,
+  UPLOAD_ALLOWED_FORMATS,
+  UPLOAD_MAX_BYTES,
+  type CloudinaryCredentials,
+  type MediaRendition,
+  type UploadParams,
+} from './cloudinary';
+export {
+  addProductMedia,
+  createUploadParams,
+  deleteProductMedia,
+  listProductMedia,
+  updateProductMedia,
+} from './media';
+export {
+  parseMediaInput,
+  parseMediaPatch,
+  parseUploadRequest,
+  PRODUCT_MEDIA_INPUT_SCHEMA,
+  PRODUCT_MEDIA_PATCH_SCHEMA,
+  MEDIA_UPLOAD_REQUEST_SCHEMA,
+  type MediaUploadRequest,
+  type ProductMedia,
+  type ProductMediaInput,
+  type ProductMediaPatch,
+} from './media-types';
+export {
+  MEDIA_UPLOAD_PATH,
+  mediaRouter,
+  PRODUCT_MEDIA_BASE,
+  type MediaRouterOptions,
+} from './media-http';
 export type {
   IndexClient,
   IndexSettings,
