@@ -203,6 +203,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/store/cart-recovery/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem a recovery token and return the cart it belongs to
+         * @description Single use. The token is minted when a cart is abandoned, hashed before storage, and expires (7 days by
+         *     default). Unknown, already-redeemed and expired tokens all answer the SAME 404 — a recovery link is a
+         *     bearer credential, and distinguishing the cases would let anyone probe which tokens exist. The cart is
+         *     returned reactivated (status `active`), so the storefront can carry straight on to checkout. POST, not
+         *     GET: redemption is single-use and mutating, and a GET would be burned by link prefetchers before the
+         *     customer clicks — the storefront's own /cart/recover/{token} page is the GET, POSTing here server-side.
+         */
+        post: operations["recoverCart"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/store/orders/{orderId}": {
         parameters: {
             query?: never;
@@ -1068,6 +1095,38 @@ export interface operations {
                 };
             };
             /** @description Cart already completed (`cart_completed`), stock no longer available (`out_of_stock`), or a line's price changed since the cart was last priced (`price_changed`). On `price_changed` nothing was placed or authorized and the cart has been re-priced: read the cart again, show the new prices, create the payment session again for the new total, then retry (the same Idempotency-Key is fine — no order exists for it). `unit_price_minor: null` in an item means the variant has no applicable price in the cart's currency any more (not sellable): the storefront removes the line. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    recoverCart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cart"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description The cart was already completed ("you already placed this order" — leaks nothing, the caller holds a valid token) */
             409: {
                 headers: {
                     [name: string]: unknown;

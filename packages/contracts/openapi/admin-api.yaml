@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.4
+  version: 0.4.5
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -3266,6 +3266,37 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /admin/stores/{storeId}/marketing/reports/abandoned-carts:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [marketing]
+      operationId: getAbandonedCartReport
+      summary: Abandoned carts, how many were recovered and what that was worth, in the store's default currency
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AbandonedCartReport' }
+              example:
+                from: '2026-09-01T00:00:00Z'
+                to: '2026-10-01T00:00:00Z'
+                currency: EUR
+                abandoned_count: 240
+                redeemed_count: 61
+                recovered_count: 34
+                recovery_rate: 0.1417
+                abandoned_value: { amount_minor: 1860000, currency: EUR }
+                recovered_value: { amount_minor: 264500, currency: EUR }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   # Organization level: the cross-brand dashboard (analyst) and segment templates (owner writes).
   /admin/marketing/dashboard:
     get:
@@ -4876,6 +4907,43 @@ components:
               uses: { type: integer, minimum: 0 }
               discount_given: { $ref: '#/components/schemas/Money' }
               revenue: { $ref: '#/components/schemas/Money' }
+    AbandonedCartReport:
+      type: object
+      description: |
+        Counted from `cart_recovery` joined to `"order"`, over carts abandoned in [from, to). A cart counts once:
+        a customer who opens the link three times and orders once is one recovery. `recovery_rate` is
+        `recovered_count / abandoned_count`, 0 when nothing was abandoned. Values are in the store's default
+        currency; carts in another currency are excluded, as in `reports/attribution`. Cancelled orders count in
+        neither `recovered_count` nor `recovered_value` (the attribution report's house rule).
+      required:
+        [
+          from,
+          to,
+          currency,
+          abandoned_count,
+          redeemed_count,
+          recovered_count,
+          recovery_rate,
+          abandoned_value,
+          recovered_value,
+        ]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        abandoned_count: { type: integer, minimum: 0 }
+        redeemed_count:
+          {
+            type: integer,
+            minimum: 0,
+            description: Recovery links that were opened (token redeemed),
+          }
+        recovered_count:
+          { type: integer, minimum: 0, description: Abandoned carts that became an order }
+        recovery_rate: { type: number, minimum: 0, maximum: 1 }
+        abandoned_value: { $ref: '#/components/schemas/Money' }
+        recovered_value:
+          { $ref: '#/components/schemas/Money', description: Order totals of the recovered carts }
     MarketingDashboard:
       type: object
       description: Organization scope; one row per store, each in its own currency (no FX in v0.3)

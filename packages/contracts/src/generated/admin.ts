@@ -1239,6 +1239,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/marketing/reports/abandoned-carts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /** Abandoned carts, how many were recovered and what that was worth, in the store's default currency */
+        get: operations["getAbandonedCartReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/marketing/dashboard": {
         parameters: {
             query?: never;
@@ -2368,6 +2387,29 @@ export interface components {
                 discount_given: components["schemas"]["Money"];
                 revenue: components["schemas"]["Money"];
             }[];
+        };
+        /**
+         * @description Counted from `cart_recovery` joined to `"order"`, over carts abandoned in [from, to). A cart counts once:
+         *     a customer who opens the link three times and orders once is one recovery. `recovery_rate` is
+         *     `recovered_count / abandoned_count`, 0 when nothing was abandoned. Values are in the store's default
+         *     currency; carts in another currency are excluded, as in `reports/attribution`. Cancelled orders count in
+         *     neither `recovered_count` nor `recovered_value` (the attribution report's house rule).
+         */
+        AbandonedCartReport: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            currency: string;
+            abandoned_count: number;
+            /** @description Recovery links that were opened (token redeemed) */
+            redeemed_count: number;
+            /** @description Abandoned carts that became an order */
+            recovered_count: number;
+            recovery_rate: number;
+            abandoned_value: components["schemas"]["Money"];
+            /** @description Order totals of the recovered carts */
+            recovered_value: components["schemas"]["Money"];
         };
         /** @description Organization scope; one row per store, each in its own currency (no FX in v0.3) */
         MarketingDashboard: {
@@ -6564,6 +6606,53 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["PromotionReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getAbandonedCartReport: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-09-01T00:00:00Z",
+                     *       "to": "2026-10-01T00:00:00Z",
+                     *       "currency": "EUR",
+                     *       "abandoned_count": 240,
+                     *       "redeemed_count": 61,
+                     *       "recovered_count": 34,
+                     *       "recovery_rate": 0.1417,
+                     *       "abandoned_value": {
+                     *         "amount_minor": 1860000,
+                     *         "currency": "EUR"
+                     *       },
+                     *       "recovered_value": {
+                     *         "amount_minor": 264500,
+                     *         "currency": "EUR"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["AbandonedCartReport"];
                 };
             };
             400: components["responses"]["BadRequest"];
