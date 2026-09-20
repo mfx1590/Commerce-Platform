@@ -46,7 +46,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 
 - HTTP: implements `packages/contracts/openapi/store-api.yaml` and `admin-api.yaml` exactly (registry + catalog
   routes in Phase 1; Store API 0.3.0 `currency` query and the cart operations since 2.1; shipping options, payment
-  session, `POST …/complete` and `GET /store/orders/{orderId}` since 2.2 — the fallback proxy now covers only
+  session, `POST …/complete` and `GET /store/orders/{orderId}` since 2.2; `POST /store/cart-recovery/{token}`
+  (#246, window 17's `validateRecoveryToken`) — the fallback proxy now covers only
   `/store/customers*`). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
   mounted ahead of Medusa (they win over Medusa's same-path routes, its key gate and its admin auth).
   Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the

@@ -21,8 +21,11 @@
 - **#241**: `FraudCheck.recordBlocked` is called by `completeCart` after the rollback (facts + decision, never
   the transaction), best effort, for a check that opts in with `recordsBlockedAfterRollback`; the 402 is
   unchanged. The redundant fraud bridge line in `src/wiring.ts` is gone.
+- **#246**: `POST /store/cart-recovery/{token}` mounted in `src/http/store-routes.ts` — window 17's
+  `validateRecoveryToken`, then the same `Cart` body as `GET /store/carts/{cartId}`; unknown / used / foreign tokens
+  are one identical 404, a completed cart 409. Needs migration 0170 (#244) on the running database.
 - Tests: `test/placement-promotions.test.ts` (8), checkout +2 (#241), cart-discounts +2 (free-shipping skip,
-  stacking in both tax modes).
+  stacking in both tax modes), store-api +1 (the recovery route).
 
 ### 2026-09-19 · promotions quote: discounts, free shipping, code rejection (#230 PR A); pick/pack routes mounted
 

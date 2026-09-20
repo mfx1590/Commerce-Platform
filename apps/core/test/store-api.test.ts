@@ -1,15 +1,18 @@
 // Store API routes (issue #6): the exact chain src/server.ts mounts (middleware + Store API routes) on a bare
 // Express app over a fully seeded throwaway database. Responses are validated against the frozen OpenAPI
 // components, and the Store API requests of packages/contracts/test/contract.test.ts are replayed.
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { DevTokenVerifier } from '../src/http';
-import { closePool, initDb } from '../src/lib/db';
+import { closePool, initDb, tenantClient } from '../src/lib/db';
 import { setFraudCheck } from '../src/modules/checkout';
-import { setDiscountEvaluator } from '../src/modules/cart';
+import { markAbandonedCarts, setDiscountEvaluator } from '../src/modules/cart';
+import { consumeAbandonedCarts } from '../src/modules/marketing';
 import { promotionsDiscountEvaluator } from '../src/wiring';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -770,6 +773,58 @@ describe('checkout routes (contract replay, task 2.2)', () => {
     } finally {
       setDiscountEvaluator(previous);
     }
+  });
+
+  it("POST /store/cart-recovery/{token} (#246): window 17's link redeems once into the cart; unknown, used and foreign tokens are the same 404", async () => {
+    // Window 17's tables arrive with migration 0170 (CONTRACT CHANGE #244). Until it is on main their module ships
+    // the schema as a proposed file and its own tests apply it to their throwaway database — same here.
+    const proposed = join(
+      __dirname,
+      '..',
+      'src',
+      'modules',
+      'marketing',
+      'proposed',
+      '0170_cart_recovery.sql',
+    );
+    if (existsSync(proposed)) await db.owner.query(readFileSync(proposed, 'utf8'));
+    const cart = await readyCart();
+    const storeA = tenantClient({
+      organizationId: SEED_IDS.organization,
+      storeIds: [SEED_IDS.stores.brandA],
+    });
+    // the cart goes idle (injected clock), the abandoned-cart job marks it, window 17 mints the link
+    await markAbandonedCarts(storeA, {
+      now: new Date(Date.now() + 7 * 3600 * 1000),
+      idleForMs: 6 * 3600 * 1000,
+      batchSize: 1000,
+    });
+    const { tokens } = await consumeAbandonedCarts(storeA, SEED_IDS.stores.brandA, {
+      batchSize: 1000,
+    });
+    const token = tokens.get(cart.id)!;
+    expect(token).toBeTruthy();
+    expect((await asA(`/store/carts/${cart.id}`)).body.status).toBe('abandoned');
+
+    const foreign = await request(app)
+      .post(`/store/cart-recovery/${token}`)
+      .set('X-Publishable-Key', KEY_B);
+    expect(foreign.status).toBe(404); // another store's key: the link does not exist there
+
+    const redeemed = await json('post', `/store/cart-recovery/${token}`).send();
+    expect(redeemed.status).toBe(200);
+    spec.assertSchema('Cart', redeemed.body);
+    expect(redeemed.body).toMatchObject({ id: cart.id, status: 'active' });
+    expect(redeemed.body.items).toHaveLength(1);
+
+    const again = await json('post', `/store/cart-recovery/${token}`).send();
+    const unknown = await json('post', '/store/cart-recovery/not-a-real-token').send();
+    expect(again.status).toBe(404);
+    expect(unknown.status).toBe(404);
+    spec.assertSchema('Error', again.body);
+    expect(again.body).toEqual(unknown.body); // no oracle: used and never-existed are indistinguishable
+    expect(again.body).toEqual(foreign.body);
+    expect((await request(app).post(`/store/cart-recovery/${token}`)).status).toBe(401); // no publishable key
   });
 
   it('complete refuses a cart that is not ready (400 with the missing fields)', async () => {
