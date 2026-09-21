@@ -908,6 +908,34 @@ modules; exactly-once = `INSERT … ON CONFLICT DO NOTHING` before processing (C
 Derived from `cart` with `status = 'active'` and no activity for the store's abandonment window; the core job flips
 `cart.status` to `abandoned` and emits `cart.abandoned` (window 1); window 17 and window 16 consume it.
 
+### cart_recovery (marketing; migration 0170, contracts-v0.4.5)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | RLS `store` |
+| cart_id | uuid FK cart, UNIQUE | one recovery per cart — the replay guard for a redelivered `cart.abandoned` |
+| customer_id | uuid NULL FK customer | |
+| email_hash | text NULL | sha256 of the lowercased email, as `cart.abandoned` carries it |
+| currency / total_minor / line_item_count / abandoned_at / has_attribution | | frozen from the event |
+| token_hash | text UNIQUE | sha256 of the recovery token; the plaintext is returned once at mint, never stored |
+| token_expires_at | timestamptz | 7 days by default; "expired" is `pending AND token_expires_at < now()` — deliberately not a status |
+| redeemed_at | timestamptz NULL | stamped by the single-use `UPDATE … WHERE redeemed_at IS NULL` |
+| status | text | `pending` / `redeemed` / `recovered`; CHECK `(status='recovered') = (recovered_at IS NOT NULL)`; NO cross-clock CHECK (#244 correction) |
+| recovered_order_id / recovered_at | uuid NULL FK "order" · timestamptz NULL | |
+
+Owner: window 17 (marketing). Redemption surface: `POST /store/cart-recovery/{token}` (handler mounted by window 1,
+#246); no `recovery.*` events — window 16 reacts to `cart.abandoned`, a recovered cart is visible as an order.
+
+### marketing_cursor (marketing; migration 0170)
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid | RLS `store` |
+| name | text | consumer name (e.g. `cart_recovery`); UNIQUE `(store_id, name)` |
+| seq | bigint | how far this consumer has read the outbox; advanced with GREATEST in the processing transaction |
+
 ---
 
 ## 3. Shared value objects (JSON, not tables)
