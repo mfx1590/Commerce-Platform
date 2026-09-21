@@ -13,13 +13,13 @@ import {
   type PriceQuery,
   type PriceResolver,
 } from './modules/cart';
-import { setFraudCheck } from './modules/checkout';
-import { currentFraudCheck as fraudModuleCheck, registerFraudCheck } from './modules/fraud';
+import { registerFraudCheck } from './modules/fraud';
 import { registerPaymentProviders } from './modules/payments';
 import {
   eligibleLines,
   evaluatePromotions,
   loadCandidatePromotions,
+  recordPromotionUse,
   resolvePrices,
 } from './modules/promotions';
 import { registerCarrierProviders } from './modules/shipping';
@@ -78,6 +78,16 @@ const PERMANENT_REJECTIONS = new Set([
   'wrong_currency',
 ]);
 
+/**
+ * "Orders that count" for a customer's first-order state and per-customer uses (ruling in #230 PR B): not
+ * cancelled, PAID FOR — the payment is at least authorised (`pending` / `failed` = unpaid) — and not held or
+ * condemned by a fraud review. An unpaid or suspicious order must not cost an honest customer their welcome code,
+ * and a fraudster's held orders must not be what "uses up" a limit.
+ */
+const ORDER_COUNTS = `o.status <> 'cancelled'
+  AND o.payment_status NOT IN ('pending', 'failed')
+  AND coalesce(o.metadata->'fraud'->>'status', 'cleared') NOT IN ('review', 'confirmed_fraud')`;
+
 /** What the engine needs to know about a signed-in customer; a guest has no identity: no first-order rule, no uses. */
 async function customerPromotionFacts(
   tx: Queryable,
@@ -85,14 +95,14 @@ async function customerPromotionFacts(
 ): Promise<{ isFirstOrder: boolean; customerUses: Record<string, number> }> {
   if (!customerId) return { isFirstOrder: false, customerUses: {} };
   const orders = await tx.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM "order" WHERE customer_id = $1 AND status <> 'cancelled'`,
+    `SELECT count(*)::text AS n FROM "order" o WHERE o.customer_id = $1 AND ${ORDER_COUNTS}`,
     [customerId],
   );
   // applied promotions are recorded on the order at placement (order.metadata.promotions, #230 PR B)
   const uses = await tx.query<{ promotion_id: string; n: string }>(
     `SELECT p->>'promotion_id' AS promotion_id, count(*)::text AS n
      FROM "order" o, jsonb_array_elements(coalesce(o.metadata->'promotions', '[]'::jsonb)) p
-     WHERE o.customer_id = $1 AND o.status <> 'cancelled' GROUP BY 1`,
+     WHERE o.customer_id = $1 AND ${ORDER_COUNTS} GROUP BY 1`,
     [customerId],
   );
   return {
@@ -121,6 +131,9 @@ async function customerPromotionFacts(
  * In a tax-exclusive store nothing is converted.
  */
 export const promotionsDiscountEvaluator: DiscountEvaluator = {
+  /** One use per applied promotion, inside the placement transaction; 409 `conflict` past the usage limit. */
+  recordUse: (tx, storeId, promotionId) => recordPromotionUse(tx, storeId, promotionId),
+
   async evaluate(q: DiscountQuery): Promise<DiscountQuote> {
     const empty: DiscountQuote = {
       allocations: new Map(),
@@ -163,7 +176,7 @@ export const promotionsDiscountEvaluator: DiscountEvaluator = {
           const eligible = eligibleLines(engineLines, p.rules);
           const net = eligible.reduce((n, l) => n + l.quantity * l.unit_price_minor, 0);
           const gross = grossEligible(p);
-          const value = gross > 0 ? Math.round((p.value * net) / gross) : p.value;
+          const value = gross > 0 ? mulDivRound(p.value, net, gross) : p.value;
           return { ...p, rules, value };
         });
 
@@ -185,9 +198,16 @@ export const promotionsDiscountEvaluator: DiscountEvaluator = {
       // A net → gross round trip can overshoot a small line (gross 3 at 19 %: net 3, back to gross 4), so every
       // converted share is clamped to its line's DISPLAYED subtotal — the cart would clamp it anyway, silently.
       const share = new Map<string, number>();
+      // STACKING RULE (#230 PR B): promotions are taken in the engine's order, and each one only gets what the
+      // promotions before it left on a line — a line's combined discount never exceeds its displayed subtotal,
+      // and nothing is shaved silently later by the cart's own clamp.
+      const headroom = (lineId: string) =>
+        (grossOf.get(lineId) ?? 0) - (allocations.get(lineId) ?? 0);
       for (const [lineId, net] of Object.entries(a.allocations)) {
-        const cap = grossOf.get(lineId) ?? 0;
-        share.set(lineId, Math.max(0, Math.min(cap, toCartBase(net, bpOf.get(lineId) ?? 0))));
+        share.set(
+          lineId,
+          Math.max(0, Math.min(headroom(lineId), toCartBase(net, bpOf.get(lineId) ?? 0))),
+        );
       }
       if (inclusive && p?.type === 'fixed_amount') {
         // Exactly min(configured amount, eligible lines' displayed subtotal): the rounding drift is spread one
@@ -195,11 +215,15 @@ export const promotionsDiscountEvaluator: DiscountEvaluator = {
         // largest room first, until the target is met or every line is saturated — and when all are saturated the
         // target IS the eligible subtotal (the cap case), so the sum is exact there too (#243 re-review).
         const lineIds = eligibleLines(engineLines, p.rules).map((l) => l.id);
-        const target = Math.min(p.value, grossEligible(p));
+        // …of what is LEFT on its eligible lines: a second stacked fixed amount takes exactly the remainder
+        const target = Math.min(
+          p.value,
+          lineIds.reduce((n, id) => n + headroom(id), 0),
+        );
         let drift = target - [...share.values()].reduce((n, d) => n + d, 0);
         while (drift !== 0) {
           const room = (id: string) =>
-            drift > 0 ? (grossOf.get(id) ?? 0) - (share.get(id) ?? 0) : (share.get(id) ?? 0);
+            drift > 0 ? headroom(id) - (share.get(id) ?? 0) : (share.get(id) ?? 0);
           const id = lineIds.filter((x) => room(x) > 0).sort((x, y) => room(y) - room(x))[0];
           if (id === undefined) break; // every line saturated
           const step = Math.sign(drift) * Math.min(Math.abs(drift), room(id));
@@ -228,6 +252,12 @@ export const promotionsDiscountEvaluator: DiscountEvaluator = {
   },
 };
 
+/** `round(a × b / c)` for non-negative integers without leaving the safe-integer range (a × b can exceed 2^53). */
+export function mulDivRound(a: number, b: number, c: number): number {
+  const [x, y, z] = [BigInt(Math.trunc(a)), BigInt(Math.trunc(b)), BigInt(Math.trunc(c))];
+  return Number((x * y * BigInt(2) + z) / (z * BigInt(2)));
+}
+
 let registered = false;
 
 /** Idempotent. Payments (#176), carrier rates (window 8), tax (#127 / #221), fraud (#231), price lists (#179). */
@@ -241,10 +271,9 @@ export function registerModuleSeams(): void {
   // window 7's tax calculator (table | Stripe Tax per store.settings.tax); with default settings it answers
   // exactly like the built-in table calculator, so nothing changes for a store until its settings say so
   registerTaxProvider();
-  // window 7's fraud check (rules + Stripe Radar) and Radar's review.* webhook handlers (#231). Its
-  // registerFraudCheck() still writes to the module's own stand-in registry (built before the checkout seam
-  // existed), so the same check is handed to the checkout's seam here; once window 7 repoints its registration at
-  // `setFraudCheck` from the checkout this second line is redundant and harmless.
+  // window 7's fraud check (rules + Stripe Radar) and Radar's review.* webhook handlers (#231). It registers
+  // with the checkout's real seam itself. Blocks are still recorded by the module's own deferred flush (the
+  // approved interim): the checkout's post-rollback hook (#241) takes over the day the check sets
+  // `recordsBlockedAfterRollback` — no change needed here then.
   registerFraudCheck();
-  setFraudCheck(fraudModuleCheck());
 }
