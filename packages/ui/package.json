@@ -1,6 +1,6 @@
 {
   "name": "@platform/ui",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -15,6 +15,11 @@
       "types": "./dist/preset.d.ts",
       "import": "./dist/preset.js",
       "default": "./dist/preset.js"
+    },
+    "./image-loader": {
+      "types": "./dist/lib/cloudinary-loader.d.ts",
+      "import": "./dist/lib/cloudinary-loader.js",
+      "default": "./dist/lib/cloudinary-loader.js"
     }
   },
   "files": [
