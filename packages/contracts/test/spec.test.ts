@@ -75,8 +75,24 @@ describe('store-api.yaml', () => {
     expect(complete.body).toMatch(/previous_unit_price_minor/);
   });
 
+  it('0.4.0 (#245): recoverCart is a POST, single-use semantics documented, one 404 for all misses', () => {
+    const op = ops.find((o) => o.id === 'recoverCart')!;
+    expect(op).toBeDefined();
+    expect(text).toMatch(/\/store\/cart-recovery\/\{token\}:/);
+    expect(op.body).toMatch(/'404':/);
+    expect(op.body).toMatch(/'409':/);
+    expect(op.body).toMatch(/SAME 404/);
+    // POST, never GET: the path block must not define a get
+    const pathBlock = text.slice(
+      text.indexOf('/store/cart-recovery/{token}:'),
+      text.indexOf('/store/orders/{orderId}:'),
+    );
+    expect(pathBlock).toMatch(/^ {4}post:$/m);
+    expect(pathBlock).not.toMatch(/^ {4}get:$/m);
+  });
+
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.3\.1/);
+    expect(text).toMatch(/version: 0\.4\.0/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -92,7 +108,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.4/);
+    expect(text).toMatch(/version: 0\.4\.5/);
     for (const tag of [
       'registry',
       'catalog',
@@ -237,6 +253,17 @@ describe('admin-api.yaml', () => {
     // both answer 409 (fulfilment already started / last line) with the standard error body
     for (const id of ['updateOrderLineItem', 'cancelOrderLineItem']) {
       expect(ops.find((o) => o.id === id)!.body, id).toMatch(/'409':/);
+    }
+  });
+
+  it('abandoned carts (0.4.5, #245): the recovery report next to the other marketing reports', () => {
+    const op = ops.find((o) => o.id === 'getAbandonedCartReport')!;
+    expect(op).toBeDefined();
+    expect(op.body).toMatch(/x-permission: \{ relation: viewer, object: 'store:\{storeId\}'/);
+    expect(text).toMatch(/\/admin\/stores\/\{storeId\}\/marketing\/reports\/abandoned-carts:/);
+    expect(text).toMatch(/^ {4}AbandonedCartReport:$/m);
+    for (const f of ['abandoned_count', 'redeemed_count', 'recovered_count', 'recovery_rate']) {
+      expect(text, f).toMatch(new RegExp(`${f}:`));
     }
   });
 
@@ -415,7 +442,10 @@ describe('admin-api.yaml', () => {
   });
 
   it('money is always { amount_minor, currency }, never a float', () => {
-    expect(text).not.toMatch(/type: number/);
-    expect(text).toMatch(/amount_minor: \{ type: integer/);
+    // recovery_rate (0.4.5, #245) is the one sanctioned `type: number`: a dimensionless 0..1 ratio,
+    // not money. Everything else stays integer minor units.
+    const withoutRatio = text.replace(/recovery_rate: \{ type: number[^}]*\}/, '');
+    expect(withoutRatio).not.toMatch(/type: number/);
+    expect(withoutRatio).toMatch(/amount_minor: \{ type: integer/);
   });
 });

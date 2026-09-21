@@ -1,14 +1,15 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.3.1
+  version: 0.4.0
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
     routes additionally send a Keycloak customers-realm JWT as a Bearer token.
     Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional cart/order `metadata` (additive);
     0.3.0 adds the optional `currency` query on listProducts/getProduct (additive);
-    0.3.1 adds the `price_changed` error code on completeCart's 409 (additive).
+    0.3.1 adds the `price_changed` error code on completeCart's 409 (additive);
+    0.4.0 adds POST /store/cart-recovery/{token} (additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -448,6 +449,38 @@ paths:
                             ],
                         },
                     }
+
+  /store/cart-recovery/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string, minLength: 32, maxLength: 128 }
+    post:
+      tags: [cart]
+      operationId: recoverCart
+      summary: Redeem a recovery token and return the cart it belongs to
+      description: |
+        Single use. The token is minted when a cart is abandoned, hashed before storage, and expires (7 days by
+        default). Unknown, already-redeemed and expired tokens all answer the SAME 404 — a recovery link is a
+        bearer credential, and distinguishing the cases would let anyone probe which tokens exist. The cart is
+        returned reactivated (status `active`), so the storefront can carry straight on to checkout. POST, not
+        GET: redemption is single-use and mutating, and a GET would be burned by link prefetchers before the
+        customer clicks — the storefront's own /cart/recover/{token} page is the GET, POSTing here server-side.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+              examples:
+                withItem: { $ref: '#/components/examples/CartWithItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The cart was already completed ("you already placed this order" — leaks nothing, the caller holds a valid token)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /store/orders/{orderId}:
     get:
