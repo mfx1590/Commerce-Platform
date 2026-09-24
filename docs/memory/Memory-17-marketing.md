@@ -20,6 +20,20 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **contracts-v0.4.5 cleanup** — 2026-09-24. The landing (0eafbc9) had already moved `0170_cart_recovery.sql`
+  into `packages/db/migrations` and dropped the test DDL, so this covered the rest: the local
+  `AbandonedCartReport` type → the contract's, `permissionOrProposed` → plain `permission()`, the #251 cast in
+  the admin `_api.ts` → `AdminResponse<'materializeSegment'>` (window 4's 202 branch merged as 1f21588), the
+  abandoned-cart tile on the admin Overview, and the three #250 nits — report consistency (cancelled orders
+  excluded from `recovered_count` as well as `recovered_value`, with a test), `RECOVERY_UTM_SOURCE` exported
+  for window 16, and `tokenHashEquals` deleted.
+
+- **2.5 (#149) admin Marketing section** — 2026-09-20. Four Store screens + the HQ page, in
+  `apps/admin/src/app/(store)/[storeId]/marketing/**` and `(hq)/marketing/**`; wrappers and server actions in
+  the section (window 4's files untouched); rule builder over the frozen grammar with a live preview count.
+  Tests: 9 pure + 8 Prism contract (every field/op posted as a `SegmentInput`). REQUEST #251 filed (202 branch
+  missing from window 4's `SuccessBody`). Section README documents the boundary.
+
 - **2.4 (#148) abandoned-cart recovery** — commit `d8187ba`, PR #250 (2026-09-19), pushed after #240's merge
   is confirmed. `recovery{,-token,-report,-types}.ts` + the report route. Outbox polling per store with the
   cursor in `marketing_cursor`; idempotency is `UNIQUE (cart_id)` in the schema, not consumer memory. Tokens:
@@ -51,17 +65,25 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — 2.4 is PR #250, in review; 2.5 admin Marketing section (#149) is next)
+- (nothing — 2.5 is PR #262 and the 0.4.5 cleanup is done; 2.6 docs (#150) is the last task)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
 - [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
 - [x] **#148 · 2.4** Abandoned-cart recovery — PR #250 in review
-- [ ] **#149 · 2.5** Admin Marketing section v1
+- [x] **#149 · 2.5** Admin Marketing section v1 — PR #262 in review
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
 
 ## Decisions made (with reasons)
+- 2026-09-20 (manager, 2.5) · The analyst's marketing Overview is the **HQ** page, not the store one. The
+  store section is gated on `store_staff` — authoring work an analyst has no relation for — and the scope doc
+  already puts the cross-brand dashboard at organization level. Window 4's `sections.ts` stays untouched.
+- 2026-09-20 (me, 2.5) · The rule builder's contract proof is a **Prism contract test**, not ajv in the admin:
+  posting `toRules(draft)` as a `SegmentInput` makes the spec itself the validator, so no copy of the grammar
+  lives in the admin and no new dependency lands in window 4's package.
+- 2026-09-20 (me, 2.5) · The abandoned-cart tile is omitted until 0.4.5 rather than built on an untyped fetch.
+  A tile that might be wrong is worse than a tile that is missing.
 - 2026-09-19 (manager, 2.4) · Redemption is a **Store API route in the core**, not an exported function the
   storefront calls. The token deliberately carries no cart id, so only a server round trip can resolve it, and
   window 3's app speaks nothing but the publishable-key Store API. My own lean to the exported function was
@@ -152,6 +174,21 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   fails the build as soon as `apps/feeds` exists until every Dockerfile's deps stage lists it (intended prompt).
 
 ## Gotchas learned
+- **Docker Desktop flaps on this machine.** Two distinct failures, both environmental, neither a code problem:
+  (1) `localhost` resolves to `::1` and the IPv6 port proxy dies — pin `DATABASE_URL*` to **127.0.0.1**;
+  (2) Docker Desktop itself restarts mid-run, and a 63-file core suite is long enough to be caught by it
+  (37 files "failed", all connection errors; the same suite then passed 726/726 once it stayed up). Before
+  reporting a red core suite, check `docker ps` answers at all and re-run.
+- **`turbo` strips `DATABASE_URL*`**, so `pnpm test --filter @platform/core` does not see an exported override.
+  Run `pnpm --filter @platform/core exec vitest run` directly when you need the pinned host.
+- 2.5: window 4's `SuccessBody` maps 200 → 201 → `null`, so **a 202-with-body types as `null` silently** —
+  no error, the call site just gets nothing. Hit `materializeSegment`; window 13's `eraseCustomer` is the other
+  one. REQUEST #251.
+- 2.5: `useContractForm` returns `{ form, submit, formError, refusal, isSubmitting }` — field errors are
+  `form.formState.errors.x` through `errorMessage()`, and `SelectField` takes `options`, not children.
+- 2.5: the admin's unit vitest only includes `test/**`, so tests for anything under `src/app/**` must live in
+  `apps/admin/test/` — which is why the ownership row needed extending before 2.5 could be finished.
+- 2.5: `me.data.stores[].store_id`, not `.id`, is the store key on the principal.
 - 2.4: **never CHECK an app-supplied timestamp against a database-generated one.**
   `CHECK (redeemed_at >= created_at)` with `created_at DEFAULT now()` compares the Postgres clock to the Node
   clock and fails on ordinary skew. Four tests passed in isolation and failed in the full run; corrected on
