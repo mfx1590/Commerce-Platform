@@ -20,6 +20,14 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **contracts-v0.4.5 cleanup** — 2026-09-24. The landing (0eafbc9) had already moved `0170_cart_recovery.sql`
+  into `packages/db/migrations` and dropped the test DDL, so this covered the rest: the local
+  `AbandonedCartReport` type → the contract's, `permissionOrProposed` → plain `permission()`, the #251 cast in
+  the admin `_api.ts` → `AdminResponse<'materializeSegment'>` (window 4's 202 branch merged as 1f21588), the
+  abandoned-cart tile on the admin Overview, and the three #250 nits — report consistency (cancelled orders
+  excluded from `recovered_count` as well as `recovered_value`, with a test), `RECOVERY_UTM_SOURCE` exported
+  for window 16, and `tokenHashEquals` deleted.
+
 - **2.5 (#149) admin Marketing section** — 2026-09-20. Four Store screens + the HQ page, in
   `apps/admin/src/app/(store)/[storeId]/marketing/**` and `(hq)/marketing/**`; wrappers and server actions in
   the section (window 4's files untouched); rule builder over the frozen grammar with a live preview count.
@@ -57,14 +65,14 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — 2.5 is built and green; next is the 0.4.5 cleanup follow-up, then 2.6)
+- (nothing — 2.5 is PR #262 and the 0.4.5 cleanup is done; 2.6 docs (#150) is the last task)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
 - [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
 - [x] **#148 · 2.4** Abandoned-cart recovery — PR #250 in review
-- [x] **#149 · 2.5** Admin Marketing section v1 — built and green
+- [x] **#149 · 2.5** Admin Marketing section v1 — PR #262 in review
 - [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
 
 ## Decisions made (with reasons)
@@ -130,32 +138,6 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Attribution is server-side from UTM/referrer captured on the cart (window 3 does the capture in Phase 1); pixels are optional extras, never the source of reported numbers.
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
-## Queued — the contracts-v0.4.5 cleanup PR (do not lose this)
-Opens once #244/#245 land. Four things, three of them review nits from #250 (manager, 2026-09-20):
-
-1. **Delete the scaffolding** the contract changes replace: `proposed/0170_cart_recovery.sql`, the
-   `readFileSync(...0170...)` block in `recovery.test.ts` and `routes.test.ts`, the locally declared
-   `AbandonedCartReport` type in `recovery-types.ts` (→ `AdminComponents['schemas']['AbandonedCartReport']`),
-   and the `permissionOrProposed` fallback in `routes.ts` (→ plain `permission('getAbandonedCartReport')`).
-   Same shape as the #194 follow-up.
-2. **Make the recovery report internally consistent.** Today `recovered_count` filters only on
-   `r.status = 'recovered'`, while `recovered_value` sums through a LEFT JOIN that already excludes cancelled
-   orders — so a recovery whose order was later cancelled counts as **1 recovery worth 0**. Resolution:
-   **exclude cancelled from both**, i.e. add `AND o.id IS NOT NULL` to the count's FILTER. Reason: the 2.1
-   attribution report's house rule is already "orders that count as revenue: … not cancelled", and the same
-   order must not be revenue in one marketing report and not the other — someone reconciling the two would
-   find a discrepancy neither report explains. Document that the *record* keeps `status = 'recovered'` (what
-   happened to the cart) while the *report* counts recoveries that stuck (what it was worth), and that a
-   record whose `recovered_order_id` went NULL is excluded too.
-3. **Export the UTM source as a constant** — `RECOVERY_UTM_SOURCE = 'abandoned_cart'` from the module index,
-   referenced by the README and by REQUEST #247, so window 16 and window 3 pin a value instead of reading
-   prose.
-4. **Drop the vacuous `tokenHashEquals` self-comparison.** `redeemToken` does
-   `tokenHashEquals(hashToken(token), hash)` where `hash` *is* `hashToken(token)` — comparing a value with
-   itself, always true. Remove the call, and remove the function and its export with it: the lookup is
-   `WHERE token_hash = $2` on an indexed column, so a constant-time compare was never protecting anything and
-   reading like a security measure is worse than not having it.
-
 ## Blocked / waiting
 - **#240 (2.3) merged** 2026-09-19 (4ea4abb); contracts-v0.4.4 tagged (5f79e6d), #239 landed in it. One
   landing-commit change in my files: routes.test.ts grammar-400 now asserts the spec-layer rejection
@@ -192,6 +174,13 @@ Opens once #244/#245 land. Four things, three of them review nits from #250 (man
   fails the build as soon as `apps/feeds` exists until every Dockerfile's deps stage lists it (intended prompt).
 
 ## Gotchas learned
+- **Docker Desktop flaps on this machine.** Two distinct failures, both environmental, neither a code problem:
+  (1) `localhost` resolves to `::1` and the IPv6 port proxy dies — pin `DATABASE_URL*` to **127.0.0.1**;
+  (2) Docker Desktop itself restarts mid-run, and a 63-file core suite is long enough to be caught by it
+  (37 files "failed", all connection errors; the same suite then passed 726/726 once it stayed up). Before
+  reporting a red core suite, check `docker ps` answers at all and re-run.
+- **`turbo` strips `DATABASE_URL*`**, so `pnpm test --filter @platform/core` does not see an exported override.
+  Run `pnpm --filter @platform/core exec vitest run` directly when you need the pinned host.
 - 2.5: window 4's `SuccessBody` maps 200 → 201 → `null`, so **a 202-with-body types as `null` silently** —
   no error, the call site just gets nothing. Hit `materializeSegment`; window 13's `eraseCustomer` is the other
   one. REQUEST #251.

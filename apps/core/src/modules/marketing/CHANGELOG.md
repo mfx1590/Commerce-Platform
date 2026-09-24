@@ -10,6 +10,28 @@ file is the module's own history (linked from the PRs).
 - `proposed/product-feed.schema.json` removed; `feed-types.ts` takes `ProductFeed` / `FeedStatus` from the
   generated types and `routes.test.ts` asserts the error-status feed against the document itself.
 
+### 2026-09-24 · contracts-v0.4.5 cleanup and the #250 review nits
+
+The 0.4.5 landing (0eafbc9) moved `0170_cart_recovery.sql` into `packages/db/migrations` and dropped the
+test-side DDL; this removes the rest of the scaffolding and settles the review.
+
+- `recovery-types.ts`: `AbandonedCartReport` is the contract's component again, not a local declaration.
+- `routes.ts`: `permissionOrProposed` is gone — `getAbandonedCartReport` reads its `x-permission` from the spec
+  like every other route.
+- **The recovery report is now internally consistent** (#250 review): `recovered_count` and `recovered_value`
+  both come through the LEFT JOIN that excludes cancelled orders, so a recovery whose order was later
+  cancelled counts as _no recovery_ rather than as one recovery worth nothing. It also matches the 2.1
+  attribution report's rule, so the same order is never revenue in one marketing report and not the other. The
+  record keeps `status = 'recovered'` — that is what happened to the cart; the report is about what it was
+  worth. Covered by a test.
+- **`RECOVERY_UTM_SOURCE`** is exported from the module index so window 16 and window 3/10 pin the value
+  instead of reading it out of prose; splitting it would split every recovered order's attribution in two.
+- **`tokenHashEquals` is deleted**, call and export. The lookup is `WHERE token_hash = $2` on an indexed
+  column, so a constant-time compare in front of it protected nothing and only read like a security measure.
+- Admin: the `materializeSegment` cast is gone (window 4's 202 branch landed as 1f21588, REQUEST #251), and
+  the **abandoned-cart tile is on the Overview** — abandoned, links opened, recovered, rate, with the
+  cancelled-order rule stated on the card.
+
 ### 2026-09-20 · 2.5 Admin Marketing section (#149)
 
 Window 17's first work outside `apps/core`. Files are in `apps/admin/src/app/(store)/[storeId]/marketing/**`,

@@ -3,7 +3,7 @@ import { ApiStatePanel } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { formatMoney } from '@/lib/forms/money';
-import { getAttributionReport, getPromotionReport } from './_api';
+import { getAbandonedCartReport, getAttributionReport, getPromotionReport } from './_api';
 import { MarketingNav } from './section-nav';
 import { reportWindow } from './_sections';
 
@@ -28,9 +28,10 @@ export default async function MarketingOverviewPage({
   const { storeId } = await params;
   const window = reportWindow(30);
 
-  const [attribution, promotions] = await Promise.all([
+  const [attribution, promotions, recovery] = await Promise.all([
     getAttributionReport(storeId, { ...window, touch: 'last' }),
     getPromotionReport(storeId, window),
+    getAbandonedCartReport(storeId, window),
   ]);
 
   return (
@@ -153,12 +154,69 @@ export default async function MarketingOverviewPage({
           </CardBody>
         </Card>
 
-        {/*
-          The abandoned-cart recovery rate belongs on this page (#149) and is deliberately not here yet:
-          `getAbandonedCartReport` is CONTRACT CHANGE #245 and is not in the frozen document, so there is no
-          operationId to type against. It arrives with the contracts-v0.4.5 cleanup rather than being faked
-          from an untyped fetch — a tile that might be wrong is worse than a tile that is missing.
-        */}
+        <Card>
+          <CardHeader
+            title="Abandoned-cart recovery"
+            description="How many abandoned carts came back, and what that was worth, over the last 30 days."
+          />
+          <CardBody>
+            {!recovery.ok ? (
+              <ApiStatePanel
+                status={recovery.status}
+                error={recovery.error}
+                what="abandoned-cart report"
+                storeId={storeId}
+                hint="Reports need any relation on this store (viewer)."
+              />
+            ) : (
+              <>
+                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm md:grid-cols-4">
+                  <div>
+                    <dt className="text-muted text-xs uppercase">Abandoned</dt>
+                    <dd className="font-mono text-lg tabular-nums">
+                      {recovery.data.abandoned_count}
+                    </dd>
+                    <dd className="text-muted font-mono text-xs tabular-nums">
+                      {formatMoney(
+                        recovery.data.abandoned_value.amount_minor,
+                        recovery.data.abandoned_value.currency,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted text-xs uppercase">Links opened</dt>
+                    <dd className="font-mono text-lg tabular-nums">
+                      {recovery.data.redeemed_count}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted text-xs uppercase">Recovered</dt>
+                    <dd className="font-mono text-lg tabular-nums">
+                      {recovery.data.recovered_count}
+                    </dd>
+                    <dd className="text-muted font-mono text-xs tabular-nums">
+                      {formatMoney(
+                        recovery.data.recovered_value.amount_minor,
+                        recovery.data.recovered_value.currency,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted text-xs uppercase">Recovery rate</dt>
+                    <dd className="font-mono text-lg tabular-nums">
+                      {(recovery.data.recovery_rate * 100).toFixed(1)}%
+                    </dd>
+                  </div>
+                </dl>
+                <p className="text-muted mt-3 text-xs">
+                  A cart counts once, however many times its link was opened. Recovered value is the
+                  order total — what the customer actually paid after coming back — and a recovery
+                  whose order was later cancelled counts in neither column.
+                </p>
+              </>
+            )}
+          </CardBody>
+        </Card>
       </div>
     </StoreSectionGuard>
   );

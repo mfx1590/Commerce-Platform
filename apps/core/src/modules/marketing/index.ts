@@ -75,14 +75,8 @@ export {
 } from './recovery';
 export type { ConsumeOptions, ConsumeResult } from './recovery';
 export { abandonedCartReport } from './recovery-report';
-export {
-  DEFAULT_TTL_MS,
-  hashToken,
-  mintToken,
-  redeemToken,
-  tokenHashEquals,
-} from './recovery-token';
-export { RECOVERY_CURSOR, RECOVERY_STATUSES } from './recovery-types';
+export { DEFAULT_TTL_MS, hashToken, mintToken, redeemToken } from './recovery-token';
+export { RECOVERY_CURSOR, RECOVERY_STATUSES, RECOVERY_UTM_SOURCE } from './recovery-types';
 export type {
   AbandonedCartReport,
   AbandonedCartReportQuery,

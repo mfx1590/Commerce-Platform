@@ -156,22 +156,18 @@ export async function previewSegment(
 }
 
 /**
- * Refreshes `segment_member`. The contract answers **202** with a `Segment` body.
- *
- * The return type is written out rather than taken from `AdminResponse<'materializeSegment'>`: window 4's
- * `SuccessBody` helper maps 200 → body, else 201, else `null`, so any 202-with-body types as `null`. That is
- * their file, so REQUEST #251 asks for the 202 branch — it also silently affects window 13's `eraseCustomer`,
- * the only other 202 in the document. Until it lands, the cast below is the honest type: `Segment` is exactly
- * what `admin-api.yaml` documents for this response.
+ * Refreshes `segment_member`. The contract answers **202** with a `Segment` body, and `AdminResponse` now
+ * carries it: window 4 added the 202 branch to `SuccessBody` (REQUEST #251, merged as 1f21588), so the cast
+ * this used to need is gone.
  */
 export async function materializeSegment(
   storeId: string,
   segmentId: string,
-): Promise<ApiResult<AdminComponents['Segment']>> {
+): Promise<ApiResult<AdminResponse<'materializeSegment'>>> {
   return adminCall<'materializeSegment'>({
     path: buildPath(`${STORE}/segments/{segmentId}/materialize`, { storeId, segmentId }),
     method: 'POST',
-  }) as unknown as Promise<ApiResult<AdminComponents['Segment']>>;
+  });
 }
 
 export async function deleteSegment(
@@ -276,6 +272,16 @@ export async function getPromotionReport(
   });
 }
 
-// The abandoned-cart recovery report is deliberately absent: `getAbandonedCartReport` is CONTRACT CHANGE #245
-// and is not in the frozen document yet, so there is no operationId to type against. It joins this file — and
-// the Overview tile — in the contracts-v0.4.5 cleanup, rather than being faked with an untyped fetch now.
+/**
+ * Abandoned carts, how many were recovered and what that was worth — `viewer`, like the other two reports.
+ * Added in contracts-v0.4.5 (#245).
+ */
+export async function getAbandonedCartReport(
+  storeId: string,
+  query: { from: string; to: string },
+): Promise<ApiResult<AdminResponse<'getAbandonedCartReport'>>> {
+  return adminCall<'getAbandonedCartReport'>({
+    path: buildPath(`${STORE}/reports/abandoned-carts`, { storeId }),
+    query: { from: query.from, to: query.to },
+  });
+}

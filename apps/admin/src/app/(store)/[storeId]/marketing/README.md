@@ -1,6 +1,6 @@
 # Marketing section (admin, Store view)
 
-Owner: **window 17 (marketing)** · Issue #149 · Contracts: Admin API 0.4.4.
+Owner: **window 17 (marketing)** · Issue #149 · Contracts: Admin API 0.4.5.
 
 Four screens over the marketing surface the core exposes: Overview, Campaigns, Segments, Feeds. The HQ
 counterpart is `src/app/(hq)/marketing/`.
@@ -16,9 +16,9 @@ counterpart is `src/app/(hq)/marketing/`.
 - **Server actions live here**, in `_actions.ts`, not in `src/app/actions/`.
 - **Nothing new is added to window 4's component space.** Every primitive is theirs: `Card`, `Badge`,
   `Button`, `DataTable`, `fields` / `use-contract-form`, `StatePanel` / `ActionRefusal`, the section guards.
-- Anything of theirs that needs to change is a REQUEST. One is open: **#251**, their `SuccessBody` type maps
-  200 and 201 but not 202, so `materializeSegment` (and window 13's `eraseCustomer`) type as `null`. `_api.ts`
-  declares that one return type explicitly, with a comment, until it lands.
+- Anything of theirs that needs to change is a REQUEST. One has been through that loop: **#251** — their
+  `SuccessBody` mapped 200 and 201 but not 202, so `materializeSegment` (and window 13's `eraseCustomer`) typed
+  as `null`. Their fix merged as 1f21588 and the local workaround is gone.
 
 ## Conventions that are not optional here
 
@@ -34,12 +34,12 @@ counterpart is `src/app/(hq)/marketing/`.
 
 ## The screens
 
-| Screen                 | Reads                                                                          | Writes                                                            |
-| ---------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| Overview `page.tsx`    | `getAttributionReport`, `getPromotionReport` (`viewer`)                        | —                                                                 |
-| Campaigns `campaigns/` | `listCampaigns`, `getCampaign` (`store_staff`)                                 | `createCampaign`, `launchCampaign`, `endCampaign` (`store_admin`) |
-| Segments `segments/`   | `listSegments`, `getSegment` (`store_staff`), `previewSegment` (`store_staff`) | `updateSegment` (`store_admin`)                                   |
-| Feeds `feeds/`         | `listFeeds`, `getFeed`, `listFeedItems` (`store_staff`)                        | `publishFeed` (`store_admin`)                                     |
+| Screen                 | Reads                                                                             | Writes                                                            |
+| ---------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Overview `page.tsx`    | `getAttributionReport`, `getPromotionReport`, `getAbandonedCartReport` (`viewer`) | —                                                                 |
+| Campaigns `campaigns/` | `listCampaigns`, `getCampaign` (`store_staff`)                                    | `createCampaign`, `launchCampaign`, `endCampaign` (`store_admin`) |
+| Segments `segments/`   | `listSegments`, `getSegment` (`store_staff`), `previewSegment` (`store_staff`)    | `updateSegment` (`store_admin`)                                   |
+| Feeds `feeds/`         | `listFeeds`, `getFeed`, `listFeedItems` (`store_staff`)                           | `publishFeed` (`store_admin`)                                     |
 
 Every number on Overview comes from `attribution` rows and orders, computed in the core — never from a pixel or
 an ad platform's own figure. The page says so, because that is the whole point of the section.
@@ -64,9 +64,6 @@ write `NL` anyway is a validation message nobody learns anything from.
 
 ## Not here yet
 
-- **The abandoned-cart recovery tile** on Overview. `getAbandonedCartReport` is CONTRACT CHANGE #245 and is not
-  in the frozen document, so there is no operationId to type against; it arrives with the contracts-v0.4.5
-  cleanup. A tile that might be wrong is worse than a tile that is missing.
 - Referrals, Reviews and Consent — Phase 3 (docs/marketing-scope.md).
 - Feed and segment _creation_ forms. Campaigns has one; feeds and segments are created through the API for now
   and edited here.
