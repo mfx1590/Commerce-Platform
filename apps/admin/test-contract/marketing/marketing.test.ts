@@ -82,8 +82,8 @@ describe('every screen reaches the path the contract documents', () => {
     expect(preview.ok, JSON.stringify(preview)).toBe(true);
     if (preview.ok) expect(typeof preview.data.count).toBe('number');
 
-    // 202 with a body. The wrapper types it as `Segment` because window 4's `SuccessBody` has no 202 branch
-    // (REQUEST #251); this asserts the body is really there rather than the `null` the helper would imply.
+    // 202 with a body. `AdminResponse` maps 202 since #251 (d3f7754), so no cast is involved; this still
+    // asserts the body really arrives, because a regression there would type as `null` without an error.
     const materialized = await storeApi.materializeSegment(SEED_STORE_ID, ID);
     expect(materialized.ok, JSON.stringify(materialized)).toBe(true);
     if (materialized.ok) expect(materialized.data).toHaveProperty('materialised_count');
