@@ -1,6 +1,6 @@
 # Memory 17 — Marketing
 Window: 17 · Key: `marketing` · Branch prefix: `marketing/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-09-08 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `marketing/phase2` · Status: 2.1 in review (PR #182), 2.2 feeds built and green, awaiting the 2.1 merge before pushing
+Last updated: 2026-09-24 · Contracts: contracts-v0.4.5 · Branch: `marketing/phase2` · Status: **Phase 2 COMPLETE once the #150 PR merges** — 2.1–2.5 merged (last: PR #262 → 55a226f); after that the window goes quiet and wakes only for routed REQUESTs
 
 ## Identity (does not change)
 Owned paths (write):
@@ -20,7 +20,15 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **contracts-v0.4.5 cleanup** — 2026-09-24. The landing (0eafbc9) had already moved `0170_cart_recovery.sql`
+- **2.6 (#150) docs pass, end-to-end test, PII sweep** — commit SHA_2_6, the PR closing #150, 2026-09-24. Module README
+  brought up to date (write surface incl. the one `cart.status` write on redemption, public API by area, report
+  SQL + feed formats as decisions, landed issues recorded), new module `CLAUDE.md`, feeds docs refreshed.
+  `marketing.e2e.test.ts`: attribution → campaign report → feed publish → segment materialise → sync payload,
+  and the PII sweep over outbox payloads, `audit_log` rows and console calls + a static no-log-call check;
+  `apps/feeds` pins its two log lines. #262 nits folded in (stale #251 comment; the bound preview cast
+  **removed** — manager approved over the requested why-comment; shas added below). Gates: format, lint,
+  typecheck 21/21, tests core 731 passed / 6 skipped, admin 377, feeds 14.
+- **contracts-v0.4.5 cleanup** — commit `8edec87`, PR #262 (merged 55a226f), 2026-09-24. The landing (0eafbc9) had already moved `0170_cart_recovery.sql`
   into `packages/db/migrations` and dropped the test DDL, so this covered the rest: the local
   `AbandonedCartReport` type → the contract's, `permissionOrProposed` → plain `permission()`, the #251 cast in
   the admin `_api.ts` → `AdminResponse<'materializeSegment'>` (window 4's 202 branch merged as 1f21588), the
@@ -28,7 +36,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   excluded from `recovered_count` as well as `recovered_value`, with a test), `RECOVERY_UTM_SOURCE` exported
   for window 16, and `tokenHashEquals` deleted.
 
-- **2.5 (#149) admin Marketing section** — 2026-09-20. Four Store screens + the HQ page, in
+- **2.5 (#149) admin Marketing section** — commit `6c27ecf`, PR #262 (merged 55a226f), 2026-09-20. Four Store screens + the HQ page, in
   `apps/admin/src/app/(store)/[storeId]/marketing/**` and `(hq)/marketing/**`; wrappers and server actions in
   the section (window 4's files untouched); rule builder over the frozen grammar with a live preview count.
   Tests: 9 pure + 8 Prism contract (every field/op posted as a `SegmentInput`). REQUEST #251 filed (202 branch
@@ -65,17 +73,29 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — 2.5 is PR #262 and the 0.4.5 cleanup is done; 2.6 docs (#150) is the last task)
+- (nothing — Phase 2 done; the #150 PR is waiting for the manager's merge. Push nothing further until then.)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
 - [x] **#146 · 2.2** Product feeds for Google Merchant and Meta — PR #200 in review
 - [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
 - [x] **#148 · 2.4** Abandoned-cart recovery — PR #250 in review
-- [x] **#149 · 2.5** Admin Marketing section v1 — PR #262 in review
-- [ ] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff
+- [x] **#149 · 2.5** Admin Marketing section v1 — PR #262 merged (55a226f)
+- [x] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff — the PR closing #150
 
 ## Decisions made (with reasons)
+- 2026-09-24 (me, 2.6) · **`getPromotionReport` is documented as a known gap, not built inside the docs PR.** The
+  contract has the operation, window 9's `promotionReportData` is ready, the admin Overview calls it — but no
+  route in `routes.ts` answers it, so it only works against Prism. Building it is a feature, not a docs change;
+  raised with the manager as the one open item.
+- 2026-09-24 (manager, 2.6) · Removing a cast that typechecks cleanly beats inventing a justification for it
+  (#262 nit 3); the `save` cast next to it is a different case and stays.
+- 2026-09-24 (me, 2.6) · The PII sweep is **one run of the real flow** searched for known values and PII-shaped
+  keys, plus a static no-log-call check — not a list of payload schemas. It asserts the events it sweeps were
+  actually produced, so an empty outbox cannot pass it.
+- 2026-09-24 (me, 2.6) · Report SQL and feed formats are written up in the module README (decisions section) —
+  one touch per report, revenue = `order.total_minor`, cancelled excluded in both reports, total ordering;
+  Google = RSS 2.0 + `g:`, Meta = CSV (RFC 4180), tiktok/pinterest storable but a 409 to publish.
 - 2026-09-20 (manager, 2.5) · The analyst's marketing Overview is the **HQ** page, not the store one. The
   store section is gated on `store_staff` — authoring work an analyst has no relation for — and the scope doc
   already puts the cross-brand dashboard at organization level. Window 4's `sections.ts` stays untouched.
@@ -139,41 +159,19 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
-- **#240 (2.3) merged** 2026-09-19 (4ea4abb); contracts-v0.4.4 tagged (5f79e6d), #239 landed in it. One
-  landing-commit change in my files: routes.test.ts grammar-400 now asserts the spec-layer rejection
-  (validateBody refuses before my parser, AJV dotted paths); parser tests untouched. Carried through and green.
-- **#244 / #245** (db 0170 + Admin/Store API) land bundled as **contracts-v0.4.5** after the 2.4 PR merges.
-  Building against `proposed/0170_cart_recovery.sql`; the report route falls back to the proposed `viewer`
-  permission only while the operation is absent from the spec. **Correction posted on #244**: drop
-  `CHECK (redeemed_at >= created_at)` — see Gotchas.
-- **#246** window 1 mounts `POST /store/cart-recovery/{token}`; **#247** windows 3/10 build the page. Neither
-  blocks the module.
-- **CONTRACT CHANGE #239 (SegmentRules)** — filed 2026-09-19, manager lands it after the 2.3 PR merges (the
-  0140/0160 pattern). No `proposed/` copy needed: responses validate against the frozen document today because
-  it still accepts additional properties. A route test asserts the **old flat shape is refused**, which is the
-  behaviour #239 documents.
-- **Local Docker stack is DOWN (2026-09-09)** — Docker Desktop is not running on this machine, so every suite
-  calling `createTestDatabase` fails with `ECONNREFUSED :5433` (window 9's search suites too, not just mine).
-  Lint/typecheck/format still run. Restarting the shared stack is the manager's call at a quiet moment
-  (stack etiquette): do not `pnpm dev --reset` or recreate containers. Stated as a caveat on PR #200.
-- **CONTRACT CHANGE #194 — ACCEPTED** (manager 2026-09-09): `ProductFeed` gets its own status enum including
-  `error` and `ProductFeedInput` stops carrying `status`; lands as **Admin API 0.4.1 after PR #200 merges**.
-  Keep `proposed/` and the loud inverted test until then, then delete both in a follow-up.
-  Original report: Admin API 0.3.0's `ProductFeed` is `allOf[ProductFeedInput, …]` and
-  `ProductFeedInput.status` excludes `error`, so the document rejects the status `publishFeed` produces and the
-  generated type will not compile with it. Working against `proposed/product-feed.schema.json` + a local read
-  type; a test asserts the frozen document *still rejects* the error response, so it fails loudly when #194
-  lands and tells me to delete the workaround.
-- **REQUEST #195 (window 5)** — `apps/feeds/Dockerfile`, `apps/feeds/package.json` in all four images' deps
-  stages (image-manifests guard is red until then, by design), and the artifact bucket to plan.
-- **REQUEST #181 (window 1)** — the one line that mounts `marketingAdminRouter()` in `src/http`, plus exporting
-  `enumParam`/`sortParams` from `src/http/index.ts` (I carry a local copy of `enumParam` until then). Not blocking:
-  `routes.test.ts` mounts the router behind the real middleware chain, so the contract shapes are proven. Delete
-  the local copy in a follow-up once it lands.
-- 2.2 feeds will need a **REQUEST to window 5** with the first `apps/feeds` PR: `infra/ci/check-image-manifests.sh`
-  fails the build as soon as `apps/feeds` exists until every Dockerfile's deps stage lists it (intended prompt).
+- **#150 PR** — waiting for the manager's merge; nothing else is pushed until it is confirmed.
+- **`getPromotionReport` route** — not built (see Decisions 2026-09-24); needs the manager's call on who/when.
+- **REQUEST #247** (windows 3/10, the storefront recovery page) — still open; does not block the module.
+- Everything else from Phase 2 has landed: #181 (mount), #194 (0.4.1), #195 (infra #210), #239 (0.4.4),
+  #244/#245 (0.4.5), #246 (window 1 route), #251 (admin 202 mapping, d3f7754).
 
 ## Gotchas learned
+- 2.6: **a Prism contract test proves the admin calls the right shape, not that the core answers it.**
+  `getPromotionReport` passed every admin test for a whole phase with no core route behind it. When a screen
+  calls an operation, check `routes.ts` (or the owning module's router) actually implements it.
+- 2.6: TypeScript's `bind` overloads type up to four bound arguments correctly — a cast after `.bind(null, a, b)`
+  is usually redundant; delete it and let `tsc` confirm.
+- 2.6: SQL literals cannot use JS numeric separators — `12_500` inside a query string is a syntax error.
 - **Docker Desktop flaps on this machine.** Two distinct failures, both environmental, neither a code problem:
   (1) `localhost` resolves to `::1` and the IPv6 port proxy dies — pin `DATABASE_URL*` to **127.0.0.1**;
   (2) Docker Desktop itself restarts mid-run, and a 63-file core suite is long enough to be caught by it
@@ -246,7 +244,7 @@ Tests build their own database through `@platform/db/testing` + `seed` — they 
 Route tests use `CORE_DEV_TOKENS=1` with the seeded subjects (`seed-store-admin`, `seed-store-staff`, `seed-analyst`).
 
 ## Later phases (do not start until Memory-main says so)
-### Phase 3 — Multi-store & HQ
+### Phase 3 — Multi-store & HQ (list confirmed in the 2.6 handoff, 2026-09-24; plus the open `getPromotionReport` route unless the manager places it earlier)
 - [ ] Referral programme (codes, landing `/r/{code}` with window 3, rewards via promotions, `referral.converted`)
 - [ ] Reviews: submission after `shipment.delivered` (request e-mail via window 16), moderation queue, PDP display contract with window 3
 - [ ] Consent centre: per-channel opt-in rates, double opt-in for EU brands, export for audits

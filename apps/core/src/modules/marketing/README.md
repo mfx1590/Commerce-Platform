@@ -1,11 +1,13 @@
 # marketing module
 
 Owner: **window 17 (marketing)** · Branch prefix `marketing/` · Spec: [docs/marketing-scope.md](../../../../../docs/marketing-scope.md)
-Contracts: `contracts-v0.3` — Admin API 0.3.0, events 0.2.0, db 0.2.0 (migration `0120_marketing.sql`).
+Contracts: `contracts-v0.4.5` (migrations `0120_marketing.sql` and `0170_cart_recovery.sql`).
+Status: **Phase 2 complete** — 2.1 campaigns and the attribution report (#145), 2.2 product feeds (#146), 2.3
+segments (#147), 2.4 abandoned-cart recovery (#148), 2.5 the admin section (#149, lives in `apps/admin`), 2.6
+this documentation pass and the end-to-end test (#150).
 
-Campaigns, attribution reporting, segments, feeds and referrals for a store. Phase 2.1 delivers **campaigns and
-the attribution report**, 2.2 **product feeds**, 2.3 **segments**, 2.4 **abandoned-cart recovery**.
-The feed _files_ are served by `apps/feeds` — this module generates and stores them.
+The feed _files_ are served by `apps/feeds` — this module generates and stores them. The admin screens are in
+`apps/admin/src/app/(store)/[storeId]/marketing/**` and `(hq)/marketing/**`, with their own README.
 
 ## The one rule this module exists to keep
 
@@ -16,19 +18,34 @@ Attribution touches are captured server-side by the storefront into `cart.metada
 them. It follows that the report is unaffected by ad blockers and reconciles with the order list — and that a
 number here can be compared with the ledger later without a caveat.
 
-Marketing **never mutates orders, prices or stock**. In 2.1 the only tables written are `campaign`, `audit_log`
-and `outbox`.
+Marketing **never mutates orders, prices or stock**. Every table it writes, and nothing else:
+
+| Table                               | Written by                                                                 |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `campaign`                          | campaign CRUD and `launch` / `end`                                         |
+| `product_feed`                      | feed CRUD and `publishFeed` (status, url, counts, errors)                  |
+| `segment`, `segment_member`         | segment CRUD; `materializeSegment` replaces the members                    |
+| `cart_recovery`, `marketing_cursor` | the `cart.abandoned` consumer, redemption, `reconcileRecoveries`           |
+| `cart` — **`status` only**          | a redeemed recovery link sets `abandoned → active`, guarded on `abandoned` |
+| `audit_log`, `outbox`               | every mutation / every state change with an event, same transaction        |
+
+The one write outside marketing's own tables is that cart reactivation: it is the same transition window 1's
+cart module performs on any mutation of an abandoned cart, it touches no line, price or total, and it is what
+makes a recovery link land the customer in a working cart.
 
 ## Public API (`index.ts`)
 
-| Export                                                                                               | What                                                                     |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `listCampaigns` `getCampaign` `createCampaign` `updateCampaign` `deleteCampaign`                     | campaign CRUD over a store-scoped `ScopedClient`                         |
-| `launchCampaign` `endCampaign`                                                                       | the two status transitions, each with its event                          |
-| `attributionReport`                                                                                  | orders and revenue by utm source/medium/campaign for one touch model     |
-| `marketingAdminRouter()`                                                                             | the Admin API routes below, as an Express router                         |
-| `toCampaign` `normaliseCampaignInput`                                                                | row → contract shape, and input validation (exported for tests and jobs) |
-| `CAMPAIGN_TYPES` `CAMPAIGN_STATUSES` `CAMPAIGN_SORT_FIELDS` `LAUNCHABLE` `ENDABLE` `TOUCHES` + types | the contract enums, in one place                                         |
+Every service takes a store-scoped `ScopedClient` first; the contract types are re-exported next to them.
+
+| Area      | Exports                                                                                                                                                                                        | Who else calls it                               |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Campaigns | `listCampaigns` `getCampaign` `createCampaign` `updateCampaign` `deleteCampaign` `launchCampaign` `endCampaign` `toCampaign` `normaliseCampaignInput` + the enums in `types.ts`                | —                                               |
+| Reports   | `attributionReport` `abandonedCartReport`                                                                                                                                                      | —                                               |
+| Feeds     | feed CRUD, `publishFeed`, `listFeedItems`; the pipeline steps `buildFeedItems` / `validateItems` / `renderFeed`; the `FeedStorage` seam (`setFeedStorage`, `FilesystemFeedStorage`, `feedKey`) | `apps/feeds` shares the key convention only     |
+| Segments  | segment + template CRUD, `previewSegment`, `materializeSegment`; the grammar (`parseSegmentRules`, `SEGMENT_FIELDS`, `SEGMENT_RULES_SCHEMA`); `compileSegmentRules` / `segmentQuery`           | window 16, the admin rule builder (the schema)  |
+| Sync      | `segmentSyncPayload`, `emailHash`                                                                                                                                                              | window 16                                       |
+| Recovery  | `consumeAbandonedCarts`, `reconcileRecoveries`, `validateRecoveryToken`, `listRecoveries`, `getRecoveryByCart`, the token helpers, `RECOVERY_UTM_SOURCE`                                       | window 1 (the Store API route), windows 3/10/16 |
+| HTTP      | `marketingAdminRouter()` — every Admin API route of the module                                                                                                                                 | window 1 mounts it                              |
 
 Nothing outside this folder may import from any other file here.
 
@@ -42,6 +59,8 @@ Read from each operation's `x-permission` in `admin-api.yaml` at runtime — nev
 | `createCampaign` / `updateCampaign` / `deleteCampaign` | `POST` / `PATCH` / `DELETE` on the same paths            | `store_admin` |
 | `launchCampaign` / `endCampaign`                       | `POST …/campaigns/{id}/launch` · `…/end`                 | `store_admin` |
 | `getAttributionReport`                                 | `GET …/marketing/reports/attribution`                    | `viewer`      |
+| `getAbandonedCartReport`                               | `GET …/marketing/reports/abandoned-carts`                | `viewer`      |
+| feeds, segments, templates                             | see `routes.ts`; each reads its own `x-permission`       | per the spec  |
 
 `viewer` is the spec's "any relation on the store" convention (Integration 1 decision), so an HQ analyst reads the
 report next to store staff without gaining access to the campaign rows.
@@ -49,9 +68,17 @@ report next to store staff without gaining access to the campaign rows.
 ### Mounting
 
 `src/http` and `src/server.ts` belong to window 1, so this router is **not** mounted by the module itself: it is
-exported from `index.ts` and mounted by one line in `src/http/admin-routes.ts`, requested in a `REQUEST:` issue
-(the route #162 took for merchandising). Until that line lands, `routes.test.ts` mounts the router on a bare
-Express app behind the real middleware chain, which is what proves the contract shapes.
+exported from `index.ts` and mounted by one `routers.push(...)` line in `src/http/module-routers.ts` (#181,
+landed). `routes.test.ts` still mounts it on a bare Express app behind the real middleware chain, so the contract
+shapes are proven without booting the core.
+
+### Known gap — `getPromotionReport` has no route here
+
+The Admin API carries `GET …/marketing/reports/promotions` (`getPromotionReport`, `viewer`), window 9 built its
+data provider (`promotionReportData` in the promotions module's public API, "window 17 owns the route"), and the
+admin Overview calls it — but this router does not implement it. Against Prism the tile renders; against the real
+core the operation is unanswered. Found in the 2.6 docs pass (2026-09-24) and raised with the manager rather than
+built inside a documentation PR: the route is a thin `routes.ts` handler over `promotionReportData`.
 
 ## Behaviour worth knowing
 
@@ -78,6 +105,28 @@ Two campaigns sharing a `utm_campaign` resolve to the oldest, deterministically.
 **What the report counts.** Orders placed in `[from, to)`, not `cancelled`, in the store's default currency, split
 by the `first` or `last` touch. Orders with no attribution row appear as one `direct` item, so
 `totals.orders_count` reconciles with the store's order list instead of quietly losing revenue.
+
+### The report SQL, and why it is shaped this way
+
+Two queries over one CTE (`PLACED_ORDERS` in `reports.ts`: store, currency, `[from, to)`, `status <> 'cancelled'`):
+
+1. **Attributed** — `placed JOIN attribution ON order_id AND touch = $touch`, grouped by
+   `(utm_source, utm_medium, utm_campaign, campaign_id)`. The campaign comes from a `LEFT JOIN LATERAL` that
+   picks the oldest campaign of the store whose `lower(utm_campaign)` matches; `campaign_id` is functionally
+   determined by `utm_campaign`, so adding it to `GROUP BY` never splits a group.
+2. **Direct** — the same CTE `WHERE NOT EXISTS` an attribution row for that touch, appended as one `direct` item.
+
+Choices that are decisions rather than accidents:
+
+- **One touch per report.** `first` and `last` are separate reports, never blended — a blended model is an
+  opinion, and two honest numbers beat one averaged one. Each order has at most one row per touch, so no order
+  is counted twice within a report.
+- **Revenue is `order.total_minor`** — what the customer paid, tax and shipping included, the same number the
+  order list shows. The abandoned-cart report uses the same total and the same cancelled-order rule, so an
+  order is never revenue in one marketing report and not in the other.
+- **Sums are `::text` in SQL and `Number()` in TypeScript**: node-postgres returns `bigint`/`sum()` as strings.
+- **Ordering is total**: revenue desc, count desc, source asc NULLS LAST — the same input always renders the same
+  table, which is what lets a test compare whole reports.
 
 ## Product feeds (2.2, #146)
 
@@ -108,6 +157,17 @@ storable but not renderable yet, so publishing one is a 409 rather than an empty
 **Prices.** `price` is the list price and `sale_price` the discounted one, so our `compare_at_minor` ("was")
 flips the two on a genuine markdown. Amounts are converted to major units with the ISO 4217 exponent —
 `1999 JPY` is 1999, not 19.99.
+
+**Formats.** One renderer per channel, chosen by `channel`; the extension and content type come from
+`FEED_EXTENSION` / `FEED_CONTENT_TYPE`, never from the caller.
+
+| Channel               | File                                               | Why that format                                               |
+| --------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| `google_merchant`     | RSS 2.0 + the `g:` namespace, `.xml`               | Merchant Center's scheduled-fetch format; attributes as `g:*` |
+| `meta`                | CSV with Meta's catalogue column names, `.csv`     | the Commerce Manager data-feed format; quoted per RFC 4180    |
+| `tiktok`, `pinterest` | storable, **not renderable** — publishing is a 409 | no file is better than a file the channel would half-accept   |
+
+Stored under `<store_code>/<feed_id>.<ext>` — the one convention `apps/feeds` shares with this module.
 
 ### Known contract bug — `ProductFeed.status`
 
@@ -203,13 +263,12 @@ segment was last materialised as, so that what was previewed, what was counted a
 set. A member is `{ customer_id, email_hash, consent, materialised_at }` — **no address, name or phone**, the
 same convention the event envelopes use.
 
-### Known contract gap — `SegmentRules` (CONTRACT CHANGE filed)
+### `SegmentRules` in the contract (#239, landed in contracts-v0.4.4)
 
-Admin API 0.4.3 still describes `SegmentRules` as the flat `{ orders_count, tags, consent, … }` bag with
-`additionalProperties: true` and "Unknown keys are kept, not rejected" — while its own description says the
-grammar is frozen by this window in Phase 2.3, which is what this task does. The filed change replaces that
-schema with the closed grammar above. Responses validate against the frozen document meanwhile precisely because
-it accepts additional properties, so nothing was blocked; the manager lands it after this PR merges.
+Until 0.4.4 the Admin API described `SegmentRules` as a flat, open bag ("unknown keys are kept"). #239 replaced it
+with the closed grammar above, so the spec layer (`validateBody`) now refuses a bad rule **before** this module's
+parser sees it; `routes.test.ts` asserts that spec-layer 400, and the parser tests still cover the grammar on its
+own for window 16 and jobs that do not go through HTTP.
 
 ## Abandoned-cart recovery (2.4, #148)
 
@@ -277,20 +336,15 @@ The link carries `utm_source=abandoned_cart`; the storefront captures it into `c
 already does, and window 1's placement writes the `attribution` row. **This module writes no attribution** — it
 reads it, which is what keeps the 2.1 report and the recovery rate telling the same story about the same order.
 
-### What is not here yet
+### Around it
 
-| Piece                                                       | Owner            | Issue                |
-| ----------------------------------------------------------- | ---------------- | -------------------- |
-| `cart_recovery` + `marketing_cursor` migration              | main window      | CONTRACT CHANGE #244 |
-| `reports/abandoned-carts` + the Store API recover operation | main window      | CONTRACT CHANGE #245 |
-| Mounting `POST /store/cart-recovery/{token}`                | window 1         | REQUEST #246         |
-| The storefront page at `/cart/recover/{token}`              | windows 3 and 10 | REQUEST #247         |
-| Sending the email                                           | window 16        | Phase 4              |
-
-Until #244 lands, `proposed/0170_cart_recovery.sql` is the schema and the module tests apply it to their own
-throwaway database — the pattern window 9 used for `merchandising_rule` (#162). Until #245 lands, the report
-route reads its permission from the spec if the operation is there and falls back to the proposed `viewer`
-otherwise, so the spec wins the moment it carries the operation.
+| Piece                                                       | Owner            | State                             |
+| ----------------------------------------------------------- | ---------------- | --------------------------------- |
+| `cart_recovery` + `marketing_cursor` migration              | main window      | #244 — landed in contracts-v0.4.5 |
+| `reports/abandoned-carts` + the Store API recover operation | main window      | #245 — landed in contracts-v0.4.5 |
+| Mounting `POST /store/cart-recovery/{token}`                | window 1         | #246 — done                       |
+| The storefront page at `/cart/recover/{token}`              | windows 3 and 10 | REQUEST #247 — open               |
+| Sending the email                                           | window 16        | Phase 4                           |
 
 ### Known limitation — currency
 
@@ -307,11 +361,21 @@ pnpm --filter @platform/core exec vitest run src/modules/marketing
 pnpm lint && pnpm typecheck && pnpm test --filter @platform/core
 ```
 
+`marketing.e2e.test.ts` is the one test to read first: a single customer's attributed order goes through the
+campaign report, a feed publish and a segment materialisation on one database, and the same run is the **PII
+sweep** — every outbox payload and audit row the flow wrote, and every console call it made, is searched for the
+customer's email, name, address and phone (and for PII-shaped keys). A static check next to it fails if a log
+call ever appears in the module's sources. The other suites are per area: `marketing` (campaigns + report),
+`feeds` / `feed-render`, `segments` / `segment-rules`, `recovery`, `routes` (HTTP + contract shapes).
+
 Tests create their own throwaway database through `@platform/db/testing` (never the shared docker stack) and seed
 it; the route tests use dev tokens (`CORE_DEV_TOKENS=1`) for the seeded staff subjects, exactly as
 `test/admin-api.test.ts` does.
 
 ## Next in this folder
 
-2.6 the promotions report. The feed _server_ is `apps/feeds`; the admin screens are in
-`apps/admin/src/app/(store)/[storeId]/marketing/**` (2.5).
+Phase 2 is complete. Open: the `getPromotionReport` route (above). Phase 3, when the manager opens it: the
+referral programme (`/r/{code}` with window 3, rewards through promotions, `referral.converted`), reviews
+(requested after `shipment.delivered`, moderation, the PDP display contract), the consent centre (opt-in rates,
+EU double opt-in, audit export), and the HQ marketing dashboard (per-brand comparison, shared templates, budgets
+per legal entity). The report's single-currency limitation is revisited at Integration 2.
