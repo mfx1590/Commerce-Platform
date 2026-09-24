@@ -353,6 +353,40 @@ Every catalog mutation is a server action that calls the Admin API, which re-che
 the same `ApiStatePanel` a screen would — never a one-line message that reads as "try again", and
 never a silent no-op. A 400 or 409 names a field and lands under that input.
 
+## Orders (task 2.2, issue #114)
+
+**Store · Orders** (`orders`). `/{storeId}/orders` lists `listOrders` with the contract's own
+filters (three status groups as pressable pills, `q` for order number or email) and sorts, all
+held in the URL like every other table. Money arrives as `{ amount_minor, currency }` and is
+rendered in the store's `default_locale`; the store is read in parallel and fails alone. Every
+status is a pill with its name — the tone is a second cue, never the only one.
+
+`/{storeId}/orders/{orderId}` is the detail: lines, totals, addresses (server-rendered, so the PII
+never reaches a client component), shipping method, one timeline from payments, refunds,
+shipments and returns, and the actions. Which actions are _offered_ comes from
+`src/lib/orders/permissions.ts` (one flag per operation's `x-permission`) and
+`src/lib/orders/quantities.ts` (what the order's state still allows); every one asks first, and
+the API re-checks the relation — a refusal renders as `ActionRefusal`, never a silent no-op.
+
+| Action                                              | Relation                          | Guard in the UI                                                                          |
+| --------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| Cancel order                                        | `store_admin` on the store        | nothing shipped, order open, reason required                                             |
+| Lower a line / cancel a line                        | `store_admin`                     | before fulfilment; the last line is never offered (the contract's 409)                   |
+| Refund                                              | `support`                         | ≤ captured − refunded-or-pending; the store's support ceiling stated                     |
+| Request return                                      | `support`                         | per line ≤ shipped − returned                                                            |
+| Fulfil, pick, pack, update shipment, receive return | `operations` on `organization:hq` | warehouse from `listWarehouses`; per line ≤ fulfillable; status-appropriate buttons only |
+
+**Refunds are idempotent by construction.** The contract requires an `Idempotency-Key`; the form
+mints one per attempt (`idempotencyKeyHolder`, `src/lib/orders/refunds.ts`) and re-sends the
+_same_ key after any failure — network, 5xx, 409 — so a request that timed out after the provider
+acted cannot refund twice. A success mints a fresh key for the next refund. The unit test proves
+both halves; the server action refuses a key shorter than the contract's minimum before it builds
+a request.
+
+**Pick lists** (`/{storeId}/orders/pick-lists`) is the warehouse view: shipments waiting to be
+picked or packed, grouped by warehouse, with Pick/Pack from the row. It needs `operations` on HQ
+and says so with the relation panel when the principal lacks it.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:
@@ -446,6 +480,7 @@ message may contain whatever the server was holding, and this app handles tokens
 | `src/lib/forms/`                       | Contract schemas, server-error mapping, money parsing (all pure)     |
 | `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
 | `src/components/table/`                | The `DataTable` primitive                                            |
+| `src/lib/orders/`                      | Order arithmetic: quantities, refund ceiling + key, timeline, gates  |
 | `src/components/rail/`                 | The Medusa rail: serpents, geometry (pure), config, list fallback    |
 | `src/components/shell/`                | The frame: rail + top bar, store switcher, section guards            |
 | `public/`                              | The head artwork and the committed fonts (OFL)                       |

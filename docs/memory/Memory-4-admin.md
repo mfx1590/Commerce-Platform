@@ -264,11 +264,23 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#114 · 2.2 Orders** — plan refreshed 2026-09-24 against contracts-v0.4.5, awaiting
-  confirmation. Rail nits from #205 to fold in: **not on GitHub (0 PR comments, 0 reviews, 0 issue
+- **#114 · 2.2 Orders** — **go given 2026-09-24; built, verifying.** Done so far: rail nits R1–R4
+  (own review pass, canonical list in its own section below); wrappers for the 13 order/fulfilment
+  operations; `src/lib/orders/` (quantities, refunds + `idempotencyKeyHolder`, timeline,
+  permissions — all pure); Zod schemas for the inline bodies; `actions/orders.ts`; screens: list
+  (filters as pills, money in store locale), detail (server-rendered PII, lines with pre-fulfilment
+  edits, totals, timeline, actions panel, fulfilment panel with fulfil/pick/pack/update/receive),
+  pick lists; unit 414 green (orders-helpers 24, orders-screens 17, rail +5); contract 32 passed +
+  2 skipped (**CONTRACT CHANGE #261**: five operations have no example so Prism answers 500 —
+  updateOrderLineItem, cancelOrderLineItem, pickShipment, packShipment, listPickLists);
+  README/CHANGELOG written. Remaining: mock e2e green (first run timed out starting Prism under
+  load — re-running), real-core run (core died on Redis via `localhost` → local `.env`
+  `REDIS_URL` set to 127.0.0.1, same IPv6 proxy issue as Postgres; **.env.example still says
+  `localhost` for REDIS_URL — tell main**), memory Done entry, commit, PR after #259 confirmed.
+  Original plan: Rail nits from #205 to fold in: **not on GitHub (0 PR comments, 0 reviews, 0 issue
   notes) — list requested from the manager**; a slot is reserved as step 0. Building locally while
   #259 (#251) is in review; no push until it is confirmed merged.
-  0. The four rail nits (on receipt).
+  0. ~~The four rail nits (on receipt)~~ → own review pass done, canonical list below (R1–R4), fixed.
   1. **Wrappers** in `src/lib/api/admin.ts`: `listOrders` (status, payment_status,
      fulfillment_status, q, placed_from/to; sort placed_at/display_id/total/status), `getOrder`,
      `cancelOrder`, `updateOrderLineItem` (lower quantity), `cancelOrderLineItem`, `createRefund`
@@ -329,6 +341,24 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 - [ ] **#116 · 2.4** Promotions and price lists screens
 - [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
+
+## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
+The four nits recorded on #205 were never written down anywhere (manager confirmed the handoff
+gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test in
+`test/rail.test.tsx` ("rail nits R1–R4").
+- **R1 Keyboard focus did not lift the serpent.** The brief says hover *or focus* lifts; only the
+  pointer set the lift target, so a keyboard user got the colour change without the lift. Fix:
+  `onFocus`/`onBlur` set the same hover ref.
+- **R2 `prefers-reduced-motion` was read once at mount.** A change while the page was open (OS
+  setting, browser flag) left the serpents moving. Fix: subscribe to the media query's `change`;
+  the list takes over at once and hands back when it flips again.
+- **R3 A second named landmark inside the nav.** The SVG carried `role="group"
+  aria-label="Sections"` inside the `<nav>` already named after the store — an extra level for a
+  screen reader with no information in it. Fix: the nav is the one named landmark; buttons carry
+  the names.
+- **R4 Idle render cost.** The frame loop ran six `querySelector`s per serpent per frame (≈ 42 DOM
+  queries per frame for the store view) and the motes canvas kept drawing while the tab was
+  hidden. Fix: parts cached per group in a `WeakMap`; both loops pause on `visibilitychange`.
 
 ## Decisions made (with reasons)
 - **A 401/403 from a mutation is a `refusal`, not a `formError`.** A relation you do not hold is
