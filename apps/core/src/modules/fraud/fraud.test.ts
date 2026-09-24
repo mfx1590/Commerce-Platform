@@ -2,10 +2,17 @@
 // hash with store isolation and window, mismatched countries, settings), the Radar provider (risk levels, manual
 // review, non-stripe payments), worst-outcome-wins, provider outage → review with a log line and a metric,
 // a `review` outcome holding the order (pending, flagged, `order.updated` with the reason code and no PII,
-// capture refused until cleared), a `block` answering exactly like a decline with the real reason in the audit
-// log, Radar's `review.opened` / `review.closed` webhooks, and the shared per-store credential loader.
+// capture refused until cleared), a `block` answering exactly like a decline with the real reason recorded by
+// the checkout's post-rollback hook (#253), the mirror repair on replays, Radar's `review.opened` /
+// `review.closed` webhooks, and the shared per-store credential loader.
 import { randomUUID } from 'node:crypto';
-import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
+import {
+  createOrganizationClient,
+  createTenantClient,
+  SEED_IDS,
+  seed,
+  type ScopedClient,
+} from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppError } from '../../lib/errors';
@@ -135,7 +142,6 @@ const check = (extra: Parameters<typeof createFraudCheck>[0] = {}) =>
     env,
     log: (l) => logged.push(l),
     recordClient: () => a,
-    deferredRecord: false, // tests record explicitly, AFTER the placement transaction has ended
     ...extra,
   });
 
@@ -426,8 +432,9 @@ describe('createFraudCheck', () => {
     });
   });
 
-  it('block through completeCart: a plain decline to the customer; the real reason is recorded only AFTER the rollback', async () => {
+  it('block through completeCart: a plain decline to the customer; the real reason is recorded by the checkout AFTER the rollback (#253)', async () => {
     const c = check();
+    expect(c.recordsBlockedAfterRollback).toBe(true); // the opt-in the checkout's catch looks for
     setFraudCheck(c);
     const cart = await readyCart();
     fake.setRadarOutcome(cart.intentId, { risk_level: 'highest', type: 'authorized' });
@@ -450,22 +457,18 @@ describe('createFraudCheck', () => {
       details: { provider: 'stripe' },
     });
     expect(JSON.stringify(body)).not.toMatch(/fraud|radar|risk|block|review/i); // no oracle
-    // Nothing was authorized or placed, and NOTHING was written by the check itself.
+    // Nothing was authorized or placed. The record was written by the checkout's post-rollback call to
+    // `recordBlocked` (its own transaction), exactly once — the check queued nothing of its own.
     expect(fake.callsOf('confirmPaymentIntent')).toHaveLength(0);
     expect(
       (await owner.query(`SELECT 1 FROM "order" WHERE cart_id = $1`, [cart.cartId])).rows,
     ).toHaveLength(0);
-    const auditOf = () =>
-      owner.query<{ action: string; entity_type: string; after: Record<string, unknown> }>(
-        `SELECT action, entity_type, after FROM audit_log WHERE entity_id = $1`,
-        [cart.cartId],
-      );
-    expect((await auditOf()).rows).toHaveLength(0);
-    expect(c.pendingBlockRecords()).toBe(1);
-    // The placement transaction is gone: now the record is written, in its own transaction.
-    await c.flushBlockRecords();
     expect(c.pendingBlockRecords()).toBe(0);
-    const audit = await auditOf();
+    const audit = await owner.query<{
+      action: string;
+      entity_type: string;
+      after: Record<string, unknown>;
+    }>(`SELECT action, entity_type, after FROM audit_log WHERE entity_id = $1`, [cart.cartId]);
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]).toMatchObject({
       action: 'fraud.block',
@@ -482,7 +485,7 @@ describe('createFraudCheck', () => {
     expect(JSON.stringify(audit.rows[0]!.after)).not.toContain('@');
   });
 
-  it('evaluate() writes NOTHING while the placement transaction is open — no second connection is taken inside it', async () => {
+  it('evaluate() writes NOTHING while the placement transaction is open and remembers nothing: the checkout records', async () => {
     const c = check();
     const cart = await readyCart();
     fake.setRadarOutcome(cart.intentId, { risk_level: 'highest', type: 'authorized' });
@@ -494,7 +497,7 @@ describe('createFraudCheck', () => {
         const decision = await c.evaluate(contextFor(tx, cart));
         expect(decision.outcome).toBe('block');
         expect(await count()).toBe(0); // still inside the placement transaction: no record yet
-        expect(c.pendingBlockRecords()).toBe(1);
+        expect(c.pendingBlockRecords()).toBe(0); // and nothing queued: the checkout's hook carries the facts
         throw new Error('placement rolls back');
       }),
     ).rejects.toThrow('placement rolls back');
@@ -509,17 +512,59 @@ describe('createFraudCheck', () => {
       actor: customer,
       decision: { outcome: 'block', reasonCode: 'radar_highest', provider: 'radar' },
     });
-    expect(await count()).toBe(1); // what the checkout's post-rollback hook will call
-    // A record that cannot be written never changes the decision: it is logged (ids and codes only).
+    expect(await count()).toBe(1); // what the checkout's post-rollback hook calls
+    // A record that cannot be written never throws and never changes the decision: logged (ids and codes only).
     const broken = check({
       recordClient: () => {
         throw new Error('pool exhausted');
       },
     });
-    await a.transaction((tx) => broken.evaluate(contextFor(tx, cart)));
-    await broken.flushBlockRecords();
+    await broken.recordBlocked({
+      organizationId: ORG,
+      storeId: A,
+      cartId: cart.cartId,
+      amountMinor: cart.amount,
+      currency: 'EUR',
+      paymentProvider: 'stripe',
+      actor: customer,
+      decision: { outcome: 'block', reasonCode: 'radar_highest', provider: 'radar' },
+    });
     expect(logged.at(-1)).toContain('could not record block');
     expect(logged.at(-1)).not.toContain(cart.email);
+  });
+
+  it('the interim (deferredRecord: true): no opt-in marker, its own flush the placement never awaits, and pendingBlockRecords() counts the batch in flight', async () => {
+    // A record client whose transaction waits for the test to open the gate: the write is "in flight" meanwhile.
+    let openGate = () => {};
+    const gate = new Promise<void>((resolve) => (openGate = resolve));
+    const slow = {
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+        await gate;
+        return a.transaction((tx) => fn(tx));
+      },
+    } as unknown as ScopedClient;
+    const c = check({ deferredRecord: true, recordClient: () => slow });
+    expect(c.recordsBlockedAfterRollback).toBe(false); // never recorded twice: the checkout must not call it
+    const cart = await readyCart();
+    fake.setRadarOutcome(cart.intentId, { risk_level: 'highest', type: 'authorized' });
+    const count = async () =>
+      (await owner.query(`SELECT 1 FROM audit_log WHERE entity_id = $1`, [cart.cartId])).rows
+        .length;
+    await a.transaction(async (tx) => {
+      expect((await c.evaluate(contextFor(tx, cart))).outcome).toBe('block');
+      expect(c.pendingBlockRecords()).toBe(1); // remembered, not written: still inside the transaction
+      expect(await count()).toBe(0);
+    });
+    const flushed = c.flushBlockRecords(); // (the scheduled setImmediate flush chains behind it and finds nothing)
+    await new Promise((r) => setImmediate(r));
+    expect(c.pendingBlockRecords()).toBe(1); // taken off the queue, write in flight — still not written
+    expect(await count()).toBe(0);
+    openGate();
+    await flushed;
+    expect(c.pendingBlockRecords()).toBe(0);
+    expect(await count()).toBe(1);
+    await c.flushBlockRecords(); // nothing left: no second row
+    expect(await count()).toBe(1);
   });
 });
 
@@ -630,15 +675,120 @@ describe('a review outcome holds the order (through the real checkout)', () => {
     expect(await a.transaction((tx) => readOrderFraud(tx, placed.orderId))).toBeNull();
   });
 
-  it("the registration is the checkout's: registerFraudCheck() lands in the seam completeCart reads, so the wiring bridge is redundant", async () => {
+  it("the registration is the checkout's: registerFraudCheck() lands in the seam completeCart reads, opted in to its post-rollback hook, never the interim", async () => {
     const registered = registerFraudCheck({
       apiFactory: () => fake,
       env,
       log: () => {},
       recordClient: () => a,
+      deferredRecord: true, // ignored: the boot path never runs the interim
     });
     expect(currentCheckoutFraudCheck()).toBe(registered);
     expect(currentFraudCheck()).toBe(registered); // the module's name for the same function
+    expect(registered.recordsBlockedAfterRollback).toBe(true);
+  });
+
+  it('mirror repair on replay: a payment flag written before the mirror existed gets its order mirror the next time the same signal arrives', async () => {
+    setFraudCheck(check());
+    const updates = async (orderId: string) =>
+      (
+        await owner.query<{ payload: { changed_fields: string[] } }>(
+          `SELECT payload FROM outbox WHERE topic = 'order.updated' AND aggregate_id = $1 ORDER BY occurred_at, seq`,
+          [orderId],
+        )
+      ).rows.map((r) => r.payload.changed_fields);
+    const mirrorOf = async (orderId: string) =>
+      (
+        await owner.query<{ fraud: Record<string, unknown> | null }>(
+          `SELECT metadata->'fraud' AS fraud FROM "order" WHERE id = $1`,
+          [orderId],
+        )
+      ).rows[0]!.fraud;
+    const writeTruth = (paymentId: string, flag: Record<string, unknown>) =>
+      owner.query(
+        `UPDATE payment SET metadata = jsonb_set(metadata, '{fraud}', $2::jsonb) WHERE id = $1`,
+        [paymentId, JSON.stringify(flag)],
+      );
+
+    // 1. In review on the payment row only (a pre-#236 flag): a replayed `opened` repairs the mirror, ONE event,
+    //    and the payment flag is returned untouched (its own reason, provider and time).
+    const held = await place((await readyCart()).cartId);
+    const review = {
+      status: 'review',
+      reason_code: 'radar_review_opened',
+      provider: 'radar',
+      flagged_at: '2026-09-01T00:00:00.000Z',
+    };
+    await writeTruth(held.paymentId, review);
+    expect(await mirrorOf(held.orderId)).toBeNull();
+    const replayed = await a.transaction((tx) =>
+      flagOrderForReview(tx, held.orderId, {
+        reasonCode: 'velocity_email',
+        provider: 'rules',
+        actor: staff,
+      }),
+    );
+    expect(replayed).toEqual(review);
+    expect(await a.transaction((tx) => readOrderFraud(tx, held.orderId))).toEqual(review);
+    expect(await mirrorOf(held.orderId)).toMatchObject(review);
+    expect(await updates(held.orderId)).toEqual([
+      ['fraud', 'fraud.reason_code=radar_review_opened', 'fraud.status=review'],
+    ]);
+    // A second replay finds the mirror in place: nothing more.
+    await a.transaction((tx) =>
+      flagOrderForReview(tx, held.orderId, {
+        reasonCode: 'velocity_email',
+        provider: 'rules',
+        actor: staff,
+      }),
+    );
+    expect(await updates(held.orderId)).toHaveLength(1);
+
+    // 2. Resolved on the payment row only: a replayed `closed` with the same status flags the mirror, then
+    //    resolves it with the payment's own resolution — two events — and the flag keeps its resolved_at.
+    const done = await place((await readyCart()).cartId);
+    const cleared = {
+      ...review,
+      status: 'cleared',
+      resolved_at: '2026-09-02T00:00:00.000Z',
+      resolution: 'approved',
+    };
+    await writeTruth(done.paymentId, cleared);
+    const same = await a.transaction((tx) =>
+      resolveOrderReview(tx, done.orderId, {
+        status: 'cleared',
+        resolution: 'manual',
+        actor: staff,
+      }),
+    );
+    expect(same).toEqual(cleared);
+    expect(await mirrorOf(done.orderId)).toMatchObject({
+      status: 'cleared',
+      reason_code: 'radar_review_opened',
+      resolution: 'approved',
+    });
+    expect(await updates(done.orderId)).toEqual([
+      ['fraud', 'fraud.reason_code=radar_review_opened', 'fraud.status=review'],
+      ['fraud', 'fraud.reason_code=radar_review_opened', 'fraud.status=cleared'],
+    ]);
+    await a.transaction((tx) =>
+      resolveOrderReview(tx, done.orderId, {
+        status: 'cleared',
+        resolution: 'manual',
+        actor: staff,
+      }),
+    );
+    expect(await updates(done.orderId)).toHaveLength(2); // matches already: nothing written, no event
+    // The truth still rules a later conflicting signal: a resolved review is not re-opened, mirror untouched.
+    await a.transaction((tx) =>
+      flagOrderForReview(tx, done.orderId, {
+        reasonCode: 'radar_review_opened',
+        provider: 'radar',
+        actor: staff,
+      }),
+    );
+    expect(await mirrorOf(done.orderId)).toMatchObject({ status: 'cleared' });
+    expect(await updates(done.orderId)).toHaveLength(2);
   });
 });
 

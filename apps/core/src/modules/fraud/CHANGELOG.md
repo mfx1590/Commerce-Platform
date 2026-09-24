@@ -5,6 +5,23 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — payments/phase2 (contracts-v0.4.2)
 
+### 2026-09-24 · final follow-up after core #253 (the post-rollback hook landed; REQUEST #241)
+
+- `check.ts`: the registered check opts in to the checkout's hook (`recordsBlockedAfterRollback: true`) AND
+  runs no flush of its own — the two are one setting: `deferredRecord` now defaults to `false`, `evaluate()`
+  then remembers nothing, and `completeCart` is the only caller of `recordBlocked`; `registerFraudCheck()`
+  forces it off. `deferredRecord: true` keeps the interim (no marker, own flush) for a caller without the hook.
+- `check.ts`: the interim's comment no longer claims the flush runs after the ROLLBACK finished — `setImmediate`
+  does not guarantee that; the placement never awaits the flush, so it can never wait on the second connection.
+- `check.ts`: `pendingBlockRecords()` counts remembered-and-not-yet-written records — the queue plus the batch a
+  flush is writing — instead of dropping to 0 the moment a flush took the batch.
+- `order-flag.ts`: mirror repair on replay — the same-status paths of `flagOrderForReview` /
+  `resolveOrderReview` no longer skip the mirror step, so a payment flagged or resolved before the mirror
+  existed (pre-#236 rows) gets its order mirror on the next same signal (payment's own reason and resolution;
+  no event when it already matches).
+- Tests 16 → 18 (block through `completeCart` now asserts the checkout's hook wrote the row; the interim with a
+  gated record client; mirror repair in review and resolved).
+
 ### 2026-09-19 · follow-up to 2.5 after core #236 (the checkout seam landed)
 
 - `seam.ts`: the local stand-in registry is gone — `setFraudCheck` / `currentFraudCheck` are re-exports of the
