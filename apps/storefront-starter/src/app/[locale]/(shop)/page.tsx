@@ -1,6 +1,8 @@
 import { Badge, buttonVariants, Card, CardContent, CardHeader, CardTitle } from '@platform/ui';
 import { getTranslations } from 'next-intl/server';
 import { JsonLd } from '@/components/json-ld';
+import { HOME_SLUG, HomeContent } from '@/lib/cms/components';
+import { getContent } from '@/lib/cms/content';
 import { Link } from '@/i18n/navigation';
 import { organizationJsonLd } from '@/lib/seo';
 import { getStoreOrNull } from '@/lib/store';
@@ -12,7 +14,8 @@ import { getStoreOrNull } from '@/lib/store';
  */
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage() {
+export default async function HomePage({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
   const [store, t] = await Promise.all([getStoreOrNull(), getTranslations('home')]);
 
   if (!store) {
@@ -34,6 +37,12 @@ export default async function HomePage() {
       {/* The brand itself: what a search engine builds a knowledge panel from. Only on the home
           page — repeating it per page tells a crawler nothing new. */}
       <JsonLd data={organizationJsonLd()} />
+
+      {/* Window 6's CMS home slots (REQUEST #178): hero and blocks from the `page` document with
+          slug `home`, including campaign embeds. Renders nothing until a marketer publishes one, so
+          the starter's own home page below is unchanged — and above it, because published content is
+          the reason someone arrived. */}
+      <CmsHome locale={locale} />
       <section className="flex flex-col items-start gap-4">
         <Badge variant="outline">{store.sales_channel.type}</Badge>
         <h1 className="text-4xl font-bold leading-tight">{store.name}</h1>
@@ -77,4 +86,20 @@ function Fact({ label, value, hint }: { label: string; value: string; hint?: str
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * The CMS home content, isolated so an unreachable or unconfigured CMS cannot take the home page
+ * with it. `getContent` already degrades to "no document" when Sanity is not configured; this guard
+ * covers the rest — a network failure, a malformed document — because the home page is the one URL
+ * that must always render.
+ */
+async function CmsHome({ locale }: { locale: string }) {
+  try {
+    const { cms, ctx } = await getContent(locale);
+    return <HomeContent page={await cms.page(locale, HOME_SLUG)} ctx={ctx} />;
+  } catch (error) {
+    console.warn('[storefront] CMS home content could not be read:', error);
+    return null;
+  }
 }

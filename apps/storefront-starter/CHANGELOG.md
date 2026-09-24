@@ -1,5 +1,48 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.0 — 2026-09-24
+
+Task [storefront] 2.4 (issue #112), contracts `contracts-v0.4.4` (Store API 0.3.1). Closes Phase 2
+for this window. Files **CONTRACT CHANGE #270** (customer-facing review shape).
+
+- **`/r/{code}` referral landing.** Records the code as a marketing touch and redirects; the code
+  reaches the order as `cart.metadata.attribution.*.ref`, so nothing in the contract or in window
+  17's reporting changes. Outside `[locale]` and excluded from the middleware matcher, so a shared
+  link carries no locale and takes no second hop. Both inputs are narrowed: a code is 4–64 of
+  `[A-Za-z0-9_-]` (an unusable one still redirects, recording nothing), and `?to=` must be a path on
+  this site — another origin, `//host`, a backslash or another `/r/` link all fall back to `/`. 302
+  so the hop is never cached.
+- **PDP review block.** Renders nothing when there are no reviews rather than an empty state. Rating
+  as text with the stars `aria-hidden`, one `<article>` per review in a list, `<time datetime>` dates.
+  The Store API has no review shape, so reviews come from the product's `attributes.reviews` and
+  every field is validated — a record without a usable id or a 1–5 rating is dropped. No
+  `aggregateRating` in JSON-LD until the data is real.
+- **CMS home content** (REQUEST #178): window 6's `HomeContent` is mounted on `/` above the store
+  facts, so hero, blocks and campaign embeds reach the shop and not only `(content)`. Nothing renders
+  until a `home` page is published, and a CMS failure is caught — `/` must always render.
+- **Feed-friendly PDP data** confirmed: GTIN, brand and per-variant availability already ship in the
+  PDP's `Product` JSON-LD from 2.2, which is the per-SKU shape window 17's feeds want.
+
+**Fix — the perf gate failed on its own defaults.** `perf` now runs with
+`ROBOTS_ALLOW_INDEXING=1`, because it measures the configuration that ships to production. Without
+it `/robots.txt` serves `Disallow: /` and Lighthouse's `is-crawlable` audit fails, taking SEO from
+~92 to **58**. 2.3 introduced the gate and the robots change in the same PR and measured only before
+the robots change, so the "perf PASS" reported there was from a stale run and the CI job in
+REQUEST #257 would have failed on its first run.
+
+Review follow-ups from #256:
+
+- **The bundle budget now checks every route.** A route with no entry uses `routes.default`
+  (145 kB); an unlisted route used to be silently unchecked, and requiring an entry per route would
+  fail windows 6 and 13 for a file they cannot edit.
+- **One source of truth for the budget table.** The README block is generated
+  (`bundle-budget --sync-readme`) and the gate fails if the routes or budgets in it drift from
+  `bundle-budget.json` — proven by changing a budget without syncing. First-load figures are
+  informational and not enforced, so a few bytes on a dependency bump is not a red build.
+- **The `public/*.html` CSP gap is documented.** The middleware skips anything with a file
+  extension, so a static HTML file in `public/` would be a document with no CSP. This app ships no
+  `public/`; the README says to serve such a page as a route rather than widen the matcher.
+
 ## 0.11.0 — 2026-09-21
 
 Task [storefront] 2.3 (issue #111), contracts `contracts-v0.4.4` (Store API 0.3.1). Also fixes two
