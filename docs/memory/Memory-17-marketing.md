@@ -1,6 +1,6 @@
 # Memory 17 — Marketing
 Window: 17 · Key: `marketing` · Branch prefix: `marketing/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-09-24 · Contracts: contracts-v0.4.5 · Branch: `marketing/phase2` · Status: **Phase 2 COMPLETE once the #150 PR merges** — 2.1–2.5 merged (last: PR #262 → 55a226f); after that the window goes quiet and wakes only for routed REQUESTs
+Last updated: 2026-09-24 · Contracts: contracts-v0.4.5 · Branch: `marketing/phase2` · Status: **Phase 2 COMPLETE — QUIET** (last merge: PR #269 → fb2371c; all seven Phase 2 PRs merged, five contract changes landed)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,12 +16,20 @@ Reads:
 Never touches:
 - packages/*, docs/ (except this file), other modules' internals, messaging delivery (window 16), CMS (window 6)
 
+## Quiet-state contract (from 2026-09-24, manager)
+- The window is **quiet**. It wakes **only for a routed REQUEST** (an issue the manager routes to window 17) or the
+  manager opening Phase 3. It does not pick up work on its own, refactor, or tidy.
+- On wake: read CLAUDE.md, CLAUDE.local.md, this file; merge main, `pnpm install`, rebuild the packages, keep
+  `.env` DB/Redis rows on 127.0.0.1; one PR per REQUEST; update this file before every commit; push only when the
+  manager confirms no queue is running.
+- Phase 2 baseline: main at **fb2371c** — marketing module, `apps/feeds`, admin section all merged and green.
+
 ## Mission — Phase 2 (Commerce complete, brand 1 live)
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **`getPromotionReport` route** (follow-up to #150, manager decision 2026-09-24) — commit `fe84b2d`, the PR after
-  #266 (merged 132f3b0). `promotion-report.ts` + the route over window 9's `promotionReportData`; route tests incl.
+- **`getPromotionReport` route** (follow-up to #150, manager decision 2026-09-24) — commit `fe84b2d`, PR #269
+  (merged fb2371c). `promotion-report.ts` + the route over window 9's `promotionReportData`; route tests incl.
   the 403; abandoned-cart route test now asserts the spec schema; e2e nits (recursive log scan, `city` key).
 - **2.6 (#150) docs pass, end-to-end test, PII sweep** — commit `76ea082`, PR #266 (merged 132f3b0), 2026-09-24. Module README
   brought up to date (write surface incl. the one `cart.status` write on redemption, public API by area, report
@@ -76,7 +84,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — the promotions-route PR is waiting for the manager's merge; after it, Phase 2 is COMPLETE and the window goes quiet.)
+- (nothing — Phase 2 COMPLETE, window quiet; see the quiet-state contract above.)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
@@ -162,7 +170,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
-- **#266 (2.6) merged** as 132f3b0. **Promotions-route PR** — waiting for the manager's merge; push nothing further.
+- Nothing. #266 (2.6) merged as 132f3b0, #269 (promotions route) as fb2371c.
 - **REQUEST #247** (windows 3/10, the storefront recovery page) — still open; does not block the module.
 - Everything else from Phase 2 has landed: #181 (mount), #194 (0.4.1), #195 (infra #210), #239 (0.4.4),
   #244/#245 (0.4.5), #246 (window 1 route), #251 (admin 202 mapping, d3f7754).
