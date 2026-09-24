@@ -16,6 +16,29 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.2 — issue #114 Orders** · 2026-09-24 · commits `92540f4` (build), `14fd4e2` (main merged),
+  + the address fix commit · PR: opens on the manager's #259 confirmation
+  - Wrappers for the 13 order/fulfilment operations (0.4.5); `src/lib/orders/` pure modules
+    (quantities, refunds + `idempotencyKeyHolder`, timeline, permissions); Zod schemas for the
+    inline bodies; `actions/orders.ts`. Screens: list (pills, money in store locale), detail
+    (server-rendered PII via `AddressBlock`, pre-fulfilment line edits with the last line never
+    offered, totals, timeline, actions, fulfilment panel: fulfil/pick/pack/update/receive), pick
+    lists (`operations`, relation panel otherwise).
+  - Refund key: one per attempt, kept across failures, new after success — unit test proves both.
+  - Tests: unit 416 (orders-helpers 24, orders-screens 20 incl. AddressBlock, rail +5); contract
+    32 + 2 skipped on **CONTRACT CHANGE #261** (no examples for updateOrderLineItem,
+    cancelOrderLineItem, pickShipment, packShipment, listPickLists → Prism 500); mock e2e 17/17
+    (+2 core-only skipped) incl. orders list→detail and refund-asks-first.
+  - **Real core run** (own core on :9100 from main, real store-admin token): list showed the 4
+    orders from window 3's live checks, detail #1003 rendered fully; screenshots
+    `apps/admin/docs/orders/`. Found + fixed: the core omits optional address fields instead of
+    `null` → "undefined" in the address; `AddressBlock` treats missing and null alike.
+  - Rail nits R1–R4 (step 0) fixed with regression tests; canonical list in its own section.
+  - Environment: Docker Desktop was down again mid-task (daemon gone, not just the proxy); I
+    started it and `compose start`ed the existing containers (no recreate), re-seeded OpenFGA.
+    **For main:** `.env.example` `REDIS_URL` still says `localhost:6381` — the same IPv6 loopback
+    proxy issue as the DB rows; the core dies on Redis ECONNRESET until it is `127.0.0.1`.
+
 - **REQUEST #251 — `AdminResponse` maps 202 bodies** · 2026-09-24 · (sha in the PR) · resumed
   after the pause: main merged (284 commits, contracts-v0.4.5, 106 admin operations), `pnpm
   install`, workspace packages rebuilt, local `.env` DB rows → `127.0.0.1:5433`. `SuccessBody`
@@ -264,79 +287,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#114 · 2.2 Orders** — **go given 2026-09-24; built, verifying.** Done so far: rail nits R1–R4
-  (own review pass, canonical list in its own section below); wrappers for the 13 order/fulfilment
-  operations; `src/lib/orders/` (quantities, refunds + `idempotencyKeyHolder`, timeline,
-  permissions — all pure); Zod schemas for the inline bodies; `actions/orders.ts`; screens: list
-  (filters as pills, money in store locale), detail (server-rendered PII, lines with pre-fulfilment
-  edits, totals, timeline, actions panel, fulfilment panel with fulfil/pick/pack/update/receive),
-  pick lists; unit 414 green (orders-helpers 24, orders-screens 17, rail +5); contract 32 passed +
-  2 skipped (**CONTRACT CHANGE #261**: five operations have no example so Prism answers 500 —
-  updateOrderLineItem, cancelOrderLineItem, pickShipment, packShipment, listPickLists);
-  README/CHANGELOG written. Remaining: mock e2e green (first run timed out starting Prism under
-  load — re-running), real-core run (core died on Redis via `localhost` → local `.env`
-  `REDIS_URL` set to 127.0.0.1, same IPv6 proxy issue as Postgres; **.env.example still says
-  `localhost` for REDIS_URL — tell main**), memory Done entry, commit, PR after #259 confirmed.
-  Original plan: Rail nits from #205 to fold in: **not on GitHub (0 PR comments, 0 reviews, 0 issue
-  notes) — list requested from the manager**; a slot is reserved as step 0. Building locally while
-  #259 (#251) is in review; no push until it is confirmed merged.
-  0. ~~The four rail nits (on receipt)~~ → own review pass done, canonical list below (R1–R4), fixed.
-  1. **Wrappers** in `src/lib/api/admin.ts`: `listOrders` (status, payment_status,
-     fulfillment_status, q, placed_from/to; sort placed_at/display_id/total/status), `getOrder`,
-     `cancelOrder`, `updateOrderLineItem` (lower quantity), `cancelOrderLineItem`, `createRefund`
-     (`Idempotency-Key` via `adminCall.headers`), `createReturn`, `createShipment`,
-     `updateShipment`, `pickShipment`, `packShipment`, `listPickLists`, `receiveReturn`.
-  2. **List** `/{storeId}/orders`: data-table, URL-driven filters + sort from the contract enums,
-     money from `{amount_minor, currency}` with the store's `default_locale` (`getStore` in
-     parallel, fails alone), status/payment/fulfilment pills (semantic tokens, never colour alone),
-     empty vs filter-matched-nothing, `ApiStatePanel` on failure.
-  3. **Detail** `/{storeId}/orders/{orderId}` (server component renders the PII: email, addresses):
-     header + three pills, lines (qty, unit, discount, tax, total, fulfilled/returned, and the
-     per-line **edit** controls before fulfilment: lower quantity / cancel line, `store_admin`,
-     last line refused with the contract's 409 mapped), totals, shipping method, promotion codes,
-     one timeline from payments/refunds/shipments (incl. picking/packed)/returns, `cancel_reason`,
-     `metadata.edits` shown read-only when present.
-  4. **Actions panel** (client; each behind a confirmation; UI-gated by the relation from
-     `/admin/me` via `src/lib/nav/relations.ts`; API re-checks → `ActionRefusal`): Cancel
-     (`store_admin`, reason required) · Fulfil = `createShipment` (`operations` on organization:hq:
-     warehouse picker from `listWarehouses`, per-line qty ≤ remaining, carrier/service) · per
-     shipment: Pick / Pack (parcel count) / advance status + tracking (`updateShipment`) ·
-     Refund (`support`: `MoneyField` ≤ captured − refunded, reason enum, optional payment,
-     `support_refund_limit_minor` from store settings shown as the ceiling) · Request return
-     (`support`: per-line qty ≤ shipped − returned, reason) · Receive return (`operations`:
-     warehouse + per-item condition).
-  5. **Idempotency**: the refund form mints `crypto.randomUUID()` when it opens and keeps it until
-     a success; a retry after status 0 or 5xx reuses it; a success mints a new one. Unit test:
-     action fails with status 0 then succeeds → both calls carry the same key; the next refund a
-     different one. **Test keys are words, never digit/hex tails** (manager rule).
-  6. **Pick lists** `/{storeId}/orders/pick-lists` (`operations`): grouped by warehouse, filter
-     warehouse/status, Pick/Pack from the row.
-  7. **Server actions** `src/app/actions/orders.ts` + Zod schemas for the inline bodies.
-  8. **Tests**: unit (table config, money never via floats, gating per role fixture, idempotency,
-     confirmations, line-edit guards), contract `test-contract/orders.test.tsx` (list/detail/
-     cancel/refund 201/return 201/shipment 201/pick/pack/pick-lists 200 + the documented
-     401/403/409 examples on the order operations), e2e: orders list → detail → refund
-     confirmation on the mock.
-  9. **Real core at the end** (core Phase 2 complete on main, #202 fixed): list/detail + the
-     actions the seeded data allows, documented; refusals → issue for window 1 with exact
-     request/response.
-  10. README (orders section), CHANGELOG, memory; `pnpm lint && pnpm typecheck && pnpm test
-     --filter @platform/admin` + `test:contract`; PR with the acceptance criteria.
-  **Estimate: 70–90 tool calls.** Out of scope: `updateShipment` label/tracking automation
-  (window 8's carriers do it), `receiveReturn` beyond the form (Phase 3 warehouse UI).
-
-### Open requests, none blocking
-- ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
-  `redirectUris`, `webOrigins` **and** `post.logout.redirect.uris`. My earlier "the repo and the
-  running realm disagree" claim was wrong: I compared the live realm against this branch's stale copy
-  of the file, before #85 had been merged in. Corrected on the issue.
-- **#80** — CI job for the Playwright journeys (admin and storefront).
-- ~~**#93**~~ — **applied on main**: `**/test-results/` and `**/playwright-report/` are in the root
-  `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
-
+- (nothing — 2.2 is committed locally; push + PR the moment #259's merge is confirmed by the manager)
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
-- [ ] **#114 · 2.2** Orders: list, detail, actions
+- [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [ ] **#115 · 2.3** Customers and consent (support-gated)
 - [ ] **#116 · 2.4** Promotions and price lists screens
 - [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys

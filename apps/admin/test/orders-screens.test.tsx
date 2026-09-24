@@ -5,6 +5,7 @@ import { LineItemsPanel } from '@/app/(store)/[storeId]/orders/[orderId]/line-it
 import { OrderActions } from '@/app/(store)/[storeId]/orders/[orderId]/order-actions';
 import { FulfilmentPanel } from '@/app/(store)/[storeId]/orders/[orderId]/shipments-panel';
 import { Timeline } from '@/app/(store)/[storeId]/orders/[orderId]/timeline';
+import { AddressBlock } from '@/app/(store)/[storeId]/orders/[orderId]/address-block';
 import { OrdersTable } from '@/app/(store)/[storeId]/orders/orders-table';
 import { ORDERS_TABLE_DEFAULTS } from '@/app/(store)/[storeId]/orders/orders-table.config';
 import type { ActionResult } from '@/lib/forms/action-result';
@@ -494,5 +495,42 @@ describe('timeline', () => {
     const list = screen.getByRole('list', { name: 'Order timeline' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(3);
     expect(within(list).getByText('Shipment shipped')).toBeInTheDocument();
+  });
+});
+
+describe('address block', () => {
+  it('treats optional fields the core omits exactly like null — never a literal "undefined"', () => {
+    // The contract requires six fields; the real core omits the optional ones instead of sending null.
+    const fromCore = {
+      first_name: 'Live',
+      last_name: 'Check',
+      line1: 'Keizersgracht 1',
+      city: 'Amsterdam',
+      postal_code: '1015 CJ',
+      country: 'NL',
+    } as unknown as Parameters<typeof AddressBlock>[0]['address'];
+    const { container } = render(<AddressBlock title="Shipping address" address={fromCore} />);
+    expect(container.textContent).not.toMatch(/undefined|null/);
+    expect(container.textContent).toContain('1015 CJ Amsterdam');
+    expect(container.textContent).not.toContain('Amsterdam,');
+  });
+
+  it('renders every optional field when present', () => {
+    const full = {
+      first_name: 'Jane',
+      last_name: 'Doe',
+      company: 'Acme',
+      line1: 'Line one',
+      line2: 'Line two',
+      city: 'Amsterdam',
+      region: 'NH',
+      postal_code: '1015 CC',
+      country: 'NL',
+      phone: '+31 20 000 0000',
+    };
+    const { container } = render(<AddressBlock title="Billing address" address={full} />);
+    for (const piece of ['Acme', 'Line two', '1015 CC Amsterdam, NH', '+31 20 000 0000']) {
+      expect(container.textContent).toContain(piece);
+    }
   });
 });

@@ -41,6 +41,15 @@
   wrapper against Prism, the actions, and the documented 401/403/409 examples on the order
   operations). Test keys are words. e2e: list → detail, and the refund asks first.
 
+- **Verified against the real core** (2026-09-24, core Phase 2 on :9100, real Keycloak token,
+  OpenFGA permissions, `store-admin`): the list rendered the four orders window 3's live checks
+  had placed (#1000–#1003, pending / authorized / unfulfilled, EUR), the detail rendered #1003
+  with lines, totals, addresses, the cancel action (the only one the state allows: authorized,
+  not captured, nothing shipped) and the timeline. Screenshots in `docs/orders/`. The run found
+  one bug, fixed here: the core omits optional address fields (`region`, `company`, `line2`,
+  `phone`) instead of sending `null`, and the address block printed a literal "undefined" —
+  `AddressBlock` now treats missing and `null` alike (test).
+
 ### Changed — the four rail nits (2.2 step 0, canonical list in Memory-4-admin)
 
 - **R1** keyboard focus lifts a serpent exactly like hover (the brief: "hover / focus"); only the

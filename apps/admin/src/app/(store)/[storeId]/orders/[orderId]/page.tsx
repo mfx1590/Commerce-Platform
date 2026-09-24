@@ -4,20 +4,18 @@ import { ApiStatePanel } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { getOrder, getStore, listWarehouses } from '@/lib/api/admin';
-import type { AdminComponents } from '@/lib/api/admin-client';
 import { formatMoney } from '@/lib/forms/money';
 import { orderPermissions, type OrderPermissions } from '@/lib/orders/permissions';
 import { supportRefundLimitMinor } from '@/lib/orders/refunds';
 import { loadPrincipal } from '@/lib/principal';
 import { statusLabel, toneFor } from '../orders-table.config';
+import { AddressBlock } from './address-block';
 import { LineItemsPanel } from './line-items-panel';
 import { OrderActions } from './order-actions';
 import { FulfilmentPanel } from './shipments-panel';
 import { Timeline } from './timeline';
 
 export const dynamic = 'force-dynamic';
-
-type Address = AdminComponents['Address'];
 
 const NO_PERMISSIONS: OrderPermissions = {
   canEditOrder: false,
@@ -26,47 +24,6 @@ const NO_PERMISSIONS: OrderPermissions = {
   canFulfil: false,
   canReceiveReturn: false,
 };
-
-/**
- * The address is rendered here, in the server component, and never handed to a client component:
- * the `support` gate on this screen is the only thing between customer PII and the browser bundle,
- * so the PII stays in server-rendered HTML rather than in client props.
- */
-function AddressBlock({ title, address }: { title: string; address: Address }) {
-  return (
-    <div>
-      <h3 className="text-muted mb-1 text-xs tracking-wide uppercase">{title}</h3>
-      <address className="text-sm not-italic">
-        {address.first_name} {address.last_name}
-        {address.company !== null && (
-          <>
-            <br />
-            {address.company}
-          </>
-        )}
-        <br />
-        {address.line1}
-        {address.line2 !== null && (
-          <>
-            <br />
-            {address.line2}
-          </>
-        )}
-        <br />
-        {address.postal_code} {address.city}
-        {address.region !== null ? `, ${address.region}` : ''}
-        <br />
-        {address.country}
-        {address.phone !== null && (
-          <>
-            <br />
-            {address.phone}
-          </>
-        )}
-      </address>
-    </div>
-  );
-}
 
 export default async function OrderDetailPage({
   params,
@@ -191,9 +148,9 @@ export default async function OrderDetailPage({
               description="Personal data — shown because your relation allows it; it is never logged."
             />
             <CardBody className="grid gap-4 sm:grid-cols-3">
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-muted mb-1 text-xs tracking-wide uppercase">Email</h3>
-                <p className="text-sm">{current.email}</p>
+                <p className="text-sm break-all">{current.email}</p>
               </div>
               <AddressBlock title="Shipping address" address={current.shipping_address} />
               <AddressBlock title="Billing address" address={current.billing_address} />

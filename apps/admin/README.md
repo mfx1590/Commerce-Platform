@@ -387,6 +387,14 @@ a request.
 picked or packed, grouped by warehouse, with Pick/Pack from the row. It needs `operations` on HQ
 and says so with the relation panel when the principal lacks it.
 
+**Against the real core** (task 2.2, 2026-09-24): with `ADMIN_API_URL` pointed at a core built
+from `main` (Phase 2 complete) and a real `store-admin` sign-in, the list showed the four orders
+placed by the storefront's live checks and the detail rendered #1003 in full — `docs/orders/
+core-list.png` and `core-detail.png`. The run is what found that the core omits optional address
+fields rather than sending `null`; `AddressBlock` treats both alike. Five operations have no
+example in 0.4.5 and cannot be driven through Prism (CONTRACT CHANGE #261): their contract tests
+are skipped with the issue in the reason and un-skip when the examples land.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:
