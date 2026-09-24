@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed — REQUEST #251: `AdminResponse` maps `202` bodies
+
+- `SuccessBody` in `src/lib/api/admin-client.ts` mapped `200`, then `201`, then fell through to
+  `null`, so an operation answering `202` with a body typed as `null` — silently, because the
+  fall-through is a valid type. `materializeSegment` (window 17's, answers with the queued
+  `Segment`) was the live case; `eraseCustomer` (window 13, Phase 3) answers `202` with no body
+  and still types as `null`. Order is 200 → 201 → 202 → `null`, so nothing that resolved before
+  changes. A type-level test pins all four cases. Window 17 can drop its cast.
+
 ### Added — task 2.1b, issue #192: the Medusa rail and the dark design system
 
 - **The sidebar is gone; the rail is the navigation.** `src/components/rail/MedusaRail` draws the

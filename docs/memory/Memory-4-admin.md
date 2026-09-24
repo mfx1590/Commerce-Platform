@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-09 (PR #205) · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
+Last updated: 2026-09-24 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,12 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **REQUEST #251 — `AdminResponse` maps 202 bodies** · 2026-09-24 · (sha in the PR) · resumed
+  after the pause: main merged (284 commits, contracts-v0.4.5, 106 admin operations), `pnpm
+  install`, workspace packages rebuilt, local `.env` DB rows → `127.0.0.1:5433`. `SuccessBody`
+  now 200 → 201 → 202 → null; type-level test pins getProduct/createProduct/materializeSegment/
+  archiveProduct/eraseCustomer. Gate: lint, typecheck, format, 368 unit.
+
 - **2.1b — issue #192 The Medusa rail and the dark design system** · 2026-09-09 · commits
   `fafdc7b` (rail), `da1fe0e` (intro state machine), `c568bf4` (screenshots) · **PR #205** (in review)
   - Sidebar replaced by `src/components/rail/`: `MedusaRail` (client: masked head `<image>`, one
@@ -258,9 +264,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#114 · 2.2 Orders** — plan written 2026-09-08, awaiting confirmation. Starts after #205 is
-  confirmed merged; no pushes until then. Core 2.3 (#174) is on main, so the real-core verification
-  at the end of 2.2 needs #202 fixed first (the core does not boot from main). Building locally while
+- **#114 · 2.2 Orders** — plan of 2026-09-08 to be refreshed against contracts-v0.4.5 (new since:
+  `updateOrderLineItem` / `cancelOrderLineItem` before fulfilment, `pickShipment` / `packShipment`,
+  `listPickLists`, 401/403 everywhere) and to fold in the four rail nits from #205 (**not on
+  GitHub — asked the manager for the list, 2026-09-24**). Core is feature-complete on main and
+  #202 is fixed, so the real-core verification runs at the end of the task. Building locally while
   #184 is in review; no push until the manager confirms. Contracts 0.4.0 (#185, 401/403 on every
   operation) lands today: merge main and retarget the refusal contract tests at the spec's examples.
   1. **Wrappers** in `src/lib/api/admin.ts`: `listOrders` (filters status, payment_status,
