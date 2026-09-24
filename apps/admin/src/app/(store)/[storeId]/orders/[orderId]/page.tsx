@@ -6,6 +6,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { getOrder, getStore, listWarehouses } from '@/lib/api/admin';
 import { formatMoney } from '@/lib/forms/money';
 import { orderPermissions, type OrderPermissions } from '@/lib/orders/permissions';
+import { forActions, forFulfilment, forLines } from '@/lib/orders/projection';
 import { supportRefundLimitMinor } from '@/lib/orders/refunds';
 import { loadPrincipal } from '@/lib/principal';
 import { statusLabel, toneFor } from '../orders-table.config';
@@ -93,7 +94,7 @@ export default async function OrderDetailPage({
             <CardBody>
               <LineItemsPanel
                 storeId={storeId}
-                order={current}
+                order={forLines(current)}
                 locale={locale}
                 canEdit={permissions.canEditOrder}
               />
@@ -165,7 +166,7 @@ export default async function OrderDetailPage({
             <CardBody>
               <OrderActions
                 storeId={storeId}
-                order={current}
+                order={forActions(current)}
                 locale={locale}
                 permissions={permissions}
                 supportRefundLimitMinor={refundLimit}
@@ -182,7 +183,7 @@ export default async function OrderDetailPage({
           <CardBody>
             <FulfilmentPanel
               storeId={storeId}
-              order={current}
+              order={forFulfilment(current)}
               locale={locale}
               permissions={permissions}
               warehouses={warehouses !== null && warehouses.ok ? warehouses.data.items : []}

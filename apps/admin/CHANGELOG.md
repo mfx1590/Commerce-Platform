@@ -106,6 +106,15 @@
   and the store-admin journey asserts buttons instead of links.
 - Heads sit at most 120 units apart and the block is centred, so two HQ sections sit near the
   head rather than at the far ends of the column; seven store sections still fill it.
+- **Review fix (#263): client panels receive projections, never the full order.** The detail page
+  passed `AdminComponents['Order']` — email and both addresses included — to the three
+  `'use client'` panels, and Next.js serialises client props wholesale into the Flight payload, so
+  the PII reached the browser even though no panel read it. `src/lib/orders/projection.ts` builds
+  a branded object per panel with exactly the keys it uses (lines, payments, refunds, shipments,
+  returns, status, currency — no email, no customer id, no addresses, no metadata); the panel
+  props are typed with the brand, so the full `Order` no longer typechecks as a prop.
+  `test/orders-projection.test.ts` pins the key sets, walks the JSON that would cross the wire for
+  the fixture's PII values, and asserts the type-level exclusion.
 - Nit from the manager: `src/lib/api/admin.ts` no longer claims Admin API 0.2.0.
 - **Known gap:** `E2E_API=core` could not be re-run — the core does not boot from `main` (#202,
   window 9's job file under Medusa's auto-loaded `src/jobs`). The HQ-scope screenshot was rendered

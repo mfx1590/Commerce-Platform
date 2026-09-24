@@ -7,15 +7,13 @@ import { SelectField, TextField } from '@/components/form/fields';
 import { MoneyField } from '@/components/form/money-field';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import { cancelOrderAction, createRefundAction, createReturnAction } from '@/app/actions/orders';
-import type { AdminComponents } from '@/lib/api/admin-client';
 import type { ActionRefusalInfo, ActionResult } from '@/lib/forms/action-result';
 import { formatMoney } from '@/lib/forms/money';
 import { REFUND_REASONS } from '@/lib/forms/schemas';
 import type { OrderPermissions } from '@/lib/orders/permissions';
+import type { OrderForActions } from '@/lib/orders/projection';
 import { cancellable, hasReturnableLines, returnable } from '@/lib/orders/quantities';
 import { idempotencyKeyHolder, refundableMinor } from '@/lib/orders/refunds';
-
-type Order = AdminComponents['Order'];
 
 type Open = 'cancel' | 'refund' | 'return' | null;
 
@@ -37,7 +35,8 @@ export function OrderActions({
   mintKey,
 }: {
   storeId: string;
-  order: Order;
+  /** A projection (`forActions`), never the full order: no email, no addresses reach the client. */
+  order: OrderForActions;
   locale: string;
   permissions: OrderPermissions;
   supportRefundLimitMinor: number | null;

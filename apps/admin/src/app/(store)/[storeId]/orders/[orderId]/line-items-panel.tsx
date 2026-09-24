@@ -5,12 +5,10 @@ import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import { cancelLineItemAction, lowerLineItemAction } from '@/app/actions/orders';
-import type { AdminComponents } from '@/lib/api/admin-client';
 import type { ActionRefusalInfo } from '@/lib/forms/action-result';
 import { formatMoney } from '@/lib/forms/money';
+import type { OrderForLines } from '@/lib/orders/projection';
 import { canLowerTo, editable, isLastLine } from '@/lib/orders/quantities';
-
-type Order = AdminComponents['Order'];
 
 /**
  * The lines, with the contract's two pre-fulfilment edits when the principal may make them:
@@ -25,7 +23,8 @@ export function LineItemsPanel({
   canEdit,
 }: {
   storeId: string;
-  order: Order;
+  /** A projection (`forLines`): id and lines only. */
+  order: OrderForLines;
   locale: string;
   canEdit: boolean;
 }) {

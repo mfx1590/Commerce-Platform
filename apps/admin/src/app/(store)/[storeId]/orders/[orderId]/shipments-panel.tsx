@@ -17,10 +17,10 @@ import type { AdminComponents } from '@/lib/api/admin-client';
 import type { ActionRefusalInfo, ActionResult } from '@/lib/forms/action-result';
 import { RETURN_CONDITIONS, SHIPMENT_UPDATE_STATUSES } from '@/lib/forms/schemas';
 import type { OrderPermissions } from '@/lib/orders/permissions';
+import type { OrderForFulfilment } from '@/lib/orders/projection';
 import { fulfillable, hasFulfillableLines } from '@/lib/orders/quantities';
 import { statusLabel, toneFor } from '../orders-table.config';
 
-type Order = AdminComponents['Order'];
 type Warehouse = AdminComponents['Warehouse'];
 type Condition = (typeof RETURN_CONDITIONS)[number];
 type UpdateStatus = (typeof SHIPMENT_UPDATE_STATUSES)[number];
@@ -47,7 +47,8 @@ export function FulfilmentPanel({
   warehouses,
 }: {
   storeId: string;
-  order: Order;
+  /** A projection (`forFulfilment`): id, lines, shipments, returns. */
+  order: OrderForFulfilment;
   locale: string;
   permissions: OrderPermissions;
   warehouses: readonly Warehouse[];

@@ -10,6 +10,7 @@ import { OrdersTable } from '@/app/(store)/[storeId]/orders/orders-table';
 import { ORDERS_TABLE_DEFAULTS } from '@/app/(store)/[storeId]/orders/orders-table.config';
 import type { ActionResult } from '@/lib/forms/action-result';
 import type { OrderPermissions } from '@/lib/orders/permissions';
+import { forActions, forFulfilment, forLines } from '@/lib/orders/projection';
 import { DEFAULT_LIMIT, type TableQuery } from '@/lib/table/query-state';
 import { IDS, line, order, ret, shipment } from './fixtures/orders';
 
@@ -117,7 +118,7 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     render(
       <OrderActions
         storeId="store-1"
-        order={order()}
+        order={forActions(order())}
         locale="en-GB"
         permissions={NONE}
         supportRefundLimitMinor={null}
@@ -131,7 +132,7 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     const { rerender } = render(
       <OrderActions
         storeId="store-1"
-        order={order()}
+        order={forActions(order())}
         locale="en-GB"
         permissions={ALL}
         supportRefundLimitMinor={null}
@@ -144,11 +145,13 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     rerender(
       <OrderActions
         storeId="store-1"
-        order={order({
-          status: 'processing',
-          items: [line({ quantity: 1, fulfilled_quantity: 1 })],
-          payments: [],
-        })}
+        order={forActions(
+          order({
+            status: 'processing',
+            items: [line({ quantity: 1, fulfilled_quantity: 1 })],
+            payments: [],
+          }),
+        )}
         locale="en-GB"
         permissions={ALL}
         supportRefundLimitMinor={null}
@@ -165,7 +168,7 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     render(
       <OrderActions
         storeId="store-1"
-        order={order()}
+        order={forActions(order())}
         locale="en-GB"
         permissions={ALL}
         supportRefundLimitMinor={null}
@@ -198,7 +201,7 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     render(
       <OrderActions
         storeId="store-1"
-        order={order()}
+        order={forActions(order())}
         locale="en-GB"
         permissions={ALL}
         supportRefundLimitMinor={5000}
@@ -239,7 +242,7 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     render(
       <OrderActions
         storeId="store-1"
-        order={order()}
+        order={forActions(order())}
         locale="en-GB"
         permissions={ALL}
         supportRefundLimitMinor={null}
@@ -256,7 +259,7 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     render(
       <OrderActions
         storeId="store-1"
-        order={order()}
+        order={forActions(order())}
         locale="en-GB"
         permissions={ALL}
         supportRefundLimitMinor={null}
@@ -276,12 +279,14 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
     render(
       <OrderActions
         storeId="store-1"
-        order={order({
-          items: [
-            line({ quantity: 3, fulfilled_quantity: 2 }),
-            line({ id: IDS.lineCap, title: 'Cap' }),
-          ],
-        })}
+        order={forActions(
+          order({
+            items: [
+              line({ quantity: 3, fulfilled_quantity: 2 }),
+              line({ id: IDS.lineCap, title: 'Cap' }),
+            ],
+          }),
+        )}
         locale="en-GB"
         permissions={ALL}
         supportRefundLimitMinor={null}
@@ -304,14 +309,16 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
 
 describe('line items: edits before fulfilment', () => {
   it('shows no edit controls without store_admin', () => {
-    render(<LineItemsPanel storeId="store-1" order={order()} locale="en-GB" canEdit={false} />);
+    render(
+      <LineItemsPanel storeId="store-1" order={forLines(order())} locale="en-GB" canEdit={false} />,
+    );
     expect(screen.queryByRole('button')).toBeNull();
   });
 
   it('lowers strictly below the current quantity, after asking', async () => {
     const user = userEvent.setup();
     actions.lowerLineItemAction.mockResolvedValue(success(order()));
-    render(<LineItemsPanel storeId="store-1" order={order()} locale="en-GB" canEdit />);
+    render(<LineItemsPanel storeId="store-1" order={forLines(order())} locale="en-GB" canEdit />);
     const [lowerTee] = screen.getAllByRole('button', { name: 'Lower' });
     await user.click(lowerTee as HTMLElement);
     expect(actions.lowerLineItemAction).not.toHaveBeenCalled();
@@ -329,7 +336,7 @@ describe('line items: edits before fulfilment', () => {
     render(
       <LineItemsPanel
         storeId="store-1"
-        order={order({ items: [line()] })}
+        order={forLines(order({ items: [line()] }))}
         locale="en-GB"
         canEdit
       />,
@@ -343,7 +350,7 @@ describe('line items: edits before fulfilment', () => {
     actions.cancelLineItemAction.mockResolvedValue(
       failure('line already fulfilled (field: quantity)'),
     );
-    render(<LineItemsPanel storeId="store-1" order={order()} locale="en-GB" canEdit />);
+    render(<LineItemsPanel storeId="store-1" order={forLines(order())} locale="en-GB" canEdit />);
     const [cancelTee] = screen.getAllByRole('button', { name: 'Cancel line' });
     await user.click(cancelTee as HTMLElement);
     await user.click(screen.getByRole('button', { name: 'Yes, cancel line' }));
@@ -354,7 +361,9 @@ describe('line items: edits before fulfilment', () => {
     render(
       <LineItemsPanel
         storeId="store-1"
-        order={order({ items: [line({ fulfilled_quantity: 1 }), line({ id: IDS.lineCap })] })}
+        order={forLines(
+          order({ items: [line({ fulfilled_quantity: 1 }), line({ id: IDS.lineCap })] }),
+        )}
         locale="en-GB"
         canEdit
       />,
@@ -369,7 +378,7 @@ describe('fulfilment panel', () => {
     render(
       <FulfilmentPanel
         storeId="store-1"
-        order={order({ shipments: [shipment()], returns: [ret()] })}
+        order={forFulfilment(order({ shipments: [shipment()], returns: [ret()] }))}
         locale="en-GB"
         permissions={NONE}
         warehouses={WAREHOUSES}
@@ -386,12 +395,14 @@ describe('fulfilment panel', () => {
     render(
       <FulfilmentPanel
         storeId="store-1"
-        order={order({
-          items: [
-            line({ quantity: 3, fulfilled_quantity: 1 }),
-            line({ id: IDS.lineCap, title: 'Cap' }),
-          ],
-        })}
+        order={forFulfilment(
+          order({
+            items: [
+              line({ quantity: 3, fulfilled_quantity: 1 }),
+              line({ id: IDS.lineCap, title: 'Cap' }),
+            ],
+          }),
+        )}
         locale="en-GB"
         permissions={ALL}
         warehouses={WAREHOUSES}
@@ -424,7 +435,7 @@ describe('fulfilment panel', () => {
     const { rerender } = render(
       <FulfilmentPanel
         storeId="store-1"
-        order={order({ shipments: [shipment()] })}
+        order={forFulfilment(order({ shipments: [shipment()] }))}
         locale="en-GB"
         permissions={ALL}
         warehouses={WAREHOUSES}
@@ -440,7 +451,7 @@ describe('fulfilment panel', () => {
     rerender(
       <FulfilmentPanel
         storeId="store-1"
-        order={order({ shipments: [shipment({ status: 'picking' })] })}
+        order={forFulfilment(order({ shipments: [shipment({ status: 'picking' })] }))}
         locale="en-GB"
         permissions={ALL}
         warehouses={WAREHOUSES}
@@ -464,7 +475,7 @@ describe('fulfilment panel', () => {
     render(
       <FulfilmentPanel
         storeId="store-1"
-        order={order({ returns: [ret()] })}
+        order={forFulfilment(order({ returns: [ret()] }))}
         locale="en-GB"
         permissions={ALL}
         warehouses={WAREHOUSES}
