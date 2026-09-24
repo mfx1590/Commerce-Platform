@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.5
+  version: 0.4.6
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -1280,6 +1280,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Order' }
+              examples:
+                order: { $ref: '#/components/examples/OrderDetail' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1296,6 +1298,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Order' }
+              examples:
+                order: { $ref: '#/components/examples/OrderDetail' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1874,6 +1878,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Shipment' }
+              examples:
+                picking: { $ref: '#/components/examples/ShipmentPicking' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1901,6 +1907,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Shipment' }
+              examples:
+                packed: { $ref: '#/components/examples/ShipmentPacked' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1940,6 +1948,29 @@ paths:
                           type: array
                           items: { $ref: '#/components/schemas/Shipment' }
                   page: { $ref: '#/components/schemas/Page' }
+              example:
+                items:
+                  - warehouse_id: 00000000-0000-4000-8000-000000000021
+                    warehouse_code: wh-eu
+                    shipments:
+                      - id: 60000000-0000-4000-8000-000000000301
+                        order_id: 30000000-0000-4000-8000-000000000501
+                        warehouse_id: 00000000-0000-4000-8000-000000000021
+                        carrier: manual
+                        service: null
+                        tracking_number: null
+                        tracking_url: null
+                        label_url: null
+                        cost: null
+                        status: pending
+                        items:
+                          - {
+                              order_line_item_id: 30000000-0000-4000-8000-000000000901,
+                              quantity: 1,
+                            }
+                        shipped_at: null
+                        delivered_at: null
+                page: { page: 1, limit: 20, total: 1 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -5180,6 +5211,38 @@ components:
         label_url: null
         cost: null
         status: pending
+        items:
+          - { order_line_item_id: 30000000-0000-4000-8000-000000000901, quantity: 1 }
+        shipped_at: null
+        delivered_at: null
+    ShipmentPicking:
+      value:
+        id: 60000000-0000-4000-8000-000000000301
+        order_id: 30000000-0000-4000-8000-000000000501
+        warehouse_id: 00000000-0000-4000-8000-000000000021
+        carrier: manual
+        service: null
+        tracking_number: null
+        tracking_url: null
+        label_url: null
+        cost: null
+        status: picking
+        items:
+          - { order_line_item_id: 30000000-0000-4000-8000-000000000901, quantity: 1 }
+        shipped_at: null
+        delivered_at: null
+    ShipmentPacked:
+      value:
+        id: 60000000-0000-4000-8000-000000000301
+        order_id: 30000000-0000-4000-8000-000000000501
+        warehouse_id: 00000000-0000-4000-8000-000000000021
+        carrier: manual
+        service: null
+        tracking_number: null
+        tracking_url: null
+        label_url: null
+        cost: null
+        status: packed
         items:
           - { order_line_item_id: 30000000-0000-4000-8000-000000000901, quantity: 1 }
         shipped_at: null
