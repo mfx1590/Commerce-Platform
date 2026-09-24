@@ -11,7 +11,7 @@ packages/\* changes).
 | Export                                                         | Purpose                                                                                                                                                                                                                                 |
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `registerFraudCheck(opts?)`                                    | boot mount point (`registerModuleSeams()` in `src/wiring.ts`): registers the check with the CHECKOUT's seam — the registry `completeCart` reads — and Radar's `review.*` handlers with the payments webhook receiver; returns the check |
-| `createFraudCheck(opts?)`                                      | the check (`ModuleFraudCheck`): providers in order, worst outcome wins, outage → `review`; `recordBlocked` / `flushBlockRecords` write the block record AFTER the placement rolled back                                                 |
+| `createFraudCheck(opts?)`                                      | the check (`ModuleFraudCheck`): providers in order, worst outcome wins, outage → `review`; opted in to the checkout's post-rollback hook, whose `recordBlocked` writes the block record                                                 |
 | `rulesFraudProvider` / `createRadarFraudProvider(opts?)`       | the two `FraudProvider`s                                                                                                                                                                                                                |
 | `fraudSettingsFrom(store.settings)` / `DEFAULT_FRAUD_SETTINGS` | the store setting reader (never throws)                                                                                                                                                                                                 |
 | `setFraudCheck` / `currentFraudCheck`                          | the checkout's seam functions, re-exported (they ARE the checkout's: same registry, same object)                                                                                                                                        |
@@ -33,12 +33,15 @@ packages/\* changes).
    (`fraud.block`, entity = the cart, `after` = outcome, reason code, provider, amount, currency, payment
    provider — no PII). **That row is written AFTER the placement transaction has rolled back — never inside it,
    and never on a second connection while it is open** (manager decision 2026-09-19): `evaluate()` runs inside the
-   placement transaction and writes NOTHING, it only remembers the blocked placement; `recordBlocked()` writes the
-   row in its own transaction once the placement has unwound. (The first version wrote it from inside
-   `evaluate()` on a second pool connection: a burst of blocks the size of the pool would have dead-locked it.)
-   The checkout calls `recordBlocked` from its post-rollback catch once REQUEST #241 lands; until then
-   `evaluate()` schedules a deferred flush that the placement never awaits (`deferredRecord: false` turns it
-   off; `flushBlockRecords()` makes it deterministic). Writing the record is best effort; the decision stands.
+   placement transaction and WRITES NOTHING; the CHECKOUT calls `recordBlocked()` from `completeCart`'s catch
+   once its transaction has rejected and released its connection (core #253, REQUEST #241), and that writes the
+   row in a transaction of its own. The check opts in with `recordsBlockedAfterRollback: true` — the only way a
+   block is recorded in production, exactly once. (The first version wrote it from inside `evaluate()` on a
+   second pool connection: a burst of blocks the size of the pool would have dead-locked it.) `deferredRecord:
+true` keeps the pre-#253 interim for a caller without the hook — the check then records by itself and does
+   NOT set the marker; its `setImmediate` flush does not wait for the placement's ROLLBACK to finish, what holds
+   is that the placement never awaits the flush, so it can never wait on the second connection — off by default
+   and forced off by `registerFraudCheck()`. Writing the record is best effort; the decision stands.
 3. **Rules never block.** A local heuristic holds an order for a human; only Radar's `highest` risk level blocks
    (and a store can turn even that into `review`).
 
@@ -90,9 +93,12 @@ the frozen schema; a proper field waits for the Phase 4 events window).
 Who writes what: a review decided AT placement is written by the checkout itself (payment row with the insert +
 the mirror, core #236). Every LATER change goes through this module's two writers — the Radar `review.*` webhook
 handlers included — and each writer does payment row first, then the orders module's mirror function, so a review
-opened after placement has its order mirror like any other. A payment flagged before the mirror existed gets its
-mirror first, then the resolution. Writers are idempotent on the target status, and **a review that was already
-resolved (`cleared` / `confirmed_fraud`) is never re-opened by a later flag**: nothing is written, no event.
+opened after placement has its order mirror like any other. Writers are idempotent on the target status — and a
+replay REPAIRS the mirror: a payment flagged or resolved before the mirror existed (pre-#236 rows), or whose
+mirror write was lost, gets its mirror the next time the same signal arrives (flag, then the resolution, with the
+payment's own reason and resolution; one `order.updated` per step the mirror actually takes, none when it already
+matches). **A review that was already resolved (`cleared` / `confirmed_fraud`) is never re-opened by a later
+flag**: nothing is written, no event.
 
 ## Radar review webhooks
 
@@ -108,21 +114,25 @@ the receiver stores `review.*` as `skipped unhandled_type` — replayable later.
 REQUEST #231 landed with core #236: `setFraudCheck` in the checkout (`src/lib/fraud-seam.ts`; `completeCart`
 evaluates inside the placement transaction before `authorize`, `block` → the plain 402, `review` → payment flag +
 order mirror; a check that THROWS is a `review` there too), `flagOrderForReview` / `resolveOrderReview` in the
-orders module, and the boot line in `src/wiring.ts`. This module now registers with that seam directly, so the
-wiring's bridge line (`setFraudCheck(fraudModuleCheck())`) is a no-op. Open: REQUEST #241 — the checkout calls
-`recordBlocked` after its rollback (see decision 2), and the bridge line can go.
+orders module, and the boot line in `src/wiring.ts`. This module registers with that seam directly, so the
+wiring's bridge line (`setFraudCheck(fraudModuleCheck())`) is a no-op. REQUEST #241 landed with core #253: the
+checkout calls `recordBlocked` after its rollback when the check sets `recordsBlockedAfterRollback` (decision 2).
 
 ## Tests
 
-`fraud.test.ts` (16; seeded throwaway database + FakeStripe): settings reader and ranking; the shared credential
+`fraud.test.ts` (18; seeded throwaway database + FakeStripe): settings reader and ranking; the shared credential
 loader (precedence, rotation, fail-closed error naming variables and path, never a value); velocity (threshold,
 email spelling, store boundary, window, no email), country mismatch (+ setting); Radar mapping and non-stripe
 payments; worst outcome wins + counters; outage → review with a log line and a metric (incl. a vanished key, and an
 earlier review reason surviving a later outage); **block through the real `completeCart`** (plain decline body,
-nothing placed or authorized, NO audit row until the flush after the rollback, then exactly one);
-**`evaluate()` writes nothing while the placement transaction is open**, `recordBlocked` afterwards, a failing
-record is logged and changes nothing; **review through the real `completeCart`** (pending, payment flag, order
-mirror, ONE `order.updated` with the code and no PII, idempotent flag, capture refused, cleared → mirror +
-second event + captured, a resolved review is never re-flagged); the registration lands in the checkout's seam
-(same object); `review.opened` / `closed` with the ORDER MIRROR for reviews opened after placement (duplicate,
-late, out of order, confirmed fraud uncapturable, unknown intent, unregistered module).
+nothing placed or authorized, exactly one audit row written by the checkout's post-rollback hook, nothing queued
+by the check); **`evaluate()` writes nothing and remembers nothing while the placement transaction is open**,
+`recordBlocked` afterwards, a failing record is logged and changes nothing; the interim (`deferredRecord: true`:
+no marker, own flush, `pendingBlockRecords()` counts the batch in flight, with a gated record client); **review
+through the real `completeCart`** (pending, payment flag, order mirror, ONE `order.updated` with the code and no
+PII, idempotent flag, capture refused, cleared → mirror + second event + captured, a resolved review is never
+re-flagged); the registration lands in the checkout's seam (same object, opted in, never the interim); **mirror
+repair on replay** (a payment flag written without a mirror, in review and resolved, gets its mirror on the
+next same signal with the payment's own reason and resolution; nothing on a further replay); `review.opened` /
+`closed` with the ORDER MIRROR for reviews opened after placement (duplicate, late, out of order, confirmed fraud
+uncapturable, unknown intent, unregistered module).

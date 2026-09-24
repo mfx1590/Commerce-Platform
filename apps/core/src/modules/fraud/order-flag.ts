@@ -10,6 +10,11 @@
 // handlers included — so a review opened AFTER placement gets its order mirror exactly like one decided at
 // placement (that one is written by the checkout itself: payment row + mirror, core #236). This module never
 // builds an `order.updated` and never touches the order row.
+//
+// Both writers also REPAIR the mirror on their same-status (replay) path: a payment flagged or resolved before
+// the mirror existed (pre-#236 rows), or whose mirror write was lost, gets its mirror the next time the same
+// signal arrives. The orders functions are idempotent, so a mirror that already matches costs nothing and emits
+// nothing.
 import type { Queryable } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { notFound } from '../../lib/errors';
@@ -59,6 +64,33 @@ export async function readOrderFraud(
   return (await paymentOfOrder(tx, orderId, false))?.fraud ?? null;
 }
 
+/** The orders module's flag input for an existing payment flag (same reason, provider and time as the truth). */
+function mirrorFlagInput(flag: OrderFraudFlag, actor: Actor) {
+  return {
+    reasonCode: flag.reason_code,
+    provider: flag.provider,
+    flaggedAt: flag.flagged_at,
+    actor,
+  };
+}
+
+/**
+ * Brings the order mirror to a RESOLVED payment flag: resolve it; a mirror that does not exist yet (a payment
+ * flagged before the mirror did) is flagged first, then resolved, so the two never disagree. One `order.updated`
+ * per step the mirror actually takes; none when it already matches.
+ */
+async function mirrorResolved(
+  tx: Queryable,
+  orderId: string,
+  flag: OrderFraudFlag & { status: Exclude<OrderFraudStatus, 'review'> },
+  actor: Actor,
+): Promise<void> {
+  const mirror = { status: flag.status, resolution: flag.resolution ?? 'manual', actor };
+  if ((await mirrorResolveOnOrder(tx, orderId, mirror)) !== null) return;
+  await mirrorFlagOnOrder(tx, orderId, mirrorFlagInput(flag, actor));
+  await mirrorResolveOnOrder(tx, orderId, mirror);
+}
+
 async function writePaymentFlag(
   tx: Queryable,
   paymentId: string,
@@ -72,8 +104,9 @@ async function writePaymentFlag(
 
 /**
  * Holds the order for review: payment row first, then the order mirror (one `order.updated`, from the orders
- * module). Idempotent — and a review a human (or Radar) already RESOLVED is never re-opened by a later signal:
- * a `cleared` or `confirmed_fraud` flag is returned as it is, nothing is written, no event.
+ * module). Idempotent — a payment already in review is returned as it is, and only its order mirror is made to
+ * match (nothing when it does). A review a human (or Radar) already RESOLVED is never re-opened by a later
+ * signal: a `cleared` or `confirmed_fraud` flag is returned as it is, nothing is written, no event.
  */
 export async function flagOrderForReview(
   tx: Queryable,
@@ -82,7 +115,13 @@ export async function flagOrderForReview(
 ): Promise<OrderFraudFlag> {
   const payment = await paymentOfOrder(tx, orderId, true);
   if (!payment) throw notFound('payment for order', orderId);
-  if (payment.fraud) return payment.fraud; // in review already, or resolved: never re-flag
+  if (payment.fraud) {
+    // In review already (repair the mirror if it is missing or behind), or resolved: never re-flag.
+    if (payment.fraud.status === 'review') {
+      await mirrorFlagOnOrder(tx, orderId, mirrorFlagInput(payment.fraud, input.actor));
+    }
+    return payment.fraud;
+  }
   const flag: OrderFraudFlag = {
     status: 'review',
     reason_code: input.reasonCode,
@@ -90,20 +129,16 @@ export async function flagOrderForReview(
     flagged_at: new Date().toISOString(),
   };
   await writePaymentFlag(tx, payment.id, flag);
-  await mirrorFlagOnOrder(tx, orderId, {
-    reasonCode: flag.reason_code,
-    provider: flag.provider,
-    flaggedAt: flag.flagged_at,
-    actor: input.actor,
-  });
+  await mirrorFlagOnOrder(tx, orderId, mirrorFlagInput(flag, input.actor));
   return flag;
 }
 
 /**
  * Ends a review: `cleared` (the payment may be captured) or `confirmed_fraud` (it stays uncapturable; cancel
- * the order). Idempotent on the target status; an order that was never flagged is left alone. The order mirror
- * follows; a payment flagged before the mirror existed (pre-#236 rows) gets its mirror first, then the
- * resolution, so the two never disagree.
+ * the order). Idempotent on the target status — a replay returns the payment flag as it is (its own resolution
+ * and time) and only makes sure the order mirror matches; an order that was never flagged is left alone. The
+ * order mirror follows the payment row: a payment flagged before the mirror existed (pre-#236 rows) gets its
+ * mirror first, then the resolution, so the two never disagree.
  */
 export async function resolveOrderReview(
   tx: Queryable,
@@ -112,24 +147,17 @@ export async function resolveOrderReview(
 ): Promise<OrderFraudFlag | null> {
   const payment = await paymentOfOrder(tx, orderId, true);
   if (!payment?.fraud) return null;
-  if (payment.fraud.status === input.status) return payment.fraud;
-  const resolution = input.resolution.replace(/[^a-z0-9_]/gi, '_').slice(0, 40);
-  const flag: OrderFraudFlag = {
+  if (payment.fraud.status === input.status) {
+    await mirrorResolved(tx, orderId, { ...payment.fraud, status: input.status }, input.actor);
+    return payment.fraud;
+  }
+  const flag: OrderFraudFlag & { status: typeof input.status } = {
     ...payment.fraud,
     status: input.status,
     resolved_at: new Date().toISOString(),
-    resolution,
+    resolution: input.resolution.replace(/[^a-z0-9_]/gi, '_').slice(0, 40),
   };
   await writePaymentFlag(tx, payment.id, flag);
-  const mirror = { status: input.status, resolution, actor: input.actor };
-  if ((await mirrorResolveOnOrder(tx, orderId, mirror)) === null) {
-    await mirrorFlagOnOrder(tx, orderId, {
-      reasonCode: payment.fraud.reason_code,
-      provider: payment.fraud.provider,
-      flaggedAt: payment.fraud.flagged_at,
-      actor: input.actor,
-    });
-    await mirrorResolveOnOrder(tx, orderId, mirror);
-  }
+  await mirrorResolved(tx, orderId, flag, input.actor);
   return flag;
 }
