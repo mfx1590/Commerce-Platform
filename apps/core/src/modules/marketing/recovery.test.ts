@@ -406,6 +406,31 @@ describe('recovery detection and the report', () => {
     expect(report).toMatchObject({ abandoned_count: 1, recovered_count: 1, recovery_rate: 1 });
   });
 
+  it('counts a recovery whose order was cancelled in neither column', async () => {
+    // Before #250's review this was one recovery worth nothing: `recovered_count` filtered on the record's
+    // status while `recovered_value` came through a join that excluded cancelled orders. Both now come
+    // through that join, which also matches the 2.1 attribution report's rule — so the same order is never
+    // revenue in one marketing report and not the other.
+    const cancelled = await makeCart({ totalMinor: 40_000 });
+    const kept = await makeCart({ totalMinor: 10_000 });
+    await abandonAll();
+    await consumeAbandonedCarts(a, A);
+
+    const cancelledOrder = await placeOrderFor(cancelled, A, 40_000);
+    await placeOrderFor(kept, A, 10_000);
+    await reconcileRecoveries(a, A);
+    await db.owner.query(`UPDATE "order" SET status = 'cancelled' WHERE id = $1`, [cancelledOrder]);
+
+    const report = await abandonedCartReport(a, A, window);
+    expect(report.abandoned_count).toBe(2);
+    expect(report.recovered_count).toBe(1);
+    expect(report.recovered_value.amount_minor).toBe(10_000);
+    expect(report.recovery_rate).toBe(0.5);
+
+    // The record still says what happened to the cart; only the report is about what it was worth.
+    expect((await getRecoveryByCart(a, A, cancelled)).status).toBe('recovered');
+  });
+
   it('is 0% rather than a division by zero when nothing was abandoned', async () => {
     const report = await abandonedCartReport(a, A, window);
     expect(report).toMatchObject({ abandoned_count: 0, recovered_count: 0, recovery_rate: 0 });
