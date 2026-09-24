@@ -16,8 +16,37 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.3 — issue #115 Customers and consent** · 2026-09-24 · commit: the 2.3 commit on top of
+  `f34c7b0` (sha recorded when the PR opens) · PR: after #263 merges
+  - Wrappers (list/get/update/erase), `customerUpdateSchema`, `actions/customers.ts` (empty
+    strings dropped; empty group id = clear), `src/lib/customers/consent.ts` (pure, defensive:
+    documented shape, bare boolean, anything else shown verbatim).
+  - Screens: list (`support`; email links, name fallback, status pill, consent summary); detail
+    (server-rendered PII; consent table per channel; "Orders by this customer" via the orders
+    `q` filter; edit form whose props are exactly its four inputs; erase with typed `ERASE`,
+    bodiless 202 → "scheduled", re-read shows `erased`, then read-only).
+  - Gate per role: analyst → nav hidden + 403 panel naming `support` on the direct URL;
+    support/store_admin/owner see it; store_staff/finance/operations do not (rendered guard test).
+  - **CONTRACT CHANGE #264** (accepted in principle): addresses read, GDPR export 202,
+    customer-groups list — no placeholder UI.
+  - **Real core:** the unmounted customers route answers **401**, not 404 (Medusa admin auth
+    catches unmatched `/admin/*`) → the app shows the session-ended panel. Filed **#265** for
+    window 1; 2.6's not-implemented panel keys on the 404 once it lands. Screenshot
+    `docs/customers/core-unimplemented.png`.
+  - Tests: unit 431 → +projection 3 (see #263 fix) ; contract 41 + 2 skipped (#261); mock e2e 18.
+  - #263 nits folded in: `requiresRelation()` in state-panel.tsx used by both section guards and
+    the pick-lists page; `fieldNames(shipmentUpdateSchema)` in `actions/orders.ts`.
+
+- **#263 review fix — client panels receive branded projections** · commit `f34c7b0` (pushed to
+  the PR). The detail page had passed the full `Order` (email + addresses) as props to three
+  `'use client'` panels; Next serialises client props into the Flight payload. Now
+  `src/lib/orders/projection.ts` builds one branded object per panel with exactly its keys, the
+  panel props carry the brand (full `Order` no longer typechecks), and
+  `test/orders-projection.test.ts` pins key sets, wire JSON and the type exclusion.
+  **Lesson (Gotchas):** a `'use client'` prop is a wire payload — pass projections, never records.
+
 - **2.2 — issue #114 Orders** · 2026-09-24 · commits `92540f4` (build), `14fd4e2` (main merged),
-  + the address fix commit · PR: opens on the manager's #259 confirmation
+  `cb07e5b` (address fix + docs) · **PR #263** (in review)
   - Wrappers for the 13 order/fulfilment operations (0.4.5); `src/lib/orders/` pure modules
     (quantities, refunds + `idempotencyKeyHolder`, timeline, permissions); Zod schemas for the
     inline bodies; `actions/orders.ts`. Screens: list (pills, money in store locale), detail
@@ -287,11 +316,13 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- (nothing — 2.2 is committed locally; push + PR the moment #259's merge is confirmed by the manager)
+- (nothing — 2.3 built and verified locally; the 2.3 PR opens when #263's merge is confirmed. Then
+  the five #261 contract tests un-skip once 0.4.6 is confirmed on main.)
+
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
-- [ ] **#115 · 2.3** Customers and consent (support-gated)
+- [x] **#115 · 2.3** Customers and consent (support-gated) — built, PR after #263
 - [ ] **#116 · 2.4** Promotions and price lists screens
 - [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
@@ -473,6 +504,22 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **A `'use client'` component's props are a wire payload.** Next.js serialises them wholesale
+  into the Flight response, so passing a full contract record to a panel that reads two fields
+  ships every field — including PII — to the browser. Pass a projection with exactly the keys
+  the panel uses, brand the projection type so the full record does not typecheck, and test the
+  serialised JSON for the fixture's PII values (#263 review, 2026-09-24).
+- **Prism cannot mock an operation without an example when `--errors` is on** if its schema has
+  `format: uuid` / nullable members: the generated body fails Prism's own validation → 500.
+  Check `example`/`examples` presence per operation before writing contract tests; file a
+  CONTRACT CHANGE for examples (additive) rather than asserting on the 500 (#261).
+- **Contract suites that spawn their own Prism must set `process.env.ADMIN_API_URL` to that
+  port before importing the app modules** — the vitest contract config pins the variable to the
+  states suite's port, and vitest runs files in parallel, so wrappers otherwise hit whichever
+  Prism happens to be up (flaky status 0).
+- **An unmounted `/admin/*` route on the core answers 401, not 404** (Medusa's admin auth catches
+  it) until #265 lands — do not read a 401 from the core as "session expired" when the route is
+  known to be unimplemented.
 - **Two sessions on one worktree corrupt each other silently.** A resumed Phase 1 session and this
   one both received "go on 2.1" and both edited `apps/admin`; `git status` showing files you did
   not touch is the tell. Check `list_sessions` for another running session with the same `cwd`

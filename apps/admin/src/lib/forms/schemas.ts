@@ -274,3 +274,23 @@ export const returnReceiveSchema = z.object({
     .min(1, 'Say what was received'),
 });
 export type ReturnReceiveValues = z.infer<typeof returnReceiveSchema>;
+
+// ---------------------------------------------------------------------------- customers (task 2.3)
+
+export const CUSTOMER_EDITABLE_STATUSES = ['registered', 'disabled'] as const;
+
+/**
+ * `updateCustomer`'s inline body. `guest` and `erased` are states the core sets, not ones a form
+ * may choose, so the select offers only the two the contract lists as inputs. Empty strings mean
+ * "not sent" — `compact` drops them upstream — so clearing a phone is not the same as sending "".
+ */
+export const customerUpdateSchema = z.object({
+  first_name: z.string().max(120).optional(),
+  last_name: z.string().max(120).optional(),
+  phone: z.string().max(40).optional(),
+  customer_group_id: z
+    .union([z.string().uuid('Enter a group id (uuid)'), z.literal('')])
+    .optional(),
+  status: z.enum(CUSTOMER_EDITABLE_STATUSES).optional(),
+});
+export type CustomerUpdateValues = z.infer<typeof customerUpdateSchema>;

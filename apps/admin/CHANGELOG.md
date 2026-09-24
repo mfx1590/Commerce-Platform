@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Added — task 2.3, issue #115: Customers and consent (support-gated)
+
+- **List** `/{storeId}/customers`: `listCustomers` with the contract's sort (created_at / email /
+  last_name), `q` for email or name, `group_id` honoured from the URL; email links to the detail,
+  name falls back to the email's local part (never "null null"), status pill, consent summary
+  ("1 of 2 channels").
+- **Detail** `/{storeId}/customers/{customerId}` — the PII (email, name, phone, identity, consent)
+  is rendered in the **server component** behind the `support` gate; the client components receive
+  exactly the fields they show: the edit form its four inputs (name, phone, group id, status), the
+  erase control only ids. **Consent per channel** with granted / when / source, read defensively
+  from the contract's free-form object (`src/lib/customers/consent.ts`): the documented shape, a
+  bare boolean, and anything else (shown verbatim, never thrown). "Orders by this customer" links
+  into the orders list's email filter. **Erase (GDPR)** for `store_admin`: a typed `ERASE`
+  confirmation, the bodiless `202` reported as scheduled, the page re-reads to show `erased`, and
+  an erased record can no longer be edited.
+- **Analyst**: the Customers entry is hidden (existing navigation matrix) and a direct URL renders
+  the 403 panel naming `support` — `test/customers.test.tsx` renders the guard with every seeded
+  role; support, store_admin and owner see the list, store_staff/finance/operations/analyst do not.
+- **CONTRACT CHANGE #264** filed (accepted in principle): addresses read, GDPR export (202),
+  customer-groups list — three additive operations with exact diffs. No placeholder UI; the group
+  id is a plain uuid field until the list exists, and the README names the issue.
+- The two #263 nits: `requiresRelation(relation, object)` in `state-panel.tsx` builds the
+  contract's Forbidden body once, for both section guards and the pick-lists page; the shipment
+  update action uses `fieldNames(shipmentUpdateSchema)` instead of a hand-written list.
+- Wrappers for the four customer operations; `customerUpdateSchema`; `actions/customers.ts`
+  (empty strings are not sent, an empty group id clears the group). Tests: unit
+  (`customers.test.tsx`: consent shapes, table, gate per role, form incl. uuid refusal and the 403
+  panel, erase confirmation + 202), contract (`test-contract/customers.test.tsx`: list/detail/
+  update/erase against the spec's examples, the actions, the documented 401/403), e2e (list →
+  detail → consent table → erase asks for the typed confirmation).
+- **Against the real core:** the core has no customers module until Phase 3 (window 13). The run
+  showed it answers **401**, not the contract's 404, for the unmounted route (Medusa's own admin
+  auth catches unmatched `/admin/*` paths), so the screen shows the session-ended panel instead of
+  not-found — `docs/customers/core-unimplemented.png`, filed as #265 for window 1. The 2.6
+  "not implemented yet" panel keys on 404 once that lands.
+
 ### Added — task 2.2, issue #114: Orders (Admin API 0.4.5)
 
 - **List** `/{storeId}/orders`: `listOrders` with the contract's filters (status, payment status,
