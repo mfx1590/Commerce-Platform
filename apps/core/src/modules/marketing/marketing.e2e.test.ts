@@ -45,7 +45,7 @@ const PERSON = {
 const PII_VALUES = Object.values(PERSON);
 /** Keys that would carry PII under any value. `email_hash` is the documented exception and is not matched. */
 const PII_KEYS =
-  /"(email|first_name|last_name|phone|line1|line2|postal_code|shipping_address|billing_address)"\s*:/;
+  /"(email|first_name|last_name|phone|line1|line2|city|postal_code|shipping_address|billing_address)"\s*:/;
 
 let db: TestDatabase;
 let a: ReturnType<typeof createTenantClient>;
@@ -236,9 +236,10 @@ describe('marketing, end to end', () => {
   });
 
   it('PII sweep, static: the module has no log call to leak through', async () => {
-    const sources = (await readdir(__dirname)).filter(
-      (f) => f.endsWith('.ts') && !f.endsWith('.test.ts'),
-    );
+    // Recursive, so a sub-folder added later is swept too rather than silently skipped.
+    const sources = (await readdir(__dirname, { recursive: true }))
+      .map(String)
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
     for (const file of sources) {
       const text = await readFile(join(__dirname, file), 'utf8');
       expect(text, `${file} logs`).not.toMatch(

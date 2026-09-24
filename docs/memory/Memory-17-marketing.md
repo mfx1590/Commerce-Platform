@@ -20,7 +20,10 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **2.6 (#150) docs pass, end-to-end test, PII sweep** — commit `76ea082`, the PR closing #150, 2026-09-24. Module README
+- **`getPromotionReport` route** (follow-up to #150, manager decision 2026-09-24) — commit `fe84b2d`, the PR after
+  #266 (merged 132f3b0). `promotion-report.ts` + the route over window 9's `promotionReportData`; route tests incl.
+  the 403; abandoned-cart route test now asserts the spec schema; e2e nits (recursive log scan, `city` key).
+- **2.6 (#150) docs pass, end-to-end test, PII sweep** — commit `76ea082`, PR #266 (merged 132f3b0), 2026-09-24. Module README
   brought up to date (write surface incl. the one `cart.status` write on redemption, public API by area, report
   SQL + feed formats as decisions, landed issues recorded), new module `CLAUDE.md`, feeds docs refreshed.
   `marketing.e2e.test.ts`: attribution → campaign report → feed publish → segment materialise → sync payload,
@@ -73,7 +76,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — Phase 2 done; the #150 PR is waiting for the manager's merge. Push nothing further until then.)
+- (nothing — the promotions-route PR is waiting for the manager's merge; after it, Phase 2 is COMPLETE and the window goes quiet.)
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
@@ -81,7 +84,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - [x] **#147 · 2.3** Segments with preview, materialisation and Klaviyo sync contract — PR #240 in review
 - [x] **#148 · 2.4** Abandoned-cart recovery — PR #250 in review
 - [x] **#149 · 2.5** Admin Marketing section v1 — PR #262 merged (55a226f)
-- [x] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff — the PR closing #150
+- [x] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff — PR #266 merged (132f3b0)
 
 ## Decisions made (with reasons)
 - 2026-09-24 (me, 2.6) · **`getPromotionReport` is documented as a known gap, not built inside the docs PR.** The
@@ -159,8 +162,7 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
-- **#150 PR** — waiting for the manager's merge; nothing else is pushed until it is confirmed.
-- **`getPromotionReport` route** — not built (see Decisions 2026-09-24); needs the manager's call on who/when.
+- **#266 (2.6) merged** as 132f3b0. **Promotions-route PR** — waiting for the manager's merge; push nothing further.
 - **REQUEST #247** (windows 3/10, the storefront recovery page) — still open; does not block the module.
 - Everything else from Phase 2 has landed: #181 (mount), #194 (0.4.1), #195 (infra #210), #239 (0.4.4),
   #244/#245 (0.4.5), #246 (window 1 route), #251 (admin 202 mapping, d3f7754).
@@ -244,7 +246,8 @@ Tests build their own database through `@platform/db/testing` + `seed` — they 
 Route tests use `CORE_DEV_TOKENS=1` with the seeded subjects (`seed-store-admin`, `seed-store-staff`, `seed-analyst`).
 
 ## Later phases (do not start until Memory-main says so)
-### Phase 3 — Multi-store & HQ (list confirmed in the 2.6 handoff, 2026-09-24; plus the open `getPromotionReport` route unless the manager places it earlier)
+### Phase 3 — Multi-store & HQ (list confirmed in the 2.6 handoff, 2026-09-24)
+- [ ] A cart-module function for the recovery `cart.status` `abandoned → active` write (manager 2026-09-24; today marketing writes the column directly, reviewed in #250)
 - [ ] Referral programme (codes, landing `/r/{code}` with window 3, rewards via promotions, `referral.converted`)
 - [ ] Reviews: submission after `shipment.delivered` (request e-mail via window 16), moderation queue, PDP display contract with window 3
 - [ ] Consent centre: per-channel opt-in rates, double opt-in for EU brands, export for audits

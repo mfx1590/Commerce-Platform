@@ -45,4 +45,4 @@ and `RECOVERY_UTM_SOURCE` (windows 3/10/16) are the cross-window surface. Nothin
 - `app.set_updated_at` fires BEFORE UPDATE: back-date rows in the INSERT, never with an UPDATE.
 - Never CHECK an app-supplied timestamp against a database `now()` default (clock skew).
 - Organization templates are visible only in organization scope (`store_nullable` RLS) — inject the client.
-- Known gap: `getPromotionReport` is in the contract but has no route here yet (README, "Known gap").
+- `getPromotionReport` is our route over window 9's `promotionReportData` — its numbers and caveats are theirs.
