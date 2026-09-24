@@ -111,7 +111,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **REQUEST #257** (window 3) — **PR #272 open** (code commit `69fad5e`, main merged incl. 08939a6's
   `.env.example` SITE_URL row). Awaiting its CI run (first real `perf` run; fix forward on the same PR if it
   reds environmentally) and the Reviewer. After merge the manager adds the `perf` job to required checks;
-  Keycloak redirect URIs are in #212 (window 2); the PERF_PORT nit is routed to window 3. Contents:
+  Keycloak redirect URIs are in #212 (window 2); the PERF_PORT nit is routed to window 3.
+  **Verdict MERGE-WHEN-GREEN.** First CI run red on SEO 0.69/0.58/0.58: `is-crawlable` (robots fail-closed,
+  fixed by `ROBOTS_ALLOW_INDEXING: '1'` on the perf step) + a flaky `meta-description` that fails on runs 2-3
+  of each URL, never run 1 (reproduced locally; server HTML has the tag on every request, so it is lost
+  client-side; window 3's). Also fixed: upload-artifact@v4 skipped `.lighthouseci` (hidden) —
+  `include-hidden-files: true`. Later-touch nits: check.sh treats `values-production.yaml` as non-prod (say so
+  in the comment); Actions Node 20 deprecation warning. Contents:
   - `SITE_URL: 'https://shop.<env>.example.com'` in `infra/helm/values/storefront/values-{dev,staging}.yaml`
     (the urgent part: without it OIDC redirect_uri fell back to http://localhost:3100).
   - `infra/helm/check.sh` guard: storefront `SITE_URL == https://<ingress.host>`; `ROBOTS_ALLOW_INDEXING`

@@ -223,6 +223,9 @@ jobs:
         if: needs.changes.outputs.perf == 'true'
         env:
           MOCK_API_URL: http://127.0.0.1:4010
+          # robots.ts fails closed (Disallow: /) without it, which fails Lighthouse's is-crawlable
+          # audit and caps SEO at 0.69. perf.mjs copies process.env into `next start`.
+          ROBOTS_ALLOW_INDEXING: '1'
         run: pnpm --filter @platform/storefront-starter perf
       - name: Lighthouse reports on failure
         if: failure() && needs.changes.outputs.perf == 'true'
@@ -230,6 +233,8 @@ jobs:
         with:
           name: lighthouse-reports
           path: apps/storefront-starter/.lighthouseci
+          # upload-artifact@v4 skips dot-directories by default; without this the reports are dropped.
+          include-hidden-files: true
           if-no-files-found: ignore
 
   images:
