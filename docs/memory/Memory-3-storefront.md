@@ -218,6 +218,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Decisions made (with reasons)
 
+- **CONTRACT CHANGE #270 ACCEPTED as filed (manager, 2026-09-24), all four decisions approved**,
+  landing in the next contracts batch after 2.4 merges. One constraint added at landing: `author`
+  must be a name **provided or chosen at review time, never derived from customer PII** — so when
+  the typed field arrives, do not fall back to `customer.first_name` or anything from the account.
+  The producer route is separate (marketing reviews are already moderated Admin-side) and gets wired
+  when real review data exists; until then the block rendering nothing is the approved behaviour, and
+  no `aggregateRating` is emitted.
+
 - **The referral code is recorded through the existing touch path, not a parallel one.** `/r/{code}`
   builds the same `readTouch` input a `?ref=` visit would, so first-touch preservation, the 4 KB cap
   and the no-PII rule are inherited rather than re-implemented — and window 17's reporting reads the
