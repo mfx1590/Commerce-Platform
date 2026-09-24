@@ -497,15 +497,14 @@ describe('segment template routes (organization scope)', () => {
 });
 
 describe('abandoned-cart report route', () => {
-  // The operation is CONTRACT CHANGE #245 and is not in Admin API 0.4.3 yet, so the route falls back to the
-  // proposed `viewer` permission and the response is asserted by shape rather than against the document. When
-  // #245 lands, `spec.assertSchema('AbandonedCartReport', …)` replaces this and the fallback goes away.
+  // #245 landed in contracts-v0.4.5: the permission comes from the spec and the body is checked against it.
   const report = `${base}/reports/abandoned-carts?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z`;
 
-  it('answers the proposed shape and is readable by staff and the HQ analyst alike', async () => {
+  it('answers the contract shape and is readable by staff and the HQ analyst alike', async () => {
     for (const who of [storeStaff, analyst]) {
       const res = await who.get(report);
       expect(res.status).toBe(200);
+      spec.assertSchema('AbandonedCartReport', res.body);
       expect(res.body).toMatchObject({
         currency: 'EUR',
         abandoned_count: 0,
@@ -528,6 +527,63 @@ describe('abandoned-cart report route', () => {
   it('is refused for a store outside the principal scope', async () => {
     const other = `/admin/stores/${B}/marketing/reports/abandoned-carts?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z`;
     expect((await storeStaff.get(other)).status).toBe(403);
+  });
+});
+
+describe('promotions report route', () => {
+  // The figures are window 9's (`promotionReportData`, tested in their module); this proves the route: the
+  // contract shape, the spec's `viewer` permission, the shared 400 for a bad window, and the store scope.
+  const window = 'from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z';
+  const report = `${base}/reports/promotions?${window}`;
+
+  it('answers the contract shape for staff and the HQ analyst alike', async () => {
+    const channel = await db.owner.query<{ id: string }>(
+      `SELECT id FROM sales_channel WHERE store_id = $1 ORDER BY created_at LIMIT 1`,
+      [A],
+    );
+    const address = JSON.stringify({ line1: 'One Test Street', city: 'Amsterdam', country: 'NL' });
+    await db.owner.query(
+      `INSERT INTO "order" (organization_id, store_id, sales_channel_id, email, currency, locale, status,
+                            shipping_address, billing_address, subtotal_minor, discount_minor, total_minor,
+                            promotion_codes, placed_at)
+       VALUES ($1, $2, $3, 'buyer@example.test', 'EUR', 'en-GB', 'confirmed', $4, $4, 10000, 1000, 9000,
+               ARRAY['WELCOME'], '2026-09-10T10:00:00Z')`,
+      [SEED_IDS.organization, A, channel.rows[0]!.id, address],
+    );
+    try {
+      for (const who of [storeStaff, analyst]) {
+        const res = await who.get(report);
+        expect(res.status).toBe(200);
+        spec.assertSchema('PromotionReport', res.body);
+        expect(res.body.items).toEqual([
+          expect.objectContaining({
+            code: 'WELCOME',
+            uses: 1,
+            discount_given: { amount_minor: 1000, currency: 'EUR' },
+            revenue: { amount_minor: 9000, currency: 'EUR' },
+          }),
+        ]);
+      }
+    } finally {
+      await db.owner.query(`DELETE FROM "order" WHERE store_id = $1`, [A]);
+    }
+  });
+
+  it('400s on a missing or inverted window and 401s without a token', async () => {
+    const missing = await storeStaff.get(`${base}/reports/promotions`);
+    expect(missing.status).toBe(400);
+    spec.assertSchema('Error', missing.body);
+    const inverted = await storeStaff.get(
+      `${base}/reports/promotions?from=2026-10-01T00:00:00Z&to=2026-09-01T00:00:00Z`,
+    );
+    expect(inverted.status).toBe(400);
+    expect((await request(app).get(report)).status).toBe(401);
+  });
+
+  it('is refused (403) for a store outside the principal scope', async () => {
+    const other = await storeStaff.get(`/admin/stores/${B}/marketing/reports/promotions?${window}`);
+    expect(other.status).toBe(403);
+    spec.assertSchema('Error', other.body);
   });
 });
 

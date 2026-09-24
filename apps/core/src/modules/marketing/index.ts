@@ -64,6 +64,8 @@ export type {
   ProductFeedRow,
 } from './feed-types';
 export { attributionReport } from './reports';
+export { promotionReport } from './promotion-report';
+export type { PromotionReport, PromotionReportQuery } from './promotion-report';
 // Abandoned-cart recovery (2.4). `validateRecoveryToken` is what window 1's Store API route calls (#246).
 export {
   consumeAbandonedCarts,

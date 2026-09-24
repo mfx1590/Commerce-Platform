@@ -5,6 +5,17 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — marketing/phase2 (contracts-v0.3 → v0.4.5)
 
+### 2026-09-24 · `getPromotionReport` route (follow-up to #150)
+
+- `promotion-report.ts` + `GET /admin/stores/{storeId}/marketing/reports/promotions` (`viewer` from the spec): the
+  window is validated like the other two reports, the figures come from window 9's `promotionReportData`. The
+  admin Overview's promotions tile now has a core behind it, not just Prism. Route tests: contract shape for store
+  staff and the HQ analyst over a real coupon order, 400 (missing / inverted window), 401, 403 out of scope.
+- `routes.test.ts`: the abandoned-cart block's stale "#245 not landed" comment is gone and its 200 body is now
+  asserted against `AbandonedCartReport` in the spec.
+- `marketing.e2e.test.ts` (#266 review): the static no-log check scans the module recursively; `city` joins the
+  PII-shaped keys (it was value-matched only).
+
 ### 2026-09-24 · 2.6 docs pass, end-to-end test, PII sweep (#150) — Phase 2 complete
 
 - **`marketing.e2e.test.ts`**: one customer's attributed order → the campaign's line in the attribution report

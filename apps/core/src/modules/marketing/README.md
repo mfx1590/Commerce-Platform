@@ -40,7 +40,7 @@ Every service takes a store-scoped `ScopedClient` first; the contract types are 
 | Area      | Exports                                                                                                                                                                                        | Who else calls it                               |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | Campaigns | `listCampaigns` `getCampaign` `createCampaign` `updateCampaign` `deleteCampaign` `launchCampaign` `endCampaign` `toCampaign` `normaliseCampaignInput` + the enums in `types.ts`                | —                                               |
-| Reports   | `attributionReport` `abandonedCartReport`                                                                                                                                                      | —                                               |
+| Reports   | `attributionReport` `abandonedCartReport` `promotionReport`                                                                                                                                    | —                                               |
 | Feeds     | feed CRUD, `publishFeed`, `listFeedItems`; the pipeline steps `buildFeedItems` / `validateItems` / `renderFeed`; the `FeedStorage` seam (`setFeedStorage`, `FilesystemFeedStorage`, `feedKey`) | `apps/feeds` shares the key convention only     |
 | Segments  | segment + template CRUD, `previewSegment`, `materializeSegment`; the grammar (`parseSegmentRules`, `SEGMENT_FIELDS`, `SEGMENT_RULES_SCHEMA`); `compileSegmentRules` / `segmentQuery`           | window 16, the admin rule builder (the schema)  |
 | Sync      | `segmentSyncPayload`, `emailHash`                                                                                                                                                              | window 16                                       |
@@ -60,6 +60,7 @@ Read from each operation's `x-permission` in `admin-api.yaml` at runtime — nev
 | `launchCampaign` / `endCampaign`                       | `POST …/campaigns/{id}/launch` · `…/end`                 | `store_admin` |
 | `getAttributionReport`                                 | `GET …/marketing/reports/attribution`                    | `viewer`      |
 | `getAbandonedCartReport`                               | `GET …/marketing/reports/abandoned-carts`                | `viewer`      |
+| `getPromotionReport`                                   | `GET …/marketing/reports/promotions`                     | `viewer`      |
 | feeds, segments, templates                             | see `routes.ts`; each reads its own `x-permission`       | per the spec  |
 
 `viewer` is the spec's "any relation on the store" convention (Integration 1 decision), so an HQ analyst reads the
@@ -72,13 +73,13 @@ exported from `index.ts` and mounted by one `routers.push(...)` line in `src/htt
 landed). `routes.test.ts` still mounts it on a bare Express app behind the real middleware chain, so the contract
 shapes are proven without booting the core.
 
-### Known gap — `getPromotionReport` has no route here
+### `getPromotionReport` — marketing's route, window 9's numbers
 
-The Admin API carries `GET …/marketing/reports/promotions` (`getPromotionReport`, `viewer`), window 9 built its
-data provider (`promotionReportData` in the promotions module's public API, "window 17 owns the route"), and the
-admin Overview calls it — but this router does not implement it. Against Prism the tile renders; against the real
-core the operation is unanswered. Found in the 2.6 docs pass (2026-09-24) and raised with the manager rather than
-built inside a documentation PR: the route is a thin `routes.ts` handler over `promotionReportData`.
+`GET …/marketing/reports/promotions` (`viewer`) is a thin route: `promotion-report.ts` validates the window
+exactly as the other two reports do (same 400 for a missing or inverted window) and hands it to window 9's
+`promotionReportData` through the promotions module's public API. The figures — uses, discount given and revenue
+per code over non-cancelled orders — and their caveats (an order with two codes counts under both) are theirs and
+documented in `src/modules/promotions/README.md`. Found missing in the 2.6 docs pass; built as its own follow-up.
 
 ## Behaviour worth knowing
 
@@ -365,7 +366,7 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/core
 campaign report, a feed publish and a segment materialisation on one database, and the same run is the **PII
 sweep** — every outbox payload and audit row the flow wrote, and every console call it made, is searched for the
 customer's email, name, address and phone (and for PII-shaped keys). A static check next to it fails if a log
-call ever appears in the module's sources. The other suites are per area: `marketing` (campaigns + report),
+call ever appears in the module's sources (recursively). The other suites are per area: `marketing` (campaigns + report),
 `feeds` / `feed-render`, `segments` / `segment-rules`, `recovery`, `routes` (HTTP + contract shapes).
 
 Tests create their own throwaway database through `@platform/db/testing` (never the shared docker stack) and seed
@@ -374,8 +375,8 @@ it; the route tests use dev tokens (`CORE_DEV_TOKENS=1`) for the seeded staff su
 
 ## Next in this folder
 
-Phase 2 is complete. Open: the `getPromotionReport` route (above). Phase 3, when the manager opens it: the
+Phase 2 is complete. Phase 3, when the manager opens it: the
 referral programme (`/r/{code}` with window 3, rewards through promotions, `referral.converted`), reviews
 (requested after `shipment.delivered`, moderation, the PDP display contract), the consent centre (opt-in rates,
 EU double opt-in, audit export), and the HQ marketing dashboard (per-brand comparison, shared templates, budgets
-per legal entity). The report's single-currency limitation is revisited at Integration 2.
+per legal entity), and a cart-module function for the recovery `cart.status` reactivation. The report's single-currency limitation is revisited at Integration 2.

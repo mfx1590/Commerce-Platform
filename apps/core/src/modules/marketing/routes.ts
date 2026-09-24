@@ -46,6 +46,7 @@ import {
 import { FEED_CHANNELS, FEED_STATUSES, type FeedChannel, type FeedStatus } from './feed-types';
 import { attributionReport } from './reports';
 import { abandonedCartReport } from './recovery-report';
+import { promotionReport } from './promotion-report';
 import {
   createSegment,
   createSegmentTemplate,
@@ -459,6 +460,21 @@ export function marketingAdminRouter(): Router {
       const { client, storeId } = storeClient(req);
       res.json(
         await abandonedCartReport(client, storeId, {
+          from: one(req.query.from) ?? '',
+          to: one(req.query.to) ?? '',
+        }),
+      );
+    }),
+  );
+
+  // Promotions: `viewer`, like the other two reports. The figures are window 9's `promotionReportData`.
+  r.get(
+    `${BASE}/reports/promotions`,
+    permission('getPromotionReport'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(
+        await promotionReport(client, storeId, {
           from: one(req.query.from) ?? '',
           to: one(req.query.to) ?? '',
         }),
