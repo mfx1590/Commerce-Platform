@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-24 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
+Last updated: 2026-09-25 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,9 +16,36 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.4 — issue #116 Promotions and price lists** · 2026-09-24 · one commit, rebased onto main after #268
+  (dd8f424) on 2026-09-25 (sha in the PR) · PR open, closes #116
+  - Wrappers for the 8 operations; `src/lib/promotions/form.ts` (Zod form values → `PromotionInput`
+    / `PromotionPatch`, `MatchesContract`-pinned; `describeValue`, `parsePercent`, `readPromotion`
+    for the generated type's optional read-back), `src/lib/pricing/csv.ts` (parser with per-row
+    verdicts), `src/lib/pricing/editor.ts` (rows from `variant.prices` by list id, changed-rows
+    diff), projections for the list rows; `actions/promotions.ts`, `actions/pricing.ts` with the
+    **batch re-validation** (`priceUpsertBatchSchema`; a manipulated batch never reaches the API —
+    8 cases tested).
+  - Screens: promotions list + 30-day usage card (report fails alone), promotion form (create /
+    edit, type-dependent value, immutable code+type on edit, stackable ⟂ exclusive), price lists
+    list + create, prices editor with Save-changed-rows and CSV Preview → Import accepted rows.
+  - Tests: unit 504 (promotions-helpers 16, pricing 17 incl. the batch guard); contract 59/59
+    after the rebase (#261 live, 0 skipped); mock e2e 20/20 (+2 core-only skipped).
+  - **Real core** (own core on :9100): list real (WELCOME10), create promotion → real id (draft,
+    7.5 %), create price list → real id, CSV import → "Saved 1 price." Screenshots
+    `docs/promotions/`. Two findings fixed: the core refuses `rules.get_discount_bp` on non
+    buy_x_get_y (the generated type requires it — now sent for that type only, one cast with the
+    reason); the core keys validation `details` by JSON pointer — `mapServerError` now maps
+    pointer keys to field errors / a named form-level list (tests). The marketing
+    `reports/promotions` route is not mounted by the core → 401 (#265 class), card shows the
+    session panel there.
+  - #268 nits folded in: rail screenshots go to `test-results/rail` unless `RAIL_SHOTS=docs`;
+    fixture ids are valid uuids with hex-word tails.
+  - Environment: Docker's daemon died twice during the task (recovered each time with the approved
+    procedure: start Desktop → `compose start` → `fga:seed`).
+
 - **2.3 — issue #115 Customers and consent** · 2026-09-24 · commit `50af950` (+ main merge
-  `6907b15`) · **PR #268** — BLOCKED once (customers list passed full `Customer[]` to the client
-  table), fixed by the `client-safe` projection commit (sha in the PR), re-review pending.
+  `6907b15`) · **PR #268 MERGED as dd8f424** (with the #261 un-skip d78faf9) — BLOCKED once (customers list passed full `Customer[]` to the client
+  table), fixed by the `client-safe` projection commit 5d442cb; re-review MERGE.
   #263 merged as 3e57cc1 (#114 closed).
   - Wrappers (list/get/update/erase), `customerUpdateSchema`, `actions/customers.ts` (empty
     strings dropped; empty group id = clear), `src/lib/customers/consent.ts` (pure, defensive:
@@ -318,12 +345,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **PR #268 (2.3) re-review verdict MERGE (2026-09-25).** Main merged (contracts-v0.4.6, 6f28fda)
-  and the #261 contract tests un-skipped in `test-contract/orders.test.tsx` (sha in the PR);
-  contract 51/51, unit 467/467, typecheck + lint green. Waiting for the manager's merge confirm.
-- **2.4 (#116)** built as 8f90e9e on the pre-un-skip head, kept on local branch
-  `admin/phase2-2.4-local` (never pushed). After #268 merges: merge main into `admin/phase2`,
-  cherry-pick 8f90e9e, rerun gates, push, open the PR closing #116.
+- **2.4 (#116) PR open** (2026-09-25) — 8f90e9e rebased onto merged main (after #268 = dd8f424,
+  which carried the #261 un-skip d78faf9). Waiting for review. Then the 2.5 plan-paste to the
+  manager before building.
 - **Later-touch nits from the #268 re-review** (not filed/fixed yet): (a) `markClientSafe` brands
   any object — unrestricted escape hatch; restrict its input or document it as audited-only;
   (b) the client-props guard's `'use client'` regex misses a comment-preceded directive;
@@ -332,8 +356,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
-- [x] **#115 · 2.3** Customers and consent (support-gated) — built, PR after #263
-- [ ] **#116 · 2.4** Promotions and price lists screens
+- [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
+- [x] **#116 · 2.4** Promotions and price lists screens — PR open
 - [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
 
@@ -514,6 +538,14 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **A generated `required` from a spec `default` is not a runtime requirement.** openapi-typescript
+  marks `PromotionRules.get_discount_bp` required because the spec gives it a default; the core
+  refuses it on the types it does not apply to. Send what the contract's semantics say, cast once
+  with the reason, and never "satisfy the type" by inventing a value on the wire (2.4 real-core run).
+- **The core's validation details are JSON-pointer keyed** (`{ "/value": "…" }`), not `{ field }`;
+  `mapServerError` handles both. Any new backend error shape goes there, not into a screen.
+- **Prism can only mock `listProducts` by generation**, so an e2e step that needs a SKU must read
+  one from the page, never assume the spec example's.
 - **A `'use client'` component's props are a wire payload — and so is a server action's result.**
   Next.js serialises them wholesale into the Flight response. **Rule at write time, not review
   time:** a client component never takes a contract record; it takes a `ClientSafe<…>` projection

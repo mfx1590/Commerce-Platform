@@ -10,7 +10,9 @@ import { BRAND_A, FINANCE, STORE_ADMIN, settledRail, signInAs } from './staff';
  * core, signed in as `finance` (HQ: Stores + Finance, store access by inheritance).
  */
 
-const SHOTS = 'docs/medusa-rail';
+// The committed screenshots are refreshed only on request; a routine run must not re-save them
+// (a #268 nit: an unexplained re-save of store-scope.png rode along with an unrelated commit).
+const SHOTS = process.env['RAIL_SHOTS'] === 'docs' ? 'docs/medusa-rail' : 'test-results/rail';
 const CORE = process.env.E2E_API === 'core';
 
 test.describe('medusa rail', () => {

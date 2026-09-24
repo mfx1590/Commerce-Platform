@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+### Added — task 2.4, issue #116: Promotions and price lists (Admin API 0.4.5)
+
+- **Promotions list** `/{storeId}/promotions` (viewer): `listPromotions` with the contract's sort
+  (name / code / status / starts_at / created_at; there are no filters), the value described per
+  type ("10 %", "€5.00", "free shipping", "buy 2 get 1 free" — `describeValue`, basis points and
+  minor units never through a float), status pill, schedule, uses / limit, stackable or exclusive.
+  A **usage card** for the last 30 days from window 17's `getPromotionReport` (uses, discount
+  given, revenue per code), read in parallel and failing alone into `ApiStatePanel`.
+- **Promotion form** `/promotions/new` and `/promotions/{id}` (`store_admin`; others get the
+  read-only detail): RHF + Zod (`src/lib/promotions/form.ts`) with type-dependent value entry — a
+  percentage kept as basis points, a `MoneyField` amount in minor units with a currency, nothing
+  for free shipping, buy/get quantities and a discount percentage for buy-x-get-y — conditions
+  (minimum subtotal, product / category / customer-group / sales-channel ids, first order only),
+  usage and per-customer limits, schedule, status; stackable and exclusive are mutually exclusive
+  in the UI as in the contract's semantics. `code` and `type` are inputs on create and read-only on
+  edit; the update action sends `PromotionPatch` only. `MatchesContract` pins both bodies; the
+  server action re-validates with the same schema; the API re-checks `store_admin` → `ActionRefusal`.
+- **Price lists** `/promotions/price-lists`: the list (no paging in the contract) and a create
+  form (code, name, type, currency, group id, channel id, period, status, priority). The contract
+  has no update or delete of a list and no read of a list's prices, so none is offered — the
+  editor reads current prices from the products' variants (`variant.prices` by `price_list_id`).
+- **Prices editor** `/promotions/price-lists/{id}`: one row per variant of the products found
+  (catalog search), the list's current price, editable amount / compare-at / minimum quantity in
+  `MoneyField`s, Save sends **only the changed rows** to `upsertPrices`. **CSV import**: paste
+  `sku|variant_id, amount, compare_at?, min_quantity?` (header optional), **Preview** shows a
+  verdict per row — accepted, or rejected with the reason: a non-integer minor amount (`12.345`
+  in EUR, `12.5` in JPY, words, negatives), an unknown SKU, a compare-at below the amount, a bad
+  minimum quantity — and **Import** sends only the accepted rows. Nothing is sent before the
+  preview is confirmed.
+- **Server-side batch re-validation**: `upsertPricesAction` validates every row of a batch with
+  `priceUpsertBatchSchema` (uuid, integer ≥ 0 amounts, integer ≥ 1 min quantity) and refuses the
+  whole batch naming the offending row when any row fails — nothing partial is sent. Test: a
+  manipulated batch with a non-integer amount, a negative, a string, a bad uuid, a zero minimum,
+  one bad row among good ones, an empty batch, and a non-array never reach the API.
+- Wrappers for the eight operations; `priceListCreateSchema`, `priceUpsertRowSchema`,
+  `priceUpsertBatchSchema`; `actions/promotions.ts`, `actions/pricing.ts`; projections
+  (`src/lib/promotions/projection.ts`) for the list rows and the editor header, per the client-safe
+  rule. Tests: `promotions-helpers.test.ts` (form → body per type, validation rules, read-back
+  round-trip, value description, percent parsing), `pricing.test.ts` (editor rows and diff, CSV
+  parser with every rejection, the batch re-validation), `test-contract/promotions.test.tsx`
+  (list/get/create/patch, the 400/409/403 examples, price lists list/create, upsert + 400); e2e:
+  the list, the per-type validation on the form, and the CSV preview rejecting rows on the mock.
+- **Verified against the real core** (2026-09-24, core Phase 2 on :9100, real `store-admin`
+  token): the promotions list showed the seeded WELCOME10; a price list was created and one price
+  imported through the CSV preview ("Saved 1 price."). Screenshots in `docs/promotions/`. Two
+  findings, both fixed here: (1) the core refuses `rules.get_discount_bp` on anything but
+  buy_x_get_y, which the form was sending for every type because the generated type requires it —
+  now sent for that type only; (2) the core keys validation details by JSON pointer
+  (`{ "/value": "…" }`), which `mapServerError` did not read, so the form showed a bare "invalid
+  promotion" — pointer-keyed details now land under their fields, or at form level named. The
+  usage card's report route (`marketing/reports/promotions`) is not mounted by the core and
+  answers 401 like every unmounted route (#265), so the card shows the session-ended panel there.
+- Two #268 nits: the rail spec writes screenshots to `test-results/rail` unless `RAIL_SHOTS=docs`,
+  so a routine run no longer re-saves the committed images; the test fixture ids are valid uuids
+  with hex-word tails (`…face`, `…cafe`), never digit tails.
+
 ### Added — task 2.3, issue #115: Customers and consent (support-gated)
 
 - **List** `/{storeId}/customers`: `listCustomers` with the contract's sort (created_at / email /

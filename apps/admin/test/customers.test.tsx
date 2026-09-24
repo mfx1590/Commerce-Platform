@@ -37,7 +37,7 @@ vi.mock('@/lib/principal', () => ({
 
 function customer(overrides: Partial<Customer> = {}): Customer {
   return {
-    id: '30000000-0000-4000-8000-0000000000cust',
+    id: '30000000-0000-4000-8000-00000000cafe',
     identity_id: '30000000-0000-4000-8000-000000000b01',
     email: 'jane@example.com',
     first_name: 'Jane',
@@ -126,7 +126,7 @@ describe('customers table', () => {
     const table = screen.getByRole('table', { name: 'Customers' });
     expect(within(table).getByRole('link', { name: 'jane@example.com' })).toHaveAttribute(
       'href',
-      '/store-1/customers/30000000-0000-4000-8000-0000000000cust',
+      '/store-1/customers/30000000-0000-4000-8000-00000000cafe',
     );
     expect(within(table).getByText('Jane Doe')).toBeInTheDocument();
     expect(within(table).getByText('registered')).toBeInTheDocument();
