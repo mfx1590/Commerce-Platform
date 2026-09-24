@@ -1,7 +1,7 @@
 import { Badge } from '@platform/ui';
 import type { Metadata } from 'next';
 import { getLocale, getTranslations } from 'next-intl/server';
-import Image from 'next/image';
+import { ProductImage } from '@/components/product-image';
 import { Link } from '@/i18n/navigation';
 import { notFound } from 'next/navigation';
 import { VariantPicker } from '@/components/variant-picker';
@@ -140,7 +140,7 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
                 {tCommon('noImage')}
               </span>
             ) : (
-              <Image
+              <ProductImage
                 src={hero.url}
                 alt={hero.alt ?? product.title}
                 fill
@@ -157,7 +157,7 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
                   key={item.url}
                   className="relative aspect-square overflow-hidden rounded-md bg-muted"
                 >
-                  <Image
+                  <ProductImage
                     src={item.url}
                     alt={item.alt ?? product.title}
                     fill
