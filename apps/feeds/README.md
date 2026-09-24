@@ -2,7 +2,7 @@
 
 Serves the published product feed files that Google Merchant Center and Meta Commerce fetch.
 
-Owner: **window 17 (marketing)** · Issue #146 · Contracts: `contracts-v0.3`.
+Owner: **window 17 (marketing)** · Issue #146 · Contracts: `contracts-v0.4.5` (unchanged since v0.3 — this app reads no contract).
 
 ## What it is, and what it deliberately is not
 

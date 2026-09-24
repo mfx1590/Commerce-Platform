@@ -1,9 +1,10 @@
 // The feed server: routing, the store-code scope, the path-traversal refusals and the production guard.
 // No database, no docker stack — artifacts are written into a temp directory the way the core's publish job
 // writes them.
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -152,5 +153,21 @@ describe('resolveConfig', () => {
     expect(() =>
       resolveConfig({ NODE_ENV: 'production', FEEDS_STORE_CODES: 'brand-a' } as NodeJS.ProcessEnv),
     ).not.toThrow();
+  });
+});
+
+// #150 PII sweep. This app holds no customer data at all, so its log lines can only leak through a new call that
+// logs a request. Pinning the two that exist means any third one is looked at before it lands.
+describe('log calls', () => {
+  it('are exactly the startup line and the unhandled-error line', async () => {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const found: string[] = [];
+    for (const file of (await readdir(dir)).filter(
+      (f) => f.endsWith('.ts') && !f.endsWith('.test.ts'),
+    )) {
+      const text = await readFile(join(dir, file), 'utf8');
+      for (const match of text.matchAll(/console\.(\w+)\(/g)) found.push(`${file}:${match[1]}`);
+    }
+    expect(found.sort()).toEqual(['main.ts:info', 'server.ts:error']);
   });
 });

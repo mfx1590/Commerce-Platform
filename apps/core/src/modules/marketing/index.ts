@@ -1,6 +1,6 @@
 // Public API of the marketing module (window 17). Nothing outside this folder may import from its other files.
-// Phase 2.1: campaigns + the attribution report. Feeds live in apps/feeds; segments, abandoned-cart recovery and
-// the rest follow in 2.2–2.4.
+// Campaigns + reports, feeds (render + store; apps/feeds serves them), segments + the window 16 sync payload, and
+// abandoned-cart recovery. README.md has the design; CLAUDE.md the short version.
 export {
   createCampaign,
   deleteCampaign,

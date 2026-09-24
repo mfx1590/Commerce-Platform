@@ -29,6 +29,8 @@ window 17 (marketing). `Dockerfile` is window 5's (infra) per docs/ownership.md.
 - Serve only the store codes in `FEEDS_STORE_CODES`; production refuses to start without it. Never list a
   directory. Refuse malformed paths, never sanitise them. One 404 body for every miss.
 - No runtime dependencies. If something here needs a framework, it is doing too much.
+- Two log calls exist (the startup line, the unhandled-error line) and a test pins them; never log a request.
+  This app holds no customer data — keep it that way.
 
 ## Gotchas
 

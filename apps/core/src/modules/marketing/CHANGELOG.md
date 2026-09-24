@@ -3,7 +3,24 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
-## Phase 2 — marketing/phase2 (contracts-v0.3)
+## Phase 2 — marketing/phase2 (contracts-v0.3 → v0.4.5)
+
+### 2026-09-24 · 2.6 docs pass, end-to-end test, PII sweep (#150) — Phase 2 complete
+
+- **`marketing.e2e.test.ts`**: one customer's attributed order → the campaign's line in the attribution report
+  (linked case-insensitively at report time) → a Google feed published and stored → a segment previewed and
+  materialised with that customer in it → the window 16 sync payload carrying only `email_hash`.
+- **PII sweep** (same file): every outbox payload and `audit_log` row the flow wrote, and every console call it
+  made, is searched for the customer's email, name, address and phone and for PII-shaped keys; a static check
+  fails if a log call ever appears in the module's sources. `apps/feeds` pins its two log lines the same way.
+- `README.md` brought up to date: the write surface as a table (including the one `cart.status` write on
+  redemption), the public API by area, the report SQL and feed formats written up as decisions, #239/#244/#245/#246
+  recorded as landed, and the **known gap**: `getPromotionReport` is in the contract with window 9's provider
+  ready, but no route here answers it yet.
+- New module `CLAUDE.md`; `index.ts` header no longer says Phase 2.1.
+- Admin (#262 review): the bound preview action's cast in `segments/[segmentId]/page.tsx` is **removed** —
+  `bind` with two bound arguments already types as `(rules) => Promise<…>`, so there was nothing to justify;
+  the contract test's materialise comment no longer describes the #251 workaround that is gone.
 
 ### 2026-09-14 · contracts-v0.4.1 landed (#194 applied by the main window)
 
