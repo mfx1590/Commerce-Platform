@@ -34,6 +34,7 @@ import { AppError, notFound, validationError } from '../lib/errors';
 import { handle } from './errors';
 import { loadSpec } from './openapi';
 import { intParam, one, uuidParam } from './query';
+import { validateRecoveryToken } from '../modules/marketing';
 import { requireTenant, type StoreContext } from './tenant';
 
 type StoreSummary = StoreComponents['schemas']['Store'];
@@ -160,6 +161,23 @@ export const getCartRoute: RequestHandler = handle(async (req, res) => {
   res.json(await getCart(t.client, uuidParam(req.params, 'cartId')));
 });
 
+/**
+ * `POST /store/cart-recovery/{token}` (#246, window 17's abandoned-cart recovery; Store API 0.4.0 lands with
+ * contracts-v0.4.5): redeems a recovery link and answers the cart — the same `Cart` body as
+ * `GET /store/carts/{cartId}`. All of the logic is window 17's `validateRecoveryToken` (one transaction: hash,
+ * find, refuse expired / redeemed, stamp, reactivate the cart); this is only its HTTP surface. The token in the
+ * path IS the credential: publishable-key tenant context, no customer token. POST because it is single-use and
+ * mutating — a GET would be burned by link prefetchers and mail scanners. Unknown, expired and already redeemed
+ * are the SAME 404 on purpose (no oracle for a guessed token); a completed cart is a 409. The token is never
+ * logged: it is not a uuid, so it goes to the module as is, capped in length.
+ */
+export const recoverCartRoute: RequestHandler = handle(async (req, res) => {
+  const t = requireTenant(req);
+  const token = (one(req.params.token) ?? '').slice(0, 512);
+  const { cartId } = await validateRecoveryToken(t.client, t.storeId, token);
+  res.json(await getCart(t.client, cartId));
+});
+
 export const updateCartRoute: RequestHandler = handle(async (req, res) => {
   const t = requireTenant(req);
   const cartId = uuidParam(req.params, 'cartId');
@@ -256,6 +274,7 @@ export const REAL_STORE_PATHS = [
   'GET /store/products/{handle}',
   'POST /store/carts',
   'GET /store/carts/{cartId}',
+  'POST /store/cart-recovery/{token}',
   'PATCH /store/carts/{cartId}',
   'POST /store/carts/{cartId}/line-items',
   'PATCH /store/carts/{cartId}/line-items/{lineItemId}',
@@ -277,6 +296,7 @@ export function mountStoreRoutes(app: express.Express): void {
   app.use('/store/carts', express.json({ limit: '256kb' }));
   app.post('/store/carts', createCartRoute);
   app.get('/store/carts/:cartId', getCartRoute);
+  app.post('/store/cart-recovery/:token', recoverCartRoute);
   app.patch('/store/carts/:cartId', updateCartRoute);
   app.post('/store/carts/:cartId/line-items', addLineItemRoute);
   app.patch('/store/carts/:cartId/line-items/:lineItemId', updateLineItemRoute);
