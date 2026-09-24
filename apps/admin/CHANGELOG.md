@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+### Added — task 2.2, issue #114: Orders (Admin API 0.4.5)
+
+- **List** `/{storeId}/orders`: `listOrders` with the contract's filters (status, payment status,
+  fulfilment status as pressable pills; `q` for order number or email) and sorts
+  (placed_at/display_id/total/status), all in the URL. Money is rendered from
+  `{amount_minor, currency}` in the store's `default_locale` (`getStore` read in parallel, fails
+  alone → en-GB), never through a float on the way; every status is a pill with its name.
+- **Detail** `/{storeId}/orders/{orderId}`: lines with unit/discount/tax/total and shipped/returned
+  counters, totals, shipping method and promotion codes, the customer's email and addresses
+  (rendered in the server component — PII never becomes a client prop), and one **timeline** built
+  from payments, refunds, shipments and returns (`src/lib/orders/timeline.ts`, pure).
+- **Actions**, each behind an inline confirmation, each offered only when the relation
+  (`src/lib/orders/permissions.ts`, mirrors the operations' `x-permission`) and the order's state
+  (`src/lib/orders/quantities.ts`) allow it, each re-checked by the API with a refusal rendered as
+  `ActionRefusal`: cancel (`store_admin`, reason required, only while nothing shipped); **line
+  edits before fulfilment** — lower a quantity strictly below the current one, cancel a line, and
+  the last line is never offered (the contract's 409: cancel the order instead); refund
+  (`support`, `MoneyField` capped at captured − refunded-or-pending, the store's
+  `support_refund_limit_minor` stated as the per-refund ceiling, reason enum, payment picker when
+  more than one capture); request return (`support`, per-line quantity ≤ shipped − returned);
+  fulfil = plan a shipment (`operations` on HQ: warehouse from `listWarehouses`, per-line quantity
+  ≤ fulfillable, carrier/service); per shipment pick, pack (parcel count) and update
+  (status/tracking); receive a return (warehouse + condition per item).
+- **Pick lists** `/{storeId}/orders/pick-lists` (`operations`): shipments waiting to be picked or
+  packed grouped by warehouse, filters by warehouse and status, Pick/Pack from the row. Without
+  the relation the page names it (`ForbiddenPanel`) rather than 403-ing from the API.
+- **Refund idempotency**: `idempotencyKeyHolder` mints one `Idempotency-Key` per attempt and keeps
+  it across failures (network, 5xx, 409), minting a new one only after a success — so a request
+  that timed out after the provider acted cannot refund twice on retry. The server action refuses
+  a key the contract would (min 8 chars) before building a request.
+- **Wrappers** in `src/lib/api/admin.ts` for all thirteen order/fulfilment operations; Zod schemas
+  for the inline request bodies in `src/lib/forms/schemas.ts`.
+- **Tests**: `orders-helpers.test.ts` (quantities, ceiling, key holder, timeline order, the
+  permission table for all seven roles + unassigned), `orders-screens.test.tsx` (money in locale,
+  gating per permission set, every confirmation, the retry-reuses-the-key proof, the 403 panel,
+  ceiling cap, line-edit guards, pick/pack/receive), `test-contract/orders.test.tsx` (every
+  wrapper against Prism, the actions, and the documented 401/403/409 examples on the order
+  operations). Test keys are words. e2e: list → detail, and the refund asks first.
+
+- **Verified against the real core** (2026-09-24, core Phase 2 on :9100, real Keycloak token,
+  OpenFGA permissions, `store-admin`): the list rendered the four orders window 3's live checks
+  had placed (#1000–#1003, pending / authorized / unfulfilled, EUR), the detail rendered #1003
+  with lines, totals, addresses, the cancel action (the only one the state allows: authorized,
+  not captured, nothing shipped) and the timeline. Screenshots in `docs/orders/`. The run found
+  one bug, fixed here: the core omits optional address fields (`region`, `company`, `line2`,
+  `phone`) instead of sending `null`, and the address block printed a literal "undefined" —
+  `AddressBlock` now treats missing and `null` alike (test).
+
+### Changed — the four rail nits (2.2 step 0, canonical list in Memory-4-admin)
+
+- **R1** keyboard focus lifts a serpent exactly like hover (the brief: "hover / focus"); only the
+  pointer did. **R2** a `prefers-reduced-motion` change while the page is open now switches to the
+  list at once (and back); the query was read once at mount. **R3** the SVG no longer carries a
+  second named group inside the named `<nav>` — one landmark, the buttons carry the names. **R4**
+  the frame loop no longer runs six `querySelector`s per serpent per frame (parts cached per group)
+  and the motes canvas pauses with the serpents when the tab is hidden. Each has a regression test.
+
 ### Fixed — REQUEST #251: `AdminResponse` maps `202` bodies
 
 - `SuccessBody` in `src/lib/api/admin-client.ts` mapped `200`, then `201`, then fell through to
@@ -49,6 +106,15 @@
   and the store-admin journey asserts buttons instead of links.
 - Heads sit at most 120 units apart and the block is centred, so two HQ sections sit near the
   head rather than at the far ends of the column; seven store sections still fill it.
+- **Review fix (#263): client panels receive projections, never the full order.** The detail page
+  passed `AdminComponents['Order']` — email and both addresses included — to the three
+  `'use client'` panels, and Next.js serialises client props wholesale into the Flight payload, so
+  the PII reached the browser even though no panel read it. `src/lib/orders/projection.ts` builds
+  a branded object per panel with exactly the keys it uses (lines, payments, refunds, shipments,
+  returns, status, currency — no email, no customer id, no addresses, no metadata); the panel
+  props are typed with the brand, so the full `Order` no longer typechecks as a prop.
+  `test/orders-projection.test.ts` pins the key sets, walks the JSON that would cross the wire for
+  the fixture's PII values, and asserts the type-level exclusion.
 - Nit from the manager: `src/lib/api/admin.ts` no longer claims Admin API 0.2.0.
 - **Known gap:** `E2E_API=core` could not be re-run — the core does not boot from `main` (#202,
   window 9's job file under Medusa's auto-loaded `src/jobs`). The HQ-scope screenshot was rendered

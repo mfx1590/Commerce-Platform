@@ -259,3 +259,198 @@ export async function updateVariant(
     body,
   });
 }
+
+// ---------------------------------------------------------------------------- orders (task 2.2)
+
+/**
+ * Filterable by `status`, `payment_status`, `fulfillment_status`, `q` (display id or email) and
+ * `placed_from` / `placed_to`; sortable by placed_at / display_id / total / status.
+ */
+export async function listOrders(
+  storeId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listOrders'>>> {
+  return adminCall<'listOrders'>({
+    path: buildPath('/admin/stores/{storeId}/orders', { storeId }),
+    query,
+  });
+}
+
+export async function getOrder(
+  storeId: string,
+  orderId: string,
+): Promise<ApiResult<AdminResponse<'getOrder'>>> {
+  return adminCall<'getOrder'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}', { storeId, orderId }),
+  });
+}
+
+/** Cancels an unshipped order: releases stock, voids or refunds the payment, emits `order.cancelled`. */
+export async function cancelOrder(
+  storeId: string,
+  orderId: string,
+  body: { reason: string },
+): Promise<ApiResult<AdminResponse<'cancelOrder'>>> {
+  return adminCall<'cancelOrder'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}/cancel', { storeId, orderId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Lowers a line's quantity before fulfilment; totals are recomputed, no money moves. */
+export async function updateOrderLineItem(
+  storeId: string,
+  orderId: string,
+  lineItemId: string,
+  body: { quantity: number },
+): Promise<ApiResult<AdminResponse<'updateOrderLineItem'>>> {
+  return adminCall<'updateOrderLineItem'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}', {
+      storeId,
+      orderId,
+      lineItemId,
+    }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+/** Cancels one line before fulfilment; the contract refuses the last line (cancel the order). */
+export async function cancelOrderLineItem(
+  storeId: string,
+  orderId: string,
+  lineItemId: string,
+): Promise<ApiResult<AdminResponse<'cancelOrderLineItem'>>> {
+  return adminCall<'cancelOrderLineItem'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}', {
+      storeId,
+      orderId,
+      lineItemId,
+    }),
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Refunds part or all of a captured payment. The contract requires an `Idempotency-Key` header
+ * (min 8 chars): the caller mints it once per attempt and re-sends the same key on a retry, so a
+ * request that timed out after the provider acted cannot refund twice.
+ */
+export async function createRefund(
+  storeId: string,
+  orderId: string,
+  idempotencyKey: string,
+  body: {
+    payment_id?: string;
+    amount_minor: number;
+    reason: 'return' | 'cancellation' | 'goodwill' | 'chargeback';
+    return_id?: string;
+  },
+): Promise<ApiResult<AdminResponse<'createRefund'>>> {
+  return adminCall<'createRefund'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}/refunds', { storeId, orderId }),
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body,
+  });
+}
+
+export async function createReturn(
+  storeId: string,
+  orderId: string,
+  body: { reason?: string; items: { order_line_item_id: string; quantity: number }[] },
+): Promise<ApiResult<AdminResponse<'createReturn'>>> {
+  return adminCall<'createReturn'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}/returns', { storeId, orderId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Warehouse received the goods (emits `return.received`, `stock.moved`); `operations` on HQ. */
+export async function receiveReturn(
+  storeId: string,
+  returnId: string,
+  body: {
+    warehouse_id: string;
+    items: { order_line_item_id: string; quantity: number; condition: 'resellable' | 'damaged' }[];
+  },
+): Promise<ApiResult<AdminResponse<'receiveReturn'>>> {
+  return adminCall<'receiveReturn'>({
+    path: buildPath('/admin/stores/{storeId}/returns/{returnId}/receive', { storeId, returnId }),
+    method: 'POST',
+    body,
+  });
+}
+
+// ---------------------------------------------------------------------------- fulfillment (task 2.2)
+
+/** Plans a shipment from a warehouse for some or all lines (emits `shipment.created`). */
+export async function createShipment(
+  storeId: string,
+  orderId: string,
+  body: {
+    warehouse_id: string;
+    carrier?: string;
+    service?: string;
+    items: { order_line_item_id: string; quantity: number }[];
+  },
+): Promise<ApiResult<AdminResponse<'createShipment'>>> {
+  return adminCall<'createShipment'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}/shipments', { storeId, orderId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Advances a shipment's status and/or attaches tracking and label. Not store-scoped in the contract. */
+export async function updateShipment(
+  shipmentId: string,
+  body: {
+    status?: 'label_created' | 'shipped' | 'in_transit' | 'delivered' | 'failed' | 'cancelled';
+    tracking_number?: string;
+    tracking_url?: string;
+    label_url?: string;
+    cost_minor?: number;
+  },
+): Promise<ApiResult<AdminResponse<'updateShipment'>>> {
+  return adminCall<'updateShipment'>({
+    path: buildPath('/admin/shipments/{shipmentId}', { shipmentId }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+/** Starts picking a planned shipment (emits `fulfillment.picking`). */
+export async function pickShipment(
+  shipmentId: string,
+): Promise<ApiResult<AdminResponse<'pickShipment'>>> {
+  return adminCall<'pickShipment'>({
+    path: buildPath('/admin/shipments/{shipmentId}/pick', { shipmentId }),
+    method: 'POST',
+  });
+}
+
+/** Marks a picked shipment packed and ready for the carrier (emits `fulfillment.packed`). */
+export async function packShipment(
+  shipmentId: string,
+  body: { parcel_count?: number } = {},
+): Promise<ApiResult<AdminResponse<'packShipment'>>> {
+  return adminCall<'packShipment'>({
+    path: buildPath('/admin/shipments/{shipmentId}/pack', { shipmentId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Shipments waiting to be picked or packed, grouped by warehouse; filter by warehouse/status. */
+export async function listPickLists(
+  storeId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listPickLists'>>> {
+  return adminCall<'listPickLists'>({
+    path: buildPath('/admin/stores/{storeId}/pick-lists', { storeId }),
+    query,
+  });
+}

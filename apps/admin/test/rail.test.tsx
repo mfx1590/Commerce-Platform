@@ -16,7 +16,11 @@ vi.mock('next/navigation', () => ({
 }));
 
 /** Which media queries match in this test; `matchMedia` does not exist in jsdom. */
-const media = { reduced: false, touch: false };
+const media: {
+  reduced: boolean;
+  touch: boolean;
+  listeners: ((event: { matches: boolean }) => void)[];
+} = { reduced: false, touch: false, listeners: [] };
 
 beforeEach(() => {
   pathname.current = `/${SEED.stores.brandA}/catalog`;
@@ -29,9 +33,14 @@ beforeEach(() => {
       (query.includes('prefers-reduced-motion') && media.reduced) ||
       (query.includes('hover: none') && media.touch),
     media: query,
-    addEventListener: vi.fn(),
+    addEventListener: (type: string, listener: (event: { matches: boolean }) => void) => {
+      if (type === 'change' && query.includes('prefers-reduced-motion')) {
+        media.listeners.push(listener);
+      }
+    },
     removeEventListener: vi.fn(),
   }));
+  media.listeners = [];
   // jsdom has no 2D canvas; the rail must cope with `getContext` answering null.
   HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue(null);
   // Frames are driven by the pure geometry module; the loop itself is not what these tests probe.
@@ -236,6 +245,94 @@ describe('accessibility (axe)', () => {
     const { container } = renderRail('owner');
     const results = await act(() => axe.run(container, options));
     expect(results.violations.map((v) => v.id)).toEqual([]);
+  });
+});
+
+/**
+ * The rail-nit review (2.2 step 0, 2026-09-24) against docs/admin-design.md. The four findings are
+ * recorded in Memory-4-admin as the canonical list; each has a test here so it cannot regress.
+ */
+describe('rail nits R1–R4', () => {
+  /** Runs one animation frame by calling whatever the rail handed to requestAnimationFrame. */
+  const runFrame = (time: number) => {
+    const raf = window.requestAnimationFrame as unknown as {
+      mock: { calls: [FrameRequestCallback][] };
+    };
+    const last = raf.mock.calls[raf.mock.calls.length - 1]?.[0];
+    if (last === undefined) throw new Error('no frame scheduled');
+    act(() => last(time));
+  };
+
+  it('R1: keyboard focus lifts a serpent exactly like hover (thicker body)', () => {
+    const { container } = renderRail('storeAdmin');
+    const orders = container.querySelector<SVGGElement>('[data-section="orders"]');
+    const body = orders?.querySelector('[data-part="body"]');
+    if (orders === null || orders === undefined || body === null || body === undefined) {
+      throw new Error('missing serpent');
+    }
+    runFrame(16);
+    const resting = Number(body.getAttribute('stroke-width'));
+
+    fireEvent.focus(orders);
+    for (let frame = 1; frame <= 40; frame += 1) runFrame(16 * frame);
+    const focused = Number(body.getAttribute('stroke-width'));
+    expect(focused).toBeGreaterThan(resting);
+
+    fireEvent.blur(orders);
+    for (let frame = 41; frame <= 120; frame += 1) runFrame(16 * frame);
+    expect(Number(body.getAttribute('stroke-width'))).toBeLessThan(focused);
+  });
+
+  it('R2: a reduced-motion change while mounted switches to the list, and back', () => {
+    renderRail('storeAdmin');
+    expect(serpents().length).toBeGreaterThan(0);
+    expect(media.listeners).toHaveLength(1);
+
+    act(() => media.listeners[0]?.({ matches: true }));
+    expect(screen.getByRole('link', { name: 'Catalog' })).toBeInTheDocument();
+    expect(serpents()).toHaveLength(0);
+    expect(screen.getByRole('checkbox', { name: 'List view' })).toBeDisabled();
+
+    act(() => media.listeners[0]?.({ matches: false }));
+    expect(serpents().length).toBeGreaterThan(0);
+    expect(screen.getByRole('checkbox', { name: 'List view' })).toBeEnabled();
+  });
+
+  it('R3: the nav is the one named landmark — no second named group inside it', () => {
+    renderRail('storeAdmin');
+    expect(screen.getByRole('navigation', { name: 'Brand A' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Sections' })).toBeNull();
+    expect(
+      screen.getByRole('complementary', { name: 'Medusa navigation rail' }),
+    ).toBeInTheDocument();
+  });
+
+  it('R4: a frame does not query the DOM — serpent parts are cached after the first look-up', () => {
+    renderRail('storeAdmin');
+    runFrame(16);
+    const spy = vi.spyOn(Element.prototype, 'querySelector');
+    runFrame(32);
+    runFrame(48);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('R4: hiding the tab stops both loops, showing it resumes them', () => {
+    renderRail('storeAdmin');
+    const before = (window.requestAnimationFrame as unknown as { mock: { calls: unknown[] } }).mock
+      .calls.length;
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(window.cancelAnimationFrame).toHaveBeenCalled();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    const after = (window.requestAnimationFrame as unknown as { mock: { calls: unknown[] } }).mock
+      .calls.length;
+    expect(after).toBeGreaterThan(before);
   });
 });
 
