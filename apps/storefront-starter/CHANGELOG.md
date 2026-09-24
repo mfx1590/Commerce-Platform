@@ -1,5 +1,46 @@
 # Changelog — @platform/storefront-starter
 
+## 0.11.0 — 2026-09-21
+
+Task [storefront] 2.3 (issue #111), contracts `contracts-v0.4.4` (Store API 0.3.1). Also fixes two
+2.2 defects that only exist in a **built image**, found while writing 2.3's REQUEST to window 5.
+
+**Fixes — both affect every deployed storefront built from main since #254:**
+
+- **Sign-out was blocked in every deployed environment.** The CSP lived in `next.config.mjs`
+  `headers()`, which `next build` evaluates once and bakes into the routes manifest. Images are built
+  once and configured per environment at runtime (Helm sets `KEYCLOAK_URL` per environment), so every
+  deployment carried the build machine's `form-action 'self' http://localhost:8180` and blocked the
+  303 to its real identity provider — the SSO session survived and customers were silently signed
+  back in. The policy is now built **per request in the middleware** (`src/lib/csp.ts`). Verified by
+  building with no `KEYCLOAK_URL` and starting with the staging value: the header carries the
+  staging origin. This supersedes the "set `KEYCLOAK_URL` as a build argument" advice given in
+  0.10.0 — a build argument cannot carry per-environment values into one image.
+- **`robots.txt` told crawlers to index every image, staging included.** It was a static route,
+  baked by `next build` — which always runs with `NODE_ENV=production`, so the "refuse outside
+  production" check could never fire. It is now rendered per request, and indexing is an explicit
+  opt-in: `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, to be set on the production deployment only.
+
+**2.3 — performance budget:**
+
+- **`pnpm --filter @platform/storefront-starter perf`** — one command, one exit code: production
+  build against the mock, bundle budget, `next start`, Lighthouse CI (median of 3), server stopped
+  whatever happened; both gates always run. Proven to fail when either budget is lowered, and to pass
+  when restored. Next's CLI is resolved from the package, not `PATH`, so plain `node scripts/perf.mjs`
+  works too — before, it failed to start the server and reported that as a Lighthouse failure.
+- **Bundle budget** (`bundle-budget.json`, `scripts/bundle-budget.mjs`, no dependency): first-load JS
+  per route, gzipped, measured + ~5 kB. It deliberately counts the layouts' entry chunks that
+  `next build`'s column omits (~1.6 kB per `[locale]` route), since the browser downloads them.
+- **`ProductImage`** — the image-CDN seam. Cloudinary delivery URLs are resized by Cloudinary;
+  everything else stays on Next's optimiser. A client component rather than `images.loaderFile`,
+  because a custom loader file disables `/_next/image` entirely (verified) and every non-Cloudinary
+  image would 404. Uses `@platform/ui/image-loader`, which costs 0.2 kB where the kit's barrel cost
+  1.5 kB.
+- Web fonts and third-party scripts: none, documented as a zero budget that the CSP enforces.
+- Lighthouse is fetched as an exact pin (`npx -y @lhci/cli@0.14.0`) rather than a devDependency: the
+  package brings ~950 lockfile lines, and a devDependency would put them in every window's install.
+- README records the SEO ≥ 95 deviation as accepted by the manager (2026-09-21).
+
 ## 0.10.0 — 2026-09-20
 
 Task [storefront] 2.2 (issue #110), contracts `contracts-v0.4.4` (Store API 0.3.1). Folds in REQUEST #199 (CSP

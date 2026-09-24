@@ -14,72 +14,17 @@ import createNextIntlPlugin from 'next-intl/plugin';
  * validates an editor's embed URL against, and a CSP listing different hosts would either block an
  * embed the Studio accepted or permit one it rejected. One list, two enforcement points.
  */
-const frameSrc = Object.values(EMBED_HOSTS)
+const frameHosts = Object.values(EMBED_HOSTS)
   .flat()
-  .map((host) => `https://${host}`);
-
-/**
- * The identity provider's origin, for `form-action` (see below).
- *
- * Read from the same variable the OIDC config uses. A malformed value falls back to the local
- * default rather than emitting a broken directive that would silently disable the whole policy.
- *
- * **This is baked at BUILD time**, unlike the OIDC config, which reads `KEYCLOAK_URL` at runtime:
- * `headers()` is evaluated once and written into the routes manifest, so setting `KEYCLOAK_URL`
- * only when starting the server leaves the old origin in the policy. Verified, not assumed —
- * building with the default and starting with a different value keeps the default in the header.
- * A deployment whose build and runtime disagree gets a sign-out that fails **in the browser only**:
- * the redirect to Keycloak is blocked, the SSO session survives, and the customer is silently
- * signed back in. So `KEYCLOAK_URL` must be set at image build time, not just at boot.
- */
-const keycloakOrigin = (() => {
-  try {
-    return new URL(process.env.KEYCLOAK_URL ?? 'http://localhost:8180').origin;
-  } catch {
-    return 'http://localhost:8180';
-  }
-})();
-
-/**
- * Content Security Policy.
- *
- * This is the **second** layer under campaign embeds, not the first: window 6 sandboxes every embed
- * iframe, and that is what contains a hostile page. The CSP stops an embed being pointed at a host
- * nobody reviewed in the first place — an editor pasting an arbitrary URL, or a compromised CMS
- * document — which sandboxing alone does not.
- *
- * **Known limitation, stated rather than implied:** `script-src` still needs `'unsafe-inline'`.
- * Next's App Router emits inline bootstrap and flight-data scripts, and the only way to drop that is
- * a per-request nonce threaded through the middleware and every `<Script>`. Until then this policy
- * is worth having for what it does enforce — framing, plugins, form targets, base URI — but it is
- * **not** XSS protection, and no one should treat it as such.
- */
-const csp = [
-  "default-src 'self'",
-  // Images come from the CDNs `remotePatterns` already allows, plus data: for inlined placeholders.
-  "img-src 'self' data: blob: https://res.cloudinary.com https://images.unsplash.com https://picsum.photos",
-  "font-src 'self' data:",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline'",
-  // The storefront talks to its own origin; the Store API is called server-side, never from here.
-  "connect-src 'self'",
-  `frame-src 'self' ${frameSrc.join(' ')}`,
-  // Nothing may frame us: clickjacking a checkout is the attack this prevents.
-  "frame-ancestors 'none'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  // Our own origin, plus the identity provider: signing out POSTs to `/auth/sign-out`, which
-  // answers 303 to Keycloak's `end_session` endpoint, and Chrome evaluates `form-action` against
-  // the URL **after** redirects — with `'self'` alone it blocks the submission outright and the
-  // SSO session is never ended, so the customer is silently signed back in. Nothing else on the
-  // storefront posts across origins, so an injected form still cannot exfiltrate a filled address.
-  `form-action 'self' ${keycloakOrigin}`,
-  'upgrade-insecure-requests',
-].join('; ');
+  .map((host) => `https://${host}`)
+  .join(' ');
 
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
+  // Build-time constant on purpose: the embed host list is code (window 6's), not environment, so
+  // it is fixed here and handed to the middleware, which builds the rest of the policy at runtime.
+  env: { CSP_FRAME_HOSTS: frameHosts },
   // The kit ships as TypeScript-compiled ESM; Next must transpile it like app code.
   transpilePackages: ['@platform/ui'],
   images: {
@@ -101,8 +46,9 @@ const config = {
       {
         source: '/:path*',
         headers: [
-          { key: 'Content-Security-Policy', value: csp },
-          // Belt and braces with `frame-ancestors`, for anything that predates CSP support.
+          // The Content-Security-Policy is NOT here: it depends on KEYCLOAK_URL, which differs per
+          // deployment, and headers() is baked at build time. See src/lib/csp.ts and the middleware.
+          // Belt and braces with the CSP's `frame-ancestors`, for anything predating CSP support.
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           // Send the origin cross-site, the full path same-site: enough for our own analytics,
