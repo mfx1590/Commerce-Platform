@@ -40,8 +40,22 @@ const LHCI_VERSION = '0.14.0';
  */
 const NEXT_BIN = createRequire(join(root, 'package.json')).resolve('next/dist/bin/next');
 
-/** The app's own environment for the measured build: always the mock, so runs are comparable. */
-const appEnv = { ...process.env, MOCK_API_URL, PORT, SITE_URL: process.env.SITE_URL ?? APP_URL };
+/**
+ * The app's own environment for the measured run: always the mock, so runs are comparable, and
+ * always **indexable**.
+ *
+ * `ROBOTS_ALLOW_INDEXING` matters more than it looks. Without it `/robots.txt` serves
+ * `Disallow: /` — correct for staging, and it takes Lighthouse's SEO category from ~95 to 58,
+ * because `is-crawlable` fails. The gate is meant to measure the configuration that goes to
+ * production, and a gate that fails on its own defaults teaches people to ignore it.
+ */
+const appEnv = {
+  ...process.env,
+  MOCK_API_URL,
+  PORT,
+  SITE_URL: process.env.SITE_URL ?? APP_URL,
+  ROBOTS_ALLOW_INDEXING: '1',
+};
 delete appEnv.STORE_API_URL;
 
 /**
