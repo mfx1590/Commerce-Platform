@@ -1,5 +1,5 @@
 /**
- * Transport for the Admin API (`packages/contracts/openapi/admin-api.yaml`, frozen at contracts-v0.1).
+ * Transport for the Admin API (`packages/contracts/openapi/admin-api.yaml`, contracts-v0.4.5).
  *
  * Nothing here throws on an HTTP error status. Every call resolves to a discriminated result so the
  * shared 401 / 403 / 404 / empty / error panels can render in place instead of blowing up a route.
@@ -11,13 +11,18 @@ import type { components, operations } from '@platform/contracts/admin';
 export type AdminComponents = components['schemas'];
 export type AdminError = AdminComponents['Error'];
 
-/** The JSON body of an operation's success response (200, else 201, else 204 → null). */
+/** The JSON body of an operation's success response (200, else 201, else 202, else 204 → null). */
 type SuccessBody<O> = O extends { responses: infer R }
   ? R extends { 200: { content: { 'application/json': infer T } } }
     ? T
     : R extends { 201: { content: { 'application/json': infer T } } }
       ? T
-      : null
+      : // 202 Accepted with a body (REQUEST #251): `materializeSegment` answers with the Segment whose
+        // refresh was queued, `eraseCustomer` is the other. Without this branch they typed as `null` —
+        // silently, because the fall-through is a valid type rather than an error.
+        R extends { 202: { content: { 'application/json': infer T } } }
+        ? T
+        : null
   : never;
 
 export type AdminResponse<K extends keyof operations> = SuccessBody<operations[K]>;
