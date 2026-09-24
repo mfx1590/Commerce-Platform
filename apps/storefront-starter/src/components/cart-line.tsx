@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Price, cn } from '@platform/ui';
-import Image from 'next/image';
+import { ProductImage } from '@/components/product-image';
 import { Link } from '@/i18n/navigation';
 import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
@@ -23,7 +23,7 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
     <li className="flex gap-4 border-b border-border py-6">
       <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted">
         {item.thumbnail_url === null ? null : (
-          <Image
+          <ProductImage
             src={item.thumbnail_url}
             alt={item.title}
             fill

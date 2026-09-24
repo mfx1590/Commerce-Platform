@@ -9,13 +9,21 @@ import { absoluteUrl } from '@/lib/seo';
  * `/api/` and `/auth/` are machinery. Everything else — catalogue, content, campaign landings — is
  * meant to be found.
  *
- * A non-production deployment refuses everything. A staging site that leaks into an index outranks
- * the real one for its own brand name and is slow to undo.
+ * **Indexing is an explicit opt-in: `ROBOTS_ALLOW_INDEXING=1`, set on the production deployment
+ * only.** Everything else — staging, previews, a laptop — tells crawlers to stay out. A staging site
+ * that leaks into an index outranks the real one for its own brand name and takes weeks to undo; a
+ * production site that forgot the variable is noticed the same day. The asymmetry decides the
+ * default.
+ *
+ * Rendered **per request**, not at build time. As a static route it was baked into the image by
+ * `next build`, which always runs with `NODE_ENV=production` — so the earlier "refuse outside
+ * production" check could never fire and every image, staging included, said `Allow: /`. Found by
+ * reading the built `.next/server/app/robots.txt.body`, not by review.
  */
-export default function robots(): MetadataRoute.Robots {
-  const indexable = process.env.ROBOTS_ALLOW_INDEXING === '1' || isProductionSite();
+export const dynamic = 'force-dynamic';
 
-  if (!indexable) {
+export default function robots(): MetadataRoute.Robots {
+  if (process.env.ROBOTS_ALLOW_INDEXING !== '1') {
     return { rules: [{ userAgent: '*', disallow: '/' }] };
   }
 
@@ -30,12 +38,4 @@ export default function robots(): MetadataRoute.Robots {
     sitemap: absoluteUrl('/sitemap.xml'),
     host: absoluteUrl(''),
   };
-}
-
-/**
- * Indexing is opt-in by environment rather than by hostname guessing: `SITE_URL` is set on every
- * deployment, and a preview URL is exactly the case that must not be indexed.
- */
-function isProductionSite(): boolean {
-  return process.env.NODE_ENV === 'production' && process.env.VERCEL_ENV !== 'preview';
 }
