@@ -17,7 +17,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 
 ## Done
 - **2.3 — issue #115 Customers and consent** · 2026-09-24 · commit `50af950` (+ main merge
-  `6907b15`) · **PR #268** (in review). #263 merged as 3e57cc1 (#114 closed).
+  `6907b15`) · **PR #268** — BLOCKED once (customers list passed full `Customer[]` to the client
+  table), fixed by the `client-safe` projection commit (sha in the PR), re-review pending.
+  #263 merged as 3e57cc1 (#114 closed).
   - Wrappers (list/get/update/erase), `customerUpdateSchema`, `actions/customers.ts` (empty
     strings dropped; empty group id = clear), `src/lib/customers/consent.ts` (pure, defensive:
     documented shape, bare boolean, anything else shown verbatim).
@@ -505,11 +507,14 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
-- **A `'use client'` component's props are a wire payload.** Next.js serialises them wholesale
-  into the Flight response, so passing a full contract record to a panel that reads two fields
-  ships every field — including PII — to the browser. Pass a projection with exactly the keys
-  the panel uses, brand the projection type so the full record does not typecheck, and test the
-  serialised JSON for the fixture's PII values (#263 review, 2026-09-24).
+- **A `'use client'` component's props are a wire payload — and so is a server action's result.**
+  Next.js serialises them wholesale into the Flight response. **Rule at write time, not review
+  time:** a client component never takes a contract record; it takes a `ClientSafe<…>` projection
+  from `src/lib/client-safe.ts` (`makeProjection(record, keys)` / `markClientSafe`), and
+  `test/client-props-guard.test.ts` fails the suite if a client file under `(store)`/`(hq)` names
+  `AdminComponents['Customer'|'Order'|'OrderSummary'|'StaffUser'|'Address']`. Actions that a
+  client calls answer `null` or a projection, never the record. Two reviews found the leak
+  (#263 detail panels, #268 customers list) before the guard existed.
 - **Prism cannot mock an operation without an example when `--errors` is on** if its schema has
   `format: uuid` / nullable members: the generated body fails Prism's own validation → 500.
   Check `example`/`examples` presence per operation before writing contract tests; file a

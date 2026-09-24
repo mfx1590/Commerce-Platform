@@ -2,6 +2,7 @@ import { StoreSectionGuard } from '@/components/shell/section-guard';
 import { EmptyPanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { listCustomers } from '@/lib/api/admin';
+import { forCustomerRows } from '@/lib/customers/projection';
 import { parseTableQuery, toContractQuery } from '@/lib/table/query-state';
 import { CustomersTable } from './customers-table';
 import { CUSTOMERS_TABLE_DEFAULTS, CUSTOMER_FILTER_KEYS } from './customers-table.config';
@@ -42,7 +43,7 @@ export default async function CustomersPage({
         <CardBody className="space-y-3">
           <CustomersTable
             storeId={storeId}
-            rows={result.ok ? result.data.items : []}
+            rows={result.ok ? forCustomerRows(result.data.items) : []}
             total={result.ok ? result.data.total : 0}
             query={query}
             emptyState={

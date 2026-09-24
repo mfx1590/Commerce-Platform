@@ -23,6 +23,21 @@
 - **CONTRACT CHANGE #264** filed (accepted in principle): addresses read, GDPR export (202),
   customer-groups list — three additive operations with exact diffs. No placeholder UI; the group
   id is a plain uuid field until the list exists, and the README names the issue.
+- **Review fix (#268): the list tables receive projections, never contract records.** The
+  customers page handed the full `Customer[]` to the `'use client'` table, so every listed
+  customer's phone, identity id and raw consent crossed the wire in the Flight payload — the #263
+  lesson, missed again at write time. Now `src/lib/client-safe.ts` is the one way a record reaches
+  a client component: `makeProjection(record, keys)` / `markClientSafe` produce **branded**
+  objects with exactly the keys named, and a `ClientSafe<…>` prop does not accept the record.
+  `src/lib/customers/projection.ts` builds the `CustomerRow` (email, name, status, a precomputed
+  consent summary, group id, date); the orders list gets the same treatment (`OrderRow` drops
+  the `customer_id` the table never showed); `updateCustomerAction` answers `null` instead of the
+  updated record (an action's result is client-side data too). Tests:
+  `customers-projection.test.ts` (keys, wire JSON scanned for the phone/identity/channels, the
+  type-level exclusion), the orders projection test gained the list row, and
+  **`client-props-guard.test.ts`** walks every `'use client'` file under `(store)` and `(hq)`
+  (window 17's `marketing/**` excluded) and fails on any `AdminComponents['Customer' | 'Order' |
+'OrderSummary' | 'StaffUser' | 'Address']` — the write-time guard the reviews asked for.
 - The two #263 nits: `requiresRelation(relation, object)` in `state-panel.tsx` builds the
   contract's Forbidden body once, for both section guards and the pick-lists page; the shipment
   update action uses `fieldNames(shipmentUpdateSchema)` instead of a hand-written list.

@@ -8,6 +8,7 @@ import { displayName } from '@/app/(store)/[storeId]/customers/customers-table.c
 import { StoreSectionGuard } from '@/components/shell/section-guard';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { channelLabel, consentRows, consentSummary } from '@/lib/customers/consent';
+import { forCustomerRows } from '@/lib/customers/projection';
 import type { ActionResult } from '@/lib/forms/action-result';
 import { DEFAULT_LIMIT, type TableQuery } from '@/lib/table/query-state';
 import { SEED, type PrincipalKey } from './fixtures/principals';
@@ -107,7 +108,7 @@ describe('customers table', () => {
     render(
       <CustomersTable
         storeId="store-1"
-        rows={[
+        rows={forCustomerRows([
           customer(),
           customer({
             id: 'customer-guest-words',
@@ -117,7 +118,7 @@ describe('customers table', () => {
             status: 'guest',
             consent: {},
           }),
-        ]}
+        ])}
         total={2}
         query={query()}
       />,
@@ -177,8 +178,8 @@ describe('customer form', () => {
     const user = userEvent.setup();
     actions.updateCustomerAction.mockResolvedValue({
       status: 'success',
-      data: customer(),
-    } satisfies ActionResult<Customer>);
+      data: null,
+    } satisfies ActionResult<null>);
     render(
       <CustomerForm
         storeId="store-1"

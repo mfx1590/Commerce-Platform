@@ -5,6 +5,7 @@ import {
   forActions,
   forFulfilment,
   forLines,
+  forOrderRows,
   type OrderForActions,
   type OrderForFulfilment,
   type OrderForLines,
@@ -46,6 +47,23 @@ describe('order projections for client components', () => {
       expect(wire).not.toContain(full.shipping_address.last_name);
       expect(wire).not.toContain(full.customer_id ?? 'never');
     }
+  });
+
+  it('the list row keeps the email the table shows and drops the customer id it does not', () => {
+    const [row] = forOrderRows([full]);
+    expect(Object.keys(row ?? {}).sort()).toEqual(
+      [
+        'id',
+        'display_id',
+        'email',
+        'status',
+        'payment_status',
+        'fulfillment_status',
+        'total',
+        'placed_at',
+      ].sort(),
+    );
+    expect(JSON.stringify(row)).not.toContain(full.customer_id ?? 'never');
   });
 
   it('the full Order does not typecheck as a panel prop; only the projection functions produce one', () => {

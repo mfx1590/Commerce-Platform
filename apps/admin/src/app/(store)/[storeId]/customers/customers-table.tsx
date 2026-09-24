@@ -5,8 +5,8 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/data-table';
-import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
-import { consentSummary } from '@/lib/customers/consent';
+import type { AdminError } from '@/lib/api/admin-client';
+import type { CustomerRow } from '@/lib/customers/projection';
 import type { TableQuery } from '@/lib/table/query-state';
 import {
   CUSTOMERS_SORTABLE_COLUMNS,
@@ -15,17 +15,16 @@ import {
   displayName,
 } from './customers-table.config';
 
-type Customer = AdminComponents['Customer'];
-
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10);
 }
 
 /**
- * The customers list. Rows are personal data: this component receives exactly the fields the
- * table shows (the page already sits behind the `support` gate), renders them as text, and
- * never logs or forwards them anywhere.
+ * The customers list. Rows are personal data: this component receives `CustomerRow` projections
+ * — exactly the columns it renders, the consent already summarised, no phone, no identity id, no
+ * raw consent (`src/lib/customers/projection.ts`) — renders them as text, and never logs or
+ * forwards them anywhere. The full `Customer` does not typecheck as a row.
  */
 export function CustomersTable({
   storeId,
@@ -36,13 +35,13 @@ export function CustomersTable({
   error,
 }: {
   storeId: string;
-  rows: readonly Customer[];
+  rows: readonly CustomerRow[];
   total: number;
   query: TableQuery;
   emptyState?: ReactNode;
   error?: { status: number; error: AdminError } | undefined;
 }) {
-  const columns: ColumnDef<Customer, unknown>[] = [
+  const columns: ColumnDef<CustomerRow, unknown>[] = [
     {
       id: 'email',
       header: 'Email',
@@ -72,7 +71,7 @@ export function CustomersTable({
     {
       id: 'consent',
       header: 'Consent',
-      cell: ({ row }) => <span className="text-muted">{consentSummary(row.original.consent)}</span>,
+      cell: ({ row }) => <span className="text-muted">{row.original.consent_summary}</span>,
     },
     {
       id: 'group',
@@ -93,7 +92,7 @@ export function CustomersTable({
   ];
 
   return (
-    <DataTable<Customer>
+    <DataTable<CustomerRow>
       columns={columns}
       rows={rows}
       total={total}

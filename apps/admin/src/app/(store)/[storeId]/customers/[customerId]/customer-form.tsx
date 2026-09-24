@@ -6,14 +6,11 @@ import { SelectField, TextField, errorMessage } from '@/components/form/fields';
 import { useContractForm } from '@/components/form/use-contract-form';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import { updateCustomerAction } from '@/app/actions/customers';
-import type { AdminComponents } from '@/lib/api/admin-client';
 import {
   CUSTOMER_EDITABLE_STATUSES,
   customerUpdateSchema,
   type CustomerUpdateValues,
 } from '@/lib/forms/schemas';
-
-type Customer = AdminComponents['Customer'];
 
 /**
  * Name, phone, group and status. The props are exactly the fields the form shows — no email, no
@@ -32,9 +29,11 @@ export function CustomerForm({
   statusEditable: boolean;
 }) {
   const router = useRouter();
+  // The action answers with no record: a server action's result is client-side data too, and the
+  // form only needs to know the save happened before it refreshes.
   const { form, submit, formError, refusal, isSubmitting } = useContractForm<
     CustomerUpdateValues,
-    Customer
+    null
   >({
     schema: customerUpdateSchema,
     action: (values) => updateCustomerAction(storeId, customerId, values),
