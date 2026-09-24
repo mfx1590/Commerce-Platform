@@ -152,6 +152,41 @@ test.describe('store-admin', () => {
     }
   });
 
+  test('orders: the list renders money and pills from the Admin API, the detail opens', async ({
+    page,
+  }) => {
+    await signIn(page, `/${BRAND_A}/orders`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/orders`));
+
+    const table = page.getByRole('table', { name: 'Orders' });
+    await expect(table).toBeVisible();
+    // The mock's example: #1000, confirmed, captured, unfulfilled, €29.18.
+    await expect(table.getByRole('link', { name: '#1000' })).toBeVisible();
+    await expect(table.getByText('confirmed')).toBeVisible();
+    await expect(table.getByText(/29[.,]18/)).toBeVisible();
+
+    await table.getByRole('link', { name: '#1000' }).click();
+    await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));
+    await expect(page.getByRole('heading', { name: 'Order #1000' })).toBeVisible();
+    await expect(page.getByRole('table', { name: 'Order lines' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Order timeline' })).toBeVisible();
+  });
+
+  test('orders: a refund asks first and states the ceiling', async ({ page }) => {
+    await signIn(page, `/${BRAND_A}/orders`);
+    await page.getByRole('table', { name: 'Orders' }).getByRole('link', { name: '#1000' }).click();
+    await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));
+
+    // store_admin implies support, so the refund is offered; the mock's payment is captured.
+    await page.getByRole('button', { name: 'Refund', exact: true }).click();
+    await expect(page.getByText(/can still be refunded/)).toBeVisible();
+    const confirm = page.getByRole('button', { name: /Yes, refund/ });
+    await expect(confirm).toBeVisible();
+    await confirm.click();
+    // Prism answers 201 with its Refund example; the screen reports the request and refreshes.
+    await expect(page.getByRole('status')).toHaveText(/Refund of .* requested/);
+  });
+
   test('the media rows can be reordered in the editor', async ({ page }) => {
     await signIn(page, `/${BRAND_A}/catalog/new`);
     await page.waitForURL(/\/catalog\/new/);

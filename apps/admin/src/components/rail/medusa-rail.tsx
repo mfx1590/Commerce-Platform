@@ -96,18 +96,37 @@ function poseAttributes(shape: SerpentShape, pose: Pose, label: string) {
   };
 }
 
+type Parts = Record<'outer' | 'body' | 'scales' | 'head' | 'eye' | 'tongue', SVGElement | null>;
+const PART_NAMES = ['outer', 'body', 'scales', 'head', 'eye', 'tongue'] as const;
+
+/**
+ * The parts of a serpent are looked up once per group and cached: the frame loop used to run six
+ * `querySelector`s per serpent per frame (rail nit R4), which is the layout engine's time spent on
+ * something that never changes between frames.
+ */
+const partsCache = new WeakMap<SVGGElement, Parts>();
+function partsOf(group: SVGGElement): Parts {
+  const cached = partsCache.get(group);
+  if (cached !== undefined) return cached;
+  const parts = Object.fromEntries(
+    PART_NAMES.map((name) => [name, group.querySelector<SVGElement>(`[data-part="${name}"]`)]),
+  ) as Parts;
+  partsCache.set(group, parts);
+  return parts;
+}
+
 function applyPose(group: SVGGElement, shape: SerpentShape, pose: Pose, label: string): void {
   const a = poseAttributes(shape, pose, label);
-  const part = (name: string) => group.querySelector<SVGElement>(`[data-part="${name}"]`);
-  part('outer')?.setAttribute('d', a.d);
-  part('outer')?.setAttribute('stroke-width', a.outerWidth.toFixed(2));
-  part('body')?.setAttribute('d', a.d);
-  part('body')?.setAttribute('stroke-width', a.bodyWidth.toFixed(2));
-  part('scales')?.setAttribute('d', a.d);
-  part('head')?.setAttribute('transform', a.headTransform);
-  part('eye')?.setAttribute('cx', a.eye.x.toFixed(1));
-  part('eye')?.setAttribute('cy', a.eye.y.toFixed(1));
-  part('tongue')?.setAttribute('d', a.tongue);
+  const part = partsOf(group);
+  part.outer?.setAttribute('d', a.d);
+  part.outer?.setAttribute('stroke-width', a.outerWidth.toFixed(2));
+  part.body?.setAttribute('d', a.d);
+  part.body?.setAttribute('stroke-width', a.bodyWidth.toFixed(2));
+  part.scales?.setAttribute('d', a.d);
+  part.head?.setAttribute('transform', a.headTransform);
+  part.eye?.setAttribute('cx', a.eye.x.toFixed(1));
+  part.eye?.setAttribute('cy', a.eye.y.toFixed(1));
+  part.tongue?.setAttribute('d', a.tongue);
 }
 
 /**
@@ -173,6 +192,18 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
     setReduced(reducedMotion);
     setListView(reducedMotion || (readListPreference() ?? touch));
     setDecided(true);
+    // Rail nit R2: the preference can change while the page is open (an OS setting, a browser
+    // flag). Reading it once at mount left the serpents moving for someone who had just asked
+    // them not to; the list takes over the moment the query flips, and back when it flips again.
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = (event: MediaQueryListEvent) => {
+      setReduced(event.matches);
+      if (event.matches) setListView(true);
+      else setListView(readListPreference() ?? prefers('(hover: none)'));
+    };
+    query.addEventListener?.('change', onChange);
+    return () => query.removeEventListener?.('change', onChange);
   }, []);
   const showList = listView || reduced;
 
@@ -319,10 +350,23 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
       }
       frame = window.requestAnimationFrame(tick);
     };
+    let running = true;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        running = false;
+        window.cancelAnimationFrame(frame);
+      } else if (!running) {
+        running = true;
+        frame = window.requestAnimationFrame(tick);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     frame = window.requestAnimationFrame(tick);
     return () => {
+      running = false;
       window.cancelAnimationFrame(frame);
       window.removeEventListener('resize', size);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [animating]);
 
@@ -435,12 +479,13 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
         </>
       ) : (
         <nav aria-label={scopes[scope].label} className={styles.stage}>
+          {/* Rail nit R3: no role/label here — the <nav> is the one named landmark, and a second
+              named group inside it ("Brand A navigation, Sections group, …") only adds a level a
+              screen reader has to step through. The buttons are what carry the names. */}
           <svg
             className={styles.svg}
             viewBox={`0 0 ${RAIL_VIEWBOX.width} ${RAIL_VIEWBOX.height}`}
             preserveAspectRatio="xMidYMin meet"
-            role="group"
-            aria-label="Sections"
           >
             {defs}
             <g data-testid="medusa-serpents">
@@ -471,6 +516,14 @@ export function MedusaRail({ hqItems, storeItems, storeName, userName }: MedusaR
                       hoverRef.current = index;
                     }}
                     onMouseLeave={() => {
+                      hoverRef.current = null;
+                    }}
+                    // Rail nit R1: the brief says hover *or focus* lifts the serpent; only the
+                    // pointer did, so a keyboard user got the colour change without the lift.
+                    onFocus={() => {
+                      hoverRef.current = index;
+                    }}
+                    onBlur={() => {
                       hoverRef.current = null;
                     }}
                   >

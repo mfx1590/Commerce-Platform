@@ -16,6 +16,29 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.2 — issue #114 Orders** · 2026-09-24 · commits `92540f4` (build), `14fd4e2` (main merged),
+  + the address fix commit · PR: opens on the manager's #259 confirmation
+  - Wrappers for the 13 order/fulfilment operations (0.4.5); `src/lib/orders/` pure modules
+    (quantities, refunds + `idempotencyKeyHolder`, timeline, permissions); Zod schemas for the
+    inline bodies; `actions/orders.ts`. Screens: list (pills, money in store locale), detail
+    (server-rendered PII via `AddressBlock`, pre-fulfilment line edits with the last line never
+    offered, totals, timeline, actions, fulfilment panel: fulfil/pick/pack/update/receive), pick
+    lists (`operations`, relation panel otherwise).
+  - Refund key: one per attempt, kept across failures, new after success — unit test proves both.
+  - Tests: unit 416 (orders-helpers 24, orders-screens 20 incl. AddressBlock, rail +5); contract
+    32 + 2 skipped on **CONTRACT CHANGE #261** (no examples for updateOrderLineItem,
+    cancelOrderLineItem, pickShipment, packShipment, listPickLists → Prism 500); mock e2e 17/17
+    (+2 core-only skipped) incl. orders list→detail and refund-asks-first.
+  - **Real core run** (own core on :9100 from main, real store-admin token): list showed the 4
+    orders from window 3's live checks, detail #1003 rendered fully; screenshots
+    `apps/admin/docs/orders/`. Found + fixed: the core omits optional address fields instead of
+    `null` → "undefined" in the address; `AddressBlock` treats missing and null alike.
+  - Rail nits R1–R4 (step 0) fixed with regression tests; canonical list in its own section.
+  - Environment: Docker Desktop was down again mid-task (daemon gone, not just the proxy); I
+    started it and `compose start`ed the existing containers (no recreate), re-seeded OpenFGA.
+    **For main:** `.env.example` `REDIS_URL` still says `localhost:6381` — the same IPv6 loopback
+    proxy issue as the DB rows; the core dies on Redis ECONNRESET until it is `127.0.0.1`.
+
 - **REQUEST #251 — `AdminResponse` maps 202 bodies** · 2026-09-24 · (sha in the PR) · resumed
   after the pause: main merged (284 commits, contracts-v0.4.5, 106 admin operations), `pnpm
   install`, workspace packages rebuilt, local `.env` DB rows → `127.0.0.1:5433`. `SuccessBody`
@@ -264,66 +287,32 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#114 · 2.2 Orders** — plan of 2026-09-08 to be refreshed against contracts-v0.4.5 (new since:
-  `updateOrderLineItem` / `cancelOrderLineItem` before fulfilment, `pickShipment` / `packShipment`,
-  `listPickLists`, 401/403 everywhere) and to fold in the four rail nits from #205 (**not on
-  GitHub — asked the manager for the list, 2026-09-24**). Core is feature-complete on main and
-  #202 is fixed, so the real-core verification runs at the end of the task. Building locally while
-  #184 is in review; no push until the manager confirms. Contracts 0.4.0 (#185, 401/403 on every
-  operation) lands today: merge main and retarget the refusal contract tests at the spec's examples.
-  1. **Wrappers** in `src/lib/api/admin.ts`: `listOrders` (filters status, payment_status,
-     fulfillment_status, q, placed_from/to; sort placed_at/display_id/total/status), `getOrder`,
-     `cancelOrder`, `createRefund` (**`Idempotency-Key` header** via `adminCall.headers`),
-     `createReturn`, `createShipment`, `updateShipment`, `receiveReturn`; `listWarehouses` exists.
-  2. **List** `/{storeId}/orders`: data-table, URL-driven filters + sort from the contract enums
-     (`orders-table.config.ts`), money from `{amount_minor, currency}` with the store's
-     `default_locale` (`getStore` in parallel, fails alone), status/payment/fulfilment badges,
-     empty vs filter-matched-nothing, `ApiStatePanel` on failure.
-  3. **Detail** `/{storeId}/orders/{orderId}` (server component renders the PII: email, addresses):
-     header + three badges, lines (qty, unit, discount, tax, total, fulfilled/returned), totals
-     block, shipping method, payments/refunds/shipments/returns as one timeline sorted by time,
-     `cancel_reason` when set.
-  4. **Actions panel** (client, each behind a confirmation, each gated in the UI by the relation
-     from `/admin/me` via `src/lib/nav/relations.ts`, always re-checked by the API → `ActionRefusal`):
-     Cancel (`store_admin`, reason required) · Fulfil = `createShipment` (`operations` on
-     organization:hq: warehouse picker from `listWarehouses`, per-line quantity ≤ remaining,
-     carrier/service) · Refund (`support`: `MoneyField` ≤ captured − refunded, reason enum,
-     optional payment) · Request return (`support`: per-line quantity ≤ shipped − returned, reason).
-  5. **Idempotency**: the refund form mints `crypto.randomUUID()` when it opens and keeps it until a
-     success; a retry after a network error (status 0) or 5xx reuses it, a success mints a new one.
-     Unit test: action fails with status 0 then succeeds → both calls carry the same key; the next
-     refund carries a different one.
-  6. **Server actions** `src/app/actions/orders.ts` + Zod schemas (`MatchesContract` where the
-     contract has a named input; the inline bodies get hand-written schemas).
-  7. **Tests**: unit (table config, money rendering never via floats, gating per role fixture,
-     idempotency, confirmations), contract `test-contract/orders.test.tsx` (list/detail/cancel/
-     refund 201 + documented 403/409, return 201, shipment 201; after #185: 401/403 examples on the
-     order operations), 403/empty/error through `ApiStatePanel`; e2e: orders list → detail on the mock.
-  8. **Real core at the end** (core 2.3 / PR #174 merges within the hour): merge main, run
-     list/detail (+ whichever actions the core implements) against :9000, document; refusals →
-     issue for window 1 with exact request/response.
-  9. README (orders section), CHANGELOG, memory; `pnpm lint && pnpm typecheck && pnpm test --filter
-     @platform/admin` + `test:contract`; PR with the acceptance criteria.
-  **Estimate: 50–70 tool calls.** Not in scope: shipment status updates UI beyond `updateShipment`
-  wrapper (window 8's labels/tracking), `receiveReturn` UI (HQ warehouse, Phase 3 window 11) —
-  wrappers only.
-
-### Open requests, none blocking
-- ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
-  `redirectUris`, `webOrigins` **and** `post.logout.redirect.uris`. My earlier "the repo and the
-  running realm disagree" claim was wrong: I compared the live realm against this branch's stale copy
-  of the file, before #85 had been merged in. Corrected on the issue.
-- **#80** — CI job for the Playwright journeys (admin and storefront).
-- ~~**#93**~~ — **applied on main**: `**/test-results/` and `**/playwright-report/` are in the root
-  `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
-
+- (nothing — 2.2 is committed locally; push + PR the moment #259's merge is confirmed by the manager)
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
-- [ ] **#114 · 2.2** Orders: list, detail, actions
+- [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [ ] **#115 · 2.3** Customers and consent (support-gated)
 - [ ] **#116 · 2.4** Promotions and price lists screens
 - [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
+
+## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
+The four nits recorded on #205 were never written down anywhere (manager confirmed the handoff
+gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test in
+`test/rail.test.tsx` ("rail nits R1–R4").
+- **R1 Keyboard focus did not lift the serpent.** The brief says hover *or focus* lifts; only the
+  pointer set the lift target, so a keyboard user got the colour change without the lift. Fix:
+  `onFocus`/`onBlur` set the same hover ref.
+- **R2 `prefers-reduced-motion` was read once at mount.** A change while the page was open (OS
+  setting, browser flag) left the serpents moving. Fix: subscribe to the media query's `change`;
+  the list takes over at once and hands back when it flips again.
+- **R3 A second named landmark inside the nav.** The SVG carried `role="group"
+  aria-label="Sections"` inside the `<nav>` already named after the store — an extra level for a
+  screen reader with no information in it. Fix: the nav is the one named landmark; buttons carry
+  the names.
+- **R4 Idle render cost.** The frame loop ran six `querySelector`s per serpent per frame (≈ 42 DOM
+  queries per frame for the store view) and the motes canvas kept drawing while the tab was
+  hidden. Fix: parts cached per group in a `WeakMap`; both loops pause on `visibilitychange`.
 
 ## Decisions made (with reasons)
 - **A 401/403 from a mutation is a `refusal`, not a `formError`.** A relation you do not hold is

@@ -188,3 +188,89 @@ export type ApiKeyCreateValues = z.infer<typeof apiKeyCreateSchema>;
 export function fieldNames(schema: z.ZodObject<z.ZodRawShape>): string[] {
   return Object.keys(schema.shape);
 }
+
+// ---------------------------------------------------------------------------- orders (task 2.2)
+// The order operations take inline request bodies (no named input schema in the contract), so
+// these are hand-written to the shapes in admin-api.yaml 0.4.5 and typed against the wrappers.
+
+export const REFUND_REASONS = ['return', 'cancellation', 'goodwill', 'chargeback'] as const;
+export const RETURN_CONDITIONS = ['resellable', 'damaged'] as const;
+export const SHIPMENT_UPDATE_STATUSES = [
+  'label_created',
+  'shipped',
+  'in_transit',
+  'delivered',
+  'failed',
+  'cancelled',
+] as const;
+
+/** `cancelOrder`: `{ reason }`, required. */
+export const orderCancelSchema = z.object({
+  reason: z.string().min(1, 'Say why the order is cancelled'),
+});
+export type OrderCancelValues = z.infer<typeof orderCancelSchema>;
+
+/** `updateOrderLineItem`: `{ quantity }` — must be lower than now; the form also checks that. */
+export const lineItemQuantitySchema = z.object({
+  quantity: z.number().int('Whole units only').min(1, 'At least one — cancel the line instead'),
+});
+export type LineItemQuantityValues = z.infer<typeof lineItemQuantitySchema>;
+
+/** `createRefund` body; the `Idempotency-Key` header travels separately. */
+export const refundCreateSchema = z.object({
+  amount_minor: z.number().int('Amounts are whole minor units').min(1, 'Enter an amount'),
+  reason: z.enum(REFUND_REASONS),
+  payment_id: z.string().uuid().optional(),
+  return_id: z.string().uuid().optional(),
+});
+export type RefundCreateValues = z.infer<typeof refundCreateSchema>;
+
+const lineQuantity = z.object({
+  order_line_item_id: z.string().uuid(),
+  quantity: z.number().int().min(1),
+});
+
+/** `createReturn`: at least one line with a quantity. */
+export const returnCreateSchema = z.object({
+  reason: z.string().optional(),
+  items: z.array(lineQuantity).min(1, 'Pick at least one line to return'),
+});
+export type ReturnCreateValues = z.infer<typeof returnCreateSchema>;
+
+/** `createShipment`: warehouse + at least one line. */
+export const shipmentCreateSchema = z.object({
+  warehouse_id: z.string().uuid('Choose a warehouse'),
+  carrier: z.string().optional(),
+  service: z.string().optional(),
+  items: z.array(lineQuantity).min(1, 'Pick at least one line to ship'),
+});
+export type ShipmentCreateValues = z.infer<typeof shipmentCreateSchema>;
+
+/** `updateShipment`: everything optional; an empty body is not a change. */
+export const shipmentUpdateSchema = z
+  .object({
+    status: z.enum(SHIPMENT_UPDATE_STATUSES).optional(),
+    tracking_number: z.string().optional(),
+    tracking_url: z.string().url('Enter a full URL').optional(),
+    label_url: z.string().url('Enter a full URL').optional(),
+    cost_minor: z.number().int().min(0).optional(),
+  })
+  .refine((values) => Object.values(values).some((value) => value !== undefined), {
+    message: 'Change at least one field',
+  });
+export type ShipmentUpdateValues = z.infer<typeof shipmentUpdateSchema>;
+
+/** `packShipment`: optional parcel count. */
+export const shipmentPackSchema = z.object({
+  parcel_count: z.number().int().min(1, 'At least one parcel').optional(),
+});
+export type ShipmentPackValues = z.infer<typeof shipmentPackSchema>;
+
+/** `receiveReturn`: warehouse + per-line condition. */
+export const returnReceiveSchema = z.object({
+  warehouse_id: z.string().uuid('Choose a warehouse'),
+  items: z
+    .array(lineQuantity.extend({ condition: z.enum(RETURN_CONDITIONS) }))
+    .min(1, 'Say what was received'),
+});
+export type ReturnReceiveValues = z.infer<typeof returnReceiveSchema>;
