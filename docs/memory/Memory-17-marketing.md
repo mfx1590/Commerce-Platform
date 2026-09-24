@@ -20,7 +20,7 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **`getPromotionReport` route** (follow-up to #150, manager decision 2026-09-24) — commit SHA_PROMO, the PR after
+- **`getPromotionReport` route** (follow-up to #150, manager decision 2026-09-24) — commit `fe84b2d`, the PR after
   #266 (merged 132f3b0). `promotion-report.ts` + the route over window 9's `promotionReportData`; route tests incl.
   the 403; abandoned-cart route test now asserts the spec schema; e2e nits (recursive log scan, `city` key).
 - **2.6 (#150) docs pass, end-to-end test, PII sweep** — commit `76ea082`, PR #266 (merged 132f3b0), 2026-09-24. Module README
