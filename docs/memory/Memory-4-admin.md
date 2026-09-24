@@ -16,8 +16,8 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **2.3 — issue #115 Customers and consent** · 2026-09-24 · commit: the 2.3 commit on top of
-  `f34c7b0` (sha recorded when the PR opens) · PR: after #263 merges
+- **2.3 — issue #115 Customers and consent** · 2026-09-24 · commit `50af950` (+ main merge
+  `6907b15`) · **PR #268** (in review). #263 merged as 3e57cc1 (#114 closed).
   - Wrappers (list/get/update/erase), `customerUpdateSchema`, `actions/customers.ts` (empty
     strings dropped; empty group id = clear), `src/lib/customers/consent.ts` (pure, defensive:
     documented shape, bare boolean, anything else shown verbatim).
@@ -316,8 +316,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- (nothing — 2.3 built and verified locally; the 2.3 PR opens when #263's merge is confirmed. Then
-  the five #261 contract tests un-skip once 0.4.6 is confirmed on main.)
+- **PR #268 (2.3) in review.** When the manager confirms 0.4.6 (#261 examples) on main: merge main
+  on this branch, un-skip the five contract tests in `test-contract/orders.test.tsx`, small commit,
+  push to the PR. 2.4 (#116) plan next, built locally while #268 is in review.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
