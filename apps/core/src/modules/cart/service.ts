@@ -260,7 +260,11 @@ export async function recalculate(
   // ---- 2. shipping ----
   let shippingOptionId = cart.shipping_option_id;
   let shippingMinor = 0;
-  if (shippingOptionId) {
+  // A promotion that grants free shipping zeroes the amount whatever the carrier says, so the rate provider (a
+  // live carrier call on the server) is only asked when the request itself picked the option — that one quote is
+  // what validates the choice (400 below); every other mutation of a free-shipping cart skips the call.
+  const skipQuote = quote.freeShipping && !opts.explicitShippingOption;
+  if (shippingOptionId && !skipQuote) {
     const rate = await currentShippingRateProvider().quote(ctx, shippingOptionId);
     if (rate) {
       shippingMinor = quote.freeShipping ? 0 : rate.priceMinor;

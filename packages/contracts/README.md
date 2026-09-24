@@ -5,11 +5,12 @@ See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 
 | Spec                     | `info.version` | Operations | Areas                                                                                                  |
 | ------------------------ | -------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
-| `openapi/store-api.yaml` | 0.3.1          | 20         | store, catalog, cart, checkout, orders, customers                                                      |
-| `openapi/admin-api.yaml` | 0.4.4          | 105        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
+| `openapi/store-api.yaml` | 0.4.0          | 21         | store, catalog, cart, checkout, orders, customers                                                      |
+| `openapi/admin-api.yaml` | 0.4.5          | 106        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
 
-`CONTRACTS_VERSION` is `0.4.4` (tag contracts-v0.4.4). 0.4.4 freezes the `SegmentRules` grammar (#239: closed
-predicate set, 400 on unknown input, `SEGMENT_RULES_SCHEMA` published by the marketing module). The marketing area (37 operations, 15 components) is specified in
+`CONTRACTS_VERSION` is `0.4.5` (tag contracts-v0.4.5). 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 adds
+abandoned-cart recovery (#244/#245: the recovery-rate report and `POST /store/cart-recovery/{token}`, with
+migration 0170). The marketing area (37 operations, 15 components) is specified in
 [docs/marketing-scope.md](../../docs/marketing-scope.md); the search area (6 merchandising operations, 5 components) in
 CONTRACT CHANGE #162; 0.4.1 adds product media (5 operations, 5 components, #168), `getPromotion` / `updatePromotion`
 with `buy_x_get_y` and `stackable` / `exclusive` (#189) and a spelled-out `ProductFeed` (#194); 0.4.2 adds order

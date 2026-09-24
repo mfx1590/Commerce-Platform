@@ -46,7 +46,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 
 - HTTP: implements `packages/contracts/openapi/store-api.yaml` and `admin-api.yaml` exactly (registry + catalog
   routes in Phase 1; Store API 0.3.0 `currency` query and the cart operations since 2.1; shipping options, payment
-  session, `POST …/complete` and `GET /store/orders/{orderId}` since 2.2 — the fallback proxy now covers only
+  session, `POST …/complete` and `GET /store/orders/{orderId}` since 2.2; `POST /store/cart-recovery/{token}`
+  (#246, window 17's `validateRecoveryToken`) — the fallback proxy now covers only
   `/store/customers*`). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
   mounted ahead of Medusa (they win over Medusa's same-path routes, its key gate and its admin auth).
   Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the
@@ -86,12 +87,15 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `completeCart` answers 409 `price_changed` (#228) instead of placing at a price the customer did not see.
   Discounts come through the `DiscountEvaluator` seam (`setDiscountEvaluator()`, #230): per-line `discount_minor`
   BEFORE shipping and tax, free shipping, and the code rule — a code that can never apply is a 400 with the reason
-  per code; a conditional one (including a promotion that has not started yet) stays stored.
+  per code; a conditional one (including a promotion that has not started yet) stays stored. At placement the
+  promotions are re-evaluated under the cart lock (a changed discount = 409 `price_changed`), one use per applied
+  promotion is counted inside the transaction before `authorize`, and the order freezes the applied codes and
+  `metadata.promotions`; order edits scale the frozen discount pro rata.
 - Boot-time registrations live in `src/wiring.ts` (`registerModuleSeams()`, called once by `createServer()`):
   `registerPaymentProviders()` (window 7), `registerCarrierProviders()` (window 8) and the cart's
   `priceListResolver` over window 9's `resolvePrices`, and `registerTaxProvider()` (window 7: table or Stripe Tax
   per `store.settings.tax`; identical to the built-in calculator with default settings), and window 7's
-  `registerFraudCheck()` — handed on to the checkout's `setFraudCheck` seam in the same place (#231) — and the
+  `registerFraudCheck()` (it registers with the checkout's `setFraudCheck` seam itself, #231) — and the
   cart's `promotionsDiscountEvaluator` over window 9's promotions engine (#230; for tax-inclusive stores it
   converts prices, fixed amounts and minimum subtotals gross → net for the engine and the allocations back — what
   a merchant configures and a customer sees is always gross; the engine never changes). Plain registry writes — no I/O, no configuration
@@ -105,7 +109,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   API); `review` places the order, flags the payment row (truth, window 7) and the order mirror
   (`flagOrderForReview` / `resolveOrderReview` in the orders module, one `order.updated` each); a check that throws
   is a `review`. `confirmOrder` answers 409 while an order is held; `order.metadata.fraud` is stripped from the
-  Store order read (Admin keeps it).
+  Store order read (Admin keeps it). A block is recorded AFTER the rollback through the opt-in
+  `FraudCheck.recordBlocked` hook (#241; `recordsBlockedAfterRollback`). The cart's metadata can never pre-write
+  the core's own order keys (`fraud`, `promotions`).
 - Order lifecycle (`src/modules/orders`): every status change goes through `transition()` (table-driven, one event
   each); windows 7 and 8 call `confirmOrder`, `markPayment*`, `markShipmentCreated`, `markShipped`, `markDelivered`,
   `markReturned`, `cancelOrder` with a scoped client + ids (idempotent on the target state). Edits before fulfilment

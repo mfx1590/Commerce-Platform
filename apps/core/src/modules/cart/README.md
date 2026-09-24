@@ -85,6 +85,17 @@ abandoned (nothing to recover).
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-20 · Three rulings of #230 PR B on the promotions adapter (`src/wiring.ts`).** (1) **Orders that
+  count** for a customer's first-order state and per-customer uses: not cancelled, paid for — the payment at
+  least authorised (`pending` / `failed` = unpaid) — and not held or condemned by a fraud review. An unpaid or
+  suspicious order must not cost an honest customer their welcome code, and held orders must not use up a limit.
+  (2) **Stacking**: applied promotions are taken in the engine's order and each one only gets the headroom the
+  ones before it left on a line, so a line's combined discount never exceeds its displayed subtotal and the cart's
+  own clamp never shaves anything silently; a second stacked fixed amount is exactly the remainder. (3) The
+  blended fixed-amount conversion uses BigInt (`mulDivRound`), exact beyond 2^53. Also: while a promotion grants
+  free shipping the rate provider is only asked when the request itself picks the option (that quote validates
+  the choice); no other mutation pays for a carrier call whose result would be zeroed.
+
 - **2026-09-19 · Discounts come through a `DiscountEvaluator` seam, before shipping and tax (#230 PR A).**
   `setDiscountEvaluator()` follows the price/tax/shipping pattern (default `noDiscounts`); the server registers
   `promotionsDiscountEvaluator` (`src/wiring.ts`) over window 9's engine — candidates = automatic promotions + the

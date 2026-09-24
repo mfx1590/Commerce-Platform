@@ -5,13 +5,23 @@ import Image from 'next/image';
 import { Link } from '@/i18n/navigation';
 import { notFound } from 'next/navigation';
 import { VariantPicker } from '@/components/variant-picker';
+import { JsonLd } from '@/components/json-ld';
+import { brandConfig } from '@/brand/config';
 import { getProduct } from '@/lib/catalog';
 import { getCurrency } from '@/lib/i18n';
 import { getStoreOrNull } from '@/lib/store';
+import {
+  absoluteUrl,
+  alternatesFor,
+  breadcrumbJsonLd,
+  canonicalFor,
+  localizedPath,
+  productJsonLd,
+} from '@/lib/seo';
 import { isNotFound } from '@/lib/store-api';
 import { defaultSelection, findVariant, mediaFor } from '@/lib/variant';
 
-type Params = Promise<{ handle: string }>;
+type Params = Promise<{ handle: string; locale: string }>;
 
 /** The gallery is the largest element on the page; sizes keep the LCP image small on a phone. */
 const GALLERY_SIZES = '(min-width: 1024px) 50vw, 100vw';
@@ -21,9 +31,9 @@ const GALLERY_SIZES = '(min-width: 1024px) 50vw, 100vw';
  * pass the same currency, which they do because `getCurrency` is resolved from the same cookie and
  * `getStoreOrNull` is itself cached per render.
  */
-async function loadProduct(handle: string) {
+async function loadProduct(handle: string, currency?: string | undefined) {
   try {
-    return await getProduct(handle, await getCurrency(await getStoreOrNull()));
+    return await getProduct(handle, currency ?? (await getCurrency(await getStoreOrNull())));
   } catch (error) {
     if (isNotFound(error)) notFound();
     throw error;
@@ -31,21 +41,38 @@ async function loadProduct(handle: string) {
 }
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
-  const { handle } = await params;
-  const product = await loadProduct(handle);
+  const { handle, locale } = await params;
+  // Deliberately currency-less: nothing in the metadata is priced, so asking for a currency would
+  // fragment the fetch cache per currency for no gain — and make this read depend on the cookie.
+  const product = await loadProduct(handle, undefined);
   const description = product.seo?.description ?? product.subtitle ?? undefined;
+  const title = product.seo?.title ?? product.title;
+
+  // Every locale is an alternate; the canonical honours an API-pinned value but localises a
+  // relative one (see `canonicalFor` — an un-prefixed path is a URL that does not exist).
+  const productPath = `/products/${product.handle}`;
+  const alternates = {
+    ...alternatesFor(locale, productPath),
+    canonical: canonicalFor(locale, product.seo?.canonical, productPath),
+  };
 
   return {
-    title: product.seo?.title ?? product.title,
+    title,
     ...(description === undefined ? {} : { description }),
-    ...(product.seo?.canonical === undefined
-      ? {}
-      : { alternates: { canonical: product.seo.canonical } }),
+    alternates,
+    openGraph: {
+      type: 'website',
+      siteName: brandConfig.name,
+      title,
+      ...(description === undefined ? {} : { description }),
+      locale,
+      url: localizedPath(locale, productPath),
+    },
   };
 }
 
 export default async function ProductDetailPage({ params }: { params: Params }) {
-  const { handle } = await params;
+  const { handle, locale: routeLocale } = await params;
   const [product, t, tCommon] = await Promise.all([
     loadProduct(handle),
     getTranslations('pdp'),
@@ -58,8 +85,31 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
   const media = mediaFor(product, initialVariant);
   const hero = media[0];
 
+  const productPath = `/products/${product.handle}`;
+  // The breadcrumb JSON-LD mirrors the <nav> below exactly — same labels, same links. A trail a
+  // crawler is told about but a visitor cannot see is what Google calls a structured-data mismatch.
+  const crumbs = [
+    { name: t('products'), path: localizedPath(routeLocale, '/products') },
+    ...(product.category === null
+      ? []
+      : [
+          {
+            name: product.category.name,
+            path: localizedPath(routeLocale, `/categories/${product.category.handle}`),
+          },
+        ]),
+    { name: product.title, path: localizedPath(routeLocale, productPath) },
+  ];
+
   return (
     <article className="flex flex-col gap-10">
+      <JsonLd
+        data={productJsonLd(product, {
+          url: absoluteUrl(localizedPath(routeLocale, productPath)),
+          locale: routeLocale,
+        })}
+      />
+      <JsonLd data={breadcrumbJsonLd(crumbs)} />
       <nav aria-label={t('breadcrumb')} className="text-sm text-muted-foreground">
         <ol className="flex flex-wrap items-center gap-2">
           <li>

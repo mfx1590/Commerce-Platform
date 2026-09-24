@@ -14,16 +14,19 @@
 //
 // **That record is written AFTER the placement transaction has rolled back — never inside it, and never on a
 // second connection while it is open** (manager decision 2026-09-19). `evaluate()` runs inside the placement
-// transaction and therefore WRITES NOTHING: it remembers the blocked placement, and the record is written by
-// `recordBlocked()` once the transaction has unwound. The earlier version opened a second pool connection from
-// inside `evaluate()`: every blocked placement then held two connections, and a burst of blocks the size of the
-// pool would have dead-locked it (each holding one connection, waiting for another). Who calls `recordBlocked`:
+// transaction and therefore WRITES NOTHING. The record is written by `recordBlocked()`, which the CHECKOUT calls
+// from `completeCart`'s catch once its transaction has rejected and released its connection (core #253, REQUEST
+// #241) — the check opts in with `recordsBlockedAfterRollback: true`, and that is the only way a block is
+// recorded in production. (The earlier version opened a second pool connection from inside `evaluate()`: every
+// blocked placement then held two connections, and a burst of blocks the size of the pool would have dead-locked
+// it, each holding one connection and waiting for another.)
 //
-//   - the checkout, right after its placement transaction rejected (REQUEST to window 1: one call in
-//     `completeCart`'s catch, next to the existing `price_changed` handling — the same request path);
-//   - until that lands, a deferred flush scheduled by `evaluate()` itself. It runs after the throw has left the
-//     placement transaction, is never awaited by the placement, and so can never hold a connection the placement
-//     is waiting for. `flushBlockRecords()` makes it deterministic for tests and shutdown.
+// `deferredRecord: true` keeps the pre-#253 interim for a caller without the hook: `evaluate()` remembers the
+// blocked placement and schedules its own flush with `setImmediate`, and the check does NOT set the marker (so a
+// block is never recorded twice). The flush runs once the current call stack has unwound — which does NOT mean
+// the placement's ROLLBACK has completed; what does hold is that the placement never awaits the flush, so it can
+// never wait on the second connection: at worst the two overlap for a moment, and one record is written at a
+// time. It is off by default and never used by the boot wiring.
 //
 // Writing the record is best effort; the DECISION stands either way.
 import type { ScopedClient } from '@platform/db';
@@ -63,28 +66,36 @@ export interface FraudCheckOptions extends RadarProviderOptions {
   recordClient?: (blocked: BlockedPlacement) => ScopedClient;
   /** Replace the provider set (tests). */
   providers?: Partial<Record<FraudProviderName, FraudProvider>>;
-  /** `false` = never schedule the deferred flush: the caller records (`recordBlocked`) itself. Default true. */
+  /**
+   * `true` = the pre-#253 interim: `evaluate()` remembers each block and flushes it itself, and the check does
+   * NOT set `recordsBlockedAfterRollback`. Default `false`: the checkout's post-rollback hook is the only caller
+   * of `recordBlocked`, `evaluate()` remembers nothing. Never `true` in the boot wiring.
+   */
   deferredRecord?: boolean;
 }
 
-/** The registered check plus the block record the checkout (or the deferred flush) writes after the rollback. */
+/** The registered check plus the block record the checkout writes after the rollback. */
 export interface ModuleFraudCheck extends FraudCheck {
   evaluate(ctx: FraudContext): Promise<FraudDecision>;
+  /** `true` unless `deferredRecord` is on: the checkout calls `recordBlocked` after its rollback (#253). */
+  recordsBlockedAfterRollback: boolean;
   /** Writes the `fraud.block` audit row in its own transaction. Call it AFTER the placement transaction ended. */
   recordBlocked(blocked: BlockedPlacement): Promise<void>;
-  /** Writes every block remembered by `evaluate()` and not recorded yet; resolves when they are written. */
+  /** Interim only: writes every block remembered by `evaluate()` and not recorded yet; resolves when written. */
   flushBlockRecords(): Promise<void>;
-  /** Blocks remembered and not yet recorded (tests, health). */
+  /** Interim only: blocks remembered and not yet WRITTEN — queued plus the batch a flush is writing right now. */
   pendingBlockRecords(): number;
 }
 
 export function createFraudCheck(opts: FraudCheckOptions = {}): ModuleFraudCheck {
   const log = opts.log ?? ((line: string) => console.warn(line));
+  const deferred = opts.deferredRecord === true;
   const providers: Record<FraudProviderName, FraudProvider> = {
     rules: opts.providers?.rules ?? rulesFraudProvider,
     radar: opts.providers?.radar ?? createRadarFraudProvider(opts),
   };
   let pending: BlockedPlacement[] = [];
+  let inFlight = 0; // taken off `pending` by a flush, not written yet
   let flushing: Promise<void> | null = null;
 
   async function recordBlocked(blocked: BlockedPlacement): Promise<void> {
@@ -121,15 +132,20 @@ export function createFraudCheck(opts: FraudCheckOptions = {}): ModuleFraudCheck
     flushing = (flushing ?? Promise.resolve()).then(async () => {
       const batch = pending;
       pending = [];
-      for (const blocked of batch) await recordBlocked(blocked); // one connection at a time, never a burst
+      inFlight += batch.length;
+      for (const blocked of batch) {
+        await recordBlocked(blocked); // one connection at a time, never a burst; never throws
+        inFlight -= 1;
+      }
     });
     return flushing;
   }
 
   return {
+    recordsBlockedAfterRollback: !deferred,
     recordBlocked,
     flushBlockRecords,
-    pendingBlockRecords: () => pending.length,
+    pendingBlockRecords: () => pending.length + inFlight,
 
     async evaluate(ctx: FraudContext): Promise<FraudDecision> {
       const s = await ctx.tx.query<{ settings: unknown }>(
@@ -154,8 +170,9 @@ export function createFraudCheck(opts: FraudCheckOptions = {}): ModuleFraudCheck
         if (decision.outcome === 'block') break;
       }
       fraudMetrics.evaluation(decision.outcome, decision.reasonCode);
-      if (decision.outcome === 'block') {
-        // NOTHING is written here: we are inside the placement transaction, which is about to roll back.
+      // NOTHING is written here: we are inside the placement transaction, which is about to roll back. The
+      // checkout calls `recordBlocked` with these facts after that (#253); only the interim remembers them.
+      if (decision.outcome === 'block' && deferred) {
         pending.push({
           organizationId: ctx.organizationId,
           storeId: ctx.storeId,
@@ -166,10 +183,8 @@ export function createFraudCheck(opts: FraudCheckOptions = {}): ModuleFraudCheck
           actor: ctx.actor,
           decision,
         });
-        if (opts.deferredRecord !== false) {
-          // After the throw has unwound the placement; not awaited by it (see the header).
-          setImmediate(() => void flushBlockRecords());
-        }
+        // Once the current call stack has unwound; not awaited by the placement (see the header).
+        setImmediate(() => void flushBlockRecords());
       }
       return decision;
     },
