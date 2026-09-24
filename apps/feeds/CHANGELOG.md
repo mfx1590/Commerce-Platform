@@ -11,4 +11,4 @@
 - Node's own `http`; no framework and no runtime dependencies at all.
 - 13 tests: serving both formats, HEAD, health, scope refusal, no directory listing, traversal refusals,
   method refusal, `parseFeedPath` and `resolveConfig` including the production guard. No database.
-- **No Dockerfile yet** — `**/Dockerfile` is window 5's path (REQUEST filed with the 2.2 PR).
+- No Dockerfile at the time: `**/Dockerfile` is window 5's path (REQUEST #195). It landed with infra #210.

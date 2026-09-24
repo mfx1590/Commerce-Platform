@@ -1,7 +1,7 @@
 import type { CampaignBlock } from '@platform/cms';
 import type { ContentContext } from '../content';
-import { CtaLink, Hero } from './hero';
 import { Embed } from './embed';
+import { CtaLink, Hero } from './hero';
 import { PortableText } from './portable-text';
 import { ProductStory } from './product-story';
 import { SanityImage } from './sanity-image';

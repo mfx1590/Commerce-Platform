@@ -2,6 +2,55 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-09-20 · promotions at placement, order freeze, pro-rata edits; fraud block hook (#230 PR B, #241)
+
+- **Placement re-evaluates promotions under the cart lock** at its own clock. A changed discount or a lost/gained
+  free-shipping grant → 409 `price_changed` (`details.discount_minor` / `shipping_minor` `{ previous, current }`,
+  `total_minor`), the cart re-quoted, nothing placed; the retry places what the customer now sees.
+- **Uses counted inside the placement transaction, before `authorize`** (`DiscountEvaluator.recordUse` →
+  window 9's `recordPromotionUse`): a lost race on the last use = 409 `conflict` with nothing authorised; a
+  decline or any later failure rolls the use back.
+- **Order freeze**: line + order discounts, `promotion_codes` = applied codes only,
+  `metadata.promotions = [{ promotion_id, code, discount_minor }]`; `order.placed` agrees. **Reserved keys**:
+  `fraud` and `promotions` are dropped from the cart metadata copied onto the order.
+- **Order edits** scale the frozen line discount pro rata from the line as placed (cumulative floor).
+- **Adapter rulings**: "orders that count" (not cancelled, payment at least authorised, not fraud-held) for
+  first-order state and per-customer uses; stacking = each promotion gets the headroom left on a line;
+  `mulDivRound` (BigInt) for the blended conversion; no carrier quote for a free-shipping cart unless the request
+  picks the option.
+- **#241**: `FraudCheck.recordBlocked` is called by `completeCart` after the rollback (facts + decision, never
+  the transaction), best effort, for a check that opts in with `recordsBlockedAfterRollback`; the 402 is
+  unchanged. The redundant fraud bridge line in `src/wiring.ts` is gone.
+- **#246**: `POST /store/cart-recovery/{token}` mounted in `src/http/store-routes.ts` — window 17's
+  `validateRecoveryToken`, then the same `Cart` body as `GET /store/carts/{cartId}`; unknown / used / foreign tokens
+  are one identical 404, a completed cart 409. Needs migration 0170 (#244) on the running database.
+- Tests: `test/placement-promotions.test.ts` (8), checkout +2 (#241), cart-discounts +2 (free-shipping skip,
+  stacking in both tax modes), store-api +1 (the recovery route).
+
+### 2026-09-19 · promotions quote: discounts, free shipping, code rejection (#230 PR A); pick/pack routes mounted
+
+- **`DiscountEvaluator` seam** in the cart (`setDiscountEvaluator`, default `noDiscounts`); `recalculate` now runs
+  discounts → shipping → tax on the discounted base → totals and returns the quote. `src/wiring.ts` registers
+  `promotionsDiscountEvaluator` over window 9's `loadCandidatePromotions` + `evaluatePromotions` (groups,
+  first order, prior uses; one clock per mutation).
+- **Code rule**: a code that can never apply to the cart → 400 with the reason per code, the PATCH rolls back;
+  a conditional rejection keeps the code stored.
+- **Tax-inclusive stores**: the adapter converts to tax-exclusive money for the engine and back to the cart's
+  gross base (same `taxOn` rounding); window 9's engine is unchanged. Fixed amounts and `min_subtotal`
+  thresholds are GROSS figures: "5.00 off" is exactly 5.00 off the displayed total, "spend 100" compares the
+  displayed subtotal (#243 ruling). `not_started` is a conditional rejection: a launch code stays stored. The
+  fixed-amount conversion clamps every share to its line's displayed subtotal and spreads the rounding drift only
+  over eligible lines with headroom, so the discount is exactly `min(configured, eligible displayed subtotal)`
+  even on tiny lines (#243 re-review).
+- **`fulfillmentAdminRouter()` mounted** (window 8, #133: pick, pack, pick lists) — those routes were dead on the
+  running server; the "pending on #235" notes are gone, router count 8.
+- **#236 review nits**: an unattributable fraud outage is booked on `rules` (inside the provider-name set) and a
+  review without a code on `provider_unavailable` (inside the closed code set); no redundant `trim()` before
+  `emailHash`.
+- Tests: `test/cart-discounts.test.ts` (6, with the server's evaluator), store-api +1 (the 400 over HTTP),
+  admin-api (fulfillment acceptance, 8 routers), wiring (the evaluator is registered). Not yet: placement
+  re-evaluation, use counting and order freezing — PR B.
+
 ### 2026-09-19 · fraud seam before authorization, order review mirror, confirm hold (#231, window 7's REQUEST)
 
 - **`setFraudCheck()`** (`src/lib/fraud-seam.ts`, re-exported by the checkout): `completeCart` evaluates the

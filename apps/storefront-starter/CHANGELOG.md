@@ -1,5 +1,50 @@
 # Changelog — @platform/storefront-starter
 
+## 0.10.0 — 2026-09-20
+
+Task [storefront] 2.2 (issue #110), contracts `contracts-v0.4.4` (Store API 0.3.1). Folds in REQUEST #199 (CSP
+`frame-src` for campaign embeds).
+
+- **Brand identity moves to build config** (`src/brand/config.ts`, a fourth brand-override layer —
+  **window 10, this is a new file in the override surface**). The root layout's metadata no longer
+  awaits `GET /store`: metadata that is not ready when the shell is flushed is appended to `<body>`
+  and only hoisted at hydration, so a crawler reading raw HTML sees no description. That was the
+  Phase 1 finding behind SEO 91.
+- **Canonical and `hreflang` on every catalogue route**, including `x-default`. `canonicalFor`
+  localises a relative `seo.canonical` from the API — used verbatim it pointed at
+  `/products/<handle>` with no locale, a URL that only redirects, which Lighthouse reports as
+  "points to another `hreflang` location". Listing pages canonicalise without their query string.
+- **`Product` and `BreadcrumbList` JSON-LD on the PDP**, `Organization` on the home page. One
+  `Offer` per variant, with that variant's own price and availability; availability follows the same
+  rule as the buy button, so backorderable stock is `BackOrder` rather than `OutOfStock`. `gtin` is
+  read from the free-form `attributes` bag when a brand sets it — it is not in the Store API's
+  `Product` schema, so no contract change was needed. The payload's `<` is escaped, so a product
+  title can never close the script tag.
+- **`/sitemap.xml` (index) plus `/sitemap/<n>.xml`**, paged at 5 000 **URLs** — every path appears
+  once per locale. Next publishes no index for `generateSitemaps`, so `robots.txt` would otherwise
+  advertise a 404; both read the same `sitemapPaths()`. The catalogue walk is capped and returns
+  what it has if a page fails.
+- **`/robots.txt`** — refuses everything outside production, and disallows the funnel and account
+  area, which are per-customer and would burn crawl budget creating carts.
+- **Open Graph image for the PDP** via `next/og`, rendered from text rather than the product photo
+  so a share card cannot time out on a CDN miss. No price: cards are cached by every platform that
+  sees them.
+- **REQUEST #199 — Content Security Policy** with `frame-src` for campaign embeds, plus
+  `frame-ancestors 'none'`, `object-src 'none'`, `base-uri` and `form-action`, and the usual
+  companion headers. The embed host list is **imported from `@platform/cms`**, not copied, so the
+  CSP and window 6's Studio validation cannot disagree. `script-src` still needs `'unsafe-inline'`
+  for Next's inline bootstrap: this policy is not XSS protection and the README says so.
+  `form-action` lists the identity provider as well as `'self'` — Chrome evaluates it against the
+  URL **after** redirects, and sign-out answers `303` to Keycloak's `end_session` endpoint, so
+  `'self'` alone blocked the submission and the SSO session was never ended (caught by the account
+  e2e on CI, reproduced in the browser). That origin is baked at **build** time while the OIDC
+  config reads `KEYCLOAK_URL` at runtime, so the variable must be set when the image is built.
+- PDP metadata no longer depends on the currency cookie — nothing in it is priced, and asking for a
+  currency fragmented the fetch cache for no gain.
+- Lighthouse config targets `127.0.0.1` (Windows resolves `localhost` to `::1` first, where nothing
+  listens). SEO measures 92–100 on the same build depending on cache warmth; the README explains
+  why, and why the budget stays at 90 rather than becoming a flaky 95 gate.
+
 ## 0.9.0 — 2026-09-09
 
 Task [storefront] 2.1 (issue #109), contracts `contracts-v0.3`. Closes #102. Folds in REQUEST #178

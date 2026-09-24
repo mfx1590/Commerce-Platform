@@ -135,6 +135,21 @@ async function recordEdit(tx: Queryable, o: OrderRow, edit: OrderEdit): Promise<
   ]);
 }
 
+/** The line as placed: quantity and discount before any edit (kept in `metadata.discount_base` once edited). */
+function discountBaseOf(line: OrderLineRow): { quantity: number; discount_minor: number } {
+  const stored = line.metadata?.discount_base as
+    { quantity?: unknown; discount_minor?: unknown } | undefined;
+  if (
+    stored &&
+    typeof stored.quantity === 'number' &&
+    stored.quantity > 0 &&
+    typeof stored.discount_minor === 'number'
+  ) {
+    return { quantity: stored.quantity, discount_minor: stored.discount_minor };
+  }
+  return { quantity: line.quantity, discount_minor: Number(line.discount_minor) };
+}
+
 async function loadLine(tx: Queryable, orderId: string, lineItemId: string): Promise<OrderLineRow> {
   const line = (await loadOrderLines(tx, orderId)).find((l) => l.id === lineItemId);
   if (!line) throw notFound('line item', lineItemId);
@@ -163,10 +178,22 @@ export async function decreaseLineQuantity(
         quantity: `less than the current ${line.quantity}`,
       });
     }
-    await tx.query(`UPDATE order_line_item SET quantity = $2, updated_at = now() WHERE id = $1`, [
-      lineItemId,
-      quantity,
-    ]);
+    // The line's promotion discount follows the quantity pro rata, by the cumulative-floor rule of returns
+    // (#230 PR B): always from the line AS PLACED (`metadata.discount_base`, written on the first edit), so two
+    // decreases give the same result as one and the rounding never drifts. No re-evaluation: the customer's deal is
+    // frozen even if the promotion has ended since.
+    const base = discountBaseOf(line);
+    const discount = Math.floor((base.discount_minor * quantity) / base.quantity);
+    await tx.query(
+      `UPDATE order_line_item SET quantity = $2, discount_minor = $3, metadata = $4::jsonb, updated_at = now()
+       WHERE id = $1`,
+      [
+        lineItemId,
+        quantity,
+        discount,
+        JSON.stringify({ ...(line.metadata ?? {}), discount_base: base }),
+      ],
+    );
     const changed = await recomputeTotals(tx, o);
     const after = await loadOrder(tx, orderId, false);
     await recordEdit(tx, after, {
