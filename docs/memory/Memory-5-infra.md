@@ -108,8 +108,10 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **REQUEST #257** (window 3), one PR on `infra/phase2`, committed locally 2026-09-24 after merging main
-  (~236 commits). **Push held** until the manager confirms no merge queue is running. Contents:
+- **REQUEST #257** (window 3) — **PR #272 open** (code commit `69fad5e`, main merged incl. 08939a6's
+  `.env.example` SITE_URL row). Awaiting its CI run (first real `perf` run; fix forward on the same PR if it
+  reds environmentally) and the Reviewer. After merge the manager adds the `perf` job to required checks;
+  Keycloak redirect URIs are in #212 (window 2); the PERF_PORT nit is routed to window 3. Contents:
   - `SITE_URL: 'https://shop.<env>.example.com'` in `infra/helm/values/storefront/values-{dev,staging}.yaml`
     (the urgent part: without it OIDC redirect_uri fell back to http://localhost:3100).
   - `infra/helm/check.sh` guard: storefront `SITE_URL == https://<ingress.host>`; `ROBOTS_ALLOW_INDEXING`
