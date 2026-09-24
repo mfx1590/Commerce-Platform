@@ -20,7 +20,7 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **2.6 (#150) docs pass, end-to-end test, PII sweep** — commit SHA_2_6, the PR closing #150, 2026-09-24. Module README
+- **2.6 (#150) docs pass, end-to-end test, PII sweep** — commit `76ea082`, the PR closing #150, 2026-09-24. Module README
   brought up to date (write surface incl. the one `cart.status` write on redemption, public API by area, report
   SQL + feed formats as decisions, landed issues recorded), new module `CLAUDE.md`, feeds docs refreshed.
   `marketing.e2e.test.ts`: attribution → campaign report → feed publish → segment materialise → sync payload,
