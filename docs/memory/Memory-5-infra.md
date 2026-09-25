@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-24 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: Phase 2 complete; reopened by REQUEST. **In flight:** REQUEST #257 (storefront SITE_URL, robots guard, perf CI job).
+Last updated: 2026-09-25 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
+Status: Phase 2 complete; **quiet** — #257 merged (PR #272, `aa3b977`). Reopened only by REQUEST issues.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,29 +108,17 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **REQUEST #257** (window 3) — **PR #272 open** (code commit `69fad5e`, main merged incl. 08939a6's
-  `.env.example` SITE_URL row). Awaiting its CI run (first real `perf` run; fix forward on the same PR if it
-  reds environmentally) and the Reviewer. After merge the manager adds the `perf` job to required checks;
-  Keycloak redirect URIs are in #212 (window 2); the PERF_PORT nit is routed to window 3.
-  **Verdict MERGE-WHEN-GREEN.** First CI run red on SEO 0.69/0.58/0.58: `is-crawlable` (robots fail-closed,
-  fixed by `ROBOTS_ALLOW_INDEXING: '1'` on the perf step) + a flaky `meta-description` that fails on runs 2-3
-  of each URL, never run 1 (reproduced locally; server HTML has the tag on every request, so it is lost
-  client-side; window 3's). Also fixed: upload-artifact@v4 skipped `.lighthouseci` (hidden) —
-  `include-hidden-files: true`. Later-touch nits: check.sh treats `values-production.yaml` as non-prod (say so
-  in the comment); Actions Node 20 deprecation warning. Contents:
-  - `SITE_URL: 'https://shop.<env>.example.com'` in `infra/helm/values/storefront/values-{dev,staging}.yaml`
-    (the urgent part: without it OIDC redirect_uri fell back to http://localhost:3100).
-  - `infra/helm/check.sh` guard: storefront `SITE_URL == https://<ingress.host>`; `ROBOTS_ALLOW_INDEXING`
-    `'1'` in values-prod.yaml only, absent elsewhere. No values-prod.yaml created (no prod env exists in
-    terraform/argocd). Verified both directions with scratch copies; full check.sh green (10 combos).
-  - CI job `perf` (window 3's A1 drop-in) gated on a new `perf` classifier group (A2 taken):
-    `^(apps/storefront-starter/|packages/(ui|contracts)/|cms/)` + ROOT_FILES. Self-test 37 ok.
-  - README (jobs table, perf paragraph, branch-protection list) + CHANGELOG.
-  - Local run: turbo dep build ok, `next build` ok, bundle budget PASS; Lighthouse could not run locally
-    (see Gotchas — port 3100 taken here). The PR's own CI run is the proof.
+- Nothing. Window 5 is quiet until the manager reopens it.
 
 ## Done (earlier)
 
+- **REQUEST #257** (window 3) — PR #272 **merged**, main `aa3b977` (commits `69fad5e` + `3432040`).
+  `SITE_URL` in storefront dev/staging values; `infra/helm/check.sh` guard (`SITE_URL == https://<ingress.host>`,
+  `ROBOTS_ALLOW_INDEXING` '1' in values-prod.yaml only — no prod values file created, no prod env exists);
+  CI job `perf` on a new `perf` classifier group, with `ROBOTS_ALLOW_INDEXING: '1'` on the step (robots.ts
+  fails closed → is-crawlable failed, SEO 0.69) and `include-hidden-files: true` on the report upload.
+  The manager made `perf` a **required** check (six enforced). My flaky `meta-description` find (fails on
+  Lighthouse runs 2-3 of each URL, server HTML fine) is #274, window 3's.
 - The close-out PR for #156's review nits.
 - feeds + brand-a images (#195/#197), `apps/core` boot smoke, `paths-ignore` on push, branch-protection docs —
   PR #210, merged (main `435b616`).
@@ -145,11 +133,17 @@ Phase 2 is complete. The manager reopens this window with issues; three are alre
   until the new workspace packages are listed in every Dockerfile — that failure is the intended prompt);
 - a Lighthouse job for window 3.
 
-Standing debts, whenever this window is next open:
+Later touch (nits from the #272 review, next time an infra PR is open anyway):
+
+- `infra/helm/check.sh` treats a `values-production.yaml` as non-prod (only `values-prod.yaml` is prod). Safe
+  (fails closed), but say so in the guard's comment.
+- GitHub Actions Node 20 deprecation warning — bump the actions pinned in `ci.yml`/`deploy-staging.yml`.
+
+Standing debts (parked), whenever this window is next open:
 
 - **REQUEST #207** (window 1) — `apps/core` cannot start on main; the new boot smoke step is red until it
   lands. Verified fix: declare `@medusajs/draft-order` as a dependency.
-- **REQUEST #212** (window 2) — brand-a's Keycloak redirect URI; then set `E2E_INCLUDE_BRAND_STOREFRONTS` on by default.
+- **REQUEST #212** (window 2's PR, also carries #257's shop.<env> callback URIs) — once merged, set `E2E_INCLUDE_BRAND_STOREFRONTS` on by default.
 - **REQUEST #154** — once the Playwright configs honour `E2E_CHANNEL`, `run-e2e.sh` stops installing both
   browsers on CI and installs `"$channel"` alone. Supersedes #84.
 - **REQUEST #60** — once `apps/core` declares `ts-node`, delete the two workaround lines from its Dockerfile.
