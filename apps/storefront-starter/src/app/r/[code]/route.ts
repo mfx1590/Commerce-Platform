@@ -7,6 +7,7 @@ import {
   readTouch,
 } from '@/lib/attribution';
 import { isReferralCode, safeReferralTarget } from '@/lib/referral';
+import { isSameOrigin } from '@/lib/safe-path';
 
 /**
  * `/r/{code}` — the referral landing (task 2.4, docs/marketing-scope.md).
@@ -30,7 +31,14 @@ export async function GET(
 ): Promise<NextResponse> {
   const { code } = await params;
   const target = safeReferralTarget(request.nextUrl.searchParams.get('to'));
-  const destination = new URL(target, request.nextUrl.origin);
+
+  // Second layer, after the string rule: what the browser will actually resolve. URL parsing strips
+  // tab, newline and carriage return before parsing, so a target can still leave this origin even
+  // after passing a guard that only looks at the first characters. Anything that does goes to `/`.
+  let destination = new URL(target, request.nextUrl.origin);
+  if (!isSameOrigin(destination, request.nextUrl.origin)) {
+    destination = new URL('/', request.nextUrl.origin);
+  }
 
   // An unrecognisable code still sends the visitor to the shop: a mistyped or truncated link is a
   // customer we would rather have than a 404. It simply records nothing.

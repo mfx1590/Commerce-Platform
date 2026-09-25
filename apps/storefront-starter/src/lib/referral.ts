@@ -1,3 +1,5 @@
+import { isSafeInternalPath } from './safe-path';
+
 /**
  * Referral landing rules (task 2.4, `/r/{code}`).
  *
@@ -23,17 +25,14 @@ export function isReferralCode(value: string | undefined | null): value is strin
 /**
  * Where `/r/{code}?to=…` may redirect: a **path on this site**, never another origin.
  *
- * A referral link is shared publicly and clicked without inspection, so an open redirect here would
- * let anyone borrow the brand's domain to launder a link to their own. Same rule as sign-in's
- * `returnTo`, restated rather than imported, because this one also has to reject a path that would
- * bounce the visitor straight back into `/r/` and loop.
+ * A referral link is shared publicly and clicked without inspection, so an open redirect here lets
+ * anyone borrow the brand's domain to launder a link to their own. The rule about what a safe path
+ * is lives in `isSafeInternalPath` — shared with sign-in's `returnTo`, because it was duplicated and
+ * the duplicate is what shipped a control-character bypass. The route also checks the resolved
+ * origin before redirecting.
  */
 export function safeReferralTarget(value: string | null | undefined, fallback = '/'): string {
-  if (typeof value !== 'string' || value === '') return fallback;
-  if (!value.startsWith('/')) return fallback;
-  // `//evil.example` is protocol-relative: the browser reads it as another origin.
-  if (value.startsWith('//') || value.startsWith('/\\')) return fallback;
-  if (value.includes('\\')) return fallback;
+  if (!isSafeInternalPath(value)) return fallback;
   // A referral that lands on another referral would re-enter this handler on every hop.
   if (value === '/r' || value.startsWith('/r/')) return fallback;
   return value;

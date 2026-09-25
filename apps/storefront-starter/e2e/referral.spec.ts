@@ -59,3 +59,25 @@ test('the first touch survives a second referral', async ({ page, context }) => 
   expect(attribution.first.ref).toBe(CODE);
   expect(attribution.last.ref).toBe('sam-winter');
 });
+
+/**
+ * The open redirect from the review of #273, end to end.
+ *
+ * URL parsing strips tab, newline and carriage return before parsing, so `?to=%2F%09%2Fevil.example`
+ * used to resolve to `https://evil.example/` — on a link the brand publishes. Only a browser proves
+ * the whole chain: the encoded parameter, the guard, and where the navigation actually ends up.
+ */
+test('a control-character target cannot redirect off this site', async ({ page, context }) => {
+  for (const encoded of [
+    '%2F%09%2Fevil.example',
+    '%2F%0A%2Fevil.example',
+    '%2F%0D%2Fevil.example',
+  ]) {
+    await context.clearCookies();
+    await page.goto(`/r/${CODE}?to=${encoded}`);
+
+    // Exactly the home page of this site, never evil.example.
+    await expect(page).toHaveURL(/^http:\/\/(127\.0\.0\.1|localhost):\d+\/en-GB$/);
+    expect(new URL(page.url()).hostname).not.toContain('evil');
+  }
+});

@@ -295,13 +295,26 @@ It sits **outside `[locale]`** and the middleware skips it: a printed or texted 
 not have to carry a locale, and the redirect would otherwise take a second hop. Both of its inputs
 are untrusted, so both are narrowed (`src/lib/referral.ts`):
 
-| Input    | Rule                                                                                                                                                                                                                               |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{code}` | 4–64 of `A–Z a–z 0–9 - _`. No dots (a dot reads as a file extension to the matcher), no slashes, no whitespace. An unusable code still redirects — a mistyped link is a customer we would rather keep — it simply records nothing. |
-| `?to=`   | A path on this site. Another origin, protocol-relative `//host`, a backslash or another `/r/` link all fall back to `/`. An open redirect here would let anyone borrow the brand's domain.                                         |
+| Input    | Rule                                                                                                                                                                                                                                                                                              |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{code}` | 4–64 of `A–Z a–z 0–9 - _`. No dots (a dot reads as a file extension to the matcher), no slashes, no whitespace. An unusable code still redirects — a mistyped link is a customer we would rather keep — it simply records nothing.                                                                |
+| `?to=`   | A path on this site (`isSafeInternalPath`). Another origin, protocol-relative `//host`, a backslash, **any control character**, or another `/r/` link all fall back to `/`; the route then asserts the resolved origin as well. An open redirect here would let anyone borrow the brand's domain. |
 
 302, not 308: the destination is a query parameter and the cookie must be written on every click, so
 a browser or scanner must not cache the hop as permanent.
+
+**Why two layers, and why control characters.** WHATWG URL parsing **strips tab, newline and
+carriage return before parsing**, so a target that merely starts with a single `/` can still resolve
+elsewhere: `new URL('/\t/evil.example', origin).origin` is `https://evil.example`. `searchParams.get()`
+decodes `%09`, `%0A` and `%0D` into exactly those characters, so `?to=%2F%09%2Fevil.example` was
+enough — and a guard that only rejects `//` and backslashes never saw it (found in review of #273).
+
+So the rule rejects control characters outright **and** every caller re-checks the resolved origin
+before redirecting. The first layer is a claim about strings and can be reasoned around again; the
+second is what the browser will actually do. `isSafeInternalPath` and `isSameOrigin` live in
+`src/lib/safe-path.ts` and are **shared with sign-in's `returnTo`** — the same rule existed in two
+copies, and the copy is what shipped the bypass. `returnTo` had it too, where it matters more: that
+redirect happens after the customer has authenticated.
 
 **PDP reviews.** `src/lib/reviews.ts` + `src/components/product-reviews.tsx`. The block renders
 **nothing** when there are no reviews — not an empty state: "no reviews yet" on every product of a new

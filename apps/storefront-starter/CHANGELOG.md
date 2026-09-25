@@ -23,6 +23,19 @@ for this window. Files **CONTRACT CHANGE #270** (customer-facing review shape).
 - **Feed-friendly PDP data** confirmed: GTIN, brand and per-variant availability already ship in the
   PDP's `Product` JSON-LD from 2.2, which is the per-SKU shape window 17's feeds want.
 
+**Security fix — open redirect through control-character stripping** (found in review of #273,
+both instances). WHATWG URL parsing strips tab, newline and carriage return before parsing, so
+`?to=%2F%09%2Fevil.example` resolved to `https://evil.example/` while passing a guard that only
+rejected `//` and backslashes. The same guard existed in **two** copies, and the second —
+sign-in's `returnTo`, followed _after_ the customer authenticates — had the same hole.
+
+Both now use one `isSafeInternalPath` in `src/lib/safe-path.ts`, which refuses any control character
+(plus DEL and U+2028/U+2029), and both redirect sites assert the resolved origin with `isSameOrigin`
+before navigating. Two layers because the first is a rule about strings and could be reasoned around
+again; the second is what the browser actually does. Covered by unit tests that state the exploit for
+the three characters that really are stripped — and say plainly that the others are defence in depth,
+not a demonstrated bypass — plus an e2e asserting the rejected target lands exactly on `/`.
+
 **Fix — the perf gate failed on its own defaults.** `perf` now runs with
 `ROBOTS_ALLOW_INDEXING=1`, because it measures the configuration that ships to production. Without
 it `/robots.txt` serves `Disallow: /` and Lighthouse's `is-crawlable` audit fails, taking SEO from

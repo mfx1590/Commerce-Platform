@@ -218,6 +218,12 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Decisions made (with reasons)
 
+- **One definition of "a path on this site", plus an origin assertion at every redirect.** The rule
+  lived in two copies (`safeReferralTarget`, `safeReturnTo`) and the copy shipped an open redirect;
+  it now lives in `src/lib/safe-path.ts`. Two layers on purpose: `isSafeInternalPath` is a claim
+  about strings and can be reasoned around again, while `isSameOrigin` on the built URL is what the
+  browser will actually do. A future redirect target must use both.
+
 - **CONTRACT CHANGE #270 ACCEPTED as filed (manager, 2026-09-24), all four decisions approved**,
   landing in the next contracts batch after 2.4 merges. One constraint added at landing: `author`
   must be a name **provided or chosen at review time, never derived from customer PII** — so when
@@ -473,6 +479,18 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **URL parsing strips tab, newline and carriage return *before* parsing, so `/\t/evil.example`
+  resolves to `https://evil.example`.** A path guard that checks only the leading characters cannot
+  see it, and `searchParams.get()` decodes `%09`/`%0A`/`%0D` into exactly those characters. This was
+  a live open redirect in `/r/{code}?to=` **and** in sign-in's `returnTo` (worse: followed after
+  authentication). Reject control characters, and re-check the resolved origin before redirecting.
+  Caught in review of #273, not by me.
+- **A literal control character breaks its own guard's source.** Writing `\u2028` into a regex
+  literal as the real character makes TypeScript report "unterminated regular expression literal"
+  (it ends the line), and a literal `\x00`–`\x1f` class trips ESLint's `no-control-regex` — which is
+  a good rule, because that pattern is usually a typo. Checking code points in a small loop says
+  what is refused and survives any editor.
 
 - **The perf gate failed on its own defaults, and I reported it green from a stale run.** 2.3 added
   `perf` and changed `robots.txt` to `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, in the same PR.

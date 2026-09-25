@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isReferralCode, safeReferralTarget } from '@/lib/referral';
+import { isSameOrigin, isSafeInternalPath } from '@/lib/safe-path';
 import { mergeAttribution, parseAttribution, readTouch } from '@/lib/attribution';
 
 /**
@@ -65,6 +66,69 @@ describe('safeReferralTarget', () => {
 
   it('takes the caller’s fallback when there is nothing usable', () => {
     expect(safeReferralTarget('https://evil.example', '/en-GB')).toBe('/en-GB');
+  });
+});
+
+/**
+ * The open redirect found in review of #273, and the reason there are now two layers.
+ *
+ * WHATWG URL parsing strips tab, newline and carriage return **before** parsing, so a target that
+ * starts with a single `/` can still resolve to another origin. `searchParams.get()` decodes `%09`,
+ * `%0A` and `%0D` into exactly those characters, so `?to=%2F%09%2Fevil.example` was enough to make a
+ * publicly shared referral link redirect to somebody else's site.
+ */
+describe('control characters cannot smuggle another origin past the guard', () => {
+  const origin = 'https://shop.example';
+
+  /** The three URL parsing actually strips — these are the exploit. */
+  const stripped = [
+    ['%09 tab', '/\t/evil.example'],
+    ['%0A newline', '/\n/evil.example'],
+    ['%0D carriage return', '/\r/evil.example'],
+  ] as const;
+
+  /** Rejected as well, on principle: a parser folding any of these later is not a rule we control. */
+  const alsoRejected = [
+    ['NUL', '/\u0000/evil.example'],
+    ['DEL', '/\u007f/evil.example'],
+    ['U+2028 line separator', '/\u2028/evil.example'],
+  ] as const;
+
+  it('the stripped three really do resolve off-origin — this is the defect', () => {
+    // Stated so nobody "simplifies" the guard back out again.
+    for (const [label, raw] of stripped) {
+      expect(new URL(raw, origin).origin, label).toBe('https://evil.example');
+    }
+  });
+
+  it('the others do not resolve off-origin today; they are refused anyway', () => {
+    // Honest about the difference: these are defence in depth, not a demonstrated bypass.
+    for (const [label, raw] of alsoRejected) {
+      expect(new URL(raw, origin).origin, label).toBe(origin);
+    }
+  });
+
+  it('safeReferralTarget rejects every one of them', () => {
+    for (const [label, raw] of [...stripped, ...alsoRejected]) {
+      expect(safeReferralTarget(raw), label).toBe('/');
+      expect(isSafeInternalPath(raw), label).toBe(false);
+    }
+  });
+
+  it('and what it returns instead resolves to this origin', () => {
+    for (const [label, raw] of [...stripped, ...alsoRejected]) {
+      const destination = new URL(safeReferralTarget(raw), origin);
+      expect(destination.origin, label).toBe(origin);
+      expect(isSameOrigin(destination, origin), label).toBe(true);
+    }
+  });
+
+  it('a decoded query parameter is what the route actually sees', () => {
+    // How the payload arrives: the encoded form in the link, decoded by searchParams.
+    const url = new URL('https://shop.example/r/jane?to=%2F%09%2Fevil.example');
+    const to = url.searchParams.get('to');
+    expect(to).toBe('/\t/evil.example');
+    expect(safeReferralTarget(to)).toBe('/');
   });
 });
 
