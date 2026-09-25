@@ -14,6 +14,11 @@ A direct-to-consumer apparel label selling in the EU (EUR, `en-GB` + `de-DE`). S
 range, a few drops a year, garments meant to be kept. The nearest reference points are the printed
 lookbook and the broadsheet fashion supplement — not the marketplace and not the app.
 
+The working name is **Fieldnote** — it is what `brandConfig.name` says, so it is the title
+template, the Open Graph site name and the word in the tab. A store's display name can still come
+from the API for the parts of the page that render store data; the name here is the one that has to
+be in the HTML before any request resolves (§5).
+
 The three adjectives the design has to earn, in priority order:
 
 1. **Calm** — nothing moves, flashes, or competes for attention. Emptiness is the default state.
@@ -39,28 +44,28 @@ The three adjectives the design has to earn, in priority order:
 Five, named, and no sixth. A palette this small forces hierarchy to come from type, space, and
 photography, which is what makes the result read as editorial rather than as a theme.
 
-| Name      | Hex       | Role                                                                     |
-| --------- | --------- | ------------------------------------------------------------------------ |
-| **Paper** | `#F7F4EF` | Page background. Warm off-white — uncoated stock, not a lit screen.      |
-| **Ink**   | `#23201B` | Body text, headings, primary buttons. Warm near-black, never `#000`.      |
-| **Clay**  | `#9C4A32` | The single accent. Links, sale marks, the one thing allowed to be warm.  |
-| **Sage**  | `#5F6B57` | Quiet support: in-stock marks, secondary blocks, editorial pull-outs.    |
-| **Stone** | `#746C60` | Muted text, borders, rules, metadata. The colour of a caption.            |
+| Name      | Hex       | Role                                                                    |
+| --------- | --------- | ----------------------------------------------------------------------- |
+| **Paper** | `#F7F4EF` | Page background. Warm off-white — uncoated stock, not a lit screen.     |
+| **Ink**   | `#23201B` | Body text, headings, primary buttons. Warm near-black, never `#000`.    |
+| **Clay**  | `#9C4A32` | The single accent. Links, sale marks, the one thing allowed to be warm. |
+| **Sage**  | `#5F6B57` | Quiet support: in-stock marks, secondary blocks, editorial pull-outs.   |
+| **Stone** | `#746C60` | Muted text, borders, rules, metadata. The colour of a caption.          |
 
 The hue story is deliberate: Paper, Ink, Clay and Stone all sit in the warm half of the wheel, and
 Sage is the one cool note. That is the palette of a linen swatch card, which is the point.
 
 ### Measured contrast (WCAG 2.1, computed — not estimated)
 
-| Pair                     | Ratio      | Target | Result |
-| ------------------------ | ---------- | ------ | ------ |
-| Ink on Paper (body)      | **14.79:1** | 7.0   | pass   |
-| Paper on Ink (button)    | **14.79:1** | 7.0   | pass   |
-| Clay on Paper (links)    | **5.57:1**  | 4.5   | pass   |
-| Sage on Paper            | **5.14:1**  | 4.5   | pass   |
-| Stone on Paper (muted)   | **4.72:1**  | 4.5   | pass   |
-| Paper on Clay (block)    | **5.57:1**  | 4.5   | pass   |
-| Paper on Sage (block)    | **5.14:1**  | 4.5   | pass   |
+| Pair                   | Ratio       | Target | Result |
+| ---------------------- | ----------- | ------ | ------ |
+| Ink on Paper (body)    | **14.79:1** | 7.0    | pass   |
+| Paper on Ink (button)  | **14.79:1** | 7.0    | pass   |
+| Clay on Paper (links)  | **5.57:1**  | 4.5    | pass   |
+| Sage on Paper          | **5.14:1**  | 4.5    | pass   |
+| Stone on Paper (muted) | **4.72:1**  | 4.5    | pass   |
+| Paper on Clay (block)  | **5.57:1**  | 4.5    | pass   |
+| Paper on Sage (block)  | **5.14:1**  | 4.5    | pass   |
 
 Stone started at `#7A7266` and measured 4.32:1 — a fail. It was darkened to `#746C60` rather than
 kept as a "close enough" caption grey. Clay and Sage clear AA as text and are still legible when
@@ -75,9 +80,16 @@ that says so, not a grey dot.
 
 **Newsreader** for display, **Hanken Grotesk** for text and UI. Both SIL Open Font License 1.1.
 
-- **Newsreader** (Production Type) is a genuine editorial text serif with optical sizing — it was
-  drawn for reading, not for logos, so it stays calm at 40px where a display serif would shout. It
-  carries headings, the product name on the PDP, and pull quotes.
+- **Newsreader** (Production Type) is a genuine editorial text serif — it was drawn for reading,
+  not for logos, so it stays calm at 40px where a display serif would shout. It carries headings,
+  the product name on the PDP, and pull quotes.
+
+  **The optical-size axis was dropped, and that was a real loss.** Newsreader ships `opsz` as well
+  as `wght`; the two-axis Latin file measures **132 kB** against **58 kB** for weight alone. 74 kB,
+  more than double, for a face that only sets headings — on a storefront where perf is a required
+  check. Measured after the first download, not assumed. The optical grading is the better
+  typography and the budget is the stronger claim, so the budget won.
+
 - **Hanken Grotesk** is a humanist grotesque that is quiet at 14–16px and has the figure set a price
   and a size chart need. It carries body copy, navigation, labels, and every control.
 
@@ -120,12 +132,12 @@ Everything in this design ships through `src/brand/**` and nothing else. The res
 byte-identical to `apps/storefront-starter`, so `pnpm --filter @platform/storefront-brand-a sync`
 stays a reviewable diff (the 2.1 decision, ADR 0004).
 
-| File                        | Carries                                                       |
-| --------------------------- | ------------------------------------------------------------- |
-| `src/brand/fonts.ts`        | The two `next/font/local` faces and their fallbacks.           |
-| `src/brand/fonts/*.woff2`   | The font binaries and their OFL licence texts.                 |
-| `src/brand/tokens.ts`       | Colour, font family, line height, radius and shadow overrides. |
-| `src/brand/config.ts`       | Name, description and canonical origin for metadata (#254).    |
+| File                      | Carries                                                        |
+| ------------------------- | -------------------------------------------------------------- |
+| `src/brand/fonts.ts`      | The two `next/font/local` faces and their fallbacks.           |
+| `src/brand/fonts/*.woff2` | The font binaries and their OFL licence texts.                 |
+| `src/brand/tokens.ts`     | Colour, font family, line height, radius and shadow overrides. |
+| `src/brand/config.ts`     | Name, description and canonical origin for metadata (#254).    |
 
 **Why the fonts are wired through `tokens.ts` and not through a slot.** The obvious place to inject
 `@font-face` is a component — but the only always-present slots are `Header` and `Footer`, and the
@@ -145,8 +157,29 @@ file describes how brand A looks, not what it sells.
 
 ## 6. Accessibility and performance commitments
 
-- Every text pair in §2 is measured above and clears WCAG AA; the body pair clears AAA.
+- Every text pair in §2 is measured above and clears WCAG AA; the body pair clears AAA. Lighthouse
+  scores accessibility **1.00** on both the PLP and the PDP.
+- `test/brand-theme.test.ts` recomputes every ratio in §2 from the tokens that actually ship, so a
+  published number and the implementation cannot drift apart silently.
 - `:focus-visible` keeps the starter's 2px ring, re-coloured to Ink so it is visible on Paper.
 - `font-display: swap` on both faces, with a metric-compatible fallback so the swap does not reflow.
-- The display face is preloaded; the text face is preloaded. Nothing else is.
+- **No `<link rel="preload">` is emitted for either face, and that is a deliberate accepted cost.**
+  `next/font` emits a preload only when a font's `className` or `variable` is rendered onto an
+  element. Wiring through `tokens.ts` (§5) means neither is — the family reaches the page as a
+  string. The earlier draft of this file claimed both faces were preloaded; the build output says
+  otherwise, and the measurement below is why the trade was kept rather than reversed:
+
+  | Measured (Lighthouse, median of 3, production build) | PLP    | PDP    |
+  | ---------------------------------------------------- | ------ | ------ |
+  | Performance                                          | 0.99   | 0.97   |
+  | Accessibility                                        | 1.00   | 1.00   |
+  | SEO                                                  | 0.92   | 0.92   |
+  | Cumulative layout shift                              | 0.0000 | 0.0001 |
+
+  CLS is effectively zero because `next/font` generates a size-adjusted metric-compatible fallback
+  (`'textSans Fallback'`) behind each face, so the swap replaces text of the same measure. Buying a
+  preload back would mean rendering a font class from a slot, and the only always-present slots are
+  `Header`/`Footer`, which checkout and account do not render — reintroducing exactly the hole §5
+  exists to close, to fix a problem that measures at 0.0001.
+
 - No token in this design adds a network request, an animation, or a blocking script.

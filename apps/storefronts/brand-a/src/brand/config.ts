@@ -29,8 +29,9 @@ export interface BrandConfig {
 }
 
 export const brandConfig: BrandConfig = {
-  name: 'Storefront',
-  description: 'Shop the full range.',
+  name: 'Fieldnote',
+  description:
+    'Considered apparel, made in small runs and meant to be kept. Free returns across the EU.',
 };
 
 /**

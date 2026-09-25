@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-25 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 designed, awaiting font-download go-ahead
+Last updated: 2026-09-25 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 built, push held
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,6 +17,12 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#140 · 2.2 Brand A theme** — DESIGN.md authored first (no Figma), then implemented to it.
+  Five measured colours, Newsreader + Hanken Grotesk self-hosted via `next/font/local` from
+  `src/brand/fonts/`, radius 2px, shadows none, `brandConfig` = Fieldnote. 21 new tests in
+  `test/brand-theme.test.ts` recompute every published contrast ratio. Measured on a production
+  build: perf 0.99/0.97, **a11y 1.00**, SEO 0.92, CLS 0.0000/0.0001; bundle budget green ×7.
+  REQUEST #278 filed. Root gate green (lint, format, typecheck 21/21, 332 tests, ownership OK).
 - **Re-sync brand-a from the starter** — commit e44d87d (prerequisite for 2.2). 148 copied,
   10 preserved, 4 excluded; brought in storefront 2.2-2.4 (SEO/JSON-LD/sitemap/robots, CSP, perf +
   bundle budgets, (content) campaign/legal, Cloudinary) and **#254's `src/brand/config.ts`**.
@@ -24,10 +30,8 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.2 (#140) brand A theme.** Re-sync committed (e44d87d). `src/brand/DESIGN.md` written and is
-  the authority for the look. Remaining: vendor two woff2 faces, write `fonts.ts`, fill `tokens.ts`
-  and `config.ts`, tests, README/CHANGELOG. **Blocked on the manager approving the font download**
-  (Newsreader + Hanken Grotesk from Google Fonts, OFL) — no other external step in this task.
+- **2.2 (#140) built and green; push held until the manager confirms no queue is running.**
+  Commits: e44d87d (re-sync), 5c3ffcd (DESIGN.md), + the theme commit. Then open the PR closing #140.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a (in PR)
@@ -53,11 +57,27 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **No Dockerfile in the brand app**: `**/Dockerfile` is window 5's ownership row, so the clone excludes it; REQUEST #197 asks for the image.
 
 ## Blocked / waiting
-- **2.2**: manager go-ahead to download the two OFL woff2 faces from Google Fonts.
+- **2.2 push held** until the manager confirms no queue is running.
+- **REQUEST #278** (window 3): the starter's `test/slots.test.ts` asserts the brand's own override
+  files are empty — false by construction in a clone. Until it lands, that file deviates and is on
+  the clone's PRESERVE list; drop it and re-sync afterwards.
 - CI brand-storefront journeys stay opt-in (`E2E_INCLUDE_BRAND_STOREFRONTS=1`) until window 2
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **`next/font/local` is a build-time transform with no runtime implementation.** Any vitest test
+  that reaches `tokens.ts` must `vi.mock('next/font/local')`, and the import of the module under
+  test has to be a dynamic `await import` so the mock is in place first.
+- **`next/font` emits `<link rel="preload">` only when a `className`/`variable` is rendered.**
+  Reading `.style.fontFamily` gets the @font-face CSS (in the root layout's chunk, so on every
+  route) but no preload. Measured cost: CLS 0.0000 — the size-adjusted fallback absorbs the swap.
+- **SEO scores ~0.58 locally until `ROBOTS_ALLOW_INDEXING=1`** — `/robots.txt` fails closed and
+  returns `Disallow: /`. With it set: 0.92. Not a defect; do not chase it as one.
+- **The PRESERVE list silently withholds new starter scripts**: `package.json` never takes them, so
+  brand-a had missed `perf` and `bundle-budget` entirely. Diff the two package.json files after
+  every sync.
+- Newsreader's optical-size axis doubles the file (132 kB vs 58 kB weight-only). Check a variable
+  font's axes before vendoring it.
 - The clone drifts behind the starter fast (53 commits by 2.2). **Re-sync before any brand work**,
   commit the re-sync on its own, then build the brand change on top — a mixed commit is unreviewable.
 - `Announcement` renders *inside* the default `Header` (`src/layouts/defaults.tsx`), not at the root,

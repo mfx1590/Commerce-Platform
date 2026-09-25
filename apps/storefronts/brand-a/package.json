@@ -1,6 +1,6 @@
 {
   "name": "@platform/storefront-brand-a",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,9 @@
     "clean": "rm -rf .next dist .turbo",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
-    "lighthouse": "npx -y @lhci/cli@0.14 autorun --config=lighthouserc.json",
+    "bundle-budget": "node scripts/bundle-budget.mjs",
+    "perf": "node scripts/perf.mjs",
+    "lighthouse": "npx -y @lhci/cli@0.14.0 autorun --config=lighthouserc.json",
     "sync": "node scripts/sync-from-starter.mjs"
   },
   "dependencies": {
