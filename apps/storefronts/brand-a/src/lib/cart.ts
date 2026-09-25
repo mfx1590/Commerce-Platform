@@ -11,10 +11,22 @@ import { getCurrency } from './i18n';
 import { getStoreOrNull } from './store';
 import { isNotFound, storeApi, type Body, type Cart } from './store-api';
 
-/** The attribution captured by the middleware, ready for `cart.metadata`. */
+/**
+ * The attribution captured by the middleware, ready for `cart.metadata`.
+ *
+ * The cookie read is inside the guard, not before it (#102): losing a marketing attribute must
+ * never cost an order, and `cookies()` itself can fail — a truncated or malformed cookie store
+ * throws where a missing cookie merely returns `undefined`. Both now degrade the same way, to
+ * "no attribution".
+ */
 export async function cartMetadata(): Promise<CartMetadata | undefined> {
-  const raw = (await cookies()).get(ATTRIBUTION_COOKIE)?.value;
-  return metadataFor(parseAttribution(raw));
+  try {
+    const raw = (await cookies()).get(ATTRIBUTION_COOKIE)?.value;
+    return metadataFor(parseAttribution(raw));
+  } catch (error) {
+    console.warn('[storefront] could not read the attribution cookie:', error);
+    return undefined;
+  }
 }
 
 /**

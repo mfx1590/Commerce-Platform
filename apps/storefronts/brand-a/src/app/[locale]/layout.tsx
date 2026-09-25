@@ -4,9 +4,11 @@ import { getMessages, setRequestLocale } from 'next-intl/server';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { brandConfig, siteUrl } from '@/brand/config';
 import { brandTokens } from '@/brand/tokens';
 import { routing } from '@/i18n/routing';
 import { assertStoreOffersLocale } from '@/lib/i18n';
+import { alternatesFor, localizedPath } from '@/lib/seo';
 import { getStoreOrNull } from '@/lib/store';
 import './globals.css';
 
@@ -32,24 +34,41 @@ export function generateStaticParams(): { locale: string }[] {
   return routing.locales.map((locale) => ({ locale }));
 }
 
+/**
+ * Root metadata is built from build configuration, never from `GET /store`.
+ *
+ * `params` is a promise in Next 15 so this still has to be `async`, but it now resolves immediately
+ * instead of awaiting an API round trip. That is what decides whether the tags are in `<head>` of
+ * the streamed HTML: metadata that suspends on data is emitted late, into `<body>`, where React
+ * hoists it at hydration — the DOM ends up correct and every end-to-end assertion passes, while a
+ * crawler reading the raw HTML sees no description at all. That cost the PLP its SEO score in task
+ * 1.7, and `test/seo-head.test.ts` now asserts the rendered position rather than trusting this
+ * comment. See `src/brand/config.ts`.
+ */
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ locale: string }>;
 }): Promise<Metadata> {
   const { locale } = await params;
-  const store = await getStoreOrNull();
-  const name = store?.name ?? 'Storefront';
-
-  // `hreflang` alternates: one canonical URL per locale, so a search engine serves a German
-  // customer the German page instead of guessing.
-  const languages = Object.fromEntries(routing.locales.map((l) => [l, `/${l}`]));
 
   return {
-    metadataBase: new URL(process.env.SITE_URL ?? 'http://localhost:3100'),
-    title: { default: name, template: `%s · ${name}` },
-    description: `Shop at ${name}.`,
-    alternates: { canonical: `/${locale}`, languages },
+    metadataBase: new URL(siteUrl()),
+    title: { default: brandConfig.name, template: `%s · ${brandConfig.name}` },
+    description: brandConfig.description,
+    alternates: alternatesFor(locale),
+    openGraph: {
+      type: 'website',
+      siteName: brandConfig.name,
+      title: brandConfig.name,
+      description: brandConfig.description,
+      locale,
+      url: localizedPath(locale),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      ...(brandConfig.twitter === undefined ? {} : { site: brandConfig.twitter }),
+    },
   };
 }
 

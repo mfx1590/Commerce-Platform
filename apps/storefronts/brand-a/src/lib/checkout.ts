@@ -207,6 +207,18 @@ export function mapCheckoutError(error: unknown): CheckoutError {
       };
     case 'not_found':
       return { code, message: 'Your cart has expired. Please start again.' };
+    // The core answers 401 `unauthorized` when the publishable key is missing, unknown or revoked
+    // (apps/core README, `storeContextMiddleware`) — issue #109 predicted `invalid_publishable_key`,
+    // which is not one of the contract's ERROR_CODES. Both are mapped: the deployment is
+    // misconfigured either way, and no wording about the customer's own input would be true.
+    case 'unauthorized':
+    case 'invalid_publishable_key':
+    case 'forbidden':
+      return { code, message: 'This store is not available right now. Please try again later.' };
+    // `conflict` is the contract's catch-all for "the cart moved under you" — re-reading it is the
+    // only recovery, and that is what the cart page does on the next render.
+    case 'conflict':
+      return { code, message: 'Your cart changed while you were checking out. Please review it.' };
     default:
       return { code, message: 'Something went wrong. Please try again.' };
   }
