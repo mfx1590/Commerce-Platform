@@ -66,7 +66,13 @@
       "backorder": "On backorder — ships when restocked",
       "out_of_stock": "Out of stock"
     },
-    "chooseOption": "Choose an option before adding to the cart."
+    "chooseOption": "Choose an option before adding to the cart.",
+    "reviews": {
+      "title": "Customer reviews",
+      "summary": "{average} out of 5, from {count, plural, one {# review} other {# reviews}}",
+      "rating": "{rating} out of 5",
+      "verified": "Verified purchase"
+    }
   },
   "cart": {
     "title": "Cart",

@@ -6,6 +6,7 @@ import { Link } from '@/i18n/navigation';
 import { notFound } from 'next/navigation';
 import { VariantPicker } from '@/components/variant-picker';
 import { JsonLd } from '@/components/json-ld';
+import { ProductReviews } from '@/components/product-reviews';
 import { brandConfig } from '@/brand/config';
 import { getProduct } from '@/lib/catalog';
 import { getCurrency } from '@/lib/i18n';
@@ -18,6 +19,7 @@ import {
   localizedPath,
   productJsonLd,
 } from '@/lib/seo';
+import { fromProductMetadata } from '@/lib/reviews';
 import { isNotFound } from '@/lib/store-api';
 import { defaultSelection, findVariant, mediaFor } from '@/lib/variant';
 
@@ -194,6 +196,10 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
           )}
         </div>
       </div>
+
+      {/* Renders nothing until there are reviews; the source is the product's `attributes.reviews`
+          until the Store API has a review shape (CONTRACT CHANGE filed). */}
+      <ProductReviews reviews={fromProductMetadata(product)} />
 
       {product.description === null ? null : (
         <section aria-labelledby="description" className="max-w-prose">
