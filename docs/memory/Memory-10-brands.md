@@ -31,7 +31,12 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 
 ## In progress
 - **2.2 (#140) built and green; push held until the manager confirms no queue is running.**
-  Commits: e44d87d (re-sync), 5c3ffcd (DESIGN.md), + the theme commit. Then open the PR closing #140.
+  Commits: e44d87d (re-sync), 5c3ffcd (DESIGN.md), 55dac34 (the theme). Then open the PR closing
+  #140. main merged twice (latest at push-prep time); brand-a gate re-run green after both.
+- **Start 2.3 with a re-sync.** main moved again while 2.2 was finishing and the starter gained
+  `src/lib/referral.ts`, `reviews.ts`, `safe-path.ts` and their tests. Deliberately NOT folded into
+  the 2.2 PR — one PR per task. Re-sync first thing in 2.3, on its own commit, and diff the two
+  package.json files while you are there.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a (in PR)
