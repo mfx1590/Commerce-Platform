@@ -11,7 +11,7 @@
 //    returned once, at mint, and never written down; a database leak does not hand anyone working links.
 // 3. **Unknown, expired and already-redeemed answer identically.** Telling them apart would let someone holding
 //    a guessed token learn whether it ever existed.
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { Queryable } from '@platform/db';
 import { conflict, notFound } from '../../lib/errors';
 
@@ -27,16 +27,9 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
-/**
- * Constant-time comparison of two token hashes. Both are fixed-length hex, so the lengths always match; the
- * guard is there so a future change of hash cannot turn this into a length oracle.
- */
-export function tokenHashEquals(a: string, b: string): boolean {
-  const left = Buffer.from(a, 'utf8');
-  const right = Buffer.from(b, 'utf8');
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
-}
+// There is deliberately no constant-time hash comparison here. The lookup is `WHERE token_hash = $2` on an
+// indexed column, so the database decides the timing and a `timingSafeEqual` in front of it protected nothing —
+// it only read like a security measure, which is worse than not having one (#250 review).
 
 export interface RedeemedRecovery {
   recoveryId: string;
@@ -81,7 +74,7 @@ export async function redeemToken(
     [storeId, hash],
   );
   const row = found.rows[0];
-  if (!row || !tokenHashEquals(hashToken(token), hash)) throw notFound('recovery link');
+  if (!row) throw notFound('recovery link');
   if (row.redeemed_at !== null) throw notFound('recovery link');
   if (row.token_expires_at.getTime() <= now.getTime()) throw notFound('recovery link');
 

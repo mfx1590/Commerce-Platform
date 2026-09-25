@@ -32,8 +32,42 @@ export interface FraudContext {
   actor: Actor;
 }
 
+/**
+ * The facts of a blocked placement: what the check saw (never the transaction) plus its decision. Shaped as a
+ * SUPERTYPE of the fraud module's own `BlockedPlacement` — its required fields are required here, the remaining
+ * facts are optional — so window 7's `recordBlocked` (typed on its closed reason-code set) satisfies this seam
+ * without either side importing the other. The checkout always passes every fact.
+ */
+export interface BlockedPlacement {
+  organizationId: string;
+  storeId: string;
+  cartId: string;
+  amountMinor: number;
+  currency: string;
+  paymentProvider: string;
+  actor: Actor;
+  decision: FraudDecision;
+  emailHash?: string | null;
+  shippingCountry?: string | null;
+  billingCountry?: string | null;
+  providerSessionId?: string | null;
+}
+
 export interface FraudCheck {
   evaluate(ctx: FraudContext): Promise<FraudDecision>;
+  /**
+   * Called by `completeCart` AFTER the placement transaction rolled back on a `block` (#241): the place to write
+   * the block's audit record in a transaction of its own — never inside the placement, never on a second pool
+   * connection while it is open. Best effort: it must not throw, and the checkout swallows it if it does.
+   * Only called when the check also sets `recordsBlockedAfterRollback`.
+   */
+  recordBlocked?(blocked: BlockedPlacement): Promise<void>;
+  /**
+   * Opt-in to the hook above. A check that still records its blocks by itself (window 7's deferred flush, the
+   * approved interim) leaves this unset, so a block is never recorded twice; the day it sets `true` it stops its
+   * own flush and the checkout becomes the only caller of `recordBlocked`.
+   */
+  recordsBlockedAfterRollback?: boolean;
 }
 
 export const FRAUD_ALLOW: FraudDecision = { outcome: 'allow', reasonCode: null, provider: null };

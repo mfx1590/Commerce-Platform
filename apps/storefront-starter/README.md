@@ -28,9 +28,10 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | `STORE_API_URL`            | `http://localhost:9000`      | The core's Store API — the default since 2.1. Wins over `MOCK_API_URL`.                                                                |
 | `MOCK_API_URL`             | —                            | Prism mock. Set it to run against contract examples instead of the core (Playwright does).                                             |
 | `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                                                                               |
-| `KEYCLOAK_URL`             | `http://localhost:8180`      | Customer sign-in.                                                                                                                      |
+| `KEYCLOAK_URL`             | `http://localhost:8180`      | Customer sign-in, and the CSP's `form-action` (read per request).                                                                      |
 | `KEYCLOAK_REALM_CUSTOMERS` | `customers`                  | Realm.                                                                                                                                 |
 | `KEYCLOAK_CLIENT_ID`       | `storefront-brand-a`         | Public OIDC client; each brand app has its own.                                                                                        |
+| `ROBOTS_ALLOW_INDEXING`    | —                            | `1` on the **production** deployment only; anything else serves `Disallow: /`.                                                         |
 
 `GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
 
@@ -108,6 +109,7 @@ src/brand/
   tokens.ts          # 1. design tokens — colours, type scale, radii, shadows
   components/        # 2a. component slots — Logo, Announcement
   layouts/           # 2b. layout slots — Header, Footer
+  config.ts          # 3. static identity — name, description, canonical origin
 ```
 
 **1. Tokens.** `brandTokens` is a `BrandTokens` from `@platform/ui`: set only what changes. The root
@@ -124,7 +126,13 @@ used everywhere; leave a slot out and the starter's version stays.
 export const layoutOverrides: Partial<LayoutSlots> = { Header: BrandHeader };
 ```
 
-**3. Route files.** Anything more than a slot — a bespoke home page, an extra route — is a normal
+**3. Identity.** `brandConfig` in `src/brand/config.ts` holds the brand name, the default meta
+description and, optionally, the canonical origin and Twitter handle. This is **build configuration
+rather than API data on purpose**: root metadata that awaits `GET /store` is resolved too late to
+land in `<head>`, which is what cost the storefront SEO points in Phase 1 (see "SEO" below). Prices,
+availability, locales and the theme still come from the Store API, where they belong.
+
+**4. Route files.** Anything more than a slot — a bespoke home page, an extra route — is a normal
 file under `src/app/`. Replacing `src/app/(shop)/page.tsx` in a brand app is expected; editing
 `src/lib/store-api/` is not.
 
@@ -302,27 +310,172 @@ docker compose -f infra/docker/docker-compose.yml up -d keycloak   # or pnpm com
 
 Seeded customer: **jane@example.com** / `jane` (the realm seeds the email as the username).
 
+## SEO
+
+Metadata, structured data and a sitemap, all built from the Store API and the brand config.
+
+| What                                                  | Where                                                 | Notes                                                       |
+| ----------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |
+| Title template, default description, Open Graph       | `src/app/[locale]/layout.tsx` + `src/brand/config.ts` | Identity is build config, never `GET /store` — see below    |
+| Canonical + `hreflang` per locale (incl. `x-default`) | `alternatesFor` in `src/lib/seo.ts`                   | Returned **relative**; `metadataBase` makes them absolute   |
+| `Product` + `BreadcrumbList` JSON-LD                  | PDP                                                   | One `Offer` per variant                                     |
+| `Organization` JSON-LD                                | home page                                             | Only there — repeating it says nothing new                  |
+| Open Graph image                                      | `opengraph-image.tsx` on the PDP                      | Rendered from text via `next/og`                            |
+| `/sitemap.xml` (index) + `/sitemap/<n>.xml`           | `src/app/sitemap.xml/route.ts`, `src/app/sitemap.ts`  | Paged at 5 000 **URLs**                                     |
+| `/robots.txt`                                         | `src/app/robots.ts`                                   | Per request; `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1` |
+
+**Canonicals.** The API returns `seo.canonical` as a locale-less _path_ (`/products/classic-tee`),
+because it does not know which locale is rendering. Used verbatim that points at a URL which only
+redirects — Lighthouse flags it as "points to another `hreflang` location", and a crawler follows it
+away from the page it was meant to identify. `canonicalFor` therefore localises a **relative**
+canonical and leaves an **absolute** one alone, the latter being a deliberate cross-site pin.
+Listing pages canonicalise without their query string, so sorts and pages do not compete with the
+listing they belong to.
+
+**The sitemap is paged in URLs, not products.** Every path appears once per locale, so a two-locale
+store with 3 000 products is 6 000 URLs. Next's `generateSitemaps` serves the pages at
+`/sitemap/<n>.xml` and publishes no index for them, so `sitemap.xml` is a hand-written index route —
+otherwise `robots.txt` would advertise a URL that 404s. Both read the same `sitemapPaths()`, so the
+index cannot list a page that does not exist. A failure part-way through the walk returns what was
+collected: a short sitemap is a crawler inefficiency, a 500 makes it back off from all of it.
+
+**Where metadata ends up, and the limit of this.** Next resolves page metadata during the render and
+emits it in `<head>` only if it is ready before the shell is flushed; when it is not, the tags are
+appended to `<body>` and React hoists them at hydration. The DOM is correct either way and every
+end-to-end assertion passes — but a crawler reading raw HTML, and Lighthouse's `meta-description`
+audit, see nothing. That is what put the PLP at SEO 91 in Phase 1, with the tag present and correct.
+
+Taking `GET /store` out of the root layout's metadata (hence `src/brand/config.ts`) removes the
+biggest cause. It does **not** make head placement deterministic: both catalogue routes still render
+dynamically because pricing reads the currency cookie, so under a cold fetch cache the metadata can
+still be flushed late. Measured, the SEO score therefore moves between **92 and 100** for the same
+build. The budget is set at 90 rather than 95 because a 95 gate would be flaky, not because 95 is
+unreachable — and the one audit that flips is `meta-description`, whose tag is always in the DOM.
+
+Making it deterministic means making the catalogue routes statically renderable, which means taking
+per-request currency out of the server render — a trade against the behaviour task 2.1 shipped
+deliberately. Worth revisiting when partial prerendering is stable in Next.
+
+**This is a recorded deviation from #110's acceptance criterion (SEO ≥ 95), accepted by the manager
+on 2026-09-21:** the budget stays at 90 until the catalogue routes can render statically.
+
+**Indexing is opt-in.** `/robots.txt` says `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, and it is
+rendered per request. In 2.2 it was static — baked by `next build`, which always runs with
+`NODE_ENV=production` — so every image, staging included, told crawlers to index it. A staging site
+in an index outranks the real one for its own brand name and takes weeks to undo, while a production
+deployment that forgot the variable is noticed the same day: that asymmetry decides the default.
+**Set `ROBOTS_ALLOW_INDEXING=1` on the production deployment only.**
+
+## Security headers
+
+The `Content-Security-Policy` is built **per request in the middleware** (`src/lib/csp.ts`); the
+environment-independent companions (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
+`Permissions-Policy`) stay in `next.config.mjs`.
+
+`frame-src` is the point of it (REQUEST #199): campaign landings embed Builder.io and Framer pages,
+and the host list is **imported from `@platform/cms`** rather than copied, because `EMBED_HOSTS` is
+what window 6's Studio validates an editor's URL against. One list, two enforcement points — a CSP
+naming different hosts would either block an embed the Studio accepted or permit one it rejected.
+This is the second layer: window 6 sandboxes every embed iframe, and that is what contains a hostile
+page; the CSP stops an embed being pointed at an unreviewed host in the first place.
+
+**`form-action` must list the identity provider.** Signing out POSTs to `/auth/sign-out`, which
+answers `303` to Keycloak's `end_session` endpoint, and Chrome evaluates `form-action` against the
+URL **after** redirects — with `'self'` alone it blocks the submission outright, the SSO session is
+never ended, and the customer is silently signed back in on their next visit. Nothing about the page
+looks wrong when this happens; it only shows up in the console and in the account e2e.
+
+**Why the CSP is not in `next.config.mjs`.** It was, in task 2.2 — and `headers()` there is
+evaluated **once, by `next build`**, and written into the routes manifest. Images are built once and
+configured per environment at runtime (Helm sets `KEYCLOAK_URL` separately for dev and staging), so
+the policy carried the build machine's identity provider (`http://localhost:8180`) into every
+deployment, and sign-out was blocked in all of them. The middleware runs per request with the
+deployment's own environment; building the policy there fixes it without asking every environment
+for its own image. Verified by building with no `KEYCLOAK_URL` and starting with the staging value:
+the header carries the staging origin. The embed host list is the one build-time input — it is code,
+not environment — and reaches the middleware as `CSP_FRAME_HOSTS` via `next.config.mjs` `env`.
+
+Routes the middleware skips (`/api`, `/auth`, `/health`, static files) get no CSP; none of them
+renders a document to protect.
+
+**`script-src` still needs `'unsafe-inline'`.** Next's App Router emits inline bootstrap and
+flight-data scripts, and removing that needs a per-request nonce threaded through the middleware and
+every `<Script>`. So this policy is worth having for what it does enforce — framing, plugins, form
+targets, base URI — but it is **not** XSS protection and should not be described as such.
+
 ## Performance budget
 
-`lighthouserc.json` holds the budget task 1.7 asks for: **performance and accessibility ≥ 90**,
-LCP ≤ 2.5 s, CLS ≤ 0.1, measured on mobile emulation over the PLP and the PDP, median of three runs.
+One command runs the whole gate and exits non-zero if **any** budget is exceeded (task 2.3):
 
 ```bash
-pnpm --filter @platform/storefront-starter build
-PORT=3100 MOCK_API_URL=http://localhost:4010 pnpm --filter @platform/storefront-starter start &
-pnpm --filter @platform/storefront-starter lighthouse
+pnpm mock                                           # or the mock-store container
+pnpm --filter @platform/storefront-starter perf
 ```
+
+It makes a production build against the mock, checks the **bundle budget**, starts the server, runs
+**Lighthouse CI** (median of three, mobile), stops the server whatever happened, and reports both
+results — one failure never hides the other. `--skip-build` reuses `.next`; `--bundle-only` skips
+Lighthouse. Both gates were proven to fail: lowering the PDP bundle budget to 100 kB and the LCP
+budget to 100 ms each turned the exit code to 1, and restoring them returned it to 0.
+
+| Budget                     | Where                | Limit                                                                 |
+| -------------------------- | -------------------- | --------------------------------------------------------------------- |
+| Performance, accessibility | `lighthouserc.json`  | ≥ 90                                                                  |
+| SEO                        | `lighthouserc.json`  | ≥ 90 (see "SEO" — a recorded deviation)                               |
+| LCP / CLS / TBT            | `lighthouserc.json`  | ≤ 2.5 s / ≤ 0.1 / ≤ 300 ms (warn)                                     |
+| First-load JS per route    | `bundle-budget.json` | measured + ~5 kB, per route                                           |
+| Web fonts                  | —                    | **none**: the system font stack, zero requests                        |
+| Third-party scripts        | —                    | **none**, and the CSP's `script-src 'self'` blocks any that are added |
+
+**First-load JS** (gzipped, kB, measured 2026-09-21), from `scripts/bundle-budget.mjs`:
+
+| Route                     | First load | Budget |
+| ------------------------- | ---------- | ------ |
+| `/` (home)                | 130.5      | 136    |
+| PLP `/products`           | 136.0      | 141    |
+| PDP `/products/[handle]`  | 139.0      | 144    |
+| Category                  | 136.0      | 141    |
+| Cart                      | 139.5      | 145    |
+| Checkout address / review | 133.6      | 139    |
+
+These read **~1.6 kB higher than `next build`'s "First Load JS" column**, deliberately: Next counts
+only a page's own entry and leaves out its layouts' entry chunks, which the browser downloads all the
+same. A budget on Next's figure would under-count exactly the code a brand grows — its header and
+footer. The script needs no dependency; it reads the manifests `next build` writes. Raise a limit
+only in the commit that explains what grew.
+
+A brand that adds a web font or a third-party script is spending budget this starter keeps at zero:
+measure with `perf` before and after, and add the host to the CSP deliberately rather than loosening
+it.
+
+**Images.** Product images go through `ProductImage` (`src/components/product-image.tsx`), the
+image-CDN seam: a Cloudinary delivery URL — what window 9's media pipeline produces — is resized by
+Cloudinary and fetched straight from the CDN; anything else stays on Next's own optimiser. It is a
+client component rather than a global `images.loaderFile` because a custom loader file switches the
+app to `loader: 'custom'`, and Next then disables `/_next/image` **entirely** — every non-Cloudinary
+image would 404 instead of falling back (verified). The loader is imported from
+`@platform/ui/image-loader`, a dedicated subpath: through the kit's barrel it cost 1.5 kB of
+first-load JS on every image route, through the subpath 0.2 kB.
+
+Running Lighthouse on its own, against a server you started:
+`pnpm --filter @platform/storefront-starter lighthouse`.
 
 Measure a **production build**: `next dev` is unoptimised and the numbers mean nothing. Two audits
 are skipped because they only fail by virtue of being localhost (`uses-http2`, `uses-long-cache-ttl`);
 nothing that reflects on the app is skipped.
 
-Latest local run (2026-09-07, median of 3):
+The config targets `127.0.0.1`, not `localhost`: on Windows `localhost` resolves to `::1` first,
+where nothing listens, and Lighthouse then fails to connect to a server that is plainly running.
 
-| Page                   | Perf | A11y | Best practices | SEO | LCP    | TBT    | CLS |
-| ---------------------- | ---- | ---- | -------------- | --- | ------ | ------ | --- |
-| `/en-GB/products`      | 96   | 100  | 96             | 91  | 2.08 s | 187 ms | 0   |
-| `/en-GB/products/…tee` | 99   | 100  | 96             | 92  | 2.05 s | 30 ms  | 0   |
+Latest Lighthouse run (2026-09-20, median of 3, against the mock, after task 2.2):
+
+| Page                   | Perf | A11y | Best practices | SEO    | LCP    | TBT    | CLS |
+| ---------------------- | ---- | ---- | -------------- | ------ | ------ | ------ | --- |
+| `/en-GB/products`      | 95   | 100  | 96             | 92–100 | 2.24 s | 222 ms | 0   |
+| `/en-GB/products/…tee` | 93   | 100  | 96             | 92–100 | 2.40 s | 263 ms | 0   |
+
+The SEO range is not noise in the measurement but a real property of the build: see "SEO" above for
+why metadata placement varies with cache warmth, and what making it deterministic would cost.
 
 The first measurement came in at 89 and 85, entirely on blocking time: the root layout was handing
 `NextIntlClientProvider` the whole message catalogue, so every page serialised and hydrated strings

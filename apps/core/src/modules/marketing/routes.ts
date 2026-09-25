@@ -23,7 +23,6 @@ import {
   storeClientFor,
   throwIfProblems,
   uuidParam,
-  type Permission,
   type StaffPrincipal,
 } from '../../http';
 import {
@@ -47,6 +46,7 @@ import {
 import { FEED_CHANNELS, FEED_STATUSES, type FeedChannel, type FeedStatus } from './feed-types';
 import { attributionReport } from './reports';
 import { abandonedCartReport } from './recovery-report';
+import { promotionReport } from './promotion-report';
 import {
   createSegment,
   createSegmentTemplate,
@@ -94,24 +94,6 @@ function body(operationId: string): RequestHandler {
       next(err);
     }
   };
-}
-
-/**
- * `permission()` for an operation the frozen document does not carry yet, falling back to the `x-permission`
- * proposed in the CONTRACT CHANGE. The moment the operation lands in `admin-api.yaml` the spec wins, with no
- * edit here — and if the manager lands a *different* relation than proposed, the route follows the spec rather
- * than quietly enforcing what this window wanted. Used only by `getAbandonedCartReport` (#245).
- */
-function permissionOrProposed(operationId: string, fallback: Permission): RequestHandler {
-  let perm: Permission;
-  try {
-    perm = spec().permission(operationId);
-  } catch {
-    perm = fallback;
-  }
-  return requirePermission(perm.relation, (req: Request) =>
-    resolveObject(perm.object, { storeId: one(req.params.storeId) }),
-  );
 }
 
 /** Store-scoped client for an admin request; `storeId` comes from the path (validated as a uuid). */
@@ -470,18 +452,29 @@ export function marketingAdminRouter(): Router {
     }),
   );
 
-  // Recovery rate. The operation is CONTRACT CHANGE #245 and is not in 0.4.3 yet, so the permission falls back
-  // to the proposed `viewer` until the spec carries it — the same relation the other two reports use.
+  // Recovery rate: `viewer`, like the other two reports (#245, contracts-v0.4.5).
   r.get(
     `${BASE}/reports/abandoned-carts`,
-    permissionOrProposed('getAbandonedCartReport', {
-      relation: 'viewer',
-      object: 'store:{storeId}',
-    }),
+    permission('getAbandonedCartReport'),
     handle(async (req, res) => {
       const { client, storeId } = storeClient(req);
       res.json(
         await abandonedCartReport(client, storeId, {
+          from: one(req.query.from) ?? '',
+          to: one(req.query.to) ?? '',
+        }),
+      );
+    }),
+  );
+
+  // Promotions: `viewer`, like the other two reports. The figures are window 9's `promotionReportData`.
+  r.get(
+    `${BASE}/reports/promotions`,
+    permission('getPromotionReport'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(
+        await promotionReport(client, storeId, {
           from: one(req.query.from) ?? '',
           to: one(req.query.to) ?? '',
         }),

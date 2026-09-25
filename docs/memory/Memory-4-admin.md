@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-09 (PR #205) · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
+Last updated: 2026-09-24 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,66 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.3 — issue #115 Customers and consent** · 2026-09-24 · commit `50af950` (+ main merge
+  `6907b15`) · **PR #268** — BLOCKED once (customers list passed full `Customer[]` to the client
+  table), fixed by the `client-safe` projection commit (sha in the PR), re-review pending.
+  #263 merged as 3e57cc1 (#114 closed).
+  - Wrappers (list/get/update/erase), `customerUpdateSchema`, `actions/customers.ts` (empty
+    strings dropped; empty group id = clear), `src/lib/customers/consent.ts` (pure, defensive:
+    documented shape, bare boolean, anything else shown verbatim).
+  - Screens: list (`support`; email links, name fallback, status pill, consent summary); detail
+    (server-rendered PII; consent table per channel; "Orders by this customer" via the orders
+    `q` filter; edit form whose props are exactly its four inputs; erase with typed `ERASE`,
+    bodiless 202 → "scheduled", re-read shows `erased`, then read-only).
+  - Gate per role: analyst → nav hidden + 403 panel naming `support` on the direct URL;
+    support/store_admin/owner see it; store_staff/finance/operations do not (rendered guard test).
+  - **CONTRACT CHANGE #264** (accepted in principle): addresses read, GDPR export 202,
+    customer-groups list — no placeholder UI.
+  - **Real core:** the unmounted customers route answers **401**, not 404 (Medusa admin auth
+    catches unmatched `/admin/*`) → the app shows the session-ended panel. Filed **#265** for
+    window 1; 2.6's not-implemented panel keys on the 404 once it lands. Screenshot
+    `docs/customers/core-unimplemented.png`.
+  - Tests: unit 431 → +projection 3 (see #263 fix) ; contract 41 + 2 skipped (#261); mock e2e 18.
+  - #263 nits folded in: `requiresRelation()` in state-panel.tsx used by both section guards and
+    the pick-lists page; `fieldNames(shipmentUpdateSchema)` in `actions/orders.ts`.
+
+- **#263 review fix — client panels receive branded projections** · commit `f34c7b0` (pushed to
+  the PR). The detail page had passed the full `Order` (email + addresses) as props to three
+  `'use client'` panels; Next serialises client props into the Flight payload. Now
+  `src/lib/orders/projection.ts` builds one branded object per panel with exactly its keys, the
+  panel props carry the brand (full `Order` no longer typechecks), and
+  `test/orders-projection.test.ts` pins key sets, wire JSON and the type exclusion.
+  **Lesson (Gotchas):** a `'use client'` prop is a wire payload — pass projections, never records.
+
+- **2.2 — issue #114 Orders** · 2026-09-24 · commits `92540f4` (build), `14fd4e2` (main merged),
+  `cb07e5b` (address fix + docs) · **PR #263** (in review)
+  - Wrappers for the 13 order/fulfilment operations (0.4.5); `src/lib/orders/` pure modules
+    (quantities, refunds + `idempotencyKeyHolder`, timeline, permissions); Zod schemas for the
+    inline bodies; `actions/orders.ts`. Screens: list (pills, money in store locale), detail
+    (server-rendered PII via `AddressBlock`, pre-fulfilment line edits with the last line never
+    offered, totals, timeline, actions, fulfilment panel: fulfil/pick/pack/update/receive), pick
+    lists (`operations`, relation panel otherwise).
+  - Refund key: one per attempt, kept across failures, new after success — unit test proves both.
+  - Tests: unit 416 (orders-helpers 24, orders-screens 20 incl. AddressBlock, rail +5); contract
+    32 + 2 skipped on **CONTRACT CHANGE #261** (no examples for updateOrderLineItem,
+    cancelOrderLineItem, pickShipment, packShipment, listPickLists → Prism 500); mock e2e 17/17
+    (+2 core-only skipped) incl. orders list→detail and refund-asks-first.
+  - **Real core run** (own core on :9100 from main, real store-admin token): list showed the 4
+    orders from window 3's live checks, detail #1003 rendered fully; screenshots
+    `apps/admin/docs/orders/`. Found + fixed: the core omits optional address fields instead of
+    `null` → "undefined" in the address; `AddressBlock` treats missing and null alike.
+  - Rail nits R1–R4 (step 0) fixed with regression tests; canonical list in its own section.
+  - Environment: Docker Desktop was down again mid-task (daemon gone, not just the proxy); I
+    started it and `compose start`ed the existing containers (no recreate), re-seeded OpenFGA.
+    **For main:** `.env.example` `REDIS_URL` still says `localhost:6381` — the same IPv6 loopback
+    proxy issue as the DB rows; the core dies on Redis ECONNRESET until it is `127.0.0.1`.
+
+- **REQUEST #251 — `AdminResponse` maps 202 bodies** · 2026-09-24 · (sha in the PR) · resumed
+  after the pause: main merged (284 commits, contracts-v0.4.5, 106 admin operations), `pnpm
+  install`, workspace packages rebuilt, local `.env` DB rows → `127.0.0.1:5433`. `SuccessBody`
+  now 200 → 201 → 202 → null; type-level test pins getProduct/createProduct/materializeSegment/
+  archiveProduct/eraseCustomer. Gate: lint, typecheck, format, 368 unit.
+
 - **2.1b — issue #192 The Medusa rail and the dark design system** · 2026-09-09 · commits
   `fafdc7b` (rail), `da1fe0e` (intro state machine), `c568bf4` (screenshots) · **PR #205** (in review)
   - Sidebar replaced by `src/components/rail/`: `MedusaRail` (client: masked head `<image>`, one
@@ -258,64 +318,42 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#114 · 2.2 Orders** — plan written 2026-09-08, awaiting confirmation. Starts after #205 is
-  confirmed merged; no pushes until then. Core 2.3 (#174) is on main, so the real-core verification
-  at the end of 2.2 needs #202 fixed first (the core does not boot from main). Building locally while
-  #184 is in review; no push until the manager confirms. Contracts 0.4.0 (#185, 401/403 on every
-  operation) lands today: merge main and retarget the refusal contract tests at the spec's examples.
-  1. **Wrappers** in `src/lib/api/admin.ts`: `listOrders` (filters status, payment_status,
-     fulfillment_status, q, placed_from/to; sort placed_at/display_id/total/status), `getOrder`,
-     `cancelOrder`, `createRefund` (**`Idempotency-Key` header** via `adminCall.headers`),
-     `createReturn`, `createShipment`, `updateShipment`, `receiveReturn`; `listWarehouses` exists.
-  2. **List** `/{storeId}/orders`: data-table, URL-driven filters + sort from the contract enums
-     (`orders-table.config.ts`), money from `{amount_minor, currency}` with the store's
-     `default_locale` (`getStore` in parallel, fails alone), status/payment/fulfilment badges,
-     empty vs filter-matched-nothing, `ApiStatePanel` on failure.
-  3. **Detail** `/{storeId}/orders/{orderId}` (server component renders the PII: email, addresses):
-     header + three badges, lines (qty, unit, discount, tax, total, fulfilled/returned), totals
-     block, shipping method, payments/refunds/shipments/returns as one timeline sorted by time,
-     `cancel_reason` when set.
-  4. **Actions panel** (client, each behind a confirmation, each gated in the UI by the relation
-     from `/admin/me` via `src/lib/nav/relations.ts`, always re-checked by the API → `ActionRefusal`):
-     Cancel (`store_admin`, reason required) · Fulfil = `createShipment` (`operations` on
-     organization:hq: warehouse picker from `listWarehouses`, per-line quantity ≤ remaining,
-     carrier/service) · Refund (`support`: `MoneyField` ≤ captured − refunded, reason enum,
-     optional payment) · Request return (`support`: per-line quantity ≤ shipped − returned, reason).
-  5. **Idempotency**: the refund form mints `crypto.randomUUID()` when it opens and keeps it until a
-     success; a retry after a network error (status 0) or 5xx reuses it, a success mints a new one.
-     Unit test: action fails with status 0 then succeeds → both calls carry the same key; the next
-     refund carries a different one.
-  6. **Server actions** `src/app/actions/orders.ts` + Zod schemas (`MatchesContract` where the
-     contract has a named input; the inline bodies get hand-written schemas).
-  7. **Tests**: unit (table config, money rendering never via floats, gating per role fixture,
-     idempotency, confirmations), contract `test-contract/orders.test.tsx` (list/detail/cancel/
-     refund 201 + documented 403/409, return 201, shipment 201; after #185: 401/403 examples on the
-     order operations), 403/empty/error through `ApiStatePanel`; e2e: orders list → detail on the mock.
-  8. **Real core at the end** (core 2.3 / PR #174 merges within the hour): merge main, run
-     list/detail (+ whichever actions the core implements) against :9000, document; refusals →
-     issue for window 1 with exact request/response.
-  9. README (orders section), CHANGELOG, memory; `pnpm lint && pnpm typecheck && pnpm test --filter
-     @platform/admin` + `test:contract`; PR with the acceptance criteria.
-  **Estimate: 50–70 tool calls.** Not in scope: shipment status updates UI beyond `updateShipment`
-  wrapper (window 8's labels/tracking), `receiveReturn` UI (HQ warehouse, Phase 3 window 11) —
-  wrappers only.
-
-### Open requests, none blocking
-- ~~**#82**~~ — **resolved.** Window 2 landed 3200 in #85; `staff-realm.json` on `main` carries it in
-  `redirectUris`, `webOrigins` **and** `post.logout.redirect.uris`. My earlier "the repo and the
-  running realm disagree" claim was wrong: I compared the live realm against this branch's stale copy
-  of the file, before #85 had been merged in. Corrected on the issue.
-- **#80** — CI job for the Playwright journeys (admin and storefront).
-- ~~**#93**~~ — **applied on main**: `**/test-results/` and `**/playwright-report/` are in the root
-  `.prettierignore`, so a Playwright run no longer breaks `pnpm format:check`.
+- **PR #268 (2.3) re-review verdict MERGE (2026-09-25).** Main merged (contracts-v0.4.6, 6f28fda)
+  and the #261 contract tests un-skipped in `test-contract/orders.test.tsx` (sha in the PR);
+  contract 51/51, unit 467/467, typecheck + lint green. Waiting for the manager's merge confirm.
+- **2.4 (#116)** built as 8f90e9e on the pre-un-skip head, kept on local branch
+  `admin/phase2-2.4-local` (never pushed). After #268 merges: merge main into `admin/phase2`,
+  cherry-pick 8f90e9e, rerun gates, push, open the PR closing #116.
+- **Later-touch nits from the #268 re-review** (not filed/fixed yet): (a) `markClientSafe` brands
+  any object — unrestricted escape hatch; restrict its input or document it as audited-only;
+  (b) the client-props guard's `'use client'` regex misses a comment-preceded directive;
+  (c) an imported type alias of a contract record evades the guard's PII pattern.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
-- [ ] **#114 · 2.2** Orders: list, detail, actions
-- [ ] **#115 · 2.3** Customers and consent (support-gated)
+- [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
+- [x] **#115 · 2.3** Customers and consent (support-gated) — built, PR after #263
 - [ ] **#116 · 2.4** Promotions and price lists screens
 - [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
+
+## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
+The four nits recorded on #205 were never written down anywhere (manager confirmed the handoff
+gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test in
+`test/rail.test.tsx` ("rail nits R1–R4").
+- **R1 Keyboard focus did not lift the serpent.** The brief says hover *or focus* lifts; only the
+  pointer set the lift target, so a keyboard user got the colour change without the lift. Fix:
+  `onFocus`/`onBlur` set the same hover ref.
+- **R2 `prefers-reduced-motion` was read once at mount.** A change while the page was open (OS
+  setting, browser flag) left the serpents moving. Fix: subscribe to the media query's `change`;
+  the list takes over at once and hands back when it flips again.
+- **R3 A second named landmark inside the nav.** The SVG carried `role="group"
+  aria-label="Sections"` inside the `<nav>` already named after the store — an extra level for a
+  screen reader with no information in it. Fix: the nav is the one named landmark; buttons carry
+  the names.
+- **R4 Idle render cost.** The frame loop ran six `querySelector`s per serpent per frame (≈ 42 DOM
+  queries per frame for the store view) and the motes canvas kept drawing while the tab was
+  hidden. Fix: parts cached per group in a `WeakMap`; both loops pause on `visibilitychange`.
 
 ## Decisions made (with reasons)
 - **A 401/403 from a mutation is a `refusal`, not a `formError`.** A relation you do not hold is
@@ -476,6 +514,25 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **A `'use client'` component's props are a wire payload — and so is a server action's result.**
+  Next.js serialises them wholesale into the Flight response. **Rule at write time, not review
+  time:** a client component never takes a contract record; it takes a `ClientSafe<…>` projection
+  from `src/lib/client-safe.ts` (`makeProjection(record, keys)` / `markClientSafe`), and
+  `test/client-props-guard.test.ts` fails the suite if a client file under `(store)`/`(hq)` names
+  `AdminComponents['Customer'|'Order'|'OrderSummary'|'StaffUser'|'Address']`. Actions that a
+  client calls answer `null` or a projection, never the record. Two reviews found the leak
+  (#263 detail panels, #268 customers list) before the guard existed.
+- **Prism cannot mock an operation without an example when `--errors` is on** if its schema has
+  `format: uuid` / nullable members: the generated body fails Prism's own validation → 500.
+  Check `example`/`examples` presence per operation before writing contract tests; file a
+  CONTRACT CHANGE for examples (additive) rather than asserting on the 500 (#261).
+- **Contract suites that spawn their own Prism must set `process.env.ADMIN_API_URL` to that
+  port before importing the app modules** — the vitest contract config pins the variable to the
+  states suite's port, and vitest runs files in parallel, so wrappers otherwise hit whichever
+  Prism happens to be up (flaky status 0).
+- **An unmounted `/admin/*` route on the core answers 401, not 404** (Medusa's admin auth catches
+  it) until #265 lands — do not read a 401 from the core as "session expired" when the route is
+  known to be unimplemented.
 - **Two sessions on one worktree corrupt each other silently.** A resumed Phase 1 session and this
   one both received "go on 2.1" and both edited `apps/admin`; `git status` showing files you did
   not touch is the tell. Check `list_sessions` for another running session with the same `cwd`

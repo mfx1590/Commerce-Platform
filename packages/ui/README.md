@@ -57,6 +57,26 @@ export default {
 Colors resolve to plain `var(--ui-color-*)` values, so Tailwind's `/opacity` modifier does not apply
 to them — use a token (e.g. `muted`) instead of `primary/50`.
 
+## Image loader (Cloudinary)
+
+`@platform/ui/image-loader` exports `cloudinaryImageLoader`, `transformUrl` and `isCloudinaryUrl`
+(REQUEST #169). A Cloudinary delivery URL gets `c_limit,w_<width>,q_<quality|auto>,f_auto` inserted
+after `/upload/`, chained **before** any transformation already stored with the asset; any other URL
+is returned unchanged. No cloud name is baked in — it comes from the URL, so one function serves
+every brand.
+
+```ts
+import { cloudinaryImageLoader, isCloudinaryUrl } from '@platform/ui/image-loader';
+```
+
+Import it from the **subpath**, not the root. The same functions are exported from `@platform/ui`,
+but the kit declares no `sideEffects`, so a bundler reaching them through the barrel pulls in far
+more: 1.5 kB of first-load JS per image route in the storefront, against 0.2 kB through the subpath.
+
+Do not wire it as a Next.js `images.loaderFile`: that switches the app to `loader: 'custom'`, which
+disables `/_next/image` entirely, so every non-Cloudinary image 404s. Choose the loader per image in
+a client component instead — the storefront's `ProductImage` shows how.
+
 ## Primitives
 
 `Button`, `Input`, `Select`, `Card` (+ `CardHeader`/`CardTitle`/`CardDescription`/`CardContent`/`CardFooter`),

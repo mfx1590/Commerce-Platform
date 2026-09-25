@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { AdminResponse } from '@/lib/api/admin-client';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import type { AdminComponents, AdminResponse } from '@/lib/api/admin-client';
 import { adminRequest, buildPath } from '@/lib/api/admin-client';
 
 const BASE = 'http://localhost:4011';
@@ -10,6 +10,19 @@ function jsonResponse(status: number, body: unknown): Response {
     headers: { 'content-type': 'application/json' },
   });
 }
+
+describe('AdminResponse: the success body of every status the spec uses (REQUEST #251)', () => {
+  it('maps 200, 201 and 202 bodies, and 204 to null', () => {
+    expectTypeOf<AdminResponse<'getProduct'>>().toEqualTypeOf<AdminComponents['Product']>();
+    expectTypeOf<AdminResponse<'createProduct'>>().toEqualTypeOf<AdminComponents['Product']>();
+    // 202 Accepted with a body used to fall through to `null` — silently, since null is a valid
+    // type. materializeSegment answers with the Segment whose refresh was queued.
+    expectTypeOf<AdminResponse<'materializeSegment'>>().toEqualTypeOf<AdminComponents['Segment']>();
+    expectTypeOf<AdminResponse<'archiveProduct'>>().toEqualTypeOf<null>();
+    // eraseCustomer is 202 with no JSON body: still null, exactly as before.
+    expectTypeOf<AdminResponse<'eraseCustomer'>>().toEqualTypeOf<null>();
+  });
+});
 
 describe('buildPath', () => {
   it('substitutes and encodes path parameters', () => {

@@ -43,6 +43,13 @@ env:
   KEYCLOAK_REALM_CUSTOMERS: 'customers'
   STORE_API_URL: 'https://api.staging.example.com'
   STORE_PUBLISHABLE_KEY: 'pk_brand-a_dev_00000000000000000000'
+  # The storefront's own origin: the OIDC redirect URI, canonicals, hreflang, the sitemap and the
+  # robots.txt host. Must be https://<ingress.host> — infra/helm/check.sh fails the build otherwise.
+  # Without it the pod sends redirect_uri=http://localhost:3100/auth/callback and sign-in breaks
+  # silently (#257).
+  SITE_URL: 'https://shop.staging.example.com'
+  # ROBOTS_ALLOW_INDEXING is deliberately absent: unset, /robots.txt says `Disallow: /`. Only a
+  # production values file may set it to '1'; check.sh rejects it anywhere else.
 
 externalSecrets:
   enabled: true

@@ -31,9 +31,15 @@ window 3 (storefront).
   `BadgeProps`, `BadgeVariants`), `Price` (`PriceProps`, `Money`, `formatMoney`, `minorUnitDigits`,
   `DEFAULT_LOCALE`), `Skeleton`
 - Helpers: `cn`, `variants` (`VariantMap`, `VariantProps`), `PACKAGE_NAME`
+- Image loader: `cloudinaryImageLoader`, `transformUrl`, `isCloudinaryUrl`, `CloudinaryLoaderParams`
+  (also the subpath below — prefer it)
 
 `import { tailwindPreset } from '@platform/ui/preset'` — Tailwind preset mapping utility classes
 onto the `--ui-*` variables. Also the default export of that entry point.
+
+`import { cloudinaryImageLoader, isCloudinaryUrl } from '@platform/ui/image-loader'` — the
+`next/image` loader for Cloudinary delivery URLs, on its own entry point so it costs ~0.2 kB of
+first-load JS instead of pulling the barrel in. Never as `images.loaderFile` (see README).
 
 Tokens contract: `packages/ui/src/tokens.ts` — one `BrandTokens` object per brand overriding
 `defaultTokens`; the same shape is what the Store API returns in `Store.theme`.

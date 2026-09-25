@@ -1,6 +1,8 @@
 import { Badge, buttonVariants, Card, CardContent, CardHeader, CardTitle } from '@platform/ui';
 import { getTranslations } from 'next-intl/server';
+import { JsonLd } from '@/components/json-ld';
 import { Link } from '@/i18n/navigation';
+import { organizationJsonLd } from '@/lib/seo';
 import { getStoreOrNull } from '@/lib/store';
 
 /**
@@ -29,6 +31,9 @@ export default async function HomePage() {
 
   return (
     <div className="flex flex-col gap-10">
+      {/* The brand itself: what a search engine builds a knowledge panel from. Only on the home
+          page — repeating it per page tells a crawler nothing new. */}
+      <JsonLd data={organizationJsonLd()} />
       <section className="flex flex-col items-start gap-4">
         <Badge variant="outline">{store.sales_channel.type}</Badge>
         <h1 className="text-4xl font-bold leading-tight">{store.name}</h1>

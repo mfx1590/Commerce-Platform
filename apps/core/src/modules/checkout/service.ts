@@ -8,12 +8,15 @@ import type { Queryable, ScopedClient } from '@platform/db';
 import { orderMetadataFromCart, recordAttribution } from '../../lib/attribution';
 import { AppError, notFound, validationError } from '../../lib/errors';
 import {
+  currentFraudCheck,
   evaluateFraud,
   FRAUD_CHECK_UNAVAILABLE,
   FRAUD_OUTAGE_PROVIDER,
+  type BlockedPlacement,
 } from '../../lib/fraud-seam';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import {
+  currentDiscountEvaluator,
   currentShippingRateProvider,
   loadCart,
   loadLines,
@@ -39,6 +42,9 @@ import type {
 } from './types';
 
 /** `email_hash` of the events (common/v1 `sha256`): sha256 hex of the trimmed, lowercased email. Never the raw value. */
+/** Keys of `order.metadata` written by the core itself, never taken from the storefront's cart metadata. */
+const RESERVED_ORDER_METADATA_KEYS = ['fraud', 'promotions'] as const;
+
 export function emailHash(email: string): string {
   return createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
 }
@@ -162,14 +168,30 @@ export async function completeCart(
   try {
     return await placeOrder(client, input);
   } catch (error) {
+    if (error instanceof FraudBlockedSignal) {
+      // #241: the placement transaction has rolled back and its connection is released — only now may the fraud
+      // module write its block record (own transaction). Best effort; the answer below never depends on it.
+      try {
+        const check = currentFraudCheck();
+        if (check?.recordsBlockedAfterRollback) await check.recordBlocked?.(error.blocked);
+      } catch {
+        // the fraud module logs its own failures; a record that could not be written never changes the answer
+      }
+      // Exactly a decline: same status, code, message and details — no fraud wording, no distinct code.
+      throw new AppError('payment_failed', 'payment not authorized', {
+        provider: error.blocked.paymentProvider,
+      });
+    }
     if (!(error instanceof PriceChangedSignal)) throw error;
-    // The placement transaction is gone (nothing placed, nothing authorized). Persist the new prices in a
-    // transaction of their own so the storefront reads them, then answer 409 `price_changed` (#228): the customer
-    // never pays an amount they did not see.
-    await client.transaction(async (tx) => {
+    // The placement transaction is gone (nothing placed, nothing authorized, no promotion use counted). Persist
+    // the new prices and the new discount in a transaction of their own so the storefront reads them, then answer
+    // 409 `price_changed` (#228): the customer never pays an amount they did not see.
+    const before = error.quoted;
+    const after = await client.transaction(async (tx) => {
       const cart = await lockActiveCart(tx, input.cartId);
       await repriceLines(tx, cart, { at: error.at });
-      await recalculate(tx, cart);
+      await recalculate(tx, cart, { at: error.at });
+      return quotedAmounts(await loadCart(tx, input.cartId, false));
     });
     throw new AppError('price_changed', 'One or more prices changed', {
       currency: error.currency,
@@ -179,7 +201,35 @@ export async function completeCart(
         previous_unit_price_minor: c.previousUnitPriceMinor,
         unit_price_minor: c.unitPriceMinor,
       })),
+      // a promotion that ended, started, ran out or changed since the cart was quoted (#230): same rule, same code
+      ...(before.discount !== after.discount
+        ? { discount_minor: { previous: before.discount, current: after.discount } }
+        : {}),
+      ...(before.shipping !== after.shipping
+        ? { shipping_minor: { previous: before.shipping, current: after.shipping } }
+        : {}),
+      total_minor: { previous: before.total, current: after.total },
     });
+  }
+}
+
+interface QuotedAmounts {
+  discount: number;
+  shipping: number;
+  total: number;
+}
+
+/** What the customer last saw on the cart: the amounts a placement must not change silently. */
+const quotedAmounts = (cart: CartRow): QuotedAmounts => ({
+  discount: Number(cart.discount_minor),
+  shipping: Number(cart.shipping_minor),
+  total: Number(cart.total_minor),
+});
+
+/** Thrown inside the placement transaction on a fraud `block`; `completeCart` records it after the rollback. */
+class FraudBlockedSignal extends Error {
+  constructor(readonly blocked: BlockedPlacement) {
+    super('fraud block');
   }
 }
 
@@ -189,6 +239,8 @@ class PriceChangedSignal extends Error {
     readonly changes: PriceChange[],
     readonly currency: string,
     readonly at: Date,
+    /** The cart's amounts as the customer last saw them (before this placement re-priced anything). */
+    readonly quoted: QuotedAmounts,
   ) {
     super('price changed');
   }
@@ -239,10 +291,22 @@ async function placeOrder(
 
     // Prices as of now (sale ended, tier or group list changed since the cart was priced): never place silently.
     const priceChanges = await repriceLines(tx, locked, { at, apply: false });
-    if (priceChanges.length > 0) throw new PriceChangedSignal(priceChanges, locked.currency, at);
+    const quoted = quotedAmounts(locked);
+    if (priceChanges.length > 0) {
+      throw new PriceChangedSignal(priceChanges, locked.currency, at, quoted);
+    }
 
-    await recalculate(tx, locked, { explicitShippingOption: true });
+    // Discounts, shipping and tax as of the placement clock (#230 PR B): promotions are re-evaluated under the cart
+    // lock. A discount or a free-shipping grant that is no longer what the customer saw is the same case as a
+    // changed price — never placed silently.
+    const discounts = await recalculate(tx, locked, { explicitShippingOption: true, at });
     const cart = await loadCart(tx, cartId, false);
+    const requoted = quotedAmounts(cart);
+    const freeShippingChanged =
+      requoted.shipping !== quoted.shipping && (discounts.freeShipping || quoted.shipping === 0);
+    if (requoted.discount !== quoted.discount || freeShippingChanged) {
+      throw new PriceChangedSignal([], locked.currency, at, quoted);
+    }
     lines = await loadLines(tx, cartId); // as just priced: rate + metadata.tax are what the order freezes (#221)
     if (!cart.shipping_option_id) {
       throw validationError('cart is not ready for checkout', {
@@ -263,8 +327,7 @@ async function placeOrder(
     // message and details; no fraud wording, no distinct code (it would be an oracle for a probing fraudster).
     // Nothing was written and nothing was authorised, so there is nothing to void; the fraud module records the
     // real reason in its own transaction. `review` places the order and flags it below.
-    const fraud = await evaluateFraud({
-      tx,
+    const fraudFacts = {
       organizationId: cart.organization_id,
       storeId: cart.store_id,
       cartId,
@@ -276,9 +339,16 @@ async function placeOrder(
       paymentProvider: provider.name,
       providerSessionId: session.session_id ?? null,
       actor: input.actor,
-    });
-    if (fraud.outcome === 'block') {
-      throw new AppError('payment_failed', 'payment not authorized', { provider: provider.name });
+    };
+    const fraud = await evaluateFraud({ tx, ...fraudFacts });
+    if (fraud.outcome === 'block') throw new FraudBlockedSignal({ ...fraudFacts, decision: fraud });
+
+    // ---- promotion uses (#230 PR B): inside the placement transaction and BEFORE any authorisation. A lost race on
+    // a promotion's last use is a 409 `conflict` from the evaluator; nothing was authorised, so nothing to void,
+    // and the rollback takes every counted use back — a failed placement never burns one.
+    const evaluator = currentDiscountEvaluator();
+    for (const applied of discounts.applied) {
+      await evaluator.recordUse?.(tx, cart.store_id, applied.promotionId);
     }
 
     const auth = await provider.authorize({ tx, cart: cartRef(cart), session, idempotencyKey });
@@ -310,7 +380,19 @@ async function placeOrder(
         price_minor: Number(cart.shipping_minor),
       };
       const email = cart.email!.trim();
+      // The order's metadata starts as the storefront's cart metadata — minus the keys that are OURS on an
+      // order: a storefront must not be able to pre-write a fraud review or applied promotions.
       const metadata = orderMetadataFromCart(cart.metadata);
+      for (const reserved of RESERVED_ORDER_METADATA_KEYS) delete metadata[reserved];
+      // Applied promotions, frozen (#230 PR B): what per-customer limits count later; codes = the APPLIED ones only.
+      const appliedCodes = discounts.applied.flatMap((p) => (p.code ? [p.code] : []));
+      if (discounts.applied.length > 0) {
+        metadata.promotions = discounts.applied.map((p) => ({
+          promotion_id: p.promotionId,
+          code: p.code,
+          discount_minor: p.discountMinor,
+        }));
+      }
       const inserted = await tx.query<OrderInsertRow>(
         `INSERT INTO "order" (organization_id, store_id, sales_channel_id, cart_id, customer_id, email, currency, locale,
          status, payment_status, shipping_address, billing_address, shipping_option_id, shipping_method,
@@ -331,7 +413,7 @@ async function placeOrder(
           JSON.stringify(cart.billing_address),
           cart.shipping_option_id,
           JSON.stringify(shippingMethod),
-          cart.promotion_codes,
+          appliedCodes,
           cart.subtotal_minor,
           cart.discount_minor,
           cart.shipping_minor,
@@ -501,7 +583,7 @@ async function placeOrder(
             shipping: { shipping_option_id: cart.shipping_option_id, ...shippingMethod },
             shipping_country: cart.shipping_address!.country,
             billing_country: cart.billing_address!.country,
-            promotion_codes: cart.promotion_codes,
+            promotion_codes: appliedCodes,
             placed_at: order.placed_at.toISOString(),
           },
         }),

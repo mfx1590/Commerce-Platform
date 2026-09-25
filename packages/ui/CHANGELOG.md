@@ -1,5 +1,15 @@
 # Changelog — @platform/ui
 
+## 0.4.0 — 2026-09-21
+
+Task [storefront] 2.3 (issue #111).
+
+- New subpath export **`@platform/ui/image-loader`** (`cloudinaryImageLoader`, `transformUrl`,
+  `isCloudinaryUrl`), the same functions the root export has carried since 0.3.0. The kit declares no
+  `sideEffects`, so importing through the barrel pulled 1.5 kB of first-load JS into every image
+  route of the storefront; through the subpath it is 0.2 kB. Measured with the storefront's bundle
+  budget. The root export is unchanged.
+
 ## 0.3.0 — 2026-09-09
 
 REQUEST #169 (from window 9, search), folded into task [storefront] 2.1. Contracts `contracts-v0.3`.

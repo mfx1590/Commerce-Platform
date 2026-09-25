@@ -336,6 +336,43 @@ describe('row-level security (platform_app role)', () => {
     expect((await b.query('SELECT id FROM webhook_event')).rowCount).toBe(0);
   });
 
+  it('marketing_cursor (0170): rows stay per store; one cursor per (store, name)', async () => {
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    await a.query(
+      `INSERT INTO marketing_cursor (organization_id, store_id, name, seq) VALUES ($1, $2, 'cart_recovery', 7)`,
+      [ORG, STORE_A],
+    );
+    await expect(
+      a.query(
+        `INSERT INTO marketing_cursor (organization_id, store_id, name, seq) VALUES ($1, $2, 'cart_recovery', 1)`,
+        [ORG, STORE_B],
+      ),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      a.query(
+        `INSERT INTO marketing_cursor (organization_id, store_id, name, seq) VALUES ($1, $2, 'cart_recovery', 9)`,
+        [ORG, STORE_A],
+      ),
+    ).rejects.toThrow(/marketing_cursor_store_id_name_key/);
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    expect((await b.query('SELECT id FROM marketing_cursor')).rowCount).toBe(0);
+  });
+
+  it('cart_recovery (0170): the corrected constraints are what a fresh database gets', async () => {
+    const r = await db.owner.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+       WHERE conrelid = 'cart_recovery'::regclass AND contype IN ('u','c') ORDER BY conname`,
+    );
+    const defs = r.rows.map((x) => x.def).join('\n');
+    // behaviour (replay no-op, single-use redemption) is proven in the marketing module's suites;
+    // this pins the migration: the per-cart and per-token-hash UNIQUEs exist, the status/recovered_at
+    // CHECK exists, and the dropped cross-clock CHECK (#244 correction) is really absent
+    expect(defs).toMatch(/UNIQUE \(cart_id\)/);
+    expect(defs).toMatch(/UNIQUE \(token_hash\)/);
+    expect(defs).toMatch(/recovered_at IS NOT NULL/);
+    expect(defs).not.toMatch(/redeemed_at >= created_at/);
+  });
+
   it('shipment.status CHECK includes picking and packed after 0160', async () => {
     const r = await db.owner.query<{ def: string }>(
       `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'shipment_status_check'`,

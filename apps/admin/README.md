@@ -353,6 +353,76 @@ Every catalog mutation is a server action that calls the Admin API, which re-che
 the same `ApiStatePanel` a screen would — never a one-line message that reads as "try again", and
 never a silent no-op. A 400 or 409 names a field and lands under that input.
 
+## Orders (task 2.2, issue #114)
+
+**Store · Orders** (`orders`). `/{storeId}/orders` lists `listOrders` with the contract's own
+filters (three status groups as pressable pills, `q` for order number or email) and sorts, all
+held in the URL like every other table. Money arrives as `{ amount_minor, currency }` and is
+rendered in the store's `default_locale`; the store is read in parallel and fails alone. Every
+status is a pill with its name — the tone is a second cue, never the only one.
+
+`/{storeId}/orders/{orderId}` is the detail: lines, totals, addresses (server-rendered, so the PII
+never reaches a client component), shipping method, one timeline from payments, refunds,
+shipments and returns, and the actions. Which actions are _offered_ comes from
+`src/lib/orders/permissions.ts` (one flag per operation's `x-permission`) and
+`src/lib/orders/quantities.ts` (what the order's state still allows); every one asks first, and
+the API re-checks the relation — a refusal renders as `ActionRefusal`, never a silent no-op.
+
+| Action                                              | Relation                          | Guard in the UI                                                                          |
+| --------------------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| Cancel order                                        | `store_admin` on the store        | nothing shipped, order open, reason required                                             |
+| Lower a line / cancel a line                        | `store_admin`                     | before fulfilment; the last line is never offered (the contract's 409)                   |
+| Refund                                              | `support`                         | ≤ captured − refunded-or-pending; the store's support ceiling stated                     |
+| Request return                                      | `support`                         | per line ≤ shipped − returned                                                            |
+| Fulfil, pick, pack, update shipment, receive return | `operations` on `organization:hq` | warehouse from `listWarehouses`; per line ≤ fulfillable; status-appropriate buttons only |
+
+**Refunds are idempotent by construction.** The contract requires an `Idempotency-Key`; the form
+mints one per attempt (`idempotencyKeyHolder`, `src/lib/orders/refunds.ts`) and re-sends the
+_same_ key after any failure — network, 5xx, 409 — so a request that timed out after the provider
+acted cannot refund twice. A success mints a fresh key for the next refund. The unit test proves
+both halves; the server action refuses a key shorter than the contract's minimum before it builds
+a request.
+
+**Pick lists** (`/{storeId}/orders/pick-lists`) is the warehouse view: shipments waiting to be
+picked or packed, grouped by warehouse, with Pick/Pack from the row. It needs `operations` on HQ
+and says so with the relation panel when the principal lacks it.
+
+**Against the real core** (task 2.2, 2026-09-24): with `ADMIN_API_URL` pointed at a core built
+from `main` (Phase 2 complete) and a real `store-admin` sign-in, the list showed the four orders
+placed by the storefront's live checks and the detail rendered #1003 in full — `docs/orders/
+core-list.png` and `core-detail.png`. The run is what found that the core omits optional address
+fields rather than sending `null`; `AddressBlock` treats both alike. Five operations have no
+example in 0.4.5 and cannot be driven through Prism (CONTRACT CHANGE #261): their contract tests
+are skipped with the issue in the reason and un-skip when the examples land.
+
+## Customers and consent (task 2.3, issue #115)
+
+**Store · Customers** (`customers`) needs `support` on the store (Admin API 0.2.1+: customer
+records are personal data). The navigation hides the entry from anyone else and a direct URL renders
+the 403 panel naming the relation — an analyst sees the aggregate screens in the HQ view, never a
+customer. `/{storeId}/customers` lists with the contract's sort and an email-or-name search;
+`/{storeId}/customers/{customerId}` is the record.
+
+**The PII rule.** Email, name, phone, identity and consent are rendered in the server component,
+behind the gate. A client component receives exactly the fields it shows: the edit form its four
+inputs, the erase control only ids. Nothing is logged, on either side.
+
+**Consent** is shown per channel — granted, when, source — read from the contract's free-form
+`consent` object by `src/lib/customers/consent.ts`, which accepts the documented
+`channel → { granted, at, source }`, a bare boolean, and anything else (rendered verbatim so a
+backend's extra shape is visible rather than hidden or fatal). Consent is recorded by the storefront
+and the core; there is no operation to edit it here.
+
+**Erase (GDPR)** calls `eraseCustomer` (`store_admin`): a typed `ERASE` confirmation, a `202` with
+no body reported as "scheduled", the page re-reads and shows `erased`, after which the record is
+read-only. Addresses, a GDPR **export** and a customer-groups picker wait on CONTRACT CHANGE #264
+(three additive operations, accepted in principle) — no placeholder UI until they exist.
+
+**Against the real core:** the customers module is Phase 3 (window 13). Today the core answers
+**401** for the unmounted route (Medusa's admin auth catches unmatched `/admin/*` paths — #265),
+so the screen shows the session-ended panel (`docs/customers/core-unimplemented.png`); once the
+core answers the contract's 404, task 2.6 turns that into a "not implemented yet" panel.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:
@@ -446,6 +516,8 @@ message may contain whatever the server was holding, and this app handles tokens
 | `src/lib/forms/`                       | Contract schemas, server-error mapping, money parsing (all pure)     |
 | `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
 | `src/components/table/`                | The `DataTable` primitive                                            |
+| `src/lib/orders/`                      | Order arithmetic: quantities, refund ceiling + key, timeline, gates  |
+| `src/lib/customers/`                   | Consent rows/summary from the free-form contract object (pure)       |
 | `src/components/rail/`                 | The Medusa rail: serpents, geometry (pure), config, list fallback    |
 | `src/components/shell/`                | The frame: rail + top bar, store switcher, section guards            |
 | `public/`                              | The head artwork and the committed fonts (OFL)                       |

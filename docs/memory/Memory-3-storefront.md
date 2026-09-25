@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-09 · Contracts: contracts-v0.3 (Store API 0.3.0 — the `currency` query is in use since 2.1); main merged 2026-09-09 carries Admin API 0.4.0, which this window does not consume · Branch: `storefront/phase2` · Status: Phase 2 · 2.1 in PR, 2.2 next
+Last updated: 2026-09-21 · Contracts: contracts-v0.4.4 (Store API 0.3.1; the `currency` query is in use since 2.1) · Branch: `storefront/phase2` · Status: Phase 2 · 2.1 + 2.2 merged, 2.3 in PR, 2.4 next
 
 ## Identity (does not change)
 
@@ -100,9 +100,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       it landed **inside PR #101**, which was still open when it was pushed, rather than the separate
       small PR the manager asked for: one branch means one open PR.
 
-- [x] **2.1 (#109) Real Store API wiring** — commit `d28aec7`, PR PENDING. Closes #102; folds in
-      REQUEST #169 (`9cb3204`, `@platform/ui` 0.3.0), REQUEST #178 (`a52e635`) and #167's
-      documentation lines (`f050020`) as three self-contained commits in the same PR.
+- [x] **2.1 (#109) Real Store API wiring** — commit `016d056`, **PR #204 merged** (merge commit
+      `f6ac558`, 2026-09-09). Closes #102; folds in REQUEST #169 (`9cb3204`, `@platform/ui` 0.3.0),
+      REQUEST #178 (`a52e635`) and #167's documentation lines (`f050020`) as three self-contained
+      commits in the same PR. All 12 CI checks green, Playwright included.
       The core is the default backend (`STORE_API_URL` wins, `MOCK_API_URL` selects Prism, the
       unconfigured default moved from the mock to `http://localhost:9000`). `currency` (Store API
       0.3.0) is sent on `listProducts`/`getProduct` from the reconciled currency cookie, so PLP/PDP
@@ -112,15 +113,65 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       213 app tests (15 files) + 47 kit tests green; lint, typecheck, format, `next build` green.
       **Not verified: the e2e run against the core** — see In progress and #203.
 
+- [x] **2.2 (#110) SEO: metadata, structured data, sitemap, canonical/hreflang** — commit
+      `9192ac4`, **PR #254 merged** (merge commit `0184334`, 2026-09-21); closes #110 and #199.
+      Three commits: `50c2b2c` CSP (#199), `9192ac4` the task, `e812908` the `form-action` fix for
+      sign-out that CI's account e2e caught. (This entry first said `1c17497` — see the gotcha on
+      amending a commit to record its own SHA.)
+      `src/brand/config.ts` (new, **fourth brand-override layer — announced to window 10**) holds
+      the static identity so root metadata never awaits `GET /store`. `src/lib/seo.ts` is the pure
+      core: `alternatesFor` (canonical + `hreflang` + `x-default`), `canonicalFor`, `productJsonLd`
+      (one `Offer` per variant), `breadcrumbJsonLd`, `organizationJsonLd`, the sitemap paging maths.
+      `/sitemap.xml` is a hand-written index over Next's `/sitemap/<n>.xml` pages; `/robots.txt`
+      refuses everything outside production. PDP gains `Product` + `BreadcrumbList` JSON-LD and an
+      `next/og` share card; home gains `Organization`. CSP imports `EMBED_HOSTS` from
+      `@platform/cms` so it cannot drift from window 6's Studio validation.
+      292 app tests (21 files) + 47 kit tests; lint, typecheck, format, `next build`, Playwright
+      (5 passed / 4 skipped — Keycloak not running locally) and Lighthouse all green.
+
+- [x] **2.3 (#111) Performance budget in CI and image pipeline** — PR pending; SHAs recorded in the
+      commit **after** the PR merges (see the gotcha on amending to record a SHA).
+      `pnpm --filter @platform/storefront-starter perf`: production build against the mock, bundle
+      budget, `next start`, Lighthouse CI, server always stopped, one exit code, both gates always
+      run. **Proven both ways:** PDP bundle budget 100 kB → exit 1, LCP budget 100 ms → exit 1 (a
+      real measurement failure, ~2 050 ms), restored → exit 0, via both `pnpm perf` and plain
+      `node scripts/perf.mjs`. `bundle-budget.json` + `scripts/bundle-budget.mjs` (no dependency):
+      home 130.5, PLP 136.0, PDP 139.0, cart 139.5 kB, budgets measured + ~5 kB. `ProductImage` is
+      the image-CDN seam; `@platform/ui/image-loader` subpath (kit 0.4.0). Fonts and third-party
+      scripts: a documented zero budget the CSP enforces. **Also fixes two defects in 2.2 that exist
+      only in a built image** (see Decisions): the CSP moved to the middleware, robots.txt is per
+      request and opt-in. REQUEST to window 5 filed with the PR (perf job + Helm values).
+      312 app tests (24 files) + 47 kit tests; lint, typecheck, format, `next build`, e2e green.
+
 ## In progress
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
   boot on main** — `apps/core/src/jobs/index-products.ts` (window 9, `d258257`) is a CLI script with
   no Medusa job `config`, and the `JobLoader` refuses the boot before :9000 ever binds. Filed as
-  **#203**. Everything else in 2.1 is green against the mock, and the suite is written so the same
-  spec runs against the core the moment it starts. Re-run then:
+  **#203** and confirmed there with a clean reproduction: the bootstrap check, Redis, the fallback
+  proxy and every other Medusa loader succeed first, so it really is only that file. Everything else
+  in 2.1 is green against the mock, and the suite is written so the same spec runs against the core
+  the moment it starts. **Re-run this the day #203 lands** — it is 2.1's one unmet acceptance
+  criterion and nobody else will notice it is outstanding:
   `E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-starter e2e`.
+  PR #204 merged with the gap recorded in its description.
+
+- **2.2 (#110) — SEO ≥ 95 deviation ACCEPTED by the manager (2026-09-21):** the budget stays at 90;
+  the README records the deviation and the partial-prerendering revisit. Background, kept for the
+  revisit: **"Lighthouse SEO ≥ 95" is not reliably reachable on these routes.**
+  What I found, measured rather than assumed: Next emits page metadata in `<head>` only when it
+  resolves before the shell is flushed; otherwise the tags are appended to `<body>` and React hoists
+  them at hydration. The DOM is correct either way — every e2e assertion passes — but Lighthouse's
+  `meta-description` audit and a raw-HTML crawler see nothing. Taking `GET /store` out of the root
+  layout's metadata removed the biggest cause, and it is a real improvement. It did **not** make
+  placement deterministic: both catalogue routes still render dynamically because pricing reads the
+  currency cookie, so with a cold fetch cache the metadata can still be flushed late. **The same
+  build measures SEO anywhere between 92 and 100.** A 95 gate would therefore be flaky, so the
+  budget stays at 90 and the README explains why. Making it deterministic means making the catalogue
+  routes statically renderable, i.e. taking per-request currency out of the server render — a trade
+  against the behaviour 2.1 shipped deliberately, and the manager's call, not mine. Worth revisiting
+  when partial prerendering is stable in Next.
 
 <!-- superseded plan, kept for the record:
 - **1.3 (#19) PLP + PDP — plan written, waiting for the owner to confirm before building.**
@@ -144,11 +195,60 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#110 · 2.2** SEO: metadata, structured data, sitemap, canonical/hreflang
-- [ ] **#111 · 2.3** Performance budget in CI and image pipeline
+- [ ] **Review nits from #254, deferred by the manager ("not now"):** (a) the comment in
+      `src/app/[locale]/layout.tsx` cites `test/seo-head.test.ts`, **which does not exist** — the
+      head-placement check was done by hand against the built HTML, so either write that test or
+      drop the reference; (b) `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice.
 - [ ] **#112 · 2.4** Marketing hooks: referral landing, review display, feed-friendly PDP data
 
 ## Decisions made (with reasons)
+
+- **Nothing that differs per environment may be decided at build time.** The deployment model is
+  one image, configured per environment at runtime (Helm `env:` per values file). Anything baked by
+  `next build` — `next.config.mjs` `headers()`, static routes, prerendered pages — therefore carries
+  the build machine's values everywhere. Two 2.2 defects were exactly this: the CSP's `form-action`
+  held `http://localhost:8180` in every deployed image (sign-out blocked everywhere), and a static
+  `robots.txt` said `Allow: /` in every image (`next build` always runs with
+  `NODE_ENV=production`, so the "outside production" check never fired). The fix is structural: the
+  CSP is built per request in the middleware, robots.txt is `force-dynamic`. **The earlier advice to
+  make `KEYCLOAK_URL` a build argument was wrong** — a build argument cannot carry per-environment
+  values into one image — and the REQUEST says so rather than quietly dropping it.
+- **Indexing is opt-in (`ROBOTS_ALLOW_INDEXING=1`), not inferred.** A forgotten flag on production
+  is noticed the same day; staging in an index outranks the real site and takes weeks to undo.
+- **The image-CDN seam is a client component, not `images.loaderFile`.** A loader file switches the
+  app to `loader: 'custom'`, and Next then disables `/_next/image` entirely — every non-Cloudinary
+  image would 404. A `loader` prop cannot be passed from a server component (functions do not
+  serialise). `ProductImage` chooses per image on the client side of that boundary.
+- **The bundle budget counts layouts; `next build`'s column does not.** Next's "First Load JS"
+  counts only a page's own entry (~1.6 kB less per `[locale]` route). A budget on Next's figure
+  under-counts exactly the header and footer a brand grows.
+- **Lighthouse runs as an exact `npx` pin, not a devDependency.** `@lhci/cli` added ~950 lockfile
+  lines; a devDependency puts that in every install of every window for one CI job.
+- **Tools are resolved, not looked up on `PATH`.** `perf.mjs` runs Next's CLI through
+  `require.resolve` + `process.execPath`, because `next` is on `PATH` only under `pnpm`; run with
+  plain `node`, the server never started and the script reported it as a Lighthouse failure.
+
+- **Brand identity is build configuration; everything priced or per-store stays API data.**
+  `src/brand/config.ts` exists because metadata that awaits `GET /store` resolves too late to reach
+  `<head>`. The line is drawn at identity (name, description, canonical origin) — prices,
+  availability, locales and the theme still come from the Store API, so a brand cannot drift from
+  what it actually sells by editing a config file.
+- **A relative `seo.canonical` from the API is localised; an absolute one is obeyed.** The API
+  returns a locale-less path because it does not know which locale is rendering, and using it
+  verbatim pointed the canonical at a URL that only redirects. An absolute value is a deliberate
+  cross-site pin (a syndicated product naming its origin) and is left alone.
+- **The sitemap is paged in URLs, not products**, because every path appears once per locale — the
+  distinction is invisible until a two-locale store passes 2 500 products. `/sitemap.xml` is a
+  hand-written index because Next publishes none for `generateSitemaps`, and both read the same
+  `sitemapPaths()` so the index can never advertise a page that 404s.
+- **A failed catalogue read degrades the sitemap instead of failing it.** A short sitemap costs
+  crawl efficiency; a 500 tells the crawler the whole file is broken and it backs off from all of it.
+- **The CSP imports `EMBED_HOSTS` from `@platform/cms` rather than copying the host list.** It is
+  the same list window 6's Studio validates an editor's embed URL against, so a copy that drifts
+  would either block an embed the Studio accepted or permit one it rejected.
+- **The Lighthouse SEO budget stays at 90, deliberately, and the README says why.** The score moves
+  between 92 and 100 on the same build (see In progress); a 95 gate would be flaky, and turning off
+  the `meta-description` audit to force a pass would hide a real signal.
 
 - **A test may assert on our own copy; it may never assert on the dataset.** That is the line the
   Phase 1 e2e crossed, and it is why the suite could not run against the core: the fixture's product
@@ -331,6 +431,68 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- **`next.config.mjs` `images.loader: 'custom'` disables `/_next/image` entirely** — requests to
+  it 404, including for hosts `remotePatterns` allows. A "custom loader with a fallback to the
+  optimiser" cannot exist; choose the loader per image instead. Verified with a production server.
+- **Middleware reads `process.env` at runtime** (unlike `next.config.mjs` `headers()`): built with
+  no `KEYCLOAK_URL`, started with the staging value, the middleware-set header carried the staging
+  origin. `next.config.mjs` `env: {…}` is the way to hand it a genuine build-time constant.
+- **A package barrel without `sideEffects: false` is not tree-shaken.** Importing three pure
+  functions from `@platform/ui` cost 1.5 kB of first-load JS per image route; a dedicated subpath
+  export cost 0.2 kB. The bundle budget is what surfaced it.
+- **Python reading a heredoc on Windows mis-decodes non-ASCII**, so a `str.replace` anchored on text
+  containing `──` or `—` silently fails to match a UTF-8 file. Anchor on ASCII-only lines, or write
+  the script with the Write tool and run it with `python -X utf8`.
+- **`git show origin/main:path` is mangled by Git for Windows** (`origin\main;path`); prefix
+  `MSYS_NO_PATHCONV=1`.
+- **The deployed storefront has never had `SITE_URL` set** (Helm dev/staging values), so its OIDC
+  redirect URI is `http://localhost:3100/auth/callback` — sign-in cannot work there. Phase 1 code,
+  window 5's values; in the 2.3 REQUEST.
+
+- **Never amend a commit to record that commit's own SHA.** Amending changes the SHA, so the value
+  just written down is immediately false — 2.2 was recorded as `1c17497` while the commit that
+  merged is `9192ac4`, and the manager caught it in review. A commit cannot contain its own hash.
+  Record a SHA in the *next* commit, or write "this commit" and let the log answer.
+
+- **`form-action 'self'` breaks OIDC sign-out, silently and only in a browser.** Chrome evaluates
+  `form-action` against the URL **after** redirects, so a POST to our own `/auth/sign-out` that
+  answers `303` to Keycloak's `end_session` endpoint is blocked outright — the local cookie is
+  already gone, the SSO session survives, and the customer is signed straight back in. Nothing on
+  the page looks wrong; `curl` sees a perfectly good 303. Caught by the account e2e on CI (which
+  requires Keycloak, where locally it skips) and reproduced in the browser console. The policy must
+  list the identity provider's origin.
+- **`headers()` in `next.config.mjs` is evaluated at BUILD time**, even though `next start` loads
+  the config file at runtime — the headers are written into the routes manifest. Verified by
+  building with one `KEYCLOAK_URL` and starting with another: the built-in value wins. Anything
+  environment-dependent in a header must therefore be set at image build time, or moved to the
+  middleware (which the matcher would limit to non-`/auth`, non-`/api` routes).
+
+- **`localhost` resolves to `::1` on this machine and nothing listens there.** Every local HTTP
+  check must use `127.0.0.1` — `curl http://localhost:4010/store` returns 000 while the Prism
+  container is plainly up and serving, and `lighthouserc.json` could not connect to a running
+  server until its URLs were changed. This wasted real time twice, and it is also why a "the core is
+  not answering" conclusion should always be confirmed from the process log rather than from curl.
+- **Next puts page metadata in `<head>` only when it resolves before the shell is flushed.**
+  Otherwise the tags go at the end of `<body>` and React hoists them at hydration: the DOM is
+  correct, every Playwright assertion passes, and Lighthouse's `meta-description` audit still fails.
+  It is timing-dependent, not a static property — the same build scores 92 with a cold fetch cache
+  and 100 with a warm one. Do not conclude "fixed" from one curl; measure repeatedly.
+- **`generateSitemaps()` serves `/sitemap/<n>.xml` and publishes no `/sitemap.xml` index.** A
+  `robots.txt` pointing at `/sitemap.xml` therefore advertises a 404. Verified by requesting it,
+  not assumed.
+- **Lighthouse writes `.lighthouseci/` into the package**, which `pnpm format:check` then flags in
+  26 files. Gitignored locally; the root `.prettierignore` line belongs to the main window, and CI
+  never sees the directory, so it is only a local annoyance — worth folding into 2.3's REQUEST to
+  window 5 if the Lighthouse job ever shares a runner with the format check.
+
+- **`/tmp` is shared by every worktree on this machine — never use a predictable name there.**
+  All windows run on one Windows box, so `/tmp/<something>.log` is one file for all of them.
+  Hit twice on 2026-09-09: `/tmp/pr-body.md` still held **window 5's** infra PR text when I went to
+  create mine (`gh` would have opened the PR with the wrong body if the write had not failed first),
+  and `/tmp/core-dev.log` was being written by **window 9's** core in `../wt-search`, so I was
+  reading another window's boot errors as though they were mine. Same hazard class as the shared git
+  stash. Use the session scratchpad directory instead; if a temp file must be read back, check it is
+  really yours (the paths inside a stack trace name the worktree that produced it).
 - **The core does not boot on main (2026-09-09, issue #203).** `apps/core/src/jobs/index-products.ts`
   is a CLI script with no `config` export, and Medusa's `JobLoader` scans `src/jobs/` at boot and
   requires one from every file: "Config is required for scheduled jobs", before :9000 binds. Nothing

@@ -83,6 +83,33 @@ for values in infra/helm/values/*/values-*.yaml; do
   fi
 done
 
+# Storefront values that fail silently: nothing in the pod errors, only a customer or a crawler
+# notices (#257). kubeconform cannot see either, so they are asserted here.
+#   SITE_URL               must be https://<ingress.host>: it is the OIDC redirect URI, and without
+#                          it the pod falls back to http://localhost:3100 and sign-in breaks.
+#   ROBOTS_ALLOW_INDEXING  '1' in values-prod.yaml and nowhere else. robots.ts fails closed when it
+#                          is unset; staging with it set outranks the real site for its own name.
+value_of() { sed -n -E "s/^[[:space:]]+$1:[[:space:]]*'?([^' #]*)'?.*/\1/p" "$2" | head -n 1; }
+for values in infra/helm/values/storefront/values-*.yaml; do
+  env="$(basename "$values" .yaml)"
+  env="${env#values-}"
+  host="$(value_of host "$values")"
+  site="$(value_of SITE_URL "$values")"
+  robots="$(value_of ROBOTS_ALLOW_INDEXING "$values")"
+  echo "== storefront/$env: SITE_URL=${site:-<unset>} ROBOTS_ALLOW_INDEXING=${robots:-<unset>}"
+  if [ "$site" != "https://$host" ]; then
+    echo "FAIL storefront/$env: SITE_URL must be 'https://$host' (the ingress host), got '${site:-<unset>}'"
+    fail=1
+  fi
+  if [ "$env" = prod ] && [ "$robots" != 1 ]; then
+    echo "FAIL storefront/prod: ROBOTS_ALLOW_INDEXING must be '1', or production is unindexed"
+    fail=1
+  elif [ "$env" != prod ] && [ -n "$robots" ]; then
+    echo "FAIL storefront/$env: ROBOTS_ALLOW_INDEXING is production-only; remove it"
+    fail=1
+  fi
+done
+
 # The ArgoCD manifests are plain YAML, not a chart, so they are validated directly.
 echo "== kubeconform infra/argocd"
 for manifest in $(find infra/argocd -name '*.yaml' | sort); do

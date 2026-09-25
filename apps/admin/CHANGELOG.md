@@ -2,6 +2,123 @@
 
 ## Unreleased
 
+### Added — task 2.3, issue #115: Customers and consent (support-gated)
+
+- **List** `/{storeId}/customers`: `listCustomers` with the contract's sort (created_at / email /
+  last_name), `q` for email or name, `group_id` honoured from the URL; email links to the detail,
+  name falls back to the email's local part (never "null null"), status pill, consent summary
+  ("1 of 2 channels").
+- **Detail** `/{storeId}/customers/{customerId}` — the PII (email, name, phone, identity, consent)
+  is rendered in the **server component** behind the `support` gate; the client components receive
+  exactly the fields they show: the edit form its four inputs (name, phone, group id, status), the
+  erase control only ids. **Consent per channel** with granted / when / source, read defensively
+  from the contract's free-form object (`src/lib/customers/consent.ts`): the documented shape, a
+  bare boolean, and anything else (shown verbatim, never thrown). "Orders by this customer" links
+  into the orders list's email filter. **Erase (GDPR)** for `store_admin`: a typed `ERASE`
+  confirmation, the bodiless `202` reported as scheduled, the page re-reads to show `erased`, and
+  an erased record can no longer be edited.
+- **Analyst**: the Customers entry is hidden (existing navigation matrix) and a direct URL renders
+  the 403 panel naming `support` — `test/customers.test.tsx` renders the guard with every seeded
+  role; support, store_admin and owner see the list, store_staff/finance/operations/analyst do not.
+- **CONTRACT CHANGE #264** filed (accepted in principle): addresses read, GDPR export (202),
+  customer-groups list — three additive operations with exact diffs. No placeholder UI; the group
+  id is a plain uuid field until the list exists, and the README names the issue.
+- **Review fix (#268): the list tables receive projections, never contract records.** The
+  customers page handed the full `Customer[]` to the `'use client'` table, so every listed
+  customer's phone, identity id and raw consent crossed the wire in the Flight payload — the #263
+  lesson, missed again at write time. Now `src/lib/client-safe.ts` is the one way a record reaches
+  a client component: `makeProjection(record, keys)` / `markClientSafe` produce **branded**
+  objects with exactly the keys named, and a `ClientSafe<…>` prop does not accept the record.
+  `src/lib/customers/projection.ts` builds the `CustomerRow` (email, name, status, a precomputed
+  consent summary, group id, date); the orders list gets the same treatment (`OrderRow` drops
+  the `customer_id` the table never showed); `updateCustomerAction` answers `null` instead of the
+  updated record (an action's result is client-side data too). Tests:
+  `customers-projection.test.ts` (keys, wire JSON scanned for the phone/identity/channels, the
+  type-level exclusion), the orders projection test gained the list row, and
+  **`client-props-guard.test.ts`** walks every `'use client'` file under `(store)` and `(hq)`
+  (window 17's `marketing/**` excluded) and fails on any `AdminComponents['Customer' | 'Order' |
+'OrderSummary' | 'StaffUser' | 'Address']` — the write-time guard the reviews asked for.
+- The two #263 nits: `requiresRelation(relation, object)` in `state-panel.tsx` builds the
+  contract's Forbidden body once, for both section guards and the pick-lists page; the shipment
+  update action uses `fieldNames(shipmentUpdateSchema)` instead of a hand-written list.
+- Wrappers for the four customer operations; `customerUpdateSchema`; `actions/customers.ts`
+  (empty strings are not sent, an empty group id clears the group). Tests: unit
+  (`customers.test.tsx`: consent shapes, table, gate per role, form incl. uuid refusal and the 403
+  panel, erase confirmation + 202), contract (`test-contract/customers.test.tsx`: list/detail/
+  update/erase against the spec's examples, the actions, the documented 401/403), e2e (list →
+  detail → consent table → erase asks for the typed confirmation).
+- **Against the real core:** the core has no customers module until Phase 3 (window 13). The run
+  showed it answers **401**, not the contract's 404, for the unmounted route (Medusa's own admin
+  auth catches unmatched `/admin/*` paths), so the screen shows the session-ended panel instead of
+  not-found — `docs/customers/core-unimplemented.png`, filed as #265 for window 1. The 2.6
+  "not implemented yet" panel keys on 404 once that lands.
+
+### Added — task 2.2, issue #114: Orders (Admin API 0.4.5)
+
+- **List** `/{storeId}/orders`: `listOrders` with the contract's filters (status, payment status,
+  fulfilment status as pressable pills; `q` for order number or email) and sorts
+  (placed_at/display_id/total/status), all in the URL. Money is rendered from
+  `{amount_minor, currency}` in the store's `default_locale` (`getStore` read in parallel, fails
+  alone → en-GB), never through a float on the way; every status is a pill with its name.
+- **Detail** `/{storeId}/orders/{orderId}`: lines with unit/discount/tax/total and shipped/returned
+  counters, totals, shipping method and promotion codes, the customer's email and addresses
+  (rendered in the server component — PII never becomes a client prop), and one **timeline** built
+  from payments, refunds, shipments and returns (`src/lib/orders/timeline.ts`, pure).
+- **Actions**, each behind an inline confirmation, each offered only when the relation
+  (`src/lib/orders/permissions.ts`, mirrors the operations' `x-permission`) and the order's state
+  (`src/lib/orders/quantities.ts`) allow it, each re-checked by the API with a refusal rendered as
+  `ActionRefusal`: cancel (`store_admin`, reason required, only while nothing shipped); **line
+  edits before fulfilment** — lower a quantity strictly below the current one, cancel a line, and
+  the last line is never offered (the contract's 409: cancel the order instead); refund
+  (`support`, `MoneyField` capped at captured − refunded-or-pending, the store's
+  `support_refund_limit_minor` stated as the per-refund ceiling, reason enum, payment picker when
+  more than one capture); request return (`support`, per-line quantity ≤ shipped − returned);
+  fulfil = plan a shipment (`operations` on HQ: warehouse from `listWarehouses`, per-line quantity
+  ≤ fulfillable, carrier/service); per shipment pick, pack (parcel count) and update
+  (status/tracking); receive a return (warehouse + condition per item).
+- **Pick lists** `/{storeId}/orders/pick-lists` (`operations`): shipments waiting to be picked or
+  packed grouped by warehouse, filters by warehouse and status, Pick/Pack from the row. Without
+  the relation the page names it (`ForbiddenPanel`) rather than 403-ing from the API.
+- **Refund idempotency**: `idempotencyKeyHolder` mints one `Idempotency-Key` per attempt and keeps
+  it across failures (network, 5xx, 409), minting a new one only after a success — so a request
+  that timed out after the provider acted cannot refund twice on retry. The server action refuses
+  a key the contract would (min 8 chars) before building a request.
+- **Wrappers** in `src/lib/api/admin.ts` for all thirteen order/fulfilment operations; Zod schemas
+  for the inline request bodies in `src/lib/forms/schemas.ts`.
+- **Tests**: `orders-helpers.test.ts` (quantities, ceiling, key holder, timeline order, the
+  permission table for all seven roles + unassigned), `orders-screens.test.tsx` (money in locale,
+  gating per permission set, every confirmation, the retry-reuses-the-key proof, the 403 panel,
+  ceiling cap, line-edit guards, pick/pack/receive), `test-contract/orders.test.tsx` (every
+  wrapper against Prism, the actions, and the documented 401/403/409 examples on the order
+  operations). Test keys are words. e2e: list → detail, and the refund asks first.
+
+- **Verified against the real core** (2026-09-24, core Phase 2 on :9100, real Keycloak token,
+  OpenFGA permissions, `store-admin`): the list rendered the four orders window 3's live checks
+  had placed (#1000–#1003, pending / authorized / unfulfilled, EUR), the detail rendered #1003
+  with lines, totals, addresses, the cancel action (the only one the state allows: authorized,
+  not captured, nothing shipped) and the timeline. Screenshots in `docs/orders/`. The run found
+  one bug, fixed here: the core omits optional address fields (`region`, `company`, `line2`,
+  `phone`) instead of sending `null`, and the address block printed a literal "undefined" —
+  `AddressBlock` now treats missing and `null` alike (test).
+
+### Changed — the four rail nits (2.2 step 0, canonical list in Memory-4-admin)
+
+- **R1** keyboard focus lifts a serpent exactly like hover (the brief: "hover / focus"); only the
+  pointer did. **R2** a `prefers-reduced-motion` change while the page is open now switches to the
+  list at once (and back); the query was read once at mount. **R3** the SVG no longer carries a
+  second named group inside the named `<nav>` — one landmark, the buttons carry the names. **R4**
+  the frame loop no longer runs six `querySelector`s per serpent per frame (parts cached per group)
+  and the motes canvas pauses with the serpents when the tab is hidden. Each has a regression test.
+
+### Fixed — REQUEST #251: `AdminResponse` maps `202` bodies
+
+- `SuccessBody` in `src/lib/api/admin-client.ts` mapped `200`, then `201`, then fell through to
+  `null`, so an operation answering `202` with a body typed as `null` — silently, because the
+  fall-through is a valid type. `materializeSegment` (window 17's, answers with the queued
+  `Segment`) was the live case; `eraseCustomer` (window 13, Phase 3) answers `202` with no body
+  and still types as `null`. Order is 200 → 201 → 202 → `null`, so nothing that resolved before
+  changes. A type-level test pins all four cases. Window 17 can drop its cast.
+
 ### Added — task 2.1b, issue #192: the Medusa rail and the dark design system
 
 - **The sidebar is gone; the rail is the navigation.** `src/components/rail/MedusaRail` draws the
@@ -40,6 +157,15 @@
   and the store-admin journey asserts buttons instead of links.
 - Heads sit at most 120 units apart and the block is centred, so two HQ sections sit near the
   head rather than at the far ends of the column; seven store sections still fill it.
+- **Review fix (#263): client panels receive projections, never the full order.** The detail page
+  passed `AdminComponents['Order']` — email and both addresses included — to the three
+  `'use client'` panels, and Next.js serialises client props wholesale into the Flight payload, so
+  the PII reached the browser even though no panel read it. `src/lib/orders/projection.ts` builds
+  a branded object per panel with exactly the keys it uses (lines, payments, refunds, shipments,
+  returns, status, currency — no email, no customer id, no addresses, no metadata); the panel
+  props are typed with the brand, so the full `Order` no longer typechecks as a prop.
+  `test/orders-projection.test.ts` pins the key sets, walks the JSON that would cross the wire for
+  the fixture's PII values, and asserts the type-level exclusion.
 - Nit from the manager: `src/lib/api/admin.ts` no longer claims Admin API 0.2.0.
 - **Known gap:** `E2E_API=core` could not be re-run — the core does not boot from `main` (#202,
   window 9's job file under Medusa's auto-loaded `src/jobs`). The HQ-scope screenshot was rendered

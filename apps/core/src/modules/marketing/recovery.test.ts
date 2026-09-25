@@ -5,10 +5,7 @@
 // that actually runs in production rather than against a hand-written fixture payload. If window 1 changes the
 // payload, this file fails — which is the point.
 //
-// Schema: `proposed/0170_cart_recovery.sql` (CONTRACT CHANGE #244), applied here because `packages/db` is frozen.
-// When the migration lands on main, this block and the file go away in a small follow-up (#162's pattern).
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// Schema: `cart_recovery` / `marketing_cursor` come from migration 0170 (#244, contracts-v0.4.5).
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -133,8 +130,6 @@ async function placeOrderFor(cartId: string, storeId = A, totalMinor = 12_000): 
 beforeAll(async () => {
   db = await createTestDatabase('core_recovery');
   await seed(db.owner, { productsPerStore: 3, log: () => {} });
-  // PROPOSED schema (#244) — delete with the file when migration 0170 lands on main.
-  await db.owner.query(readFileSync(join(__dirname, 'proposed', '0170_cart_recovery.sql'), 'utf8'));
 
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A], actorId: actor.id });
   b = createTenantClient(db.app, { organizationId: ORG, storeIds: [B], actorId: actor.id });
@@ -409,6 +404,31 @@ describe('recovery detection and the report', () => {
 
     const report = await abandonedCartReport(a, A, window);
     expect(report).toMatchObject({ abandoned_count: 1, recovered_count: 1, recovery_rate: 1 });
+  });
+
+  it('counts a recovery whose order was cancelled in neither column', async () => {
+    // Before #250's review this was one recovery worth nothing: `recovered_count` filtered on the record's
+    // status while `recovered_value` came through a join that excluded cancelled orders. Both now come
+    // through that join, which also matches the 2.1 attribution report's rule — so the same order is never
+    // revenue in one marketing report and not the other.
+    const cancelled = await makeCart({ totalMinor: 40_000 });
+    const kept = await makeCart({ totalMinor: 10_000 });
+    await abandonAll();
+    await consumeAbandonedCarts(a, A);
+
+    const cancelledOrder = await placeOrderFor(cancelled, A, 40_000);
+    await placeOrderFor(kept, A, 10_000);
+    await reconcileRecoveries(a, A);
+    await db.owner.query(`UPDATE "order" SET status = 'cancelled' WHERE id = $1`, [cancelledOrder]);
+
+    const report = await abandonedCartReport(a, A, window);
+    expect(report.abandoned_count).toBe(2);
+    expect(report.recovered_count).toBe(1);
+    expect(report.recovered_value.amount_minor).toBe(10_000);
+    expect(report.recovery_rate).toBe(0.5);
+
+    // The record still says what happened to the cart; only the report is about what it was worth.
+    expect((await getRecoveryByCart(a, A, cancelled)).status).toBe('recovered');
   });
 
   it('is 0% rather than a division by zero when nothing was abandoned', async () => {

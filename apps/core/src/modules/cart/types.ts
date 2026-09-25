@@ -278,4 +278,10 @@ export interface DiscountQuote {
  */
 export interface DiscountEvaluator {
   evaluate(query: DiscountQuery): Promise<DiscountQuote>;
+  /**
+   * Counts one use of an applied promotion inside the PLACEMENT transaction (#230 PR B). Throws 409 `conflict`
+   * when the promotion's usage limit was reached in the meantime — the placement rolls back, so a failed placement
+   * never burns a use. Absent = nothing to count.
+   */
+  recordUse?(tx: Queryable, storeId: string, promotionId: string): Promise<void>;
 }

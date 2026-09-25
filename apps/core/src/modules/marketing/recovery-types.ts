@@ -1,9 +1,8 @@
-// Abandoned-cart recovery types (#148). Schema: `proposed/0170_cart_recovery.sql` (CONTRACT CHANGE #244) —
-// `packages/db` is frozen, so the module tests apply that file to their own throwaway database until it lands.
+// Abandoned-cart recovery types (#148). Schema: `packages/db/migrations/0170_cart_recovery.sql` (#244,
+// landed in contracts-v0.4.5).
 //
-// The report shape mirrors `AbandonedCartReport` in CONTRACT CHANGE #245; it is declared here rather than
-// imported from `@platform/contracts` because the component does not exist in 0.4.3 yet. When #245 lands this
-// becomes `AdminComponents['schemas']['AbandonedCartReport']`, exactly as `ProductFeed` did after #194.
+// The report shape comes from the contract since #245 landed in contracts-v0.4.5.
+import type { AdminComponents } from '@platform/contracts';
 import type { Money } from './types';
 
 export type RecoveryStatus = 'pending' | 'redeemed' | 'recovered';
@@ -12,6 +11,15 @@ export const RECOVERY_STATUSES: readonly RecoveryStatus[] = ['pending', 'redeeme
 
 /** Name of this consumer's row in `marketing_cursor`. */
 export const RECOVERY_CURSOR = 'cart_recovery';
+
+/**
+ * The `utm_source` a recovery link carries.
+ *
+ * Exported so window 16 (which builds the link) and window 3/10 (which capture the touch) pin a value rather
+ * than copying one out of prose. Changing it would silently split every recovered order's attribution across
+ * two sources in the 2.1 report, so it is a constant, in one place.
+ */
+export const RECOVERY_UTM_SOURCE = 'abandoned_cart';
 
 /** A row of `cart_recovery`. `token_hash` never leaves this process. */
 export interface CartRecoveryRow {
@@ -62,19 +70,8 @@ export interface CartRecovery {
   updated_at: string;
 }
 
-export interface AbandonedCartReport {
-  from: string;
-  to: string;
-  currency: string;
-  abandoned_count: number;
-  /** Recovery links that were opened (token redeemed). */
-  redeemed_count: number;
-  /** Abandoned carts that became an order. */
-  recovered_count: number;
-  recovery_rate: number;
-  abandoned_value: Money;
-  recovered_value: Money;
-}
+/** The contract's own component since contracts-v0.4.5 (#245). */
+export type AbandonedCartReport = AdminComponents['schemas']['AbandonedCartReport'];
 
 export interface AbandonedCartReportQuery {
   from: string;

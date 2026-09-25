@@ -131,6 +131,12 @@ suite reuses it as is.
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
+- **2026-09-20 · An order edit scales the frozen promotion discount pro rata (#230 PR B).**
+  `decreaseLineQuantity` sets the line's discount to `floor(placed_discount × new_quantity / placed_quantity)` —
+  the cumulative-floor rule of returns, always from the line AS PLACED (`metadata.discount_base`, written on the
+  first edit), so 3 → 2 → 1 gives what 3 → 1 gives and the rounding never drifts. No re-evaluation: the
+  customer's deal is frozen even if the promotion has ended. `cancelLine` removes the line with its discount.
+
 - **2026-09-19 · The order carries a MIRROR of a fraud review; held orders cannot be confirmed (#231).**
   `flagOrderForReview(tx, orderId, { reasonCode, provider, actor })` and
   `resolveOrderReview(tx, orderId, { status: 'cleared' | 'confirmed_fraud', resolution, actor })` (+ the

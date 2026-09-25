@@ -1,5 +1,91 @@
 # Changelog — @platform/storefront-starter
 
+## 0.11.0 — 2026-09-21
+
+Task [storefront] 2.3 (issue #111), contracts `contracts-v0.4.4` (Store API 0.3.1). Also fixes two
+2.2 defects that only exist in a **built image**, found while writing 2.3's REQUEST to window 5.
+
+**Fixes — both affect every deployed storefront built from main since #254:**
+
+- **Sign-out was blocked in every deployed environment.** The CSP lived in `next.config.mjs`
+  `headers()`, which `next build` evaluates once and bakes into the routes manifest. Images are built
+  once and configured per environment at runtime (Helm sets `KEYCLOAK_URL` per environment), so every
+  deployment carried the build machine's `form-action 'self' http://localhost:8180` and blocked the
+  303 to its real identity provider — the SSO session survived and customers were silently signed
+  back in. The policy is now built **per request in the middleware** (`src/lib/csp.ts`). Verified by
+  building with no `KEYCLOAK_URL` and starting with the staging value: the header carries the
+  staging origin. This supersedes the "set `KEYCLOAK_URL` as a build argument" advice given in
+  0.10.0 — a build argument cannot carry per-environment values into one image.
+- **`robots.txt` told crawlers to index every image, staging included.** It was a static route,
+  baked by `next build` — which always runs with `NODE_ENV=production`, so the "refuse outside
+  production" check could never fire. It is now rendered per request, and indexing is an explicit
+  opt-in: `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, to be set on the production deployment only.
+
+**2.3 — performance budget:**
+
+- **`pnpm --filter @platform/storefront-starter perf`** — one command, one exit code: production
+  build against the mock, bundle budget, `next start`, Lighthouse CI (median of 3), server stopped
+  whatever happened; both gates always run. Proven to fail when either budget is lowered, and to pass
+  when restored. Next's CLI is resolved from the package, not `PATH`, so plain `node scripts/perf.mjs`
+  works too — before, it failed to start the server and reported that as a Lighthouse failure.
+- **Bundle budget** (`bundle-budget.json`, `scripts/bundle-budget.mjs`, no dependency): first-load JS
+  per route, gzipped, measured + ~5 kB. It deliberately counts the layouts' entry chunks that
+  `next build`'s column omits (~1.6 kB per `[locale]` route), since the browser downloads them.
+- **`ProductImage`** — the image-CDN seam. Cloudinary delivery URLs are resized by Cloudinary;
+  everything else stays on Next's optimiser. A client component rather than `images.loaderFile`,
+  because a custom loader file disables `/_next/image` entirely (verified) and every non-Cloudinary
+  image would 404. Uses `@platform/ui/image-loader`, which costs 0.2 kB where the kit's barrel cost
+  1.5 kB.
+- Web fonts and third-party scripts: none, documented as a zero budget that the CSP enforces.
+- Lighthouse is fetched as an exact pin (`npx -y @lhci/cli@0.14.0`) rather than a devDependency: the
+  package brings ~950 lockfile lines, and a devDependency would put them in every window's install.
+- README records the SEO ≥ 95 deviation as accepted by the manager (2026-09-21).
+
+## 0.10.0 — 2026-09-20
+
+Task [storefront] 2.2 (issue #110), contracts `contracts-v0.4.4` (Store API 0.3.1). Folds in REQUEST #199 (CSP
+`frame-src` for campaign embeds).
+
+- **Brand identity moves to build config** (`src/brand/config.ts`, a fourth brand-override layer —
+  **window 10, this is a new file in the override surface**). The root layout's metadata no longer
+  awaits `GET /store`: metadata that is not ready when the shell is flushed is appended to `<body>`
+  and only hoisted at hydration, so a crawler reading raw HTML sees no description. That was the
+  Phase 1 finding behind SEO 91.
+- **Canonical and `hreflang` on every catalogue route**, including `x-default`. `canonicalFor`
+  localises a relative `seo.canonical` from the API — used verbatim it pointed at
+  `/products/<handle>` with no locale, a URL that only redirects, which Lighthouse reports as
+  "points to another `hreflang` location". Listing pages canonicalise without their query string.
+- **`Product` and `BreadcrumbList` JSON-LD on the PDP**, `Organization` on the home page. One
+  `Offer` per variant, with that variant's own price and availability; availability follows the same
+  rule as the buy button, so backorderable stock is `BackOrder` rather than `OutOfStock`. `gtin` is
+  read from the free-form `attributes` bag when a brand sets it — it is not in the Store API's
+  `Product` schema, so no contract change was needed. The payload's `<` is escaped, so a product
+  title can never close the script tag.
+- **`/sitemap.xml` (index) plus `/sitemap/<n>.xml`**, paged at 5 000 **URLs** — every path appears
+  once per locale. Next publishes no index for `generateSitemaps`, so `robots.txt` would otherwise
+  advertise a 404; both read the same `sitemapPaths()`. The catalogue walk is capped and returns
+  what it has if a page fails.
+- **`/robots.txt`** — refuses everything outside production, and disallows the funnel and account
+  area, which are per-customer and would burn crawl budget creating carts.
+- **Open Graph image for the PDP** via `next/og`, rendered from text rather than the product photo
+  so a share card cannot time out on a CDN miss. No price: cards are cached by every platform that
+  sees them.
+- **REQUEST #199 — Content Security Policy** with `frame-src` for campaign embeds, plus
+  `frame-ancestors 'none'`, `object-src 'none'`, `base-uri` and `form-action`, and the usual
+  companion headers. The embed host list is **imported from `@platform/cms`**, not copied, so the
+  CSP and window 6's Studio validation cannot disagree. `script-src` still needs `'unsafe-inline'`
+  for Next's inline bootstrap: this policy is not XSS protection and the README says so.
+  `form-action` lists the identity provider as well as `'self'` — Chrome evaluates it against the
+  URL **after** redirects, and sign-out answers `303` to Keycloak's `end_session` endpoint, so
+  `'self'` alone blocked the submission and the SSO session was never ended (caught by the account
+  e2e on CI, reproduced in the browser). That origin is baked at **build** time while the OIDC
+  config reads `KEYCLOAK_URL` at runtime, so the variable must be set when the image is built.
+- PDP metadata no longer depends on the currency cookie — nothing in it is priced, and asking for a
+  currency fragmented the fetch cache for no gain.
+- Lighthouse config targets `127.0.0.1` (Windows resolves `localhost` to `::1` first, where nothing
+  listens). SEO measures 92–100 on the same build depending on cache warmth; the README explains
+  why, and why the budget stays at 90 rather than becoming a flaky 95 gate.
+
 ## 0.9.0 — 2026-09-09
 
 Task [storefront] 2.1 (issue #109), contracts `contracts-v0.3`. Closes #102. Folds in REQUEST #178

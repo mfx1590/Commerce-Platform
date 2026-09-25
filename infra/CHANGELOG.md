@@ -4,6 +4,22 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 2
 
+### Added (REQUEST #257 — storefront SITE_URL, robots indexing guard, performance CI job)
+
+- **`SITE_URL` in the storefront's dev and staging values** (`https://shop.<env>.example.com`). Without it a
+  pod built its OIDC redirect URI from the `http://localhost:3100` fallback, so customer sign-in broke on
+  every deployed environment with no error anywhere; it also drives canonicals, `hreflang`, the sitemap and
+  the `robots.txt` host.
+- **`infra/helm/check.sh` asserts the storefront's silent-failure values**: `SITE_URL` must equal
+  `https://<ingress.host>`, and `ROBOTS_ALLOW_INDEXING` must be `'1'` in a `values-prod.yaml` and absent
+  everywhere else (`robots.ts` serves `Disallow: /` when it is unset). There is no production values file
+  yet; the day one is added, the check refuses it without the flag. Verified in both directions.
+- **CI job `perf`** — window 3's `pnpm --filter @platform/storefront-starter perf` (bundle budget + Lighthouse
+  CI) against Prism, as a gate: exit 1 fails the job. New `perf` group in `infra/ci/changes.sh` (storefront,
+  `packages/ui`, `packages/contracts`, `cms/`, workspace root files) with self-test cases.
+- No Dockerfile change: the `KEYCLOAK_URL` build-argument ask was withdrawn in #257 — the storefront's CSP
+  is built per request in its middleware from the pod's environment.
+
 ### Added
 
 - **App images (issue #31, task 2.1).** `apps/<app>/Dockerfile` for all six app scaffolds (`core`, `admin`,

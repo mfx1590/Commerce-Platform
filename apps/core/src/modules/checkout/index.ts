@@ -35,4 +35,10 @@ export type {
 // Fraud seam (#231): window 7 registers its check at boot; a block is a plain 402 `payment_failed`, a review places
 // the order and flags it through the orders module.
 export { currentFraudCheck, FRAUD_ALLOW, setFraudCheck } from '../../lib/fraud-seam';
-export type { FraudCheck, FraudContext, FraudDecision, FraudOutcome } from '../../lib/fraud-seam';
+export type {
+  BlockedPlacement,
+  FraudCheck,
+  FraudContext,
+  FraudDecision,
+  FraudOutcome,
+} from '../../lib/fraud-seam';

@@ -31,6 +31,7 @@ import {
   manualPaymentProvider,
   setFraudCheck,
   setPaymentProvider,
+  type BlockedPlacement,
   type FraudContext,
   type PaymentProvider,
 } from './index';
@@ -841,5 +842,92 @@ describe('fraud seam (#231): evaluated before authorization', () => {
       }),
     ).toBeNull();
     expect((await confirmOrder(a, placed.order.id, staff)).status).toBe('confirmed');
+  });
+});
+
+describe('fraud block record AFTER the rollback (#241)', () => {
+  const block = { outcome: 'block' as const, reasonCode: 'radar_highest', provider: 'radar' };
+
+  it('an opted-in check is called once, after the placement transaction is gone, with the facts and the decision; the answer is the plain 402', async () => {
+    const recorded: { blocked: BlockedPlacement; ordersVisible: number; cartStatus: string }[] = [];
+    setFraudCheck({
+      recordsBlockedAfterRollback: true,
+      async evaluate() {
+        return block;
+      },
+      async recordBlocked(blocked) {
+        // a transaction of its own on another connection: only possible (and only correct) once the placement
+        // has rolled back and released its connection
+        const seen = await owner.query<{ orders: string; status: string }>(
+          `SELECT (SELECT count(*) FROM "order" WHERE cart_id = $1)::text AS orders,
+                  (SELECT status FROM cart WHERE id = $1) AS status`,
+          [blocked.cartId],
+        );
+        recorded.push({
+          blocked,
+          ordersVisible: Number(seen.rows[0]!.orders),
+          cartStatus: seen.rows[0]!.status,
+        });
+      },
+    });
+    const cart = await readyCart();
+    await expect(
+      completeCart(a, { cartId: cart.id, idempotencyKey: `key-hook-${cart.id}`, actor }),
+    ).rejects.toMatchObject({
+      status: 402,
+      code: 'payment_failed',
+      message: 'payment not authorized',
+      details: { provider: 'manual' },
+    });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      ordersVisible: 0,
+      cartStatus: 'active',
+      blocked: {
+        cartId: cart.id,
+        storeId: A,
+        currency: 'EUR',
+        paymentProvider: 'manual',
+        emailHash: emailHash(cart.email),
+        decision: block,
+      },
+    });
+    expect(recorded[0]!.blocked).not.toHaveProperty('tx'); // never the transaction handle
+    expect(recorded[0]!.blocked.amountMinor).toBeGreaterThan(0);
+  });
+
+  it('a recordBlocked that throws never changes the answer; a check that has not opted in is not called (it still records by itself)', async () => {
+    setFraudCheck({
+      recordsBlockedAfterRollback: true,
+      async evaluate() {
+        return block;
+      },
+      async recordBlocked() {
+        throw new Error('audit database down');
+      },
+    });
+    const cart = await readyCart();
+    await expect(
+      completeCart(a, { cartId: cart.id, idempotencyKey: `key-hook-throw-${cart.id}`, actor }),
+    ).rejects.toMatchObject({
+      status: 402,
+      code: 'payment_failed',
+      message: 'payment not authorized',
+    });
+
+    let calls = 0;
+    setFraudCheck({
+      async evaluate() {
+        return block;
+      },
+      async recordBlocked() {
+        calls++;
+      },
+    });
+    const second = await readyCart();
+    await expect(
+      completeCart(a, { cartId: second.id, idempotencyKey: `key-hook-off-${second.id}`, actor }),
+    ).rejects.toMatchObject({ status: 402 });
+    expect(calls).toBe(0);
   });
 });

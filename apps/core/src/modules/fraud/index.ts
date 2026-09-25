@@ -44,13 +44,15 @@ export { RADAR_WEBHOOK_HANDLERS, reviewClosedHandler, reviewOpenedHandler } from
  * Boot mount point — `registerModuleSeams()` in `src/wiring.ts` calls it: registers the fraud check with the
  * CHECKOUT's seam (`setFraudCheck`, the registry `completeCart` reads) and Radar's `review.*` handlers with the
  * payments webhook receiver. Returns the check it registered. A store without settings runs both providers with
- * the defaults; a non-stripe payment is simply `allow` for Radar.
+ * the defaults; a non-stripe payment is simply `allow` for Radar. The registered check always opts in to the
+ * checkout's post-rollback hook (`recordsBlockedAfterRollback`, core #253) and never runs the deferred interim:
+ * `deferredRecord` is forced off here so a block is recorded exactly once, by the checkout.
  */
 export function registerFraudCheck(opts: FraudCheckOptions = {}): ModuleFraudCheck {
   for (const [type, handler] of Object.entries(RADAR_WEBHOOK_HANDLERS)) {
     registerWebhookHandler(type, handler);
   }
-  const check = createFraudCheck(opts);
+  const check = createFraudCheck({ ...opts, deferredRecord: false });
   setFraudCheck(check);
   return check;
 }

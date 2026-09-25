@@ -35,6 +35,17 @@ function parseWindow(query: AbandonedCartReportQuery): { from: string; to: strin
  * the counters are over `cart_recovery` rows and there is exactly one per cart (#148). `recovered_value` is the
  * *order* total, not the cart total: what the customer actually paid after they came back, which is the number
  * anyone comparing recovery against its cost will want.
+ *
+ * **A cancelled order is not a recovery, in either column** (#250 review). `recovered_count` and
+ * `recovered_value` both come through the same LEFT JOIN, which excludes cancelled orders — so a recovery that
+ * was later cancelled counts as neither one recovery nor zero revenue, but as no recovery at all. Before this
+ * it counted as *one recovery worth nothing*, which is a number that is wrong on its own terms. The rule also
+ * matches the 2.1 attribution report's ("orders that count as revenue: … not cancelled"), so the same order is
+ * never revenue in one marketing report and not the other.
+ *
+ * The **record** keeps `status = 'recovered'` either way: that is what happened to the cart. The **report**
+ * counts recoveries that stuck: that is what they were worth. A record whose `recovered_order_id` was cleared
+ * is excluded for the same reason.
  */
 export async function abandonedCartReport(
   client: ScopedClient,
@@ -53,7 +64,7 @@ export async function abandonedCartReport(
   const res = await client.query<ReportRow>(
     `SELECT count(*)::int                                                          AS abandoned_count,
             count(*) FILTER (WHERE r.redeemed_at IS NOT NULL)::int                 AS redeemed_count,
-            count(*) FILTER (WHERE r.status = 'recovered')::int                    AS recovered_count,
+            count(*) FILTER (WHERE r.status = 'recovered' AND o.id IS NOT NULL)::int AS recovered_count,
             COALESCE(sum(r.total_minor), 0)::text                                  AS abandoned_value,
             COALESCE(sum(o.total_minor) FILTER (WHERE r.status = 'recovered'), 0)::text AS recovered_value
        FROM cart_recovery r

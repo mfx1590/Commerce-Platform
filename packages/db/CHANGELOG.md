@@ -38,3 +38,8 @@
 
 - Migration 0160: `shipment.status` CHECK widened to include `picking` and `packed` — the one db statement of #225 verbatim (window 8 proved it on its throwaway databases as its `proposed/` copy). No new column: the pick/pack lifecycle is `shipment.status` itself; `shipment.metadata.fulfillment` keeps only the 3PL reference. Forward-only state machine (skips legal, backwards refused) lives in the fulfillment module.
 - test/rls.test.ts: pins the widened constraint definition (16 cases).
+
+## 0.3.2 — 2026-09-20 (CONTRACT CHANGE #244, cart recovery; contracts-v0.4.5)
+
+- Migration 0170: `cart_recovery` (one row per abandoned cart — `UNIQUE (cart_id)` is the replay guard; `token_hash` only, `UNIQUE`, plaintext never stored; `token_expires_at`; `status` pending → redeemed → recovered with `(status='recovered') = (recovered_at IS NOT NULL)`; deliberately NO cross-clock CHECK per the #244 correction — db now() vs an app timestamp breaks on ordinary skew) and `marketing_cursor` (one row per (store, consumer); a durable outbox position instead of one hidden in an external store). Both RLS `store`, `set_updated_at` triggers. The SQL is window 17's proven proposed copy verbatim.
+- test/rls.test.ts: marketing_cursor isolation + per-(store,name) UNIQUE, and a cart_recovery constraint-pinning case incl. the absent cross-clock CHECK (18 cases).

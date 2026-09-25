@@ -1,5 +1,10 @@
 # Changelog — @platform/feeds (window 17)
 
+## Unreleased — 2026-09-24 · 2.6 docs pass (#150)
+
+- A test pins the app's two log calls (startup, unhandled error) — the #150 PII sweep's half for this app.
+- README contract line and CLAUDE.md constraints brought up to date; no runtime change.
+
 ## 0.1.0 — 2026-09-08 · created for 2.2 product feeds (#146)
 
 - `src/storage.ts`: `parseFeedPath` (strict `<store_code>/<feed_id>.<ext>` matching — refuses rather than
