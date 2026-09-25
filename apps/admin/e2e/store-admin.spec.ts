@@ -187,6 +187,34 @@ test.describe('store-admin', () => {
     await expect(page.getByRole('status')).toHaveText(/Refund of .* requested/);
   });
 
+  test('customers: support-gated list and a server-rendered detail with consent', async ({
+    page,
+  }) => {
+    // store_admin implies support, so the section is offered and the direct URL renders data.
+    await signIn(page, `/${BRAND_A}/customers`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/customers`));
+
+    const table = page.getByRole('table', { name: 'Customers' });
+    await expect(table).toBeVisible();
+    await table.getByRole('link', { name: 'jane@example.com' }).click();
+    await page.waitForURL(new RegExp(`/${BRAND_A}/customers/[0-9a-f-]{36}$`));
+
+    await expect(page.getByRole('heading', { name: 'Jane Doe' })).toBeVisible();
+    const consent = page.getByRole('table', { name: 'Consent by channel' });
+    // Cells, not text: the "Granted" column header would otherwise match too.
+    await expect(consent.getByRole('cell', { name: 'marketing email' })).toBeVisible();
+    await expect(consent.getByRole('cell', { name: 'granted' })).toBeVisible();
+    await expect(consent.getByRole('cell', { name: 'checkout' })).toBeVisible();
+    // The order-history link carries the email into the orders filter.
+    await expect(page.getByRole('link', { name: 'Orders by this customer' })).toHaveAttribute(
+      'href',
+      new RegExp(`/${BRAND_A}/orders\\?q=jane%40example\\.com$`),
+    );
+    // Erasure is never one click: the typed confirmation gates it.
+    await page.getByRole('button', { name: 'Erase this customer' }).click();
+    await expect(page.getByRole('button', { name: 'Yes, erase' })).toBeDisabled();
+  });
+
   test('the media rows can be reordered in the editor', async ({ page }) => {
     await signIn(page, `/${BRAND_A}/catalog/new`);
     await page.waitForURL(/\/catalog\/new/);

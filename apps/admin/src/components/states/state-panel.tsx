@@ -66,6 +66,19 @@ export function UnauthorizedPanel() {
 }
 
 /**
+ * The contract's `Forbidden` body for a relation the app already knows is missing — the section
+ * guards and any page that gates on a relation the section itself does not (pick lists need
+ * `operations`) build it here, so the panel reads one shape from one place.
+ */
+export function requiresRelation(relation: string, object: string): AdminError {
+  return {
+    code: 'forbidden',
+    message: `requires ${relation} on ${object}`,
+    details: { relation, object },
+  };
+}
+
+/**
  * `403 { code: forbidden, details: { relation, object } }` — name the relation and the object, so
  * the reader knows exactly what to ask an owner for.
  */

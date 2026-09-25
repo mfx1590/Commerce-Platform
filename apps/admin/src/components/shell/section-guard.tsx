@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ForbiddenPanel } from '@/components/states/state-panel';
+import { ForbiddenPanel, requiresRelation } from '@/components/states/state-panel';
 import { visibleHqSections, visibleStoreSections } from '@/lib/nav/navigation';
 import { HQ_SECTIONS, STORE_SECTIONS } from '@/lib/nav/sections';
 import { loadPrincipal } from '@/lib/principal';
@@ -20,15 +20,7 @@ export async function HqSectionGuard({ id, children }: { id: string; children: R
   const required = HQ_SECTIONS.find((section) => section.id === id)?.requires[0];
   return (
     <ForbiddenPanel
-      {...(required === undefined
-        ? {}
-        : {
-            error: {
-              code: 'forbidden',
-              message: `requires ${required} on organization:hq`,
-              details: { relation: required, object: 'organization:hq' },
-            },
-          })}
+      {...(required === undefined ? {} : { error: requiresRelation(required, 'organization:hq') })}
     />
   );
 }
@@ -49,15 +41,7 @@ export async function StoreSectionGuard({
   const required = STORE_SECTIONS.find((section) => section.id === id)?.requires[0];
   return (
     <ForbiddenPanel
-      {...(required === undefined
-        ? {}
-        : {
-            error: {
-              code: 'forbidden',
-              message: `requires ${required} on store:${storeId}`,
-              details: { relation: required, object: `store:${storeId}` },
-            },
-          })}
+      {...(required === undefined ? {} : { error: requiresRelation(required, `store:${storeId}`) })}
     />
   );
 }

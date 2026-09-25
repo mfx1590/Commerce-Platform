@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { getStore, listOrders } from '@/lib/api/admin';
 import { orderPermissions } from '@/lib/orders/permissions';
+import { forOrderRows } from '@/lib/orders/projection';
 import { loadPrincipal } from '@/lib/principal';
 import { parseTableQuery, toContractQuery } from '@/lib/table/query-state';
 import { OrderFilters } from './order-filters';
@@ -65,7 +66,7 @@ export default async function OrdersPage({
           <OrdersTable
             storeId={storeId}
             locale={locale}
-            rows={result.ok ? result.data.items : []}
+            rows={result.ok ? forOrderRows(result.data.items) : []}
             total={result.ok ? result.data.total : 0}
             query={query}
             emptyState={
