@@ -1,6 +1,7 @@
 {
-  "$comment": "First-load JS per route, gzipped, in kB (1 000 bytes) — see scripts/bundle-budget.mjs for what is counted and why it reads ~1.6 kB above next build's column. Measured 2026-09-21: home 130.5, PLP 135.6, PDP 138.7, cart 139.5, checkout steps 133.6. Headroom is ~5 kB: enough for a dependency patch, not enough for a new library to slip in unnoticed. Raise a limit only in the same commit that explains what grew.",
+  "$comment": "First-load JS per route, gzipped, in kB (1 000 bytes). scripts/bundle-budget.mjs explains what is counted and why it reads ~1.6 kB above next build's column. EVERY page route is checked: one without an entry here uses `default`, so a new route is never silently unbudgeted \u2014 and windows 6 and 13 can add routes to this app without needing to edit a file they do not own. Headroom is ~5 kB: enough for a dependency patch, not enough for a new library to slip in unnoticed. Raise a limit only in the same commit that explains what grew.",
   "routes": {
+    "default": 145,
     "/[locale]/(shop)/page": 136,
     "/[locale]/(shop)/products/page": 141,
     "/[locale]/(shop)/products/[handle]/page": 144,

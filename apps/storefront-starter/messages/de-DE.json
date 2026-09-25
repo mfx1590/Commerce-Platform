@@ -66,7 +66,13 @@
       "backorder": "Nachbestellt — Versand nach Wiederauffüllung",
       "out_of_stock": "Nicht auf Lager"
     },
-    "chooseOption": "Wählen Sie eine Option, bevor Sie in den Warenkorb legen."
+    "chooseOption": "Wählen Sie eine Option, bevor Sie in den Warenkorb legen.",
+    "reviews": {
+      "title": "Kundenbewertungen",
+      "summary": "{average} von 5, aus {count, plural, one {# Bewertung} other {# Bewertungen}}",
+      "rating": "{rating} von 5",
+      "verified": "Verifizierter Kauf"
+    }
   },
   "cart": {
     "title": "Warenkorb",

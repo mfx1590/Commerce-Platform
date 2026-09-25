@@ -190,3 +190,31 @@ describe('exchangeCode', () => {
     ).rejects.toThrow(/returned 400$/);
   });
 });
+
+/**
+ * The same control-character bypass as the referral landing (review of #273). This one matters more:
+ * `returnTo` is followed *after* the customer has authenticated, so an off-origin target hands a
+ * freshly signed-in customer to someone else's page. The guard is now shared between the two.
+ */
+describe('safeReturnTo and control characters', () => {
+  it('rejects a target that URL parsing would turn into another origin', () => {
+    // Tab, newline and carriage return are stripped before parsing — these are the real bypass.
+    for (const raw of ['/\t/evil.example', '/\n/evil.example', '/\r/evil.example']) {
+      expect(new URL(raw, 'https://shop.example').origin).toBe('https://evil.example');
+      expect(safeReturnTo(raw)).toBe('/account');
+      expect(safeReturnTo(raw, '/en-GB/account')).toBe('/en-GB/account');
+    }
+  });
+
+  it('also rejects the control characters that do not resolve off-origin today', () => {
+    // Defence in depth, and said as such rather than dressed up as an exploit.
+    for (const raw of ['/\u0000/x', '/\u007f/x', '/\u2028/x']) {
+      expect(new URL(raw, 'https://shop.example').origin).toBe('https://shop.example');
+      expect(safeReturnTo(raw)).toBe('/account');
+    }
+  });
+
+  it('still keeps an ordinary same-site path', () => {
+    expect(safeReturnTo('/en-GB/account/orders')).toBe('/en-GB/account/orders');
+  });
+});
