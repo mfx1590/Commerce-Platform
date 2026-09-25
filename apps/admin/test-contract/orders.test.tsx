@@ -111,12 +111,11 @@ describe('the wrappers reach the paths the spec documents', () => {
   });
 
   /**
-   * Five operations document their 200 by schema only (no example), and Prism's schema-generated
-   * body fails its own validation, so the mock answers 500 for them: updateOrderLineItem,
-   * cancelOrderLineItem, pickShipment, packShipment, listPickLists. CONTRACT CHANGE #261 asks for
-   * the examples; until it lands these are skipped rather than asserting on a Prism failure.
+   * updateOrderLineItem, cancelOrderLineItem, pickShipment, packShipment, listPickLists: their 200
+   * examples arrived in contracts-v0.4.6 (CONTRACT CHANGE #261). Before that Prism generated a
+   * body from the schema that failed its own validation and answered 500.
    */
-  it.skip('edits a line before fulfilment: lower (200), cancel line (200) — CONTRACT CHANGE #261', async () => {
+  it('edits a line before fulfilment: lower (200), cancel line (200)', async () => {
     const lowered = await api.updateOrderLineItem(SEED_STORE_ID, ORDER_ID, LINE_ID, {
       quantity: 1,
     });
@@ -152,7 +151,7 @@ describe('the wrappers reach the paths the spec documents', () => {
     expect(received.data.status).toBe('received');
   });
 
-  it.skip('picks and packs a shipment, lists pick lists — CONTRACT CHANGE #261', async () => {
+  it('picks and packs a shipment, lists pick lists', async () => {
     const picked = await api.pickShipment(SHIPMENT_ID);
     if (!picked.ok) throw new Error(`pickShipment failed: ${picked.status}`);
     const packed = await api.packShipment(SHIPMENT_ID, { parcel_count: 1 });

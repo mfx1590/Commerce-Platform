@@ -318,9 +318,16 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **PR #268 (2.3) in review.** When the manager confirms 0.4.6 (#261 examples) on main: merge main
-  on this branch, un-skip the five contract tests in `test-contract/orders.test.tsx`, small commit,
-  push to the PR. 2.4 (#116) plan next, built locally while #268 is in review.
+- **PR #268 (2.3) re-review verdict MERGE (2026-09-25).** Main merged (contracts-v0.4.6, 6f28fda)
+  and the #261 contract tests un-skipped in `test-contract/orders.test.tsx` (sha in the PR);
+  contract 51/51, unit 467/467, typecheck + lint green. Waiting for the manager's merge confirm.
+- **2.4 (#116)** built as 8f90e9e on the pre-un-skip head, kept on local branch
+  `admin/phase2-2.4-local` (never pushed). After #268 merges: merge main into `admin/phase2`,
+  cherry-pick 8f90e9e, rerun gates, push, open the PR closing #116.
+- **Later-touch nits from the #268 re-review** (not filed/fixed yet): (a) `markClientSafe` brands
+  any object — unrestricted escape hatch; restrict its input or document it as audited-only;
+  (b) the client-props guard's `'use client'` regex misses a comment-preceded directive;
+  (c) an imported type alias of a contract record evades the guard's PII pattern.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
