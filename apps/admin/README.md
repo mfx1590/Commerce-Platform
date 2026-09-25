@@ -395,6 +395,34 @@ fields rather than sending `null`; `AddressBlock` treats both alike. Five operat
 example in 0.4.5 and cannot be driven through Prism (CONTRACT CHANGE #261): their contract tests
 are skipped with the issue in the reason and un-skip when the examples land.
 
+## Customers and consent (task 2.3, issue #115)
+
+**Store · Customers** (`customers`) needs `support` on the store (Admin API 0.2.1+: customer
+records are personal data). The navigation hides the entry from anyone else and a direct URL renders
+the 403 panel naming the relation — an analyst sees the aggregate screens in the HQ view, never a
+customer. `/{storeId}/customers` lists with the contract's sort and an email-or-name search;
+`/{storeId}/customers/{customerId}` is the record.
+
+**The PII rule.** Email, name, phone, identity and consent are rendered in the server component,
+behind the gate. A client component receives exactly the fields it shows: the edit form its four
+inputs, the erase control only ids. Nothing is logged, on either side.
+
+**Consent** is shown per channel — granted, when, source — read from the contract's free-form
+`consent` object by `src/lib/customers/consent.ts`, which accepts the documented
+`channel → { granted, at, source }`, a bare boolean, and anything else (rendered verbatim so a
+backend's extra shape is visible rather than hidden or fatal). Consent is recorded by the storefront
+and the core; there is no operation to edit it here.
+
+**Erase (GDPR)** calls `eraseCustomer` (`store_admin`): a typed `ERASE` confirmation, a `202` with
+no body reported as "scheduled", the page re-reads and shows `erased`, after which the record is
+read-only. Addresses, a GDPR **export** and a customer-groups picker wait on CONTRACT CHANGE #264
+(three additive operations, accepted in principle) — no placeholder UI until they exist.
+
+**Against the real core:** the customers module is Phase 3 (window 13). Today the core answers
+**401** for the unmounted route (Medusa's admin auth catches unmatched `/admin/*` paths — #265),
+so the screen shows the session-ended panel (`docs/customers/core-unimplemented.png`); once the
+core answers the contract's 404, task 2.6 turns that into a "not implemented yet" panel.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:
@@ -489,6 +517,7 @@ message may contain whatever the server was holding, and this app handles tokens
 | `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
 | `src/components/table/`                | The `DataTable` primitive                                            |
 | `src/lib/orders/`                      | Order arithmetic: quantities, refund ceiling + key, timeline, gates  |
+| `src/lib/customers/`                   | Consent rows/summary from the free-form contract object (pure)       |
 | `src/components/rail/`                 | The Medusa rail: serpents, geometry (pure), config, list fallback    |
 | `src/components/shell/`                | The frame: rail + top bar, store switcher, section guards            |
 | `public/`                              | The head artwork and the committed fonts (OFL)                       |

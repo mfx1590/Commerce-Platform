@@ -16,8 +16,39 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.3 — issue #115 Customers and consent** · 2026-09-24 · commit `50af950` (+ main merge
+  `6907b15`) · **PR #268** — BLOCKED once (customers list passed full `Customer[]` to the client
+  table), fixed by the `client-safe` projection commit (sha in the PR), re-review pending.
+  #263 merged as 3e57cc1 (#114 closed).
+  - Wrappers (list/get/update/erase), `customerUpdateSchema`, `actions/customers.ts` (empty
+    strings dropped; empty group id = clear), `src/lib/customers/consent.ts` (pure, defensive:
+    documented shape, bare boolean, anything else shown verbatim).
+  - Screens: list (`support`; email links, name fallback, status pill, consent summary); detail
+    (server-rendered PII; consent table per channel; "Orders by this customer" via the orders
+    `q` filter; edit form whose props are exactly its four inputs; erase with typed `ERASE`,
+    bodiless 202 → "scheduled", re-read shows `erased`, then read-only).
+  - Gate per role: analyst → nav hidden + 403 panel naming `support` on the direct URL;
+    support/store_admin/owner see it; store_staff/finance/operations do not (rendered guard test).
+  - **CONTRACT CHANGE #264** (accepted in principle): addresses read, GDPR export 202,
+    customer-groups list — no placeholder UI.
+  - **Real core:** the unmounted customers route answers **401**, not 404 (Medusa admin auth
+    catches unmatched `/admin/*`) → the app shows the session-ended panel. Filed **#265** for
+    window 1; 2.6's not-implemented panel keys on the 404 once it lands. Screenshot
+    `docs/customers/core-unimplemented.png`.
+  - Tests: unit 431 → +projection 3 (see #263 fix) ; contract 41 + 2 skipped (#261); mock e2e 18.
+  - #263 nits folded in: `requiresRelation()` in state-panel.tsx used by both section guards and
+    the pick-lists page; `fieldNames(shipmentUpdateSchema)` in `actions/orders.ts`.
+
+- **#263 review fix — client panels receive branded projections** · commit `f34c7b0` (pushed to
+  the PR). The detail page had passed the full `Order` (email + addresses) as props to three
+  `'use client'` panels; Next serialises client props into the Flight payload. Now
+  `src/lib/orders/projection.ts` builds one branded object per panel with exactly its keys, the
+  panel props carry the brand (full `Order` no longer typechecks), and
+  `test/orders-projection.test.ts` pins key sets, wire JSON and the type exclusion.
+  **Lesson (Gotchas):** a `'use client'` prop is a wire payload — pass projections, never records.
+
 - **2.2 — issue #114 Orders** · 2026-09-24 · commits `92540f4` (build), `14fd4e2` (main merged),
-  + the address fix commit · PR: opens on the manager's #259 confirmation
+  `cb07e5b` (address fix + docs) · **PR #263** (in review)
   - Wrappers for the 13 order/fulfilment operations (0.4.5); `src/lib/orders/` pure modules
     (quantities, refunds + `idempotencyKeyHolder`, timeline, permissions); Zod schemas for the
     inline bodies; `actions/orders.ts`. Screens: list (pills, money in store locale), detail
@@ -287,11 +318,21 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- (nothing — 2.2 is committed locally; push + PR the moment #259's merge is confirmed by the manager)
+- **PR #268 (2.3) re-review verdict MERGE (2026-09-25).** Main merged (contracts-v0.4.6, 6f28fda)
+  and the #261 contract tests un-skipped in `test-contract/orders.test.tsx` (sha in the PR);
+  contract 51/51, unit 467/467, typecheck + lint green. Waiting for the manager's merge confirm.
+- **2.4 (#116)** built as 8f90e9e on the pre-un-skip head, kept on local branch
+  `admin/phase2-2.4-local` (never pushed). After #268 merges: merge main into `admin/phase2`,
+  cherry-pick 8f90e9e, rerun gates, push, open the PR closing #116.
+- **Later-touch nits from the #268 re-review** (not filed/fixed yet): (a) `markClientSafe` brands
+  any object — unrestricted escape hatch; restrict its input or document it as audited-only;
+  (b) the client-props guard's `'use client'` regex misses a comment-preceded directive;
+  (c) an imported type alias of a contract record evades the guard's PII pattern.
+
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
-- [ ] **#115 · 2.3** Customers and consent (support-gated)
+- [x] **#115 · 2.3** Customers and consent (support-gated) — built, PR after #263
 - [ ] **#116 · 2.4** Promotions and price lists screens
 - [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
@@ -473,6 +514,25 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **A `'use client'` component's props are a wire payload — and so is a server action's result.**
+  Next.js serialises them wholesale into the Flight response. **Rule at write time, not review
+  time:** a client component never takes a contract record; it takes a `ClientSafe<…>` projection
+  from `src/lib/client-safe.ts` (`makeProjection(record, keys)` / `markClientSafe`), and
+  `test/client-props-guard.test.ts` fails the suite if a client file under `(store)`/`(hq)` names
+  `AdminComponents['Customer'|'Order'|'OrderSummary'|'StaffUser'|'Address']`. Actions that a
+  client calls answer `null` or a projection, never the record. Two reviews found the leak
+  (#263 detail panels, #268 customers list) before the guard existed.
+- **Prism cannot mock an operation without an example when `--errors` is on** if its schema has
+  `format: uuid` / nullable members: the generated body fails Prism's own validation → 500.
+  Check `example`/`examples` presence per operation before writing contract tests; file a
+  CONTRACT CHANGE for examples (additive) rather than asserting on the 500 (#261).
+- **Contract suites that spawn their own Prism must set `process.env.ADMIN_API_URL` to that
+  port before importing the app modules** — the vitest contract config pins the variable to the
+  states suite's port, and vitest runs files in parallel, so wrappers otherwise hit whichever
+  Prism happens to be up (flaky status 0).
+- **An unmounted `/admin/*` route on the core answers 401, not 404** (Medusa's admin auth catches
+  it) until #265 lands — do not read a 401 from the core as "session expired" when the route is
+  known to be unimplemented.
 - **Two sessions on one worktree corrupt each other silently.** A resumed Phase 1 session and this
   one both received "go on 2.1" and both edited `apps/admin`; `git status` showing files you did
   not touch is the tell. Check `list_sessions` for another running session with the same `cwd`

@@ -5,8 +5,9 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/data-table';
-import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
+import type { AdminError } from '@/lib/api/admin-client';
 import { formatMoney } from '@/lib/forms/money';
+import type { OrderRow } from '@/lib/orders/projection';
 import type { TableQuery } from '@/lib/table/query-state';
 import {
   ORDERS_SORTABLE_COLUMNS,
@@ -14,8 +15,6 @@ import {
   statusLabel,
   toneFor,
 } from './orders-table.config';
-
-type OrderSummary = AdminComponents['OrderSummary'];
 
 function formatPlaced(value: string, locale: string): string {
   const date = new Date(value);
@@ -45,13 +44,14 @@ export function OrdersTable({
   storeId: string;
   /** The store's `default_locale`, for money and dates. */
   locale: string;
-  rows: readonly OrderSummary[];
+  /** `OrderRow` projections — the columns shown, without the `customer_id` the table never renders. */
+  rows: readonly OrderRow[];
   total: number;
   query: TableQuery;
   emptyState?: ReactNode;
   error?: { status: number; error: AdminError } | undefined;
 }) {
-  const columns: ColumnDef<OrderSummary, unknown>[] = [
+  const columns: ColumnDef<OrderRow, unknown>[] = [
     {
       id: 'display_id',
       header: 'Order',
@@ -117,7 +117,7 @@ export function OrdersTable({
   ];
 
   return (
-    <DataTable<OrderSummary>
+    <DataTable<OrderRow>
       columns={columns}
       rows={rows}
       total={total}
