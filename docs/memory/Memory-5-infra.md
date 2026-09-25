@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: Phase 2 complete; reopened by REQUEST. **In flight:** #195/#197 + the boot smoke + paths-ignore batch.
+Last updated: 2026-09-24 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
+Status: Phase 2 complete; reopened by REQUEST. **In flight:** REQUEST #257 (storefront SITE_URL, robots guard, perf CI job).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,12 +108,32 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- One PR: feeds + brand-a images (#195/#197), the `apps/core` boot smoke in `auth-e2e`, `paths-ignore` on push,
-  branch-protection docs marked applied. The feed artifact bucket plan is a second PR, not this one.
+- **REQUEST #257** (window 3) — **PR #272 open** (code commit `69fad5e`, main merged incl. 08939a6's
+  `.env.example` SITE_URL row). Awaiting its CI run (first real `perf` run; fix forward on the same PR if it
+  reds environmentally) and the Reviewer. After merge the manager adds the `perf` job to required checks;
+  Keycloak redirect URIs are in #212 (window 2); the PERF_PORT nit is routed to window 3.
+  **Verdict MERGE-WHEN-GREEN.** First CI run red on SEO 0.69/0.58/0.58: `is-crawlable` (robots fail-closed,
+  fixed by `ROBOTS_ALLOW_INDEXING: '1'` on the perf step) + a flaky `meta-description` that fails on runs 2-3
+  of each URL, never run 1 (reproduced locally; server HTML has the tag on every request, so it is lost
+  client-side; window 3's). Also fixed: upload-artifact@v4 skipped `.lighthouseci` (hidden) —
+  `include-hidden-files: true`. Later-touch nits: check.sh treats `values-production.yaml` as non-prod (say so
+  in the comment); Actions Node 20 deprecation warning. Contents:
+  - `SITE_URL: 'https://shop.<env>.example.com'` in `infra/helm/values/storefront/values-{dev,staging}.yaml`
+    (the urgent part: without it OIDC redirect_uri fell back to http://localhost:3100).
+  - `infra/helm/check.sh` guard: storefront `SITE_URL == https://<ingress.host>`; `ROBOTS_ALLOW_INDEXING`
+    `'1'` in values-prod.yaml only, absent elsewhere. No values-prod.yaml created (no prod env exists in
+    terraform/argocd). Verified both directions with scratch copies; full check.sh green (10 combos).
+  - CI job `perf` (window 3's A1 drop-in) gated on a new `perf` classifier group (A2 taken):
+    `^(apps/storefront-starter/|packages/(ui|contracts)/|cms/)` + ROOT_FILES. Self-test 37 ok.
+  - README (jobs table, perf paragraph, branch-protection list) + CHANGELOG.
+  - Local run: turbo dep build ok, `next build` ok, bundle budget PASS; Lighthouse could not run locally
+    (see Gotchas — port 3100 taken here). The PR's own CI run is the proof.
 
 ## Done (earlier)
 
-- The close-out PR for #156's review nits. Nothing else in flight.
+- The close-out PR for #156's review nits.
+- feeds + brand-a images (#195/#197), `apps/core` boot smoke, `paths-ignore` on push, branch-protection docs —
+  PR #210, merged (main `435b616`).
 
 ## Next — reopened by REQUEST, not by a phase
 
@@ -342,6 +362,13 @@ Standing debts, whenever this window is next open:
   stop at `terraform validate` / `helm template` / runbooks. Never commit credentials.
 
 ## Gotchas learned
+
+- **`PERF_PORT` is not honoured by Lighthouse.** `apps/storefront-starter/lighthouserc.json` hardcodes
+  `127.0.0.1:3100`; `perf.mjs` starts `next start` on `PERF_PORT` but Lighthouse still audits :3100. Locally
+  3100 is usually another window's dev server → CHROME_INTERSTITIAL_ERROR. On CI it is irrelevant (3100 free,
+  PERF_PORT unset). Window 3's file — reported to the manager, not edited.
+- Enforced required checks are a GitHub setting (five today). The `perf` job always runs and reports success
+  when skipped, so it is safe to add to the enforced list — that is the owner's click, not this window's.
 
 - **NEVER `docker compose down` or recreate containers in this worktree.** The docker stack is SHARED with
   every other window and with the integrator. During 2.5 I ran `down -v` to test a clean Keycloak import and

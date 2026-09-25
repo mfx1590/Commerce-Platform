@@ -8,7 +8,8 @@
 #   CHANGES_ALL=1 infra/ci/changes.sh     # everything runs (pushes to main)
 #   CHANGED_FILES=$'a\nb' infra/ci/changes.sh   # test mode, no git needed
 #
-# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…`, `helm=…` to stdout, and to $GITHUB_OUTPUT.
+# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…`, `helm=…`, `observ=…`, `perf=…` to stdout, and
+# to $GITHUB_OUTPUT.
 #
 # Groups:
 #   code       lint, typecheck, format, unit tests, contract tests
@@ -23,19 +24,22 @@
 #   observ     the observability stack: compose profile, collector/Prometheus config, dashboards
 #   e2e        the live auth suites and the Playwright journeys — anything `code` covers, plus the
 #              realms and authorization model those suites run against
+#   perf       the storefront performance budget (bundle + Lighthouse, ~5 min): the storefront, the
+#              workspace packages it builds from, and the root files every package resolves through.
+#              Narrower than `code` so a core-only PR does not pay for a storefront build (#257).
 set -euo pipefail
 
 emit() {
-  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\n' "$1" "$2" "$3" "$4" "$5" "$6"
+  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" >> "$GITHUB_OUTPUT"
+    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" >> "$GITHUB_OUTPUT"
   fi
 }
 
 # A push to main is never a partial build.
 if [ -n "${CHANGES_ALL:-}" ]; then
   echo 'changes: CHANGES_ALL set — every group runs' >&2
-  emit true true true true true true
+  emit true true true true true true true
   exit 0
 fi
 
@@ -71,6 +75,7 @@ terraform=false
 e2e=false
 helm=false
 observ=false
+perf=false
 
 # Any workflow file counts as code, not just ci.yml: prettier formats .github/workflows/**, so a
 # workflow that lands unformatted would pass its own PR and then break `format:check` on somebody
@@ -88,10 +93,13 @@ if match '^(infra/helm/|infra/argocd/)' || match "$CI_SCRIPTS" || match '^\.gith
 # The compose file is shared: it defines both the dev stack and the observability profile.
 if match '^(infra/observability/|infra/docker/docker-compose\.yml$)' || match "$CI_SCRIPTS" ||
   match '^\.github/workflows/ci\.yml$'; then observ=true; fi
+# The storefront's workspace dependencies are @platform/ui, @platform/contracts and @platform/cms
+# (cms/). A new one in apps/storefront-starter/package.json belongs in this pattern too.
+if match '^(apps/storefront-starter/|packages/(ui|contracts)/|cms/)' || match "$ROOT_FILES"; then perf=true; fi
 
 if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ] && [ "$e2e" = false ] &&
-  [ "$helm" = false ] && [ "$observ" = false ]; then
+  [ "$helm" = false ] && [ "$observ" = false ] && [ "$perf" = false ]; then
   echo 'changes: documentation-only change — the heavy jobs will no-op' >&2
 fi
 
-emit "$code" "$images" "$terraform" "$e2e" "$helm" "$observ"
+emit "$code" "$images" "$terraform" "$e2e" "$helm" "$observ" "$perf"
