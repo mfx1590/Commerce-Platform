@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: Phase 2 complete; reopened by REQUEST. **In flight:** #195/#197 + the boot smoke + paths-ignore batch.
+Last updated: 2026-09-25 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
+Status: Phase 2 complete; **quiet** — #257 merged (PR #272, `aa3b977`). Reopened only by REQUEST issues.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,12 +108,20 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- One PR: feeds + brand-a images (#195/#197), the `apps/core` boot smoke in `auth-e2e`, `paths-ignore` on push,
-  branch-protection docs marked applied. The feed artifact bucket plan is a second PR, not this one.
+- Nothing. Window 5 is quiet until the manager reopens it.
 
 ## Done (earlier)
 
-- The close-out PR for #156's review nits. Nothing else in flight.
+- **REQUEST #257** (window 3) — PR #272 **merged**, main `aa3b977` (commits `69fad5e` + `3432040`).
+  `SITE_URL` in storefront dev/staging values; `infra/helm/check.sh` guard (`SITE_URL == https://<ingress.host>`,
+  `ROBOTS_ALLOW_INDEXING` '1' in values-prod.yaml only — no prod values file created, no prod env exists);
+  CI job `perf` on a new `perf` classifier group, with `ROBOTS_ALLOW_INDEXING: '1'` on the step (robots.ts
+  fails closed → is-crawlable failed, SEO 0.69) and `include-hidden-files: true` on the report upload.
+  The manager made `perf` a **required** check (six enforced). My flaky `meta-description` find (fails on
+  Lighthouse runs 2-3 of each URL, server HTML fine) is #274, window 3's.
+- The close-out PR for #156's review nits.
+- feeds + brand-a images (#195/#197), `apps/core` boot smoke, `paths-ignore` on push, branch-protection docs —
+  PR #210, merged (main `435b616`).
 
 ## Next — reopened by REQUEST, not by a phase
 
@@ -125,11 +133,17 @@ Phase 2 is complete. The manager reopens this window with issues; three are alre
   until the new workspace packages are listed in every Dockerfile — that failure is the intended prompt);
 - a Lighthouse job for window 3.
 
-Standing debts, whenever this window is next open:
+Later touch (nits from the #272 review, next time an infra PR is open anyway):
+
+- `infra/helm/check.sh` treats a `values-production.yaml` as non-prod (only `values-prod.yaml` is prod). Safe
+  (fails closed), but say so in the guard's comment.
+- GitHub Actions Node 20 deprecation warning — bump the actions pinned in `ci.yml`/`deploy-staging.yml`.
+
+Standing debts (parked), whenever this window is next open:
 
 - **REQUEST #207** (window 1) — `apps/core` cannot start on main; the new boot smoke step is red until it
   lands. Verified fix: declare `@medusajs/draft-order` as a dependency.
-- **REQUEST #212** (window 2) — brand-a's Keycloak redirect URI; then set `E2E_INCLUDE_BRAND_STOREFRONTS` on by default.
+- **REQUEST #212** (window 2's PR, also carries #257's shop.<env> callback URIs) — once merged, set `E2E_INCLUDE_BRAND_STOREFRONTS` on by default.
 - **REQUEST #154** — once the Playwright configs honour `E2E_CHANNEL`, `run-e2e.sh` stops installing both
   browsers on CI and installs `"$channel"` alone. Supersedes #84.
 - **REQUEST #60** — once `apps/core` declares `ts-node`, delete the two workaround lines from its Dockerfile.
@@ -342,6 +356,13 @@ Standing debts, whenever this window is next open:
   stop at `terraform validate` / `helm template` / runbooks. Never commit credentials.
 
 ## Gotchas learned
+
+- **`PERF_PORT` is not honoured by Lighthouse.** `apps/storefront-starter/lighthouserc.json` hardcodes
+  `127.0.0.1:3100`; `perf.mjs` starts `next start` on `PERF_PORT` but Lighthouse still audits :3100. Locally
+  3100 is usually another window's dev server → CHROME_INTERSTITIAL_ERROR. On CI it is irrelevant (3100 free,
+  PERF_PORT unset). Window 3's file — reported to the manager, not edited.
+- Enforced required checks are a GitHub setting (five today). The `perf` job always runs and reports success
+  when skipped, so it is safe to add to the enforced list — that is the owner's click, not this window's.
 
 - **NEVER `docker compose down` or recreate containers in this worktree.** The docker stack is SHARED with
   every other window and with the integrator. During 2.5 I ran `down -v` to test a clean Keycloak import and

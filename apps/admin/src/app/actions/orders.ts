@@ -158,13 +158,7 @@ export async function updateShipmentAction(
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message);
   const result = await updateShipment(shipmentId, compact(parsed.data));
   if (result.ok) revalidateOrder(storeId, orderId);
-  return toActionResult(result, [
-    'status',
-    'tracking_number',
-    'tracking_url',
-    'label_url',
-    'cost_minor',
-  ]);
+  return toActionResult(result, fieldNames(shipmentUpdateSchema));
 }
 
 export async function pickShipmentAction(

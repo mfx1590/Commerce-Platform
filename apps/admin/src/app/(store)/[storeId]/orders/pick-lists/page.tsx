@@ -1,6 +1,11 @@
 import Link from 'next/link';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
-import { ApiStatePanel, EmptyPanel, ForbiddenPanel } from '@/components/states/state-panel';
+import {
+  ApiStatePanel,
+  EmptyPanel,
+  ForbiddenPanel,
+  requiresRelation,
+} from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { listPickLists, listWarehouses } from '@/lib/api/admin';
 import { orderPermissions } from '@/lib/orders/permissions';
@@ -30,11 +35,7 @@ export default async function PickListsPage({
     return (
       <StoreSectionGuard storeId={storeId} id="orders">
         <ForbiddenPanel
-          error={{
-            code: 'forbidden',
-            message: 'requires operations on organization:hq',
-            details: { relation: 'operations', object: 'organization:hq' },
-          }}
+          error={requiresRelation('operations', 'organization:hq')}
           hint="Pick lists are a warehouse view; the orders themselves are under Orders."
         />
       </StoreSectionGuard>

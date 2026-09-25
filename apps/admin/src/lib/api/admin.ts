@@ -454,3 +454,61 @@ export async function listPickLists(
     query,
   });
 }
+
+// ---------------------------------------------------------------------------- customers (task 2.3)
+
+/** `support` on the store (Admin API 0.2.1+): customer records are personal data. Filter `q`, `group_id`; sort created_at/email/last_name. */
+export async function listCustomers(
+  storeId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listCustomers'>>> {
+  return adminCall<'listCustomers'>({
+    path: buildPath('/admin/stores/{storeId}/customers', { storeId }),
+    query,
+  });
+}
+
+export async function getCustomer(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'getCustomer'>>> {
+  return adminCall<'getCustomer'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}', { storeId, customerId }),
+  });
+}
+
+export async function updateCustomer(
+  storeId: string,
+  customerId: string,
+  body: {
+    first_name?: string;
+    last_name?: string;
+    phone?: string;
+    customer_group_id?: string | null;
+    status?: 'registered' | 'disabled';
+  },
+): Promise<ApiResult<AdminResponse<'updateCustomer'>>> {
+  return adminCall<'updateCustomer'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}', { storeId, customerId }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+/**
+ * GDPR erasure: anonymises the PII, keeps the order financials, emits `customer.erased`. Answers
+ * `202` with no body (REQUEST #251 made that type as `null` rather than lie), so the caller
+ * re-reads to show the new `status: erased`.
+ */
+export async function eraseCustomer(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'eraseCustomer'>>> {
+  return adminCall<'eraseCustomer'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/erase', {
+      storeId,
+      customerId,
+    }),
+    method: 'POST',
+  });
+}

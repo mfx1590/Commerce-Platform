@@ -50,9 +50,7 @@ export default async function SegmentDetailPage({
   const canWrite = relations.includes('store_admin') || relations.includes('owner');
 
   // Bound on the server — an arrow wrapper does not cross the boundary (global gotcha).
-  const preview = previewSegmentAction.bind(null, storeId, segmentId) as (
-    rules: SegmentRules,
-  ) => ReturnType<typeof previewSegmentAction>;
+  const preview = previewSegmentAction.bind(null, storeId, segmentId);
   const save = canWrite
     ? ((async (rules: SegmentRules) =>
         updateSegmentAction(storeId, segmentId, {

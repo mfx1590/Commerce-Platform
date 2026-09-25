@@ -10,7 +10,7 @@ import { OrdersTable } from '@/app/(store)/[storeId]/orders/orders-table';
 import { ORDERS_TABLE_DEFAULTS } from '@/app/(store)/[storeId]/orders/orders-table.config';
 import type { ActionResult } from '@/lib/forms/action-result';
 import type { OrderPermissions } from '@/lib/orders/permissions';
-import { forActions, forFulfilment, forLines } from '@/lib/orders/projection';
+import { forActions, forFulfilment, forLines, forOrderRows } from '@/lib/orders/projection';
 import { DEFAULT_LIMIT, type TableQuery } from '@/lib/table/query-state';
 import { IDS, line, order, ret, shipment } from './fixtures/orders';
 
@@ -97,7 +97,13 @@ describe('orders table', () => {
   it('renders money from minor units in the store locale and each status as a named pill', () => {
     const summary = order();
     render(
-      <OrdersTable storeId="store-1" locale="nl-NL" rows={[summary]} total={1} query={query()} />,
+      <OrdersTable
+        storeId="store-1"
+        locale="nl-NL"
+        rows={forOrderRows([summary])}
+        total={1}
+        query={query()}
+      />,
     );
     const table = screen.getByRole('table', { name: 'Orders' });
     expect(within(table).getByRole('link', { name: '#1000' })).toHaveAttribute(
