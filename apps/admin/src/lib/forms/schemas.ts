@@ -29,7 +29,9 @@ type Undefinable<T> = T extends readonly (infer Element)[]
     ? { [K in keyof T]?: Undefinable<T[K]> | undefined }
     : T;
 
-type MatchesContract<Schema, Contract> = [Exclude<keyof Schema, keyof Contract>] extends [never]
+export type MatchesContract<Schema, Contract> = [Exclude<keyof Schema, keyof Contract>] extends [
+  never,
+]
   ? Schema extends Undefinable<Contract>
     ? true
     : { error: 'a value type drifted from the contract'; schema: Schema; contract: Contract }
@@ -294,3 +296,48 @@ export const customerUpdateSchema = z.object({
   status: z.enum(CUSTOMER_EDITABLE_STATUSES).optional(),
 });
 export type CustomerUpdateValues = z.infer<typeof customerUpdateSchema>;
+
+// ---------------------------------------------------------------------------- pricing (task 2.4)
+
+export const PRICE_LIST_TYPES = ['default', 'sale', 'override'] as const;
+export const PRICE_LIST_STATUSES = ['active', 'draft', 'expired'] as const;
+
+const optionalUuid = z.union([z.string().uuid('Enter a uuid'), z.literal('')]).optional();
+/** `datetime-local` input value or empty; the action turns it into an ISO date-time or null. */
+const optionalDateTime = z
+  .union([
+    z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/, 'Enter a date and time'),
+    z.literal(''),
+  ])
+  .optional();
+
+/** `createPriceList` — the form's values; `toPriceListBody` maps them onto `PriceListInput`. */
+export const priceListCreateSchema = z.object({
+  code: kebabCase('code'),
+  name: z.string().min(1, 'Enter a name'),
+  type: z.enum(PRICE_LIST_TYPES),
+  currency: currencyCode,
+  customer_group_id: optionalUuid,
+  sales_channel_id: optionalUuid,
+  starts_at: optionalDateTime,
+  ends_at: optionalDateTime,
+  status: z.enum(PRICE_LIST_STATUSES),
+  priority: z.number().int('Whole numbers only').min(0),
+});
+export type PriceListCreateValues = z.infer<typeof priceListCreateSchema>;
+
+/**
+ * One row of a bulk price upsert, exactly as the contract types it. The action validates every
+ * row of a batch with this before anything is sent — a row the CSV preview rejected cannot reach
+ * the API by editing the request in the browser.
+ */
+export const priceUpsertRowSchema = z.object({
+  variant_id: z.string().uuid(),
+  amount_minor: z.number().int('Amounts are whole minor units').min(0),
+  compare_at_minor: z.number().int('Amounts are whole minor units').min(0).nullable().optional(),
+  min_quantity: z.number().int().min(1).optional(),
+});
+export const priceUpsertBatchSchema = z.object({
+  prices: z.array(priceUpsertRowSchema).min(1, 'Nothing to save'),
+});
+export type PriceUpsertBatch = z.infer<typeof priceUpsertBatchSchema>;

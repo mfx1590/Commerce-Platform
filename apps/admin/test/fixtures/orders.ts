@@ -8,14 +8,15 @@ type Shipment = AdminComponents['Shipment'];
 type Return = AdminComponents['Return'];
 
 /** Ids shaped like the contract's own examples; the words at the end name the fixture. */
+/** Valid uuids; the tails are hex words so a failing assertion still reads (no digit tails). */
 export const IDS = {
-  order: '30000000-0000-4000-8000-0000000order1',
-  lineTee: '30000000-0000-4000-8000-00000000line1',
-  lineCap: '30000000-0000-4000-8000-00000000line2',
-  payment: '60000000-0000-4000-8000-0000000000pay1',
-  refund: '60000000-0000-4000-8000-00000000refund1',
-  shipment: '60000000-0000-4000-8000-000000000ship1',
-  ret: '60000000-0000-4000-8000-0000000return1',
+  order: '30000000-0000-4000-8000-0000000beef1',
+  lineTee: '30000000-0000-4000-8000-00000000face',
+  lineCap: '30000000-0000-4000-8000-00000000fade',
+  payment: '60000000-0000-4000-8000-00000000feed',
+  refund: '60000000-0000-4000-8000-00000000cafe',
+  shipment: '60000000-0000-4000-8000-00000000bead',
+  ret: '60000000-0000-4000-8000-00000000deaf',
   warehouseEu: '00000000-0000-4000-8000-000000000021',
 } as const;
 
