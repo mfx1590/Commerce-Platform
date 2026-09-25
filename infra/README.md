@@ -562,18 +562,27 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 `.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
 belongs to the main window.
 
-| job              | runs when   | what it does                                                                                                                                                                         |
-| ---------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                                                                 |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ`                                                                                                 |
-| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                        |
-| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                       |
-| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                                                                   |
-| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                             |
-| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every `apps/*` Playwright journey (brand storefronts opt-in, below) |
-| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                                                                      |
-| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                           |
-| `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                               |
+| job              | runs when   | what it does                                                                                                                                                                                                     |
+| ---------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                                                                                             |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ` / `perf`                                                                                                                    |
+| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                                                    |
+| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                                                   |
+| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                                                                                               |
+| `perf`           | `perf`      | window 3's storefront performance gate: build the storefront's workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter @platform/storefront-starter perf` (bundle budget + Lighthouse, exit 1 if either is over) |
+| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                                         |
+| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every `apps/*` Playwright journey (brand storefronts opt-in, below)                             |
+| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                                                                                                  |
+| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                                       |
+| `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                                           |
+
+**`perf` is a gate, not a report** (#257). `scripts/perf.mjs` runs the bundle budget and Lighthouse CI
+(median of three) and exits non-zero if either is exceeded; nothing in the job is `continue-on-error`, and on
+failure the `.lighthouseci` reports are uploaded as the `lighthouse-reports` artifact. It fires on
+`apps/storefront-starter/**`, the packages the storefront builds from (`packages/ui`, `packages/contracts`,
+`cms/`) and the workspace root files — not on every `code` change, because ~5 minutes of `next build` plus
+six Lighthouse runs buys nothing on a core-only PR. A new workspace dependency of the storefront belongs in
+the pattern in `infra/ci/changes.sh`.
 
 **`images` is narrower on a PR than `code` is.** A source change under `apps/**` or `packages/**` no longer
 rebuilds the six images: only a `Dockerfile`, `.dockerignore`, `infra/docker/**`, `infra/ci/**` or a
@@ -662,6 +671,7 @@ what changed
 lint + typecheck
 unit tests (with Postgres, RLS)
 contract tests (Prism)
+storefront performance budget (bundle + Lighthouse)
 app images (build only, no push)
 terraform fmt + validate
 helm lint + template + kubeconform
