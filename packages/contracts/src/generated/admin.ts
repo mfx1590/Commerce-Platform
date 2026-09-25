@@ -4912,6 +4912,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "warehouse_code": "wh-eu",
+                     *           "shipments": [
+                     *             {
+                     *               "id": "60000000-0000-4000-8000-000000000301",
+                     *               "order_id": "30000000-0000-4000-8000-000000000501",
+                     *               "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *               "carrier": "manual",
+                     *               "service": null,
+                     *               "tracking_number": null,
+                     *               "tracking_url": null,
+                     *               "label_url": null,
+                     *               "cost": null,
+                     *               "status": "pending",
+                     *               "items": [
+                     *                 {
+                     *                   "order_line_item_id": "30000000-0000-4000-8000-000000000901",
+                     *                   "quantity": 1
+                     *                 }
+                     *               ],
+                     *               "shipped_at": null,
+                     *               "delivered_at": null
+                     *             }
+                     *           ]
+                     *         }
+                     *       ],
+                     *       "page": {
+                     *         "page": 1,
+                     *         "limit": 20,
+                     *         "total": 1
+                     *       }
+                     *     }
+                     */
                     "application/json": {
                         items: {
                             /** Format: uuid */

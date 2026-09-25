@@ -1,6 +1,6 @@
 // Public API of the marketing module (window 17). Nothing outside this folder may import from its other files.
-// Phase 2.1: campaigns + the attribution report. Feeds live in apps/feeds; segments, abandoned-cart recovery and
-// the rest follow in 2.2–2.4.
+// Campaigns + reports, feeds (render + store; apps/feeds serves them), segments + the window 16 sync payload, and
+// abandoned-cart recovery. README.md has the design; CLAUDE.md the short version.
 export {
   createCampaign,
   deleteCampaign,
@@ -64,6 +64,8 @@ export type {
   ProductFeedRow,
 } from './feed-types';
 export { attributionReport } from './reports';
+export { promotionReport } from './promotion-report';
+export type { PromotionReport, PromotionReportQuery } from './promotion-report';
 // Abandoned-cart recovery (2.4). `validateRecoveryToken` is what window 1's Store API route calls (#246).
 export {
   consumeAbandonedCarts,
