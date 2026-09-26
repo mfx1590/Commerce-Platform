@@ -72,7 +72,7 @@ describe('store navigation per role fixture', () => {
       ['catalog', 'orders', 'customers', 'promotions', 'content', 'marketing', 'settings'],
     ],
     // store_staff authors content and marketing, but Customers now needs `support` (0.2.1)
-    ['storeStaff', ['catalog', 'orders', 'promotions', 'content', 'marketing']],
+    ['storeStaff', ['catalog', 'orders', 'promotions', 'content', 'marketing', 'settings']],
     // an organization `support` is support on every store, so it reaches customer records
     ['support', ['catalog', 'orders', 'customers', 'promotions']],
     // the other organization relations imply store viewer and nothing more
@@ -109,11 +109,17 @@ describe('store navigation per role fixture', () => {
     }
   });
 
-  it('never shows Settings to a store_staff user, on any of their stores', () => {
+  it('shows Settings to a store_staff user on each of their stores (read-only there, #117)', () => {
     for (const store of principals.storeStaff.stores) {
-      expect(ids(visibleStoreSections(principals.storeStaff, store.store_id))).not.toContain(
+      expect(ids(visibleStoreSections(principals.storeStaff, store.store_id))).toContain(
         'settings',
       );
+    }
+  });
+
+  it('never shows Settings to a store viewer from an organization relation', () => {
+    for (const key of ['finance', 'operations', 'analyst', 'support'] as const) {
+      expect(ids(visibleStoreSections(principals[key], brandA))).not.toContain('settings');
     }
   });
 });

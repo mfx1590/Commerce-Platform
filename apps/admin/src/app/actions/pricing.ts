@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createPriceList, upsertPrices } from '@/lib/api/admin';
-import type { AdminComponents } from '@/lib/api/admin-client';
+import type { AdminComponents, AdminResponse } from '@/lib/api/admin-client';
 import { compact } from '@/lib/api/payload';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
 import {
@@ -50,7 +50,7 @@ export async function upsertPricesAction(
   storeId: string,
   priceListId: string,
   prices: unknown,
-): Promise<ActionResult<AdminComponents['Page'] extends never ? never : { upserted: number }>> {
+): Promise<ActionResult<AdminResponse<'upsertPrices'>>> {
   const parsed = priceUpsertBatchSchema.safeParse({ prices });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

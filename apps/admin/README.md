@@ -445,7 +445,50 @@ rows the preview accepted are sent, and the server action re-validates the whole
 (`priceUpsertBatchSchema`) and refuses it entirely — naming the row — if anything slipped in.
 Rejections are named: a non-integer minor amount for the currency (`12.345` in EUR, `12.5` in JPY),
 words, negatives, an unknown SKU, a compare-at below the amount, a bad minimum quantity. Amounts
-are parsed by `parseMoney`, string arithmetic, never a float.
+are parsed by `parseMoney`, string arithmetic, never a float. The action also refuses a
+compare-at below the amount (the preview and the core refuse it too); every refusal class has a
+batch test in `test/pricing.test.ts`, which is the standard for any money-adjacent import.
+
+## Store settings (task 2.5, issue #117 — part one; 2.5b after CONTRACT CHANGE #279)
+
+**Store · Settings** (`settings`, `/{storeId}/settings`) is open to **store_staff and up**, and
+read-only below store_admin. One page, four cards, each form offered only to the relation its
+operation needs and otherwise replaced by a line naming that relation (`src/lib/settings`):
+
+| Card           | Read (x-permission)             | Write (x-permission)                                      |
+| -------------- | ------------------------------- | --------------------------------------------------------- |
+| General        | `getStore` — viewer             | `updateStore` — store_admin (name, status, defaults)      |
+| Domains        | `listDomains` — viewer          | `addDomain` — **owner on organization:hq**, not the store |
+| Sales channels | `listSalesChannels` — viewer    | `createSalesChannel` — store_admin                        |
+| API keys       | `listApiKeys` — **store_admin** | `createApiKey` — store_admin, publishable only here       |
+
+Below store_admin the keys list is not even requested; the card is the relation panel. Moving the
+status to `paused` or `archived` asks first (it takes the storefront offline). The Store view's
+General action parses with `storeSettingsSchema.strict()`, so an edited request cannot reach the
+legal entity or the code — those are HQ's (`/stores/{id}`).
+
+**The one-time key.** `createApiKey` returns the plain key once. It lives in `CreateApiKey`'s state
+only — never in the URL, storage, a prop, a log, or the server-rendered list (which has
+`key_prefix`) — and "Done" removes it from the document for good (tested in unit and e2e).
+
+**Shared with HQ.** `src/components/registry/` holds the lists (server components, the records
+stay on the server) and the three client forms (ids and `ClientSafe` options only). The HQ store
+page and the settings page both use them; every registry action revalidates both paths.
+
+**Not yet (2.5b).** Revoking a key (with the last-live-key refusal), moving the primary domain and
+the enabled locale/currency sets have no operation in Admin API 0.4.6 — CONTRACT CHANGE #279
+asks for them. Nothing is shown for them until then.
+
+**Real core run** (2026-09-26; core from this branch on :9100, the built app on :3000 with
+`ADMIN_API_URL` pointing at it, real Keycloak sign-in, OpenFGA re-seeded). As **store-admin**: all
+four cards rendered from the core (`shop.brand-a.local` primary/unverified, channel `web`, key
+`storefront (dev)` live), the domain form replaced by "needs owner on organization:hq"; General
+saved unchanged → "Saved."; a new channel was created and listed; a new publishable key was shown
+once, gone from the document after Done and after a reload, never in the URL, and listed by
+prefix; choosing `paused` asked first (cancelled — the store stays active). As **store-staff**: no
+forms at all, every card read-only with the relation named, keys card the store_admin panel.
+No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
+redacted in the DOM before capture; no key value is committed.
 
 ## When a screen cannot show what was asked for
 

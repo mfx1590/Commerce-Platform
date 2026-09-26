@@ -74,11 +74,12 @@ const serpents = () =>
 const serpentNames = () => serpents().map((b) => b.getAttribute('aria-label'));
 
 describe('the rail is the permission model made visible', () => {
-  it('store_staff grows no Settings serpent', () => {
+  it('store_staff grows a Settings serpent (read-only settings, #117) but no Customers one', () => {
     renderRail('storeStaff');
     expect(serpentNames()).toContain('Catalog');
     expect(serpentNames()).toContain('Content');
-    expect(serpentNames()).not.toContain('Settings');
+    expect(serpentNames()).toContain('Settings');
+    expect(serpentNames()).not.toContain('Customers');
     // No HQ items at all, so there is no scope to switch to.
     expect(screen.queryByRole('group', { name: 'Scope' })).toBeNull();
   });

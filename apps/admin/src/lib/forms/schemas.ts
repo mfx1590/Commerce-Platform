@@ -78,6 +78,23 @@ export const storeUpdateSchema = storeCreateSchema.partial();
 export type StoreUpdateValues = z.infer<typeof storeUpdateSchema>;
 const _storeUpdateMatches: MatchesContract<StoreUpdateValues, AdminComponents['StoreInput']> = true;
 
+/**
+ * The Store view's General settings: what a store_admin may change about their own store. The
+ * legal entity and the code are HQ's (the HQ store form edits them); the enabled locale and
+ * currency sets wait for CONTRACT CHANGE #279 (2.5b).
+ */
+export const storeSettingsSchema = storeCreateSchema.pick({
+  name: true,
+  status: true,
+  default_currency: true,
+  default_locale: true,
+  default_country: true,
+  timezone: true,
+});
+export type StoreSettingsValues = z.infer<typeof storeSettingsSchema>;
+const _storeSettingsMatches: MatchesContract<StoreSettingsValues, AdminComponents['StoreInput']> =
+  true;
+
 export const PRODUCT_STATUSES = ['draft', 'published', 'archived'] as const;
 
 /**
@@ -331,12 +348,19 @@ export type PriceListCreateValues = z.infer<typeof priceListCreateSchema>;
  * row of a batch with this before anything is sent — a row the CSV preview rejected cannot reach
  * the API by editing the request in the browser.
  */
-export const priceUpsertRowSchema = z.object({
-  variant_id: z.string().uuid(),
-  amount_minor: z.number().int('Amounts are whole minor units').min(0),
-  compare_at_minor: z.number().int('Amounts are whole minor units').min(0).nullable().optional(),
-  min_quantity: z.number().int().min(1).optional(),
-});
+export const priceUpsertRowSchema = z
+  .object({
+    variant_id: z.string().uuid(),
+    amount_minor: z.number().int('Amounts are whole minor units').min(0),
+    compare_at_minor: z.number().int('Amounts are whole minor units').min(0).nullable().optional(),
+    min_quantity: z.number().int().min(1).optional(),
+  })
+  .refine(
+    // The CSV preview and the core both refuse this; the action must too, or an edited request
+    // would reach the core with a row the operator was told is invalid.
+    (row) => row.compare_at_minor == null || row.compare_at_minor >= row.amount_minor,
+    { message: 'compare_at is below the amount', path: ['compare_at_minor'] },
+  );
 export const priceUpsertBatchSchema = z.object({
   prices: z.array(priceUpsertRowSchema).min(1, 'Nothing to save'),
 });

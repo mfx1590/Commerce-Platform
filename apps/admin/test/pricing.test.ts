@@ -226,6 +226,10 @@ describe('the server action re-validates the batch — a rejected row can never 
         { variant_id: TEE_L, amount_minor: 9.99, min_quantity: 1 },
       ],
     ],
+    [
+      'a compare-at below the amount (the preview refuses it; an edited request must not pass)',
+      [{ variant_id: TEE_M, amount_minor: 1299, compare_at_minor: 999, min_quantity: 1 }],
+    ],
     ['an empty batch', []],
     ['not even an array', { variant_id: TEE_M, amount_minor: 1299 }],
   ])('refuses the whole batch with %s, and the API is never called', async (_label, batch) => {

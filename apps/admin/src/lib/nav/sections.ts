@@ -122,8 +122,8 @@ export const STORE_SECTIONS: readonly Section[] = [
     id: 'settings',
     label: 'Settings',
     scope: 'store',
-    requires: ['store_admin'],
-    why: 'updateStore / createSalesChannel / listApiKeys — x-permission store_admin on store:{storeId}',
+    requires: ['store_staff'],
+    why: '#117: store_staff reads the settings (getStore / listDomains / listSalesChannels are viewer); every mutation and the API keys list stay store_admin (addDomain: owner on organization:hq), gated on the page',
   },
 ] as const;
 

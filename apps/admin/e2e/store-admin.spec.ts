@@ -273,6 +273,32 @@ test.describe('store-admin', () => {
     await expect(page.getByRole('button', { name: 'Import 1 accepted row' })).toBeVisible();
   });
 
+  test('settings: domains are owner-only, and a new publishable key is shown exactly once', async ({
+    page,
+  }) => {
+    await signIn(page, `/${BRAND_A}/settings`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/settings$`));
+
+    await expect(page.getByRole('form', { name: 'General settings' })).toBeVisible();
+    // The mock's registry examples, rendered on the server.
+    await expect(page.getByText('shop.brand-a.example')).toBeVisible();
+    await expect(page.getByRole('list', { name: 'API keys' }).getByText('pk_brand…')).toBeVisible();
+    // store_admin is not owner on organization:hq: the domain form is replaced by what it needs.
+    await expect(page.getByRole('form', { name: 'Add domain' })).toHaveCount(0);
+    await expect(page.getByText(/Adding a domain needs/)).toContainText('owner on organization:hq');
+
+    const keyForm = page.getByRole('form', { name: 'New API key' });
+    await keyForm.getByLabel(/^Name/).fill('e2e storefront');
+    await keyForm.getByRole('button', { name: 'Create key' }).click();
+    const revealed = page.getByTestId('revealed-api-key');
+    await expect(revealed).toHaveText('pk_branda_mock_0000000000000000');
+    expect(page.url()).not.toContain('pk_branda_mock');
+
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(revealed).toHaveCount(0);
+    expect(await page.content()).not.toContain('pk_branda_mock_0000000000000000');
+  });
+
   test('the media rows can be reordered in the editor', async ({ page }) => {
     await signIn(page, `/${BRAND_A}/catalog/new`);
     await page.waitForURL(/\/catalog\/new/);

@@ -16,11 +16,13 @@ import {
   domainCreateSchema,
   salesChannelCreateSchema,
   storeCreateSchema,
+  storeSettingsSchema,
   storeUpdateSchema,
   type ApiKeyCreateValues,
   type DomainCreateValues,
   type SalesChannelCreateValues,
   type StoreCreateValues,
+  type StoreSettingsValues,
   type StoreUpdateValues,
 } from '@/lib/forms/schemas';
 import { fieldNames } from '@/lib/forms/schemas';
@@ -33,6 +35,12 @@ import { fieldNames } from '@/lib/forms/schemas';
  * The `x-permission` on every one of these is re-checked by the Admin API; nothing here is a
  * security boundary.
  */
+
+/** A registry change shows on the HQ store page and on the Store view's settings. */
+function revalidateStore(storeId: string): void {
+  revalidatePath(`/stores/${storeId}`);
+  revalidatePath(`/${storeId}/settings`);
+}
 
 export async function createStoreAction(
   values: StoreCreateValues,
@@ -57,9 +65,29 @@ export async function updateStoreAction(
   const result = await updateStore(storeId, compact(parsed.data));
   if (result.ok) {
     revalidatePath('/stores');
-    revalidatePath(`/stores/${storeId}`);
+    revalidateStore(storeId);
   }
   return toActionResult(result, fieldNames(storeUpdateSchema));
+}
+
+/**
+ * The Store view's General settings. Parsed with `storeSettingsSchema`, so a request edited in the
+ * browser cannot reach the legal entity or the code — those are HQ's.
+ */
+export async function updateStoreSettingsAction(
+  storeId: string,
+  values: StoreSettingsValues,
+): Promise<ActionResult<AdminComponents['Store']>> {
+  const parsed = storeSettingsSchema.strict().safeParse(values);
+  if (!parsed.success) {
+    return { status: 'error', fieldErrors: {}, formError: 'Some fields are not valid.' };
+  }
+  const result = await updateStore(storeId, parsed.data);
+  if (result.ok) {
+    revalidatePath('/stores');
+    revalidateStore(storeId);
+  }
+  return toActionResult(result, fieldNames(storeSettingsSchema));
 }
 
 export async function addDomainAction(
@@ -71,7 +99,7 @@ export async function addDomainAction(
     return { status: 'error', fieldErrors: {}, formError: 'Some fields are not valid.' };
   }
   const result = await addDomain(storeId, compact(parsed.data));
-  if (result.ok) revalidatePath(`/stores/${storeId}`);
+  if (result.ok) revalidateStore(storeId);
   return toActionResult(result, fieldNames(domainCreateSchema));
 }
 
@@ -84,7 +112,7 @@ export async function createSalesChannelAction(
     return { status: 'error', fieldErrors: {}, formError: 'Some fields are not valid.' };
   }
   const result = await createSalesChannel(storeId, parsed.data);
-  if (result.ok) revalidatePath(`/stores/${storeId}`);
+  if (result.ok) revalidateStore(storeId);
   return toActionResult(result, fieldNames(salesChannelCreateSchema));
 }
 
@@ -108,6 +136,6 @@ export async function createApiKeyAction(
       ? {}
       : { sales_channel_id: salesChannelId }),
   });
-  if (result.ok) revalidatePath(`/stores/${storeId}`);
+  if (result.ok) revalidateStore(storeId);
   return toActionResult(result, fieldNames(apiKeyCreateSchema));
 }
