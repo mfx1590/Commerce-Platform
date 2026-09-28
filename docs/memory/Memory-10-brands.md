@@ -31,12 +31,31 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.2 pushed as PR #280** (9ff624a), 13/13 CI checks green — but see the perf caveat below and
-  REQUEST #283: the perf check passed **vacuously**. Waiting on the reviewer's verdict.
-- **Start 2.3 with a re-sync.** main moved again while 2.2 was finishing and the starter gained
-  `src/lib/referral.ts`, `reviews.ts`, `safe-path.ts` and their tests. Deliberately NOT folded into
-  the 2.2 PR — one PR per task. Re-sync first thing in 2.3, on its own commit, and diff the two
-  package.json files while you are there.
+- **2.3 (#141) CMS content for brand A — plan written, awaiting the manager's confirmation.**
+
+  Order of commits (one PR):
+  1. **Re-sync from the starter** (queued from 2.2): `referral.ts`, `reviews.ts`, `safe-path.ts` + tests.
+  2. **`sync-from-starter.mjs` MERGE mode for `package.json`** (manager-approved): identity fields
+     (`name`, `version`, `dev` port, `sync`) survive; `scripts` + `dependencies` track the starter.
+     One test proving a starter script addition arrives AND name/port survive a re-sync.
+  3. **`cms/brand-a/` content** — my owned path; does not exist yet. Typed against `@platform/cms`
+     (`PageDocument` etc.), validated with its `validateDocument`. Per locale **en-GB + de-DE**:
+     home page, navigation, footer, 4 legal (imprint/privacy/terms/returns), 1 campaign landing
+     = ~8 docs × 2 locales.
+  4. **Seed runner in `cms/brand-a/`** reusing window 6's *pure* exported helpers (`readSeedEnv`,
+     `mutateUrl`, `missingCredentials`) — window 6's `scripts/seed.mjs` only knows its own generic
+     fixtures, and it is not my file. No duplicated logic, no edit outside my paths.
+  5. **Content snapshot test** — renders the real `(content)` route components against the real
+     brand-A documents through the injectable `CmsReader`, asserting no empty-state fallback text
+     appears. This is how the acceptance criterion is met offline (no Sanity credentials needed).
+  6. README + CHANGELOG + memory.
+
+  Content voice follows `src/brand/DESIGN.md` — copy is design, not filler.
+
+  **Flagged to the manager, not decided by me:** the statutory fields of a German *Impressum*
+  (registration court, HRB number, VAT ID, responsible person) are legally binding. I will write
+  structurally correct documents with those fields as clearly-marked placeholders and will NOT
+  invent registration numbers or compliance claims. Real legal review before production.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a (in PR)
