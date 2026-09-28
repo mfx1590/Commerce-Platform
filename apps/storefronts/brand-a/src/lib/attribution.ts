@@ -128,18 +128,106 @@ function isTouch(value: unknown): value is AttributionTouch {
   return typeof touch.landing_path === 'string' && typeof touch.at === 'string';
 }
 
+// ── size ceiling (#102) ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * A browser drops an oversized cookie **silently** — no exception, no log, nothing in a dashboard —
+ * so attribution would simply stop existing. The per-cookie limit is 4096 bytes for the whole
+ * `name=value; attributes` string; this budget is the value alone, leaving room for the name, the
+ * path, `Max-Age`, `SameSite` and `HttpOnly`.
+ */
+export const ATTRIBUTION_COOKIE_MAX_BYTES = 3500;
+
+/** What the browser actually stores: the cookie value is percent-encoded, which can triple bytes. */
+export function attributionCookieBytes(attribution: Attribution): number {
+  return encodeURIComponent(JSON.stringify(attribution)).length;
+}
+
+/** Progressively harsher value limits; the last resort keeps only what identifies a campaign. */
+const TRUNCATION_STEPS = [MAX_VALUE_LENGTH, 80, 30] as const;
+
+function truncateTouch(touch: AttributionTouch, limit: number): AttributionTouch {
+  const cut = (value: string | null): string | null =>
+    value === null ? null : value.slice(0, limit);
+  return {
+    utm_source: cut(touch.utm_source),
+    utm_medium: cut(touch.utm_medium),
+    utm_campaign: cut(touch.utm_campaign),
+    utm_term: cut(touch.utm_term),
+    utm_content: cut(touch.utm_content),
+    ref: cut(touch.ref),
+    referrer: cut(touch.referrer),
+    landing_path: touch.landing_path.slice(0, limit),
+    at: touch.at,
+  };
+}
+
+/** Everything that is not needed to credit a campaign, dropped. */
+function minimalTouch(touch: AttributionTouch): AttributionTouch {
+  return {
+    utm_source: touch.utm_source,
+    utm_medium: null,
+    utm_campaign: touch.utm_campaign,
+    utm_term: null,
+    utm_content: null,
+    ref: touch.ref,
+    referrer: null,
+    landing_path: '',
+    at: touch.at,
+  };
+}
+
+/**
+ * Shrink the attribution until the cookie the browser will be asked to store fits.
+ *
+ * The order is deliberate: values are truncated on both touches first, and only then is **`last`**
+ * reduced — the first touch is what actually acquired the customer, so it is the one that must
+ * survive. Reduction is capped at "still identifies a campaign"; nothing here can make the cookie
+ * unparseable, because every step returns a well-formed `Attribution`.
+ */
+export function capAttribution(attribution: Attribution): Attribution {
+  const candidates: Attribution[] = [
+    attribution,
+    ...TRUNCATION_STEPS.slice(1).map((limit) => ({
+      first: truncateTouch(attribution.first, limit),
+      last: truncateTouch(attribution.last, limit),
+      captured_at: attribution.captured_at,
+    })),
+    {
+      first: truncateTouch(attribution.first, TRUNCATION_STEPS[2]),
+      last: minimalTouch(attribution.last),
+      captured_at: attribution.captured_at,
+    },
+    {
+      first: minimalTouch(attribution.first),
+      last: minimalTouch(attribution.last),
+      captured_at: attribution.captured_at,
+    },
+  ];
+
+  return (
+    candidates.find(
+      (candidate) => attributionCookieBytes(candidate) <= ATTRIBUTION_COOKIE_MAX_BYTES,
+    ) ?? candidates[candidates.length - 1]!
+  );
+}
+
 /**
  * Fold a new touch into what is stored. The first touch is preserved for the life of the cookie;
  * the last is replaced. Returns the same object when nothing changes, so a caller can skip the
  * cookie write on an ordinary page view.
+ *
+ * The result is always within the cookie budget (#102): an oversized cookie is dropped by the
+ * browser without a word, which would lose the attribution entirely rather than partially.
  */
 export function mergeAttribution(
   existing: Attribution | null,
   touch: AttributionTouch | null,
 ): Attribution | null {
   if (touch === null) return existing;
-  if (existing === null) return { first: touch, last: touch, captured_at: touch.at };
-  return { first: existing.first, last: touch, captured_at: touch.at };
+  if (existing === null)
+    return capAttribution({ first: touch, last: touch, captured_at: touch.at });
+  return capAttribution({ first: existing.first, last: touch, captured_at: touch.at });
 }
 
 /**

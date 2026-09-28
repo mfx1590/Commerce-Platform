@@ -38,19 +38,66 @@ and its sales channel from it. `GET /health` answers 200 for the container HEALT
 
 Everything else is byte-identical to `apps/storefront-starter` at the commit of the last sync.
 
-| File                                     | Why                                                                                           |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `package.json`                           | name `@platform/storefront-brand-a`, version, dev port 3101, `sync` script                    |
-| `scripts/start.mjs`                      | default port 3101                                                                             |
-| `next.config.mjs`                        | brand env defaults (`SITE_URL`, `STORE_PUBLISHABLE_KEY`) via `??=`                            |
-| `playwright.config.ts`                   | `APP_URL` default :3101; mock webServer `cwd` one level deeper                                |
-| `lighthouserc.json`                      | audit URLs on :3101                                                                           |
-| `tsconfig.json`                          | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
-| `tailwind.config.ts`                     | kit-dist content glob one level deeper                                                        |
-| `scripts/sync-from-starter.mjs`          | new — the clone/re-sync script                                                                |
-| `README.md`, `CHANGELOG.md`, `CLAUDE.md` | this app's own docs (not copied)                                                              |
-| `Dockerfile`                             | **absent** — every Dockerfile is window 5's path; the brand image arrives via a REQUEST issue |
-| `src/brand/**`                           | the brand's tokens/slots — starter's versions until task 2.2 (#140)                           |
+| File                                              | Why                                                                                           |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `package.json`                                    | name `@platform/storefront-brand-a`, version, dev port 3101, `sync` script                    |
+| `test/slots.test.ts`                              | **temporary** — drops assertions that this brand overrides nothing (REQUEST #278)             |
+| `playwright.config.ts`                            | platform-keyed `snapshotPathTemplate` for visual baselines                                    |
+| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                    |
+| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                             |
+| `scripts/start.mjs`                               | default port 3101                                                                             |
+| `next.config.mjs`                                 | brand env defaults (`SITE_URL`, `STORE_PUBLISHABLE_KEY`) via `??=`                            |
+| `playwright.config.ts`                            | `APP_URL` default :3101; mock webServer `cwd` one level deeper                                |
+| `lighthouserc.json`                               | audit URLs on :3101                                                                           |
+| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
+| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                        |
+| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                |
+| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                              |
+| `Dockerfile`                                      | **absent** — every Dockerfile is window 5's path; the brand image arrives via a REQUEST issue |
+| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)  |
+
+## Theme
+
+Brand A's design is authored in **[`src/brand/DESIGN.md`](src/brand/DESIGN.md)** — there is no
+Figma, so that file is the design and the code is held to it. Change it there first.
+
+In short: calm editorial D2C apparel. Five named colours (Paper `#F7F4EF`, Ink `#23201B`, Clay
+`#9C4A32`, Sage `#5F6B57`, Stone `#746C60`), every pair measured against WCAG and re-measured in
+`test/brand-theme.test.ts`. Newsreader over Hanken Grotesk, self-hosted as woff2 under
+`src/brand/fonts/` and loaded with `next/font/local` so no build and no page view touches
+`fonts.gstatic.com`. Square corners, no shadows.
+
+The theme ships entirely through tokens — brand A overrides no component or layout slot. The fonts
+are wired through `tokens.ts` rather than a slot because the checkout and account layouts render no
+`Header`, and a font injected from a slot would drop out there; see DESIGN.md §5.
+
+### Checking the theme
+
+```bash
+pnpm --filter "@platform/storefront-brand-a^..." build   # workspace deps (ui, contracts, cms)
+pnpm --filter @platform/storefront-brand-a build          # the app itself — Lighthouse needs a production build
+pnpm mock                                                  # Prism Store API on :4010
+```
+
+then, with the app started as below, `pnpm --filter @platform/storefront-brand-a lighthouse` and
+`… bundle-budget`. The app must be started with **`ROBOTS_ALLOW_INDEXING=1`**: `/robots.txt` fails
+closed, and without it the SEO audit reads `Disallow: /` and lands around 0.58 rather than 0.92.
+
+```bash
+PORT=3101 STORE_API_URL=http://127.0.0.1:4010 SITE_URL=http://localhost:3101   ROBOTS_ALLOW_INDEXING=1 pnpm --filter @platform/storefront-brand-a start
+```
+
+Accessibility is checked by **axe over five pages, plus a contrast re-scan of the PDP**
+(`pnpm … e2e a11y`), not by Lighthouse alone — Lighthouse audits only the PLP and PDP and scored
+1.00 while the theme shipped a real AA failure in components that render on neither.
+
+**This runs locally, and is not yet a CI gate.** Brand-storefront e2e journeys stay opt-in
+(`E2E_INCLUDE_BRAND_STOREFRONTS=1`) until window 2 lands #212, so nothing in CI executes the a11y
+spec today; brand A opts in at 2.5 (#143). Run it by hand when you touch the theme. Visual baselines for home/PLP/PDP are opt-in
+(`E2E_VISUAL=1`) and keyed by platform; see `e2e/visual.spec.ts` before regenerating one.
+
+Measured on a production build (Lighthouse, median of 3): performance 0.96, accessibility
+**1.00**, SEO 0.92, CLS 0.0000 / 0.0001 (PLP / PDP).
 
 ## Re-syncing from the starter
 
@@ -63,6 +110,14 @@ pnpm --filter @platform/storefront-brand-a sync
 `scripts/sync-from-starter.mjs` copies the starter's tracked files over this app, skipping the
 excluded files and never overwriting the identity files or `src/brand/**` (the table above).
 Review the resulting git diff — that is the drift, by construction.
+
+Two things the PRESERVE list costs, worth checking after any sync:
+
+- **`package.json` never takes new starter scripts.** The starter added `perf` and `bundle-budget`
+  in its 2.3; this app only got them because 2.2 noticed and copied them across by hand.
+- **`test/slots.test.ts` is preserved while REQUEST #278 is open.** Drop it from `PRESERVE`,
+  re-sync, and delete the deviation comment once window 3 has moved the starter-only assertions
+  out of the shared test.
 
 ## Test
 
