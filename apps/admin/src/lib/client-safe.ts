@@ -14,6 +14,8 @@
  * Reviews #263 and #268 each found one instance of the leak; both are the reason this exists.
  */
 
+import type { AdminComponents } from './api/admin-client';
+
 declare const clientSafe: unique symbol;
 
 /** A nominal marker: only `makeProjection` produces values of a `ClientSafe` type. */
@@ -32,7 +34,31 @@ export function makeProjection<T extends object, K extends keyof T>(
   return out as ClientSafe<Pick<T, K>>;
 }
 
-/** For projections whose fields are computed rather than picked (a consent summary, a label). */
-export function markClientSafe<T extends object>(value: T): ClientSafe<T> {
-  return value as ClientSafe<T>;
+/** The contract records that carry PII — the same list `test/client-props-guard.test.ts` polices. */
+type PiiRecord = AdminComponents['Customer' | 'Order' | 'OrderSummary' | 'StaffUser' | 'Address'];
+
+type HoldsRecord<V> = V extends PiiRecord
+  ? true
+  : V extends readonly (infer Item)[]
+    ? HoldsRecord<Item>
+    : false;
+
+/** `T` itself, or `never` when `T` is a PII record or has a field (or list) holding one. */
+type RecordFree<T> =
+  true extends HoldsRecord<T>
+    ? never
+    : true extends { [K in keyof T]-?: HoldsRecord<T[K]> }[keyof T]
+      ? never
+      : T;
+
+/**
+ * For projections whose fields are computed rather than picked (a consent summary, a label).
+ *
+ * The escape hatch is narrowed, not open: a PII record, or an object with a field or list holding
+ * one, does not typecheck here (`test/client-safe.test.ts`). What remains — a hand-built object
+ * of scalars — is audited at the call site: every caller lives in a `projection.ts` next to its
+ * test that pins the key set and the wire JSON.
+ */
+export function markClientSafe<T extends object>(value: T & RecordFree<T>): ClientSafe<T> {
+  return value as unknown as ClientSafe<T>;
 }

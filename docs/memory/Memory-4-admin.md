@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-25 · Contracts: contracts-v0.3 (Store API 0.3.0, Admin API 0.3.0, events 0.2.0, db 0.2.0; tagged at the end of Integration 1) · Branch: `admin/phase2` · Status: Phase 2 in progress (#154 merged, 2.1 in PR, 2.2 next)
+Last updated: 2026-09-26 · Contracts: contracts-v0.4.6 (Admin API 0.4.6) · Branch: `admin/phase2` · Status: Phase 2 — 2.1–2.3 merged, 2.4 = #276 (MERGE, queued), 2.5 part one built locally, 2.5b waits on #279, 2.6 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,8 +16,32 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.5 part one — issue #117 Store settings (Refs, not Closes)** · 2026-09-26 · local commit
+  `6adf38a` + main merge (after #276 = 4cd1d38) · PR opened 2026-09-28, **Refs #117** (not Closes)
+  - `/{storeId}/settings`: General (updateStore, pause/archive asks first), Domains (add = owner on
+    hq only), Sales channels, API keys (store_admin; publishable only; one-time reveal). Section
+    widened **store_admin → store_staff** (read-only below store_admin; 5 nav/rail/shell tests
+    that pinned "staff never sees Settings" rewritten on purpose — #117 AC). Below store_admin the
+    keys list is not requested.
+  - `src/lib/settings` (permissions, `forStoreSettings`, `forChannelOptions`,
+    `statusChangeQuestion`); `src/components/registry/` shared with the HQ store page (server
+    lists + client forms; HQ `api-keys-panel`/`registry-panels` deleted, their tests moved to
+    `test/settings.test.tsx`); `updateStoreSettingsAction` = `storeSettingsSchema.strict()`;
+    registry actions revalidate `/stores/{id}` and `/{id}/settings`.
+  - Step-0 nits (a)–(f) done: `markClientSafe` refuses PII records at compile time
+    (`test/client-safe.test.ts`, `@ts-expect-error`); guard handles comment-preceded directive and
+    exported aliases across modules (found `orders/quantities` exporting `Order`; `ClientSafe<…>`
+    aliases exempt); compare_at ≥ amount in `priceUpsertRowSchema` + batch test; `AdminResponse<
+    'upsertPrices'>`; `editableFields` builder.
+  - Tests: unit 538/538, contract settings 10/10 (Prism :4217; full contract run 69/69 after the main merge), mock e2e 21/21 (+2 core-only
+    skipped) incl. the settings journey, lint/typecheck/prettier green.
+  - **Real core run** 2026-09-26 (core :9100 from this branch, app :3000, real Keycloak,
+    store-admin + store-staff): every card from the core, General save, channel create, key shown
+    once → gone after Done and reload, pause asks, staff fully read-only. No core defects.
+    Screenshots `docs/settings/` (key value redacted in the DOM before capture).
+
 - **2.4 — issue #116 Promotions and price lists** · 2026-09-24 · one commit, rebased onto main after #268
-  (dd8f424) on 2026-09-25 (sha in the PR) · PR open, closes #116
+  (dd8f424) on 2026-09-25 · **PR #276 MERGED as 4cd1d38** (#116 closed)
   - Wrappers for the 8 operations; `src/lib/promotions/form.ts` (Zod form values → `PromotionInput`
     / `PromotionPatch`, `MatchesContract`-pinned; `describeValue`, `parsePercent`, `readPromotion`
     for the generated type's optional read-back), `src/lib/pricing/csv.ts` (parser with per-row
@@ -345,20 +369,18 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **2.4 (#116) PR open** (2026-09-25) — 8f90e9e rebased onto merged main (after #268 = dd8f424,
-  which carried the #261 un-skip d78faf9). Waiting for review. Then the 2.5 plan-paste to the
-  manager before building.
-- **Later-touch nits from the #268 re-review** (not filed/fixed yet): (a) `markClientSafe` brands
-  any object — unrestricted escape hatch; restrict its input or document it as audited-only;
-  (b) the client-props guard's `'use client'` regex misses a comment-preceded directive;
-  (c) an imported type alias of a contract record evades the guard's PII pattern.
+- **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
+  commit sha arrives from the manager. Head `6a0bc0f`.
+- **2.5 part one = PR (Refs #117), in review** (2026-09-28). #279 ACCEPTED as filed → 0.4.7
+  after 2.5 merges; window 1 gets the registry work bundled with #265. Then 2.5b closes #117.
+- **Next: 2.6 (#118) plan-paste to the manager** before building.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
-- [x] **#116 · 2.4** Promotions and price lists screens — PR open
-- [ ] **#117 · 2.5** Store settings: domains, locales/currencies, sales channels, API keys
+- [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
+- [ ] **#117 · 2.5** Store settings — part one in PR (Refs #117); 2.5b after #279 (0.4.7) closes it
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
@@ -380,6 +402,13 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   hidden. Fix: parts cached per group in a `WeakMap`; both loops pause on `visibilitychange`.
 
 ## Decisions made (with reasons)
+- **Stack-level interventions go through the owner to the manager first — always** (manager,
+  2026-09-28). Killing Docker, `wsl --shutdown`, anything beyond the recorded recovery steps: ask,
+  and the OK must arrive BEFORE the action. The recorded recovery itself (start Desktop →
+  `wsl --shutdown` if wedged → compose start → fga:seed) is approved.
+- **Batch-refusal tests are the standard for every money-adjacent import surface** (manager, #276
+  verdict 2026-09-25): the server action re-validates the whole batch with the row schema and a
+  manipulated batch never reaches the API — one test per refusal class, as in `test/pricing.test.ts`.
 - **A 401/403 from a mutation is a `refusal`, not a `formError`.** A relation you do not hold is
   not a validation message; rendering the same `ApiStatePanel` the screen would render makes the
   refusal look identical whether it came from loading or from Save, and it can never be a silent
@@ -515,6 +544,12 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   no build step, so typecheck must pass without generated `.next/types`.
 
 ## Blocked / waiting
+- **CONTRACT CHANGE #279** (filed 2026-09-25, shape approved by the manager): `revokeApiKey`
+  (409 `last_live_key`), `updateDomain {is_primary}` (owner on hq), `Store.currencies/locales` in
+  the response + `updateStore` set-replacement → Admin API 0.4.7; core side is window 1's
+  registry (add-only `ON CONFLICT DO NOTHING` → set replacement), woken with #265. Blocks **2.5b**
+  (revoke, set primary, enabled locale/currency sets), which closes #117. Nothing in 2.5 needs a
+  mock for it — no placeholder UI.
 - **PR ordering** (manager note in CLAUDE.md): one branch, one open PR at a time. Open a PR, wait
   for the manager to merge it, then continue on the same branch — never stacked branches.
 - **CONTRACT CHANGE #56 accepted** as Admin API 0.2.0; sorting is live for `listStores` and
@@ -538,6 +573,23 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Contract-suite Prism ports are shared across windows' suites in one vitest run:** 4211 states,
+  4212 catalog, 4213 orders, 4214 customers, 4215 promotions, 4216 marketing (window 17), 4217
+  settings. A new suite takes the next free port — grep `test-contract` first (EADDRINUSE otherwise).
+- **Docker Desktop can wedge with the engine never answering** (backend log: "still waiting for
+  the engine to respond to _ping after 17h"; `docker info` → 500). Starting Desktop again does not
+  clear it. Fix (owner-approved 2026-09-26): kill the Docker processes, `wsl --shutdown`, start
+  Desktop, `docker compose -p commerce-platform -f infra/docker/docker-compose.yml start`, then
+  `pnpm --filter @platform/auth-sdk fga:seed` (OpenFGA is in-memory: it creates a new store and
+  rewrites `.env`'s OPENFGA ids).
+- **e2e webServer timeout (180 s) when the machine is busy** (a core booting alongside): build
+  once, start the app yourself with the config's env (PORT, ADMIN_API_URL/MOCK_ADMIN_API_URL =
+  :4011, ADMIN_APP_URL, ADMIN_SESSION_SECRET) — `reuseExistingServer` picks it up. The same build
+  serves the real-core run with only `ADMIN_API_URL` changed.
+- **Core from a worktree:** `cd apps/core && pnpm exec tsx src/server.ts` with the root `.env`
+  exported and `PORT=9100`; root-level `node --import tsx` cannot resolve tsx.
+- **Never trust a Playwright `mask` to hide a secret** — it drew the box at the wrong offset and
+  a real (local) key was captured. Replace the value in the DOM, then screenshot the element.
 - **A generated `required` from a spec `default` is not a runtime requirement.** openapi-typescript
   marks `PromotionRules.get_discount_bp` required because the spec gives it a default; the core
   refuses it on the types it does not apply to. Send what the contract's semantics say, cast once

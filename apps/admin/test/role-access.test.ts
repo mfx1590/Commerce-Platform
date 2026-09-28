@@ -103,14 +103,14 @@ describe('store route access, per role', () => {
   // part of what merely holding a relation on the store gets you.
   const viewerOnly = ['catalog', 'orders', 'promotions'];
   const withCustomers = ['catalog', 'orders', 'customers', 'promotions'];
-  const staff = [...viewerOnly, 'content', 'marketing'];
+  const staff = [...viewerOnly, 'content', 'marketing', 'settings'];
   const everything = [...withCustomers, 'content', 'marketing', 'settings'];
 
   const expected: Record<PrincipalKey, string[]> = {
     // owner is store_admin everywhere (owner from organization)
     owner: everything,
     storeAdmin: everything,
-    // store_staff authors content and marketing but does not administer the store
+    // store_staff authors content and marketing, and reads the settings without administering them
     storeStaff: staff,
     // an organization `support` is `support` on every store, so it reaches customer records
     support: withCustomers,
@@ -135,9 +135,9 @@ describe('store route access, per role', () => {
     expect(reachable).toEqual(['owner', 'support', 'storeAdmin']);
   });
 
-  it('Settings is store_admin, so no organization relation short of owner reaches it', () => {
+  it('Settings is store_staff and up (read-only below store_admin, #117); no organization relation short of owner reaches it', () => {
     const reachable = ROLES.filter((role) => canOpenStore(role, SEED.stores.brandA, 'settings'));
-    expect(reachable).toEqual(['owner', 'storeAdmin']);
+    expect(reachable).toEqual(['owner', 'storeAdmin', 'storeStaff']);
   });
 
   it('nothing at all is open on a store outside stores[]', () => {

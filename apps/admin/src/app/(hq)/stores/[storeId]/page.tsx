@@ -1,4 +1,8 @@
 import Link from 'next/link';
+import { CreateApiKey } from '@/components/registry/api-key-create';
+import { AddDomainForm } from '@/components/registry/domain-form';
+import { ApiKeyList, DomainList, SalesChannelList } from '@/components/registry/lists';
+import { CreateSalesChannelForm } from '@/components/registry/sales-channel-form';
 import { HqSectionGuard } from '@/components/shell/section-guard';
 import { ApiStatePanel, RequestErrorPanel } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
@@ -11,10 +15,9 @@ import {
   listLegalEntities,
   listSalesChannels,
 } from '@/lib/api/admin';
-import type { StoreCreateValues } from '@/lib/forms/schemas';
+import { API_KEY_TYPES, type StoreCreateValues } from '@/lib/forms/schemas';
+import { forChannelOptions } from '@/lib/settings';
 import { StoreForm } from '../store-form';
-import { ApiKeysPanel } from './api-keys-panel';
-import { DomainsPanel, SalesChannelsPanel } from './registry-panels';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,23 +107,25 @@ export default async function StoreDetailPage({
             title="Domains"
             description="Adding a domain needs owner on organization:hq."
           />
-          <CardBody>
+          <CardBody className="space-y-4">
             {domains.ok ? (
-              <DomainsPanel storeId={storeId} domains={domains.data.items} />
+              <DomainList domains={domains.data.items} />
             ) : (
               <RequestErrorPanel status={domains.status} error={domains.error} />
             )}
+            <AddDomainForm storeId={storeId} />
           </CardBody>
         </Card>
 
         <Card>
           <CardHeader title="Sales channels" />
-          <CardBody>
+          <CardBody className="space-y-4">
             {channels.ok ? (
-              <SalesChannelsPanel storeId={storeId} channels={channels.data.items} />
+              <SalesChannelList channels={channels.data.items} />
             ) : (
               <RequestErrorPanel status={channels.status} error={channels.error} />
             )}
+            <CreateSalesChannelForm storeId={storeId} />
           </CardBody>
         </Card>
 
@@ -129,13 +134,19 @@ export default async function StoreDetailPage({
             title="API keys"
             description="A new key's value is shown once and cannot be retrieved again."
           />
-          <CardBody>
+          <CardBody className="space-y-4">
             {keys.ok ? (
-              <ApiKeysPanel
-                storeId={storeId}
-                keys={keys.data.items}
-                salesChannels={channels.ok ? channels.data.items : []}
-              />
+              <>
+                <ApiKeyList
+                  keys={keys.data.items}
+                  channels={channels.ok ? channels.data.items : []}
+                />
+                <CreateApiKey
+                  storeId={storeId}
+                  channels={channels.ok ? forChannelOptions(channels.data.items) : []}
+                  types={API_KEY_TYPES}
+                />
+              </>
             ) : (
               <RequestErrorPanel status={keys.status} error={keys.error} />
             )}
