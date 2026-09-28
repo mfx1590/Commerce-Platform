@@ -36,6 +36,10 @@ const PRESERVE = new Set([
   // Path-depth fixes: this app sits one directory deeper than the starter.
   'tsconfig.json',
   'tailwind.config.ts',
+  // TEMPORARY, while REQUEST #278 is open: the starter's copy asserts this brand's own override
+  // files are empty, which is false by construction in a clone. Drop this line and re-sync once
+  // window 3 has moved those starter-only assertions out.
+  'test/slots.test.ts',
 ]);
 const isPreserved = (file) => PRESERVE.has(file) || file.startsWith('src/brand/');
 

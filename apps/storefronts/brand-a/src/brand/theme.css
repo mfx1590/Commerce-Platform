@@ -1,0 +1,25 @@
+/*
+ * Brand A's one stylesheet — DESIGN.md §3.
+ *
+ * It exists for a single reason: the kit maps `--ui-font-serif` onto a Tailwind `font-serif` class
+ * that nothing in the starter or the kit ever uses, so setting the token alone loads Newsreader and
+ * renders it nowhere. The display half of the type pairing needs one rule to reach the page. Caught
+ * by the visual baseline in `e2e/visual.spec.ts`, which is what that suite is for.
+ *
+ * Elements, not classes: a brand must not restyle the kit's components, and every heading in every
+ * route — including checkout and account, which render no Header — is the intended scope.
+ *
+ * No `@layer base`: this file is compiled on its own, without the `@tailwind` directives that
+ * `globals.css` carries, so a layer here has nothing to attach to. Plain element selectors are
+ * enough — Tailwind's preflight leaves headings inheriting their family, so there is nothing to
+ * outrank.
+ */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--ui-font-serif);
+  /* Newsreader is a text serif; at heading sizes it wants its lighter weights, not bold. */
+  font-weight: var(--ui-font-weight-medium);
+  letter-spacing: -0.01em;
+}
