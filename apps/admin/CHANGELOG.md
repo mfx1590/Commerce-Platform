@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added — task 2.6, issue #118: the real core as a first-class mode
+
+- **API mode line** above every page (`ApiModeBanner` in the shell): a `/health` probe (core 200,
+  Prism 404; cached a minute, 1.5 s timeout) shows `Prism mock · contracts X` or
+  `Core · contracts X`, and a **warning, never a block**, when the core reports another contracts
+  version, reports none (until REQUEST #284 adds `X-Contracts-Version`), or does not answer.
+- **Not-implemented detection** in `adminCall`, core only: a 404 without `not_found`, or a 401
+  while `/admin/me` with the same token answers 200 (until #265), becomes 501 `not_implemented`
+  with the route; `ApiStatePanel` / `RequestErrorPanel` render "Not available on this API yet"
+  naming it, instead of a missing record or a false "session ended".
+- **`E2E_API=core`** runs the whole suite against the core: no Prism, the app started (or reused)
+  against `CORE_URL`, a fast failure with instructions when the core is down; `e2e/api-mode.ts`
+  holds the mode differences; core-mode journeys stamp what they create and confirm nothing
+  irreversible. Default `pnpm e2e` unchanged. CI variant: REQUEST #285.
+- Tests: `test/api-mode.test.tsx` (probe, cache, verdicts, the three cases — expired session,
+  unmounted 401, unmounted 404 — plus not_found, Prism and `/admin/me` pass-throughs, panels).
+
 ### Added — task 2.5, issue #117 (part one): Store settings (Admin API 0.4.6)
 
 - **Settings** `/{storeId}/settings`, open to store_staff and up (the section was store_admin):
