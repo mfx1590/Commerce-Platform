@@ -7,7 +7,8 @@ import { render, screen } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { SEED_STORE_ID, preferring, startPrism, type PrismHandle } from './prism';
 
-const BASE = 'http://127.0.0.1:4216';
+// 4211–4216 are taken by the other suites (4216 = window 17's marketing suite).
+const BASE = 'http://127.0.0.1:4217';
 let prism: PrismHandle | undefined;
 process.env['ADMIN_API_URL'] = BASE;
 process.env['MOCK_ADMIN_API_URL'] = BASE;

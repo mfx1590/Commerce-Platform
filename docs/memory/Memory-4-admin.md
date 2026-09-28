@@ -17,7 +17,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 
 ## Done
 - **2.5 part one — issue #117 Store settings (Refs, not Closes)** · 2026-09-26 · local commit
-  (sha in the PR) · PR after #276's merge confirm + rebase on merged main
+  `6adf38a` + main merge (after #276 = 4cd1d38) · PR opened 2026-09-28, **Refs #117** (not Closes)
   - `/{storeId}/settings`: General (updateStore, pause/archive asks first), Domains (add = owner on
     hq only), Sales channels, API keys (store_admin; publishable only; one-time reveal). Section
     widened **store_admin → store_staff** (read-only below store_admin; 5 nav/rail/shell tests
@@ -33,7 +33,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     exported aliases across modules (found `orders/quantities` exporting `Order`; `ClientSafe<…>`
     aliases exempt); compare_at ≥ amount in `priceUpsertRowSchema` + batch test; `AdminResponse<
     'upsertPrices'>`; `editableFields` builder.
-  - Tests: unit 538/538, contract settings 10/10 (Prism :4216), mock e2e 21/21 (+2 core-only
+  - Tests: unit 538/538, contract settings 10/10 (Prism :4217; full contract run 69/69 after the main merge), mock e2e 21/21 (+2 core-only
     skipped) incl. the settings journey, lint/typecheck/prettier green.
   - **Real core run** 2026-09-26 (core :9100 from this branch, app :3000, real Keycloak,
     store-admin + store-staff): every card from the core, General save, channel create, key shown
@@ -41,7 +41,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     Screenshots `docs/settings/` (key value redacted in the DOM before capture).
 
 - **2.4 — issue #116 Promotions and price lists** · 2026-09-24 · one commit, rebased onto main after #268
-  (dd8f424) on 2026-09-25 (sha in the PR) · PR open, closes #116
+  (dd8f424) on 2026-09-25 · **PR #276 MERGED as 4cd1d38** (#116 closed)
   - Wrappers for the 8 operations; `src/lib/promotions/form.ts` (Zod form values → `PromotionInput`
     / `PromotionPatch`, `MatchesContract`-pinned; `describeValue`, `parsePercent`, `readPromotion`
     for the generated type's optional read-back), `src/lib/pricing/csv.ts` (parser with per-row
@@ -371,16 +371,16 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 ## In progress
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
-- **2.5 (#117) part one — done and verified, committed locally, NOT pushed.** PR says
-  **"Refs #117", NOT "Closes"**. Waiting for the manager's #276 merge confirm → merge main into
-  `admin/phase2` → rerun gates → push → open the PR. Then 2.6 plan-paste (2.5b when #279 lands).
+- **2.5 part one = PR (Refs #117), in review** (2026-09-28). #279 ACCEPTED as filed → 0.4.7
+  after 2.5 merges; window 1 gets the registry work bundled with #265. Then 2.5b closes #117.
+- **Next: 2.6 (#118) plan-paste to the manager** before building.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
-- [x] **#116 · 2.4** Promotions and price lists screens — PR open
-- [ ] **#117 · 2.5** Store settings — part one built (Refs #117); 2.5b after #279 closes it
+- [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
+- [ ] **#117 · 2.5** Store settings — part one in PR (Refs #117); 2.5b after #279 (0.4.7) closes it
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
@@ -402,6 +402,10 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   hidden. Fix: parts cached per group in a `WeakMap`; both loops pause on `visibilitychange`.
 
 ## Decisions made (with reasons)
+- **Stack-level interventions go through the owner to the manager first — always** (manager,
+  2026-09-28). Killing Docker, `wsl --shutdown`, anything beyond the recorded recovery steps: ask,
+  and the OK must arrive BEFORE the action. The recorded recovery itself (start Desktop →
+  `wsl --shutdown` if wedged → compose start → fga:seed) is approved.
 - **Batch-refusal tests are the standard for every money-adjacent import surface** (manager, #276
   verdict 2026-09-25): the server action re-validates the whole batch with the row schema and a
   manipulated batch never reaches the API — one test per refusal class, as in `test/pricing.test.ts`.
@@ -569,6 +573,9 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Contract-suite Prism ports are shared across windows' suites in one vitest run:** 4211 states,
+  4212 catalog, 4213 orders, 4214 customers, 4215 promotions, 4216 marketing (window 17), 4217
+  settings. A new suite takes the next free port — grep `test-contract` first (EADDRINUSE otherwise).
 - **Docker Desktop can wedge with the engine never answering** (backend log: "still waiting for
   the engine to respond to _ping after 17h"; `docker info` → 500). Starting Desktop again does not
   clear it. Fix (owner-approved 2026-09-26): kill the Docker processes, `wsl --shutdown`, start
