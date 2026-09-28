@@ -423,6 +423,30 @@ read-only. Addresses, a GDPR **export** and a customer-groups picker wait on CON
 so the screen shows the session-ended panel (`docs/customers/core-unimplemented.png`); once the
 core answers the contract's 404, task 2.6 turns that into a "not implemented yet" panel.
 
+## Promotions and price lists (task 2.4, issue #116)
+
+**Store · Promotions** (`promotions`). `/{storeId}/promotions` lists with the contract's sort and
+describes each value per type — basis points for a percentage, minor units for a fixed amount,
+the quantities for buy-x-get-y — plus a 30-day usage card from the marketing promotion report
+(window 17's route, read here; it fails alone). `/{storeId}/promotions/new` and
+`/{storeId}/promotions/{id}` are one form (`src/lib/promotions/form.ts` maps the typed fields onto
+`PromotionInput` / `PromotionPatch`, `MatchesContract`-pinned): the value input follows the type,
+conditions and limits are plain fields, stackable and exclusive exclude each other, and `code` /
+`type` are read-only on edit because the contract's patch has neither. Every mutation needs
+`store_admin`, is re-validated in the action and re-checked by the API.
+
+**Price lists** live under Promotions (`/{storeId}/promotions/price-lists`). The contract offers
+list, create and a bulk price upsert — no update or delete of a list, no read of a list's prices —
+so the editor (`/{storeId}/promotions/price-lists/{id}`) reads current prices from the products'
+variants (`variant.prices` by `price_list_id`) and writes with `upsertPrices`, changed rows only.
+
+**CSV import posture.** Paste a CSV, press Preview, read the verdict per row, then Import: only the
+rows the preview accepted are sent, and the server action re-validates the whole batch again
+(`priceUpsertBatchSchema`) and refuses it entirely — naming the row — if anything slipped in.
+Rejections are named: a non-integer minor amount for the currency (`12.345` in EUR, `12.5` in JPY),
+words, negatives, an unknown SKU, a compare-at below the amount, a bad minimum quantity. Amounts
+are parsed by `parseMoney`, string arithmetic, never a float.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:
@@ -499,31 +523,33 @@ message may contain whatever the server was holding, and this app handles tokens
 
 ## Layout
 
-| Path                                   | What lives there                                                     |
-| -------------------------------------- | -------------------------------------------------------------------- |
-| `src/app/(hq)/`                        | HQ routes (`/stores`, `/finance`, …)                                 |
-| `src/app/(hq)/marketing/`              | **Reserved for window 17** from Phase 2 (`docs/ownership.md`)        |
-| `src/app/(store)/`                     | Store routes (`/{storeId}/catalog`, …)                               |
-| `src/app/(store)/[storeId]/marketing/` | **Reserved for window 17** from Phase 2                              |
-| `src/app/api/auth/`                    | The OIDC endpoints                                                   |
-| `src/app/actions/`                     | Server actions (the store switcher's submit handler)                 |
-| `src/middleware.ts`                    | The auth gate and the only place that refreshes tokens               |
-| `src/lib/env.ts`                       | Server-side configuration and defaults                               |
-| `src/lib/auth/`                        | PKCE, discovery, token exchange, session sealing                     |
-| `src/lib/api/`                         | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`) |
-| `src/lib/nav/`                         | Sections, the relation algebra, and the selected-store cookie        |
-| `src/lib/table/`                       | URL table state and the row-selection model (both pure)              |
-| `src/lib/forms/`                       | Contract schemas, server-error mapping, money parsing (all pure)     |
-| `src/components/form/`                 | `useContractForm`, field chrome, `MoneyField`                        |
-| `src/components/table/`                | The `DataTable` primitive                                            |
-| `src/lib/orders/`                      | Order arithmetic: quantities, refund ceiling + key, timeline, gates  |
-| `src/lib/customers/`                   | Consent rows/summary from the free-form contract object (pure)       |
-| `src/components/rail/`                 | The Medusa rail: serpents, geometry (pure), config, list fallback    |
-| `src/components/shell/`                | The frame: rail + top bar, store switcher, section guards            |
-| `public/`                              | The head artwork and the committed fonts (OFL)                       |
-| `src/components/states/`               | Every state panel plus the `ApiStatePanel` dispatcher                |
-| `src/components/ui/`                   | Presentational primitives (`cn`, Button, Card, Badge)                |
-| `test/`                                | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures |
+| Path                                      | What lives there                                                           |
+| ----------------------------------------- | -------------------------------------------------------------------------- |
+| `src/app/(hq)/`                           | HQ routes (`/stores`, `/finance`, …)                                       |
+| `src/app/(hq)/marketing/`                 | **Reserved for window 17** from Phase 2 (`docs/ownership.md`)              |
+| `src/app/(store)/`                        | Store routes (`/{storeId}/catalog`, …)                                     |
+| `src/app/(store)/[storeId]/marketing/`    | **Reserved for window 17** from Phase 2                                    |
+| `src/app/api/auth/`                       | The OIDC endpoints                                                         |
+| `src/app/actions/`                        | Server actions (the store switcher's submit handler)                       |
+| `src/middleware.ts`                       | The auth gate and the only place that refreshes tokens                     |
+| `src/lib/env.ts`                          | Server-side configuration and defaults                                     |
+| `src/lib/auth/`                           | PKCE, discovery, token exchange, session sealing                           |
+| `src/lib/api/`                            | Admin API transport (`admin-client.ts`) and typed calls (`admin.ts`)       |
+| `src/lib/nav/`                            | Sections, the relation algebra, and the selected-store cookie              |
+| `src/lib/table/`                          | URL table state and the row-selection model (both pure)                    |
+| `src/lib/forms/`                          | Contract schemas, server-error mapping, money parsing (all pure)           |
+| `src/components/form/`                    | `useContractForm`, field chrome, `MoneyField`                              |
+| `src/components/table/`                   | The `DataTable` primitive                                                  |
+| `src/lib/orders/`                         | Order arithmetic: quantities, refund ceiling + key, timeline, gates        |
+| `src/lib/customers/`                      | Consent rows/summary from the free-form contract object (pure)             |
+| `src/lib/promotions/`, `src/lib/pricing/` | Promotion form mapping + value description; CSV parser, editor diff (pure) |
+| `src/lib/client-safe.ts`                  | The projection brand every `'use client'` prop must carry                  |
+| `src/components/rail/`                    | The Medusa rail: serpents, geometry (pure), config, list fallback          |
+| `src/components/shell/`                   | The frame: rail + top bar, store switcher, section guards                  |
+| `public/`                                 | The head artwork and the committed fonts (OFL)                             |
+| `src/components/states/`                  | Every state panel plus the `ApiStatePanel` dispatcher                      |
+| `src/components/ui/`                      | Presentational primitives (`cn`, Button, Card, Badge)                      |
+| `test/`                                   | Vitest suites; `test/fixtures/principals.ts` holds the role fixtures       |
 
 `src/lib/api/admin-client.ts`, `src/lib/auth/session.ts` and everything in `src/lib/nav/` except
 `selected-store.ts` avoid `next/*` imports on purpose, so they run unchanged in the Node runtime,

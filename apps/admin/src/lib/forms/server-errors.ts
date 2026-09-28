@@ -39,12 +39,43 @@ export function isKnownField(path: string, knownFields: readonly string[]): bool
   return root !== undefined && root !== '' && knownFields.includes(root);
 }
 
+/**
+ * Some backends key their validation details by JSON pointer instead of naming one `field`:
+ * `{ '/value': 'basis points 1..10000', '/rules/buy_quantity': 'required' }` (the core's promotion
+ * validation, found in the 2.4 real-core run). Each pointer becomes a field path.
+ */
+function pointerDetails(error: AdminError): [string, string][] {
+  const details = error.details as Record<string, unknown> | undefined;
+  if (details === undefined) return [];
+  return Object.entries(details).flatMap(([key, value]) =>
+    key.startsWith('/') && typeof value === 'string'
+      ? [[key.slice(1).replaceAll('/', '.'), value] as [string, string]]
+      : [],
+  );
+}
+
 export function mapServerError(
   failure: { status: number; error: AdminError },
   knownFields: readonly string[] = [],
 ): FormErrors {
   const { status, error } = failure;
   const field = detailString(error, 'field');
+
+  if ((status === 400 || status === 409) && field === null) {
+    const pointed = pointerDetails(error);
+    if (pointed.length > 0) {
+      const fieldErrors: Record<string, string> = {};
+      const elsewhere: string[] = [];
+      for (const [path, message] of pointed) {
+        if (isKnownField(path, knownFields)) fieldErrors[path] = message;
+        else elsewhere.push(`${path}: ${message}`);
+      }
+      return {
+        fieldErrors,
+        formError: elsewhere.length === 0 ? null : `${error.message} (${elsewhere.join('; ')})`,
+      };
+    }
+  }
 
   if ((status === 400 || status === 409) && field !== null) {
     if (isKnownField(field, knownFields)) {

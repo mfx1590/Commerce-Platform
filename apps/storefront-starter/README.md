@@ -149,6 +149,7 @@ dependency.
 | `(checkout)` | `/cart`, `/checkout/{address,shipping,payment,review}`, `/orders/[orderId]`      | window 3                       |
 | `(account)`  | `/account`, `/account/orders` (plus `/auth/*` and `/health`, outside `[locale]`) | window 3 → window 13 (Phase 3) |
 | `(content)`  | `/pages/[slug]`                                                                  | window 6                       |
+| _(none)_     | `/r/{code}` — referral landing, outside the locale tree                          | window 3                       |
 
 `(checkout)` deliberately has its own chrome: no navigation, nothing that invites the customer out of
 the funnel.
@@ -280,6 +281,67 @@ which is where reporting should read it. `metadata` is specified in the contract
 0.2.0 (CONTRACT CHANGE #100), so the storefront types these bodies straight from
 `@platform/contracts/store`.
 
+## Marketing hooks
+
+Three surfaces window 17's marketing work reads or feeds (task 2.4, docs/marketing-scope.md).
+
+**`/r/{code}` — the referral landing.** A short shared link. It records the code as a marketing
+touch and sends the visitor on, so the code reaches the order through
+`cart.metadata.attribution.*.ref` exactly like a `?ref=` parameter — no contract change, and
+reporting needs nothing new. It reuses `readTouch` and `mergeAttribution`, so first-touch
+preservation, the size cap and the no-PII rule all apply unchanged.
+
+It sits **outside `[locale]`** and the middleware skips it: a printed or texted referral link should
+not have to carry a locale, and the redirect would otherwise take a second hop. Both of its inputs
+are untrusted, so both are narrowed (`src/lib/referral.ts`):
+
+| Input    | Rule                                                                                                                                                                                                                                                                                              |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{code}` | 4–64 of `A–Z a–z 0–9 - _`. No dots (a dot reads as a file extension to the matcher), no slashes, no whitespace. An unusable code still redirects — a mistyped link is a customer we would rather keep — it simply records nothing.                                                                |
+| `?to=`   | A path on this site (`isSafeInternalPath`). Another origin, protocol-relative `//host`, a backslash, **any control character**, or another `/r/` link all fall back to `/`; the route then asserts the resolved origin as well. An open redirect here would let anyone borrow the brand's domain. |
+
+302, not 308: the destination is a query parameter and the cookie must be written on every click, so
+a browser or scanner must not cache the hop as permanent.
+
+**Why two layers, and why control characters.** WHATWG URL parsing **strips tab, newline and
+carriage return before parsing**, so a target that merely starts with a single `/` can still resolve
+elsewhere: `new URL('/\t/evil.example', origin).origin` is `https://evil.example`. `searchParams.get()`
+decodes `%09`, `%0A` and `%0D` into exactly those characters, so `?to=%2F%09%2Fevil.example` was
+enough — and a guard that only rejects `//` and backslashes never saw it (found in review of #273).
+
+So the rule rejects control characters outright **and** every caller re-checks the resolved origin
+before redirecting. The first layer is a claim about strings and can be reasoned around again; the
+second is what the browser will actually do. `isSafeInternalPath` and `isSameOrigin` live in
+`src/lib/safe-path.ts` and are **shared with sign-in's `returnTo`** — the same rule existed in two
+copies, and the copy is what shipped the bypass. `returnTo` had it too, where it matters more: that
+redirect happens after the customer has authenticated.
+
+**PDP reviews.** `src/lib/reviews.ts` + `src/components/product-reviews.tsx`. The block renders
+**nothing** when there are no reviews — not an empty state: "no reviews yet" on every product of a new
+catalogue announces that nobody has bought anything. The rating is stated as text (`4 out of 5`) with
+the stars `aria-hidden`, each review is an `<article>` in a list, and dates are `<time datetime>`.
+
+**The Store API has no review shape** (`grep -c review store-api.yaml` → 0; window 17's reviews are
+Phase 3). Until it does, reviews are read from the product's free-form `attributes.reviews` and every
+field is validated — a record without a usable id or a 1–5 rating is dropped rather than rendered as
+"undefined stars". The typed shape is proposed in **CONTRACT CHANGE #270**; when it lands, the only
+change here is deleting `fromProductMetadata`.
+
+No `aggregateRating` is emitted in JSON-LD, deliberately: Google treats a rating it cannot corroborate
+as a rich-result violation, and no stars beats invented ones.
+
+**Feed-friendly PDP data.** GTIN, brand and per-variant availability are already in the PDP's
+`Product` JSON-LD (see "SEO"): one `Offer` per variant with that variant's own price and
+availability, `brand` from `brand_name`, and `gtin` from `attributes.gtin` when a brand sets it. That
+is the per-SKU shape window 17's Google and Meta feeds want.
+
+**CMS home content.** The home page mounts window 6's `HomeContent` (REQUEST #178) above the store
+facts, so a marketer's hero, blocks and **campaign embeds** appear on `/` and not only under
+`(content)`. It renders nothing until a `page` document with slug `home` is published, and an
+unreachable or unconfigured CMS is caught and logged rather than taking the home page down — `/` is
+the one URL that must always render. Embedded pages are framed under window 6's sandbox plus this
+app's `frame-src` (see "Security headers").
+
 ## Accounts
 
 Sign-in is OIDC authorization code + **PKCE** against the Keycloak customers realm.
@@ -395,8 +457,13 @@ for its own image. Verified by building with no `KEYCLOAK_URL` and starting with
 the header carries the staging origin. The embed host list is the one build-time input — it is code,
 not environment — and reaches the middleware as `CSP_FRAME_HOSTS` via `next.config.mjs` `env`.
 
-Routes the middleware skips (`/api`, `/auth`, `/health`, static files) get no CSP; none of them
-renders a document to protect.
+Routes the middleware skips get no CSP: `/api`, `/auth`, `/health`, `/r/*` and **anything with a
+file extension**. None of them renders a document today — they are JSON, redirects or the health
+probe. The gap to know about is `public/`: a static `.html` file served from there would be a real
+document with **no CSP at all**, because the matcher excludes it by extension and `next.config.mjs`
+no longer carries the policy. This app ships no `public/` directory, so nothing is exposed now. A
+brand that adds one should serve such a page as a route instead, or add its path to the matcher —
+not widen the extension rule, which exists to keep the middleware off every image and script.
 
 **`script-src` still needs `'unsafe-inline'`.** Next's App Router emits inline bootstrap and
 flight-data scripts, and removing that needs a per-request nonce threaded through the middleware and
@@ -414,7 +481,13 @@ pnpm --filter @platform/storefront-starter perf
 
 It makes a production build against the mock, checks the **bundle budget**, starts the server, runs
 **Lighthouse CI** (median of three, mobile), stops the server whatever happened, and reports both
-results — one failure never hides the other. `--skip-build` reuses `.next`; `--bundle-only` skips
+results — one failure never hides the other.
+
+The measured run sets `ROBOTS_ALLOW_INDEXING=1`, because it is measuring the configuration that goes
+to production. Without it `/robots.txt` serves `Disallow: /` — correct for staging — and Lighthouse's
+`is-crawlable` audit fails, taking the SEO category from ~92 to **58**. Task 2.3 shipped the gate and
+the robots change in the same PR and only measured before the robots change, so the gate would have
+failed the first time CI ran it. `--skip-build` reuses `.next`; `--bundle-only` skips
 Lighthouse. Both gates were proven to fail: lowering the PDP bundle budget to 100 kB and the LCP
 budget to 100 ms each turned the exit code to 1, and restoring them returned it to 0.
 
@@ -427,16 +500,40 @@ budget to 100 ms each turned the exit code to 1, and restoring them returned it 
 | Web fonts                  | —                    | **none**: the system font stack, zero requests                        |
 | Third-party scripts        | —                    | **none**, and the CSP's `script-src 'self'` blocks any that are added |
 
-**First-load JS** (gzipped, kB, measured 2026-09-21), from `scripts/bundle-budget.mjs`:
+**First-load JS per route.** The table below is generated — `bundle-budget.json` holds the budgets
+and `scripts/bundle-budget.mjs` measures the build, so there is one source for both and the gate
+fails if this block drifts from it. Refresh with
+`pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`.
 
-| Route                     | First load | Budget |
-| ------------------------- | ---------- | ------ |
-| `/` (home)                | 130.5      | 136    |
-| PLP `/products`           | 136.0      | 141    |
-| PDP `/products/[handle]`  | 139.0      | 144    |
-| Category                  | 136.0      | 141    |
-| Cart                      | 139.5      | 145    |
-| Checkout address / review | 133.6      | 139    |
+<!-- bundle-budget:start -->
+
+| Route                                         | First load (gzipped) | Budget             |
+| --------------------------------------------- | -------------------- | ------------------ |
+| `/[locale]/(account)/account/orders/page`     | 130.5 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/page`            | 133 kB               | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 139.5 kB             | 145 kB             |
+| `/[locale]/(checkout)/checkout/address/page`  | 133.6 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/page`          | 129.2 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/payment/page`  | 133.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/review/page`   | 133.6 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/shipping/page` | 133.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/orders/[orderId]/page`  | 130.5 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/campaign/[slug]/page`    | 131.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/legal/[slug]/page`       | 131.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/pages/[slug]/page`       | 131.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(shop)/categories/[handle]/page`   | 136 kB               | 141 kB             |
+| `/[locale]/(shop)/page`                       | 130.5 kB             | 136 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 139 kB               | 144 kB             |
+| `/[locale]/(shop)/products/page`              | 136 kB               | 141 kB             |
+| `/_not-found/page`                            | 102.9 kB             | 145 kB _(default)_ |
+
+_Generated by `pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`; budgets live in `bundle-budget.json`._
+<!-- bundle-budget:end -->
+
+**Every route is checked**, not just the budgeted ones: a route with no entry falls back to
+`routes.default`. An unlisted route used to be silently unchecked — the one way a budget stops
+protecting anything — and windows 6 and 13 add routes to this app without being able to edit
+`bundle-budget.json`, so a per-route entry cannot be a requirement.
 
 These read **~1.6 kB higher than `next build`'s "First Load JS" column**, deliberately: Next counts
 only a page's own entry and leaves out its layouts' entry chunks, which the browser downloads all the
@@ -467,12 +564,12 @@ nothing that reflects on the app is skipped.
 The config targets `127.0.0.1`, not `localhost`: on Windows `localhost` resolves to `::1` first,
 where nothing listens, and Lighthouse then fails to connect to a server that is plainly running.
 
-Latest Lighthouse run (2026-09-20, median of 3, against the mock, after task 2.2):
+Latest Lighthouse run (2026-09-24, median of 3, against the mock, after task 2.4):
 
-| Page                   | Perf | A11y | Best practices | SEO    | LCP    | TBT    | CLS |
-| ---------------------- | ---- | ---- | -------------- | ------ | ------ | ------ | --- |
-| `/en-GB/products`      | 95   | 100  | 96             | 92–100 | 2.24 s | 222 ms | 0   |
-| `/en-GB/products/…tee` | 93   | 100  | 96             | 92–100 | 2.40 s | 263 ms | 0   |
+| Page                   | Perf | A11y | Best practices | SEO    |
+| ---------------------- | ---- | ---- | -------------- | ------ |
+| `/en-GB/products`      | 98   | 100  | 96             | 92–100 |
+| `/en-GB/products/…tee` | 94   | 100  | 96             | 92–100 |
 
 The SEO range is not noise in the measurement but a real property of the build: see "SEO" above for
 why metadata placement varies with cache warmth, and what making it deterministic would cost.

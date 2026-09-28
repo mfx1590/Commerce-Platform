@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { NextResponse, type NextRequest } from 'next/server';
 import { defaultLocale, isSupportedLocale } from '@/i18n/routing';
 import { exchangeCode, oidcConfigFromEnv, safeReturnTo } from '@/lib/auth/oidc';
+import { isSameOrigin } from '@/lib/safe-path';
 import { saveSession, sessionFromTokens } from '@/lib/auth/session';
 
 /**
@@ -55,5 +56,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   clearTransient(jar);
-  return NextResponse.redirect(new URL(returnTo, origin));
+  // Same second layer as the referral landing: a `returnTo` that resolves off this origin sends the
+  // customer to the account page instead. This one matters more — they have just authenticated.
+  const destination = new URL(returnTo, origin);
+  return NextResponse.redirect(
+    isSameOrigin(destination, origin) ? destination : new URL(`/${locale}/account`, origin),
+  );
 }

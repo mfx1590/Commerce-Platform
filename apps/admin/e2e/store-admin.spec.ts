@@ -215,6 +215,64 @@ test.describe('store-admin', () => {
     await expect(page.getByRole('button', { name: 'Yes, erase' })).toBeDisabled();
   });
 
+  test('promotions: the list describes values, the form validates per type before anything is sent', async ({
+    page,
+  }) => {
+    await signIn(page, `/${BRAND_A}/promotions`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/promotions$`));
+
+    const table = page.getByRole('table', { name: 'Promotions' });
+    await expect(table).toBeVisible();
+    // The mock's example: WELCOME10, 10 %, active.
+    await expect(table.getByText('WELCOME10')).toBeVisible();
+    await expect(table.getByText(/10 %/)).toBeVisible();
+    // The usage card from the marketing report.
+    await expect(page.getByRole('table', { name: 'Promotion usage' })).toBeVisible();
+
+    await page.getByRole('link', { name: 'New promotion' }).click();
+    await page.waitForURL(/\/promotions\/new/);
+    await page.getByLabel(/^Name/).fill('E2E percent');
+    await page.getByLabel(/^Code/).fill('e2e10');
+    // Percentage without a value: refused client-side, with the message under the field.
+    await page.getByRole('button', { name: 'Create promotion' }).click();
+    await expect(page.getByText('Enter a percentage')).toBeVisible();
+    await page.getByLabel(/^Percentage/).fill('12.5');
+    await page.getByRole('button', { name: 'Create promotion' }).click();
+    // The mock answers 201 with its example; the app navigates to what was created.
+    await page.waitForURL(new RegExp(`/${BRAND_A}/promotions/[0-9a-f-]{36}$`));
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  });
+
+  test('price lists: the CSV preview rejects a bad row and never offers to import it', async ({
+    page,
+  }) => {
+    await signIn(page, `/${BRAND_A}/promotions/price-lists`);
+    await page.waitForURL(/\/promotions\/price-lists$/);
+    const lists = page.getByRole('table', { name: 'Price lists' });
+    await lists.getByRole('link').first().click();
+    await page.waitForURL(new RegExp(`/${BRAND_A}/promotions/price-lists/[0-9a-f-]{36}`));
+
+    const csv = page.getByLabel('CSV');
+    await expect(csv).toBeVisible();
+    // `listProducts` has no example in the spec, so Prism generates the products and their SKUs:
+    // the known SKU is read from the editor's first row rather than assumed. The second CSV row
+    // is unknown, the third has three decimals in a two-decimal currency.
+    const firstSku = page
+      .locator('table[aria-label^="Prices in"] tbody tr')
+      .first()
+      .locator('.font-mono')
+      .first();
+    await expect(firstSku).toBeVisible();
+    const sku = (await firstSku.innerText()).trim();
+    await csv.fill(`sku,amount\n${sku},19.99\nNOPE,1\n${sku},1.999`);
+    await page.getByRole('button', { name: 'Preview' }).click();
+    await expect(page.getByText('1 accepted · 2 rejected')).toBeVisible();
+    const preview = page.getByRole('table', { name: 'CSV preview' });
+    await expect(preview.getByText('Unknown SKU or variant: NOPE')).toBeVisible();
+    await expect(preview.getByText(/not a whole number of minor units/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Import 1 accepted row' })).toBeVisible();
+  });
+
   test('the media rows can be reordered in the editor', async ({ page }) => {
     await signIn(page, `/${BRAND_A}/catalog/new`);
     await page.waitForURL(/\/catalog\/new/);

@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-21 · Contracts: contracts-v0.4.4 (Store API 0.3.1; the `currency` query is in use since 2.1) · Branch: `storefront/phase2` · Status: Phase 2 · 2.1 + 2.2 merged, 2.3 in PR, 2.4 next
+Last updated: 2026-09-24 · Contracts: contracts-v0.4.4 (Store API 0.3.1; the `currency` query is in use since 2.1) · Branch: `storefront/phase2` · Status: **Phase 2 complete for this window** — 2.1–2.3 merged, 2.4 in PR
 
 ## Identity (does not change)
 
@@ -129,8 +129,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       292 app tests (21 files) + 47 kit tests; lint, typecheck, format, `next build`, Playwright
       (5 passed / 4 skipped — Keycloak not running locally) and Lighthouse all green.
 
-- [x] **2.3 (#111) Performance budget in CI and image pipeline** — PR pending; SHAs recorded in the
-      commit **after** the PR merges (see the gotcha on amending to record a SHA).
+- [x] **2.3 (#111) Performance budget in CI and image pipeline** — commit `a77fd86`, **PR #256
+      merged** (merge commit `009e250`, 2026-09-24). Two further commits in it fixed defects that
+      existed only in a built image: `5d64315` (CSP per request in the middleware — sign-out was
+      blocked in every deployed image) and `cb30ed5` (robots.txt per request, indexing opt-in).
       `pnpm --filter @platform/storefront-starter perf`: production build against the mock, bundle
       budget, `next start`, Lighthouse CI, server always stopped, one exit code, both gates always
       run. **Proven both ways:** PDP bundle budget 100 kB → exit 1, LCP budget 100 ms → exit 1 (a
@@ -142,6 +144,20 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       only in a built image** (see Decisions): the CSP moved to the middleware, robots.txt is per
       request and opt-in. REQUEST to window 5 filed with the PR (perf job + Helm values).
       312 app tests (24 files) + 47 kit tests; lint, typecheck, format, `next build`, e2e green.
+
+- [x] **2.4 (#112) Marketing hooks: referral landing, review display, feed-friendly PDP data** —
+      PR pending (SHAs go in the next commit). **Closes Phase 2 for this window.**
+      `/r/{code}` outside `[locale]` and excluded from the middleware matcher: records the code as a
+      marketing touch through the same `readTouch`/`mergeAttribution` path as `?ref=`, so it reaches
+      the order as `cart.metadata.attribution.*.ref` with no contract change. Code and `?to=` both
+      narrowed (`src/lib/referral.ts`); 302 so the hop is never cached. PDP review block
+      (`src/lib/reviews.ts`, `src/components/product-reviews.tsx`) renders nothing without data,
+      states the rating as text with the stars `aria-hidden`, `<time datetime>` per review; reviews
+      read from `product.attributes.reviews` until **CONTRACT CHANGE #270** lands. Window 6's
+      `HomeContent` mounted on `/` (REQUEST #178) so campaign embeds reach the shop. Feed data (GTIN,
+      brand, per-variant availability) already shipped in 2.2's JSON-LD. Plus the three #256 review
+      nits — see Decisions. 339 app tests (26 files) + 47 kit tests; lint, typecheck, format,
+      `next build`, `perf`, and the new `/r/` e2e (3 specs) green.
 
 ## In progress
 
@@ -195,13 +211,46 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **Review nits from #254, deferred by the manager ("not now"):** (a) the comment in
+- [ ] **Review nits from #254, still deferred by the manager ("not now"):** (a) the comment in
       `src/app/[locale]/layout.tsx` cites `test/seo-head.test.ts`, **which does not exist** — the
       head-placement check was done by hand against the built HTML, so either write that test or
       drop the reference; (b) `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice.
-- [ ] **#112 · 2.4** Marketing hooks: referral landing, review display, feed-friendly PDP data
 
 ## Decisions made (with reasons)
+
+- **One definition of "a path on this site", plus an origin assertion at every redirect.** The rule
+  lived in two copies (`safeReferralTarget`, `safeReturnTo`) and the copy shipped an open redirect;
+  it now lives in `src/lib/safe-path.ts`. Two layers on purpose: `isSafeInternalPath` is a claim
+  about strings and can be reasoned around again, while `isSameOrigin` on the built URL is what the
+  browser will actually do. A future redirect target must use both.
+
+- **CONTRACT CHANGE #270 ACCEPTED as filed (manager, 2026-09-24), all four decisions approved**,
+  landing in the next contracts batch after 2.4 merges. One constraint added at landing: `author`
+  must be a name **provided or chosen at review time, never derived from customer PII** — so when
+  the typed field arrives, do not fall back to `customer.first_name` or anything from the account.
+  The producer route is separate (marketing reviews are already moderated Admin-side) and gets wired
+  when real review data exists; until then the block rendering nothing is the approved behaviour, and
+  no `aggregateRating` is emitted.
+
+- **The referral code is recorded through the existing touch path, not a parallel one.** `/r/{code}`
+  builds the same `readTouch` input a `?ref=` visit would, so first-touch preservation, the 4 KB cap
+  and the no-PII rule are inherited rather than re-implemented — and window 17's reporting reads the
+  field it already reads.
+- **A referral link is public input twice over.** The code is shape-checked (no dots: a dot reads as
+  a file extension to the middleware matcher) and `?to=` must be a path on this site, because an open
+  redirect on a referral link lets anyone borrow the brand's domain. An unusable code still
+  redirects: a mistyped link is a customer worth keeping, and it simply records nothing.
+- **The review block renders nothing, not an empty state.** "No reviews yet" on every product of a
+  new catalogue announces that nobody has bought anything. And **no `aggregateRating` in JSON-LD**
+  until the data is real — Google treats an uncorroborated rating as a rich-result violation, and an
+  average of `0` would read as "rated zero out of five".
+- **Every route is in the bundle budget, via `routes.default`.** An unlisted route was silently
+  unchecked, which is how a budget quietly stops protecting anything; but requiring an entry per
+  route would fail windows 6 and 13 for a file they are not allowed to edit.
+- **The README's budget table is generated and verified.** Budgets had two copies — the file and a
+  hand-written table — free to drift. The block is now rendered from the measurement, and the gate
+  fails if the routes or budgets differ. Only the budget column is enforced: failing a build because
+  a first-load figure moved 200 bytes would train everyone to ignore it.
 
 - **Nothing that differs per environment may be decided at build time.** The deployment model is
   one image, configured per environment at runtime (Helm `env:` per values file). Anything baked by
@@ -430,6 +479,42 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **URL parsing strips tab, newline and carriage return *before* parsing, so `/\t/evil.example`
+  resolves to `https://evil.example`.** A path guard that checks only the leading characters cannot
+  see it, and `searchParams.get()` decodes `%09`/`%0A`/`%0D` into exactly those characters. This was
+  a live open redirect in `/r/{code}?to=` **and** in sign-in's `returnTo` (worse: followed after
+  authentication). Reject control characters, and re-check the resolved origin before redirecting.
+  Caught in review of #273, not by me.
+- **A literal control character breaks its own guard's source.** Writing `\u2028` into a regex
+  literal as the real character makes TypeScript report "unterminated regular expression literal"
+  (it ends the line), and a literal `\x00`–`\x1f` class trips ESLint's `no-control-regex` — which is
+  a good rule, because that pattern is usually a typo. Checking code points in a small loop says
+  what is refused and survives any editor.
+
+- **The perf gate failed on its own defaults, and I reported it green from a stale run.** 2.3 added
+  `perf` and changed `robots.txt` to `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, in the same PR.
+  The `perf` run I quoted happened before the robots change; afterwards Lighthouse's
+  `is-crawlable` audit fails and SEO drops from ~92 to **58**, so the CI job in REQUEST #257 would
+  have failed the first time it ran. `perf` now sets the variable, because it measures the
+  configuration that ships. **Re-run every gate after the last change in a PR, not after the last
+  change you happened to be thinking about.**
+
+- **A `public/*.html` file would be served with no CSP.** The middleware matcher skips anything with
+  a file extension and the policy now lives only in the middleware, so a static HTML page in
+  `public/` is a document with no policy at all. This app ships no `public/`; a brand that adds one
+  must serve such a page as a route rather than widen the extension rule, which exists to keep the
+  middleware off every image and script.
+- **A route outside `[locale]` needs the middleware matcher changed, not just the file.** Without
+  adding `r/` to the exclusion, `/r/CODE` is rewritten into `/en-GB/r/CODE` and 404s. Unit tests
+  cannot see this — it is why `/r/` has an e2e spec.
+- **Walking a rendered tree in a test stops at a child component** unless the walker invokes it: the
+  `aria-hidden` stars live inside `<Stars>`, so the first version of the a11y assertion passed
+  vacuously against a tree that did not contain them. A test helper that silently sees less than the
+  page does is worse than no test.
+- **A namespaced `getTranslations` mock must carry the namespace.** Mocking it as
+  `() => (key) => key` makes every assertion about a message key match the wrong string, so the test
+  agrees with itself and not with the page.
 
 - **`next.config.mjs` `images.loader: 'custom'` disables `/_next/image` entirely** — requests to
   it 404, including for hosts `remotePatterns` allows. A "custom loader with a fallback to the
