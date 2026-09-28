@@ -25,8 +25,9 @@ Three defects from review, two of which were the code disagreeing with `src/bran
   carrying headings. `src/brand/theme.css` (one rule, element selectors) puts headings on it. Found
   by the new visual baseline — which is what that suite is for.
 - **#140's own acceptance criteria**, which the first PR description replaced with its own list:
-  - **axe in the e2e suite** — `e2e/a11y.spec.ts`, six pages, full WCAG 2.1 A/AA, zero
-    `color-contrast` violations. Two rules are suppressed with a documented, issue-linked allowlist:
+  - **axe in the e2e suite** — `e2e/a11y.spec.ts`, five pages plus a contrast re-scan of the PDP,
+    full WCAG 2.1 A/AA, zero `color-contrast` violations. Local only for now: CI does not run the
+    spec until window 2 lands #212's opt-in. Two rules are suppressed with a documented, issue-linked allowlist:
     `dlitem` + `definition-list`, one inherited starter defect (REQUEST #286).
   - **Visual regression snapshots for home/PLP/PDP** — `e2e/visual.spec.ts`, platform-keyed and
     opt-in via `E2E_VISUAL=1`. Tolerance tightened from 0.01 to 0.002 after 0.01 proved loose
@@ -67,7 +68,8 @@ Three defects from review, two of which were the code disagreeing with `src/bran
   starter: `package.json` is on the PRESERVE list, so it had silently missed them.
 - `test/slots.test.ts` temporarily deviates and is preserved on sync — the starter's copy asserts
   this brand's override files are empty, which is false by construction in a clone (REQUEST #278).
-- Measured on a production build: performance 0.99 / 0.97, accessibility **1.00**, SEO 0.92,
+- Measured on a production build: performance 0.99 / 0.97 — **superseded, see 0.2.1**, which
+  re-measured 0.96 / 0.96 after the review fixes — accessibility **1.00**, SEO 0.92,
   CLS 0.0000 / 0.0001 (PLP / PDP); bundle budget green on all seven routes.
 
 ## 0.1.0 — 2026-09-09 · task 2.1 (#139)

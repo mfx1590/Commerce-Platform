@@ -27,6 +27,27 @@ const clay = '#9C4A32'; // the single accent: links, sale marks
 const sage = '#5F6B57'; // quiet support: in-stock marks, editorial pull-outs
 const stone = '#6B6357'; // muted text, rules, metadata — the colour of a caption
 
+const muted = '#EFEBE4'; // Paper, darker — the surface under a quiet block
+const border = '#DFD9CF'; // Paper, darker — decorative hairline rules
+const input = '#8F8676'; // Stone, lighter — the boundary of a text field (WCAG 1.4.11)
+const destructive = '#8F3A2B'; // Clay, deeper — an error state
+
+/**
+ * The palette, as data, so exactly one place defines it.
+ *
+ * `test/brand-theme.test.ts` parses the two tables in DESIGN.md §2 and asserts they quote these
+ * values and no others, in both directions. An earlier version of that test compared the tokens
+ * against a Set of hex literals copied into the test file — drift with extra steps, as review
+ * called it, because that Set was a third copy of the palette and editing §2 alone still passed.
+ * Add a colour here and to §2, or to neither.
+ */
+export const BRAND_PALETTE = {
+  /** DESIGN.md §2 "The five", keyed by the names that table uses. */
+  named: { Paper: paper, Ink: ink, Clay: clay, Sage: sage, Stone: stone },
+  /** DESIGN.md §2 "The four derived", keyed by the token each one sets. */
+  derived: { muted, border, input, destructive },
+} as const;
+
 export const brandTokens: BrandTokens = {
   color: {
     background: paper,
@@ -36,18 +57,18 @@ export const brandTokens: BrandTokens = {
     //
     // `muted` is a surface, `mutedForeground` the text on it. A shade off Paper rather than a grey,
     // so a quiet block still reads as paper. Stone on it measures 4.98:1.
-    muted: '#EFEBE4',
+    muted,
     mutedForeground: stone,
     card: paper,
     cardForeground: ink,
     // `border` draws decorative hairline rules — a divider carries no information a sighted user
     // needs to identify a control, so WCAG 1.4.11 does not apply to it (1.28:1 against Paper).
-    border: '#DFD9CF',
+    border,
     // `input` is NOT the same value, and that is deliberate. It draws the boundary of a text field,
     // which *is* a user-interface component under WCAG 1.4.11 and needs 3:1 — the whole checkout is
     // form fields. It measures 3.28:1 on Paper and 3.03:1 on `muted`. Sharing one light value with
     // `border` (as the kit's defaults do) leaves every field edge effectively invisible.
-    input: '#8F8676',
+    input,
     ring: ink,
     // Primary is Ink, not the accent: a black button on cream is the editorial move, and it
     // measures 14.79:1. Clay is reserved for the one warm thing on the page.
@@ -59,7 +80,7 @@ export const brandTokens: BrandTokens = {
     accentForeground: paper,
     // Destructive and success are re-tuned into the palette's warmth rather than left on the kit's
     // stock red and green, which read as a system alert on this background.
-    destructive: '#8F3A2B',
+    destructive,
     destructiveForeground: paper,
     success: sage,
     successForeground: paper,

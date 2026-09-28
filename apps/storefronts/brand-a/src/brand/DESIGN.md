@@ -258,7 +258,7 @@ file describes how brand A looks, not what it sells.
 
   | Measured (Lighthouse, median of 3, production build) | PLP    | PDP    |
   | ---------------------------------------------------- | ------ | ------ |
-  | Performance                                          | 0.99   | 0.97   |
+  | Performance                                          | 0.96   | 0.96   |
   | Accessibility                                        | 1.00   | 1.00   |
   | SEO                                                  | 0.92   | 0.92   |
   | Cumulative layout shift                              | 0.0000 | 0.0001 |
@@ -270,7 +270,7 @@ file describes how brand A looks, not what it sells.
   exists to close, to fix a problem that measures at 0.0001.
 
 - No token in this design adds a network request, an animation, or a blocking script.
-- **axe runs over six pages in the end-to-end suite** (`e2e/a11y.spec.ts`) against the full WCAG 2.1
+- **axe runs over five pages, plus a contrast re-scan of the PDP** (`e2e/a11y.spec.ts`), against the full WCAG 2.1
   A/AA rule set, not contrast alone. This exists because Lighthouse's 1.00 audited only the PLP and
   PDP and missed a real AA failure in components that render on neither.
 - **Visual baselines for home / PLP / PDP** (`e2e/visual.spec.ts`), keyed by platform and opt-in via

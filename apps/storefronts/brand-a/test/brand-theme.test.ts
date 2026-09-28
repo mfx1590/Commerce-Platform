@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -24,7 +25,7 @@ vi.mock('next/font/local', () => ({
 
 const { brandConfig, siteUrl } = await import('@/brand/config');
 const { displaySerif, textSans } = await import('@/brand/fonts');
-const { brandTokens } = await import('@/brand/tokens');
+const { BRAND_PALETTE, brandTokens } = await import('@/brand/tokens');
 
 /**
  * Brand A's theme, held to `src/brand/DESIGN.md`.
@@ -62,22 +63,57 @@ describe('brand A palette', () => {
     expect(color.mutedForeground).toBe('#6B6357'); // Stone
   });
 
-  it('ships exactly the four derived values DESIGN.md §2 lists, and no others', () => {
-    // Guards the drift that review caught: tokens shipping hex the design never names. Every colour
-    // token must be one of the five hues, one of the four documented derived values, or an alias.
-    const allowed = new Set([
-      '#F7F4EF',
-      '#23201B',
-      '#9C4A32',
-      '#5F6B57',
-      '#6B6357', // the five
-      '#EFEBE4',
-      '#DFD9CF',
-      '#8F8676',
-      '#8F3A2B', // the four derived
+  /**
+   * The single-source guard. `tokens.ts` exports `BRAND_PALETTE`; DESIGN.md §2 prints two tables.
+   * These tests read both and assert they agree **in both directions**, so neither can be edited
+   * alone.
+   *
+   * The previous version compared the tokens against a Set of hex literals written into this file,
+   * which review called drift with extra steps — correctly: that Set was a third copy of the
+   * palette, so changing §2 by itself still passed. Nothing here restates a colour.
+   */
+  const design = readFileSync(new URL('../src/brand/DESIGN.md', import.meta.url), 'utf8');
+
+  /** `| **Paper** | \`#F7F4EF\` | …` — the "The five" table. */
+  const namedInDesign = new Map(
+    [...design.matchAll(/^\|\s*\*\*(\w+)\*\*\s*\|\s*`(#[0-9A-Fa-f]{6})`\s*\|/gm)].map((m) => [
+      m[1] as string,
+      m[2] as string,
+    ]),
+  );
+
+  /** `| \`muted\` | \`#EFEBE4\` | …` — the "The four derived" table. */
+  const derivedInDesign = new Map(
+    [...design.matchAll(/^\|\s*`(\w+)`\s*\|\s*`(#[0-9A-Fa-f]{6})`\s*\|/gm)].map((m) => [
+      m[1] as string,
+      m[2] as string,
+    ]),
+  );
+
+  it('§2 "The five" quotes exactly the five the tokens export', () => {
+    expect(Object.fromEntries(namedInDesign)).toEqual(BRAND_PALETTE.named);
+  });
+
+  it('§2 "The four derived" quotes exactly the four the tokens export', () => {
+    expect(Object.fromEntries(derivedInDesign)).toEqual(BRAND_PALETTE.derived);
+  });
+
+  it('ships no colour token whose hex §2 does not name', () => {
+    const documented = new Set<string>([
+      ...Object.values(BRAND_PALETTE.named),
+      ...Object.values(BRAND_PALETTE.derived),
     ]);
-    const undocumented = Object.entries(color).filter(([, v]) => !allowed.has(v as string));
+    // Every documented value must also actually appear in DESIGN.md, so the export cannot drift by
+    // itself either — this is the direction the old test could not see.
+    for (const hex of documented) expect(design).toContain(hex);
+
+    const undocumented = Object.entries(color).filter(([, v]) => !documented.has(v as string));
     expect(undocumented).toEqual([]);
+  });
+
+  it('parsed something — a regex that matches nothing would pass every test above', () => {
+    expect(namedInDesign.size).toBe(5);
+    expect(derivedInDesign.size).toBe(4);
   });
 
   it('uses Ink for primary, not the accent — a black button on cream', () => {

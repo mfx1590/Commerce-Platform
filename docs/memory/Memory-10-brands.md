@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-25 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 BLOCK fixes pushed (e83542d), awaiting diff-only re-check
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 second-round review fixes pushed, awaiting the manager's own re-check
 
 ## Identity (does not change)
 Owned paths (write):
@@ -21,7 +21,7 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Five measured colours, Newsreader + Hanken Grotesk self-hosted via `next/font/local` from
   `src/brand/fonts/`, radius 2px, shadows none, `brandConfig` = Fieldnote. 21 new tests in
   `test/brand-theme.test.ts` recompute every published contrast ratio. Measured on a production
-  build: perf 0.99/0.97, **a11y 1.00**, SEO 0.92, CLS 0.0000/0.0001; bundle budget green ×7.
+  build: perf 0.96/0.96, **a11y 1.00**, SEO 0.92, CLS 0.0000/0.0001; bundle budget green ×7.
   REQUEST #278 + #283 filed. Root gate green (lint, format, typecheck 21/21, 332 tests, ownership
   OK). PR #280, 13/13 CI green — but the perf check among them is vacuous (#283).
 - **Re-sync brand-a from the starter** — commit e44d87d (prerequisite for 2.2). 148 copied,

@@ -87,9 +87,13 @@ closed, and without it the SEO audit reads `Disallow: /` and lands around 0.58 r
 PORT=3101 STORE_API_URL=http://127.0.0.1:4010 SITE_URL=http://localhost:3101   ROBOTS_ALLOW_INDEXING=1 pnpm --filter @platform/storefront-brand-a start
 ```
 
-Accessibility is gated by **axe over six pages** in the e2e suite (`pnpm … e2e a11y`), not by
-Lighthouse alone — Lighthouse audits only the PLP and PDP and scored 1.00 while the theme shipped a
-real AA failure in components that render on neither. Visual baselines for home/PLP/PDP are opt-in
+Accessibility is checked by **axe over five pages, plus a contrast re-scan of the PDP**
+(`pnpm … e2e a11y`), not by Lighthouse alone — Lighthouse audits only the PLP and PDP and scored
+1.00 while the theme shipped a real AA failure in components that render on neither.
+
+**This runs locally, and is not yet a CI gate.** Brand-storefront e2e journeys stay opt-in
+(`E2E_INCLUDE_BRAND_STOREFRONTS=1`) until window 2 lands #212, so nothing in CI executes the a11y
+spec today; brand A opts in at 2.5 (#143). Run it by hand when you touch the theme. Visual baselines for home/PLP/PDP are opt-in
 (`E2E_VISUAL=1`) and keyed by platform; see `e2e/visual.spec.ts` before regenerating one.
 
 Measured on a production build (Lighthouse, median of 3): performance 0.96, accessibility
