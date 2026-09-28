@@ -6,6 +6,8 @@
  * anything unsafe renders as plain text (`null` href), never as a link.
  */
 
+import { isSafeInternalPath } from '@/lib/safe-path';
+
 export type SafeHref =
   | { kind: 'internal'; href: string }
   | { kind: 'external'; href: string }
@@ -13,7 +15,9 @@ export type SafeHref =
 
 export function safeHref(raw: string | undefined | null): SafeHref {
   const value = raw?.trim() ?? '';
-  if (value.startsWith('/') && !value.startsWith('//') && !value.includes('\\')) {
+  // The internal-path rule is the shared one (`src/lib/safe-path.ts`, #273/#277): control
+  // characters that a URL parser would strip are rejected too, not just `//` and backslashes.
+  if (isSafeInternalPath(value)) {
     return { kind: 'internal', href: value };
   }
   // URL schemes are case-insensitive (`HTTPS://` is https), so classify without regard to case —

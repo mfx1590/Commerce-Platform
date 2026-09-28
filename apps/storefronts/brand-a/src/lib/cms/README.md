@@ -121,8 +121,12 @@ type, or everything:
 `<expiry>.<HMAC-SHA256(secret, "<dataset>|<expiry>")>`. Nothing in it is secret and nothing in it can
 be forged without the secret; the read token never leaves the server. A request with a valid cookie
 reads **drafts** through the live API and shows the preview banner; everything else reads published
-content from the CDN. The redirect target must be a same-site path (no open redirect).
-`GET /api/cms/preview/exit` clears it.
+content from the CDN. The redirect target must satisfy the shared `isSafeInternalPath`
+(`src/lib/safe-path.ts`, #273/#277 — control characters a URL parser would strip are rejected, not
+just `//` and backslashes), and the handler additionally asserts the resolved origin before
+redirecting. `GET /api/cms/preview/exit` clears the cookie; it is **deliberately unauthenticated**:
+exit only de-escalates, and requiring the secret would put it in the banner link on every previewed
+page (rationale in `handlers.ts`).
 
 Preview needs both `SANITY_PREVIEW_SECRET` and `SANITY_READ_TOKEN`; the route answers 503 without
 them and 401 on a wrong secret. In the Studio, configure the preview URL as

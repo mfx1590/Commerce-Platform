@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 second-round review fixes pushed, awaiting the manager's own re-check
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 MERGED (8c49bd4, #140 closed). 2.3 part 1 in PR; content half next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,7 +17,11 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **#140 · 2.2 Brand A theme** — DESIGN.md authored first (no Figma), then implemented to it.
+- **2.3 part 1 — re-sync + package.json MERGE mode** — commits f682dde (re-sync: #273's
+  open-redirect fixes, referral, reviews, CMS home slots) and the merge-mode commit. `package.json`
+  is no longer PRESERVEd but merged: identity survives, scripts/deps track the starter.
+  13 tests assert both halves + byte-level idempotency. Root gate green (397 tests).
+- **#140 · 2.2 Brand A theme** — **MERGED** as PR #280, merge commit 8c49bd4. — DESIGN.md authored first (no Figma), then implemented to it.
   Five measured colours, Newsreader + Hanken Grotesk self-hosted via `next/font/local` from
   `src/brand/fonts/`, radius 2px, shadows none, `brandConfig` = Fieldnote. 21 new tests in
   `test/brand-theme.test.ts` recompute every published contrast ratio. Measured on a production
@@ -81,7 +85,7 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **No Dockerfile in the brand app**: `**/Dockerfile` is window 5's ownership row, so the clone excludes it; REQUEST #197 asks for the image.
 
 ## Blocked / waiting
-- **2.2 push held** until the manager confirms no queue is running.
+- 2.3 part 1 (re-sync + merge mode) in PR; the CMS content half follows in its own PR.
 - **REQUEST #278** (window 3): the starter's `test/slots.test.ts` asserts the brand's own override
   files are empty — false by construction in a clone. Until it lands, that file deviates and is on
   the clone's PRESERVE list; drop it and re-sync afterwards.
@@ -89,6 +93,10 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **`toEqual` on parsed JSON ignores key order.** The merge-mode idempotency test passed while the
+  real sync reordered a script. If the artefact is a file a reviewer diffs, assert the bytes.
+- **vitest does not typecheck.** `pnpm --filter … test` was green while the root `pnpm typecheck`
+  failed on an unused `@ts-expect-error`. Always run the root gate before committing.
 - **Test every text token against every SURFACE, not just the page.** 2.2 shipped Stone at 4.36:1 on
   `muted` (Badge, CMS hero eyebrow) while passing on Paper. Lighthouse audits only PLP/PDP and
   scored a11y 1.00 straight through it. A per-page score is not palette coverage.

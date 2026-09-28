@@ -1,3 +1,4 @@
+import { isSameOrigin } from '@/lib/safe-path';
 import type { CmsConfig } from './config';
 import {
   PREVIEW_COOKIE,
@@ -56,7 +57,16 @@ export function handlePreview(request: Request, deps: PreviewDeps): Response {
   });
 }
 
-/** `GET /api/cms/preview/exit?redirect=/` — clears the cookie. */
+/**
+ * `GET /api/cms/preview/exit?redirect=/` — clears the cookie.
+ *
+ * **Deliberately unauthenticated** (decided with REQUEST #277): entering preview requires
+ * `SANITY_PREVIEW_SECRET`, but exit only *clears* the preview cookie — it strictly de-escalates,
+ * so the worst a stranger can do is end someone's preview, a nuisance and nothing more. Requiring
+ * the secret here would put it in the banner's exit link on every previewed page, spraying it into
+ * browser history and access logs. The redirect target is the part that must be defended, and it
+ * is: `safeRedirectPath` plus the resolved-origin assertion in `redirect()` below.
+ */
 export function handlePreviewExit(request: Request, deps: Pick<PreviewDeps, 'secure'>): Response {
   const url = new URL(request.url);
   return redirect(url, safeRedirectPath(url.searchParams.get('redirect')), {
@@ -64,10 +74,17 @@ export function handlePreviewExit(request: Request, deps: Pick<PreviewDeps, 'sec
   });
 }
 
+/**
+ * Second layer after `safeRedirectPath` (#273/#277): assert what the browser will actually
+ * resolve. Even if the string rule is ever reasoned around again, a destination off this origin
+ * collapses to the home page — the cookie header still applies either way.
+ */
 function redirect(base: URL, path: string, headers: Record<string, string>): Response {
+  let destination = new URL(path, base.origin);
+  if (!isSameOrigin(destination, base.origin)) destination = new URL('/', base.origin);
   return new Response(null, {
     status: 307,
-    headers: { location: new URL(path, base.origin).toString(), ...headers },
+    headers: { location: destination.toString(), ...headers },
   });
 }
 

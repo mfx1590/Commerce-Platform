@@ -1,5 +1,21 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.3.0 — 2026-09-28 · task 2.3 part 1 (#141)
+
+- **Re-synced from the starter** (154 copied, 1 merged, 11 preserved, 4 excluded), carrying in
+  **#273's open-redirect fixes** that this app had been missing — `src/lib/safe-path.ts`, the OIDC
+  callback and middleware hardening, `src/lib/cms/safe-href.ts` — plus the referral routes, product
+  reviews, and the CMS home slots (window 6's REQUEST #178) that 2.3's content will fill.
+- **`package.json` is now MERGED rather than preserved** (`scripts/merge-package-json.mjs`).
+  Preserve is all-or-nothing: it kept the brand's identity and also froze everything the starter
+  added afterwards, which is how this app missed `perf` and `bundle-budget` for a whole task before
+  2.2 found the gap by hand. Identity survives (name, version, the 3101 dev port, brand-only
+  scripts and dependencies); scripts and dependency versions track the starter.
+- `test/sync-merge.test.ts` (13 tests) asserts **both halves** — a starter script arrives, a
+  dependency bump arrives, a new top-level field arrives; the brand name, version, dev port,
+  brand-only script and brand-only dependency all survive — plus non-mutation, sorted dependency
+  blocks, and byte-level idempotency against the real files, so a re-sync produces no diff.
+
 ## 0.2.1 — 2026-09-28 · task 2.2 review fixes (#140, PR #280)
 
 Three defects from review, two of which were the code disagreeing with `src/brand/DESIGN.md`.
