@@ -390,12 +390,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   commit sha arrives from the manager. Head `6a0bc0f`.
 - **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
   after 2.5 merges; window 1 gets the registry work bundled with #265. Then 2.5b closes #117.
-- **2.6 (#118) — built and verified, committed locally, NOT pushed** (one branch, one open PR:
-  #282 is still in review). After the #282 verdict + merge confirm: merge main, rerun gates, push
-  (carries the memory commit too), open the 2.6 PR — **"Refs #118"** while #284/#285 are open
-  (#118's own criteria are met; the manager decides whether it closes).
-- #282 (2.5 part one) shows MERGED on GitHub (main `820ba48`, merge round 30); main merged
-  locally on top of 2.6, gates green again. Holding the push for the manager's explicit confirm.
+- **2.6 = PR #287 (Refs #118), in review** (2026-09-28, head `4f4da3c`; closing refs `[]`).
+  #282 merged as 4a033d7. Window 1's bundle (#265, #279 registry, #284 header) lands as one wake.
+- **#287 fixed** (2026-09-28): body reworded, closing refs `[]` over 30 s; manager queues it
+  directly. **2.5b nits from the #287 review:** `probeApiMode` treats a core 500 on `/health` as
+  mock (match 404 specifically; anything else non-2xx = unreachable); `routeLabel` folds uuids
+  but not numeric ids; one word in the README on :9100 (this run) vs :9000 (the default).
 - After that: 2.5b when #279 lands as 0.4.7 (closes #117) → then Phase 2 done.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
@@ -404,7 +404,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
 - [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
 - [ ] **#117 · 2.5** Store settings — part one = PR #282 (Refs #117); 2.5b after #279 (0.4.7) closes it
-- [x] **#118 · 2.6** Real-API hardening and e2e against the core — built, PR after #282 merges
+- [x] **#118 · 2.6** Real-API hardening and e2e against the core — PR #287 (Refs #118)
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
 The four nits recorded on #205 were never written down anywhere (manager confirmed the handoff
@@ -607,8 +607,11 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
 - **Core-mode e2e data is shared and grows:** every run adds stamped products, promotions and keys
   to the local DB; locators over lists need `.first()` (the key list had 4 `pk_brand…` rows).
 - **GitHub reads a closing keyword anywhere in a PR body** — "2.5b, which closes #117" linked
-  #117 to #282 despite the "Refs #117" title. For a partial PR, never put close/fix/resolve next
-  to the issue number, and check `gh pr view N --json closingIssuesReferences` after opening.
+  #117 to #282 despite the "Refs #117" title — and it happened AGAIN on #287 ("2.5b … closes
+  #117"). For a partial PR, never put close/fix/resolve anywhere near an issue number; before
+  `gh pr create`, grep the body for close/fix/resolve within 40 characters of a `#`. **An immediate
+  `closingIssuesReferences` check is not proof:** GitHub parses the body asynchronously — #287
+  read `[]` right after creation and `[117]` later. Check again after ~30 s, every time.
 - **Contract-suite Prism ports are shared across windows' suites in one vitest run:** 4211 states,
   4212 catalog, 4213 orders, 4214 customers, 4215 promotions, 4216 marketing (window 17), 4217
   settings. A new suite takes the next free port — grep `test-contract` first (EADDRINUSE otherwise).
