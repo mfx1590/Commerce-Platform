@@ -16,6 +16,23 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.6 — issue #118 Real-API hardening** · 2026-09-28 · local commit (sha in the PR)
+  - `src/lib/api/api-mode.ts`: `/health` probe (core 200 / Prism 404 / unreachable), 60 s cache,
+    1.5 s timeout, `X-Contracts-Version` read; `versionVerdict` → chip or warning, never a block.
+    `ApiModeBanner` in `Shell`, above every page.
+  - `src/lib/api/not-implemented.ts` + `adminCall`: core only — 404 without `not_found`, or 401
+    while `/admin/me` (same token) is 200 → **501 `not_implemented`** with the route label
+    (uuids → `{id}`); `NotImplementedPanel` from `ApiStatePanel` and `RequestErrorPanel`.
+  - `playwright.config.ts`: `E2E_API=core` → no Prism, app against `CORE_URL`, guard entry fails
+    fast if the core is down. `e2e/api-mode.ts` (`AGAINST_CORE`, `EXPECT`, `stamped()`);
+    store-admin journeys mode-aware (display name, orders by shape, refund to the question then
+    Cancel — skips if nothing refundable, customers = not-implemented panel, usage card table or
+    empty, stamped handle/code/key name, key by pattern + gone after reload).
+  - REQUESTs **#284** (window 1 bundle: version header) and **#285** (window 5 CI variant).
+  - Tests: unit 559/559 (`test/api-mode.test.tsx` 21), contract 69/69, **mock e2e 21 + 2
+    core-only skipped (unchanged)**, **core e2e 22 + 1 skipped** (no refundable seeded order), core
+    :9100 from this branch. Screenshot `docs/core-mode/`. README "Core mode", CHANGELOG.
+
 - **2.5 part one — issue #117 Store settings (Refs, not Closes)** · 2026-09-26 · local commit
   `6adf38a` + main merge (after #276 = 4cd1d38) · PR opened 2026-09-28, **Refs #117** (not Closes)
   - `/{storeId}/settings`: General (updateStore, pause/archive asks first), Domains (add = owner on
@@ -371,17 +388,23 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 ## In progress
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
-- **2.5 part one = PR (Refs #117), in review** (2026-09-28). #279 ACCEPTED as filed → 0.4.7
+- **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
   after 2.5 merges; window 1 gets the registry work bundled with #265. Then 2.5b closes #117.
-- **Next: 2.6 (#118) plan-paste to the manager** before building.
+- **2.6 (#118) — built and verified, committed locally, NOT pushed** (one branch, one open PR:
+  #282 is still in review). After the #282 verdict + merge confirm: merge main, rerun gates, push
+  (carries the memory commit too), open the 2.6 PR — **"Refs #118"** while #284/#285 are open
+  (#118's own criteria are met; the manager decides whether it closes).
+- #282 (2.5 part one) shows MERGED on GitHub (main `820ba48`, merge round 30); main merged
+  locally on top of 2.6, gates green again. Holding the push for the manager's explicit confirm.
+- After that: 2.5b when #279 lands as 0.4.7 (closes #117) → then Phase 2 done.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
 - [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
-- [ ] **#117 · 2.5** Store settings — part one in PR (Refs #117); 2.5b after #279 (0.4.7) closes it
-- [ ] **#118 · 2.6** Real-API hardening and e2e against the core
+- [ ] **#117 · 2.5** Store settings — part one = PR #282 (Refs #117); 2.5b after #279 (0.4.7) closes it
+- [x] **#118 · 2.6** Real-API hardening and e2e against the core — built, PR after #282 merges
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
 The four nits recorded on #205 were never written down anywhere (manager confirmed the handoff
@@ -402,6 +425,10 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   hidden. Fix: parts cached per group in a `WeakMap`; both loops pause on `visibilitychange`.
 
 ## Decisions made (with reasons)
+- **Unmounted core routes become a synthetic 501 `not_implemented`**, not a rewritten 404/401:
+  401/403 drive refusals and the sign-in redirect elsewhere, and 404 means "no such record" to
+  every screen; a distinct status keeps all of those honest. Core mode only (probe), so Prism's
+  forced `Prefer: code=401` stays a 401 in the contract suite. (#118, manager-approved 401 rule.)
 - **Stack-level interventions go through the owner to the manager first — always** (manager,
   2026-09-28). Killing Docker, `wsl --shutdown`, anything beyond the recorded recovery steps: ask,
   and the OK must arrive BEFORE the action. The recorded recovery itself (start Desktop →
@@ -573,6 +600,15 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **`packages/contracts/dist` can be stale in a worktree** (built 2026-09-24 at 0.4.5 while `src`
+  said 0.4.6): the app and typecheck import the built `dist`, not `src`. The 2.6 banner exposed it
+  ("this app speaks 0.4.5"). After a contracts bump on main: `pnpm --filter @platform/contracts
+  build` (gitignored output, not an edit to packages/*).
+- **Core-mode e2e data is shared and grows:** every run adds stamped products, promotions and keys
+  to the local DB; locators over lists need `.first()` (the key list had 4 `pk_brand…` rows).
+- **GitHub reads a closing keyword anywhere in a PR body** — "2.5b, which closes #117" linked
+  #117 to #282 despite the "Refs #117" title. For a partial PR, never put close/fix/resolve next
+  to the issue number, and check `gh pr view N --json closingIssuesReferences` after opening.
 - **Contract-suite Prism ports are shared across windows' suites in one vitest run:** 4211 states,
   4212 catalog, 4213 orders, 4214 customers, 4215 promotions, 4216 marketing (window 17), 4217
   settings. A new suite takes the next free port — grep `test-contract` first (EADDRINUSE otherwise).

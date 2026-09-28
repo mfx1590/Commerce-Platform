@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { ApiModeBanner } from './api-mode-banner';
 import { AppShell } from './app-shell';
 import {
   ApiStatePanel,
@@ -87,6 +88,7 @@ export async function Shell({
       stores={stores}
       selectedStoreId={storeAllowed ? selectedStoreId : null}
     >
+      <ApiModeBanner />
       {body}
     </AppShell>
   );
