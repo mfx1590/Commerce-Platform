@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.6
+  version: 0.4.7
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -113,6 +113,8 @@ paths:
                       default_locale: en-GB,
                       default_country: NL,
                       timezone: Europe/Amsterdam,
+                      currencies: [EUR],
+                      locales: [en-GB],
                       content_space_id: brand-a,
                       search_index: brand-a_products,
                       psp_account_id: null,
@@ -241,6 +243,46 @@ paths:
                 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/stores/{storeId}/domains/{domainId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: domainId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [registry]
+      operationId: updateDomain
+      summary: Moves the primary flag to this domain (exactly one primary per store).
+      description: |
+        `is_primary: false` on the current primary is refused with 409 — a store always has one
+        primary; move it by setting another domain primary instead.
+      x-permission: { relation: owner, object: 'organization:hq' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_primary]
+              properties:
+                is_primary: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Domain' }
+              example:
+                {
+                  id: 40000000-0000-4000-8000-000000000001,
+                  hostname: shop.brand-a.example,
+                  is_primary: true,
+                  verified_at: '2026-09-04T00:00:00Z',
+                }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /admin/stores/{storeId}/sales-channels:
@@ -383,6 +425,49 @@ paths:
                 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/stores/{storeId}/api-keys/{keyId}/revoke:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: keyId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [registry]
+      operationId: revokeApiKey
+      summary: Revokes a key. Idempotent on an already revoked key (200, same revoked_at).
+      description: |
+        Refuses with 409 `last_live_key` when the key is the store's last publishable key with
+        `revoked_at: null` — the storefront would lose its only credential.
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiKey' }
+              example:
+                {
+                  id: 40000000-0000-4000-8000-000000000101,
+                  name: storefront,
+                  type: publishable,
+                  key_prefix: pk_brand,
+                  sales_channel_id: 30000000-0000-4000-8000-000000000001,
+                  revoked_at: '2026-09-25T00:00:00Z',
+                  created_at: '2026-09-04T00:00:00Z',
+                }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The last live publishable key cannot be revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: last_live_key,
+                  message: the store's last live publishable key cannot be revoked,
+                  details: { key_id: 40000000-0000-4000-8000-000000000101 },
+                }
 
   /admin/warehouses:
     get:
@@ -2121,6 +2206,102 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /admin/stores/{storeId}/customers/{customerId}/addresses:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: listCustomerAddresses
+      summary: The customer's saved addresses (personal data — same gate as the record)
+      x-permission: { relation: support, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Address'
+                        - type: object
+                          required: [id, is_default_shipping, is_default_billing]
+                          properties:
+                            id: { type: string, format: uuid }
+                            is_default_shipping: { type: boolean }
+                            is_default_billing: { type: boolean }
+              example:
+                items:
+                  - {
+                      id: 30000000-0000-4000-8000-000000000c01,
+                      first_name: Jane,
+                      last_name: Doe,
+                      company: null,
+                      line1: Keizersgracht 1,
+                      line2: null,
+                      city: Amsterdam,
+                      region: null,
+                      postal_code: 1015 CC,
+                      country: NL,
+                      phone: null,
+                      is_default_shipping: true,
+                      is_default_billing: true,
+                    }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/customers/{customerId}/export:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [customers]
+      operationId: exportCustomer
+      summary: GDPR data export — schedules a bundle of everything held about the customer (profile, addresses, consent, orders); delivery is the core's concern (emits customer.export_requested)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '202': { description: Export scheduled }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/customer-groups:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [customers]
+      operationId: listCustomerGroups
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, code, name]
+                      properties:
+                        id: { type: string, format: uuid }
+                        code: { type: string }
+                        name: { type: string }
+              example:
+                items:
+                  - { id: 40000000-0000-4000-8000-000000000001, code: vip, name: VIP }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   # ---------------------------------------------------------------- roles
   /admin/users:
     get:
@@ -3562,7 +3743,7 @@ components:
         code:
           {
             type: string,
-            description: 'validation_error, unauthorized, forbidden, not_found, conflict, out_of_stock, payment_failed, internal',
+            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -3641,8 +3822,18 @@ components:
         default_locale: { type: string }
         default_country: { type: string, pattern: '^[A-Z]{2}$' }
         timezone: { type: string }
-        currencies: { type: array, items: { type: string } }
-        locales: { type: array, items: { type: string } }
+        currencies:
+          {
+            type: array,
+            items: { type: string },
+            description: 'Replaces the whole enabled set. The default (given or current) is always kept; omitted = unchanged.',
+          }
+        locales:
+          {
+            type: array,
+            items: { type: string },
+            description: 'Replaces the whole enabled set. The default (given or current) is always kept; omitted = unchanged.',
+          }
         content_space_id: { type: [string, 'null'] }
         search_index: { type: [string, 'null'] }
         theme: { type: object, additionalProperties: true }
@@ -3678,6 +3869,20 @@ components:
         default_locale: { type: string }
         default_country: { type: string }
         timezone: { type: string }
+        # OPTIONAL until window 1's registry bundle returns them (#279 landing deviation, recorded
+        # on the issue) — the bundle flips both to required. Always contain the defaults once present.
+        currencies:
+          {
+            type: array,
+            items: { type: string },
+            description: 'Enabled ISO-4217 codes; always contains default_currency',
+          }
+        locales:
+          {
+            type: array,
+            items: { type: string },
+            description: 'Enabled BCP-47 tags; always contains default_locale',
+          }
         content_space_id: { type: [string, 'null'] }
         search_index: { type: [string, 'null'] }
         psp_account_id: { type: [string, 'null'] }
@@ -5089,6 +5294,8 @@ components:
         default_locale: en-GB
         default_country: NL
         timezone: Europe/Amsterdam
+        currencies: [EUR, GBP]
+        locales: [en-GB, nl-NL]
         content_space_id: brand-a
         search_index: brand-a_products
         psp_account_id: null

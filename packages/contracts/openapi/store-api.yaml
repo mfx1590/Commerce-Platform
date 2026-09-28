@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.4.0
+  version: 0.5.0
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -9,7 +9,8 @@ info:
     Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional cart/order `metadata` (additive);
     0.3.0 adds the optional `currency` query on listProducts/getProduct (additive);
     0.3.1 adds the `price_changed` error code on completeCart's 409 (additive);
-    0.4.0 adds POST /store/cart-recovery/{token} (additive).
+    0.4.0 adds POST /store/cart-recovery/{token} (additive);
+    0.5.0 adds the typed review shape — Product.review_summary and GET /store/products/{handle}/reviews (additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -155,6 +156,37 @@ paths:
               examples:
                 classicTee: { $ref: '#/components/examples/ProductClassicTee' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /store/products/{handle}/reviews:
+    get:
+      operationId: listProductReviews
+      summary: Published reviews for a product, newest first
+      tags: [catalog]
+      parameters:
+        # `handle` is declared inline on getProduct too — there is no ProductHandle component.
+        - { name: handle, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewPage' }
+              example:
+                items:
+                  - id: 00000000-0000-4000-8000-000000000901
+                    rating: 5
+                    title: Exactly as described
+                    body: Wore it all summer.
+                    author: Ada L.
+                    created_at: '2026-09-01T10:00:00Z'
+                    verified_purchase: true
+                total: 1
+                page: 1
+                limit: 24
+                summary: { count: 1, average: 5 }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /store/carts:
@@ -825,6 +857,39 @@ components:
             `{ color: { primary: "#1E40AF", primaryForeground: "#ffffff" } }`. Unknown groups, unknown keys and
             non-string values are ignored by the storefront.
 
+    Review:
+      type: object
+      required: [id, rating, title, body, author, created_at, verified_purchase]
+      properties:
+        id: { type: string, format: uuid }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        title: { type: [string, 'null'] }
+        body: { type: [string, 'null'] }
+        # A display name only, provided or chosen by the customer AT REVIEW TIME — never an email,
+        # and never a name derived from the account (CONTRACT CHANGE #270, manager constraint):
+        # reviews are public, and this is the field that leaks PII if it carries an identity.
+        author: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        verified_purchase: { type: boolean }
+
+    ReviewSummary:
+      type: object
+      required: [count, average]
+      properties:
+        count: { type: integer, minimum: 0 }
+        # null when count is 0 — never 0, which a shopper reads as "rated zero out of five".
+        average: { type: [number, 'null'], minimum: 1, maximum: 5 }
+
+    ReviewPage:
+      type: object
+      required: [items, total, page, limit, summary]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Review' } }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        summary: { $ref: '#/components/schemas/ReviewSummary' }
+
     Category:
       type: object
       required: [id, handle, name, parent_id, position]
@@ -894,6 +959,13 @@ components:
             title: { type: string }
             description: { type: string }
             canonical: { type: string }
+        # Present so a PDP can render a rating without a second request. The full list is paged
+        # through `listProductReviews`; omit the field entirely when the store has no reviews
+        # feature, which is different from a store that has it and has none yet.
+        review_summary:
+          oneOf:
+            - $ref: '#/components/schemas/ReviewSummary'
+            - type: 'null'
         options:
           type: array
           items:
