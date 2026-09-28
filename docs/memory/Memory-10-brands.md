@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 MERGED (8c49bd4, #140 closed). 2.3 part 1 in PR; content half next
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 part 1 MERGED (44c57cf). Content half planned, awaiting go
 
 ## Identity (does not change)
 Owned paths (write):
@@ -35,31 +35,18 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.3 (#141) CMS content for brand A — plan written, awaiting the manager's confirmation.**
+- **2.3 content half (#141) — plan sent, awaiting the manager's go.** See "2.3 content plan" below.
 
-  Order of commits (one PR):
-  1. **Re-sync from the starter** (queued from 2.2): `referral.ts`, `reviews.ts`, `safe-path.ts` + tests.
-  2. **`sync-from-starter.mjs` MERGE mode for `package.json`** (manager-approved): identity fields
-     (`name`, `version`, `dev` port, `sync`) survive; `scripts` + `dependencies` track the starter.
-     One test proving a starter script addition arrives AND name/port survive a re-sync.
-  3. **`cms/brand-a/` content** — my owned path; does not exist yet. Typed against `@platform/cms`
-     (`PageDocument` etc.), validated with its `validateDocument`. Per locale **en-GB + de-DE**:
-     home page, navigation, footer, 4 legal (imprint/privacy/terms/returns), 1 campaign landing
-     = ~8 docs × 2 locales.
-  4. **Seed runner in `cms/brand-a/`** reusing window 6's *pure* exported helpers (`readSeedEnv`,
-     `mutateUrl`, `missingCredentials`) — window 6's `scripts/seed.mjs` only knows its own generic
-     fixtures, and it is not my file. No duplicated logic, no edit outside my paths.
-  5. **Content snapshot test** — renders the real `(content)` route components against the real
-     brand-A documents through the injectable `CmsReader`, asserting no empty-state fallback text
-     appears. This is how the acceptance criterion is met offline (no Sanity credentials needed).
-  6. README + CHANGELOG + memory.
-
-  Content voice follows `src/brand/DESIGN.md` — copy is design, not filler.
-
-  **Flagged to the manager, not decided by me:** the statutory fields of a German *Impressum*
-  (registration court, HRB number, VAT ID, responsible person) are legally binding. I will write
-  structurally correct documents with those fields as clearly-marked placeholders and will NOT
-  invent registration numbers or compliance claims. Real legal review before production.
+## Carried nits (from the #288 review — do with the content PR or later)
+- **Merge mode cannot REMOVE.** A script or dependency the *starter deletes* looks brand-only to
+  `mergeRecord` and survives in the brand forever. Needs either a documented limitation or a
+  deletion test + rule (e.g. track the previous starter manifest). Not yet decided.
+- **Precision in the record**: "root gate 397 tests" in #288 was *brand-a's suite alone*, not the
+  repo. Say which suite when quoting a count.
+- **Stale Dockerfile claim**: README's diff table + CLAUDE.md + this memory say "no Dockerfile in
+  this app / absent". **Window 5 delivered it** — `apps/storefronts/brand-a/Dockerfile` exists and
+  `infra/docker/docker-compose.build.yml` builds `storefront-brand-a` from it; REQUEST #197 is
+  CLOSED. Correct in passing with the content PR.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a (in PR)
@@ -82,7 +69,10 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   `[locale]/layout.tsx`, so the CSS `next/font` emits for it is linked from `<head>` on every route.
 - **Brand identity lives in `next.config.mjs` runtime defaults (`??=`), not src edits** (2.1): `next build/dev/start` all load the config before app code, the environment still wins, and `src/**` stays byte-identical to the starter (except `src/brand/**`) so `sync-from-starter.mjs` re-syncs produce reviewable diffs. `KEYCLOAK_CLIENT_ID` needed no override — the starter already defaults to `storefront-brand-a`.
 - **The sync script is self-hosting and lives in the brand app** (`scripts/sync-from-starter.mjs`): the starter stays untouched (window 3's path), and Phase 3's "scripted re-sync" (ADR 0004) exists from day one — preserve list = the README's documented diff table.
-- **No Dockerfile in the brand app**: `**/Dockerfile` is window 5's ownership row, so the clone excludes it; REQUEST #197 asks for the image.
+- **No Dockerfile *authored* in the brand app**: `**/Dockerfile` is window 5's ownership row, so
+  the clone still excludes it from the sync. REQUEST #197 is now CLOSED — window 5 delivered
+  `apps/storefronts/brand-a/Dockerfile` and the compose build entry, so the file exists and is
+  theirs to maintain. The README/CLAUDE.md wording saying it is "absent" is stale (carried nit).
 
 ## Blocked / waiting
 - 2.3 part 1 (re-sync + merge mode) in PR; the CMS content half follows in its own PR.
