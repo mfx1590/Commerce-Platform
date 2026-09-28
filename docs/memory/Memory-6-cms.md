@@ -1,7 +1,7 @@
 # Memory 6 — CMS & landing pages
 Window: 6 · Key: `cms` · Branch prefix: `cms/` · Model: Sonnet
 Standing rules (manager, 2026-09-19): merge main before every push · after opening a PR hold every push until the manager confirms its merge · test keys are words, never digit/hex tails.
-Last updated: 2026-09-28 · Contracts: contracts-v0.4.4 (was v0.3 = 583b407 when Phase 2 started) · Branch: `cms/phase2` · Status: PHASE 2 COMPLETE (2.1–2.5 merged; 2.5 = main 5c488d0) · #277 fix in PR · QUIET after its merge — wake only for #178/#141
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.4 (was v0.3 = 583b407 when Phase 2 started) · Branch: `cms/phase2` · Status: PHASE 2 COMPLETE (2.1–2.5 merged; 2.5 = main 5c488d0) · #277 fix in PR #281 · QUIET after its merge — wake only for #178/#141
 
 ## Identity
 Owned paths (write; docs/ownership.md `cms/` row is authoritative):
@@ -20,7 +20,7 @@ Never touches:
 Headless CMS with one workspace per brand: schemas (page, hero, blocks, campaign landing, nav, footer, legal, product-story block), fetch layer with preview + revalidate-on-publish, content routes, Builder.io/Framer embed under /campaign/*, media via Cloudinary. cms/README explains how a marketer builds a landing page alone. Wave A — starts right after contracts-v0.3 is tagged; nothing to wait for.
 
 ## Done
-- **REQUEST #277 (urgent security): control-character open redirect in preview/preview-exit** — 2026-09-28, PR (number below). `safeRedirectPath` delegates to the shared `isSafeInternalPath` (src/lib/safe-path.ts, #273/0cf9415); `redirect()` asserts `isSameOrigin` and collapses off-origin to `/` with the cookie still applied; exit handler documented as DELIBERATELY unauthenticated (accepted by the manager: exit only de-escalates, secret in the banner link would leak into history/logs); control-char tests ported (tab/LF/CR/NUL/DEL/U+2028/U+2029 + the %2F%09%2F exploit shape through both handlers + browser-resolution proof); `safeHref` internal branch unified on the shared helper. Gates: storefront 350, cms 47, typecheck 21/21, lint, format, ownership OK.
+- **REQUEST #277 (urgent security): control-character open redirect in preview/preview-exit** — 2026-09-28, commit 4708efa, PR #281 (in review). `safeRedirectPath` delegates to the shared `isSafeInternalPath` (src/lib/safe-path.ts, #273/0cf9415); `redirect()` asserts `isSameOrigin` and collapses off-origin to `/` with the cookie still applied; exit handler documented as DELIBERATELY unauthenticated (accepted by the manager: exit only de-escalates, secret in the banner link would leak into history/logs); control-char tests ported (tab/LF/CR/NUL/DEL/U+2028/U+2029 + the %2F%09%2F exploit shape through both handlers + browser-resolution proof); `safeHref` internal branch unified on the shared helper. Gates: storefront 350, cms 47, typecheck 21/21, lint, format, ownership OK.
 - **#119 · 2.1 Sanity workspace and schemas per brand** — 2026-09-08, commit bc919ea, PR #163 merged (main a58c3da).
 - **#120 · 2.2 Fetch layer, preview mode, revalidate-on-publish** — 2026-09-08, commit b4ccd1f, PR #177 merged (main 947300a); wave C opened.
 - **#123 · 2.5 Cloudinary media for CMS content** — 2026-09-19/20, commits 01ee1a3 (2.5) + da32729 (#238 nits), PR #249 merged (main 5c488d0, #123 closed). `imageWithAlt.cloudinaryUrl` over the shared @platform/ui loader, responsive srcsets both sources, share-image metadata, env-only per-brand config; cms 0.4.0. **PHASE 2 COMPLETE.**
