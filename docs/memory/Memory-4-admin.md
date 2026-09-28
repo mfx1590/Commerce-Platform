@@ -371,16 +371,21 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 ## In progress
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
-- **2.5 part one = PR (Refs #117), in review** (2026-09-28). #279 ACCEPTED as filed → 0.4.7
+- **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
   after 2.5 merges; window 1 gets the registry work bundled with #265. Then 2.5b closes #117.
-- **Next: 2.6 (#118) plan-paste to the manager** before building.
+- **2.6 (#118) plan sent to the manager 2026-09-28 — build waits for the answer.** Facts: core
+  `/health` = bare `OK`, no contracts version anywhere (app has `CONTRACTS_VERSION` '0.4.6' from
+  `@platform/contracts`) → REQUEST window 1 for an `X-Contracts-Version` header; unmounted core
+  routes answer 401 until #265 → "not implemented" detection = 404, or 401 while `/admin/me` with
+  the same token is 200; `E2E_API=core` exists only in catalog-core + rail (app started by hand);
+  CI variant = REQUEST window 5 (`infra/**`, `.github/workflows/**`).
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
 - [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
-- [ ] **#117 · 2.5** Store settings — part one in PR (Refs #117); 2.5b after #279 (0.4.7) closes it
+- [ ] **#117 · 2.5** Store settings — part one = PR #282 (Refs #117); 2.5b after #279 (0.4.7) closes it
 - [ ] **#118 · 2.6** Real-API hardening and e2e against the core
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
@@ -573,6 +578,9 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **GitHub reads a closing keyword anywhere in a PR body** — "2.5b, which closes #117" linked
+  #117 to #282 despite the "Refs #117" title. For a partial PR, never put close/fix/resolve next
+  to the issue number, and check `gh pr view N --json closingIssuesReferences` after opening.
 - **Contract-suite Prism ports are shared across windows' suites in one vitest run:** 4211 states,
   4212 catalog, 4213 orders, 4214 customers, 4215 promotions, 4216 marketing (window 17), 4217
   settings. A new suite takes the next free port — grep `test-contract` first (EADDRINUSE otherwise).
