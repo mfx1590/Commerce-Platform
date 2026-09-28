@@ -1,3 +1,4 @@
+import { isSafeInternalPath } from '@/lib/safe-path';
 import { createHash, randomBytes } from 'node:crypto';
 
 /**
@@ -91,11 +92,11 @@ export function buildAuthorizationUrl(
  * the request knows which one.
  */
 export function safeReturnTo(value: string | null | undefined, fallback = '/account'): string {
-  if (typeof value !== 'string' || value === '') return fallback;
-  // Reject anything that is not a plain path: absolute URLs, protocol-relative `//evil`, backslashes.
-  if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return fallback;
-  if (value.includes('\\')) return fallback;
-  return value;
+  // The rule lives in `isSafeInternalPath`, shared with the referral landing: absolute URLs,
+  // protocol-relative `//evil`, backslashes — and control characters, which URL parsing strips
+  // before parsing, so `/\t/evil.example` resolved to another origin and this guard did not see it.
+  // The callback route checks the resolved origin too.
+  return isSafeInternalPath(value) ? value : fallback;
 }
 
 // ── token exchange ───────────────────────────────────────────────────────────────────────────────
