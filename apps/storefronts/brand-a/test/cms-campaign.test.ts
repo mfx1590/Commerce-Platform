@@ -155,6 +155,7 @@ describe('safeHref (the renderer does not trust stored hrefs)', () => {
     for (const bad of [
       'javascript:alert(1)',
       'JavaScript:alert(1)',
+      '/\t/evil.example',
       '//evil.example',
       'http://x.example',
       'HTTP://x.example',

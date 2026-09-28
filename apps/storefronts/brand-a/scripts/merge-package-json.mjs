@@ -1,0 +1,92 @@
+/**
+ * The `package.json` MERGE mode for `sync-from-starter.mjs`.
+ *
+ * **Why this exists.** `package.json` was on the PRESERVE list, because it carries the brand's
+ * identity — its name, its version, its dev port. But preserve is all-or-nothing: it also froze
+ * everything the starter added afterwards. That is not theoretical. The starter gained `perf` and
+ * `bundle-budget` in its task 2.3 and brand A never received them; the gap was found by hand during
+ * 2.2, months later, and only because someone went looking. Brand B would have rediscovered it the
+ * same way.
+ *
+ * So `package.json` gets a third mode, between copy and preserve: **merge**. Identity survives,
+ * everything else tracks the starter.
+ *
+ * Kept as its own module with no filesystem access so the rules can be unit-tested directly —
+ * `test/sync-merge.test.ts` asserts both halves of the contract, that a starter addition arrives
+ * and that the brand's identity survives.
+ */
+
+/**
+ * Top-level fields that belong to the brand. Everything else at the top level takes the starter's
+ * value, so a new field the starter adds (an `engines` block, a `packageManager` pin) arrives.
+ */
+const BRAND_FIELDS = ['name', 'version', 'description'];
+
+/**
+ * Scripts whose *value* is brand identity rather than shared behaviour. `dev` hard-codes the port
+ * (3101 here, 3100 in the starter), so taking the starter's value would silently move the app.
+ *
+ * Note what is deliberately NOT here: `start`, `build`, `test`, `e2e`, `perf`, `lighthouse`. Those
+ * are the starter's to improve, and brand A wants the improvements. `scripts/start.mjs` is on the
+ * PRESERVE list and carries the port, so `start` needs no override of its own.
+ */
+const BRAND_SCRIPTS = ['dev'];
+
+const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies'];
+
+/**
+ * Merge one record, starter-first.
+ *
+ * The starter's entries win for keys both define — that is the point, it is how a version bump or a
+ * changed script body arrives. Keys only the brand has survive, because a brand legitimately adds
+ * its own (brand A's `sync` script, and `@axe-core/playwright` for its a11y suite).
+ */
+function mergeRecord(starter = {}, brand = {}, keepBrandValueFor = []) {
+  const keep = new Set(keepBrandValueFor);
+  const merged = { ...starter };
+
+  for (const [key, value] of Object.entries(brand)) {
+    // A brand-only key, or one whose value is identity: keep the brand's.
+    if (!(key in starter) || keep.has(key)) merged[key] = value;
+  }
+
+  return merged;
+}
+
+/**
+ * Merge the starter's `package.json` into the brand's.
+ *
+ * Both arguments are parsed objects; the result is a new object and neither input is mutated.
+ */
+export function mergePackageJson(starter, brand) {
+  const merged = { ...starter };
+
+  for (const field of BRAND_FIELDS) {
+    if (field in brand) merged[field] = brand[field];
+    else delete merged[field];
+  }
+
+  // Brand-only top-level keys survive: the brand may carry configuration the starter has no notion
+  // of, and dropping it on every sync would make the merge lossy.
+  for (const [key, value] of Object.entries(brand)) {
+    if (!(key in starter) && !DEPENDENCY_FIELDS.includes(key) && key !== 'scripts') {
+      merged[key] = value;
+    }
+  }
+
+  merged.scripts = mergeRecord(starter.scripts, brand.scripts, BRAND_SCRIPTS);
+
+  for (const field of DEPENDENCY_FIELDS) {
+    if (starter[field] === undefined && brand[field] === undefined) continue;
+    merged[field] = sortKeys(mergeRecord(starter[field], brand[field]));
+  }
+
+  return merged;
+}
+
+/** npm writes dependency blocks sorted; an unsorted merge would churn the diff on every sync. */
+function sortKeys(record) {
+  return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+export const MERGE_RULES = { BRAND_FIELDS, BRAND_SCRIPTS, DEPENDENCY_FIELDS };

@@ -15,8 +15,9 @@ import { contentSecurityPolicy } from '@/lib/csp';
  * attribution on the way through.
  *
  * The matcher excludes the route handlers deliberately: `/health` is the container probe and must
- * answer 200 without a redirect, and `/auth/*` carries the OIDC round trip — its callback URL is
- * registered with Keycloak, so it cannot grow a locale prefix.
+ * answer 200 without a redirect, `/auth/*` carries the OIDC round trip — its callback URL is
+ * registered with Keycloak, so it cannot grow a locale prefix — and `/r/*` is the referral landing,
+ * a shared short link that must not have to carry a locale and must not take a second redirect hop.
  */
 const intlMiddleware = createMiddleware(routing);
 
@@ -61,5 +62,5 @@ export default function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|auth|_next|_vercel|health|[^?]*[.][a-zA-Z0-9]+).*)'],
+  matcher: ['/((?!api|auth|r/|_next|_vercel|health|[^?]*[.][a-zA-Z0-9]+).*)'],
 };

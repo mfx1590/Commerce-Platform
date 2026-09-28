@@ -14,21 +14,28 @@
  * own).
  *
  * PRESERVED (copied only when missing, never overwritten): the brand-identity files listed in the
- * README's "diff against the starter" section — package.json, next.config.mjs, scripts/start.mjs,
+ * README's "diff against the starter" section — next.config.mjs, scripts/start.mjs,
  * playwright.config.ts, lighthouserc.json, and everything under src/brand/.
+ *
+ * MERGED: package.json. Preserve froze it, so starter scripts and dependency bumps never arrived —
+ * brand A silently missed `perf` and `bundle-budget` for a whole task. See merge-package-json.mjs
+ * for the rules: identity survives, everything else tracks the starter.
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mergePackageJson } from './merge-package-json.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(here, '..');
 const starterDir = path.resolve(appDir, '..', '..', 'storefront-starter');
 
 const EXCLUDE = new Set(['Dockerfile', 'CLAUDE.md', 'README.md', 'CHANGELOG.md']);
+/** Merged rather than copied or preserved — see merge-package-json.mjs. */
+const MERGE = new Set(['package.json']);
+
 const PRESERVE = new Set([
-  'package.json',
   'next.config.mjs',
   'scripts/start.mjs',
   'playwright.config.ts',
@@ -48,11 +55,28 @@ const tracked = execFileSync('git', ['-C', starterDir, 'ls-files'], { encoding: 
   .map((line) => line.trim())
   .filter(Boolean);
 
+const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
+
 let copied = 0;
 let preserved = 0;
+let merged = 0;
 for (const file of tracked) {
   if (EXCLUDE.has(file)) continue;
   const target = path.join(appDir, file);
+
+  // A brand that has not been generated yet has no package.json to merge into, so the first run
+  // falls through to a plain copy and the brand edits it afterwards.
+  if (MERGE.has(file) && existsSync(target)) {
+    const result = mergePackageJson(readJson(path.join(starterDir, file)), readJson(target));
+    writeFileSync(
+      target,
+      `${JSON.stringify(result, null, 2)}
+`,
+    );
+    merged += 1;
+    continue;
+  }
+
   if (isPreserved(file) && existsSync(target)) {
     preserved += 1;
     continue;
@@ -63,5 +87,6 @@ for (const file of tracked) {
 }
 
 console.log(
-  `sync-from-starter: ${copied} copied, ${preserved} preserved, ${EXCLUDE.size} excluded (from ${tracked.length} tracked starter files)`,
+  `sync-from-starter: ${copied} copied, ${merged} merged, ${preserved} preserved, ` +
+    `${EXCLUDE.size} excluded (from ${tracked.length} tracked starter files)`,
 );

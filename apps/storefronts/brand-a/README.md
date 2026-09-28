@@ -40,7 +40,7 @@ Everything else is byte-identical to `apps/storefront-starter` at the commit of 
 
 | File                                              | Why                                                                                           |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `package.json`                                    | name `@platform/storefront-brand-a`, version, dev port 3101, `sync` script                    |
+| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`       |
 | `test/slots.test.ts`                              | **temporary** — drops assertions that this brand overrides nothing (REQUEST #278)             |
 | `playwright.config.ts`                            | platform-keyed `snapshotPathTemplate` for visual baselines                                    |
 | `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                    |
@@ -52,6 +52,7 @@ Everything else is byte-identical to `apps/storefront-starter` at the commit of 
 | `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
 | `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                        |
 | `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                |
+| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                          |
 | `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                              |
 | `Dockerfile`                                      | **absent** — every Dockerfile is window 5's path; the brand image arrives via a REQUEST issue |
 | `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)  |
@@ -111,10 +112,15 @@ pnpm --filter @platform/storefront-brand-a sync
 excluded files and never overwriting the identity files or `src/brand/**` (the table above).
 Review the resulting git diff — that is the drift, by construction.
 
-Two things the PRESERVE list costs, worth checking after any sync:
+`package.json` is neither copied nor preserved but **merged**
+(`scripts/merge-package-json.mjs`): identity survives — name, version, the 3101 dev port,
+brand-only scripts and dependencies — while scripts and dependency versions track the starter.
+Preserving it wholesale is what cost this app the `perf` and `bundle-budget` scripts for an entire
+task. A re-sync on an already-merged app writes a byte-identical file; `test/sync-merge.test.ts`
+asserts that, and both halves of the contract.
 
-- **`package.json` never takes new starter scripts.** The starter added `perf` and `bundle-budget`
-  in its 2.3; this app only got them because 2.2 noticed and copied them across by hand.
+One thing the PRESERVE list still costs, worth checking after any sync:
+
 - **`test/slots.test.ts` is preserved while REQUEST #278 is open.** Drop it from `PRESERVE`,
   re-sync, and delete the deviation comment once window 3 has moved the starter-only assertions
   out of the shared test.
