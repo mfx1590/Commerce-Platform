@@ -394,7 +394,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   #282 is still in review). After the #282 verdict + merge confirm: merge main, rerun gates, push
   (carries the memory commit too), open the 2.6 PR — **"Refs #118"** while #284/#285 are open
   (#118's own criteria are met; the manager decides whether it closes).
-- #282 (2.5 part one) in review — verdict next paste.
+- #282 (2.5 part one) shows MERGED on GitHub (main `820ba48`, merge round 30); main merged
+  locally on top of 2.6, gates green again. Holding the push for the manager's explicit confirm.
 - After that: 2.5b when #279 lands as 0.4.7 (closes #117) → then Phase 2 done.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
