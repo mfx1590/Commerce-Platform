@@ -72,6 +72,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/store/products/{handle}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Published reviews for a product, newest first */
+        get: operations["listProductReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/store/carts": {
         parameters: {
             query?: never;
@@ -370,6 +387,28 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        Review: {
+            /** Format: uuid */
+            id: string;
+            rating: number;
+            title: string | null;
+            body: string | null;
+            author: string | null;
+            /** Format: date-time */
+            created_at: string;
+            verified_purchase: boolean;
+        };
+        ReviewSummary: {
+            count: number;
+            average: number | null;
+        };
+        ReviewPage: {
+            items: components["schemas"]["Review"][];
+            total: number;
+            page: number;
+            limit: number;
+            summary: components["schemas"]["ReviewSummary"];
+        };
         Category: {
             /** Format: uuid */
             id: string;
@@ -412,6 +451,7 @@ export interface components {
                 description?: string;
                 canonical?: string;
             };
+            review_summary?: components["schemas"]["ReviewSummary"] | null;
             options: {
                 name: string;
                 values: string[];
@@ -758,6 +798,54 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listProductReviews: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                handle: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "00000000-0000-4000-8000-000000000901",
+                     *           "rating": 5,
+                     *           "title": "Exactly as described",
+                     *           "body": "Wore it all summer.",
+                     *           "author": "Ada L.",
+                     *           "created_at": "2026-09-01T10:00:00Z",
+                     *           "verified_purchase": true
+                     *         }
+                     *       ],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "limit": 24,
+                     *       "summary": {
+                     *         "count": 1,
+                     *         "average": 5
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReviewPage"];
+                };
+            };
             404: components["responses"]["NotFound"];
         };
     };

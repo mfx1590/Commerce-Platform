@@ -65,6 +65,9 @@ const store: Store = {
   default_locale: 'en-GB',
   default_country: 'NL',
   timezone: 'Europe/Amsterdam',
+  // Required on the Store response since contracts-v0.4.7 (#279); always contain the defaults.
+  currencies: ['EUR'],
+  locales: ['en-GB'],
   content_space_id: 'brand-a',
   search_index: 'brand-a_products',
   psp_account_id: 'acct_words',
