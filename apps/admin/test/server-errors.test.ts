@@ -151,3 +151,45 @@ describe('toActionResult', () => {
     ).toEqual({ status: 'error', fieldErrors: { code: 'code already exists' }, formError: null });
   });
 });
+
+describe('pointer-keyed validation details (the core promotion validator)', () => {
+  const failure = {
+    status: 400,
+    error: {
+      code: 'validation_error',
+      message: 'invalid promotion',
+      details: {
+        '/value': 'percentage value is basis points 1..10000',
+        '/rules/buy_quantity': 'buy/get rules only apply to buy_x_get_y',
+      },
+    },
+  };
+
+  it('attaches each pointer to its field when the form renders it', () => {
+    const mapped = mapServerError(failure, ['value', 'rules']);
+    expect(mapped.fieldErrors).toEqual({
+      value: 'percentage value is basis points 1..10000',
+      'rules.buy_quantity': 'buy/get rules only apply to buy_x_get_y',
+    });
+    expect(mapped.formError).toBeNull();
+  });
+
+  it('raises the ones the form does not render to form level, named', () => {
+    const mapped = mapServerError(failure, ['name']);
+    expect(mapped.fieldErrors).toEqual({});
+    expect(mapped.formError).toBe(
+      'invalid promotion (value: percentage value is basis points 1..10000; rules.buy_quantity: buy/get rules only apply to buy_x_get_y)',
+    );
+  });
+
+  it('does not change the documented { field } shape', () => {
+    const mapped = mapServerError(
+      {
+        status: 400,
+        error: { code: 'validation_error', message: 'bad handle', details: { field: 'handle' } },
+      },
+      ['handle'],
+    );
+    expect(mapped.fieldErrors).toEqual({ handle: 'bad handle' });
+  });
+});

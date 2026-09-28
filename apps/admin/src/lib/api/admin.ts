@@ -512,3 +512,107 @@ export async function eraseCustomer(
     method: 'POST',
   });
 }
+
+// ---------------------------------------------------------------------------- pricing + promotions (task 2.4)
+
+/** Every price list of the store (no paging in the contract). */
+export async function listPriceLists(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'listPriceLists'>>> {
+  return adminCall<'listPriceLists'>({
+    path: buildPath('/admin/stores/{storeId}/price-lists', { storeId }),
+  });
+}
+
+export async function createPriceList(
+  storeId: string,
+  body: AdminComponents['PriceListInput'],
+): Promise<ApiResult<AdminResponse<'createPriceList'>>> {
+  return adminCall<'createPriceList'>({
+    path: buildPath('/admin/stores/{storeId}/price-lists', { storeId }),
+    method: 'POST',
+    body,
+  });
+}
+
+export interface PriceUpsertRow {
+  variant_id: string;
+  amount_minor: number;
+  compare_at_minor?: number | null;
+  min_quantity?: number;
+}
+
+/** Bulk upsert of a list's prices, integer minor units only; the action re-validates every row first. */
+export async function upsertPrices(
+  storeId: string,
+  priceListId: string,
+  prices: readonly PriceUpsertRow[],
+): Promise<ApiResult<AdminResponse<'upsertPrices'>>> {
+  return adminCall<'upsertPrices'>({
+    path: buildPath('/admin/stores/{storeId}/price-lists/{priceListId}/prices', {
+      storeId,
+      priceListId,
+    }),
+    method: 'PUT',
+    body: { prices },
+  });
+}
+
+/** Sortable by name / code / status / starts_at / created_at; no filters in the contract. */
+export async function listPromotions(
+  storeId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listPromotions'>>> {
+  return adminCall<'listPromotions'>({
+    path: buildPath('/admin/stores/{storeId}/promotions', { storeId }),
+    query,
+  });
+}
+
+export async function createPromotion(
+  storeId: string,
+  body: AdminComponents['PromotionInput'],
+): Promise<ApiResult<AdminResponse<'createPromotion'>>> {
+  return adminCall<'createPromotion'>({
+    path: buildPath('/admin/stores/{storeId}/promotions', { storeId }),
+    method: 'POST',
+    body,
+  });
+}
+
+export async function getPromotion(
+  storeId: string,
+  promotionId: string,
+): Promise<ApiResult<AdminResponse<'getPromotion'>>> {
+  return adminCall<'getPromotion'>({
+    path: buildPath('/admin/stores/{storeId}/promotions/{promotionId}', { storeId, promotionId }),
+  });
+}
+
+/** Partial update; `code` and `type` are immutable in the contract (the form never sends them). */
+export async function updatePromotion(
+  storeId: string,
+  promotionId: string,
+  body: AdminComponents['PromotionPatch'],
+): Promise<ApiResult<AdminResponse<'updatePromotion'>>> {
+  return adminCall<'updatePromotion'>({
+    path: buildPath('/admin/stores/{storeId}/promotions/{promotionId}', { storeId, promotionId }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+/**
+ * Per promotion code: uses, discount given, revenue of the orders that used it, over [from, to).
+ * Window 17's report path (`viewer` on the store); read here for the usage card on the
+ * promotions list.
+ */
+export async function getPromotionReport(
+  storeId: string,
+  range: { from: string; to: string },
+): Promise<ApiResult<AdminResponse<'getPromotionReport'>>> {
+  return adminCall<'getPromotionReport'>({
+    path: buildPath('/admin/stores/{storeId}/marketing/reports/promotions', { storeId }),
+    query: range,
+  });
+}
