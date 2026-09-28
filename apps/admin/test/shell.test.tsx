@@ -51,12 +51,13 @@ describe('RailList (the plain fallback)', () => {
     expect(screen.getByRole('link', { name: 'Orders' })).not.toHaveAttribute('aria-current');
   });
 
-  it('does not offer Settings to store_staff', () => {
+  it('does not offer Settings or Content to an organization analyst', () => {
     render(
-      <RailList label="Brand A" items={storeNavItems(principals.storeStaff, SEED.stores.brandA)} />,
+      <RailList label="Brand A" items={storeNavItems(principals.analyst, SEED.stores.brandA)} />,
     );
     expect(screen.queryByRole('link', { name: 'Settings' })).toBeNull();
-    expect(screen.getByRole('link', { name: 'Content' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Content' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Catalog' })).toBeInTheDocument();
   });
 });
 

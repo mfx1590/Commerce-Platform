@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Added — task 2.5, issue #117 (part one): Store settings (Admin API 0.4.6)
+
+- **Settings** `/{storeId}/settings`, open to store_staff and up (the section was store_admin):
+  General (`updateStore`: name, status, default currency / locale / country, timezone; a move to
+  paused or archived asks first), Domains (list; add with make-primary for **owner on
+  organization:hq** only), Sales channels (list; create for store_admin), API keys (list and create
+  for store_admin; publishable only in the Store view; the plain key shown once and gone after
+  "Done"). Below the needed relation each form is replaced by a line naming it; below store_admin
+  the keys list is not requested and the card is the relation panel.
+- `updateStoreSettingsAction` parses with `storeSettingsSchema.strict()` — HQ fields in an edited
+  request are refused before the API.
+- `src/components/registry/`: server-rendered lists plus client forms, shared by the HQ store page
+  and the settings page (the HQ `api-keys-panel` / `registry-panels` are gone; no record crosses
+  into a client component). Registry actions revalidate both paths.
+- Tests: `test/settings.test.tsx` (permission table, rendered page per role, status confirmation,
+  one-time key), `test-contract/settings.test.tsx` (8 operations + documented 403/409/401), e2e
+  settings journey.
+- **Not yet:** revoke key, move the primary domain, enabled locale/currency sets — CONTRACT
+  CHANGE #279 → 2.5b, which closes #117.
+
+### Changed — review nits from #268 and #276
+
+- `markClientSafe` refuses (at compile time) a PII record or an object holding one; the guard
+  test recognises a comment-preceded `'use client'` and follows exported type aliases of PII
+  records across modules (it found `orders/quantities` exporting `Order`).
+- `priceUpsertRowSchema` refuses a compare-at below the amount server-side (batch test added).
+- `upsertPricesAction` returns `ActionResult<AdminResponse<'upsertPrices'>>` (no conditional-type
+  trick); `toPromotionInput` spreads a shared builder instead of re-setting three fields.
+
 ### Added — task 2.4, issue #116: Promotions and price lists (Admin API 0.4.5)
 
 - **Promotions list** `/{storeId}/promotions` (viewer): `listPromotions` with the contract's sort

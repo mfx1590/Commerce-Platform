@@ -246,6 +246,14 @@ export function toContractValue(values: PromotionFormValues): number {
 
 /** Everything `PromotionPatch` accepts — shared by create and update. */
 export function toPromotionPatch(values: PromotionFormValues): PromotionPatch {
+  return editableFields(values);
+}
+
+/**
+ * The fields create and edit share. Its return type is inferred, not `PromotionPatch`, so `name`,
+ * `stackable` and `exclusive` stay required and `toPromotionInput` can spread it as is.
+ */
+function editableFields(values: PromotionFormValues) {
   return {
     name: values.name,
     value: toContractValue(values),
@@ -263,12 +271,8 @@ export function toPromotionPatch(values: PromotionFormValues): PromotionPatch {
 
 /** `PromotionInput` for create: the patch plus the two immutable fields. */
 export function toPromotionInput(values: PromotionFormValues): PromotionInput {
-  const patch = toPromotionPatch(values);
   return {
-    ...patch,
-    name: values.name,
-    stackable: values.stackable,
-    exclusive: values.exclusive,
+    ...editableFields(values),
     code: values.code === '' ? null : values.code,
     type: values.type,
   };
