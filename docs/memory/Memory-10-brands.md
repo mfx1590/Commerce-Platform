@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-25 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 in PR #280 (13/13 CI green), 2.3 next
+Last updated: 2026-09-25 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 BLOCK fixes pushed (e83542d), awaiting diff-only re-check
 
 ## Identity (does not change)
 Owned paths (write):
@@ -89,6 +89,21 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **Test every text token against every SURFACE, not just the page.** 2.2 shipped Stone at 4.36:1 on
+  `muted` (Badge, CMS hero eyebrow) while passing on Paper. Lighthouse audits only PLP/PDP and
+  scored a11y 1.00 straight through it. A per-page score is not palette coverage.
+- **`border` and `input` are not the same job.** A field edge identifies a UI component (WCAG
+  1.4.11, 3:1); a divider does not. The kit shares one light value for both — brand A does not.
+- **A doc that praises what the code no longer does is a defect.** Three of 2.2's review findings
+  were DESIGN.md claims the tokens contradicted (no-sixth-colour, the Stone rule, the avatar
+  exemption). When changing a token, re-read the paragraph that justified it.
+- **Setting a font token does not render the font.** Nothing in the kit/starter uses `font-serif`,
+  so Newsreader loaded and styled nothing. `src/brand/theme.css` (imported from tokens.ts) is the
+  brand-owned hook for element-level rules; global CSS imports DO work from any App Router module,
+  but a separate file gets no `@tailwind` directives, so no `@layer`.
+- **A visual-regression tolerance of 1% sleeps through a whole typeface change.** Use 0.002.
+- **Read the issue's own acceptance criteria before writing the PR description.** 2.2 substituted a
+  self-authored list and missed four required items.
 - **The CI perf gate never runs for brand storefronts — it reports a vacuous pass in ~4 s.**
   `infra/ci/changes.sh:98` matches `apps/storefront-starter/`, not `apps/storefronts/`; and even
   when it fires, `ci.yml:229` runs `--filter @platform/storefront-starter perf`, so a brand's own
