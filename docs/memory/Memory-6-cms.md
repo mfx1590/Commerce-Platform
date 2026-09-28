@@ -1,7 +1,7 @@
 # Memory 6 — CMS & landing pages
 Window: 6 · Key: `cms` · Branch prefix: `cms/` · Model: Sonnet
 Standing rules (manager, 2026-09-19): merge main before every push · after opening a PR hold every push until the manager confirms its merge · test keys are words, never digit/hex tails.
-Last updated: 2026-09-20 · Contracts: contracts-v0.4.4 (was v0.3 = 583b407 when Phase 2 started) · Branch: `cms/phase2` · Status: PHASE 2 COMPLETE (2.1–2.5 merged; 2.5 = main 5c488d0) · QUIET — wake only for #178/#141
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.4 (was v0.3 = 583b407 when Phase 2 started) · Branch: `cms/phase2` · Status: PHASE 2 COMPLETE (2.1–2.5 merged; 2.5 = main 5c488d0) · #277 fix in PR · QUIET after its merge — wake only for #178/#141
 
 ## Identity
 Owned paths (write; docs/ownership.md `cms/` row is authoritative):
@@ -20,6 +20,7 @@ Never touches:
 Headless CMS with one workspace per brand: schemas (page, hero, blocks, campaign landing, nav, footer, legal, product-story block), fetch layer with preview + revalidate-on-publish, content routes, Builder.io/Framer embed under /campaign/*, media via Cloudinary. cms/README explains how a marketer builds a landing page alone. Wave A — starts right after contracts-v0.3 is tagged; nothing to wait for.
 
 ## Done
+- **REQUEST #277 (urgent security): control-character open redirect in preview/preview-exit** — 2026-09-28, PR (number below). `safeRedirectPath` delegates to the shared `isSafeInternalPath` (src/lib/safe-path.ts, #273/0cf9415); `redirect()` asserts `isSameOrigin` and collapses off-origin to `/` with the cookie still applied; exit handler documented as DELIBERATELY unauthenticated (accepted by the manager: exit only de-escalates, secret in the banner link would leak into history/logs); control-char tests ported (tab/LF/CR/NUL/DEL/U+2028/U+2029 + the %2F%09%2F exploit shape through both handlers + browser-resolution proof); `safeHref` internal branch unified on the shared helper. Gates: storefront 350, cms 47, typecheck 21/21, lint, format, ownership OK.
 - **#119 · 2.1 Sanity workspace and schemas per brand** — 2026-09-08, commit bc919ea, PR #163 merged (main a58c3da).
 - **#120 · 2.2 Fetch layer, preview mode, revalidate-on-publish** — 2026-09-08, commit b4ccd1f, PR #177 merged (main 947300a); wave C opened.
 - **#123 · 2.5 Cloudinary media for CMS content** — 2026-09-19/20, commits 01ee1a3 (2.5) + da32729 (#238 nits), PR #249 merged (main 5c488d0, #123 closed). `imageWithAlt.cloudinaryUrl` over the shared @platform/ui loader, responsive srcsets both sources, share-image metadata, env-only per-brand config; cms 0.4.0. **PHASE 2 COMPLETE.**
@@ -27,7 +28,7 @@ Headless CMS with one workspace per brand: schemas (page, hero, blocks, campaign
 - **#121 · 2.3 Content routes in the starter and (content) localisation** — 2026-09-08, commit f225a25, PR #193 merged (before the pause). `(content)` routes `/pages/[slug]`, `/legal/[slug]`, translated not-found, CMS-fed header/footer with static fallback, `HomeContent`, `PreviewBanner`, portable text, product story, Sanity image, `documentMetadata`; `content` namespace via `createTranslator`; cms 0.2.0 (uniqueness on navigation/footer, `HREF_PATTERN`). Storefront 205 / cms 41 tests. `apps/storefront-starter/src/lib/cms/` (plain-fetch GROQ client, reader that never throws, three-level tags, HMAC preview cookie, Sanity webhook verification, pure handlers) + `src/app/api/cms/{preview,preview/exit,revalidate}/route.ts`; 4 test suites / 28 tests; cms 0.1.1 with the #163 nits folded. Root config via REQUESTs #164, #167, #170 (main b9baf84). `@platform/cms` 0.1.0: Studio config (one workspace per brand dataset), 10 object + 5 document schemas, `define.ts` structural mirror, `validateDocument`, fixtures, `datasets.ts`, seed script + manual steps, README, CHANGELOG. 35 tests (incl. compiling the registry with Sanity's own `createSchema`). Root config came from REQUEST #158 (main 94f1de3).
 
 ## In progress
-- (nothing — Phase 2 complete; QUIET, waking only for #178/#141 wave-C support. First support change folds in the nit list below.)
+- (nothing — QUIET again after the #277 PR merges; wake only for #178/#141. Wave-C nit list below still pending.)
 
 ## Archived plan — 2.3 (delivered in PR #193, merged; kept for the file layout it describes)
   1. **Strings:** `src/lib/cms/messages/{en-GB,de-DE}.json` (flat `content` namespace: page/legal headings, "last reviewed", not-found, "view product", nav/footer aria labels, preview banner + exit link) + REQUEST (filed) for `src/i18n/request.ts` to merge them as `content`; until it lands, tests exercise the components with the JSON loaded directly and the routes call `getTranslations('content')`. Parity test (same keys/placeholders/translated) in `test/cms-content.test.ts`.
