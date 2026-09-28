@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-25 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 built, push held
+Last updated: 2026-09-25 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 in PR #280 (13/13 CI green), 2.3 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -22,7 +22,8 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   `src/brand/fonts/`, radius 2px, shadows none, `brandConfig` = Fieldnote. 21 new tests in
   `test/brand-theme.test.ts` recompute every published contrast ratio. Measured on a production
   build: perf 0.99/0.97, **a11y 1.00**, SEO 0.92, CLS 0.0000/0.0001; bundle budget green ×7.
-  REQUEST #278 filed. Root gate green (lint, format, typecheck 21/21, 332 tests, ownership OK).
+  REQUEST #278 + #283 filed. Root gate green (lint, format, typecheck 21/21, 332 tests, ownership
+  OK). PR #280, 13/13 CI green — but the perf check among them is vacuous (#283).
 - **Re-sync brand-a from the starter** — commit e44d87d (prerequisite for 2.2). 148 copied,
   10 preserved, 4 excluded; brought in storefront 2.2-2.4 (SEO/JSON-LD/sitemap/robots, CSP, perf +
   bundle budgets, (content) campaign/legal, Cloudinary) and **#254's `src/brand/config.ts`**.
@@ -30,9 +31,8 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.2 (#140) built and green; push held until the manager confirms no queue is running.**
-  Commits: e44d87d (re-sync), 5c3ffcd (DESIGN.md), 55dac34 (the theme). Then open the PR closing
-  #140. main merged twice (latest at push-prep time); brand-a gate re-run green after both.
+- **2.2 pushed as PR #280** (9ff624a), 13/13 CI checks green — but see the perf caveat below and
+  REQUEST #283: the perf check passed **vacuously**. Waiting on the reviewer's verdict.
 - **Start 2.3 with a re-sync.** main moved again while 2.2 was finishing and the starter gained
   `src/lib/referral.ts`, `reviews.ts`, `safe-path.ts` and their tests. Deliberately NOT folded into
   the 2.2 PR — one PR per task. Re-sync first thing in 2.3, on its own commit, and diff the two
@@ -70,6 +70,13 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **The CI perf gate never runs for brand storefronts — it reports a vacuous pass in ~4 s.**
+  `infra/ci/changes.sh:98` matches `apps/storefront-starter/`, not `apps/storefronts/`; and even
+  when it fires, `ci.yml:229` runs `--filter @platform/storefront-starter perf`, so a brand's own
+  `bundle-budget.json` / `lighthouserc.json` (:3101) are never read. REQUEST #283. **Until it
+  lands, measure by hand at every brands task and quote the numbers in the PR** — do not read that
+  green check as evidence. Verify a classifier claim by running it:
+  `CHANGED_FILES="<paths>" bash infra/ci/changes.sh`.
 - **`next/font/local` is a build-time transform with no runtime implementation.** Any vitest test
   that reaches `tokens.ts` must `vi.mock('next/font/local')`, and the import of the module under
   test has to be a dynamic `await import` so the mock is in place first.
