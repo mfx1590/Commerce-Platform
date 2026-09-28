@@ -1,0 +1,202 @@
+[
+  {
+    "_id": "page.en-GB.about",
+    "_type": "page",
+    "locale": "en-GB",
+    "title": "Who we are",
+    "slug": { "_type": "slug", "current": "about" },
+    "hero": {
+      "_type": "hero",
+      "headline": "Who we are",
+      "subheadline": "Four people, one warehouse, two collections a year."
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "a-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "a-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "a-p1-s",
+                "text": "Fieldnote started in 2022 because we wanted a t-shirt that would still be a t-shirt after fifty washes, and could not reliably buy one. We now make a small range of everyday pieces and keep them in production for as long as the cloth lasts."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "a-h2",
+            "style": "h2",
+            "children": [{ "_type": "span", "_key": "a-h2-s", "text": "How we work" }]
+          },
+          {
+            "_type": "block",
+            "_key": "a-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "a-p2-s",
+                "text": "We buy cloth in full runs from mills we have visited, cut in workshops we can name, and ship from our own warehouse rather than a third party. It is slower than the alternative and it is the reason there are six products here instead of sixty."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaDescription": "Four people making a small range of everyday clothes, in short runs, from cloth bought a whole run at a time."
+    }
+  },
+  {
+    "_id": "page.de-DE.about",
+    "_type": "page",
+    "locale": "de-DE",
+    "title": "Wer wir sind",
+    "slug": { "_type": "slug", "current": "about" },
+    "hero": {
+      "_type": "hero",
+      "headline": "Wer wir sind",
+      "subheadline": "Vier Menschen, ein Lager, zwei Kollektionen im Jahr."
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "a-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "a-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "a-p1-s",
+                "text": "Fieldnote ist 2022 entstanden, weil wir ein T-Shirt wollten, das auch nach fünfzig Wäschen noch ein T-Shirt ist — und keines zuverlässig kaufen konnten. Heute machen wir eine kleine Auswahl an Alltagsstücken und halten sie so lange in Produktion, wie der Stoff reicht."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "a-h2",
+            "style": "h2",
+            "children": [{ "_type": "span", "_key": "a-h2-s", "text": "Wie wir arbeiten" }]
+          },
+          {
+            "_type": "block",
+            "_key": "a-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "a-p2-s",
+                "text": "Wir kaufen Stoffe in ganzen Produktionen bei Webereien, die wir besucht haben, lassen in Werkstätten zuschneiden, die wir benennen können, und versenden aus unserem eigenen Lager statt über Dritte. Das ist langsamer als die Alternative — und der Grund, warum hier sechs Produkte stehen und nicht sechzig."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaDescription": "Vier Menschen, die eine kleine Auswahl an Alltagskleidung machen — in kurzen Serien, aus ganzen Stoffproduktionen."
+    }
+  },
+  {
+    "_id": "page.en-GB.cloth",
+    "_type": "page",
+    "locale": "en-GB",
+    "title": "How we choose cloth",
+    "slug": { "_type": "slug", "current": "cloth" },
+    "hero": {
+      "_type": "hero",
+      "headline": "How we choose cloth",
+      "subheadline": "Three questions, asked in the same order every time."
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "c-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "c-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-p1-s",
+                "text": "Can we name the mill and has someone from here been to it. Will the mill still weave it in two years, so a repair matches. Does it improve with washing rather than merely survive it."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "c-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-p2-s",
+                "text": "A cloth that fails the third question can still be a good cloth — it is just not one we will build a piece around, because the whole point is that the thing gets better while you own it."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaDescription": "The three questions Fieldnote asks before buying a cloth, and why the third one decides it."
+    }
+  },
+  {
+    "_id": "page.de-DE.cloth",
+    "_type": "page",
+    "locale": "de-DE",
+    "title": "Wie wir Stoffe auswählen",
+    "slug": { "_type": "slug", "current": "cloth" },
+    "hero": {
+      "_type": "hero",
+      "headline": "Wie wir Stoffe auswählen",
+      "subheadline": "Drei Fragen, jedes Mal in derselben Reihenfolge."
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "c-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "c-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-p1-s",
+                "text": "Können wir die Weberei benennen, und war jemand von uns dort. Wird die Weberei den Stoff in zwei Jahren noch weben, damit eine Reparatur passt. Wird er durch Waschen besser — oder übersteht er es nur."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "c-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-p2-s",
+                "text": "Ein Stoff, der an der dritten Frage scheitert, kann trotzdem ein guter Stoff sein — nur keiner, um den wir ein Stück bauen. Denn genau darum geht es: Das Teil soll besser werden, während Sie es besitzen."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaDescription": "Die drei Fragen, die Fieldnote vor dem Kauf eines Stoffes stellt — und warum die dritte entscheidet."
+    }
+  }
+]

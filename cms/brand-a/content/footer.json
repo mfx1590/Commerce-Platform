@@ -1,0 +1,196 @@
+[
+  {
+    "_id": "footer.en-GB.default",
+    "_type": "footer",
+    "locale": "en-GB",
+    "columns": [
+      {
+        "_type": "footerColumn",
+        "_key": "col-shop",
+        "heading": "Shop",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-all",
+            "label": "Everything",
+            "href": "/products"
+          },
+          {
+            "_type": "link",
+            "_key": "f-tshirts",
+            "label": "T-shirts",
+            "href": "/categories/t-shirts"
+          },
+          {
+            "_type": "link",
+            "_key": "f-knitwear",
+            "label": "Knitwear",
+            "href": "/categories/knitwear"
+          }
+        ]
+      },
+      {
+        "_type": "footerColumn",
+        "_key": "col-about",
+        "heading": "About",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-about",
+            "label": "Who we are",
+            "href": "/pages/about"
+          },
+          {
+            "_type": "link",
+            "_key": "f-cloth",
+            "label": "How we choose cloth",
+            "href": "/pages/cloth"
+          }
+        ]
+      },
+      {
+        "_type": "footerColumn",
+        "_key": "col-help",
+        "heading": "Help",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-returns",
+            "label": "Returns and exchanges",
+            "href": "/legal/returns"
+          },
+          {
+            "_type": "link",
+            "_key": "f-imprint",
+            "label": "Imprint",
+            "href": "/legal/imprint"
+          }
+        ]
+      }
+    ],
+    "legalLinks": [
+      {
+        "_type": "link",
+        "_key": "l-imprint",
+        "label": "Imprint",
+        "href": "/legal/imprint"
+      },
+      {
+        "_type": "link",
+        "_key": "l-privacy",
+        "label": "Privacy",
+        "href": "/legal/privacy"
+      },
+      {
+        "_type": "link",
+        "_key": "l-terms",
+        "label": "Terms",
+        "href": "/legal/terms"
+      },
+      {
+        "_type": "link",
+        "_key": "l-returns",
+        "label": "Returns policy",
+        "href": "/legal/returns"
+      }
+    ],
+    "copyright": "© 2026 Fieldnote. Made in small runs."
+  },
+  {
+    "_id": "footer.de-DE.default",
+    "_type": "footer",
+    "locale": "de-DE",
+    "columns": [
+      {
+        "_type": "footerColumn",
+        "_key": "col-shop",
+        "heading": "Shop",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-all",
+            "label": "Alles",
+            "href": "/products"
+          },
+          {
+            "_type": "link",
+            "_key": "f-tshirts",
+            "label": "T-Shirts",
+            "href": "/categories/t-shirts"
+          },
+          {
+            "_type": "link",
+            "_key": "f-knitwear",
+            "label": "Strick",
+            "href": "/categories/knitwear"
+          }
+        ]
+      },
+      {
+        "_type": "footerColumn",
+        "_key": "col-about",
+        "heading": "Über uns",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-about",
+            "label": "Wer wir sind",
+            "href": "/pages/about"
+          },
+          {
+            "_type": "link",
+            "_key": "f-cloth",
+            "label": "Wie wir Stoffe auswählen",
+            "href": "/pages/cloth"
+          }
+        ]
+      },
+      {
+        "_type": "footerColumn",
+        "_key": "col-help",
+        "heading": "Hilfe",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-returns",
+            "label": "Rückgabe und Umtausch",
+            "href": "/legal/returns"
+          },
+          {
+            "_type": "link",
+            "_key": "f-imprint",
+            "label": "Impressum",
+            "href": "/legal/imprint"
+          }
+        ]
+      }
+    ],
+    "legalLinks": [
+      {
+        "_type": "link",
+        "_key": "l-imprint",
+        "label": "Impressum",
+        "href": "/legal/imprint"
+      },
+      {
+        "_type": "link",
+        "_key": "l-privacy",
+        "label": "Datenschutz",
+        "href": "/legal/privacy"
+      },
+      {
+        "_type": "link",
+        "_key": "l-terms",
+        "label": "AGB",
+        "href": "/legal/terms"
+      },
+      {
+        "_type": "link",
+        "_key": "l-returns",
+        "label": "Widerruf und Rückgabe",
+        "href": "/legal/returns"
+      }
+    ],
+    "copyright": "© 2026 Fieldnote. In kleinen Serien gefertigt."
+  }
+]
