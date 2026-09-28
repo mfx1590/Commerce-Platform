@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Fieldnote">
+  <!--
+    Brand A's favicon. Ink on Paper, square corners, no gradient — the same three rules as the rest
+    of the theme (src/brand/DESIGN.md §2, §4). An "F" drawn as three strokes rather than set in
+    Newsreader, because a 16px glyph of a text serif turns to mud and because the icon must not
+    depend on a webfont having loaded.
+  -->
+  <rect width="32" height="32" fill="#23201B"/>
+  <rect x="10" y="8" width="13" height="2.6" fill="#F7F4EF"/>
+  <rect x="10" y="14.7" width="9.5" height="2.6" fill="#F7F4EF"/>
+  <rect x="10" y="8" width="2.6" height="16" fill="#F7F4EF"/>
+</svg>

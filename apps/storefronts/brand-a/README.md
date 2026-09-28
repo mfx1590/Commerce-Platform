@@ -38,20 +38,23 @@ and its sales channel from it. `GET /health` answers 200 for the container HEALT
 
 Everything else is byte-identical to `apps/storefront-starter` at the commit of the last sync.
 
-| File                                     | Why                                                                                           |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `package.json`                           | name `@platform/storefront-brand-a`, version, dev port 3101, `sync` script                    |
-| `test/slots.test.ts`                     | **temporary** — drops assertions that this brand overrides nothing (REQUEST #278)             |
-| `scripts/start.mjs`                      | default port 3101                                                                             |
-| `next.config.mjs`                        | brand env defaults (`SITE_URL`, `STORE_PUBLISHABLE_KEY`) via `??=`                            |
-| `playwright.config.ts`                   | `APP_URL` default :3101; mock webServer `cwd` one level deeper                                |
-| `lighthouserc.json`                      | audit URLs on :3101                                                                           |
-| `tsconfig.json`                          | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
-| `tailwind.config.ts`                     | kit-dist content glob one level deeper                                                        |
-| `scripts/sync-from-starter.mjs`          | new — the clone/re-sync script                                                                |
-| `README.md`, `CHANGELOG.md`, `CLAUDE.md` | this app's own docs (not copied)                                                              |
-| `Dockerfile`                             | **absent** — every Dockerfile is window 5's path; the brand image arrives via a REQUEST issue |
-| `src/brand/**`                           | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)  |
+| File                                              | Why                                                                                           |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `package.json`                                    | name `@platform/storefront-brand-a`, version, dev port 3101, `sync` script                    |
+| `test/slots.test.ts`                              | **temporary** — drops assertions that this brand overrides nothing (REQUEST #278)             |
+| `playwright.config.ts`                            | platform-keyed `snapshotPathTemplate` for visual baselines                                    |
+| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                    |
+| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                             |
+| `scripts/start.mjs`                               | default port 3101                                                                             |
+| `next.config.mjs`                                 | brand env defaults (`SITE_URL`, `STORE_PUBLISHABLE_KEY`) via `??=`                            |
+| `playwright.config.ts`                            | `APP_URL` default :3101; mock webServer `cwd` one level deeper                                |
+| `lighthouserc.json`                               | audit URLs on :3101                                                                           |
+| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
+| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                        |
+| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                |
+| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                              |
+| `Dockerfile`                                      | **absent** — every Dockerfile is window 5's path; the brand image arrives via a REQUEST issue |
+| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)  |
 
 ## Theme
 
@@ -68,9 +71,29 @@ The theme ships entirely through tokens — brand A overrides no component or la
 are wired through `tokens.ts` rather than a slot because the checkout and account layouts render no
 `Header`, and a font injected from a slot would drop out there; see DESIGN.md §5.
 
-Measured on a production build (Lighthouse, median of 3): performance 0.99 / 0.97, accessibility
-**1.00**, SEO 0.92, CLS 0.0000 / 0.0001 (PLP / PDP). `/robots.txt` fails closed — the SEO audit
-needs `ROBOTS_ALLOW_INDEXING=1` to score, or it reads `Disallow: /` and lands around 0.58.
+### Checking the theme
+
+```bash
+pnpm --filter "@platform/storefront-brand-a^..." build   # workspace deps (ui, contracts, cms)
+pnpm --filter @platform/storefront-brand-a build          # the app itself — Lighthouse needs a production build
+pnpm mock                                                  # Prism Store API on :4010
+```
+
+then, with the app started as below, `pnpm --filter @platform/storefront-brand-a lighthouse` and
+`… bundle-budget`. The app must be started with **`ROBOTS_ALLOW_INDEXING=1`**: `/robots.txt` fails
+closed, and without it the SEO audit reads `Disallow: /` and lands around 0.58 rather than 0.92.
+
+```bash
+PORT=3101 STORE_API_URL=http://127.0.0.1:4010 SITE_URL=http://localhost:3101   ROBOTS_ALLOW_INDEXING=1 pnpm --filter @platform/storefront-brand-a start
+```
+
+Accessibility is gated by **axe over six pages** in the e2e suite (`pnpm … e2e a11y`), not by
+Lighthouse alone — Lighthouse audits only the PLP and PDP and scored 1.00 while the theme shipped a
+real AA failure in components that render on neither. Visual baselines for home/PLP/PDP are opt-in
+(`E2E_VISUAL=1`) and keyed by platform; see `e2e/visual.spec.ts` before regenerating one.
+
+Measured on a production build (Lighthouse, median of 3): performance 0.96, accessibility
+**1.00**, SEO 0.92, CLS 0.0000 / 0.0001 (PLP / PDP).
 
 ## Re-syncing from the starter
 

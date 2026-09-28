@@ -39,10 +39,16 @@ The three adjectives the design has to earn, in priority order:
 
 ---
 
-## 2. Colour — five values
+## 2. Colour
 
-Five, named, and no sixth. A palette this small forces hierarchy to come from type, space, and
-photography, which is what makes the result read as editorial rather than as a theme.
+**Five named hues, and four derived values that the code also ships.** An earlier draft of this
+section said "five, named, and no sixth" while `tokens.ts` shipped nine hex literals. That was a
+drifting document, which is worse than either honest option, so this section now owns everything the
+code sets. The _hue_ discipline is real and unchanged: five colours, one accent, hierarchy from type
+and space. What follows is not a sixth colour — it is Paper and Stone at other lightnesses, plus one
+state colour.
+
+### The five
 
 | Name      | Hex       | Role                                                                    |
 | --------- | --------- | ----------------------------------------------------------------------- |
@@ -50,26 +56,57 @@ photography, which is what makes the result read as editorial rather than as a t
 | **Ink**   | `#23201B` | Body text, headings, primary buttons. Warm near-black, never `#000`.    |
 | **Clay**  | `#9C4A32` | The single accent. Links, sale marks, the one thing allowed to be warm. |
 | **Sage**  | `#5F6B57` | Quiet support: in-stock marks, secondary blocks, editorial pull-outs.   |
-| **Stone** | `#746C60` | Muted text, borders, rules, metadata. The colour of a caption.          |
+| **Stone** | `#6B6357` | Muted text, metadata. The colour of a caption.                          |
 
 The hue story is deliberate: Paper, Ink, Clay and Stone all sit in the warm half of the wheel, and
 Sage is the one cool note. That is the palette of a linen swatch card, which is the point.
 
+### The four derived
+
+| Token         | Hex       | Derived from   | Why it has to exist                                                    | Measured                                   |
+| ------------- | --------- | -------------- | ---------------------------------------------------------------------- | ------------------------------------------ |
+| `muted`       | `#EFEBE4` | Paper, darker  | A quiet block needs a surface. A grey here would break the paper feel. | Stone on it **4.98:1**                     |
+| `border`      | `#DFD9CF` | Paper, darker  | Decorative hairline rules and dividers.                                | 1.28:1 vs Paper — see below                |
+| `input`       | `#8F8676` | Stone, lighter | The boundary of a text field.                                          | **3.28:1** vs Paper, **3.03:1** vs `muted` |
+| `destructive` | `#8F3A2B` | Clay, deeper   | An error state. The kit's stock red reads as a system alert on Paper.  | **6.82:1** vs Paper                        |
+
+**`border` and `input` are deliberately different values, and the split is an accessibility
+decision, not a visual one.** WCAG 1.4.11 (Non-text Contrast) requires 3:1 for visual information
+needed to _identify a user-interface component_. A divider rule carries no such information, so
+`border` is free to be a true hairline at 1.28:1. The edge of a text field does identify a control —
+and brand A's entire checkout is text fields — so `input` is a separate, darker value that clears
+3:1 on both surfaces it can sit on. The kit's defaults use one light value for both, which leaves
+field edges effectively invisible; brand A does not inherit that.
+
 ### Measured contrast (WCAG 2.1, computed — not estimated)
 
-| Pair                   | Ratio       | Target | Result |
-| ---------------------- | ----------- | ------ | ------ |
-| Ink on Paper (body)    | **14.79:1** | 7.0    | pass   |
-| Paper on Ink (button)  | **14.79:1** | 7.0    | pass   |
-| Clay on Paper (links)  | **5.57:1**  | 4.5    | pass   |
-| Sage on Paper          | **5.14:1**  | 4.5    | pass   |
-| Stone on Paper (muted) | **4.72:1**  | 4.5    | pass   |
-| Paper on Clay (block)  | **5.57:1**  | 4.5    | pass   |
-| Paper on Sage (block)  | **5.14:1**  | 4.5    | pass   |
+Every pair below is recomputed from the shipping tokens in `test/brand-theme.test.ts`, including
+each text token against **every surface it can land on** rather than only against the page.
 
-Stone started at `#7A7266` and measured 4.32:1 — a fail. It was darkened to `#746C60` rather than
-kept as a "close enough" caption grey. Clay and Sage clear AA as text and are still legible when
-used the other way round, as a block with Paper on top, so neither is limited to one direction.
+| Pair                          | Ratio       | Target | Result |
+| ----------------------------- | ----------- | ------ | ------ |
+| Ink on Paper (body)           | **14.79:1** | 7.0    | pass   |
+| Paper on Ink (primary button) | **14.79:1** | 7.0    | pass   |
+| Clay on Paper (links)         | **5.57:1**  | 4.5    | pass   |
+| Clay on `muted`               | **5.14:1**  | 4.5    | pass   |
+| Sage on Paper                 | **5.14:1**  | 4.5    | pass   |
+| Sage on `muted`               | **4.74:1**  | 4.5    | pass   |
+| Stone on Paper (muted text)   | **5.40:1**  | 4.5    | pass   |
+| Stone on `muted`              | **4.98:1**  | 4.5    | pass   |
+| Paper on Clay (block)         | **5.57:1**  | 4.5    | pass   |
+| Paper on Sage (block)         | **5.14:1**  | 4.5    | pass   |
+| Paper on `destructive`        | **6.82:1**  | 4.5    | pass   |
+| `input` border on Paper       | **3.28:1**  | 3.0    | pass   |
+| `input` border on `muted`     | **3.03:1**  | 3.0    | pass   |
+
+**Stone has now failed twice, for two different reasons, and both are recorded because the second
+one was caught in review rather than by me.** It shipped first as `#7A7266` and measured 4.32:1 on
+Paper — caught while writing this file. It then shipped as `#746C60`, which cleared Paper at 4.72:1
+but measured **4.36:1 on the `muted` surface** — a real AA failure in the neutral `Badge` and the
+CMS hero eyebrow, missed because the first round of tests only checked text against the page and
+because Lighthouse audited only the PLP and PDP, where those components do not appear. It is now
+`#6B6357`: 5.40:1 on Paper, 4.98:1 on `muted`. The lesson is in the test, not just in this
+paragraph — the suite now walks the full surface matrix.
 
 Nothing in the palette relies on colour alone to carry meaning: an out-of-stock mark is Stone text
 that says so, not a grey dot.
@@ -115,14 +152,58 @@ descenders are not clipped in two-line headings.
 
 ## 4. Shape and depth
 
-- **Radius: effectively none.** `sm`, `md` and `lg` all collapse to `2px`; `full` is kept for the one
-  case that needs it (an avatar). Rounded corners read as software. A printed page has square
-  corners and so does this one.
-- **Shadow: none.** All four shadow tokens become `none`. Separation is done with a 1px Stone rule
-  or with whitespace, never with a float. This is the single biggest lever against the generic look
-  — it removes the card-floating-on-a-grid idiom in one move.
+- **Radius: none. Every step, including `full`.** `sm`, `md`, `lg`, `xl` and `full` all collapse to
+  `2px`. Rounded corners read as software; a printed page has square corners and so does this one.
+
+  An earlier draft kept `full` on the kit default "for the one case that genuinely needs a circle (an
+  avatar)". Review asked why `Badge` was still a pill, and the answer was that the exemption was
+  protecting nothing: `rounded-full` resolves to this token, its only user in `@platform/ui` is
+  `Badge`, and **there is no avatar component in the kit or this app**. So the exemption rounded the
+  one component it reached and guarded a case that does not exist. When brand A does need a circle,
+  the right move is an `Avatar` in the kit whose shape does not ride on the shared radius scale.
+
+- **Shadow: none.** All four shadow tokens become `none`. Separation is done with a 1px rule in
+  `border` (a Paper tint, not Stone itself — an earlier draft of this file said "a 1px Stone rule",
+  which the tokens never did: full Stone at 5.40:1 is a heavy line, and an editorial hairline wants
+  to be quieter than its text) or with whitespace, never with a float. This is the single biggest
+  lever against the generic look — it removes the card-floating-on-a-grid idiom in one move.
 
 Depth in brand A is created by the amount of empty space around a thing, not by lifting it.
+
+---
+
+## 4b. Dark mode — a deliberate no, for brand A, in Phase 2
+
+Issue #140 asks for a dark-mode _decision_. This is it, with the reasoning, so it can be overturned
+on evidence rather than revisited from scratch.
+
+**Brand A ships no dark mode.** Three reasons, in order of weight:
+
+1. **It contradicts the brand's one material idea.** §1 commits to warm and paper-like: off-white
+   stock, ink, a linen swatch. "Paper, inverted" is not a darker version of that idea, it is a
+   different idea — a dark editorial apparel site is a legitimate design, but it is not _this_ design
+   and pretending one palette can be both produces neither.
+2. **A dark palette is a second full design, not a toggle.** Every ratio in §2 would have to be
+   re-derived: Clay at 5.57:1 on Paper is unreadable on a dark ground, Stone inverts to something
+   that is no longer "the colour of a caption", and the `border`/`input` split of §2 needs different
+   values again. That is a real piece of design work with its own measurements, and doing it badly is
+   worse than not doing it — a half-checked dark mode is where contrast failures hide, as Stone on
+   `muted` just demonstrated in the light one.
+3. **Nothing asks for it.** No acceptance criterion in Phase 2 needs it, no market requirement
+   mentions it, and the kit gives a brand one token set rather than a light/dark pair — so honouring
+   `prefers-color-scheme` would mean building the switching mechanism as well as the palette.
+
+**What the page does instead.** Nothing clever. Brand A does not fight the operating system and does
+not force a scheme with `color-scheme: only light`: it simply declares one palette, which a browser
+in dark mode renders as-is. Users who need a dark screen are served by the OS and browser-level
+inversion tools, which work better on a page that has one honest set of colours than on one that
+second-guesses them.
+
+**What would change this.** Any of: a market or accessibility requirement naming dark mode; the kit
+gaining first-class light/dark token pairs (making this a palette job rather than a mechanism job);
+or evidence from real traffic that a meaningful share of brand A's customers browse in dark mode and
+bounce. The work then is a full second palette with its own §2 table and its own measured ratios —
+budget it as design, not as a flag.
 
 ---
 
@@ -132,12 +213,18 @@ Everything in this design ships through `src/brand/**` and nothing else. The res
 byte-identical to `apps/storefront-starter`, so `pnpm --filter @platform/storefront-brand-a sync`
 stays a reviewable diff (the 2.1 decision, ADR 0004).
 
-| File                      | Carries                                                        |
-| ------------------------- | -------------------------------------------------------------- |
-| `src/brand/fonts.ts`      | The two `next/font/local` faces and their fallbacks.           |
-| `src/brand/fonts/*.woff2` | The font binaries and their OFL licence texts.                 |
-| `src/brand/tokens.ts`     | Colour, font family, line height, radius and shadow overrides. |
-| `src/brand/config.ts`     | Name, description and canonical origin for metadata (#254).    |
+| File                          | Carries                                                        |
+| ----------------------------- | -------------------------------------------------------------- |
+| `src/brand/fonts.ts`          | The two `next/font/local` faces and their fallbacks.           |
+| `src/brand/fonts/*.woff2`     | The font binaries and their OFL licence texts.                 |
+| `src/brand/tokens.ts`         | Colour, font family, line height, radius and shadow overrides. |
+| `src/brand/config.ts`         | Name, description and canonical origin for metadata (#254).    |
+| `src/app/icon.svg`            | Favicon — Ink on Paper, square, no webfont dependency.         |
+| `src/app/opengraph-image.tsx` | The default share card, in the brand palette.                  |
+
+The last two sit outside `src/brand/` because Next resolves `icon` and `opengraph-image` by file
+convention and will not look anywhere else. They are **new** files rather than edits to starter ones,
+so a re-sync neither overwrites nor deletes them; both are listed in the README's diff table.
 
 **Why the fonts are wired through `tokens.ts` and not through a slot.** The obvious place to inject
 `@font-face` is a component — but the only always-present slots are `Header` and `Footer`, and the
@@ -183,3 +270,8 @@ file describes how brand A looks, not what it sells.
   exists to close, to fix a problem that measures at 0.0001.
 
 - No token in this design adds a network request, an animation, or a blocking script.
+- **axe runs over six pages in the end-to-end suite** (`e2e/a11y.spec.ts`) against the full WCAG 2.1
+  A/AA rule set, not contrast alone. This exists because Lighthouse's 1.00 audited only the PLP and
+  PDP and missed a real AA failure in components that render on neither.
+- **Visual baselines for home / PLP / PDP** (`e2e/visual.spec.ts`), keyed by platform and opt-in via
+  `E2E_VISUAL=1`, so the look has to change on purpose.

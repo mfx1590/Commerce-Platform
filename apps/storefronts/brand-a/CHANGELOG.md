@@ -1,5 +1,43 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.2.1 — 2026-09-28 · task 2.2 review fixes (#140, PR #280)
+
+Three defects from review, two of which were the code disagreeing with `src/brand/DESIGN.md`.
+
+- **WCAG AA regression fixed.** Stone on the `muted` surface measured **4.36:1** — below AA and
+  below the kit default it replaced — in the neutral `Badge` and the CMS hero eyebrow. Stone is now
+  `#6B6357`: 5.40:1 on Paper, 4.98:1 on `muted`. Missed because the first tests only checked text
+  against the page and Lighthouse audits only the PLP and PDP, where neither component renders.
+  The suite now walks **every text token against every surface it can land on**.
+- **`input` split from `border`.** A form-field edge identifies a UI component (WCAG 1.4.11, 3:1);
+  a divider does not. They shared one value at 1.28:1, leaving every field edge in checkout
+  effectively invisible. `input` is now `#8F8676` — 3.28:1 on Paper, 3.03:1 on `muted`.
+- **DESIGN/tokens drift closed.** §2 claimed "five, named, and no sixth" while the tokens shipped
+  nine hex literals. The document now owns the four derived values (`muted`, `border`, `input`,
+  `destructive`) with each one's measured ratio, and a test fails if a colour token ships a hex the
+  design does not name. §4 now names `xl`, and the false "a 1px Stone rule" claim is corrected.
+- **`radius.full` collapsed to 2px.** Review asked why `Badge` was still a pill: `rounded-full`
+  resolves to this token, its only user in `@platform/ui` is `Badge`, and **no avatar component
+  exists** — so §4's "kept for avatars" exemption guarded nothing and rounded the one component it
+  reached.
+- **The display face now actually renders.** Newsreader was loaded but unused: nothing in the kit or
+  the starter asks for `font-serif`, so 58 kB shipped to render nowhere while §3 described it
+  carrying headings. `src/brand/theme.css` (one rule, element selectors) puts headings on it. Found
+  by the new visual baseline — which is what that suite is for.
+- **#140's own acceptance criteria**, which the first PR description replaced with its own list:
+  - **axe in the e2e suite** — `e2e/a11y.spec.ts`, six pages, full WCAG 2.1 A/AA, zero
+    `color-contrast` violations. Two rules are suppressed with a documented, issue-linked allowlist:
+    `dlitem` + `definition-list`, one inherited starter defect (REQUEST #286).
+  - **Visual regression snapshots for home/PLP/PDP** — `e2e/visual.spec.ts`, platform-keyed and
+    opt-in via `E2E_VISUAL=1`. Tolerance tightened from 0.01 to 0.002 after 0.01 proved loose
+    enough to sleep through the entire heading typeface changing.
+  - **Dark-mode decision** — a documented no for brand A in Phase 2, with reasons and what would
+    overturn it (DESIGN.md §4b).
+  - **Favicon / OG defaults** — `src/app/icon.svg` and `src/app/opengraph-image.tsx`, in the brand
+    palette rather than the kit's dark neutral, with tests pinning their colours to the tokens.
+- README: the repro commands now include the two build steps and the `ROBOTS_ALLOW_INDEXING=1`
+  requirement.
+
 ## 0.2.0 — 2026-09-25 · task 2.2 (#140)
 
 - **Re-synced from the starter** ahead of the theme: 148 copied, 10 preserved, 4 excluded. Brings

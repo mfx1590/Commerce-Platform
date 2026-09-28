@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
@@ -53,14 +54,30 @@ function contrast(a: string, b: string): number {
 const color = brandTokens.color ?? {};
 
 describe('brand A palette', () => {
-  it('is the five named values of DESIGN.md §2 and no sixth accent', () => {
-    // Paper, Ink, Clay, Sage, Stone. `muted`, `border` and `input` are tints of Paper, and
-    // destructive is a warmed Clay — none of them introduce a new hue.
+  it('is the five named hues of DESIGN.md §2', () => {
     expect(color.background).toBe('#F7F4EF'); // Paper
     expect(color.foreground).toBe('#23201B'); // Ink
     expect(color.accent).toBe('#9C4A32'); // Clay
     expect(color.secondary).toBe('#5F6B57'); // Sage
-    expect(color.mutedForeground).toBe('#746C60'); // Stone
+    expect(color.mutedForeground).toBe('#6B6357'); // Stone
+  });
+
+  it('ships exactly the four derived values DESIGN.md §2 lists, and no others', () => {
+    // Guards the drift that review caught: tokens shipping hex the design never names. Every colour
+    // token must be one of the five hues, one of the four documented derived values, or an alias.
+    const allowed = new Set([
+      '#F7F4EF',
+      '#23201B',
+      '#9C4A32',
+      '#5F6B57',
+      '#6B6357', // the five
+      '#EFEBE4',
+      '#DFD9CF',
+      '#8F8676',
+      '#8F3A2B', // the four derived
+    ]);
+    const undocumented = Object.entries(color).filter(([, v]) => !allowed.has(v as string));
+    expect(undocumented).toEqual([]);
   });
 
   it('uses Ink for primary, not the accent — a black button on cream', () => {
@@ -68,18 +85,39 @@ describe('brand A palette', () => {
     expect(color.primaryForeground).toBe(color.background);
   });
 
+  /**
+   * The surface matrix. Review caught Stone failing on `muted` (4.36:1) because the first version of
+   * this suite only checked text against the page — and Lighthouse only audits the PLP and PDP,
+   * where the neutral Badge and the CMS hero eyebrow do not appear. Every text token is now checked
+   * against every surface it can actually land on, so a passing page cannot hide a failing block.
+   */
+  const SURFACES = ['background', 'muted', 'card'] as const;
+  const TEXT_ON_ANY_SURFACE = ['foreground', 'mutedForeground', 'accent', 'secondary'] as const;
+
+  for (const fg of TEXT_ON_ANY_SURFACE) {
+    for (const bg of SURFACES) {
+      it(`clears WCAG AA: ${fg} on ${bg}`, () => {
+        expect(contrast(color[fg] as string, color[bg] as string)).toBeGreaterThanOrEqual(4.5);
+      });
+    }
+  }
+
   it.each([
-    ['body text', 'foreground', 'background', 7],
     ['primary button label', 'primaryForeground', 'primary', 7],
-    ['links / accent text', 'accent', 'background', 4.5],
-    ['sage on paper', 'secondary', 'background', 4.5],
-    ['muted text', 'mutedForeground', 'background', 4.5],
     ['label on a clay block', 'accentForeground', 'accent', 4.5],
     ['label on a sage block', 'secondaryForeground', 'secondary', 4.5],
     ['destructive label', 'destructiveForeground', 'destructive', 4.5],
   ] as const)('clears WCAG AA for %s', (_what, fg, bg, target) => {
-    const ratio = contrast(color[fg] as string, color[bg] as string);
-    expect(ratio).toBeGreaterThanOrEqual(target);
+    expect(contrast(color[fg] as string, color[bg] as string)).toBeGreaterThanOrEqual(target);
+  });
+
+  it('gives form fields a 3:1 boundary on every surface (WCAG 1.4.11)', () => {
+    // `input` is the edge of a text field, which identifies a UI component; `border` is decorative
+    // rules and is exempt. They are different values for exactly this reason (DESIGN.md §2).
+    expect(color.input).not.toBe(color.border);
+    for (const bg of SURFACES) {
+      expect(contrast(color.input as string, color[bg] as string)).toBeGreaterThanOrEqual(3);
+    }
   });
 
   it('publishes the exact ratios DESIGN.md §2 claims', () => {
@@ -87,23 +125,32 @@ describe('brand A palette', () => {
     expect(round(contrast('#23201B', '#F7F4EF'))).toBe(14.79); // Ink on Paper
     expect(round(contrast('#9C4A32', '#F7F4EF'))).toBe(5.57); // Clay on Paper
     expect(round(contrast('#5F6B57', '#F7F4EF'))).toBe(5.14); // Sage on Paper
-    expect(round(contrast('#746C60', '#F7F4EF'))).toBe(4.72); // Stone on Paper
+    expect(round(contrast('#6B6357', '#F7F4EF'))).toBe(5.4); // Stone on Paper
+    expect(round(contrast('#6B6357', '#EFEBE4'))).toBe(4.98); // Stone on muted
+    expect(round(contrast('#8F8676', '#F7F4EF'))).toBe(3.28); // input on Paper
+    expect(round(contrast('#8F3A2B', '#F7F4EF'))).toBe(6.82); // destructive on Paper
   });
 
-  it('keeps Stone above the 4.5 floor it originally failed', () => {
-    // It shipped as #7A7266 in the first draft and measured 4.32:1. Regression guard.
+  it('keeps Stone above the floor it failed twice', () => {
+    // #7A7266 failed on Paper (4.32:1); #746C60 passed Paper but failed `muted` (4.36:1).
     expect(contrast('#7A7266', '#F7F4EF')).toBeLessThan(4.5);
+    expect(contrast('#746C60', '#EFEBE4')).toBeLessThan(4.5);
     expect(contrast(color.mutedForeground as string, '#F7F4EF')).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(color.mutedForeground as string, '#EFEBE4')).toBeGreaterThanOrEqual(4.5);
   });
 });
 
 describe('brand A shape and depth (DESIGN.md §4)', () => {
-  it('collapses radius — a printed page has square corners', () => {
-    expect(brandTokens.radius).toMatchObject({ sm: '2px', md: '2px', lg: '2px', xl: '2px' });
-  });
-
-  it('keeps radius.full on the kit default, for the one case that needs it', () => {
-    expect(brandTokens.radius?.full).toBeUndefined();
+  it('collapses every radius step — a printed page has square corners', () => {
+    // `full` included: it is what `rounded-full` resolves to, its only user in the kit is `Badge`,
+    // and no avatar component exists to need a circle (DESIGN.md §4).
+    expect(brandTokens.radius).toEqual({
+      sm: '2px',
+      md: '2px',
+      lg: '2px',
+      xl: '2px',
+      full: '2px',
+    });
   });
 
   it('removes every shadow — no floating cards', () => {
@@ -138,6 +185,30 @@ describe('brand A type (DESIGN.md §3)', () => {
 
   it('relaxes leading for a warm background, and unclips two-line headings', () => {
     expect(brandTokens.lineHeight).toEqual({ normal: '1.6', tight: '1.25' });
+  });
+});
+
+describe('brand A share card and favicon (#140 favicon/OG defaults)', () => {
+  const root = new URL('../src/app/', import.meta.url);
+
+  it('draws the share card in the brand palette, not the kit neutral', async () => {
+    const source = await readFile(new URL('opengraph-image.tsx', root), 'utf8');
+    // The card cannot import tokens.ts (it would pull next/font into an image route), so it repeats
+    // the hex. This is the guard that the copies stay in step with the tokens.
+    expect(source).toContain(`'${color.background as string}'`); // Paper
+    expect(source).toContain(`'${color.foreground as string}'`); // Ink
+    expect(source).toContain(`'${color.accent as string}'`); // Clay
+    expect(source).toContain(`'${color.mutedForeground as string}'`); // Stone
+    // The starter's product card is hard-coded to the kit's dark neutral; brand A's must not be.
+    expect(source).not.toMatch(/#0b0b0c|#fafafa/i);
+  });
+
+  it('ships a favicon that needs no webfont and uses the brand values', async () => {
+    const svg = await readFile(new URL('icon.svg', root), 'utf8');
+    expect(svg).toContain(color.foreground as string);
+    expect(svg).toContain(color.background as string);
+    // A <text> element would depend on a font being present in the rendering context.
+    expect(svg).not.toContain('<text');
   });
 });
 

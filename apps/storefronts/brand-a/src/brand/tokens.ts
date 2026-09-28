@@ -1,5 +1,7 @@
 import type { BrandTokens } from '@platform/ui';
 import { displaySerif, textSans } from './fonts';
+// One rule, so the display face actually reaches headings — see the file's own comment.
+import './theme.css';
 
 /**
  * Brand override mechanism, part 1 of 3: design tokens.
@@ -14,27 +16,38 @@ import { displaySerif, textSans } from './fonts';
  */
 
 /**
- * The five values of DESIGN.md §2, named once so the token map below reads as the design does.
- * There is no sixth: hierarchy comes from type, space and photography.
+ * The five named hues of DESIGN.md §2, named once so the token map below reads as the design does.
+ * No sixth *hue*: hierarchy comes from type, space and photography. Four derived neutrals and
+ * states (`muted`, `border`, `input`, `destructive`) do ship as their own hex values below; §2
+ * lists each with its measured ratio, rather than pretending the palette is five literals.
  */
 const paper = '#F7F4EF'; // warm off-white — uncoated stock, not a lit screen
 const ink = '#23201B'; // warm near-black, never #000
 const clay = '#9C4A32'; // the single accent: links, sale marks
 const sage = '#5F6B57'; // quiet support: in-stock marks, editorial pull-outs
-const stone = '#746C60'; // muted text, rules, metadata — the colour of a caption
+const stone = '#6B6357'; // muted text, rules, metadata — the colour of a caption
 
 export const brandTokens: BrandTokens = {
   color: {
     background: paper,
     foreground: ink,
-    // `muted` is a surface, `mutedForeground` the text on it. Kept a shade off Paper rather than a
-    // grey, so a quiet block still reads as paper.
+    // Derived neutrals. DESIGN.md §2 names them and states each one's measured ratio — they are
+    // tints of Paper and Stone, not new hues, but they do ship as their own hex values.
+    //
+    // `muted` is a surface, `mutedForeground` the text on it. A shade off Paper rather than a grey,
+    // so a quiet block still reads as paper. Stone on it measures 4.98:1.
     muted: '#EFEBE4',
     mutedForeground: stone,
     card: paper,
     cardForeground: ink,
+    // `border` draws decorative hairline rules — a divider carries no information a sighted user
+    // needs to identify a control, so WCAG 1.4.11 does not apply to it (1.28:1 against Paper).
     border: '#DFD9CF',
-    input: '#DFD9CF',
+    // `input` is NOT the same value, and that is deliberate. It draws the boundary of a text field,
+    // which *is* a user-interface component under WCAG 1.4.11 and needs 3:1 — the whole checkout is
+    // form fields. It measures 3.28:1 on Paper and 3.03:1 on `muted`. Sharing one light value with
+    // `border` (as the kit's defaults do) leaves every field edge effectively invisible.
+    input: '#8F8676',
     ring: ink,
     // Primary is Ink, not the accent: a black button on cream is the editorial move, and it
     // measures 14.79:1. Clay is reserved for the one warm thing on the page.
@@ -74,7 +87,13 @@ export const brandTokens: BrandTokens = {
     md: '2px',
     lg: '2px',
     xl: '2px',
-    // `full` is kept for the one case that needs it (an avatar).
+    // `full` too, which review prompted and which turned out to be the only thing still rounding a
+    // corner in this app. `rounded-full` resolves to this token, its only user in @platform/ui is
+    // `Badge`, and there is no avatar component anywhere — so the "kept for avatars" exemption an
+    // earlier draft of DESIGN.md claimed was protecting nothing and rounding the one component it
+    // did reach. If brand A ever needs a real circle, it asks the kit for an `Avatar` whose shape
+    // does not ride on the shared radius scale.
+    full: '2px',
   },
 
   shadow: {

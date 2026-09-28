@@ -20,6 +20,10 @@ const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 
 export default defineConfig({
   testDir: './e2e',
+  // Visual baselines are keyed by platform: font rasterisation differs between a Windows laptop and
+  // CI's Linux, so one PNG cannot serve both. Without this, taking a baseline locally guarantees a
+  // meaningless red build on CI. See e2e/visual.spec.ts.
+  snapshotPathTemplate: '{testDir}/__screenshots__/{platform}/{arg}{ext}',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
