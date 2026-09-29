@@ -53,6 +53,7 @@ Everything else is byte-identical to `apps/storefront-starter` at the commit of 
 | `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                       |
 | `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                               |
 | `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                         |
+| `scripts/starter-manifest.json`                   | new — **generated**: the starter's package.json at the last sync                             |
 | `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                             |
 | `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here       |
 | `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2) |
@@ -131,7 +132,14 @@ Review the resulting git diff — that is the drift, by construction.
 
 `package.json` is neither copied nor preserved but **merged**
 (`scripts/merge-package-json.mjs`): identity survives — name, version, the 3101 dev port,
-brand-only scripts and dependencies — while scripts and dependency versions track the starter.
+brand-only scripts and dependencies — while scripts and dependency versions track the starter, and
+anything the starter **deletes** is removed here too.
+
+That last part needs a record of what the starter used to have, or a deleted key is
+indistinguishable from one the brand added. `scripts/starter-manifest.json` is that record, written
+by the sync script on every run and committed. It is generated — do not edit it by hand. With no
+manifest (a fresh clone) nothing is treated as deleted, because dropping a real dependency for lack
+of evidence is the worse failure.
 Preserving it wholesale is what cost this app the `perf` and `bundle-budget` scripts for an entire
 task. A re-sync on an already-merged app writes a byte-identical file; `test/sync-merge.test.ts`
 asserts that, and both halves of the contract.

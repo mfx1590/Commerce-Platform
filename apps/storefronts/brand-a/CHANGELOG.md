@@ -1,5 +1,21 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.4.1 — 2026-09-29 · merge-mode deletions (#288 follow-up)
+
+- **The `package.json` merge now honours deletions.** A key the brand had and the starter did not
+  was ambiguous — either the brand added it, or the starter removed it and the brand was holding a
+  corpse — so anything deleted upstream survived in every brand forever. Found in the #288 review.
+- `scripts/starter-manifest.json` (generated, committed) records the starter's `package.json` at
+  each sync. A key present there and absent now was deleted upstream and is dropped; a key in
+  neither is the brand's own and stays. **With no manifest nothing is dropped**, because deleting a
+  real dependency for lack of evidence is the worse failure.
+- Eight tests, each pairing the deletion case with the brand-only case — a merge that dropped
+  everything brand-only would otherwise pass a deletion test on its own — plus the
+  starter-can-re-add case, non-mutation of the record, and a check that the committed manifest
+  matches the starter so detection cannot silently stop firing.
+- Verified end to end, not only in unit tests: deleting `bundle-budget` from the starter and
+  re-syncing drops it from this app while `sync`, the 3101 dev port and the package name survive.
+
 ## 0.4.0 — 2026-09-28 · task 2.3 (#141)
 
 - **Real CMS content for brand A**, in `cms/brand-a/content/` — 20 documents, every one in both

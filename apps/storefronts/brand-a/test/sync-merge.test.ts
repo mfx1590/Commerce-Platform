@@ -116,6 +116,84 @@ describe('package.json merge: what SURVIVES from the brand', () => {
   });
 });
 
+describe('package.json merge: what the starter DELETES', () => {
+  /**
+   * The gap #288's review found: a key the brand has and the starter does not is ambiguous — either
+   * the brand added it, or the starter removed it and the brand is holding a corpse. Without a
+   * record of what the starter used to have, the merge kept both forever.
+   *
+   * `previousStarter` is that record. Every test here pairs the deletion case with the brand-only
+   * case, because a merge that dropped *everything* brand-only would pass a deletion test on its own.
+   */
+  const previous = {
+    ...starter,
+    scripts: { ...starter.scripts, legacy: 'node scripts/legacy.mjs' },
+    devDependencies: { ...starter.devDependencies, 'old-tool': '^1.0.0' },
+    legacyField: 'gone upstream',
+  };
+
+  /** The brand, still carrying what the starter has since removed — plus its own additions. */
+  const brandWithCorpses: Pkg = {
+    ...brand,
+    scripts: { ...brand.scripts, legacy: 'node scripts/legacy.mjs' },
+    devDependencies: { ...brand.devDependencies, 'old-tool': '^1.0.0' },
+    legacyField: 'gone upstream',
+  };
+
+  it('drops a script the starter deleted', () => {
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts).not.toHaveProperty('legacy');
+  });
+
+  it('drops a dependency the starter deleted', () => {
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.devDependencies).not.toHaveProperty('old-tool');
+  });
+
+  it('drops a top-level field the starter deleted', () => {
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged).not.toHaveProperty('legacyField');
+  });
+
+  it('keeps what the brand itself added, in the same pass — not just deleting everything', () => {
+    // The paired assertion. Without it, `return starter` would pass all three tests above.
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts?.sync).toBe('node scripts/sync-from-starter.mjs');
+    expect(merged.devDependencies?.['@axe-core/playwright']).toBe('^4.10.0');
+    expect(merged.name).toBe('@platform/storefront-brand-a');
+    expect(merged.scripts?.dev).toBe('next dev --port 3101');
+  });
+
+  it('drops nothing at all when there is no record to justify it', () => {
+    // First sync after this feature, or a fresh clone. Deleting a brand's dependency for lack of
+    // evidence is the worse failure, so the ambiguous case stays conservative.
+    const merged = mergePackageJson(starter, brandWithCorpses) as Pkg;
+    expect(merged.scripts?.legacy).toBe('node scripts/legacy.mjs');
+    expect(merged.devDependencies?.['old-tool']).toBe('^1.0.0');
+    expect(merged.legacyField).toBe('gone upstream');
+  });
+
+  it('keeps a brand-only key that the previous starter never had', () => {
+    // `sync` and `@axe-core/playwright` are absent from `previous`, so they are the brand's own and
+    // must survive even though the record exists.
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts).toHaveProperty('sync');
+    expect(merged.devDependencies).toHaveProperty('@axe-core/playwright');
+  });
+
+  it('still lets the starter re-add something it once deleted', () => {
+    const readded = { ...starter, scripts: { ...starter.scripts, legacy: 'node scripts/new.mjs' } };
+    const merged = mergePackageJson(readded, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts?.legacy).toBe('node scripts/new.mjs');
+  });
+
+  it('does not mutate the previous-starter record either', () => {
+    const before = JSON.stringify(previous);
+    mergePackageJson(starter, brandWithCorpses, previous);
+    expect(JSON.stringify(previous)).toBe(before);
+  });
+});
+
 describe('package.json merge: against the real files', () => {
   const read = (p: string) => JSON.parse(readFileSync(new URL(p, import.meta.url), 'utf8')) as Pkg;
   const realStarter = read('../../../storefront-starter/package.json');
@@ -130,6 +208,14 @@ describe('package.json merge: against the real files', () => {
     const merged = mergePackageJson(realStarter, realBrand);
     expect(`${JSON.stringify(merged, null, 2)}
 `).toBe(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  });
+
+  it('ships a starter manifest that matches the starter, so deletions are detectable', () => {
+    // If this drifts, `previousStarter` describes a starter that never existed and the merge either
+    // drops a live key or keeps a dead one. It is written by the sync script, so it should always
+    // equal the starter's current package.json in a freshly synced tree.
+    const manifest = read('../scripts/starter-manifest.json');
+    expect(manifest).toEqual(realStarter);
   });
 
   it('really does keep brand A on 3101 and carry every starter script', () => {

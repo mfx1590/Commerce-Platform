@@ -40,14 +40,43 @@ const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies'
  * The starter's entries win for keys both define — that is the point, it is how a version bump or a
  * changed script body arrives. Keys only the brand has survive, because a brand legitimately adds
  * its own (brand A's `sync` script, and `@axe-core/playwright` for its a11y suite).
+ *
+ * **Deletions.** A key the brand has and the starter does not is ambiguous on its own: either the
+ * brand added it, or the starter *removed* it and the brand is holding a corpse. The first version
+ * of this merge could not tell the difference, so anything the starter deleted survived in every
+ * brand forever — a dead script or an unused dependency that no re-sync would ever clear.
+ *
+ * `previousStarter` resolves it. It is the starter's own record from the last sync, written by the
+ * sync script: a key present there and absent now was deleted upstream, and goes. A key in neither
+ * was the brand's own, and stays.
+ *
+ * Without a `previousStarter` — the first sync after this feature, or a fresh clone — nothing is
+ * dropped. Deleting a brand's dependency because we lack the evidence to keep it is the worse
+ * failure, so the ambiguous case stays conservative and the next sync has the record it needs.
+ *
+ * @param {Record<string, string>} [starter]
+ * @param {Record<string, string>} [brand]
+ * @param {readonly string[]} [keepBrandValueFor]
+ * @param {Record<string, string>} [previousStarter]
  */
-function mergeRecord(starter = {}, brand = {}, keepBrandValueFor = []) {
+function mergeRecord(
+  starter = {},
+  brand = {},
+  keepBrandValueFor = [],
+  previousStarter = undefined,
+) {
   const keep = new Set(keepBrandValueFor);
   const merged = { ...starter };
 
   for (const [key, value] of Object.entries(brand)) {
-    // A brand-only key, or one whose value is identity: keep the brand's.
-    if (!(key in starter) || keep.has(key)) merged[key] = value;
+    if (key in starter) {
+      // Shared key: the starter wins, unless this one's value is brand identity.
+      if (keep.has(key)) merged[key] = value;
+      continue;
+    }
+    // Brand-only *now*. Did the starter have it last time?
+    const deletedUpstream = previousStarter !== undefined && key in previousStarter;
+    if (!deletedUpstream) merged[key] = value;
   }
 
   return merged;
@@ -56,9 +85,16 @@ function mergeRecord(starter = {}, brand = {}, keepBrandValueFor = []) {
 /**
  * Merge the starter's `package.json` into the brand's.
  *
- * Both arguments are parsed objects; the result is a new object and neither input is mutated.
+ * All three arguments are parsed objects; the result is a new object and none of the inputs is
+ * mutated. `previousStarter` is the starter's `package.json` as of the last sync (see `mergeRecord`)
+ * and may be omitted, in which case nothing is treated as deleted.
+ *
+ * @param {Record<string, unknown>} starter
+ * @param {Record<string, unknown>} brand
+ * @param {Record<string, unknown>} [previousStarter]
+ * @returns {Record<string, unknown>}
  */
-export function mergePackageJson(starter, brand) {
+export function mergePackageJson(starter, brand, previousStarter = undefined) {
   const merged = { ...starter };
 
   for (const field of BRAND_FIELDS) {
@@ -66,19 +102,25 @@ export function mergePackageJson(starter, brand) {
     else delete merged[field];
   }
 
-  // Brand-only top-level keys survive: the brand may carry configuration the starter has no notion
-  // of, and dropping it on every sync would make the merge lossy.
+  // Brand-only top-level keys survive, unless the starter deleted them — the same rule as below.
   for (const [key, value] of Object.entries(brand)) {
-    if (!(key in starter) && !DEPENDENCY_FIELDS.includes(key) && key !== 'scripts') {
-      merged[key] = value;
-    }
+    if (key in starter || DEPENDENCY_FIELDS.includes(key) || key === 'scripts') continue;
+    const deletedUpstream = previousStarter !== undefined && key in previousStarter;
+    if (!deletedUpstream) merged[key] = value;
   }
 
-  merged.scripts = mergeRecord(starter.scripts, brand.scripts, BRAND_SCRIPTS);
+  merged.scripts = mergeRecord(
+    starter.scripts,
+    brand.scripts,
+    BRAND_SCRIPTS,
+    previousStarter?.scripts,
+  );
 
   for (const field of DEPENDENCY_FIELDS) {
     if (starter[field] === undefined && brand[field] === undefined) continue;
-    merged[field] = sortKeys(mergeRecord(starter[field], brand[field]));
+    merged[field] = sortKeys(
+      mergeRecord(starter[field], brand[field], [], previousStarter?.[field]),
+    );
   }
 
   return merged;
