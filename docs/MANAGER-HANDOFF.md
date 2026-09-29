@@ -28,7 +28,15 @@ Spawn a background review agent per PR (the `Agent` tool, `general-purpose`, `ru
 - Model: **Fable for anything touching auth, tenancy/RLS, the outbox, payments, or contracts; Opus for the rest.**
   Five parallel reviewers on Fable will hit the session limit; stagger or use Opus.
 - BLOCK only on real defects or missing acceptance criteria. Cosmetic items go in the paste as "nits, not now".
+  A defect the review finds OUTSIDE the author's ownership does not block the PR: route it (urgent issue + a wake
+  of the owning window) and merge — precedent #273/#277. The issue's own criteria may not be swapped for the PR's;
+  either meet them or record a manager waiver.
 - Re-check a fix yourself with `git show`/`grep` when the fix is mechanical; spawn a re-review only when it is not.
+- Ask reviewers for EVIDENCE, not confirmation: recompute contrast ratios, blob-hash a re-sync against its source,
+  mutation-test a guard, run the exploit shape. Windows' own record must match the code (stale figures, false
+  counts and drifting docs are the same defect class as bugs and block the same way).
+- Do not paste a window's verdict from memory of the review — quote from the reviewer's report. A mid-relay
+  correction becomes two contradictory pastes in the window's context; every paste is single and final.
 - A PR whose branch conflicts with main gets **zero** checks (GitHub cannot build the merge ref). Tell the window to
   merge main; do not read "no checks" as an outage.
 
@@ -49,6 +57,10 @@ Rules learned the hard way:
   Prefer: merge the PR first, then land the contract change, then have the window clean up in a small follow-up PR.
 - After merging: close the task issue with the PR number; reopen it if the merge was refused (don't close early).
 - **The queue cannot be stopped once it waits on CI** (learned at Int 1: a "stop" killed only the wrapper; the script pushed and merged anyway). Start it only when nothing else must land first. To abort a running queue, push any commit to the PR branch: the queue's own push is rejected and it exits without merging.
+- **The queue runs ONLY as its own single-command call, tracked in the background — never chained after other commands, never launched with shell `&`** (three detached launches in Sept 2026: output lost, one refused run went invisible, kills left file locks that aborted the next run's temp worktree). If a detached queue is suspected, find it with a process listing before starting another; two queues collide on `../wt-mgr-tmp`.
+- **Nothing merge-dependent runs before a fresh `gh pr view N --json state` says MERGED** — not the tag, not the issue close, not the paste. A queue run can die silently (a transient DNS failure once made it SKIP the PR while chained follow-ups tagged an unmerged state; the tag had to be deleted both sides and the issue reopened).
+- GitHub parses closing keywords in PR bodies ASYNCHRONOUSLY: scan the body for close/fix/resolve near issue numbers before creating, and check `closingIssuesReferences` again ~30 s after opening — an immediate empty read is not proof (window 4, twice).
+- **A contracts landing runs the CONSUMER packages' suites** (core/admin/storefront), not just the contracts package: request-validation and generated-type interactions surface only there (the frozen-SegmentRules landing broke a marketing route test that only CI caught; the review-shape landing broke admin and core typecheck locally). `format:check` is part of the local gates. A landing commit may adjust consumer TESTS and delete superseded `proposed/` copies + test-side DDL, but never implements a window's production code — if the contract cannot be truthful without core work, land the truthful weaker form (e.g. optional-until-returned) and record the deviation on the issue.
 
 ## 4. Deciding CONTRACT CHANGE / REQUEST issues
 
