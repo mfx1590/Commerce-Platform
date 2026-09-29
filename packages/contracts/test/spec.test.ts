@@ -75,6 +75,20 @@ describe('store-api.yaml', () => {
     expect(complete.body).toMatch(/previous_unit_price_minor/);
   });
 
+  it('0.5.0 (#270): the typed review shape — null-average rule, author-PII constraint, read-only listing', () => {
+    const op = ops.find((o) => o.id === 'listProductReviews')!;
+    expect(op).toBeDefined();
+    expect(text).toMatch(/\/store\/products\/\{handle\}\/reviews:/);
+    for (const schema of ['Review', 'ReviewSummary', 'ReviewPage']) {
+      expect(text, schema).toMatch(new RegExp(`^ {4}${schema}:$`, 'm'));
+    }
+    // average is null when count is 0 — never 0 ("rated zero out of five" is a defamatory bug)
+    expect(text).toMatch(/average: \{ type: \[number, 'null'\], minimum: 1, maximum: 5 \}/);
+    // the author field carries the manager's PII constraint in its comment
+    expect(text).toMatch(/provided or chosen by the customer AT REVIEW TIME/);
+    expect(text).toMatch(/review_summary:/);
+  });
+
   it('0.4.0 (#245): recoverCart is a POST, single-use semantics documented, one 404 for all misses', () => {
     const op = ops.find((o) => o.id === 'recoverCart')!;
     expect(op).toBeDefined();
@@ -92,7 +106,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.4\.0/);
+    expect(text).toMatch(/version: 0\.5\.0/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -108,7 +122,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.6/);
+    expect(text).toMatch(/version: 0\.4\.7/);
     for (const tag of [
       'registry',
       'catalog',
@@ -265,6 +279,33 @@ describe('admin-api.yaml', () => {
     for (const f of ['abandoned_count', 'redeemed_count', 'recovered_count', 'recovery_rate']) {
       expect(text, f).toMatch(new RegExp(`${f}:`));
     }
+  });
+
+  it('customers additions (0.4.7, #264): addresses read at support, export at store_admin, groups at viewer', () => {
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(permission('listCustomerAddresses')).toEqual(['support', 'store:{storeId}']);
+    expect(permission('exportCustomer')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('listCustomerGroups')).toEqual(['viewer', 'store:{storeId}']);
+    expect(ops.find((o) => o.id === 'exportCustomer')!.body).toMatch(/'202':/);
+  });
+
+  it('registry settings (0.4.7, #279): revoke with last_live_key, domain primary move, enabled sets', () => {
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(permission('revokeApiKey')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('updateDomain')).toEqual(['owner', 'organization:hq']);
+    expect(ops.find((o) => o.id === 'revokeApiKey')!.body).toMatch(/last_live_key/);
+    // the Store response now carries the enabled sets, and the machine-code list names the new code
+    expect(text).toMatch(/always contains default_currency/);
+    expect(text).toMatch(/always contains default_locale/);
+    expect(text).toMatch(/conflict, last_live_key, out_of_stock/);
   });
 
   it('segment rules (0.4.4, #239): frozen closed grammar, no flat-shape leftovers', () => {
