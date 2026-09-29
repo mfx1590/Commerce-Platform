@@ -66,6 +66,10 @@ const CONTENT_PAGES: ScannedPage[] = [
   { name: 'legal page', path: '/en-GB/legal/privacy', allow: [] },
   { name: 'German legal page', path: '/de-DE/legal/imprint', allow: [] },
   { name: 'content page', path: '/en-GB/pages/about', allow: [] },
+  // The campaign landing is a distinct route with its own layout (full-bleed hero, embeds), so
+  // scanning a legal page says nothing about it. It also 404s outside its schedule — if this starts
+  // failing on a status assertion, check `endsAt` in cms/brand-a/content/campaign.json.
+  { name: 'campaign landing', path: '/en-GB/campaign/autumn-cloth', allow: [] },
 ];
 
 const WCAG_AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];

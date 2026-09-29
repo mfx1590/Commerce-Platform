@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 content half in PR (660bfbf). 2.4 next
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 content half in PR #289 — BLOCK fixes pushed. 2.4 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -23,7 +23,7 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   through the real routes with no Sanity credentials. Legal copy uses `[[PLACEHOLDER]]` for every
   statutory value and is **not lawyer-reviewed** (flagged in cms/brand-a/README.md). Stale
   Dockerfile claim corrected (carried nit #3 — done).
-- **2.3 part 1 — re-sync + package.json MERGE mode** — commits f682dde (re-sync: #273's
+- **2.3 part 1 (MERGED as #288, 44c57cf) — re-sync + package.json MERGE mode** — commits f682dde (re-sync: #273's
   open-redirect fixes, referral, reviews, CMS home slots) and the merge-mode commit. `package.json`
   is no longer PRESERVEd but merged: identity survives, scripts/deps track the starter.
   13 tests assert both halves + byte-level idempotency. Root gate green (397 tests).
@@ -43,14 +43,25 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 ## In progress
 - **2.3 content half in PR** (660bfbf) closing #141. Awaiting verdict.
 
-## Carried nits (from the #288 review — do with the content PR or later)
+## Carried nits
+### From the #289 review (parked — do in 2.4 or a cleanup PR)
+- `productStory` block is never asserted after the harness-artefact fix — add a positive assertion.
+- Hero and campaign **CTA** hrefs are outside the link-resolution test, which only walks navigation
+  and footer. README now says so explicitly; widen the test.
+- `lastReviewed` dates sit on legal documents the PR calls unreviewed — reconcile the two.
+- The Impressum footer link is doubled per locale (`col-help` *and* `legalLinks`).
+- **`CMS_DATASET` is set nowhere in `.github`**, so the content axe scans never run in CI.
+- `seed-content.mjs` without `--dry-run` overwrites Studio edits with no confirmation — add one.
+- The en-GB imprint cites German statutes (a lawyer item, not mine — carry to the legal review).
+
+### From the #288 review
 - **Merge mode cannot REMOVE.** A script or dependency the *starter deletes* looks brand-only to
   `mergeRecord` and survives in the brand forever. Needs either a documented limitation or a
   deletion test + rule (e.g. track the previous starter manifest). Not yet decided.
 - **Precision in the record**: "root gate 397 tests" in #288 was *brand-a's suite alone*, not the
   repo. Say which suite when quoting a count.
 - ~~**Stale Dockerfile claim**~~ — DONE in the 2.3 content PR.
-- (was) **Stale Dockerfile claim**: README's diff table + CLAUDE.md + this memory say "no Dockerfile in
+- (superseded, kept for the trail) **Stale Dockerfile claim**: README's diff table + CLAUDE.md + this memory say "no Dockerfile in
   this app / absent". **Window 5 delivered it** — `apps/storefronts/brand-a/Dockerfile` exists and
   `infra/docker/docker-compose.build.yml` builds `storefront-brand-a` from it; REQUEST #197 is
   CLOSED. Correct in passing with the content PR.

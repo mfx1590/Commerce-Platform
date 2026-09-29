@@ -3,6 +3,7 @@ import type { CmsDocument, LegalDocument, PageDocument } from '@platform/cms';
 import { readFileSync, readdirSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, text } from './cms-render';
+import CampaignPage from '@/app/[locale]/(content)/campaign/[slug]/page';
 import LegalPage from '@/app/[locale]/(content)/legal/[slug]/page';
 import ContentPage from '@/app/[locale]/(content)/pages/[slug]/page';
 import { HomeContent } from '@/lib/cms/components';
@@ -167,39 +168,96 @@ describe('both locales are complete', () => {
 
 describe('the legal copy is honest about what it is', () => {
   const legal = byType('legal');
-  const PLACEHOLDER = /\[\[[A-Z_]+\]\]/g;
+  const legalJson = JSON.stringify(legal);
 
-  it('never invents a statutory value — every gap is a marked placeholder', () => {
-    // The discipline: no fabricated registration numbers, VAT ids or company names. Anything a
-    // lawyer must supply is left in a form nobody can mistake for real, and this is what keeps it
-    // that way — a placeholder quietly replaced with a plausible-looking value fails here.
-    const body = JSON.stringify(legal);
-    for (const found of body.match(PLACEHOLDER) ?? []) {
-      expect(found).toMatch(/^\[\[[A-Z_]+\]\]$/);
+  /**
+   * Every value a lawyer or the company must supply, and nothing else. Pinning the full list — not
+   * just the five §5 DDG ones — is what stops an unpinned field being quietly filled in with an
+   * invented address or phone number: review found the first version checked five and left eight
+   * unguarded.
+   */
+  const REQUIRED_PLACEHOLDERS = {
+    imprint: [
+      'COMPANY_LEGAL_NAME',
+      'STREET_ADDRESS',
+      'POSTCODE',
+      'CITY',
+      'COUNTRY',
+      'MANAGING_DIRECTOR',
+      'CONTACT_EMAIL',
+      'CONTACT_PHONE',
+      'REGISTER_COURT',
+      'REGISTER_NUMBER',
+      'VAT_ID',
+      'RESPONSIBLE_PERSON',
+    ],
+    privacy: [
+      'COMPANY_LEGAL_NAME',
+      'DPO_CONTACT',
+      'ORDER_RETENTION_PERIOD',
+      'PRIVACY_CONTACT_EMAIL',
+      'SUPERVISORY_AUTHORITY',
+    ],
+    terms: ['COMPANY_LEGAL_NAME', 'DISPATCH_WINDOW'],
+    returns: ['RETURNS_CONTACT_EMAIL', 'RETURNS_ADDRESS'],
+  } as const;
+
+  it('leaves no placeholder in a degraded form', () => {
+    /**
+     * Scans for *anything* bracket-shaped and requires it to be a well-formed placeholder, rather
+     * than matching well-formed ones and asserting they are well-formed.
+     *
+     * The first version did exactly that — matched with `/\[\[[A-Z_]+\]\]/g`, then asserted each
+     * match against the same pattern — so it was a tautology that could never fail. A degraded
+     * `[[Register Court]]` or a `{{VAT_ID}}` sailed through. This is the third time a guard of mine
+     * has been vacuous in this way; the lesson is in the mutation test below, which proves it fails.
+     */
+    const bracketShaped = legalJson.match(/\[\[[^\]]*\]\]/g) ?? [];
+    expect(
+      bracketShaped.length,
+      'no placeholders found at all — the scan is broken',
+    ).toBeGreaterThan(20);
+    for (const found of bracketShaped) {
+      expect(found, `${found} is not a well-formed [[UPPER_SNAKE]] placeholder`).toMatch(
+        /^\[\[[A-Z_]+\]\]$/,
+      );
     }
-    // Nothing that looks like a real German register or VAT number may appear.
-    expect(body).not.toMatch(/HRB\s*\d/);
-    expect(body).not.toMatch(/DE\d{9}/);
+    // Other placeholder syntaxes would not be caught by the scan above, so reject them by name.
+    expect(legalJson, 'a {{mustache}} placeholder is not the agreed form').not.toMatch(
+      /\{\{[^}]*\}\}/,
+    );
+    expect(legalJson, 'a <angle> placeholder is not the agreed form').not.toMatch(/<[A-Z_]{3,}>/);
   });
 
-  it('places holders for the fields §5 DDG and the GDPR actually require', () => {
-    const imprint = legal.filter((d) => d.kind === 'imprint');
-    for (const d of imprint) {
-      const body = JSON.stringify(d);
-      for (const field of [
-        'COMPANY_LEGAL_NAME',
-        'REGISTER_COURT',
-        'REGISTER_NUMBER',
-        'VAT_ID',
-        'RESPONSIBLE_PERSON',
-      ]) {
-        expect(body, `${d._id} is missing [[${field}]]`).toContain(`[[${field}]]`);
+  it('invents no statutory identifier', () => {
+    // Widened after review: `HRB: 12345`, `HRB-12345`, `DE 123 456 789` and `DE-123456789` all got
+    // past the first version, which only rejected `HRB\s*\d` and `DE\d{9}`.
+    expect(legalJson, 'a register number appears').not.toMatch(/HRB[\s:.-]*\d/i);
+    expect(legalJson, 'a VAT identifier appears').not.toMatch(/DE[\s.-]*(?:\d[\s.-]*){9}/i);
+    // Nor a real-looking contact detail in place of a placeholder.
+    expect(legalJson, 'an email address appears').not.toMatch(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+    expect(legalJson, 'a phone number appears').not.toMatch(/\+\d[\d\s()/-]{7,}/);
+    // A street address: "<number> <Word>straße" or "<Word> <number>," — the shapes an invented
+    // German or British address takes.
+    expect(legalJson, 'a street address appears').not.toMatch(
+      /\d+\s+\w*(?:stra(?:ß|ss)e|weg|platz|gasse|street|road|lane)/i,
+    );
+    expect(legalJson, 'a postcode appears').not.toMatch(/\d{5}\s+[A-ZÄÖÜ][a-zäöü]+/);
+  });
+
+  it.each(Object.entries(REQUIRED_PLACEHOLDERS))(
+    'every %s document holds a place for each value only a lawyer can supply',
+    (kind, fields) => {
+      const docs = legal.filter((d) => d.kind === kind);
+      expect(docs.length, `no ${kind} documents`).toBeGreaterThan(0);
+      for (const d of docs) {
+        const body = JSON.stringify(d);
+        for (const field of fields) {
+          expect(body, `${d._id} is missing [[${field}]]`).toContain(`[[${field}]]`);
+        }
       }
-    }
-    for (const d of legal.filter((x) => x.kind === 'privacy')) {
-      expect(JSON.stringify(d)).toContain('[[SUPERVISORY_AUTHORITY]]');
-    }
-  });
+    },
+  );
 
   it('states the statutory withdrawal period, which is fourteen days and not ours to change', () => {
     for (const d of legal.filter((x) => x.kind === 'returns')) {
@@ -314,6 +372,44 @@ describe('the routes render the real documents', () => {
         expect(body).toContain(firstHeading.children[0].text);
       }
       for (const empty of emptyStates(locale)) expect(body).not.toContain(empty);
+    }
+  });
+
+  it.each(LOCALES)('%s renders the campaign landing through its real route', async (locale) => {
+    // `campaign/[slug]` 404s unless `campaignIsLive`, which compares `startsAt`/`endsAt` to *now*.
+    // Without a pinned clock this test would pass today and start failing on 2026-12-01, which is
+    // the kind of green that rots quietly.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-15T00:00:00.000Z'));
+    try {
+      const landing = byType('campaignLanding').find((d) => d.locale === locale);
+      expect(landing, `no campaign landing for ${locale}`).toBeDefined();
+      useCms(locale);
+
+      const out = await render(
+        await CampaignPage({ params: params(locale, landing!.slug.current) }),
+      );
+      const body = text(out);
+
+      expect(body).toContain(landing!.hero.headline);
+      expect(body).toContain(landing!.hero.subheadline);
+      for (const empty of emptyStates(locale)) expect(body).not.toContain(empty);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('404s an expired campaign rather than selling a promise that has run out', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2027-06-01T00:00:00.000Z')); // after every endsAt
+    try {
+      const landing = byType('campaignLanding').find((d) => d.locale === 'en-GB');
+      useCms('en-GB');
+      await expect(
+        CampaignPage({ params: params('en-GB', landing!.slug.current) }),
+      ).rejects.toThrow('NEXT_NOT_FOUND');
+    } finally {
+      vi.useRealTimers();
     }
   });
 

@@ -107,9 +107,13 @@ two content pages, four EU legal pages, navigation, footer and one campaign land
 `en-GB` and `de-DE`. Seed them with `node cms/brand-a/scripts/seed-content.mjs` (`--dry-run` to
 validate without credentials).
 
-`test/cms-brand-content.test.ts` reads those files and renders them through the real `(content)`
-route components, so the content is covered in CI without a Sanity dataset. The axe suite also scans
-the content routes, but only when `CMS_DATASET` is set — without a seeded dataset they are 404s.
+`test/cms-brand-content.test.ts` reads those files and renders them through the real route
+components — `HomeContent`, `pages/[slug]`, `legal/[slug]` and `campaign/[slug]`, every document in
+both locales — so the content is covered in CI without a Sanity dataset.
+
+The axe suite also scans four content routes, but only when `CMS_DATASET` is set, and **nothing sets
+it in CI today**, so those four are skipped there. The offline suite above is what actually gates
+this content.
 
 **The legal documents are not lawyer-reviewed.** See the warning in `cms/brand-a/README.md`.
 

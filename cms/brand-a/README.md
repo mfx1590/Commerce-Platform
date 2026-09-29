@@ -42,9 +42,20 @@ fixtures. It reuses that package's _pure_ exported helpers (`readSeedEnv`, `miss
 ## Tests
 
 `apps/storefronts/brand-a/test/cms-brand-content.test.ts` reads these files, validates each one, and
-renders them through the real `(content)` route components — no Sanity credentials required, because
-`CmsReader` is an interface. It asserts locale parity, that every internal link resolves to an
-authored document or a real app route, and that no route falls back to its empty state.
+renders them through the real route components — no Sanity credentials required, because `CmsReader`
+is an interface. Exactly what it renders:
+
+| Route                              | Documents rendered                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| `HomeContent` (the `CmsHome` slot) | `page.{en-GB,de-DE}.home`                                               |
+| `pages/[slug]`                     | `about` and `cloth`, both locales                                       |
+| `legal/[slug]`                     | all four kinds, both locales                                            |
+| `campaign/[slug]`                  | `autumn-cloth`, both locales, with the clock pinned inside its schedule |
+
+It also asserts locale parity, deterministic ids, that no German document is a copy of its English
+twin, that every **navigation and footer** link resolves to an authored document or a real app route
+(hero and block CTAs are not yet covered — parked), and that no route falls back to its empty state.
+An expired campaign is asserted to 404 rather than render.
 
 ## ⚠️ The legal documents are not lawyer-reviewed
 
@@ -60,9 +71,16 @@ Every value only a lawyer or the company can supply is left as a marked placehol
 [[RESPONSIBLE_PERSON]]  [[SUPERVISORY_AUTHORITY]]  [[ORDER_RETENTION_PERIOD]]  …
 ```
 
-Nothing here invents a registration number, a VAT identifier or a company name. A test asserts every
-placeholder still matches `[[A-Z_]+]]` and that no string resembling a real `HRB` or `DE` VAT number
-has appeared, so the discipline cannot quietly erode when someone fills one in.
+Nothing here invents a registration number, a VAT identifier, a company name, an address, a phone
+number or an email. The tests scan for _anything_ bracket-shaped and require it to be a well-formed
+`[[UPPER_SNAKE]]` placeholder — so a degraded `[[Register Court]]` or a `{{VAT_ID}}` fails — pin the
+full list of required placeholders per document kind, and reject anything resembling a register
+number, a VAT id, an email, a phone number, a street address or a postcode.
+
+The guard is mutation-tested: replacing `[[STREET_ADDRESS]]` with a plausible street, degrading a
+placeholder, switching to `{{mustache}}` form, or writing `HRB-12345` each turn the suite red. An
+earlier version of this test matched well-formed placeholders and then asserted they were
+well-formed — a tautology that could never fail. That is why the mutation check exists.
 
 The statutory content — the fourteen-day withdrawal period, the GDPR legal bases — is stated as the
 law requires and is not ours to vary. Brand A's own thirty-day free EU returns are presented as an
