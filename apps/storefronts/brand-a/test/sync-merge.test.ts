@@ -181,6 +181,30 @@ describe('package.json merge: what the starter DELETES', () => {
     expect(merged.devDependencies).toHaveProperty('@axe-core/playwright');
   });
 
+  it('survives a starter RENAME of an identity script, and still drops a real deletion', () => {
+    // Paired on purpose. `dev` is identity: the starter renaming it to `dev:web` puts the old name
+    // in the record and not in the starter, which looks exactly like a deletion — and dropping it
+    // would take brand A's port with it. `legacy` in the same merge is NOT identity, so it must
+    // still go, or "never delete anything" would pass this test.
+    const renamed = {
+      ...starter,
+      scripts: Object.fromEntries(
+        Object.entries(starter.scripts ?? {}).map(([k, v]) =>
+          k === 'dev' ? ['dev:web', v] : [k, v],
+        ),
+      ),
+    };
+    const merged = mergePackageJson(renamed, brandWithCorpses, previous) as Pkg;
+
+    expect(merged.scripts?.dev, 'the brand port was dropped by a rename').toBe(
+      'next dev --port 3101',
+    );
+    expect(merged.scripts?.['dev:web']).toBe('next dev --port 3100');
+    expect(merged.scripts, 'a non-identity deletion should still drop').not.toHaveProperty(
+      'legacy',
+    );
+  });
+
   it('still lets the starter re-add something it once deleted', () => {
     const readded = { ...starter, scripts: { ...starter.scripts, legacy: 'node scripts/new.mjs' } };
     const merged = mergePackageJson(readded, brandWithCorpses, previous) as Pkg;
@@ -210,12 +234,26 @@ describe('package.json merge: against the real files', () => {
 `).toBe(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   });
 
-  it('ships a starter manifest that matches the starter, so deletions are detectable', () => {
-    // If this drifts, `previousStarter` describes a starter that never existed and the merge either
-    // drops a live key or keeps a dead one. It is written by the sync script, so it should always
-    // equal the starter's current package.json in a freshly synced tree.
+  it('ships a starter manifest whose merge-relevant keys match the starter', () => {
+    /**
+     * Deliberately NOT `toEqual(realStarter)`.
+     *
+     * This file runs in the root `pnpm test` on every PR in the repository, so an assertion here
+     * fires on other windows' branches. The first version compared the whole object — including
+     * `version`, which window 3 bumps on every storefront task — which would have turned *their*
+     * PRs red for a manifest that is perfectly serviceable. A cross-window tripwire is a worse
+     * defect than the drift it was guarding against.
+     *
+     * The merge only ever reads key *presence* in `scripts` and the dependency blocks, so that is
+     * exactly what this checks. Values, versions and identity fields are none of its business.
+     */
     const manifest = read('../scripts/starter-manifest.json');
-    expect(manifest).toEqual(realStarter);
+    const keys = (pkg: Pkg, field: keyof Pkg) => Object.keys((pkg[field] ?? {}) as object).sort();
+
+    expect(keys(manifest, 'scripts')).toEqual(keys(realStarter, 'scripts'));
+    for (const field of ['dependencies', 'devDependencies'] as const) {
+      expect(keys(manifest, field), `${field} drifted`).toEqual(keys(realStarter, field));
+    }
   });
 
   it('really does keep brand A on 3101 and carry every starter script', () => {

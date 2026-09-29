@@ -9,10 +9,18 @@
   each sync. A key present there and absent now was deleted upstream and is dropped; a key in
   neither is the brand's own and stays. **With no manifest nothing is dropped**, because deleting a
   real dependency for lack of evidence is the worse failure.
-- Eight tests, each pairing the deletion case with the brand-only case — a merge that dropped
-  everything brand-only would otherwise pass a deletion test on its own — plus the
-  starter-can-re-add case, non-mutation of the record, and a check that the committed manifest
-  matches the starter so detection cannot silently stop firing.
+- Nine tests. The three deletion cases share a paired brand-only assertion, because a merge that
+  simply dropped everything brand-only would otherwise pass a deletion test on its own; plus the
+  starter-rename case, starter-can-re-add, non-mutation of the record, and a drift check on the
+  committed manifest.
+- **An identity key is never deleted**, even when the record says the starter dropped it: a starter
+  rename of `dev` to `dev:web` looks exactly like a deletion and would otherwise have taken brand
+  A's `--port 3101` with it. A key both sides carry stays starter-managed and goes when the starter
+  drops it.
+- The manifest drift check compares only the key sets the merge actually reads — `scripts` and the
+  dependency blocks — never `version`. This file runs in the root `pnpm test` on every PR, so
+  comparing whole objects would have turned _other windows'_ branches red whenever window 3 bumped
+  the starter version.
 - Verified end to end, not only in unit tests: deleting `bundle-budget` from the starter and
   re-syncing drops it from this app while `sync`, the 3101 dev port and the package name survive.
 

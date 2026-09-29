@@ -140,9 +140,18 @@ indistinguishable from one the brand added. `scripts/starter-manifest.json` is t
 by the sync script on every run and committed. It is generated — do not edit it by hand. With no
 manifest (a fresh clone) nothing is treated as deleted, because dropping a real dependency for lack
 of evidence is the worse failure.
-Preserving it wholesale is what cost this app the `perf` and `bundle-budget` scripts for an entire
-task. A re-sync on an already-merged app writes a byte-identical file; `test/sync-merge.test.ts`
-asserts that, and both halves of the contract.
+
+Two rules follow, and they decide what "identity survives" actually means:
+
+- **An identity key is never deleted.** A starter _rename_ — `dev` becoming `dev:web` — puts the old
+  name in the record and not in the starter, which is indistinguishable from a deletion. Treating it
+  as one would drop brand A's `--port 3101`, so the keep-set wins over the record.
+- **A key both sides carry is starter-managed.** The starter's value wins while it exists, and the
+  key goes when the starter drops it. A brand that needs to keep such a key says so by adding it to
+  the keep-set, not by relying on having had it.
+  Preserving it wholesale is what cost this app the `perf` and `bundle-budget` scripts for an entire
+  task. A re-sync on an already-merged app writes a byte-identical file; `test/sync-merge.test.ts`
+  asserts that, and both halves of the contract.
 
 One thing the PRESERVE list still costs, worth checking after any sync:
 

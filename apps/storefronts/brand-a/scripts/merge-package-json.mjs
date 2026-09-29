@@ -54,6 +54,17 @@ const DEPENDENCY_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies'
  * dropped. Deleting a brand's dependency because we lack the evidence to keep it is the worse
  * failure, so the ambiguous case stays conservative and the next sync has the record it needs.
  *
+ * **Two rules follow from this, and they are worth stating plainly.**
+ *
+ * A key in `keepBrandValueFor` is *never* deleted. Those are identity (`dev`, which carries the
+ * port), and a starter rename — `dev` becoming `dev:web` — is indistinguishable from a deletion by
+ * the record alone. Treating it as one would drop the brand's port, which is the single thing this
+ * merge exists to protect.
+ *
+ * A key **both sides carry** is starter-managed: the starter's value wins while it exists, and it
+ * goes when the starter drops it. A brand that needs to keep such a key has to say so by adding it
+ * to `keepBrandValueFor`, not by relying on it having been there.
+ *
  * @param {Record<string, string>} [starter]
  * @param {Record<string, string>} [brand]
  * @param {readonly string[]} [keepBrandValueFor]
@@ -75,8 +86,13 @@ function mergeRecord(
       continue;
     }
     // Brand-only *now*. Did the starter have it last time?
+    //
+    // An identity key is never deleted, whatever the record says. If the starter renames `dev` to
+    // `dev:web`, the old name is in the record and gone from the starter, which looks exactly like
+    // a deletion — and dropping it would take brand A's `next dev --port 3101` with it, breaking
+    // the one thing this merge promises to protect. A rename is not a deletion of identity.
     const deletedUpstream = previousStarter !== undefined && key in previousStarter;
-    if (!deletedUpstream) merged[key] = value;
+    if (keep.has(key) || !deletedUpstream) merged[key] = value;
   }
 
   return merged;

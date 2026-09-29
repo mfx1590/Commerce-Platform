@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 MERGED (1a44b04, #141 closed). Deletion fix in PR #291. 2.4 next
+Last updated: 2026-09-29 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 MERGED (1a44b04, #141 closed). Deletion fix in PR #291. 2.4 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -47,6 +47,11 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **2.3 content half in PR** (660bfbf) closing #141. Awaiting verdict.
 
 ## Carried nits
+### From the #291 review (parked)
+- `sync-merge.test.ts` idempotency test passes two args; the script passes three — pass the manifest.
+- Nothing tests that `sync-from-starter.mjs` actually forwards `previousStarter` to the merge.
+- CHANGELOG wording "eight tests, each pairing" overstated it — fixed in 0.4.1; watch for that shape.
+
 ### From the #289 review (parked — do in 2.4 or a cleanup PR)
 - `productStory` block is never asserted after the harness-artefact fix — add a positive assertion.
 - Hero and campaign **CTA** hrefs are outside the link-resolution test, which only walks navigation
@@ -105,6 +110,11 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **A test in a brand app runs in the ROOT `pnpm test` on every PR in the repo.** An assertion that
+  compares against another window's file (the starter's `version`) turns *their* PRs red. Assert
+  only the properties your code actually depends on.
+- **A rename upstream is indistinguishable from a deletion** when you only record names. Identity
+  keys must win over the deletion record, or a starter rename silently drops brand identity.
 - **Write the falsifying mutation BEFORE claiming a guard works** (manager will hold future PRs to
   this). Three of mine were vacuous: a hardcoded hex Set, a 1% visual tolerance, a placeholder regex
   that matched then re-asserted the same pattern. The shape is always *asserting a property of
