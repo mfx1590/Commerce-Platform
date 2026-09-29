@@ -1,0 +1,110 @@
+[
+  {
+    "_id": "navigation.en-GB.main",
+    "_type": "navigation",
+    "locale": "en-GB",
+    "key": "main",
+    "items": [
+      {
+        "_type": "navItem",
+        "_key": "nav-shop",
+        "label": "Shop",
+        "href": "/products",
+        "children": [
+          {
+            "_type": "link",
+            "_key": "nav-shop-all",
+            "label": "Everything",
+            "href": "/products"
+          },
+          {
+            "_type": "link",
+            "_key": "nav-shop-tshirts",
+            "label": "T-shirts",
+            "href": "/categories/t-shirts"
+          },
+          {
+            "_type": "link",
+            "_key": "nav-shop-knitwear",
+            "label": "Knitwear",
+            "href": "/categories/knitwear"
+          }
+        ]
+      },
+      {
+        "_type": "navItem",
+        "_key": "nav-about",
+        "label": "About",
+        "href": "/pages/about",
+        "children": [
+          {
+            "_type": "link",
+            "_key": "nav-about-story",
+            "label": "Who we are",
+            "href": "/pages/about"
+          },
+          {
+            "_type": "link",
+            "_key": "nav-about-cloth",
+            "label": "How we choose cloth",
+            "href": "/pages/cloth"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "_id": "navigation.de-DE.main",
+    "_type": "navigation",
+    "locale": "de-DE",
+    "key": "main",
+    "items": [
+      {
+        "_type": "navItem",
+        "_key": "nav-shop",
+        "label": "Shop",
+        "href": "/products",
+        "children": [
+          {
+            "_type": "link",
+            "_key": "nav-shop-all",
+            "label": "Alles",
+            "href": "/products"
+          },
+          {
+            "_type": "link",
+            "_key": "nav-shop-tshirts",
+            "label": "T-Shirts",
+            "href": "/categories/t-shirts"
+          },
+          {
+            "_type": "link",
+            "_key": "nav-shop-knitwear",
+            "label": "Strick",
+            "href": "/categories/knitwear"
+          }
+        ]
+      },
+      {
+        "_type": "navItem",
+        "_key": "nav-about",
+        "label": "Über uns",
+        "href": "/pages/about",
+        "children": [
+          {
+            "_type": "link",
+            "_key": "nav-about-story",
+            "label": "Wer wir sind",
+            "href": "/pages/about"
+          },
+          {
+            "_type": "link",
+            "_key": "nav-about-cloth",
+            "label": "Wie wir Stoffe auswählen",
+            "href": "/pages/cloth"
+          }
+        ]
+      }
+    ]
+  }
+]

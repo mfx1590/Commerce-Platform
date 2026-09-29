@@ -1,5 +1,36 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.4.0 — 2026-09-28 · task 2.3 (#141)
+
+- **Real CMS content for brand A**, in `cms/brand-a/content/` — 20 documents, every one in both
+  `en-GB` and `de-DE`: the `home` page feeding the storefront's `CmsHome` slot, two content pages
+  (`about`, `cloth`), the four EU legal pages (`imprint`, `privacy`, `terms`, `returns`),
+  navigation, footer, and the `autumn-cloth` campaign landing. Copy is written to
+  `src/brand/DESIGN.md`'s voice; German is genuine prose, not translated-looking English.
+- **`cms/brand-a/scripts/seed-content.mjs`** pushes them, reusing `@platform/cms`'s _pure_ exported
+  helpers rather than reimplementing credential handling. Documents are validated before anything is
+  sent, and `--dry-run` (also the no-credentials path) prints the payload instead.
+- **`test/cms-brand-content.test.ts`** (50 tests) is the acceptance criterion: it reads the same
+  JSON the seed script does, validates each document against window 6's schemas, and renders them
+  through the real route components — `HomeContent`, `pages/[slug]`, `legal/[slug]` and
+  `campaign/[slug]`, every document in both locales — with no Sanity credentials, because
+  `CmsReader` is an interface. The campaign tests pin the clock, because that route 404s outside
+  its schedule and an unpinned test would rot on `endsAt`. It also asserts locale parity, that no German document is a copy of its English twin,
+  that every navigation and footer link resolves to an authored document or a real app route, and
+  that no route falls back to its empty state.
+- The axe suite now scans four content routes too — a legal page in each locale, a content page and
+  the campaign landing — skipped unless `CMS_DATASET` is set. They were deliberately absent in 2.2,
+  when they were 404s. Note this means CI does not yet run them: nothing sets `CMS_DATASET`.
+- **The legal documents are not lawyer-reviewed** and say so in `cms/brand-a/README.md`. No
+  registration number, VAT identifier or company name is invented; every such value is a marked
+  `[[PLACEHOLDER]]`. The guard scans for anything bracket-shaped and requires it to be well-formed
+  (so `[[Register Court]]` and `{{VAT_ID}}` fail), pins the full required set per document kind —
+  not just the five §5 DDG fields — and rejects anything resembling a register number, VAT id,
+  email, phone number, street address or postcode. It is mutation-tested four ways. The statutory fourteen-day withdrawal period is stated as the law
+  requires; brand A's own thirty-day free EU returns are presented as additional to it.
+- Corrected the stale claim that this app has no Dockerfile — window 5 delivered it via REQUEST
+  #197 and the compose build uses it.
+
 ## 0.3.0 — 2026-09-28 · task 2.3 part 1 (#141)
 
 - **Re-synced from the starter** (154 copied, 1 merged, 11 preserved, 4 excluded), carrying in

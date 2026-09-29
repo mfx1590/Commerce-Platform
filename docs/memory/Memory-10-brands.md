@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.2 MERGED (8c49bd4, #140 closed). 2.3 part 1 in PR; content half next
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 content half in PR #289 — BLOCK fixes pushed. 2.4 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,7 +17,13 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **2.3 part 1 — re-sync + package.json MERGE mode** — commits f682dde (re-sync: #273's
+- **#141 · 2.3 CMS content** — 20 documents in `cms/brand-a/content/` (home, about, cloth, 4 EU
+  legal, nav, footer, campaign), **all in en-GB + de-DE**. Seed runner reuses @platform/cms's pure
+  helpers; validates before sending. `test/cms-brand-content.test.ts` (43 tests) renders them
+  through the real routes with no Sanity credentials. Legal copy uses `[[PLACEHOLDER]]` for every
+  statutory value and is **not lawyer-reviewed** (flagged in cms/brand-a/README.md). Stale
+  Dockerfile claim corrected (carried nit #3 — done).
+- **2.3 part 1 (MERGED as #288, 44c57cf) — re-sync + package.json MERGE mode** — commits f682dde (re-sync: #273's
   open-redirect fixes, referral, reviews, CMS home slots) and the merge-mode commit. `package.json`
   is no longer PRESERVEd but merged: identity survives, scripts/deps track the starter.
   13 tests assert both halves + byte-level idempotency. Root gate green (397 tests).
@@ -35,31 +41,30 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.3 (#141) CMS content for brand A — plan written, awaiting the manager's confirmation.**
+- **2.3 content half in PR** (660bfbf) closing #141. Awaiting verdict.
 
-  Order of commits (one PR):
-  1. **Re-sync from the starter** (queued from 2.2): `referral.ts`, `reviews.ts`, `safe-path.ts` + tests.
-  2. **`sync-from-starter.mjs` MERGE mode for `package.json`** (manager-approved): identity fields
-     (`name`, `version`, `dev` port, `sync`) survive; `scripts` + `dependencies` track the starter.
-     One test proving a starter script addition arrives AND name/port survive a re-sync.
-  3. **`cms/brand-a/` content** — my owned path; does not exist yet. Typed against `@platform/cms`
-     (`PageDocument` etc.), validated with its `validateDocument`. Per locale **en-GB + de-DE**:
-     home page, navigation, footer, 4 legal (imprint/privacy/terms/returns), 1 campaign landing
-     = ~8 docs × 2 locales.
-  4. **Seed runner in `cms/brand-a/`** reusing window 6's *pure* exported helpers (`readSeedEnv`,
-     `mutateUrl`, `missingCredentials`) — window 6's `scripts/seed.mjs` only knows its own generic
-     fixtures, and it is not my file. No duplicated logic, no edit outside my paths.
-  5. **Content snapshot test** — renders the real `(content)` route components against the real
-     brand-A documents through the injectable `CmsReader`, asserting no empty-state fallback text
-     appears. This is how the acceptance criterion is met offline (no Sanity credentials needed).
-  6. README + CHANGELOG + memory.
+## Carried nits
+### From the #289 review (parked — do in 2.4 or a cleanup PR)
+- `productStory` block is never asserted after the harness-artefact fix — add a positive assertion.
+- Hero and campaign **CTA** hrefs are outside the link-resolution test, which only walks navigation
+  and footer. README now says so explicitly; widen the test.
+- `lastReviewed` dates sit on legal documents the PR calls unreviewed — reconcile the two.
+- The Impressum footer link is doubled per locale (`col-help` *and* `legalLinks`).
+- **`CMS_DATASET` is set nowhere in `.github`**, so the content axe scans never run in CI.
+- `seed-content.mjs` without `--dry-run` overwrites Studio edits with no confirmation — add one.
+- The en-GB imprint cites German statutes (a lawyer item, not mine — carry to the legal review).
 
-  Content voice follows `src/brand/DESIGN.md` — copy is design, not filler.
-
-  **Flagged to the manager, not decided by me:** the statutory fields of a German *Impressum*
-  (registration court, HRB number, VAT ID, responsible person) are legally binding. I will write
-  structurally correct documents with those fields as clearly-marked placeholders and will NOT
-  invent registration numbers or compliance claims. Real legal review before production.
+### From the #288 review
+- **Merge mode cannot REMOVE.** A script or dependency the *starter deletes* looks brand-only to
+  `mergeRecord` and survives in the brand forever. Needs either a documented limitation or a
+  deletion test + rule (e.g. track the previous starter manifest). Not yet decided.
+- **Precision in the record**: "root gate 397 tests" in #288 was *brand-a's suite alone*, not the
+  repo. Say which suite when quoting a count.
+- ~~**Stale Dockerfile claim**~~ — DONE in the 2.3 content PR.
+- (superseded, kept for the trail) **Stale Dockerfile claim**: README's diff table + CLAUDE.md + this memory say "no Dockerfile in
+  this app / absent". **Window 5 delivered it** — `apps/storefronts/brand-a/Dockerfile` exists and
+  `infra/docker/docker-compose.build.yml` builds `storefront-brand-a` from it; REQUEST #197 is
+  CLOSED. Correct in passing with the content PR.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a (in PR)
@@ -82,7 +87,10 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   `[locale]/layout.tsx`, so the CSS `next/font` emits for it is linked from `<head>` on every route.
 - **Brand identity lives in `next.config.mjs` runtime defaults (`??=`), not src edits** (2.1): `next build/dev/start` all load the config before app code, the environment still wins, and `src/**` stays byte-identical to the starter (except `src/brand/**`) so `sync-from-starter.mjs` re-syncs produce reviewable diffs. `KEYCLOAK_CLIENT_ID` needed no override — the starter already defaults to `storefront-brand-a`.
 - **The sync script is self-hosting and lives in the brand app** (`scripts/sync-from-starter.mjs`): the starter stays untouched (window 3's path), and Phase 3's "scripted re-sync" (ADR 0004) exists from day one — preserve list = the README's documented diff table.
-- **No Dockerfile in the brand app**: `**/Dockerfile` is window 5's ownership row, so the clone excludes it; REQUEST #197 asks for the image.
+- **No Dockerfile *authored* in the brand app**: `**/Dockerfile` is window 5's ownership row, so
+  the clone still excludes it from the sync. REQUEST #197 is now CLOSED — window 5 delivered
+  `apps/storefronts/brand-a/Dockerfile` and the compose build entry, so the file exists and is
+  theirs to maintain. The README/CLAUDE.md wording saying it is "absent" is stale (carried nit).
 
 ## Blocked / waiting
 - 2.3 part 1 (re-sync + merge mode) in PR; the CMS content half follows in its own PR.
@@ -93,6 +101,14 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **Do not invent the strings a test asserts absence of.** The 2.3 empty-state check guessed
+  fallback text and collided with real copy ("Nothing here is designed to be replaced…"). Read the
+  route's own message catalogue, and guard that the list is non-empty or every `not.toContain`
+  passes vacuously.
+- **Author the nav last, or test that links resolve.** The first 2.3 draft linked to four pages that
+  did not exist. The link-resolution test is cheap and catches it.
+- **`cms/<brand>/` is inside window 6's package dir but is my path.** It is outside `cms/tsconfig`'s
+  include and outside the package `exports`, so content is JSON read from disk, not an import.
 - **`toEqual` on parsed JSON ignores key order.** The merge-mode idempotency test passed while the
   real sync reordered a script. If the artefact is a file a reviewer diffs, assert the bytes.
 - **vitest does not typecheck.** `pnpm --filter … test` was green while the root `pnpm typecheck`

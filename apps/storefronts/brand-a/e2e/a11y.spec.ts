@@ -31,16 +31,26 @@ import { expect, test } from '@playwright/test';
  * cover the same rule breaking somewhere it is genuinely brand A's problem. `color-contrast` — the
  * rule this suite exists for — is never suppressed anywhere.
  */
-const INHERITED_DL_DEFECT = ['dlitem', 'definition-list'] as const;
+const INHERITED_DL_DEFECT: readonly string[] = ['dlitem', 'definition-list'];
 
 /**
  * Reachable without signing in. Account and checkout need a session; those come with 2.5 (#143).
  *
- * The `(content)` routes are deliberately absent: brand A has no CMS documents until 2.3 (#141), so
- * `/legal/privacy` is a 404 today and scanning it would assert accessibility on an error page. They
- * join this list in 2.3, when there is content to scan.
+ * The `(content)` routes joined this list in 2.3 (#141), now that brand A has real documents. They
+ * were deliberately absent in 2.2: `/legal/privacy` was a 404 then, and scanning it would have
+ * asserted accessibility on an error page — a green test that checked nothing.
+ *
+ * These scans need the content to be in the dataset, so they are skipped unless `CMS_DATASET` is
+ * configured; `test/cms-brand-content.test.ts` covers the same documents offline and always runs.
  */
-const PUBLIC_PAGES = [
+interface ScannedPage {
+  name: string;
+  path: string;
+  /** Rule ids suppressed on this page only — see INHERITED_DL_DEFECT. */
+  allow: readonly string[];
+}
+
+const PUBLIC_PAGES: ScannedPage[] = [
   // `allow` scopes the inherited-defect suppression to the pages that actually contain the defect.
   // The store-facts grid renders on the home page in **every locale**, so this is keyed by page
   // rather than by a single path — /en-GB and /de-DE are the same page, twice.
@@ -51,10 +61,27 @@ const PUBLIC_PAGES = [
   { name: 'cart (empty)', path: '/en-GB/cart', allow: [] },
 ];
 
+/** Content routes: only meaningful when the CMS is reachable and seeded (see above). */
+const CONTENT_PAGES: ScannedPage[] = [
+  { name: 'legal page', path: '/en-GB/legal/privacy', allow: [] },
+  { name: 'German legal page', path: '/de-DE/legal/imprint', allow: [] },
+  { name: 'content page', path: '/en-GB/pages/about', allow: [] },
+  // The campaign landing is a distinct route with its own layout (full-bleed hero, embeds), so
+  // scanning a legal page says nothing about it. It also 404s outside its schedule — if this starts
+  // failing on a status assertion, check `endsAt` in cms/brand-a/content/campaign.json.
+  { name: 'campaign landing', path: '/en-GB/campaign/autumn-cloth', allow: [] },
+];
+
 const WCAG_AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
-for (const page_ of PUBLIC_PAGES) {
+for (const page_ of [...PUBLIC_PAGES, ...CONTENT_PAGES]) {
+  const isContent = CONTENT_PAGES.includes(page_);
+
   test(`${page_.name} has no WCAG A/AA violations`, async ({ page }) => {
+    test.skip(
+      isContent && !process.env.CMS_DATASET,
+      'content routes need a seeded CMS dataset (CMS_DATASET)',
+    );
     const response = await page.goto(page_.path);
     // A redirect or a 404 would make an empty scan pass, which is the failure mode this guards.
     expect(response?.status(), `${page_.path} should render`).toBeLessThan(400);

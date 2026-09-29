@@ -38,24 +38,24 @@ and its sales channel from it. `GET /health` answers 200 for the container HEALT
 
 Everything else is byte-identical to `apps/storefront-starter` at the commit of the last sync.
 
-| File                                              | Why                                                                                           |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`       |
-| `test/slots.test.ts`                              | **temporary** — drops assertions that this brand overrides nothing (REQUEST #278)             |
-| `playwright.config.ts`                            | platform-keyed `snapshotPathTemplate` for visual baselines                                    |
-| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                    |
-| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                             |
-| `scripts/start.mjs`                               | default port 3101                                                                             |
-| `next.config.mjs`                                 | brand env defaults (`SITE_URL`, `STORE_PUBLISHABLE_KEY`) via `??=`                            |
-| `playwright.config.ts`                            | `APP_URL` default :3101; mock webServer `cwd` one level deeper                                |
-| `lighthouserc.json`                               | audit URLs on :3101                                                                           |
-| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
-| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                        |
-| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                |
-| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                          |
-| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                              |
-| `Dockerfile`                                      | **absent** — every Dockerfile is window 5's path; the brand image arrives via a REQUEST issue |
-| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)  |
+| File                                              | Why                                                                                          |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`      |
+| `test/slots.test.ts`                              | **temporary** — drops assertions that this brand overrides nothing (REQUEST #278)            |
+| `playwright.config.ts`                            | platform-keyed `snapshotPathTemplate` for visual baselines                                   |
+| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                   |
+| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                            |
+| `scripts/start.mjs`                               | default port 3101                                                                            |
+| `next.config.mjs`                                 | brand env defaults (`SITE_URL`, `STORE_PUBLISHABLE_KEY`) via `??=`                           |
+| `playwright.config.ts`                            | `APP_URL` default :3101; mock webServer `cwd` one level deeper                               |
+| `lighthouserc.json`                               | audit URLs on :3101                                                                          |
+| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                              |
+| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                       |
+| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                               |
+| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                         |
+| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                             |
+| `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here       |
+| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2) |
 
 ## Theme
 
@@ -99,6 +99,23 @@ spec today; brand A opts in at 2.5 (#143). Run it by hand when you touch the the
 
 Measured on a production build (Lighthouse, median of 3): performance 0.96, accessibility
 **1.00**, SEO 0.92, CLS 0.0000 / 0.0001 (PLP / PDP).
+
+## CMS content
+
+Brand A's published documents live in **[`cms/brand-a/`](../../../cms/brand-a/README.md)** — home,
+two content pages, four EU legal pages, navigation, footer and one campaign landing, each in both
+`en-GB` and `de-DE`. Seed them with `node cms/brand-a/scripts/seed-content.mjs` (`--dry-run` to
+validate without credentials).
+
+`test/cms-brand-content.test.ts` reads those files and renders them through the real route
+components — `HomeContent`, `pages/[slug]`, `legal/[slug]` and `campaign/[slug]`, every document in
+both locales — so the content is covered in CI without a Sanity dataset.
+
+The axe suite also scans four content routes, but only when `CMS_DATASET` is set, and **nothing sets
+it in CI today**, so those four are skipped there. The offline suite above is what actually gates
+this content.
+
+**The legal documents are not lawyer-reviewed.** See the warning in `cms/brand-a/README.md`.
 
 ## Re-syncing from the starter
 
