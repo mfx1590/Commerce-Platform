@@ -24,11 +24,13 @@ expect violation admin/phase1      packages/ui/src/index.ts
 expect ok        infra/phase2      .github/workflows/ci.yml apps/core/Dockerfile infra/terraform/main.tf
 expect ok        infra/phase2      .dockerignore
 expect violation infra/phase2      apps/core/src/index.ts
-expect ok        cms/phase2        "cms/brand-a/schema.ts" "apps/storefront-starter/src/app/[locale]/(content)/page.tsx" "apps/storefront-starter/src/lib/cms/client.ts"
+expect ok        cms/phase2        "cms/src/schema.ts" "cms/package.json" "apps/storefront-starter/src/app/[locale]/(content)/page.tsx" "apps/storefront-starter/src/lib/cms/client.ts"
+expect violation cms/phase2        "cms/brand-a/content/home.json"   # brand content folders belong to brands/ (2026-09-29 split)
 expect violation cms/phase2        "apps/storefront-starter/src/app/(shop)/page.tsx"
 expect ok        search/phase2     apps/core/src/jobs/index-products.ts apps/core/src/modules/search/index.ts
 expect violation search/phase2     apps/core/src/jobs/other.ts
 expect ok        brands/phase2     apps/storefronts/brand-a/src/app/page.tsx cms/brand-a/x.ts
+expect violation brands/phase2     cms/src/index.ts                   # the cms package itself stays with window 6
 expect violation brands/phase2     apps/storefront-starter/src/app/page.tsx
 expect ok        data/phase3       data/dbt/models/x.sql "apps/admin/src/app/(hq)/bi/page.tsx"
 expect violation data/phase3       "apps/admin/src/app/(hq)/finance/page.tsx"
