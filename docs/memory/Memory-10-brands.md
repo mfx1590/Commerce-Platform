@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 content half in PR #289 — BLOCK fixes pushed. 2.4 next
+Last updated: 2026-09-28 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 MERGED (1a44b04, #141 closed). Deletion fix in PR #291. 2.4 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,7 +17,10 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **#141 · 2.3 CMS content** — 20 documents in `cms/brand-a/content/` (home, about, cloth, 4 EU
+- **Merge-mode deletion fix** — PR #291 (2032082). `scripts/starter-manifest.json` records the
+  starter's package.json per sync, so a key deleted upstream is dropped instead of surviving
+  forever. No manifest = nothing dropped (conservative). 8 paired tests + end-to-end proof.
+- **#141 · 2.3 CMS content** — **MERGED** as PR #289, merge commit 1a44b04. — 20 documents in `cms/brand-a/content/` (home, about, cloth, 4 EU
   legal, nav, footer, campaign), **all in en-GB + de-DE**. Seed runner reuses @platform/cms's pure
   helpers; validates before sending. `test/cms-brand-content.test.ts` (43 tests) renders them
   through the real routes with no Sanity credentials. Legal copy uses `[[PLACEHOLDER]]` for every
@@ -55,7 +58,8 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - The en-GB imprint cites German statutes (a lawyer item, not mine — carry to the legal review).
 
 ### From the #288 review
-- **Merge mode cannot REMOVE.** A script or dependency the *starter deletes* looks brand-only to
+- ~~**Merge mode cannot REMOVE.**~~ DONE in PR #291.
+- (was) **Merge mode cannot REMOVE.** A script or dependency the *starter deletes* looks brand-only to
   `mergeRecord` and survives in the brand forever. Needs either a documented limitation or a
   deletion test + rule (e.g. track the previous starter manifest). Not yet decided.
 - **Precision in the record**: "root gate 397 tests" in #288 was *brand-a's suite alone*, not the
@@ -101,6 +105,14 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **Write the falsifying mutation BEFORE claiming a guard works** (manager will hold future PRs to
+  this). Three of mine were vacuous: a hardcoded hex Set, a 1% visual tolerance, a placeholder regex
+  that matched then re-asserted the same pattern. The shape is always *asserting a property of
+  things already selected for having it*. Pair every "X is removed" test with "Y survives".
+- **An apostrophe inside a single-quoted JS string written via a bash heredoc breaks the parse** —
+  `'` arrives literal. Reword instead.
+- **Python `` in a non-raw string is a backspace, not a word boundary.** Three landed inside
+  regex literals and ESLint's `no-control-regex` caught them. Use raw strings for regex text.
 - **Do not invent the strings a test asserts absence of.** The 2.3 empty-state check guessed
   fallback text and collided with real copy ("Nothing here is designed to be replaced…"). Read the
   route's own message catalogue, and guard that the list is non-empty or every `not.toContain`
