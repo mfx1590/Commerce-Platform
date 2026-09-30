@@ -98,7 +98,7 @@ Accessibility is checked by **axe over five pages, plus a contrast re-scan of th
 spec today; brand A opts in at 2.5 (#143). Run it by hand when you touch the theme. Visual baselines for home/PLP/PDP are opt-in
 (`E2E_VISUAL=1`) and keyed by platform; see `e2e/visual.spec.ts` before regenerating one.
 
-Measured on a production build (Lighthouse, median of 3): performance 0.96, accessibility
+Measured on a production build (Lighthouse, median of 3): performance 0.97, accessibility
 **1.00**, SEO 0.92, CLS 0.0000 / 0.0001 (PLP / PDP).
 
 ## CMS content
@@ -123,13 +123,22 @@ this content.
 Brand A serves **`en-GB` and `de-DE`**, prices in **EUR**. `test/brand-i18n-seo.test.ts` covers the
 brand-specific half — the starter's `test/seo.test.ts` and `test/i18n.test.ts` cover the helpers:
 
-- every route addressable in both locales, self-referencing canonical, every sibling locale plus
-  `x-default` in the alternates;
+- **route rendering in both locales** — `e2e/routes.spec.ts` hits a real server and asserts 200,
+  `<html lang>`, a self-referencing canonical and the full alternate set. Rendering is an HTTP
+  property, so it is asserted over the real stack rather than through mocks. **Local only: nothing
+  in CI runs it** (brand journeys are opt-in until #212, and `CMS_DATASET` is set nowhere in
+  `.github`). Of 22 route renders, **8 run** — the four catalogue routes in both locales — and
+  **14 skip** without a seeded Sanity dataset: `/pages/{about,cloth}`, `/legal/{imprint,privacy,
+terms,returns}` and `/campaign/autumn-cloth`, each in both locales. Those content-route renders
+  are **unverified**;
+- the route **inventory is derived from the filesystem**, so a new route that nothing knows how to
+  address fails the suite instead of being silently skipped;
 - **both** message catalogues (`messages/` _and_ `src/lib/cms/messages/`) — same keys, same
   placeholders, German actually translated;
 - JSON-LD priced in EUR with minor units converted, `Organization` named from `brandConfig`,
   breadcrumbs absolute and locale-prefixed;
-- the sitemap's paging boundary.
+- the sitemap, from the real module: every static path once per locale, each carrying the full
+  language map; plus the paging boundary.
 
 **Two things are not yet true, and are named rather than hidden:**
 

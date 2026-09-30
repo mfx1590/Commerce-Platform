@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { findAll, render } from './cms-render';
 import { brandConfig } from '@/brand/config';
 import { locales } from '@/i18n/routing';
 import {
@@ -16,6 +17,59 @@ import {
 } from '@/lib/seo';
 import type { Product } from '@/lib/store-api';
 
+// The real components are rendered below, so the module edges they sit on are stood in for: an
+// API, a CMS and next-intl's request context. Nothing here stands in for the code under test.
+// Spread the original rather than enumerate: the routes reach for several navigation exports, and
+// listing them one at a time just moves the failure along.
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  notFound: () => {
+    throw new Error('NEXT_NOT_FOUND');
+  },
+}));
+// The root layout reaches `@/brand/tokens`, which loads the self-hosted faces. `next/font/local` is
+// a build-time transform with no runtime implementation (see test/brand-theme.test.ts).
+vi.mock('next/font/local', () => ({
+  default: () => ({ className: 'f', style: { fontFamily: 'f' }, variable: '--f' }),
+}));
+vi.mock('next-intl', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  NextIntlClientProvider: ({ children }: { children: unknown }) => children,
+}));
+vi.mock('next-intl/server', () => ({
+  getMessages: async () => ({}),
+  setRequestLocale: () => undefined,
+  getTranslations: async () => (key: string) => key,
+  getLocale: async () => 'en-GB',
+}));
+vi.mock('@/lib/store', () => ({
+  getStoreOrNull: async () => ({
+    name: 'Brand A',
+    code: 'brand-a',
+    locales: ['en-GB', 'de-DE'],
+    currencies: ['EUR'],
+    default_currency: 'EUR',
+    default_locale: 'en-GB',
+    default_country: 'NL',
+  }),
+}));
+vi.mock('@/lib/catalog', () => ({
+  getProduct: async () => ({
+    handle: 'classic-tee',
+    title: 'Classic Tee',
+    subtitle: 'Organic cotton',
+    description: 'A classic tee.',
+    attributes: {},
+    brand_name: null,
+    category: null,
+    seo: null,
+    media: [],
+    variants: [],
+  }),
+  getCategory: async () => ({ handle: 't-shirts', name: 'T-shirts', seo: null }),
+  listProducts: async () => ({ items: [], total: 0 }),
+}));
+
 /**
  * Brand A's i18n and SEO — task 2.4, issue #142.
  *
@@ -28,20 +82,82 @@ import type { Product } from '@/lib/store-api';
  * being quietly omitted — see the `hreflang` and sitemap blocks at the bottom.
  */
 
-/** Every locale-less route brand A serves. Content paths exist because 2.3 authored them. */
-const ROUTES = [
-  '',
-  '/products',
-  '/products/classic-tee',
-  '/categories/t-shirts',
-  '/pages/about',
-  '/pages/cloth',
-  '/legal/imprint',
-  '/legal/privacy',
-  '/legal/terms',
-  '/legal/returns',
-  '/campaign/autumn-cloth',
-];
+/**
+ * The route inventory, derived from the filesystem rather than hand-listed.
+ *
+ * A hand-written array cannot fail when someone adds a route — it just silently does not cover it.
+ * This walks `src/app/[locale]/**` for `page.tsx`, strips Next's route groups, and fills dynamic
+ * segments from brand A's own CMS content. If a route appears and this suite does not know how to
+ * address it, the test below says so by name.
+ */
+const APP_DIR = new URL('../src/app/[locale]/', import.meta.url);
+
+interface RouteFile {
+  /** The URL path, with Next route groups stripped: `/products/[handle]`. */
+  route: string;
+  /** The module path, groups intact — needed to import it: `/(shop)/products/[handle]`. */
+  file: string;
+}
+
+function routeFiles(dir: URL, route = '', file = ''): RouteFile[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) {
+      const isGroup = /^\(.*\)$/.test(entry.name);
+      return routeFiles(
+        new URL(`${entry.name}/`, dir),
+        isGroup ? route : `${route}/${entry.name}`,
+        `${file}/${entry.name}`,
+      );
+    }
+    return entry.name === 'page.tsx' ? [{ route, file }] : [];
+  });
+}
+
+/** Slugs brand A actually publishes, so a dynamic route is exercised with a real document. */
+const CMS_DIR = new URL('../../../../cms/brand-a/content/', import.meta.url);
+const cmsDocs = readdirSync(CMS_DIR)
+  .filter((f) => f.endsWith('.json'))
+  .flatMap(
+    (f) =>
+      JSON.parse(readFileSync(new URL(f, CMS_DIR), 'utf8')) as {
+        _type: string;
+        locale: string;
+        slug?: { current: string };
+      }[],
+  );
+
+const slugFor = (type: string) =>
+  cmsDocs.find((d) => d._type === type && d.slug?.current && d.slug.current !== 'home')?.slug
+    ?.current ?? '';
+
+/** How each dynamic segment is filled. Anything unlisted makes the inventory test fail loudly. */
+const DYNAMIC: Record<string, string> = {
+  '/products/[handle]': 'classic-tee',
+  '/categories/[handle]': 't-shirts',
+  '/pages/[slug]': slugFor('page'),
+  '/legal/[slug]': slugFor('legal'),
+  '/campaign/[slug]': slugFor('campaignLanding'),
+  '/orders/[orderId]': 'order-1',
+};
+
+/** Routes behind a session; 2.5 (#143) drives these end to end. */
+const AUTHENTICATED = /^\/(account|checkout|cart|orders)/;
+
+const ROUTE_FILES = routeFiles(APP_DIR).sort((a, b) => a.route.localeCompare(b.route));
+const ALL_ROUTES = ROUTE_FILES.map((r) => r.route);
+const PUBLIC_ROUTES = ROUTE_FILES.filter((r) => !AUTHENTICATED.test(r.route));
+
+/** A route pattern with its dynamic segment filled from real content, or `null` if we cannot. */
+function addressable(pattern: string): string | null {
+  if (!pattern.includes('[')) return pattern;
+  const filled = DYNAMIC[pattern];
+  if (filled === undefined || filled === '') return null;
+  return pattern.replace(/\[[^\]]+\]/, filled);
+}
+
+const ROUTES = PUBLIC_ROUTES.map((r) => addressable(r.route)).filter(
+  (r): r is string => r !== null,
+);
 
 describe('brand A sells in exactly the locales the design and the content assume', () => {
   it('routes en-GB and de-DE, in that order', () => {
@@ -99,6 +215,73 @@ describe('both message catalogues are complete', () => {
     });
   }
 });
+
+describe('the route inventory is derived, not hand-listed', () => {
+  it('found the app router tree at all', () => {
+    // A broken walk would make every per-route test below run zero times and pass.
+    expect(ALL_ROUTES.length).toBeGreaterThanOrEqual(16);
+    expect(ALL_ROUTES).toContain('');
+    expect(ALL_ROUTES).toContain('/products/[handle]');
+  });
+
+  it('knows how to address every public route — a new one must be added here, not skipped', () => {
+    const unaddressable = PUBLIC_ROUTES.filter((r) => addressable(r.route) === null).map(
+      (r) => r.route,
+    );
+    expect(unaddressable, 'add these to DYNAMIC, with a real published slug').toEqual([]);
+  });
+
+  it('fills dynamic content routes from documents brand A actually publishes', () => {
+    for (const [pattern, slug] of Object.entries(DYNAMIC)) {
+      if (
+        !pattern.startsWith('/pages') &&
+        !pattern.startsWith('/legal') &&
+        !pattern.startsWith('/campaign')
+      )
+        continue;
+      expect(
+        cmsDocs.some((d) => d.slug?.current === slug),
+        `${pattern} is filled with "${slug}", which no document uses`,
+      ).toBe(true);
+    }
+  });
+});
+
+describe('the root layout renders each locale with the right lang', () => {
+  it.each(locales)('%s renders <html lang> through the real layout', async (locale) => {
+    const { default: LocaleLayout } = await import('@/app/[locale]/layout');
+    const out = await render(
+      await LocaleLayout({
+        children: 'content',
+        params: Promise.resolve({ locale }),
+      } as never),
+    );
+
+    const html = findAll(out, 'html');
+    expect(html, 'the layout rendered no <html>').toHaveLength(1);
+    expect(html[0]?.props['lang'], `<html lang> is wrong for ${locale}`).toBe(locale);
+  });
+
+  it('404s a locale this build does not route', async () => {
+    const { default: LocaleLayout } = await import('@/app/[locale]/layout');
+    await expect(
+      LocaleLayout({ children: 'x', params: Promise.resolve({ locale: 'fr-FR' }) } as never),
+    ).rejects.toThrow('NEXT_NOT_FOUND');
+  });
+});
+
+/**
+ * Per-route canonical/alternate assertions live in `e2e/routes.spec.ts`, not here.
+ *
+ * They were attempted at unit level first and the attempt is worth recording: calling each route's
+ * real `generateMetadata` in vitest means standing in for Next's request scope — `cookies`,
+ * `headers`, the catalogue, the CMS — and at that point the test renders stubs rather than the
+ * app. "Every route renders in both locales" is an HTTP property; it is asserted against a real
+ * server, over the real stack, with nothing mocked.
+ *
+ * What stays here is what a unit test can actually answer: the inventory is complete, the layout
+ * emits the right `lang`, and the sitemap module emits both locales.
+ */
 
 describe('every route is addressable in every locale', () => {
   it.each(ROUTES)('%s has a localised path per locale, all distinct', (route) => {
@@ -214,11 +397,32 @@ describe('the sitemap', () => {
     expect(sitemapPageCount(SITEMAP_PAGE_SIZE * 2)).toBe(2);
   });
 
-  it('counts one entry per path PER LOCALE, which is what fills a page', () => {
-    // The sitemap emits every path once per locale with hreflang alternates, so a two-locale store
-    // reaches the page boundary at half the paths a single-locale one would.
-    const paths = 10;
-    expect(paths * locales.length).toBe(20);
+  it('emits one sitemap entry per path PER LOCALE, from the real module', async () => {
+    // Was: `const paths = 10; expect(paths * locales.length).toBe(20)` — arithmetic that touched no
+    // sitemap code and could not fail. This calls the module.
+    const { STATIC_PATHS } = await import('@/lib/sitemap-data');
+    const { default: sitemap } = await import('@/app/sitemap');
+
+    // The paged sitemap takes its page id; page 0 holds the static paths.
+    const entries = await sitemap({ id: 0 } as never);
+    // Every static path appears once per locale...
+    for (const path of STATIC_PATHS) {
+      for (const locale of locales) {
+        expect(
+          entries.some((e) => e.url.endsWith(`/${locale}${path}`)),
+          `${locale}${path} missing from the sitemap`,
+        ).toBe(true);
+      }
+    }
+    // ...and each entry carries the full language map, which is what makes hreflang work here.
+    for (const entry of entries) {
+      for (const locale of locales) {
+        // `Languages<string>` is keyed by Next's union of known codes, so index it as a record —
+        // the locales here come from routing config, not from that union.
+        const languages = (entry.alternates?.languages ?? {}) as Record<string, string>;
+        expect(languages[locale], `${entry.url} omits ${locale}`).toBeDefined();
+      }
+    }
   });
 
   /**
@@ -230,8 +434,11 @@ describe('the sitemap', () => {
    * authored documents per locale (about, cloth, four legal pages, the campaign landing) are
    * invisible to the sitemap. That file is the starter's, so it is a REQUEST rather than an edit.
    *
-   * This test pins the current, wrong state deliberately: when window 3 adds content paths it will
-   * fail, which is the reminder to delete it and assert the real inventory instead.
+   * This test pins the current, wrong state deliberately — but be precise about when it fires. It
+   * reads *this app's synced copy* of `sitemap-data.ts`, not the starter's. Editing the starter
+   * leaves this suite green (verified); the pin goes red on the **re-sync that brings the fix in**,
+   * which is the right moment — that is when whoever is syncing should delete it and assert the
+   * real inventory. It is deliberately not a tripwire on window 3's own branch.
    */
   it('does NOT yet advertise the content routes — pinned until the starter adds them', async () => {
     const { STATIC_PATHS } = await import('@/lib/sitemap-data');

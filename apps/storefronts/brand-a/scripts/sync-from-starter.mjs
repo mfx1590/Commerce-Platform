@@ -90,13 +90,20 @@ if (checkOnly) {
     process.exit(0);
   }
 
-  const keys = (pkg, field) => Object.keys(pkg?.[field] ?? {});
+  // Keys AND values. This is the only place the live starter is compared at all — the unit tests
+  // read nothing outside this app — so it has to be the thorough one: a version bump or a changed
+  // script body is drift the next sync will take, and the person syncing wants to see it.
   const drift = [];
   for (const field of ['scripts', 'dependencies', 'devDependencies', 'peerDependencies']) {
-    const before = new Set(keys(previousStarter, field));
-    const after = new Set(keys(starterPackage, field));
-    for (const key of after) if (!before.has(key)) drift.push(`+ ${field}.${key}`);
-    for (const key of before) if (!after.has(key)) drift.push(`- ${field}.${key}`);
+    const before = previousStarter?.[field] ?? {};
+    const after = starterPackage?.[field] ?? {};
+    for (const key of Object.keys(after)) {
+      if (!(key in before)) drift.push(`+ ${field}.${key}`);
+      else if (before[key] !== after[key]) {
+        drift.push(`~ ${field}.${key}: ${before[key]} -> ${after[key]}`);
+      }
+    }
+    for (const key of Object.keys(before)) if (!(key in after)) drift.push(`- ${field}.${key}`);
   }
 
   if (drift.length === 0) {
