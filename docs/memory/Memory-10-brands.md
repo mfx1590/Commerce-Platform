@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-29 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 MERGED (1a44b04, #141 closed). Deletion fix in PR #291. 2.4 next
+Last updated: 2026-09-29 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.4 in PR #294 (Refs #142, two criteria unmet + named). 2.5 next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,6 +17,11 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#142 · 2.4 SEO + i18n (partial)** — PR #294. 49 tests: routes x both locales (canonical,
+  alternates, x-default), BOTH message catalogues (cms one was unchecked), JSON-LD in EUR,
+  sitemap paging. 5 mutations red. Manifest tripwire replaced with self-consistency +
+  `sync-from-starter.mjs --check`. Measured perf 0.97 / a11y 1.00 / SEO 0.92 / CLS ~0.
+  REQUEST #293 filed.
 - **Merge-mode deletion fix** — PR #291 (2032082). `scripts/starter-manifest.json` records the
   starter's package.json per sync, so a key deleted upstream is dropped instead of surviving
   forever. No manifest = nothing dropped (conservative). 8 paired tests + end-to-end proof.
@@ -44,7 +49,16 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.3 content half in PR** (660bfbf) closing #141. Awaiting verdict.
+- **2.4 in PR #294** (52a76c1), `Refs #142` — awaiting verdict.
+
+## Blocked on other windows (2.4 follow-up closes #142)
+- **#274** (window 3): metadata in `<body>` not `<head>` on home/PDP/content → SEO stuck at 0.92
+  vs the required >=95, and hreflang ignored there. Diagnosed by me with byte offsets.
+- **#293** (window 3): sitemap `STATIC_PATHS = ['', '/products']` advertises none of the 20 brand-A
+  documents — verified at runtime, 4 URLs served. Combined with #274 the content routes have
+  hreflang in *neither* accepted mechanism.
+- When both land: re-sync, delete the `STATIC_PATHS` pin in `test/brand-i18n-seo.test.ts`, assert
+  the real inventory, re-measure SEO, close #142 in a small follow-up PR.
 
 ## Carried nits
 ### From the #291 review (parked)
@@ -110,6 +124,17 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **`bundle-budget --sync-readme` fills an EXISTING `<!-- bundle-budget:start/end -->` block; it
+  does not create one.** After a re-sync adds that requirement, add the markers to the README by
+  hand once, then run it.
+- **Check a starter helper's real signature before writing a fixture for it.** `breadcrumbJsonLd`
+  takes `(crumbs, env)` and already-localised paths; `productJsonLd` reads `attributes`,
+  `brand_name`, `category` and guards with `=== null`, so an absent field throws.
+- **Never probe one-line HTML with `sed -n '1,/<\/head>/p'`** — the whole document is line 1, so the
+  range prints everything and any `grep -c` after it is a false pass. Compare byte offsets. This
+  produced a wrong "server is fine" conclusion in the #274 diagnosis before I caught it.
+- **hreflang outside `<head>` is ignored by Google.** Metadata landing in `<body>` is not only a
+  Lighthouse point; it silently voids a multi-locale setup.
 - **A test in a brand app runs in the ROOT `pnpm test` on every PR in the repo.** An assertion that
   compares against another window's file (the starter's `version`) turns *their* PRs red. Assert
   only the properties your code actually depends on.

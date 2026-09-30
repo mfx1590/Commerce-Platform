@@ -1,5 +1,37 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.5.0 — 2026-09-30 · task 2.4 (#142, partial — see below)
+
+- **`e2e/routes.spec.ts`** renders public routes in both locales against a real server — 200,
+  `<html lang>`, self-referencing canonical, full alternate set. **Local only**; nothing in CI runs
+  it. 8 of 22 route renders execute (the four catalogue routes × two locales); the 14 content-route
+  renders skip without a seeded Sanity dataset and are **unverified**. This began as a unit test and
+  the attempt is recorded in the suite: calling each route's `generateMetadata` in vitest means
+  standing in for Next's request scope (`cookies`, `headers`, catalogue, CMS), at which point the
+  test renders stubs rather than the app.
+- **`test/brand-i18n-seo.test.ts`** (43 tests) keeps what a unit can answer: the route inventory
+  **derived from the filesystem** so a new route cannot be silently skipped, the root layout
+  emitting the right `<html lang>` per locale, the sitemap module emitting both locales with their
+  language maps; **both** message catalogues checked
+  for key parity, placeholder parity and actual translation — `src/lib/cms/messages/` was
+  unchecked before; JSON-LD priced in **EUR** with minor units converted, `Organization` named from
+  `brandConfig`, breadcrumbs absolute and locale-prefixed; the sitemap paging boundary.
+  Five falsifying mutations, all red.
+- **The `package.json` manifest test is no longer a repo-wide tripwire.** It now asserts only
+  self-consistency — the manifest parses and carries the fields the merge reads. The manifest is by
+  definition the starter _as of the last sync_, so differing from today's starter is a correct
+  state; the freshness question moved to **`node scripts/sync-from-starter.mjs --check`**, run by
+  whoever is syncing. Verified both ways and it writes nothing.
+- README gained the generated bundle-budget table the re-synced script now requires.
+- **#142's first criterion is met only in part**, and is not ticked: route rendering is verified for
+  the four catalogue routes in both locales; the seven content routes are unverified for want of a
+  seeded dataset. Everything else in that criterion — translation completeness across both
+  catalogues, the derived inventory, `<html lang>` per locale — is verified.
+- **Two further criteria of #142 are NOT met, and are named:** Lighthouse SEO is **0.92** against a required
+  ≥ 95 (sole failing audit `meta-description`, blocked on **#274**), and hreflang is not effective
+  on the content routes — in `<body>` where Google ignores it, and absent from the sitemap
+  (**#293**). Both are the starter's to fix; both are diagnosed with evidence on their issues.
+
 ## 0.4.1 — 2026-09-29 · merge-mode deletions (#288 follow-up)
 
 - **The `package.json` merge now honours deletions.** A key the brand had and the starter did not

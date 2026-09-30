@@ -218,50 +218,66 @@ describe('package.json merge: what the starter DELETES', () => {
   });
 });
 
-describe('package.json merge: against the real files', () => {
+describe('package.json merge: against this app own committed files', () => {
+  /**
+   * Everything here reads only `apps/storefronts/brand-a/**`. That is the rule now, and it was
+   * learned twice: a test in a brand app runs in the repo-wide `pnpm test`, so reading another
+   * window's file makes their PR red for a change that is none of this app's business.
+   *
+   * The live starter is compared **only** by `node scripts/sync-from-starter.mjs --check`, which
+   * the person syncing runs on purpose.
+   */
   const read = (p: string) => JSON.parse(readFileSync(new URL(p, import.meta.url), 'utf8')) as Pkg;
-  const realStarter = read('../../../storefront-starter/package.json');
+  const manifest = read('../scripts/starter-manifest.json');
   const realBrand = read('../package.json');
 
-  it('is idempotent down to key order — a re-sync writes a byte-identical file', () => {
-    // Serialised, not `toEqual`: the first version of this test compared objects, which ignores key
-    // order, and the first real sync duly reordered `lighthouse` to the starter's position. The file
-    // on disk is what a reviewer sees in the diff, so the assertion has to be about the bytes.
-    // If this fails, the committed package.json and the merge rules disagree and the next person to
-    // run `pnpm sync` gets surprise churn.
-    const merged = mergePackageJson(realStarter, realBrand);
+  it('is idempotent down to key order — re-merging from the manifest writes the same bytes', () => {
+    // Merged from the COMMITTED manifest, not from today's starter: the manifest is what the last
+    // sync actually merged, so this asserts the committed package.json and the merge rules agree,
+    // which is the real invariant. Comparing against the live starter made this a tripwire — a
+    // window-3 script add or a vitest bump turned it red while `--check` said "manifest is current".
+    //
+    // Serialised, not `toEqual`: key order is what a reviewer sees in the diff.
+    const merged = mergePackageJson(manifest, realBrand, manifest);
     expect(`${JSON.stringify(merged, null, 2)}
 `).toBe(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   });
 
-  it('ships a starter manifest whose merge-relevant keys match the starter', () => {
-    /**
-     * Deliberately NOT `toEqual(realStarter)`.
-     *
-     * This file runs in the root `pnpm test` on every PR in the repository, so an assertion here
-     * fires on other windows' branches. The first version compared the whole object — including
-     * `version`, which window 3 bumps on every storefront task — which would have turned *their*
-     * PRs red for a manifest that is perfectly serviceable. A cross-window tripwire is a worse
-     * defect than the drift it was guarding against.
-     *
-     * The merge only ever reads key *presence* in `scripts` and the dependency blocks, so that is
-     * exactly what this checks. Values, versions and identity fields are none of its business.
-     */
-    const manifest = read('../scripts/starter-manifest.json');
-    const keys = (pkg: Pkg, field: keyof Pkg) => Object.keys((pkg[field] ?? {}) as object).sort();
-
-    expect(keys(manifest, 'scripts')).toEqual(keys(realStarter, 'scripts'));
-    for (const field of ['dependencies', 'devDependencies'] as const) {
-      expect(keys(manifest, field), `${field} drifted`).toEqual(keys(realStarter, field));
+  it('keeps brand A on 3101 and carries every script the manifest records', () => {
+    const merged = mergePackageJson(manifest, realBrand, manifest) as Pkg;
+    expect(merged.name).toBe('@platform/storefront-brand-a');
+    expect(merged.scripts?.dev).toContain('3101');
+    for (const name of Object.keys(manifest.scripts ?? {})) {
+      expect(merged.scripts, `${name} was dropped`).toHaveProperty(name);
     }
   });
 
-  it('really does keep brand A on 3101 and carry every starter script', () => {
-    const merged = mergePackageJson(realStarter, realBrand) as Pkg;
-    expect(merged.name).toBe('@platform/storefront-brand-a');
-    expect(merged.scripts?.dev).toContain('3101');
-    for (const name of Object.keys(realStarter.scripts ?? {})) {
-      expect(merged.scripts).toHaveProperty(name);
-    }
+  it('ships a starter manifest that is self-consistent and usable by the merge', () => {
+    /**
+     * Self-consistency ONLY. This deliberately does not compare against today's starter.
+     *
+     * The manifest is, by definition, the starter *as of the last sync* — so differing from the
+     * starter's current `package.json` is a correct state, not drift. An earlier version asserted
+     * equality of the merge-relevant key sets, which still made this a tripwire: this file runs in
+     * the root `pnpm test` on every PR in the repository, so window 3 adding or removing a starter
+     * dependency would have turned *their* branch red for a manifest that is doing its job.
+     *
+     * The freshness question is real but belongs to whoever runs the sync, not to everyone else's
+     * CI: `node scripts/sync-from-starter.mjs --check` answers it on demand.
+     */
+    const manifest = read('../scripts/starter-manifest.json');
+
+    expect(typeof manifest).toBe('object');
+    expect(manifest.scripts, 'a manifest without scripts cannot detect a script deletion').toEqual(
+      expect.any(Object),
+    );
+    expect(Object.keys(manifest.scripts ?? {}).length).toBeGreaterThan(0);
+    // At least one dependency block, or dependency deletions are undetectable.
+    const hasDeps = (['dependencies', 'devDependencies'] as const).some(
+      (f) => manifest[f] !== undefined,
+    );
+    expect(hasDeps, 'a manifest with no dependency block cannot detect a dependency deletion').toBe(
+      true,
+    );
   });
 });

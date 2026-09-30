@@ -98,7 +98,7 @@ Accessibility is checked by **axe over five pages, plus a contrast re-scan of th
 spec today; brand A opts in at 2.5 (#143). Run it by hand when you touch the theme. Visual baselines for home/PLP/PDP are opt-in
 (`E2E_VISUAL=1`) and keyed by platform; see `e2e/visual.spec.ts` before regenerating one.
 
-Measured on a production build (Lighthouse, median of 3): performance 0.96, accessibility
+Measured on a production build (Lighthouse, median of 3): performance 0.97, accessibility
 **1.00**, SEO 0.92, CLS 0.0000 / 0.0001 (PLP / PDP).
 
 ## CMS content
@@ -117,6 +117,68 @@ it in CI today**, so those four are skipped there. The offline suite above is wh
 this content.
 
 **The legal documents are not lawyer-reviewed.** See the warning in `cms/brand-a/README.md`.
+
+## SEO and i18n
+
+Brand A serves **`en-GB` and `de-DE`**, prices in **EUR**. `test/brand-i18n-seo.test.ts` covers the
+brand-specific half — the starter's `test/seo.test.ts` and `test/i18n.test.ts` cover the helpers:
+
+- **route rendering in both locales** — `e2e/routes.spec.ts` hits a real server and asserts 200,
+  `<html lang>`, a self-referencing canonical and the full alternate set. Rendering is an HTTP
+  property, so it is asserted over the real stack rather than through mocks. **Local only: nothing
+  in CI runs it** (brand journeys are opt-in until #212, and `CMS_DATASET` is set nowhere in
+  `.github`). Of 22 route renders, **8 run** — the four catalogue routes in both locales — and
+  **14 skip** without a seeded Sanity dataset: `/pages/{about,cloth}`, `/legal/{imprint,privacy,
+terms,returns}` and `/campaign/autumn-cloth`, each in both locales. Those content-route renders
+  are **unverified**;
+- the route **inventory is derived from the filesystem**, so a new route that nothing knows how to
+  address fails the suite instead of being silently skipped;
+- **both** message catalogues (`messages/` _and_ `src/lib/cms/messages/`) — same keys, same
+  placeholders, German actually translated;
+- JSON-LD priced in EUR with minor units converted, `Organization` named from `brandConfig`,
+  breadcrumbs absolute and locale-prefixed;
+- the sitemap, from the real module: every static path once per locale, each carrying the full
+  language map; plus the paging boundary.
+
+**Two things are not yet true, and are named rather than hidden:**
+
+- **Lighthouse SEO is 0.92, not the ≥ 95 #142 asks for.** The sole failing audit is
+  `meta-description`, blocked on **#274**: metadata is emitted into `<body>` rather than `<head>` on
+  the home, PDP and content routes. Diagnosed in detail on that issue; it is the starter's to fix.
+- **hreflang is not yet effective on the content routes.** It is in `<body>` (ignored by Google, per
+  #274) _and_ those routes are absent from the sitemap (**#293**), so both accepted mechanisms miss
+  them at once. `/`, `/products` and the catalogue are fine — the sitemap carries their alternates.
+
+## Bundle budget
+
+First-load JS per route, gzipped, against `bundle-budget.json`. Regenerate with
+`node scripts/bundle-budget.mjs --sync-readme` after a build — the table below is written by that
+command, so do not edit it by hand.
+
+<!-- bundle-budget:start -->
+
+| Route                                         | First load (gzipped) | Budget             |
+| --------------------------------------------- | -------------------- | ------------------ |
+| `/[locale]/(account)/account/orders/page`     | 130.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/page`            | 133.1 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 139.7 kB             | 145 kB             |
+| `/[locale]/(checkout)/checkout/address/page`  | 133.7 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/page`          | 129.4 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/payment/page`  | 133.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/review/page`   | 133.8 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/shipping/page` | 133.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/orders/[orderId]/page`  | 130.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/campaign/[slug]/page`    | 131.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/legal/[slug]/page`       | 131.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/pages/[slug]/page`       | 131.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(shop)/categories/[handle]/page`   | 136.2 kB             | 141 kB             |
+| `/[locale]/(shop)/page`                       | 130.6 kB             | 136 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 139.2 kB             | 144 kB             |
+| `/[locale]/(shop)/products/page`              | 136.2 kB             | 141 kB             |
+| `/_not-found/page`                            | 102.8 kB             | 145 kB _(default)_ |
+
+_Generated by `pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`; budgets live in `bundle-budget.json`._
+<!-- bundle-budget:end -->
 
 ## Re-syncing from the starter
 
