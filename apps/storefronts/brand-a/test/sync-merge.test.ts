@@ -234,26 +234,33 @@ describe('package.json merge: against the real files', () => {
 `).toBe(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   });
 
-  it('ships a starter manifest whose merge-relevant keys match the starter', () => {
+  it('ships a starter manifest that is self-consistent and usable by the merge', () => {
     /**
-     * Deliberately NOT `toEqual(realStarter)`.
+     * Self-consistency ONLY. This deliberately does not compare against today's starter.
      *
-     * This file runs in the root `pnpm test` on every PR in the repository, so an assertion here
-     * fires on other windows' branches. The first version compared the whole object — including
-     * `version`, which window 3 bumps on every storefront task — which would have turned *their*
-     * PRs red for a manifest that is perfectly serviceable. A cross-window tripwire is a worse
-     * defect than the drift it was guarding against.
+     * The manifest is, by definition, the starter *as of the last sync* — so differing from the
+     * starter's current `package.json` is a correct state, not drift. An earlier version asserted
+     * equality of the merge-relevant key sets, which still made this a tripwire: this file runs in
+     * the root `pnpm test` on every PR in the repository, so window 3 adding or removing a starter
+     * dependency would have turned *their* branch red for a manifest that is doing its job.
      *
-     * The merge only ever reads key *presence* in `scripts` and the dependency blocks, so that is
-     * exactly what this checks. Values, versions and identity fields are none of its business.
+     * The freshness question is real but belongs to whoever runs the sync, not to everyone else's
+     * CI: `node scripts/sync-from-starter.mjs --check` answers it on demand.
      */
     const manifest = read('../scripts/starter-manifest.json');
-    const keys = (pkg: Pkg, field: keyof Pkg) => Object.keys((pkg[field] ?? {}) as object).sort();
 
-    expect(keys(manifest, 'scripts')).toEqual(keys(realStarter, 'scripts'));
-    for (const field of ['dependencies', 'devDependencies'] as const) {
-      expect(keys(manifest, field), `${field} drifted`).toEqual(keys(realStarter, field));
-    }
+    expect(typeof manifest).toBe('object');
+    expect(manifest.scripts, 'a manifest without scripts cannot detect a script deletion').toEqual(
+      expect.any(Object),
+    );
+    expect(Object.keys(manifest.scripts ?? {}).length).toBeGreaterThan(0);
+    // At least one dependency block, or dependency deletions are undetectable.
+    const hasDeps = (['dependencies', 'devDependencies'] as const).some(
+      (f) => manifest[f] !== undefined,
+    );
+    expect(hasDeps, 'a manifest with no dependency block cannot detect a dependency deletion').toBe(
+      true,
+    );
   });
 
   it('really does keep brand A on 3101 and carry every starter script', () => {

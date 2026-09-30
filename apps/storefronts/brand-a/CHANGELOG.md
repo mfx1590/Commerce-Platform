@@ -1,5 +1,24 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.5.0 — 2026-09-30 · task 2.4 (#142, partial — see below)
+
+- **`test/brand-i18n-seo.test.ts`** (49 tests): every route addressable in both locales with a
+  self-referencing canonical and full `x-default` alternates; **both** message catalogues checked
+  for key parity, placeholder parity and actual translation — `src/lib/cms/messages/` was
+  unchecked before; JSON-LD priced in **EUR** with minor units converted, `Organization` named from
+  `brandConfig`, breadcrumbs absolute and locale-prefixed; the sitemap paging boundary.
+  Five falsifying mutations, all red.
+- **The `package.json` manifest test is no longer a repo-wide tripwire.** It now asserts only
+  self-consistency — the manifest parses and carries the fields the merge reads. The manifest is by
+  definition the starter _as of the last sync_, so differing from today's starter is a correct
+  state; the freshness question moved to **`node scripts/sync-from-starter.mjs --check`**, run by
+  whoever is syncing. Verified both ways and it writes nothing.
+- README gained the generated bundle-budget table the re-synced script now requires.
+- **Two criteria of #142 are NOT met, and are named:** Lighthouse SEO is **0.92** against a required
+  ≥ 95 (sole failing audit `meta-description`, blocked on **#274**), and hreflang is not effective
+  on the content routes — in `<body>` where Google ignores it, and absent from the sitemap
+  (**#293**). Both are the starter's to fix; both are diagnosed with evidence on their issues.
+
 ## 0.4.1 — 2026-09-29 · merge-mode deletions (#288 follow-up)
 
 - **The `package.json` merge now honours deletions.** A key the brand had and the starter did not
