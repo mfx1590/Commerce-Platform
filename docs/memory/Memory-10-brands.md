@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-29 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.3 MERGED (1a44b04, #141 closed). Deletion fix in PR #291. 2.4 next
+Last updated: 2026-09-29 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: #291 verdict MERGE (push held for sha). 2.4 step 0 done (#274 diagnosed); 2.4 build next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -44,6 +44,21 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
+- **2.4 (#142) — plan APPROVED. Step 0 DONE: #274 diagnosed read-only, root cause posted.**
+  Finding: metadata is in `<body>` on home, PDP and content routes on **every** request (not repeat
+  requests — that framing was wrong). `</head>` at 2131 vs description at 13386 on the PDP; React
+  does not hoist it. Only the PLP is correct. Cause: `generateMetadata` suspending on API/CMS data,
+  the #254 phenomenon still live outside the root layout. **Consequence beyond the score: hreflang
+  in `<body>` is ignored by Google**, so brand A's en-GB/de-DE annotation is invisible on those
+  routes. SEO ≥95 stays blocked on window 3.
+  Fallback agreed: if #274 has not landed when 2.4 is otherwise done, open with **`Refs #142`**
+  (never `Closes` — async parse), leave the criterion unchecked and named, close it in a small
+  follow-up after the fix arrives by re-sync. Precedent: admin 2.5 / #117.
+- **Rider for the 2.4 PR (required):** replace the manifest freshness test with self-consistency
+  (parses; has scripts + dependency fields) and move the against-today's-starter check into
+  `sync-from-starter.mjs --check`, run by me. Rationale: the manifest is the starter AS OF THE LAST
+  SYNC, so differing from today's starter is a correct state, and asserting otherwise inside the
+  repo-wide suite reds other windows' PRs.
 - **2.3 content half in PR** (660bfbf) closing #141. Awaiting verdict.
 
 ## Carried nits
@@ -110,6 +125,11 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **Never probe one-line HTML with `sed -n '1,/<\/head>/p'`** — the whole document is line 1, so the
+  range prints everything and any `grep -c` after it is a false pass. Compare byte offsets. This
+  produced a wrong "server is fine" conclusion in the #274 diagnosis before I caught it.
+- **hreflang outside `<head>` is ignored by Google.** Metadata landing in `<body>` is not only a
+  Lighthouse point; it silently voids a multi-locale setup.
 - **A test in a brand app runs in the ROOT `pnpm test` on every PR in the repo.** An assertion that
   compares against another window's file (the starter's `version`) turns *their* PRs red. Assert
   only the properties your code actually depends on.
