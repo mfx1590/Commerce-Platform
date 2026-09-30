@@ -116,6 +116,108 @@ describe('package.json merge: what SURVIVES from the brand', () => {
   });
 });
 
+describe('package.json merge: what the starter DELETES', () => {
+  /**
+   * The gap #288's review found: a key the brand has and the starter does not is ambiguous — either
+   * the brand added it, or the starter removed it and the brand is holding a corpse. Without a
+   * record of what the starter used to have, the merge kept both forever.
+   *
+   * `previousStarter` is that record. Every test here pairs the deletion case with the brand-only
+   * case, because a merge that dropped *everything* brand-only would pass a deletion test on its own.
+   */
+  const previous = {
+    ...starter,
+    scripts: { ...starter.scripts, legacy: 'node scripts/legacy.mjs' },
+    devDependencies: { ...starter.devDependencies, 'old-tool': '^1.0.0' },
+    legacyField: 'gone upstream',
+  };
+
+  /** The brand, still carrying what the starter has since removed — plus its own additions. */
+  const brandWithCorpses: Pkg = {
+    ...brand,
+    scripts: { ...brand.scripts, legacy: 'node scripts/legacy.mjs' },
+    devDependencies: { ...brand.devDependencies, 'old-tool': '^1.0.0' },
+    legacyField: 'gone upstream',
+  };
+
+  it('drops a script the starter deleted', () => {
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts).not.toHaveProperty('legacy');
+  });
+
+  it('drops a dependency the starter deleted', () => {
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.devDependencies).not.toHaveProperty('old-tool');
+  });
+
+  it('drops a top-level field the starter deleted', () => {
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged).not.toHaveProperty('legacyField');
+  });
+
+  it('keeps what the brand itself added, in the same pass — not just deleting everything', () => {
+    // The paired assertion. Without it, `return starter` would pass all three tests above.
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts?.sync).toBe('node scripts/sync-from-starter.mjs');
+    expect(merged.devDependencies?.['@axe-core/playwright']).toBe('^4.10.0');
+    expect(merged.name).toBe('@platform/storefront-brand-a');
+    expect(merged.scripts?.dev).toBe('next dev --port 3101');
+  });
+
+  it('drops nothing at all when there is no record to justify it', () => {
+    // First sync after this feature, or a fresh clone. Deleting a brand's dependency for lack of
+    // evidence is the worse failure, so the ambiguous case stays conservative.
+    const merged = mergePackageJson(starter, brandWithCorpses) as Pkg;
+    expect(merged.scripts?.legacy).toBe('node scripts/legacy.mjs');
+    expect(merged.devDependencies?.['old-tool']).toBe('^1.0.0');
+    expect(merged.legacyField).toBe('gone upstream');
+  });
+
+  it('keeps a brand-only key that the previous starter never had', () => {
+    // `sync` and `@axe-core/playwright` are absent from `previous`, so they are the brand's own and
+    // must survive even though the record exists.
+    const merged = mergePackageJson(starter, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts).toHaveProperty('sync');
+    expect(merged.devDependencies).toHaveProperty('@axe-core/playwright');
+  });
+
+  it('survives a starter RENAME of an identity script, and still drops a real deletion', () => {
+    // Paired on purpose. `dev` is identity: the starter renaming it to `dev:web` puts the old name
+    // in the record and not in the starter, which looks exactly like a deletion — and dropping it
+    // would take brand A's port with it. `legacy` in the same merge is NOT identity, so it must
+    // still go, or "never delete anything" would pass this test.
+    const renamed = {
+      ...starter,
+      scripts: Object.fromEntries(
+        Object.entries(starter.scripts ?? {}).map(([k, v]) =>
+          k === 'dev' ? ['dev:web', v] : [k, v],
+        ),
+      ),
+    };
+    const merged = mergePackageJson(renamed, brandWithCorpses, previous) as Pkg;
+
+    expect(merged.scripts?.dev, 'the brand port was dropped by a rename').toBe(
+      'next dev --port 3101',
+    );
+    expect(merged.scripts?.['dev:web']).toBe('next dev --port 3100');
+    expect(merged.scripts, 'a non-identity deletion should still drop').not.toHaveProperty(
+      'legacy',
+    );
+  });
+
+  it('still lets the starter re-add something it once deleted', () => {
+    const readded = { ...starter, scripts: { ...starter.scripts, legacy: 'node scripts/new.mjs' } };
+    const merged = mergePackageJson(readded, brandWithCorpses, previous) as Pkg;
+    expect(merged.scripts?.legacy).toBe('node scripts/new.mjs');
+  });
+
+  it('does not mutate the previous-starter record either', () => {
+    const before = JSON.stringify(previous);
+    mergePackageJson(starter, brandWithCorpses, previous);
+    expect(JSON.stringify(previous)).toBe(before);
+  });
+});
+
 describe('package.json merge: against the real files', () => {
   const read = (p: string) => JSON.parse(readFileSync(new URL(p, import.meta.url), 'utf8')) as Pkg;
   const realStarter = read('../../../storefront-starter/package.json');
@@ -130,6 +232,28 @@ describe('package.json merge: against the real files', () => {
     const merged = mergePackageJson(realStarter, realBrand);
     expect(`${JSON.stringify(merged, null, 2)}
 `).toBe(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  });
+
+  it('ships a starter manifest whose merge-relevant keys match the starter', () => {
+    /**
+     * Deliberately NOT `toEqual(realStarter)`.
+     *
+     * This file runs in the root `pnpm test` on every PR in the repository, so an assertion here
+     * fires on other windows' branches. The first version compared the whole object — including
+     * `version`, which window 3 bumps on every storefront task — which would have turned *their*
+     * PRs red for a manifest that is perfectly serviceable. A cross-window tripwire is a worse
+     * defect than the drift it was guarding against.
+     *
+     * The merge only ever reads key *presence* in `scripts` and the dependency blocks, so that is
+     * exactly what this checks. Values, versions and identity fields are none of its business.
+     */
+    const manifest = read('../scripts/starter-manifest.json');
+    const keys = (pkg: Pkg, field: keyof Pkg) => Object.keys((pkg[field] ?? {}) as object).sort();
+
+    expect(keys(manifest, 'scripts')).toEqual(keys(realStarter, 'scripts'));
+    for (const field of ['dependencies', 'devDependencies'] as const) {
+      expect(keys(manifest, field), `${field} drifted`).toEqual(keys(realStarter, field));
+    }
   });
 
   it('really does keep brand A on 3101 and carry every starter script', () => {

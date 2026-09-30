@@ -20,6 +20,11 @@
  * MERGED: package.json. Preserve froze it, so starter scripts and dependency bumps never arrived —
  * brand A silently missed `perf` and `bundle-budget` for a whole task. See merge-package-json.mjs
  * for the rules: identity survives, everything else tracks the starter.
+ *
+ * The merge also needs to know what the starter looked like *last* time, or it cannot tell a key the
+ * brand added from one the starter deleted. `scripts/starter-manifest.json` is that record: the
+ * starter's own package.json as of the last sync, written at the end of every run and committed. It
+ * is generated — never edit it by hand.
  */
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -56,6 +61,17 @@ const tracked = execFileSync('git', ['-C', starterDir, 'ls-files'], { encoding: 
   .filter(Boolean);
 
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
+const writeJson = (file, value) =>
+  writeFileSync(
+    file,
+    `${JSON.stringify(value, null, 2)}
+`,
+  );
+
+/** The starter's package.json as of the last sync; absent on the first run, and that is handled. */
+const manifestPath = path.join(appDir, 'scripts', 'starter-manifest.json');
+const previousStarter = existsSync(manifestPath) ? readJson(manifestPath) : undefined;
+const starterPackage = readJson(path.join(starterDir, 'package.json'));
 
 let copied = 0;
 let preserved = 0;
@@ -67,12 +83,7 @@ for (const file of tracked) {
   // A brand that has not been generated yet has no package.json to merge into, so the first run
   // falls through to a plain copy and the brand edits it afterwards.
   if (MERGE.has(file) && existsSync(target)) {
-    const result = mergePackageJson(readJson(path.join(starterDir, file)), readJson(target));
-    writeFileSync(
-      target,
-      `${JSON.stringify(result, null, 2)}
-`,
-    );
+    writeJson(target, mergePackageJson(starterPackage, readJson(target), previousStarter));
     merged += 1;
     continue;
   }
@@ -86,7 +97,11 @@ for (const file of tracked) {
   copied += 1;
 }
 
+// Last, and only after a successful run: next time, this is what "the starter used to have" means.
+writeJson(manifestPath, starterPackage);
+
 console.log(
   `sync-from-starter: ${copied} copied, ${merged} merged, ${preserved} preserved, ` +
-    `${EXCLUDE.size} excluded (from ${tracked.length} tracked starter files)`,
+    `${EXCLUDE.size} excluded (from ${tracked.length} tracked starter files)` +
+    `${previousStarter === undefined ? '; no previous manifest, nothing treated as deleted' : ''}`,
 );
