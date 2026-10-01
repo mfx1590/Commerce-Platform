@@ -79,3 +79,14 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
 
 - `exports["."]` gains a `default` condition (same fix as `@platform/db`, issue #40) so the CommonJS core can
   `require()` the package at runtime under `pnpm dev`; typecheck and vitest were unaffected, the Medusa server was not.
+
+## Unreleased — 2026-10-01 (auth/phase1)
+
+- REQUEST #212: customers realm redirect registrations. `storefront-brand-a` now also accepts brand A's own
+  port (`http://localhost:3101/*`) and the exact dev/staging callbacks
+  (`https://shop.dev.example.com/auth/callback`, `https://shop.staging.example.com/auth/callback`) with their
+  web origins and `https://shop.<env>.example.com/` post-logout redirects; `storefront-brand-b` /
+  `storefront-brand-c` move from `:3101` / `:3102` to `:3102` / `:3103` (brand A serves on 3101, so the old
+  rows put brand A's origin on brand B's client). `test/keycloak-realms.test.ts` pins the exact lists and the
+  rules — off localhost: https, exact URL, no wildcard; one client per origin — plus live checks (sign-in round
+  trip from `:3101`, refused look-alikes). Apply with `node infra/keycloak/reimport.mjs customers`.
