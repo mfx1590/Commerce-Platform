@@ -1,5 +1,23 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.2 — 2026-10-01
+
+Issues #286 and #278. No contract change.
+
+- **Home page store facts are a valid description list** (#286). Each fact was a `Card` with a
+  `CardContent` inside it, so the markup was `dl > div > div > dt` — HTML allows one wrapper, not
+  two, and every term was detached from its list: axe `dlitem` and `definition-list`, both serious,
+  on the home page of every locale. The facts are now `StoreFacts` (`src/components/store-facts.tsx`),
+  one padded `Card` per fact, and `test/store-facts.test.ts` asserts the rendered structure.
+  Lighthouse never reported it because the home page is not among the URLs it audits.
+- **`test/slots.test.ts` no longer asserts what a brand's files contain** (#278). `test/**` is copied
+  into every brand app while `src/brand/**` is the brand's own, so "this app overrides nothing" was
+  false by construction in any clone. The slot mechanism is now tested with fixture overrides
+  (`mergeSlots` is exported for that) and against whatever the app overrides; the starter-only facts
+  moved to `test/starter-defaults.test.ts`, which runs only when the package name is the starter's.
+  **Brands:** a clone can drop its local copy of `slots.test.ts` and take both files from the sync —
+  no exclude-list entry is needed.
+
 ## 0.12.1 — 2026-10-01
 
 Issue #274. No contract change.

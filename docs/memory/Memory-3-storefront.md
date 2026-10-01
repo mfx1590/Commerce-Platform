@@ -167,9 +167,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   workspace deps rebuilt, `.env` `REDIS_URL` on 127.0.0.1. Docker daemon is DOWN — no recovery from
   this window. 2.4 merged as PR #273 (`0cf9415`).
 
-- **#274 — EVIDENCE DELIVERED, PR OPENED (number and SHAs go in the next commit). Waiting for
-  review; nothing owed unless the review asks.** Commits: `e78a1a5` (priceString nit), `dca3201`
-  (the fix), plus the measurement/budget commit this entry is part of. All against the Docker mock
+- **#274 — EVIDENCE DELIVERED, PR #299 OPEN (pushed 2026-10-01, head `04fcaf1`, main `0ac92c4`
+  merged in). Waiting for review; nothing owed unless the review asks.** Commits: `e78a1a5`
+  (priceString nit), `dca3201` (the fix), `865ce22` (SEO budget 95 + measurements). All against the Docker mock
   on 127.0.0.1:4010, 2026-10-01, Next 15.5.25:
   - **e2e red on the old config: 40 failed of 40** (`/en-GB/products/classic-tee (desktop chrome,
     repeat request, status 200): title — 0 before </head> (byte 2129), found at byte(s) [13489]`;
@@ -181,7 +181,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     248/25/20 ms; PDP perf 100/99/99, SEO **100/100/100**, TTFB 35/17/18 ms. No performance cost.
   - **Probe, 5 routes × 4 agents (none, Chrome, Lighthouse mobile, Googlebot) × 3 passes.** Before:
     BODY everywhere except first requests that won the race; warm TTFB 10–24 ms. After: 60 of 60
-    rows HEAD; warm TTFB 10–12 ms.
+    rows HEAD; warm TTFB 9–16 ms.
   - **SEO budget 90 → 95** in `lighthouserc.json` (manager ruling 6; every run cleared it).
   - PR body says: JSON-LD stays in `<body>` and why; **content route with a 200 not verified**
     (no Sanity dataset anywhere) — unticked; brand A's `e2e/routes.spec.ts` pin goes red on
@@ -191,14 +191,16 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 - **Branch layout while PRs are sequential (manager, 2026-10-01): `storefront/phase2` carries #274
   only.** The #286/#278 commit (`6937ed8`) is parked on the **local-only** ref
-  `storefront/hold-286-278` — never push it. After #274 merges and the manager confirms no queue:
-  merge main into `storefront/phase2`, cherry-pick the parked commit (expect conflicts in
-  CHANGELOG, package.json version and this file), push, open PR two. #293 is built on top of the
+  `storefront/hold-286-278` (rebased onto the PR head `04fcaf1`; #293 is built on top of it there)
+  — never push it. If the #274 review needs a fix: commit it on `storefront/phase2`, push, then
+  rebase the parked branch again. After #274 merges and the manager confirms no queue:
+  merge main into `storefront/phase2`, bring over **only the #286/#278 commit** from the parked
+  branch (cherry-pick; the #293 commits stay parked), push, open PR two. #293 is built on top of the
   parked commit and follows the same way as PR three, after window 6's reader method exists.
 
 - **#293 — RULING: option (a) (manager, 2026-10-01). File the REQUEST to window 6 for
-  `routedDocuments(locale)`, build against a fake of that signature; the PR waits for window 6's
-  method. (b) refused — it would publish noIndex pages; (c) refused — `src/lib/cms/**` is window 6's.**
+  `routedDocuments(locale)` — **filed as #300** — build against a fake of that signature; the PR
+  waits for window 6's method. (b) refused — it would publish noIndex pages; (c) refused — `src/lib/cms/**` is window 6's.**
   Read on 2026-10-01; nothing built. Findings that shape it:
   - The public reader (`createReader` / `CmsReader`, exported from `@/lib/cms`) has `pageSlugs` and
     `legalSlugs` and **nothing that lists campaign landings**; `campaignIsLive` (`schedule.ts`) and

@@ -104,6 +104,11 @@ const products = await storeApi().listProducts(
 A brand app edits `src/brand/` and, when it must, whole route files. Everything else stays identical
 to the starter, so a re-sync from the starter shows real drift instead of noise.
 
+That includes `test/`: the starter's tests are copied into a brand app, so none of them may assert
+what `src/brand/` contains. The slot mechanism is tested with fixtures (`test/slots.test.ts`); the
+facts that hold only for the starter — no overrides, no tokens — are in
+`test/starter-defaults.test.ts`, which runs only when the package name is the starter's.
+
 ```
 src/brand/
   tokens.ts          # 1. design tokens — colours, type scale, radii, shadows
