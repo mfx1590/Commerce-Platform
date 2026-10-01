@@ -57,14 +57,19 @@ test.beforeEach(() => {
 /** The first product on the listing, whatever the dataset happens to hold. */
 async function openFirstProduct(page: Page): Promise<string> {
   await page.goto('/en-GB/products');
-  const firstCard = page.getByRole('link').filter({ has: page.getByRole('heading') }).first();
+  const firstCard = page
+    .getByRole('link')
+    .filter({ has: page.getByRole('heading') })
+    .first();
   await firstCard.click();
   await expect(page).toHaveURL(/\/en-GB\/products\/[\w-]+$/);
   return (await page.getByRole('heading', { level: 1 }).textContent())?.trim() ?? '';
 }
 
 test.describe('PDP variants', () => {
-  test('choosing a variant updates the selection and the price it will charge', async ({ page }) => {
+  test('choosing a variant updates the selection and the price it will charge', async ({
+    page,
+  }) => {
     await openFirstProduct(page);
 
     // Variant pickers are radio groups in our UI. A product with a single variant has none, and
@@ -112,7 +117,10 @@ test.describe('buy', () => {
     // The cart carries what we just added, by the title captured at runtime — not a fixture name.
     await expect(page.getByText(title, { exact: false }).first()).toBeVisible();
 
-    await page.getByRole('link', { name: /checkout/i }).first().click();
+    await page
+      .getByRole('link', { name: /checkout/i })
+      .first()
+      .click();
     await expect(page).toHaveURL(/\/checkout\//);
 
     // Card details never touch our servers (hosted fields), so the journey exercises the provider

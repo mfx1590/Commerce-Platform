@@ -98,17 +98,22 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   the real inventory, re-measure SEO, close #142 in a small follow-up PR.
 
 ## Carried nits
-### From the #291 review (parked)
-- `sync-merge.test.ts` idempotency test passes two args; the script passes three — pass the manifest.
-- Nothing tests that `sync-from-starter.mjs` actually forwards `previousStarter` to the merge.
-- CHANGELOG wording "eight tests, each pairing" overstated it — fixed in 0.4.1; watch for that shape.
+### From the #291 review
+- ~~idempotency test passes two args~~ — DONE in the #294 fixes: it merges from the manifest.
+- **STILL PARKED, with a reason**: nothing tests that `sync-from-starter.mjs` forwards
+  `previousStarter`. The script resolves the starter path relative to itself, so testing the wiring
+  needs an env override or a subprocess against a fake tree — more machinery than the risk warrants.
+  The composition *is* proven end to end by hand (delete `bundle-budget` upstream, re-sync, it goes).
+  Do it properly if the script grows a second caller.
+- ~~CHANGELOG "eight tests, each pairing" overstated~~ — fixed in 0.4.1.
 
 ### From the #289 review (parked — do in 2.4 or a cleanup PR)
-- `productStory` block is never asserted after the harness-artefact fix — add a positive assertion.
-- Hero and campaign **CTA** hrefs are outside the link-resolution test, which only walks navigation
-  and footer. README now says so explicitly; widen the test.
-- `lastReviewed` dates sit on legal documents the PR calls unreviewed — reconcile the two.
-- The Impressum footer link is doubled per locale (`col-help` *and* `legalLinks`).
+- ~~`productStory` never asserted positively~~ — DONE (cleanup PR).
+- ~~hero/campaign CTA hrefs outside the link test~~ — DONE (cleanup PR).
+- ~~`lastReviewed` vs "unreviewed"~~ — DONE: it means *last edited here*, documented in
+  cms/brand-a/README.md and asserted.
+- ~~Impressum footer link doubled per locale~~ — DONE: `/legal/returns` was doubled too; the Help
+  column repeated what `legalLinks` already carried, so it is gone and a test pins no-duplicates.
 - **`CMS_DATASET` is set nowhere in `.github`**, so the content axe scans never run in CI.
 - `seed-content.mjs` without `--dry-run` overwrites Studio edits with no confirmation — add one.
 - The en-GB imprint cites German statutes (a lawyer item, not mine — carry to the legal review).
@@ -127,18 +132,19 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   CLOSED. Correct in passing with the content PR.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a (in PR)
-- [ ] **#140 · 2.2** Theme and layout overrides from the brand design
-- [ ] **#141 · 2.3** CMS content for brand A
-- [ ] **#142 · 2.4** SEO and i18n for brand A
+- [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a — MERGED (#198)
+- [x] **#140 · 2.2** Theme and layout overrides from the brand design — MERGED (8c49bd4)
+- [x] **#141 · 2.3** CMS content for brand A — MERGED (1a44b04)
+- [~] **#142 · 2.4** SEO and i18n for brand A — MERGED (db8aa80) but **REOPENED**: SEO >=95 and
+      effective hreflang remain unmet, blocked on #274/#293
 - [ ] **#143 · 2.5** End-to-end suite browse → buy → account for brand A
 - [ ] **#144 · 2.6** Launch checklist for brand A
 
 ## Decisions made (with reasons)
 - **Brand A is designed here, not in Figma** (2.2): no Figma exists. `src/brand/DESIGN.md` is
   written before the code and the code is held to it. Calm editorial D2C apparel; five named values
-  (Paper #F7F4EF, Ink #23201B, Clay #9C4A32, Sage #5F6B57, Stone #746C60), all pairs measured
-  against WCAG (Stone was darkened from #7A7266 after it measured 4.32:1). Newsreader + Hanken
+  (Paper #F7F4EF, Ink #23201B, Clay #9C4A32, Sage #5F6B57, Stone **#6B6357**), all pairs measured
+  against WCAG (Stone failed twice: #7A7266 at 4.32:1 on Paper, then #746C60 at 4.36:1 on `muted` — now #6B6357, 5.40 / 4.98). Newsreader + Hanken
   Grotesk, self-hosted. Explicitly not the admin's dark Medusa rail and not the AI-default look
   (no purple gradients, glassmorphism, floating cards, stock hero).
 - **Fonts are wired through `tokens.ts`, not through a component slot** (2.2): the only
@@ -153,7 +159,6 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   theirs to maintain. The README/CLAUDE.md wording saying it is "absent" is stale (carried nit).
 
 ## Blocked / waiting
-- 2.3 part 1 (re-sync + merge mode) in PR; the CMS content half follows in its own PR.
 - **REQUEST #278** (window 3): the starter's `test/slots.test.ts` asserts the brand's own override
   files are empty — false by construction in a clone. Until it lands, that file deviates and is on
   the clone's PRESERVE list; drop it and re-sync afterwards.

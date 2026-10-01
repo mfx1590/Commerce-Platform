@@ -1,5 +1,29 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.5.1 — 2026-10-01 · parked review nits
+
+Housekeeping from the #289 and #291 reviews, built while the shared stack was unavailable. No
+behaviour change to the storefront; two real defects in the content and one in a script.
+
+- **The footer repeated every legal page, in both locales.** The "Help" column carried
+  `/legal/imprint` and `/legal/returns`, which `legalLinks` already listed. Brand A has no other
+  help pages authored, so the column had nothing of its own to say and is gone; a test pins that no
+  footer destination appears twice.
+- **`seed-content.mjs` now refuses to write without `--yes`.** `createOrReplace` is idempotent with
+  respect to the files, which is not the same as safe — it replaces whatever is in the dataset, so a
+  re-run silently overwrote an editor's work in the Studio. The destructive path is opt-in and the
+  refusal explains itself; `--dry-run` is unchanged.
+- **`lastReviewed` no longer implies a legal review.** The field is required by window 6's schema
+  and renders as "Last reviewed {date}", which contradicted this app saying the copy is unreviewed.
+  It means _last edited in this repository_, now documented in `cms/brand-a/README.md` and asserted.
+- **Hero and block CTAs joined the link-resolution walk**, which previously covered navigation and
+  footer only while the README claimed "every internal link".
+- **The `productStory` block is asserted positively**, not merely checked for absence of its
+  "not available" state — which an empty block would have passed.
+- **The contrast surface matrix no longer double-counts.** `card` equals `background`, so four of
+  twelve generated cases were exact duplicates. Surfaces are de-duplicated by value, with a tripwire
+  that fails if the two ever diverge, so the matrix widens on its own instead of under-covering.
+
 ## 0.5.0 — 2026-09-30 · task 2.4 (#142, partial — see below)
 
 - **`e2e/routes.spec.ts`** renders public routes in both locales against a real server — 200,
