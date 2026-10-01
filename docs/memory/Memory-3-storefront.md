@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-24 · Contracts: contracts-v0.4.4 (Store API 0.3.1; the `currency` query is in use since 2.1) · Branch: `storefront/phase2` · Status: **Phase 2 complete for this window** — 2.1–2.3 merged, 2.4 in PR
+Last updated: 2026-10-01 · Contracts: contracts-v0.4.7 (main `ebe4112`) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **post-phase docket #274 → #293 → #286/#278 — #274 built locally, measurements held for the stack**
 
 ## Identity (does not change)
 
@@ -160,6 +160,53 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       `next build`, `perf`, and the new `/r/` e2e (3 specs) green.
 
 ## In progress
+
+- **Docket of 2026-10-01 (manager): #274 → #293 → #286 + #278, one PR per item, pushes held until
+  the manager confirms no queue is running. Nit to fold in: `seo.ts` `priceString` treats only
+  JPY/KRW as zero-decimal (done, in the #274 commit).** Branch fast-forwarded to main `5392692` (contracts-v0.4.7), installed,
+  workspace deps rebuilt, `.env` `REDIS_URL` on 127.0.0.1. Docker daemon is DOWN — no recovery from
+  this window. 2.4 merged as PR #273 (`0cf9415`).
+
+- **#274 — code, unit tests and docs COMMITTED LOCALLY (not pushed); the e2e red/green run, TTFB
+  and Lighthouse before/after are HELD until the manager pings that the stack is back.** Plan
+  approved by the manager 2026-10-01 with seven rulings (below). Stack went down again the same
+  afternoon (Docker backend exits minutes after each start) — **no docker commands, no recovery.**
+  What is done:
+  - `next.config.mjs` `htmlLimitedBots: /.*/`; `src/middleware.ts` gives a request with no
+    `User-Agent` a placeholder one (`withUserAgent`, passed into the next-intl middleware, which
+    forwards request headers to the render). `e2e/seo-head.spec.ts` (40 tests: 4 routes × 2 locales
+    × 5 agents incl. none, two requests each, byte offsets via `node:http`); `test/seo-head.test.ts`
+    pins the pattern — **shown red on the old config (6 failed), green after.** Layout comment
+    corrected. `priceString` nit: now the kit's `minorUnitDigits` (red: VND `2500.00`, KWD `19.99`).
+    README "Where metadata ends up" rewritten, CHANGELOG 0.12.1.
+  - Measured **without the API** (pages served from the build's fetch cache; spare port 4100, see
+    the port gotcha): before — Chrome/Lighthouse-mobile/Googlebot BODY on all 5 routes, bingbot HEAD;
+    after `/.*/` — every named agent HEAD on all 5 routes, both passes; **no-UA still streamed**
+    (HEAD only when the first request to a route won the race, BODY on repeat) → middleware default
+    added → no-UA HEAD on all 5 routes, three passes. Warm TTFB 12–27 ms either way (API-less, so
+    not the number the manager asked for).
+  - Call sites read in Next 15.5.25: `build/templates/app-page.js` —
+    `serveStreamingMetadata = !userAgent ? true : shouldServeStreamingMetadata(ua, htmlLimitedBots)`;
+    `isHtmlBot` (which uses the built-in list, not the config) only matters with PPR. So the
+    pattern changes nothing but metadata blocking.
+  - Gates green: 358 unit tests, root lint, format, root typecheck, bundle budget unchanged
+    (home 130.5 / PLP 136.0 / PDP 139.0 kB).
+  **Still owed, in this order, when the mock on 127.0.0.1:4010 answers:**
+  1. e2e RED: set `htmlLimitedBots` aside (comment the line out, keep the middleware change out too
+     — `git stash` is shared, use a temporary edit), build, `pnpm e2e -- seo-head`, quote the
+     failure; restore; GREEN, quoted. Then the full e2e suite.
+  2. Before/after Lighthouse performance + SEO and TTFB, **three runs per URL, quoted** (ruling 1).
+     "Before" = the parent of the #274 commit. If performance drops below budget: STOP and report
+     before pushing; fallback is the default list + Googlebot + Chrome-Lighthouse, not `/.*/`.
+  3. SEO budget 90 → 95 in `lighthouserc.json` (it is in my paths) only if all three runs clear 95
+     on every measured URL; then fix the README's last SEO paragraph and the budget table row.
+  4. Probe table against the live mock for the PR body. PR body must say: JSON-LD stays in
+     `<body>` and why; **"content route with a 200 not verified"** (no Sanity dataset anywhere) with
+     no ticked box; brand A's `e2e/routes.spec.ts` pin goes red on re-sync by design. The PR body
+     may carry the closing keyword for #274; commit messages may not.
+  5. Hold the push until the manager confirms no queue is running. Merge main first.
+  Rulings also fix the sequence: one PR at a time; build #293, then #286 + #278, locally while #274
+  is in review; push each only after the previous merges.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
@@ -479,6 +526,21 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **Next streams `generateMetadata` into `<body>` for any user agent outside `htmlLimitedBots`
+  (15.2+), and never consults the pattern for a request with no `User-Agent`.** The older entries
+  below that call head placement "timing-dependent" describe the symptom, not the cause: streamed
+  metadata is a race the first request to a route after boot can win, so a single curl or
+  Lighthouse's run 1 says HEAD and everything after says BODY. Probe with byte offsets, at least
+  twice, with a real browser user agent — and with none (`node:http`; `fetch` and Playwright's
+  client always send one).
+- **After a reboot Windows can reserve TCP 3020–3419** (`netsh interface ipv4 show excludedportrange
+  protocol=tcp`), which covers :3100 and the brands' :3101–3103: `next start` dies with
+  `listen EACCES 0.0.0.0:3100`. It is a system setting — report it, do not fix it. A probe that
+  needs no fixed port can run on a spare one (`PORT=4100`); Playwright and `perf` take
+  `E2E_BASE_URL` / `PERF_PORT`.
+- **`pnpm mock` failing with `EADDRINUSE 0.0.0.0:4010` while nothing listens there** means the dead
+  Docker backend still holds the port. The mock that counts is the Docker one; do not start a second.
 
 - **URL parsing strips tab, newline and carriage return *before* parsing, so `/\t/evil.example`
   resolves to `https://evil.example`.** A path guard that checks only the leading characters cannot

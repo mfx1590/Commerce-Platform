@@ -1,5 +1,5 @@
 import createMiddleware from 'next-intl/middleware';
-import type { NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
 import { routing } from '@/i18n/routing';
 import {
   ATTRIBUTION_COOKIE,
@@ -21,8 +21,28 @@ import { contentSecurityPolicy } from '@/lib/csp';
  */
 const intlMiddleware = createMiddleware(routing);
 
+/**
+ * What a request with no `User-Agent` header is rendered as (#274).
+ *
+ * `htmlLimitedBots` in next.config.mjs holds the metadata in `<head>` for every agent that names
+ * itself, but Next never consults the pattern for one that does not: with no header the metadata is
+ * streamed, and lands after `</head>` on all but the luckiest request. A bare HTTP client is a
+ * crawler far more often than a customer, so it is given a name here and the page it receives is
+ * the same one everybody else gets. The value is only ever seen by the render.
+ */
+const UNIDENTIFIED_USER_AGENT = 'unidentified';
+
+function withUserAgent(request: NextRequest): NextRequest {
+  if (request.headers.get('user-agent')) return request;
+  const headers = new Headers(request.headers);
+  headers.set('user-agent', UNIDENTIFIED_USER_AGENT);
+  return new NextRequest(request, { headers });
+}
+
 export default function middleware(request: NextRequest) {
-  const response = intlMiddleware(request);
+  // next-intl forwards the request headers it is given to the render, so the default set here is
+  // what the page's renderer reads. Everything below still looks at the request as it arrived.
+  const response = intlMiddleware(withUserAgent(request));
 
   // Built per request from this deployment's environment — see src/lib/csp.ts for why this cannot
   // live in next.config.mjs. Every page response passes through here; the routes the matcher skips

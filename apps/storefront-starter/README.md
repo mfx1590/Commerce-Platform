@@ -128,8 +128,8 @@ export const layoutOverrides: Partial<LayoutSlots> = { Header: BrandHeader };
 
 **3. Identity.** `brandConfig` in `src/brand/config.ts` holds the brand name, the default meta
 description and, optionally, the canonical origin and Twitter handle. This is **build configuration
-rather than API data on purpose**: root metadata that awaits `GET /store` is resolved too late to
-land in `<head>`, which is what cost the storefront SEO points in Phase 1 (see "SEO" below). Prices,
+rather than API data on purpose**: root metadata must not make the first byte of every page wait on
+`GET /store` for a title (see "SEO" below for what does and does not decide `<head>` placement). Prices,
 availability, locales and the theme still come from the Store API, where they belong.
 
 **4. Route files.** Anything more than a slot — a bespoke home page, an extra route — is a normal
@@ -401,25 +401,47 @@ otherwise `robots.txt` would advertise a URL that 404s. Both read the same `site
 index cannot list a page that does not exist. A failure part-way through the walk returns what was
 collected: a short sitemap is a crawler inefficiency, a 500 makes it back off from all of it.
 
-**Where metadata ends up, and the limit of this.** Next resolves page metadata during the render and
-emits it in `<head>` only if it is ready before the shell is flushed; when it is not, the tags are
-appended to `<body>` and React hoists them at hydration. The DOM is correct either way and every
-end-to-end assertion passes — but a crawler reading raw HTML, and Lighthouse's `meta-description`
-audit, see nothing. That is what put the PLP at SEO 91 in Phase 1, with the tag present and correct.
+**Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
+agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,
+canonical, `hreflang` alternates and og/twitter tags are written into `<body>` afterwards. A
+browser's DOM still finds them, so every page-level assertion passes — but Google ignores `hreflang`
+outside `<head>`, and Lighthouse's `meta-description` audit fails. Next's default pattern covers
+link-preview bots and Bing; it leaves out ordinary browsers, Lighthouse (whose user agent no longer
+carries a `Chrome-Lighthouse` token) and Googlebot itself.
 
-Taking `GET /store` out of the root layout's metadata (hence `src/brand/config.ts`) removes the
-biggest cause. It does **not** make head placement deterministic: both catalogue routes still render
-dynamically because pricing reads the currency cookie, so under a cold fetch cache the metadata can
-still be flushed late. Measured, the SEO score therefore moves between **92 and 100** for the same
-build. The budget is set at 90 rather than 95 because a 95 gate would be flaky, not because 95 is
-unreachable — and the one audit that flips is `meta-description`, whose tag is always in the DOM.
+This was first read as a timing problem ("metadata that resolves before the shell is flushed lands
+in `<head>`"), and `src/brand/config.ts` was introduced to make the root metadata resolve at once.
+That reading was wrong, and the measurement that supported it was the trap: streamed metadata is a
+race that the **first request to a route after boot can win**, so one `curl`, or Lighthouse's first
+run of three, reports "in head" while every later request gets it in `<body>`. The same build scored
+SEO 92–100 for that reason.
 
-Making it deterministic means making the catalogue routes statically renderable, which means taking
-per-request currency out of the server render — a trade against the behaviour task 2.1 shipped
-deliberately. Worth revisiting when partial prerendering is stable in Next.
+Two things make the placement deterministic:
 
-**This is a recorded deviation from #110's acceptance criterion (SEO ≥ 95), accepted by the manager
-on 2026-09-21:** the budget stays at 90 until the catalogue routes can render statically.
+- `htmlLimitedBots: /.*/` in `next.config.mjs` — metadata blocks for every user agent, so it is in
+  `<head>` before the first byte. The price is that the first byte waits for `generateMetadata`,
+  which awaits the same cached reads the page needs before it can render anything.
+- The middleware gives a request with **no** `User-Agent` header a placeholder one. Next never
+  consults the pattern for such a request and always streams; a bare HTTP client is a crawler far
+  more often than a customer.
+
+`e2e/seo-head.spec.ts` holds it: raw requests (no page, so hydration cannot rescue anything), twice
+per route, for home, listing, product and the content not-found path in both locales, with five
+user agents including none — asserting the **byte offset** of each tag against `</head>`. The HTML
+is a single line, so a line-based check (`sed -n '1,/<\/head>/p' | grep …`) prints the whole
+document and passes falsely. `test/seo-head.test.ts` pins the pattern in the unit run.
+
+**JSON-LD stays in `<body>`, deliberately.** It is a `<script type="application/ld+json">` the page
+renders next to the content it describes, not Metadata API output, and Google reads structured data
+from either place. Moving it would mean a second data read in the layout for no reader's benefit.
+
+**Not verified: a content route answering 200.** No CMS dataset exists in any local or CI
+environment, so `(content)` is exercised on its not-found path, which renders through the same root
+layout. A published `/pages/<slug>` should be probed the first time a dataset exists.
+
+The Lighthouse SEO budget was set at 90 rather than #110's 95 because of the flakiness described
+above — a recorded deviation, accepted by the manager on 2026-09-21. Its reason is gone with the
+race; the budget moves to 95 once three runs per URL clear it.
 
 **Indexing is opt-in.** `/robots.txt` says `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, and it is
 rendered per request. In 2.2 it was static — baked by `next build`, which always runs with
