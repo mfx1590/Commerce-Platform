@@ -1,7 +1,7 @@
 # Memory 2 — Auth & RBAC
 
 Window: 2 · Key: `auth` · Branch prefix: `auth/` · Model: Fable (owner decision 2026-09-04)
-Last updated: 2026-09-07 · Contracts: contracts-v0.1 · Branch `auth/phase1`, worktree `../wt-auth` · Merged PRs: #38 (1.1+1.2), #65 (#43 follow-up), #73 (1.3), #75 (1.4), #85 (1.5+#82), #88 (1.6) · In review: #89 (1.7, holds for infra #87) · Admin API 0.2.1 (CONTRACT CHANGE #77 accepted: customer reads = support)
+Last updated: 2026-10-01 · Contracts: see Memory-main · Branch `auth/phase1`, worktree `../wt-auth` · Merged PRs: #38 (1.1+1.2), #65 (#43 follow-up), #73 (1.3), #75 (1.4), #85 (1.5+#82), #88 (1.6), #89 (1.7) · Phase 1 complete · Woken 2026-10-01 for REQUEST #212 only (one small PR) · Admin API 0.2.1 (CONTRACT CHANGE #77 accepted: customer reads = support)
 
 ## Identity (does not change)
 
@@ -27,7 +27,13 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## In progress
 
-- (nothing)
+- **REQUEST #212 (customers realm redirect registrations) — built and committed locally on top of main ebe4112, NOT pushed, NOT applied to Keycloak.** Docker daemon was down on 2026-10-01 (manager: no recovery attempts). Remaining, in order, each on the manager's word:
+  1. Stack up → `node infra/keycloak/reimport.mjs customers` (never `pnpm dev --reset`, never recreate the container).
+  2. `pnpm --filter @platform/auth-sdk test` — the 9 new live checks in `keycloak-realms.test.ts` (jane round trip from `:3101`; exact-URI accept/refuse table) must pass, not skip.
+  3. Evidence for the PR body: realm export diff (`reimport.mjs --export customers` before/after, or the git diff of the JSON) + a sign-in round trip from `:3101` if a brand-a server can be started (`pnpm --filter @platform/storefront-brand-a dev`), otherwise say it was not run.
+  4. `git merge origin/main` again, then push only after the manager confirms no queue is running; open the PR (`Refs #212` in commits; a closing keyword only in the commit/PR that finishes the issue).
+  - What changed: `storefront-brand-a` += `http://localhost:3101/*`, `https://shop.dev.example.com/auth/callback`, `https://shop.staging.example.com/auth/callback` (+ origins, + post-logout `…:3101/*` and exactly `https://shop.<env>.example.com/`); `storefront-brand-b` `:3101` → `:3102`, `storefront-brand-c` `:3102` → `:3103`.
+  - **Two decisions beyond the literal ask, to be called out in the PR body for the manager/reviewer:** (a) brand-b/c were MOVED, not extended — the Phase-1 guess had brand-b on 3101, which is brand A's real port; keeping it would let brand A's origin obtain `store_code=brand-b` tokens (ADR 0002 §8). No brand-b/c app exists yet, so nothing depends on the old ports. (b) post-logout URIs for dev/staging were added (exact `https://shop.<env>.example.com/`) because the starter's sign-out sends `post_logout_redirect_uri=<origin>/` and Keycloak would refuse it otherwise; the scope comment named only callbacks + origins.
 
 <!-- Done entries continue here as each queued task's PR opens. -->
 
@@ -47,7 +53,8 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## Blocked / waiting
 
-- **PR #89 (task 1.7) is open and must NOT merge until infra #87 lands** (the CI job that actually runs the live suites; closes #80). Until then CI's green tick on #89 proves only the static tests — the live describes skip themselves without the services.
+- #212: waiting for the manager's word that the stack is up (reimport + live tests), then for "no queue running" before the push.
+- PR #89 (task 1.7) merged 2026-09-07 after infra #87 — nothing outstanding from Phase 1.
 - CONTRACT CHANGE #77: ACCEPTED — Admin API 0.2.1 gates `listCustomers`/`getCustomer` with `support` on the store. The gate tests now assert the real contract.
 
 ## Gotchas learned
@@ -56,6 +63,8 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 - **Keycloak realms persist in the `keycloak-data` volume.** The file import runs only on the first start of an empty volume; apply JSON changes with `node infra/keycloak/reimport.mjs <realm>` or `pnpm dev --reset` (wipes every volume — avoid while other windows run). `${VAR:default}` placeholders resolve only in the startup file import (harmless for disabled IdPs). Only custom `authenticationFlows` need declaring; built-ins are added automatically.
 - **Owner's password grant needs an OTP since #43** (built-in direct-grant flow validates OTP conditionally): tests send `otp=<RFC 6238 code>`. Codes are single-use with look-ahead 1, so the test files use different TOTP windows (previous/current/next) to avoid contention. CI is unaffected (no Keycloak service → live tests skip).
 - **apps/core is CommonJS since Medusa** → the hq-rbac tsconfig pins `module: ESNext` / `moduleResolution: Bundler` / `verbatimModuleSyntax: false` for its noEmit typecheck. The module is typechecked and tested from auth-sdk (own tsconfig `paths`, vitest `resolve.alias` + cross-package `include`); it imports only `@platform/auth-sdk`, `@platform/db`(+`/testing`) and vitest.
+- **Redirect registrations (customers realm, #212):** off localhost only `https`, the exact callback URL, no wildcard; web origins spelled out (never `*`/`+`); an origin lives on exactly ONE brand client (the client stamps `store_code`). Post-logout URIs are a separate allowlist (`post.logout.redirect.uris`, `##`-separated) — the storefront sends `<origin>/`. Ports: starter 3100 and brand A 3101 both use `storefront-brand-a`; B 3102; C 3103. Static tests pin all of it.
+- Local `.env`: `DATABASE_URL*`/`REDIS_URL` on `127.0.0.1` (Docker's `::1` proxy dies), `KEYCLOAK_URL` stays `http://localhost:8180` (it is the token issuer the tests compare against).
 - `fga.read({user,relation,object})` is the cheap existence probe before tuple write/delete (OpenFGA 400s duplicates and missing deletes).
 - **PR flow (manager decision):** single branch `auth/phase1`, one task per PR, merge commits. Task slices live linearly on the branch; only the slice under review is pushed (`git push origin <slice-end-sha>:auth/phase1`). The manager merges main into the remote branch between PRs → `git rebase --onto origin/auth/phase1 <old-base>`; shas drift, so Done entries are updated when a slice's PR opens. Memory edits: always guard string replacements (an unguarded regex once left stale duplicate sections in this file — the #75 review blocker).
 - The manager merges main into this worktree/branch while I work; re-check `git log` before committing and never revert those files. Bash tool: the working directory persists between calls — use absolute paths.
