@@ -15,6 +15,10 @@ Issue #274. No contract change.
   HTML — raw requests, twice per route, five user agents including none, both locales — and
   `test/seo-head.test.ts` pins the pattern in the unit run. The root layout's comment cited that
   unit test before it existed and attributed head placement to the wrong cause; both are corrected.
+- **Lighthouse SEO budget 90 → 95** (`lighthouserc.json`), ending the deviation from #110 recorded
+  on 2026-09-21. Measured against the mock, three runs per URL: SEO was 100, 92, 92 on both the
+  listing and the product page and is 100, 100, 100 on both; performance 100/99/99 and 99/99/99
+  before, 100/99/99 on both after; server response time 19–30 ms warm before, 17–25 ms after.
 - **Brands:** a brand app picks this up from `next.config.mjs` and `src/middleware.ts` on re-sync. A
   test that pins the old placement (metadata after `</head>`) is expected to fail afterwards and
   should be turned round to assert `<head>`.

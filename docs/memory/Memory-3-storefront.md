@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-01 · Contracts: contracts-v0.4.7 (main `ebe4112`) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **post-phase docket #274 → #293 → #286/#278 — #274 built locally, measurements held for the stack**
+Last updated: 2026-10-01 · Contracts: contracts-v0.4.7 (main `ebe4112`) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **post-phase docket #274 → #293 → #286/#278 — #274 in PR; #286/#278 built and parked locally; #293 to build against a fake, REQUEST to window 6**
 
 ## Identity (does not change)
 
@@ -167,46 +167,90 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   workspace deps rebuilt, `.env` `REDIS_URL` on 127.0.0.1. Docker daemon is DOWN — no recovery from
   this window. 2.4 merged as PR #273 (`0cf9415`).
 
-- **#274 — code, unit tests and docs COMMITTED LOCALLY (not pushed); the e2e red/green run, TTFB
-  and Lighthouse before/after are HELD until the manager pings that the stack is back.** Plan
-  approved by the manager 2026-10-01 with seven rulings (below). Stack went down again the same
-  afternoon (Docker backend exits minutes after each start) — **no docker commands, no recovery.**
-  What is done:
-  - `next.config.mjs` `htmlLimitedBots: /.*/`; `src/middleware.ts` gives a request with no
-    `User-Agent` a placeholder one (`withUserAgent`, passed into the next-intl middleware, which
-    forwards request headers to the render). `e2e/seo-head.spec.ts` (40 tests: 4 routes × 2 locales
-    × 5 agents incl. none, two requests each, byte offsets via `node:http`); `test/seo-head.test.ts`
-    pins the pattern — **shown red on the old config (6 failed), green after.** Layout comment
-    corrected. `priceString` nit: now the kit's `minorUnitDigits` (red: VND `2500.00`, KWD `19.99`).
-    README "Where metadata ends up" rewritten, CHANGELOG 0.12.1.
-  - Measured **without the API** (pages served from the build's fetch cache; spare port 4100, see
-    the port gotcha): before — Chrome/Lighthouse-mobile/Googlebot BODY on all 5 routes, bingbot HEAD;
-    after `/.*/` — every named agent HEAD on all 5 routes, both passes; **no-UA still streamed**
-    (HEAD only when the first request to a route won the race, BODY on repeat) → middleware default
-    added → no-UA HEAD on all 5 routes, three passes. Warm TTFB 12–27 ms either way (API-less, so
-    not the number the manager asked for).
-  - Call sites read in Next 15.5.25: `build/templates/app-page.js` —
-    `serveStreamingMetadata = !userAgent ? true : shouldServeStreamingMetadata(ua, htmlLimitedBots)`;
-    `isHtmlBot` (which uses the built-in list, not the config) only matters with PPR. So the
-    pattern changes nothing but metadata blocking.
-  - Gates green: 358 unit tests, root lint, format, root typecheck, bundle budget unchanged
-    (home 130.5 / PLP 136.0 / PDP 139.0 kB).
-  **Still owed, in this order, when the mock on 127.0.0.1:4010 answers:**
-  1. e2e RED: set `htmlLimitedBots` aside (comment the line out, keep the middleware change out too
-     — `git stash` is shared, use a temporary edit), build, `pnpm e2e -- seo-head`, quote the
-     failure; restore; GREEN, quoted. Then the full e2e suite.
-  2. Before/after Lighthouse performance + SEO and TTFB, **three runs per URL, quoted** (ruling 1).
-     "Before" = the parent of the #274 commit. If performance drops below budget: STOP and report
-     before pushing; fallback is the default list + Googlebot + Chrome-Lighthouse, not `/.*/`.
-  3. SEO budget 90 → 95 in `lighthouserc.json` (it is in my paths) only if all three runs clear 95
-     on every measured URL; then fix the README's last SEO paragraph and the budget table row.
-  4. Probe table against the live mock for the PR body. PR body must say: JSON-LD stays in
-     `<body>` and why; **"content route with a 200 not verified"** (no Sanity dataset anywhere) with
-     no ticked box; brand A's `e2e/routes.spec.ts` pin goes red on re-sync by design. The PR body
-     may carry the closing keyword for #274; commit messages may not.
-  5. Hold the push until the manager confirms no queue is running. Merge main first.
-  Rulings also fix the sequence: one PR at a time; build #293, then #286 + #278, locally while #274
-  is in review; push each only after the previous merges.
+- **#274 — EVIDENCE DELIVERED, PR OPENED (number and SHAs go in the next commit). Waiting for
+  review; nothing owed unless the review asks.** Commits: `e78a1a5` (priceString nit), `dca3201`
+  (the fix), plus the measurement/budget commit this entry is part of. All against the Docker mock
+  on 127.0.0.1:4010, 2026-10-01, Next 15.5.25:
+  - **e2e red on the old config: 40 failed of 40** (`/en-GB/products/classic-tee (desktop chrome,
+    repeat request, status 200): title — 0 before </head> (byte 2129), found at byte(s) [13489]`;
+    several agents pass the first request and fail the repeat — the race). **Green with the fix:
+    40 passed.** Full suite: 52 passed, 1 skipped (the core-only 404 spec), account specs included.
+  - **Lighthouse, three runs per URL.** Before: PLP perf 100/99/99, SEO **100/92/92**, TTFB
+    189/21/20 ms; PDP perf 99/99/99, SEO **100/92/92**, TTFB 40/30/19 ms (`meta-description` 0 and
+    `canonical` not applicable on runs 2–3). After: PLP perf 100/99/99, SEO **100/100/100**, TTFB
+    248/25/20 ms; PDP perf 100/99/99, SEO **100/100/100**, TTFB 35/17/18 ms. No performance cost.
+  - **Probe, 5 routes × 4 agents (none, Chrome, Lighthouse mobile, Googlebot) × 3 passes.** Before:
+    BODY everywhere except first requests that won the race; warm TTFB 10–24 ms. After: 60 of 60
+    rows HEAD; warm TTFB 10–12 ms.
+  - **SEO budget 90 → 95** in `lighthouserc.json` (manager ruling 6; every run cleared it).
+  - PR body says: JSON-LD stays in `<body>` and why; **content route with a 200 not verified**
+    (no Sanity dataset anywhere) — unticked; brand A's `e2e/routes.spec.ts` pin goes red on
+    re-sync by design.
+  - How the old config was measured: the two files were restored from `e78a1a5` in the working
+    tree, measured, then `git checkout --`. No stash (it is shared).
+
+- **Branch layout while PRs are sequential (manager, 2026-10-01): `storefront/phase2` carries #274
+  only.** The #286/#278 commit (`6937ed8`) is parked on the **local-only** ref
+  `storefront/hold-286-278` — never push it. After #274 merges and the manager confirms no queue:
+  merge main into `storefront/phase2`, cherry-pick the parked commit (expect conflicts in
+  CHANGELOG, package.json version and this file), push, open PR two. #293 is built on top of the
+  parked commit and follows the same way as PR three, after window 6's reader method exists.
+
+- **#293 — RULING: option (a) (manager, 2026-10-01). File the REQUEST to window 6 for
+  `routedDocuments(locale)`, build against a fake of that signature; the PR waits for window 6's
+  method. (b) refused — it would publish noIndex pages; (c) refused — `src/lib/cms/**` is window 6's.**
+  Read on 2026-10-01; nothing built. Findings that shape it:
+  - The public reader (`createReader` / `CmsReader`, exported from `@/lib/cms`) has `pageSlugs` and
+    `legalSlugs` and **nothing that lists campaign landings**; `campaignIsLive` (`schedule.ts`) and
+    `HOME_SLUG` (`components/home-content.tsx`) are not exported from the index either.
+    `src/lib/cms/**` is window 6's (docs/ownership.md), so the missing read is a REQUEST, not mine.
+  - `pageSlugs` returns every published page **including `seo.noIndex: true` ones and `home`**.
+    `home` is the page mounted on `/`, and `/pages/home` also renders — listing it would advertise
+    a duplicate of the home URL; a noIndex page in a sitemap is a contradiction crawlers report.
+  - `getCms()` reads the preview cookie (`cookies()`): the sitemap must not use it — it would make
+    a cached sitemap dynamic and could list drafts. Bind with
+    `createReader({ config: cmsConfigFromEnv(), storeCode })`, never `preview`.
+  - CMS documents exist **per locale** (a page may be published in en-GB only), but `sitemap.ts`
+    expands every path to every locale and counts pages as `paths.length * locales.length` in two
+    places (`sitemap.ts`, `sitemap.xml/route.ts`). Both the expansion and the count must move into
+    one pure function, or the index advertises a page that 404s at the boundary.
+  Plan:
+  1. REQUEST to window 6 (exact diff in the issue): reader method
+     `routedDocuments(locale): Promise<{ type: 'page' | 'legal' | 'campaignLanding'; slug: string;
+     updatedAt?: string; startsAt?: string; endsAt?: string }[]>` — published perspective,
+     `seo.noIndex != true`, tagged with the three type tags, `[]` on failure and on the empty
+     reader; export `campaignIsLive` and `HOME_SLUG` from the index.
+  2. `sitemap-data.ts`: `contentEntries(reader, locales, now)` — pure over a narrow interface, so
+     it is testable with a fake today: one entry per (type, slug) with the **set of locales it
+     exists in**; `home` dropped; campaigns kept only when `campaignIsLive`; a failed read degrades
+     to nothing, like the catalogue. `CatalogEntry` gains `locales?: string[]`.
+  3. `seo.ts`: `sitemapUrls(paths, locales)` — the one expansion (URL per locale the entry exists
+     in, alternates limited to those locales) used by `sitemap.ts` for slicing and by both routes
+     for the page count.
+  4. Tests, red first: content entries in the output with per-locale alternates; unpublished /
+     noIndex / expired / not-yet-started / unparseable schedule stay out; `home` not duplicated;
+     CMS failure → catalogue still listed; paging boundary at 5000/5001 with mixed locale sets;
+     index count == number of non-empty pages.
+  5. README, CHANGELOG, memory, gates, PR. Brand A's `STATIC_PATHS` pin fires on its re-sync, not
+     on this branch (window 10's correction).
+
+- **#286 + #278 — BUILT AND COMMITTED LOCALLY (not pushed), one PR together when its turn comes.**
+  PR order confirmed by the manager: #274 → #286/#278 → #293. Parked on `storefront/hold-286-278`
+  (see the branch-layout entry above).
+  - #286: the facts are `src/components/store-facts.tsx` (`StoreFacts`), one `Card className="p-4"`
+    per fact and no `CardContent`, so the chain is `dl > div > dt/dd`. `test/store-facts.test.ts`
+    renders to static markup and asserts both axe rules' conditions — **shown red on the old
+    markup** (`<dt> sits under div > div`), green after. **Not run: axe itself** — it lives in
+    brand A's suite and needs a browser plus store data; window 10 removes its two-rule allowlist
+    on re-sync and that run is the real verification.
+  - #278: `mergeSlots` exported and tested with fixture overrides; `slots.test.ts` asserts the
+    registries against whatever the app overrides; the starter-only assertions are in
+    `test/starter-defaults.test.ts` under `describe.runIf(package name is the starter's)` — no
+    exclude-list entry needed in a clone (brand A's package is `@platform/storefront-brand-a`).
+    The skip path was not executed in a clone, only reasoned from the name.
+  - CHANGELOG 0.12.2, README note under "Brand override pattern". Gates: 367 unit tests, root lint,
+    format, typecheck, build, bundle budget (home 130.5 kB, unchanged).
+  PR body for this one: both issue numbers may carry closing keywords there, not in commits.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
@@ -258,10 +302,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **Review nits from #254, still deferred by the manager ("not now"):** (a) the comment in
-      `src/app/[locale]/layout.tsx` cites `test/seo-head.test.ts`, **which does not exist** — the
-      head-placement check was done by hand against the built HTML, so either write that test or
-      drop the reference; (b) `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice.
+- [ ] **Review nit from #254, still deferred by the manager ("not now"):**
+      `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice. (The other one — the layout
+      comment citing a `test/seo-head.test.ts` that did not exist — is fixed in the #274 commit.)
 
 ## Decisions made (with reasons)
 
@@ -534,6 +577,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   Lighthouse's run 1 says HEAD and everything after says BODY. Probe with byte offsets, at least
   twice, with a real browser user agent — and with none (`node:http`; `fetch` and Playwright's
   client always send one).
+- **Git Bash rewrites an argument that starts with `/` into a Windows path** (`/en-GB` became
+  `C:/Program Files/Git/en-GB` inside a node script's argv). Prefix `MSYS_NO_PATHCONV=1` or do not
+  pass URL paths as arguments.
 - **After a reboot Windows can reserve TCP 3020–3419** (`netsh interface ipv4 show excludedportrange
   protocol=tcp`), which covers :3100 and the brands' :3101–3103: `next start` dies with
   `listen EACCES 0.0.0.0:3100`. It is a system setting — report it, do not fix it. A probe that

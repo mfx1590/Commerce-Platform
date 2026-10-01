@@ -439,9 +439,11 @@ from either place. Moving it would mean a second data read in the layout for no 
 environment, so `(content)` is exercised on its not-found path, which renders through the same root
 layout. A published `/pages/<slug>` should be probed the first time a dataset exists.
 
-The Lighthouse SEO budget was set at 90 rather than #110's 95 because of the flakiness described
-above — a recorded deviation, accepted by the manager on 2026-09-21. Its reason is gone with the
-race; the budget moves to 95 once three runs per URL clear it.
+**The Lighthouse SEO budget is 95**, which is #110's original criterion. It was held at 90 from
+2026-09-21 to 2026-10-01 as a recorded deviation, because the race above made the same build score
+92 on some runs and 100 on others. With the placement fixed, all three runs of both URLs score 100
+(before, on the same machine and mock: 100, 92, 92), and the first byte is no slower — Lighthouse's
+server response time was 19–30 ms warm before and 17–25 ms after.
 
 **Indexing is opt-in.** `/robots.txt` says `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, and it is
 rendered per request. In 2.2 it was static — baked by `next build`, which always runs with
@@ -516,7 +518,7 @@ budget to 100 ms each turned the exit code to 1, and restoring them returned it 
 | Budget                     | Where                | Limit                                                                 |
 | -------------------------- | -------------------- | --------------------------------------------------------------------- |
 | Performance, accessibility | `lighthouserc.json`  | ≥ 90                                                                  |
-| SEO                        | `lighthouserc.json`  | ≥ 90 (see "SEO" — a recorded deviation)                               |
+| SEO                        | `lighthouserc.json`  | ≥ 95 (see "SEO": metadata placement is deterministic since #274)      |
 | LCP / CLS / TBT            | `lighthouserc.json`  | ≤ 2.5 s / ≤ 0.1 / ≤ 300 ms (warn)                                     |
 | First-load JS per route    | `bundle-budget.json` | measured + ~5 kB, per route                                           |
 | Web fonts                  | —                    | **none**: the system font stack, zero requests                        |
@@ -586,15 +588,15 @@ nothing that reflects on the app is skipped.
 The config targets `127.0.0.1`, not `localhost`: on Windows `localhost` resolves to `::1` first,
 where nothing listens, and Lighthouse then fails to connect to a server that is plainly running.
 
-Latest Lighthouse run (2026-09-24, median of 3, against the mock, after task 2.4):
+Latest Lighthouse run (2026-10-01, three runs each, against the mock, after #274):
 
-| Page                   | Perf | A11y | Best practices | SEO    |
-| ---------------------- | ---- | ---- | -------------- | ------ |
-| `/en-GB/products`      | 98   | 100  | 96             | 92–100 |
-| `/en-GB/products/…tee` | 94   | 100  | 96             | 92–100 |
+| Page                   | Perf        | A11y | Best practices | SEO           |
+| ---------------------- | ----------- | ---- | -------------- | ------------- |
+| `/en-GB/products`      | 100, 99, 99 | 100  | 96             | 100, 100, 100 |
+| `/en-GB/products/…tee` | 100, 99, 99 | 100  | 96             | 100, 100, 100 |
 
-The SEO range is not noise in the measurement but a real property of the build: see "SEO" above for
-why metadata placement varies with cache warmth, and what making it deterministic would cost.
+The same build without the #274 change scored SEO 100, 92, 92 on both pages: run 1 won the streaming
+race and runs 2 and 3 found no description in `<head>`. See "SEO" above.
 
 The first measurement came in at 89 and 85, entirely on blocking time: the root layout was handing
 `NextIntlClientProvider` the whole message catalogue, so every page serialised and hydrated strings

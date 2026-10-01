@@ -24,7 +24,7 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
   and are **required** when `$CI` is set.
 - `pnpm --filter @platform/storefront-starter lighthouse` — Lighthouse CI against `lighthouserc.json`
   (mobile, 3 runs, median). Needs a running app on :3100 and `CHROME_PATH` on Windows. Budgets:
-  performance and accessibility ≥ 90, LCP ≤ 2.5 s, CLS ≤ 0.1.
+  performance and accessibility ≥ 90, SEO ≥ 95, LCP ≤ 2.5 s, CLS ≤ 0.1.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/storefront-starter` before finishing any task.
 
 ## Public API
