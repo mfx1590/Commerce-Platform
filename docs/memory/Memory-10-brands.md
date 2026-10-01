@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-29 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.4 in PR #294 (Refs #142, two criteria unmet + named). 2.5 next
+Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.4 MERGED (db8aa80). 2.5 PR-one built but UNRUN — blocked on the Docker daemon being down
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,7 +17,9 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **#142 · 2.4 SEO + i18n (partial)** — PR #294. 49 tests: routes x both locales (canonical,
+- **#142 · 2.4 SEO + i18n (partial)** — **MERGED** as PR #294, merge commit db8aa80. #142 was
+  auto-closed by a commit keyword and the manager reopened it — never put close/fix/resolve next to
+  an issue number unless that commit finishes it. 49 tests: routes x both locales (canonical,
   alternates, x-default), BOTH message catalogues (cms one was unchecked), JSON-LD in EUR,
   sitemap paging. 5 mutations red. Manifest tripwire replaced with self-consistency +
   `sync-from-starter.mjs --check`. Measured perf 0.97 / a11y 1.00 / SEO 0.92 / CLS ~0.
@@ -49,7 +51,38 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.4 in PR #294** (52a76c1), `Refs #142` — awaiting verdict.
+- **2.5 (#143) PR one — built, committed (afbc4e7), NOT run, NO PR opened.**
+  `e2e/journey.spec.ts` covers what the starter's `checkout.spec.ts` does not and #143 names: PDP
+  variant selection, the test payment provider, confirmation. Dataset-independent (assert our own
+  UI + runtime-captured values), skips with a reason where a dataset has no variant axis.
+  **"Skips cleanly" is the only criterion verified**, and the manager accepted the matrix:
+
+  | condition | result |
+  | --- | --- |
+  | no `E2E_STORE_API_URL` | 3 skipped, exit 0 |
+  | set, core down | 3 skipped, exit 0 |
+  | `E2E_REQUIRE_CORE=1`, core down | **exit 1** — the falsifying case |
+
+  **Still unmet: "green against the stack" and "flake-free over 3 runs".** Neither claimed.
+
+  When the manager says 5433/6381/8180/8081 answer — in THIS worktree only:
+  1. `.env` DB/Redis rows on `127.0.0.1` (already true; `KEYCLOAK_URL` stays `localhost`)
+  2. `pnpm --filter @platform/auth-sdk fga:seed`
+  3. migrate + seed if the DB needs it
+  4. start a core process on **:9000** (confirmed free; if something is listening later, do NOT kill
+     it — use it if on main's code, else another port)
+  5. run browse → buy **three times**, quote all three outputs, then open the PR with **Refs #143**
+  - **turbo strips `DATABASE_URL*`** — use `pnpm --filter <pkg> exec …` for anything needing the
+    pinned host.
+  - PR must carry **no closing keyword** in body or commits. Account half stays blocked on #212.
+
+## Blocked — infrastructure
+- **The shared Docker daemon is DOWN** (2026-10-01). `docker version` → server UNREACHABLE, API 500
+  on `/v1.54/version`; 5433/6381/8180/8081/9000/9092 all closed. Confirmed from the manager window;
+  their "stack is healthy" was stale. **The owner restarts Docker Desktop and the manager brings the
+  containers up** — I do not run the recovery, even though [[stack-interventions-need-prior-ok]]
+  records one as pre-approved: the manager's current instruction named `wsl --shutdown` as
+  stop-and-ask, and a standing pre-approval does not outrank a current instruction.
 
 ## Blocked on other windows (2.4 follow-up closes #142)
 - **#274** (window 3): metadata in `<body>` not `<head>` on home/PDP/content → SEO stuck at 0.92
@@ -57,6 +90,10 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#293** (window 3): sitemap `STATIC_PATHS = ['', '/products']` advertises none of the 20 brand-A
   documents — verified at runtime, 4 URLs served. Combined with #274 the content routes have
   hreflang in *neither* accepted mechanism.
+- **#295** (window 5, behind #283): run brand A's e2e in CI (`E2E_INCLUDE_BRAND_STOREFRONTS=1`).
+  Deliberately excludes the Keycloak half (#212) and the `CMS_DATASET` checks.
+- **#212** (window 2): brand-a redirect URI + web origin on the customers realm client. Blocks 2.5's
+  account half (sign-in, order history) and the `E2E_INCLUDE_BRAND_STOREFRONTS=1` opt-in.
 - When both land: re-sync, delete the `STATIC_PATHS` pin in `test/brand-i18n-seo.test.ts`, assert
   the real inventory, re-measure SEO, close #142 in a small follow-up PR.
 
@@ -124,6 +161,15 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **A closing keyword next to an issue number closes the issue on merge**, even mid-sentence in a
+  commit body ("a follow-up closes #142"). It cost the manager a manual reopen. Write "#N stays
+  open; a follow-up PR finishes it".
+- **`/tmp` differs between the Bash tool and Python on Windows** — a bash redirect to `/tmp/x` is
+  invisible to `open('/tmp/x')`. Nearly made me write an unedited PR body back over itself. Use the
+  scratchpad path for anything both touch.
+- **An e2e suite that skips without its backend must be proven to FAIL when the backend is
+  required**, or "skips cleanly" is indistinguishable from "never runs". `E2E_REQUIRE_CORE=1` +
+  core down → exit 1 is that proof.
 - **`bundle-budget --sync-readme` fills an EXISTING `<!-- bundle-budget:start/end -->` block; it
   does not create one.** After a re-sync adds that requirement, add the markers to the README by
   hand once, then run it.
