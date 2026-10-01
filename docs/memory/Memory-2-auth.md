@@ -27,7 +27,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## In progress
 
-- **REQUEST #212 (customers realm redirect registrations) — built and committed locally on top of main ebe4112, NOT pushed, NOT applied to Keycloak.** Docker daemon was down on 2026-10-01 (manager: no recovery attempts). Remaining, in order, each on the manager's word:
+- **REQUEST #212 (customers realm redirect registrations) — commit b5329cf, main 5392692 merged, pushed 2026-10-01 as a DRAFT PR (manager confirmed no queue; both extras below APPROVED by the manager). NOT yet applied to the local Keycloak:** the manager's go said the stack was up, but at 18:46–18:50 nothing listened on 8180/5433/6381/8081 and Docker Desktop (restarted 18:42) had no `com.docker.backend` process and no engine pipe — reported, no recovery attempted. Still owed once the stack really answers: `fga:seed`, step 1, step 2 via `pnpm --filter @platform/auth-sdk exec vitest run`, step 3, then paste the output into the PR body and mark the PR ready (a body edit needs no push; a fix commit needs a fresh no-queue word). Original list:
   1. Stack up → `node infra/keycloak/reimport.mjs customers` (never `pnpm dev --reset`, never recreate the container).
   2. `pnpm --filter @platform/auth-sdk test` — the 9 new live checks in `keycloak-realms.test.ts` (jane round trip from `:3101`; exact-URI accept/refuse table) must pass, not skip.
   3. Evidence for the PR body: realm export diff (`reimport.mjs --export customers` before/after, or the git diff of the JSON) + a sign-in round trip from `:3101` if a brand-a server can be started (`pnpm --filter @platform/storefront-brand-a dev`), otherwise say it was not run.
@@ -53,7 +53,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## Blocked / waiting
 
-- #212: waiting for the manager's word that the stack is up (reimport + live tests), then for "no queue running" before the push.
+- #212: draft PR open; waiting for a stack that actually answers on 8180 (reimport + live checks + :3101 round trip) before marking it ready. After it merges: done until Phase 3.
 - PR #89 (task 1.7) merged 2026-09-07 after infra #87 — nothing outstanding from Phase 1.
 - CONTRACT CHANGE #77: ACCEPTED — Admin API 0.2.1 gates `listCustomers`/`getCustomer` with `support` on the store. The gate tests now assert the real contract.
 
