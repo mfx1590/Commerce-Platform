@@ -149,6 +149,30 @@ terms,returns}` and `/campaign/autumn-cloth`, each in both locales. Those conten
   #274) _and_ those routes are absent from the sitemap (**#293**), so both accepted mechanisms miss
   them at once. `/`, `/products` and the catalogue are fine — the sitemap carries their alternates.
 
+## End-to-end against the core
+
+`e2e/journey.spec.ts` covers what the inherited `checkout.spec.ts` does not: **PDP variant
+selection**, and the cart→checkout hand-off. `account.spec.ts` covers sign-in, order history and
+sign-out against the shared Keycloak.
+
+```bash
+# the shared stack must be up (Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081)
+pnpm --filter @platform/auth-sdk fga:seed            # OpenFGA is in-memory; ids die with the container
+pnpm --filter @platform/core exec tsx src/server.ts  # core on :9000
+
+PORT=3101 STORE_API_URL=http://127.0.0.1:9000 SITE_URL=http://localhost:3101   ROBOTS_ALLOW_INDEXING=1 pnpm --filter @platform/storefront-brand-a start
+
+E2E_REQUIRE_CORE=1 E2E_REQUIRE_KEYCLOAK=1   E2E_STORE_API_URL=http://127.0.0.1:9000 E2E_BASE_URL=http://localhost:3101   pnpm --filter @platform/storefront-brand-a e2e
+```
+
+**Without the stack every one of these skips**, so a laptop without it does not fail the suite. The
+`E2E_REQUIRE_*` flags turn an unreachable backend into a failure instead — set automatically under
+`CI`, so a silent skip cannot quietly stop covering the journey there.
+
+The variant tests **find a product by property, not by handle**: they walk the listing until they
+meet one whose first option group offers two or more selectable values. A handle in a test is the
+fixture-coupling the starter's suite was rewritten to remove.
+
 ## Bundle budget
 
 First-load JS per route, gzipped, against `bundle-budget.json`. Regenerate with

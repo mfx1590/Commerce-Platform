@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.4 MERGED (db8aa80). 2.5 PR-one built but UNRUN — blocked on the Docker daemon being down
+Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.5 RUN GREEN against the core (3 clean full-suite runs). PR next. 2.6 after.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -51,33 +51,16 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.5 (#143) PR one — built, committed (afbc4e7), NOT run, NO PR opened.**
-  `e2e/journey.spec.ts` covers what the starter's `checkout.spec.ts` does not and #143 names: PDP
-  variant selection, the test payment provider, confirmation. Dataset-independent (assert our own
-  UI + runtime-captured values), skips with a reason where a dataset has no variant axis.
-  **"Skips cleanly" is the only criterion verified**, and the manager accepted the matrix:
-
-  | condition | result |
-  | --- | --- |
-  | no `E2E_STORE_API_URL` | 3 skipped, exit 0 |
-  | set, core down | 3 skipped, exit 0 |
-  | `E2E_REQUIRE_CORE=1`, core down | **exit 1** — the falsifying case |
-
-  **Still unmet: "green against the stack" and "flake-free over 3 runs".** Neither claimed.
-
-  When the manager says 5433/6381/8180/8081 answer — in THIS worktree only:
-  1. `.env` DB/Redis rows on `127.0.0.1` (already true; `KEYCLOAK_URL` stays `localhost`)
-  2. `pnpm --filter @platform/auth-sdk fga:seed`
-  3. migrate + seed if the DB needs it
-  4. start a core process on **:9000** (confirmed free; if something is listening later, do NOT kill
-     it — use it if on main's code, else another port)
-  5. run browse → buy **three times**, quote all three outputs, then open the PR with **Refs #143**
-  - **turbo strips `DATABASE_URL*`** — use `pnpm --filter <pkg> exec …` for anything needing the
-    pinned host.
-  - PR must carry **no closing keyword** in body or commits. Account half stays blocked on #212.
+- **2.5 (#143) — browse → buy AND account both green against the real core.** Three consecutive
+  full-suite runs: 32 passed, 21 skipped, exit 0. Skips are content routes (need `CMS_DATASET`)
+  and visual baselines (opt-in) — none of them #143 criteria.
+  Stack recipe that worked: `fga:seed` (OpenFGA in-memory, ids die with the container) → core via
+  `pnpm --filter @platform/core exec tsx src/server.ts` on :9000 → brand A on 3101 with
+  `STORE_API_URL=http://127.0.0.1:9000`. **The DB needed no migrate/seed** (51 tables, 3 stores,
+  607 products survived the reboot).
 
 ## Blocked — infrastructure
-- **The shared Docker daemon is DOWN** (2026-10-01). `docker version` → server UNREACHABLE, API 500
+- (resolved 2026-10-01) **The shared Docker daemon was DOWN** (2026-10-01). `docker version` → server UNREACHABLE, API 500
   on `/v1.54/version`; 5433/6381/8180/8081/9000/9092 all closed. Confirmed from the manager window;
   their "stack is healthy" was stale. **The owner restarts Docker Desktop and the manager brings the
   containers up** — I do not run the recovery, even though [[stack-interventions-need-prior-ok]]
@@ -92,8 +75,7 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   hreflang in *neither* accepted mechanism.
 - **#295** (window 5, behind #283): run brand A's e2e in CI (`E2E_INCLUDE_BRAND_STOREFRONTS=1`).
   Deliberately excludes the Keycloak half (#212) and the `CMS_DATASET` checks.
-- **#212** (window 2): brand-a redirect URI + web origin on the customers realm client. Blocks 2.5's
-  account half (sign-in, order history) and the `E2E_INCLUDE_BRAND_STOREFRONTS=1` opt-in.
+- ~~**#212**~~ MERGED (871f086): brand A sign-in from :3101 works; `account.spec.ts` passes 3/3.
 - When both land: re-sync, delete the `STATIC_PATHS` pin in `test/brand-i18n-seo.test.ts`, assert
   the real inventory, re-measure SEO, close #142 in a small follow-up PR.
 
@@ -166,6 +148,21 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **The Store API's product LIST is a summary projection with no `variants`** — counting variants
+  from it reports zero for every product and looks like a seed gap. Ask for each product's DETAIL.
+  This nearly had me file a bogus `REQUEST: seed — multi-variant product`; the catalogue has plenty
+  (Size:4 × Color:2, 8 variants).
+- **Variant options are `<fieldset>` + toggle `<button aria-pressed>`, not ARIA radios**, and the
+  PDP price is `data-testid="price-value"`. The listing card renders its title as a link INSIDE an
+  `<h3>` — "a link containing a heading" matches nothing.
+- **After "Add to cart" the app navigates to the cart itself** — `page.goto('/cart')` races the
+  pending server action and lands on an empty cart. Wait for the URL instead.
+- **Metadata placement is deterministic server-side and nondeterministic in the DOM.** 60/60
+  requests put it in `<body>`, but React sometimes hoists it at hydration, so a DOM-based assertion
+  flakes ~1 run in 5. Assert the served bytes. This is probably the real mechanism behind #274's
+  "fails on runs 2 and 3" Lighthouse flake.
+- **Always close a pg client in `finally`.** A probe that closed only on the happy path hung for
+  15+ minutes with no output and had to be killed. Give direct DB commands a hard timeout.
 - **A closing keyword next to an issue number closes the issue on merge**, even mid-sentence in a
   commit body ("a follow-up closes #142"). It cost the manager a manual reopen. Write "#N stays
   open; a follow-up PR finishes it".

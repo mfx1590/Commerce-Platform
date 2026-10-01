@@ -1,5 +1,23 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.6.0 — 2026-10-01 · task 2.5 (#143)
+
+- **`e2e/journey.spec.ts`** — browse → buy against the **real core**, covering what the inherited
+  `checkout.spec.ts` does not: PDP variant selection (every value in a group reachable, selection
+  follows the click, exactly one pressed, price survives the swap) and the cart → checkout hand-off.
+- **Variant tests target a product by property, not by handle** — they walk the listing until they
+  find one whose first option group offers two or more selectable values. The seeded catalogue is
+  not this suite's to pin.
+- **`account.spec.ts` now runs** against the shared Keycloak, unblocked by #212: sign-in redirect,
+  order history, sign-out.
+- **Skips cleanly without the stack**, and `E2E_REQUIRE_CORE=1` / `E2E_REQUIRE_KEYCLOAK=1` turn an
+  unreachable backend into a failure rather than a silent skip — verified both ways.
+- **Flake-free over three consecutive full-suite runs** (32 passed, 21 skipped, exit 0 each).
+  Getting there found a flake **in my own test**: the `#274` placement pin asked the hydrated DOM,
+  which React sometimes rewrites, so it failed one run in five claiming the tags had moved to
+  `<head>`. The served bytes are deterministic — 60 of 60 requests across three routes put the
+  description after `</head>` — so the pin now measures the response, not the DOM.
+
 ## 0.5.1 — 2026-10-01 · parked review nits
 
 Housekeeping from the #289 and #291 reviews, built while the shared stack was unavailable. No
