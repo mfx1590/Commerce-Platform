@@ -365,6 +365,60 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   `sitemap-content`, `sitemap-urls`, `sitemap-cms-binding`. Verified on a production build:
   the served sitemap is unchanged while the reader has no `routedDocuments`. **Not verified:
   content appearing in a served sitemap** — needs #300 and a dataset.
+- **Branch layout while PRs are sequential (manager, 2026-10-01): `storefront/phase2` carries #274
+  only.** The #286/#278 commit is parked (`28fa785` after the rebase; the #293 commit sits on top of it) on the **local-only** ref
+  `storefront/hold-286-278` (rebased onto the PR head `04fcaf1`; #293 is built on top of it there)
+  — never push it. If the #274 review needs a fix: commit it on `storefront/phase2`, push, then
+  rebase the parked branch again. After #274 merges and the manager confirms no queue:
+  merge main into `storefront/phase2`, bring over **only the #286/#278 commit** from the parked
+  branch (cherry-pick; the #293 commits stay parked), push, open PR two. #293 is built on top of the
+  parked commit and follows the same way as PR three, after window 6's reader method exists.
+
+- **#293 — BUILT AGAINST A FAKE AND COMMITTED ON THE PARKED BRANCH; ITS PR WAITS FOR #300.**
+  Manager ruling 2026-10-01: option (a) — REQUEST to window 6 for `routedDocuments(locale)`, filed
+  as **#300** (type, slug, schedule; noIndex and `home` filtered at the source; no preview cookie;
+  also asks for `campaignIsLive` and the type to be exported from the index). (b) refused — it
+  would publish noIndex pages; (c) refused — `src/lib/cms/**` is window 6's.
+  - `src/lib/seo.ts` `sitemapUrls()` is the one expansion from paths to URLs; `sitemap.ts` and
+    `sitemap.xml/route.ts` both count its output (the old `paths × locales` over-counts as soon as
+    a document is not in every locale). `CatalogEntry` is now `SitemapPath` with `locales?`.
+  - `src/lib/sitemap-data.ts`: `contentEntries(source, locales, now)` over the narrow
+    `ContentSource` interface; `sitemapPaths({ source?, locales?, now? })` puts content between the
+    static routes and the catalogue. The default source builds a published reader with
+    `createReader` (never `getCms()`), and **feature-detects `routedDocuments`** (`Reflect.get`), so
+    today the sitemap is unchanged and it switches on when #300 lands.
+  - Tests: `sitemap-content.test.ts` (routes, per-locale sets, live/expired/not-yet/unparseable,
+    unroutable slugs, one locale failing, CMS throwing), `sitemap-urls.test.ts` (alternates per
+    locale, the 5000/5001 boundary where the old formula was wrong), `sitemap-cms-binding.test.ts`
+    (the default wiring: published reader, method called with `this`, absent method, unconfigured).
+    Red first (functions absent), then green; 390 unit tests.
+  - Verified on a production build against the mock: `/sitemap.xml` lists one page,
+    `/sitemap/0.xml` has the same 12 URLs / 24 alternates as before (no CMS configured).
+    **Not verified: content actually appearing** — needs #300 and a dataset.
+  **Owed when #300 lands:** replace the local `scheduleIsLive` copy with the exported
+  `campaignIsLive`; replace the `Reflect.get` detection with a plain typed call (delete the
+  'before #300' test); drop the local `RoutedDocument` type for window 6's; re-run the gates.
+  Noticed, not fixed, to raise with the manager: `/sitemap.xml` and `/sitemap/0.xml` are
+  prerendered at build with the **build machine's `SITE_URL`** (the built files say
+  `http://localhost:3100`) until the first revalidation — the same class as the 2.2 defects.
+
+- **#286 + #278 — BUILT AND COMMITTED LOCALLY (not pushed), one PR together when its turn comes.**
+  PR order confirmed by the manager: #274 → #286/#278 → #293. Parked on `storefront/hold-286-278`
+  (see the branch-layout entry above).
+  - #286: the facts are `src/components/store-facts.tsx` (`StoreFacts`), one `Card className="p-4"`
+    per fact and no `CardContent`, so the chain is `dl > div > dt/dd`. `test/store-facts.test.ts`
+    renders to static markup and asserts both axe rules' conditions — **shown red on the old
+    markup** (`<dt> sits under div > div`), green after. **Not run: axe itself** — it lives in
+    brand A's suite and needs a browser plus store data; window 10 removes its two-rule allowlist
+    on re-sync and that run is the real verification.
+  - #278: `mergeSlots` exported and tested with fixture overrides; `slots.test.ts` asserts the
+    registries against whatever the app overrides; the starter-only assertions are in
+    `test/starter-defaults.test.ts` under `describe.runIf(package name is the starter's)` — no
+    exclude-list entry needed in a clone (brand A's package is `@platform/storefront-brand-a`).
+    The skip path was not executed in a clone, only reasoned from the name.
+  - CHANGELOG 0.12.2, README note under "Brand override pattern". Gates: 367 unit tests, root lint,
+    format, typecheck, build, bundle budget (home 130.5 kB, unchanged).
+  PR body for this one: both issue numbers may carry closing keywords there, not in commits.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
