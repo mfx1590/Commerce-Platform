@@ -22,6 +22,16 @@ const frameHosts = Object.values(EMBED_HOSTS)
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
+  // Metadata blocks for every user agent, not only the crawlers on Next's default list (#274).
+  // Since 15.2 `generateMetadata` is streamed for anyone the pattern does not match, and streamed
+  // metadata is written after `</head>` has closed: title, description, canonical and the
+  // `hreflang` alternates end up in `<body>`, where Google ignores `hreflang` and Lighthouse finds
+  // no description. The default list leaves out browsers, Lighthouse and Googlebot itself, so
+  // extending it name by name would fix whichever reader we thought of and no other. The cost is
+  // that the first byte waits for `generateMetadata` — which awaits the same cached reads the page
+  // needs before it can render anything. Held by test/seo-head.test.ts and e2e/seo-head.spec.ts.
+  // A request with no User-Agent header never reaches this pattern; the middleware covers it.
+  htmlLimitedBots: /.*/,
   // Build-time constant on purpose: the embed host list is code (window 6's), not environment, so
   // it is fixed here and handed to the middleware, which builds the rest of the policy at runtime.
   env: { CSP_FRAME_HOSTS: frameHosts },

@@ -1,3 +1,4 @@
+import { minorUnitDigits } from '@platform/ui';
 import { brandConfig, siteUrl } from '@/brand/config';
 import { locales } from '@/i18n/routing';
 import type { Product, Variant } from './store-api';
@@ -81,9 +82,16 @@ export function availabilityOf(variant: Variant | undefined): string {
   return 'https://schema.org/OutOfStock';
 }
 
-/** Minor units are the contract's money representation; schema.org wants a decimal string. */
+/**
+ * Minor units are the contract's money representation; schema.org wants a decimal string.
+ *
+ * The exponent comes from the kit's `minorUnitDigits` — the function `Price` divides by — so the
+ * price a crawler reads cannot disagree with the one on the page. A hand-kept list of zero-decimal
+ * currencies (it was JPY and KRW) prices every other one a hundred times too low, and has no answer
+ * for the three-decimal ones.
+ */
 export function priceString(amountMinor: number, currency: string): string {
-  const digits = currency === 'JPY' || currency === 'KRW' ? 0 : 2;
+  const digits = minorUnitDigits(currency);
   return (amountMinor / 10 ** digits).toFixed(digits);
 }
 
