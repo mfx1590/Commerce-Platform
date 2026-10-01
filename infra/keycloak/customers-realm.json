@@ -61,11 +61,21 @@
       "fullScopeAllowed": true,
       "rootUrl": "http://localhost:3100",
       "baseUrl": "/",
-      "redirectUris": ["http://localhost:3100/*"],
-      "webOrigins": ["http://localhost:3100"],
+      "redirectUris": [
+        "http://localhost:3100/*",
+        "http://localhost:3101/*",
+        "https://shop.dev.example.com/auth/callback",
+        "https://shop.staging.example.com/auth/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:3100",
+        "http://localhost:3101",
+        "https://shop.dev.example.com",
+        "https://shop.staging.example.com"
+      ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:3100/*",
+        "post.logout.redirect.uris": "http://localhost:3100/*##http://localhost:3101/*##https://shop.dev.example.com/##https://shop.staging.example.com/",
         "use.refresh.tokens": "true"
       },
       "defaultClientScopes": ["openid", "profile", "email", "roles", "web-origins", "basic"],
@@ -142,13 +152,13 @@
       "serviceAccountsEnabled": false,
       "consentRequired": false,
       "fullScopeAllowed": true,
-      "rootUrl": "http://localhost:3101",
+      "rootUrl": "http://localhost:3102",
       "baseUrl": "/",
-      "redirectUris": ["http://localhost:3101/*"],
-      "webOrigins": ["http://localhost:3101"],
+      "redirectUris": ["http://localhost:3102/*"],
+      "webOrigins": ["http://localhost:3102"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:3101/*",
+        "post.logout.redirect.uris": "http://localhost:3102/*",
         "use.refresh.tokens": "true"
       },
       "defaultClientScopes": ["openid", "profile", "email", "roles", "web-origins", "basic"],
@@ -225,13 +235,13 @@
       "serviceAccountsEnabled": false,
       "consentRequired": false,
       "fullScopeAllowed": true,
-      "rootUrl": "http://localhost:3102",
+      "rootUrl": "http://localhost:3103",
       "baseUrl": "/",
-      "redirectUris": ["http://localhost:3102/*"],
-      "webOrigins": ["http://localhost:3102"],
+      "redirectUris": ["http://localhost:3103/*"],
+      "webOrigins": ["http://localhost:3103"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:3102/*",
+        "post.logout.redirect.uris": "http://localhost:3103/*",
         "use.refresh.tokens": "true"
       },
       "defaultClientScopes": ["openid", "profile", "email", "roles", "web-origins", "basic"],
