@@ -25,7 +25,14 @@
 - Test seam for the customers-realm verifier: `mountCoreMiddleware(app, verifier, { customerTokenVerifier })` /
   `mountStoreRoutes(app, verifier)` — code only, no environment variable, never passed by `createServer()`,
   refused when `NODE_ENV` is `production`.
-- Still on the fallback proxy until part B: `PATCH /store/customers/me`, `…/me/addresses`.
+- Known gaps, named in the module README: `PATCH /store/customers/me` and `…/me/addresses` stay on the
+  fallback proxy until part B — outside production, with the fallback on, those two still forward the customer's
+  bearer token to the Prism mock; and the row's email goes stale when the customer changes it at Keycloak (no
+  email-change sync before Phase 3, window 13).
+- Malformed JSON on `/store/customers` is a 400 before the token check (the body parser runs first); every
+  other body rule is checked after the token.
+- Built against contracts 0.4.8 (Store API 0.5.1: `registerCustomer` 200 / 400 / 409, 409 on the `/me`
+  operations).
 
 ### 2026-10-02 · registry outbox completeness (#308 review ruling)
 
