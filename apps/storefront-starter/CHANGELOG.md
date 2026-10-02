@@ -1,5 +1,28 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.5 — 2026-10-02
+
+Issue #298. No contract change. **Go-live blocker for sign-in behind the ingress.**
+
+- **Redirects go to this site's configured origin, not to the request's.** In a route handler
+  `request.nextUrl.origin` is the pod's own address — `localhost:3100` whatever `Host` says — so
+  behind the ingress sign-out gave Keycloak `http://localhost:3100/` as the return address, the
+  sign-in callback sent authenticated customers to `https://localhost:3100/…`, and every
+  `/r/{code}` referral link landed on localhost. All three now build their target with
+  `urlOnThisSite()` (`src/lib/site-origin.ts`) from `SITE_URL`, read at request time, never from
+  `Host` or `X-Forwarded-Host`, and still through both layers of the safe-path rule.
+- **`SITE_URL` fails closed.** `siteUrl()` no longer answers `http://localhost:3100` on a
+  production server that was not told its origin: it throws `SiteUrlError`. The default remains
+  under `next dev`, in tests and during `next build`. A `SITE_URL` that is not an absolute
+  http(s) URL is refused everywhere. **Deployments must set `SITE_URL`** (the Helm values for dev
+  and staging already do); `pnpm start` by hand needs it too.
+- The OIDC callback URI uses the same definition (`siteUrl()`), where it had its own copy of the
+  fallback that ignored a brand's fixed origin.
+- The referral route compares the `Referer` against the configured origin, so a click from the
+  shop's own pages is no longer recorded as an external referrer.
+- A unit test per route handler (`test/route-origin.test.ts`), called as behind the ingress: the
+  request's origin, a hostile forwarded host and the public origin are three different strings.
+
 ## 0.12.4 — 2026-10-02
 
 Issues #304 and #306. No contract change. Tests and test hooks only — no behaviour change.

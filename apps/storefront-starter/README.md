@@ -24,7 +24,7 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | Variable                   | Default                      | Meaning                                                                                                                                |
 | -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `PORT`                     | `3100`                       | `start` honours `$PORT` (image contract, REQUEST #68) and defaults to 3100 rather than Next's 3000, which collides with the admin app. |
-| `SITE_URL`                 | `http://localhost:3100`      | Absolute URLs: canonical links and the OIDC redirect URI.                                                                              |
+| `SITE_URL`                 | `http://localhost:3100`      | **Required on every deployment.** This site's public origin: canonicals, sitemap, OIDC redirect URIs, every redirect. See below.       |
 | `STORE_API_URL`            | `http://localhost:9000`      | The core's Store API — the default since 2.1. Wins over `MOCK_API_URL`.                                                                |
 | `MOCK_API_URL`             | —                            | Prism mock. Set it to run against contract examples instead of the core (Playwright does).                                             |
 | `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                                                                               |
@@ -34,6 +34,19 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | `ROBOTS_ALLOW_INDEXING`    | —                            | `1` on the **production** deployment only; anything else serves `Disallow: /`.                                                         |
 
 `GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
+
+**`SITE_URL` is the only source of this site's origin, and a production server without it fails
+closed (#298).** The default in the table applies under `next dev`, in unit tests and while
+`next build` runs — nowhere else. A server started in production mode with `SITE_URL` unset
+throws `SiteUrlError` on the first page, sitemap or redirect that needs an absolute URL, instead
+of advertising `http://localhost:3100`; so `pnpm start` by hand needs `SITE_URL=…` (the e2e and
+perf scripts set it). The origin is **never taken from the request**: behind the ingress a route
+handler's own `request.nextUrl.origin` is the pod's address (`localhost:3100`, whatever the
+`Host` header says), and `Host` / `X-Forwarded-Host` are text the client chose — a redirect
+built on either is wrong or an open redirect. Route handlers that redirect go through
+`src/lib/site-origin.ts` (`urlOnThisSite`), which also applies both layers of the safe-path rule.
+The one exception to throwing is sign-out: with no origin configured it still clears the session
+and ends the Keycloak session, only without a return address.
 
 ## Running against the core
 
