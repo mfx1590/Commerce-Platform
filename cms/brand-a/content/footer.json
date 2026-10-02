@@ -47,25 +47,6 @@
             "href": "/pages/cloth"
           }
         ]
-      },
-      {
-        "_type": "footerColumn",
-        "_key": "col-help",
-        "heading": "Help",
-        "links": [
-          {
-            "_type": "link",
-            "_key": "f-returns",
-            "label": "Returns and exchanges",
-            "href": "/legal/returns"
-          },
-          {
-            "_type": "link",
-            "_key": "f-imprint",
-            "label": "Imprint",
-            "href": "/legal/imprint"
-          }
-        ]
       }
     ],
     "legalLinks": [
@@ -142,25 +123,6 @@
             "_key": "f-cloth",
             "label": "Wie wir Stoffe auswählen",
             "href": "/pages/cloth"
-          }
-        ]
-      },
-      {
-        "_type": "footerColumn",
-        "_key": "col-help",
-        "heading": "Hilfe",
-        "links": [
-          {
-            "_type": "link",
-            "_key": "f-returns",
-            "label": "Rückgabe und Umtausch",
-            "href": "/legal/returns"
-          },
-          {
-            "_type": "link",
-            "_key": "f-imprint",
-            "label": "Impressum",
-            "href": "/legal/imprint"
           }
         ]
       }

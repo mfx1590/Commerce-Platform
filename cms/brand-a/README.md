@@ -82,6 +82,17 @@ placeholder, switching to `{{mustache}}` form, or writing `HRB-12345` each turn 
 earlier version of this test matched well-formed placeholders and then asserted they were
 well-formed — a tautology that could never fail. That is why the mutation check exists.
 
+### What `lastReviewed` means — and does not
+
+Each legal document carries a `lastReviewed` date because window 6's schema requires one, and the
+storefront renders it as _"Last reviewed {date}"_. **That wording is the CMS package's, not ours, and
+it does not mean a lawyer has seen the document.**
+
+The date records **when the text was last edited in this repository**. Nothing more. It is not a
+legal review, it must not be cited as one, and it will keep moving as the copy is edited while the
+documents remain unreviewed. When a real review happens, say so here explicitly rather than letting
+this field imply it.
+
 The statutory content — the fourteen-day withdrawal period, the GDPR legal bases — is stated as the
 law requires and is not ours to vary. Brand A's own thirty-day free EU returns are presented as an
 _additional_ contractual promise, never as a replacement for the statutory right.

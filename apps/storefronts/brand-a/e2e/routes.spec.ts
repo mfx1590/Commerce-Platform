@@ -85,20 +85,32 @@ for (const route of ROUTES) {
  * currently in neither accepted mechanism.
  */
 test('metadata placement is still the #274 state — delete this when that lands', async ({
-  page,
+  request,
 }) => {
+  /**
+   * Measured on the **served bytes**, not the hydrated DOM — and that distinction is the point.
+   *
+   * The first version of this test asked the DOM (`closest('head')`) and was itself flaky: it failed
+   * one run in five claiming the tags had "moved to <head>". They had not. The server is completely
+   * deterministic — 60 of 60 requests across three routes put the description after `</head>` — but
+   * React sometimes hoists the tags into `<head>` during hydration, so what the DOM reports depends
+   * on when it is sampled.
+   *
+   * That is almost certainly the same race behind the Lighthouse `meta-description` flake on #274:
+   * not request-to-request variance, but whether the audit samples before or after hydration. A
+   * crawler reading the raw HTML never sees the hoist at all, which is why the server-side position
+   * is the one that matters and the one asserted here.
+   */
   const placement = async (path: string) => {
-    await page.goto(path);
-    return page.evaluate(() => ({
-      description: document.querySelector('meta[name="description"]')?.closest('head') !== null,
-      canonical: document.querySelector('link[rel="canonical"]')?.closest('head') !== null,
-    }));
+    const body = await (await request.get(path)).text();
+    const headEnd = body.indexOf('</head>');
+    const at = (needle: string) => {
+      const i = body.indexOf(needle);
+      return i === -1 ? 'absent' : i < headEnd ? 'head' : 'body';
+    };
+    return { description: at('name="description"'), canonical: at('rel="canonical"') };
   };
 
-  // Every route measured is in <body>, including the PLP. An earlier measurement of mine reported
-  // the PLP as correct and it was wrong — re-measured on a clean build, in both locales, on repeat
-  // fetches, it is BODY like the rest. Corrected on #274, because "find what the PLP does
-  // differently" would have been a false lead.
   for (const path of [
     '/en-GB',
     '/en-GB/products',
@@ -106,8 +118,8 @@ test('metadata placement is still the #274 state — delete this when that lands
     '/de-DE/products',
   ]) {
     expect(await placement(path), `${path} moved to <head> — #274 may be fixed`).toEqual({
-      description: false,
-      canonical: false,
+      description: 'body',
+      canonical: 'body',
     });
   }
 });

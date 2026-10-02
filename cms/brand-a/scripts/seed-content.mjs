@@ -2,7 +2,8 @@
 /**
  * Push brand A's real content into the `brand-a` Sanity dataset.
  *
- *   node cms/brand-a/scripts/seed-content.mjs [--dry-run]
+ *   node cms/brand-a/scripts/seed-content.mjs --dry-run   # validate + print, writes nothing
+ *   node cms/brand-a/scripts/seed-content.mjs --yes       # actually write to the dataset
  *
  * **Why this is not `@platform/cms`'s own seed script.** That one pushes window 6's generic
  * fixtures — one document per type, deliberately minimal, shared by every brand as a smoke test.
@@ -37,6 +38,17 @@ const contentDir = path.resolve(here, '..', 'content');
 const DATASET = 'brand-a';
 
 const dryRun = process.argv.includes('--dry-run');
+
+/**
+ * Writing requires `--yes`.
+ *
+ * `createOrReplace` is idempotent with respect to *these files*, which is not the same as safe: it
+ * replaces whatever is in the dataset, so an editor's work in the Studio is overwritten without a
+ * word. Re-running this after someone has edited a page is a plausible accident, and the cost falls
+ * on a person who cannot see this script. So the destructive path is opt-in and the default
+ * explains itself.
+ */
+const confirmed = process.argv.includes('--yes');
 
 /** Every document in content/, in a stable order so a dry run diffs cleanly between invocations. */
 function readContent() {
@@ -80,6 +92,20 @@ if (dryRun || missing.length > 0) {
   }
   for (const doc of documents) console.log(`  would replace ${doc._id}`);
   process.exit(0);
+}
+
+if (!confirmed) {
+  console.log(
+    [
+      '',
+      `Refusing to write: this would REPLACE ${documents.length} documents in the "${DATASET}" dataset,`,
+      'including any edits made in the Studio since the last seed. That cannot be undone from here.',
+      '',
+      '  --dry-run   validate and print, writing nothing',
+      '  --yes       write to the dataset',
+    ].join('\n'),
+  );
+  process.exit(1);
 }
 
 const mutations = documents.map((doc) => ({ createOrReplace: doc }));

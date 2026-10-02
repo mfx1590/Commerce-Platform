@@ -268,7 +268,23 @@ describe('the legal copy is honest about what it is', () => {
     }
   });
 
-  it('records when each legal document was last reviewed', () => {
+  it('records when each legal document was last EDITED — not that a lawyer saw it', () => {
+    /**
+     * `lastReviewed` is required by window 6's schema and renders as "Last reviewed {date}". That
+     * wording is the CMS package's, not ours, and it sits uneasily beside this app saying the copy
+     * is unreviewed — review flagged the contradiction and it is fair.
+     *
+     * The honest reading, recorded here and in cms/brand-a/README.md: the date is when the text was
+     * last edited in this repository. It is NOT a legal review. The field cannot be dropped — the
+     * schema requires it — so it is documented instead.
+     */
+    const readme = readFileSync(
+      new URL('../../../../cms/brand-a/README.md', import.meta.url),
+      'utf8',
+    );
+    expect(readme, 'the README must say what lastReviewed does and does not mean').toMatch(
+      /lastReviewed/,
+    );
     for (const d of legal) expect(d.lastReviewed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
@@ -287,6 +303,39 @@ describe('every internal link resolves', () => {
     }
     return found;
   }
+
+  it.each(LOCALES)('%s: the footer lists no destination twice', (locale) => {
+    // The "Help" column repeated /legal/imprint and /legal/returns, which legalLinks already
+    // carried — every legal page appeared twice in the footer, in both locales.
+    const footer = documents.filter((d) => d._type === 'footer' && d.locale === locale);
+    const links = hrefs(footer);
+    const duplicated = [...new Set(links)].filter((h) => links.filter((x) => x === h).length > 1);
+    expect(duplicated, `the footer repeats ${duplicated.join(', ')}`).toEqual([]);
+  });
+
+  it.each(LOCALES)('%s: hero and block CTAs resolve too, not just the chrome', (locale) => {
+    // This walk covered navigation and footer only, while the README claimed "every internal link"
+    // — so a hero CTA could point anywhere and nothing noticed.
+    const pages = documents.filter(
+      (d) => d.locale === locale && (d._type === 'page' || d._type === 'campaignLanding'),
+    );
+    const pageSlugs = byType('page')
+      .filter((d) => d.locale === locale)
+      .map((d) => d.slug.current);
+    const legalSlugs = byType('legal')
+      .filter((d) => d.locale === locale)
+      .map((d) => d.slug.current);
+
+    const ctaHrefs = hrefs(pages);
+    expect(ctaHrefs.length, 'no CTAs found — the walk is broken').toBeGreaterThan(0);
+    for (const href of ctaHrefs) {
+      const resolved =
+        APP_ROUTES.some((r) => r.test(href)) ||
+        pageSlugs.some((sl) => href === `/pages/${sl}`) ||
+        legalSlugs.some((sl) => href === `/legal/${sl}`);
+      expect(resolved, `${locale}: CTA ${href} resolves to nothing`).toBe(true);
+    }
+  });
 
   it.each(LOCALES)(
     '%s: no navigation or footer link points at a page that does not exist',
@@ -342,6 +391,14 @@ describe('the routes render the real documents', () => {
     const body = text(out);
 
     expect(body).toContain(home!.hero!.headline);
+
+    // The productStory block, asserted positively. Review noted it was only ever checked
+    // negatively (that it did not render its "not available" state), which an empty block passes.
+    const story = home!.blocks?.find((b) => b._type === 'productStory') as
+      { headline: string; cta?: { label: string } } | undefined;
+    expect(story, 'the home page lost its productStory block').toBeDefined();
+    expect(body, 'the productStory headline is missing').toContain(story!.headline);
+    if (story!.cta) expect(body).toContain(story!.cta.label);
     expect(body.length).toBeGreaterThan(200);
     for (const empty of emptyStates(locale)) expect(body).not.toContain(empty);
   });
