@@ -520,6 +520,136 @@ describe('registry settings (Admin API 0.4.7, #279)', () => {
   });
 });
 
+// #308 review: updateStore read the store without a lock, so a set replacement acted on the default it had read
+// before a concurrent default change committed (new default row deleted or left unflagged, old default
+// re-flagged), and two overlapping replacements left the union. The store row is now locked before the read.
+describe('registry settings under concurrency (#308 review)', () => {
+  const rows = async (table: 'store_currency' | 'store_locale', storeId: string) => {
+    const column = table === 'store_currency' ? 'currency' : 'locale';
+    const r = await hq.query<{ value: string; is_default: boolean }>(
+      `SELECT ${column}::text AS value, is_default FROM ${table} WHERE store_id = $1 ORDER BY 1`,
+      [storeId],
+    );
+    return r.rows.map((x) => (x.is_default ? `${x.value}*` : x.value));
+  };
+  const fresh = (code: string) =>
+    createStore(
+      hq,
+      {
+        legal_entity_id: LE,
+        code,
+        name: code,
+        default_currency: 'EUR',
+        default_locale: 'en-GB',
+        default_country: 'NL',
+        currencies: ['EUR', 'GBP'],
+        locales: ['en-GB', 'de-DE'],
+      },
+      actor,
+    );
+
+  it('a replacement that starts while a default change is uncommitted waits for it: the new default keeps its row and is the only default', async () => {
+    const store = await fresh('race-held');
+    // T1, held open by hand: default → USD and set → [USD], exactly what updateStore writes. Its UPDATE of
+    // the store row holds the lock updateStore now asks for first.
+    let commitT1!: () => void;
+    const gate = new Promise<void>((resolve) => (commitT1 = resolve));
+    let t1Wrote!: () => void;
+    const wrote = new Promise<void>((resolve) => (t1Wrote = resolve));
+    const t1 = hq.transaction(async (tx) => {
+      await tx.query(`UPDATE store SET default_currency = 'USD' WHERE id = $1`, [store.id]);
+      await tx.query(`DELETE FROM store_currency WHERE store_id = $1 AND currency <> 'USD'`, [
+        store.id,
+      ]);
+      await tx.query(
+        `INSERT INTO store_currency (organization_id, store_id, currency, is_default)
+         VALUES ($1, $2, 'USD', true)`,
+        [ORG, store.id],
+      );
+      t1Wrote();
+      await gate;
+    });
+    await wrote;
+
+    // T2 starts now; unlocked, it had read "default EUR" here and later re-flagged EUR over T1's USD.
+    let settled = false;
+    const t2 = updateStore(hq, store.id, { currencies: ['EUR', 'GBP'] }, actor).finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(settled).toBe(false);
+    commitT1();
+    await t1;
+    const after = await t2;
+
+    // T1 then T2, as if they had run one after the other: USD is the default and has its row; T2's list
+    // replaced the rest.
+    expect(after.default_currency).toBe('USD');
+    expect(after.currencies).toEqual(['USD', 'EUR', 'GBP']);
+    expect(await rows('store_currency', store.id)).toEqual(['EUR', 'GBP', 'USD*']);
+  });
+
+  it('a default change racing a replacement (Promise.allSettled): the default row exists and the set is one serial outcome', async () => {
+    const store = await fresh('race-default');
+    for (let round = 0; round < 6; round++) {
+      const results = await Promise.allSettled([
+        updateStore(hq, store.id, { default_currency: 'USD', currencies: ['USD'] }, actor),
+        updateStore(hq, store.id, { currencies: ['EUR', 'GBP'] }, actor),
+      ]);
+      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      expect((await getStore(hq, store.id)).default_currency).toBe('USD');
+      // default change last → [USD]; replacement last → its list plus the (new) default
+      expect([['USD*'], ['EUR', 'GBP', 'USD*']]).toContainEqual(
+        await rows('store_currency', store.id),
+      );
+      await updateStore(hq, store.id, { default_currency: 'EUR', currencies: ['GBP'] }, actor);
+      expect(await rows('store_currency', store.id)).toEqual(['EUR*', 'GBP']);
+    }
+  });
+
+  it("two overlapping replacements leave one caller's set, never the union (currencies and locales)", async () => {
+    const store = await fresh('race-union');
+    for (let round = 0; round < 6; round++) {
+      const results = await Promise.allSettled([
+        updateStore(hq, store.id, { currencies: ['GBP'], locales: ['de-DE'] }, actor),
+        updateStore(hq, store.id, { currencies: ['CHF'], locales: ['fr-FR'] }, actor),
+      ]);
+      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      const currencies = await rows('store_currency', store.id);
+      const locales = await rows('store_locale', store.id);
+      expect([
+        ['EUR*', 'GBP'],
+        ['CHF', 'EUR*'],
+      ]).toContainEqual(currencies);
+      expect([
+        ['de-DE', 'en-GB*'],
+        ['en-GB*', 'fr-FR'],
+      ]).toContainEqual(locales);
+      // Both sets come from the same caller: the whole request is one transaction behind the lock.
+      expect(currencies.includes('GBP')).toBe(locales.includes('de-DE'));
+      await updateStore(hq, store.id, { currencies: [], locales: [] }, actor);
+    }
+  });
+
+  it('concurrent add-only calls (addCurrency / addLocale) both land', async () => {
+    const store = await fresh('race-add');
+    const results = await Promise.allSettled([
+      addCurrency(hq, store.id, 'JPY', {}, actor),
+      addCurrency(hq, store.id, 'CHF', {}, actor),
+      addLocale(hq, store.id, 'fr-FR', {}, actor),
+      addLocale(hq, store.id, 'nl-NL', {}, actor),
+    ]);
+    expect(results.map((r) => r.status)).toEqual([
+      'fulfilled',
+      'fulfilled',
+      'fulfilled',
+      'fulfilled',
+    ]);
+    expect(await rows('store_currency', store.id)).toEqual(['CHF', 'EUR*', 'GBP', 'JPY']);
+    expect(await rows('store_locale', store.id)).toEqual(['de-DE', 'en-GB*', 'fr-FR', 'nl-NL']);
+  });
+});
+
 describe('outbox helper', () => {
   it('an invalid event aborts the whole transaction (no row, no outbox entry)', async () => {
     const store = (await listStores(hq)).items.find((s) => s.code === 'brand-a')!;

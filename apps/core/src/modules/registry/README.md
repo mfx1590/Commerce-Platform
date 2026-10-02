@@ -42,7 +42,11 @@ Rules the module enforces:
   `locales[]` / `currencies[]` are **sets** (Admin API 0.4.7, #279): a list given on create or update REPLACES
   the enabled set — rows outside it are deleted, missing ones inserted, and the default (given in the same
   request, or the current one) is always kept; `[]` leaves the default alone; an omitted field leaves the set
-  unchanged. Removing a currency or locale that is still in use is not blocked: no foreign key references
+  unchanged. "Current" means current when the write happens: `updateStore`, `addLocale` and `addCurrency` lock
+  the store row first (`lockStore`, `FOR NO KEY UPDATE` — inserts that reference the store are not held up) and
+  only then read the default and the sets, so overlapping updates run one after the other; a replacement can
+  no longer delete a default row a concurrent request just made, nor can two replacements leave the union
+  (#308 review; concurrency tests in `registry.test.ts`). Removing a currency or locale that is still in use is not blocked: no foreign key references
   the two tables (a test pins that; if one ever refuses the delete the answer is 409 naming the constraint),
   existing carts keep reading in their currency, new carts and product reads refuse it. Every store read
   returns `currencies` / `locales`, default first. Codes are lowercase kebab-case, currencies ISO-4217, countries ISO-3166-1 alpha-2.

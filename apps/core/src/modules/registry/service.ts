@@ -143,6 +143,22 @@ async function loadStore(tx: Queryable, id: string): Promise<StoreRow> {
 }
 
 /**
+ * Locks the store row for the rest of the transaction, THEN reads it with its sets. Everything that rewrites
+ * the enabled sets or the defaults goes through this: without it two overlapping set replacements each act on
+ * the store they read before the other committed — the second one deletes the first one's new default row and
+ * re-flags the old default, or the two leave the union neither asked for (#308 review). The read is a second
+ * statement on purpose: under READ COMMITTED a statement that waited for the lock still evaluates its
+ * sub-selects on the snapshot it started with, so lock-and-read in one statement would return stale sets.
+ * `FOR NO KEY UPDATE` is the lock an ordinary UPDATE of the row takes: writers of the store queue, while
+ * inserts that reference the store (carts, orders — `FOR KEY SHARE` on this row) are not held up.
+ */
+async function lockStore(tx: Queryable, id: string): Promise<StoreRow> {
+  const locked = await tx.query('SELECT id FROM store WHERE id = $1 FOR NO KEY UPDATE', [id]);
+  if (!locked.rows[0]) throw notFound('store', id);
+  return loadStore(tx, id);
+}
+
+/**
  * A foreign key that refuses the removal of an enabled locale/currency is a 409 naming the constraint — never
  * a 500 and never a cascade. (No constraint references either table today; registry.test.ts pins that.)
  */
@@ -346,7 +362,7 @@ export async function updateStore(
   const organizationId = organizationOf(client);
 
   return client.transaction(async (tx) => {
-    const before = await loadStore(tx, id);
+    const before = await lockStore(tx, id);
     const sets: string[] = [];
     const params: unknown[] = [id];
     for (const col of STORE_COLUMNS) {
@@ -608,7 +624,7 @@ export async function addLocale(
     await updateStore(client, storeId, { default_locale: locale }, actor);
   } else {
     await client.transaction(async (tx) => {
-      const store = await loadStore(tx, storeId);
+      const store = await lockStore(tx, storeId);
       // Add-only: the current set plus the new locale; currencies untouched.
       await syncStoreSets(
         tx,
@@ -646,7 +662,7 @@ export async function addCurrency(
     await updateStore(client, storeId, { default_currency: currency }, actor);
   } else {
     await client.transaction(async (tx) => {
-      const store = await loadStore(tx, storeId);
+      const store = await lockStore(tx, storeId);
       // Add-only: the current set plus the new currency; locales untouched.
       await syncStoreSets(
         tx,

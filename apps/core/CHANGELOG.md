@@ -17,6 +17,10 @@
   before/after sets (a repeat emits nothing). `getStore` / `listStores` / `createStore` / `updateStore` return
   `currencies` and `locales`, default first. Removing a set member that is still in use is not blocked; an
   existing cart in a removed currency still reads (tested).
+- **The store row is locked before the sets are read** (#308 review): `updateStore`, `addLocale`, `addCurrency`
+  take `FOR NO KEY UPDATE` on the store row, then read. Unlocked, a replacement that had read the old default
+  could delete or un-flag the row of a default a concurrent request had just committed (the store row said USD,
+  `store_currency` flagged EUR), and two overlapping replacements left the union neither caller asked for.
 - **`revokeApiKey`** (`POST /admin/stores/{storeId}/api-keys/{keyId}/revoke`, store_admin): idempotent; 409
   `last_live_key` for the store's last publishable key with `revoked_at IS NULL` (rows locked: two concurrent
   revokes cannot both pass); `store.updated` `changed_fields: ['api_keys']`, no key material. **Behaviour
