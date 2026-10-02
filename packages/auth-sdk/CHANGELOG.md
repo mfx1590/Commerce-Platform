@@ -102,3 +102,11 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   `email` scope). `verifyEmail` stays `false` in the dev export (no SMTP locally; production setting on #297).
   Tests: `test/customer-claims.test.ts` (verified, unverified, absent, string `"true"`, `null`, other truthy
   values; live: jane and a freshly self-registered user), two static realm tests.
+- REQUEST #314 (hardening after #313): `createStaffTokenVerifier` — and through it
+  `createCustomerTokenVerifier` — throws at construction when `jwksUri` is set and `NODE_ENV === 'production'`.
+  Tests in `test/customer-claims.test.ts`: the guard on both verifiers; the default path fetches the JWKS from
+  the issuer's own `certs` URL; with `jwksUri` set, a token signed by a different key, expired, from the wrong
+  issuer, for the wrong audience or for the wrong store is still a 401; live: a verified user who changes
+  their email through the account API is not verified for the new address. Test hygiene: users this file
+  registers are tracked by email prefix before the registration POST, and cleanup throws when the admin API
+  refuses. `infra/keycloak/README.md`: the Google `trustEmail` sentence now says it is not measured live.

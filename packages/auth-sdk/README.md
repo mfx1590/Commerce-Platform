@@ -58,6 +58,9 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
 - `verifyCustomerToken(header, expectedStoreCode)` / `createCustomerTokenVerifier(opts)` — customers-realm
   JWKS plus the store binding: a token stamped for another brand is 401 `store_mismatch`, a missing claim 401
   `no_store_code`.
+- `jwksUri` on either verifier's options is a test-only override: the constructor throws when it is set and
+  `NODE_ENV === 'production'`. In production the keys always come from the issuer's own
+  `…/protocol/openid-connect/certs`.
 - **Email is identity only when `emailVerified`.** `CustomerClaims.emailVerified` is `true` ONLY when the
   token's `email_verified` claim is the boolean `true`; absent, `null`, the string `"true"` or anything else
   is `false`. The customers realm allows self-registration, so anyone can hold a token whose `email` is an

@@ -24,7 +24,7 @@ export interface CustomerTokenVerifierOptions {
   /** `KEYCLOAK_REALM_CUSTOMERS`, default `customers`. */
   realm?: string;
   audience?: string;
-  /** Override the JWKS URL (tests). */
+  /** Override the JWKS URL (tests only — the constructor throws when `NODE_ENV === 'production'`). */
   jwksUri?: string;
 }
 
