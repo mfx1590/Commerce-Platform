@@ -355,6 +355,31 @@ describe('email collision: the token email is already on a row of this store', (
     expect(await totals()).toEqual(after);
   });
 
+  it('rows that differ only by letter case: a verified token adopts NEITHER — 409, nothing written (no guess which one is the person)', async () => {
+    // UNIQUE (store_id, email) is case-sensitive, so both rows can exist; the lookup is case-insensitive.
+    const upper = await insertRow(A, 'Case.Twin@example.test');
+    const lower = await insertRow(A, 'case.twin@example.test');
+    const before = await totals();
+    const identity = who('case.twin', { subject: 'sub-twin', emailVerified: true });
+    await expect(resolveCustomer(a, scopeA, identity)).rejects.toMatchObject({
+      code: 'conflict',
+      status: 409,
+      details: {},
+    });
+    await expect(
+      registerCustomer(a, scopeA, identity, { email: 'case.twin@example.test' }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(await totals()).toEqual(before);
+    const stored = await rowsOf(A, 'case.twin@example.test');
+    expect(stored.map((r) => r.id).sort()).toEqual([upper, lower].sort());
+    expect(stored.map((r) => [r.keycloak_subject, r.status])).toEqual([
+      [null, 'guest'],
+      [null, 'guest'],
+    ]);
+    expect(await events(upper)).toEqual([]);
+    expect(await events(lower)).toEqual([]);
+  });
+
   it('an UNVERIFIED email never adopts: 409 conflict, nothing written, the row keeps no subject', async () => {
     const guestId = await insertRow(A, 'second.guest@example.test');
     const before = await totals();

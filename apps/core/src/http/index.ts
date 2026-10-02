@@ -47,7 +47,6 @@ export {
   createPaymentSessionRoute,
   getCartRoute,
   getOrderRoute,
-  getOrderRouteWith,
   listShippingOptionsRoute,
   getProductRoute,
   getStoreRoute,
@@ -61,13 +60,12 @@ export {
   updateCartRoute,
   updateLineItemRoute,
 } from './store-routes';
+// Nothing that ACCEPTS a customer token verifier is exported here except through mountStoreRoutes: the route
+// factories (`mountCustomerRoutes`, `getOrderRouteWith`, `requireCustomer`) stay inside src/http.
 export {
   CUSTOMER_STORE_PATHS,
   customerTokenVerifierFor,
-  identityOf,
   keycloakCustomerTokenVerifier,
-  mountCustomerRoutes,
-  requireCustomer,
 } from './customer-routes';
 export type { CustomerTokenVerifier } from './customer-routes';
 export { adminRouter } from './admin-routes';

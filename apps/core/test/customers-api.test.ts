@@ -21,6 +21,8 @@ import {
   REAL_STORE_PATHS,
   type CustomerTokenVerifier,
 } from '../src/http';
+import { mountCustomerRoutes } from '../src/http/customer-routes';
+import { getOrderRouteWith } from '../src/http/store-routes';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -187,6 +189,55 @@ describe('authentication: publishable key AND a customer token for this store', 
   it('an unauthenticated caller learns nothing about the body rules (401, not 400)', async () => {
     const res = await guest('post', '/store/customers').send({ nonsense: true });
     expect(res.status).toBe(401);
+  });
+
+  it('the JSON body parser is on POST /store/customers only: a GET that carries a garbage body is unaffected', async () => {
+    const garbage = '{"broken": ';
+    // http.request, not supertest: the body must really travel with the GET.
+    const server = http.createServer(app);
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const getWithBody = (path: string, token: string | null) =>
+      new Promise<number>((resolve, reject) => {
+        const req = http.request(
+          {
+            host: '127.0.0.1',
+            port: (server.address() as AddressInfo).port,
+            path,
+            method: 'GET',
+            headers: {
+              'X-Publishable-Key': KEY_A,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(garbage),
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+          },
+          (res) => {
+            res.resume();
+            res.on('end', () => resolve(res.statusCode ?? 0));
+          },
+        );
+        req.on('error', reject);
+        req.end(garbage);
+      });
+    try {
+      for (const path of ['/store/customers/me', '/store/customers/me/orders']) {
+        expect(await getWithBody(path, 'jane')).toBe(200);
+        // the token rule, not a 400 about a body nobody reads
+        expect(await getWithBody(path, null)).toBe(401);
+      }
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+    // On the one route that reads a body, JSON that does not parse is a 400 — before the token check
+    // (accepted choice 10: the parser runs ahead of the handler).
+    for (const token of ['jane', null]) {
+      const res = await as(token, 'post', '/store/customers')
+        .set('Content-Type', 'application/json')
+        .send(garbage);
+      expect(res.status).toBe(400);
+      spec.assertSchema('Error', res.body);
+      expect(res.body.code).toBe('validation_error');
+    }
   });
 
   it('a disabled customer is a 401 on every route; a token without an email cannot create a customer', async () => {
@@ -472,6 +523,13 @@ describe('the verifier seam is code-only and never reaches production', () => {
       expect(() => mountStoreRoutes(express(), fakeVerifier)).toThrow(
         /never accepted in production/,
       );
+      // every function that accepts a verifier refuses it itself — no door past the seam
+      expect(() => mountCustomerRoutes(express(), fakeVerifier)).toThrow(
+        /never accepted in production/,
+      );
+      expect(() => getOrderRouteWith(fakeVerifier)).toThrow(/never accepted in production/);
+      expect(() => mountCustomerRoutes(express())).not.toThrow();
+      expect(() => getOrderRouteWith()).not.toThrow();
       expect(() =>
         mountCoreMiddleware(express(), new DevTokenVerifier(), {
           customerTokenVerifier: fakeVerifier,

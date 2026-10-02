@@ -86,7 +86,13 @@ export const CUSTOMER_STORE_PATHS = [
   'GET /store/customers/me/orders',
 ] as const;
 
-export function mountCustomerRoutes(app: express.Express, verifier: CustomerTokenVerifier): void {
+/**
+ * Mounts the customer routes. The verifier goes through `customerTokenVerifierFor` HERE as well: every function
+ * that accepts a verifier refuses a non-default one in production itself, so there is no way round the seam by
+ * calling a lower-level function. Not exported from src/http/index.ts — `mountStoreRoutes` is the entry.
+ */
+export function mountCustomerRoutes(app: express.Express, override?: CustomerTokenVerifier): void {
+  const verifier = customerTokenVerifierFor(override);
   const registerRoute: RequestHandler = handle(async (req, res) => {
     const t = requireTenant(req);
     // The token first: an unauthenticated caller learns nothing about the body rules.
@@ -125,8 +131,10 @@ export function mountCustomerRoutes(app: express.Express, verifier: CustomerToke
     );
   });
 
-  app.use('/store/customers', express.json({ limit: '64kb' }));
-  app.post('/store/customers', registerRoute);
+  // The JSON body parser sits on the ONE route that reads a body. Mounted on the prefix it would also parse —
+  // and answer 400 for — a malformed body sent along with a GET, and it would consume the stream of the
+  // customer paths that still go to the fallback proxy.
+  app.post('/store/customers', express.json({ limit: '64kb' }), registerRoute);
   app.get('/store/customers/me', getMeRoute);
   app.get('/store/customers/me/orders', listMyOrdersRoute);
 }

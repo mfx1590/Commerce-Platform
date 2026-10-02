@@ -2,6 +2,17 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-02 · customer self-service, part A — review fixes (#318)
+
+- The JSON body parser is mounted on `POST /store/customers` only (it was on the whole `/store/customers`
+  prefix, so a GET with a malformed body answered 400).
+- Every function that accepts a customer token verifier (`mountStoreRoutes`, `mountCustomerRoutes`,
+  `getOrderRouteWith`) refuses a non-default one in production itself; the two route factories and
+  `requireCustomer` left `src/http/index.ts`. A guard lists the exact call sites in non-test source.
+- Test for an accepted rule that had none: rows whose email differs only by letter case → 409, nothing adopted.
+- Recorded deviation: `GET /store/customers/me/orders` answers 400 on an invalid `page` / `limit` (house rule
+  for an invalid query, not clamped); Store API 0.5.1 does not document it yet.
+
 ### 2026-10-02 · catalog: one statement at a time on a transaction client
 
 - `loadAggregates` (catalog, since Phase 1) issued three and then two queries at once on ONE transaction

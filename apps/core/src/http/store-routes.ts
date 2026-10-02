@@ -35,7 +35,6 @@ import {
   CUSTOMER_STORE_PATHS,
   customerTokenVerifierFor,
   identityOf,
-  keycloakCustomerTokenVerifier,
   mountCustomerRoutes,
   type CustomerTokenVerifier,
 } from './customer-routes';
@@ -258,8 +257,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * `email_verified` — guest orders placed with the token's email. An unverified email opens nothing by itself.
  * This route never creates a customer row; a disabled or erased customer's token opens nothing.
  */
-export const getOrderRouteWith = (verifier: CustomerTokenVerifier): RequestHandler =>
-  handle(async (req, res) => {
+export const getOrderRouteWith = (override?: CustomerTokenVerifier): RequestHandler => {
+  // Refused in production for anything but the default — here too, not only in mountStoreRoutes.
+  const verifier = customerTokenVerifierFor(override);
+  return handle(async (req, res) => {
     const t = requireTenant(req);
     const orderIdRaw = one(req.params.orderId) ?? '';
     if (!UUID.test(orderIdRaw)) throw notFound('order', orderIdRaw);
@@ -287,8 +288,9 @@ export const getOrderRouteWith = (verifier: CustomerTokenVerifier): RequestHandl
       await getStoreOrder(t.client, orderId, { customerId, email: emailRaw, verifiedEmail }),
     );
   });
+};
 
-export const getOrderRoute: RequestHandler = getOrderRouteWith(keycloakCustomerTokenVerifier);
+export const getOrderRoute: RequestHandler = getOrderRouteWith();
 
 /** The Store API paths the core answers itself (README "What is real"; the fallback proxy covers the rest). */
 export const REAL_STORE_PATHS = [

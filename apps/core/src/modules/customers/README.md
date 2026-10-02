@@ -22,7 +22,10 @@ the subject and the email come from the **token only** — never from a request 
 every read and write inside the store of the key.
 
 `GET /store/customers/me/orders` is the orders module's `listStoreOrders` (the route calls it with the resolved
-customer id). `updateMe` and the address operations follow in the next PR (see "Known gaps").
+customer id). An invalid `page` / `limit` there is a 400 `validation_error` — the house rule for an invalid
+query (as on `listProducts`), **not clamped**. Store API 0.5.1 does not document that 400 on `listMyOrders` yet:
+a recorded deviation on #303, added to the contract at the next landing. `updateMe` and the address operations
+follow in the next PR (see "Known gaps").
 
 ## Rules
 
@@ -34,6 +37,8 @@ customer id). `updateMe` and the address operations follow in the next PR (see "
     (`customer.link`);
   - anything else → 409 `conflict`, nothing written. An unverified email never adopts: the customers realm has
     open registration, so anyone can hold a token with any unverified address.
+  - **several rows whose email differs only by letter case** (the table's unique index is case-sensitive, the
+    lookup is not) → 409 as well, even for a verified token: there is no guessing which row is the person.
 - **Disabled and erased** customers are a 401 on every route and are never provisioned again — also when the
   row has no subject yet and a verified token arrives for its email.
 - **A token without an email** reads an existing customer; it cannot create one (401, `reason: no_email`).
@@ -46,8 +51,8 @@ customer id). `updateMe` and the address operations follow in the next PR (see "
   email at Keycloak (see "Known gaps"). Wherever the row's email meets an order's email it is compared
   case-insensitively (`lower()` on both sides) — an order keeps the checkout email as typed.
 - **Body rules come after the token**: every body rule of `registerCustomer` is checked after authentication.
-  The one exception is JSON that does not parse — the body parser runs before the route, so that is a 400 for
-  anyone.
+  The one exception is JSON that does not parse — the body parser runs before the handler, so that is a 400
+  for anyone. The parser is on `POST /store/customers` only: a GET that carries a body is not parsed at all.
 
 ## Known gaps
 

@@ -140,6 +140,43 @@ describe('structural guards', () => {
     expect(seam.replace(resolver, '')).not.toContain('process.env');
   });
 
+  it('no non-test code hands a customer token verifier to a route factory, except the chain itself (#318 review)', () => {
+    // Every CALL of the three functions that accept a verifier, in non-test source. The list is exact: a new
+    // caller — or a new argument at an existing one — fails here and has to be justified in review.
+    const calls: string[] = [];
+    for (const f of files.filter((x) => !x.rel.endsWith('.test.ts'))) {
+      for (const m of f.text.matchAll(
+        /(?<!function )\b(mountStoreRoutes|mountCustomerRoutes|getOrderRouteWith)\(([^()]*)\)/g,
+      )) {
+        calls.push(`${f.rel}: ${m[1]}(${m[2]!.replace(/\s+/g, ' ').trim()})`);
+      }
+    }
+    expect(calls.sort()).toEqual([
+      // the default verifier
+      'http/store-routes.ts: getOrderRouteWith()',
+      // inside mountStoreRoutes: `customerVerifier` is customerTokenVerifierFor(…)'s result
+      'http/store-routes.ts: getOrderRouteWith(customerVerifier)',
+      'http/store-routes.ts: mountCustomerRoutes(app, customerVerifier)',
+      // inside mountCoreMiddleware: `customerTokenVerifier` is customerTokenVerifierFor(opts.…)'s result
+      'server.ts: mountStoreRoutes(app, customerTokenVerifier)',
+    ]);
+    // the factories are not part of the HTTP layer's public index
+    const index = files.find((f) => f.rel === 'http/index.ts')!.text;
+    const exported = index.replace(/^\s*\/\/.*$/gm, '');
+    for (const name of ['mountCustomerRoutes', 'getOrderRouteWith', 'requireCustomer']) {
+      expect(exported).not.toContain(name);
+    }
+    // and each of them resolves its verifier through the production-refusing function
+    const seam = files.find((f) => f.rel === 'http/customer-routes.ts')!.text;
+    const storeRoutes = files.find((f) => f.rel === 'http/store-routes.ts')!.text;
+    expect(seam).toMatch(
+      /export function mountCustomerRoutes\([^)]*\): void \{\s*const verifier = customerTokenVerifierFor\(override\);/,
+    );
+    expect(storeRoutes).toMatch(
+      /export const getOrderRouteWith = \([^)]*\): RequestHandler => \{\s*(?:\/\/[^\n]*\s*)*const verifier = customerTokenVerifierFor\(override\);/,
+    );
+  });
+
   it('no Promise.all / allSettled / race over queries of ONE transaction client (tx.query): a connection runs one statement at a time', () => {
     // The argument of every Promise.all(…) / allSettled(…) / race(…) in non-test source, parentheses balanced.
     const offenders: string[] = [];
