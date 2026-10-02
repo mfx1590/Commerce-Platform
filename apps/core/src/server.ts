@@ -11,6 +11,7 @@ import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
 import {
+  adminNotFound,
   aliasPublishableKeyHeader,
   coreErrorHandler,
   adminRouter,
@@ -183,7 +184,7 @@ export function mountCoreMiddleware(
     hqRbacAdapter({ fga, ...(opts.onRoleChange ? { onRoleChange: opts.onRoleChange } : {}) }),
   );
   // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): x-permission from the spec (OpenFGA
-  // for real tokens), then the module services. Every other /admin path falls through to Medusa.
+  // for real tokens), then the module services. Every other /admin path ends in createServer()'s terminal 404.
   app.use(adminRouter());
   // Admin routers other modules export (src/http/module-routers.ts — the named mount point, #162 part 3).
   for (const router of opts.moduleRouters ?? []) app.use(router);
@@ -232,6 +233,10 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
     });
   }
+  // #265: an /admin path none of the routers above answered is the contract's 404 — decided here, before
+  // Medusa's loaders register its own admin auth (which answers 401 to a signed-in staff user). Not part of
+  // mountCoreMiddleware: module tests mount their router after that chain.
+  app.use('/admin', adminNotFound);
 
   const { container, shutdown } = await loaders({ directory, expressApp: app });
   const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);

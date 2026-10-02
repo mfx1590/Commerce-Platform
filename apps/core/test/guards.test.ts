@@ -107,6 +107,17 @@ describe('structural guards', () => {
     }
   });
 
+  it('createServer() mounts the terminal /admin 404 after our chain and before Medusa loads (#265)', () => {
+    const server = files.find((f) => f.rel === 'server.ts')!.text;
+    const body = server.slice(server.indexOf('export async function createServer'));
+    const chain = body.indexOf('mountCoreMiddleware(app');
+    const terminal = body.indexOf("app.use('/admin', adminNotFound)");
+    const medusa = body.indexOf('await loaders(');
+    expect(chain).toBeGreaterThan(-1);
+    expect(terminal).toBeGreaterThan(chain);
+    expect(medusa).toBeGreaterThan(terminal);
+  });
+
   it('modules import the outbox helper through its index only', () => {
     const offenders = files
       .filter((f) => !f.rel.startsWith('outbox/'))

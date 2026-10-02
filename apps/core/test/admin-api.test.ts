@@ -8,6 +8,7 @@ import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  adminNotFound,
   coreErrorHandler,
   DevTokenVerifier,
   hasPermission,
@@ -75,6 +76,8 @@ beforeAll(async () => {
     ),
     (_req, res) => res.json({ items: [] }),
   );
+  // What createServer() mounts between our chain and Medusa's loaders (#265).
+  app.use('/admin', adminNotFound);
   app.use(coreErrorHandler);
 }, 180_000);
 
@@ -118,6 +121,46 @@ describe('X-Contracts-Version (#284)', () => {
       expect(res.headers['x-contracts-version']).toBe(CONTRACTS_VERSION);
     }
     expect(CONTRACTS_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe('unmounted /admin paths (#265)', () => {
+  it('answer the contract 404 to any authenticated staff user and 401 to everyone else; mounted routes keep their auth', async () => {
+    // Window 4's exact request: customers is window 13's module, not mounted in the core.
+    const path = `/admin/stores/${A}/customers`;
+    const query = '?page=1&limit=20&sort=created_at&order=desc';
+    // No permission is checked for a route that does not exist: every role gets the same 404, never a 403 —
+    // store staff asking through a store they cannot see (brand-b) included.
+    for (const res of [
+      await storeAdmin.get(path + query),
+      await analyst.get(path + query),
+      await storeStaff.get(`/admin/stores/${B}/customers`),
+    ]) {
+      expect(res.status).toBe(404);
+      spec.assertSchema('Error', res.body);
+      expect(res.body.code).toBe('not_found');
+      expect(res.body.details).toEqual({});
+      expect(res.headers['x-contracts-version']).toBe(CONTRACTS_VERSION);
+    }
+    // The message names method and path, never the query string.
+    expect((await storeAdmin.get(path + query)).body.message).toBe(
+      `GET /admin/stores/${A}/customers is not implemented`,
+    );
+    const posted = await owner.post('/admin/nothing-here', { any: 'body' });
+    expect(posted.status).toBe(404);
+    expect(posted.body.message).toBe('POST /admin/nothing-here is not implemented');
+
+    // Without a valid staff token our own auth answers first: the route table stays unknown to anonymous callers.
+    const anonymous = await request(app).get(path);
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.body.code).toBe('unauthorized');
+    const badToken = await request(app).get(path).set('Authorization', 'Bearer not-a-staff-token');
+    expect(badToken.status).toBe(401);
+
+    // Mounted routes are untouched: 401 without a token, 403 without the permission.
+    expect((await request(app).get('/admin/stores')).status).toBe(401);
+    expect((await storeStaff.post('/admin/stores', {})).status).toBe(403);
+    expect((await storeAdmin.get(`/admin/_probe/stores/${A}/customers`)).status).toBe(200);
   });
 });
 

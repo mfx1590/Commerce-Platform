@@ -4,7 +4,7 @@ import './types';
 export { aliasPublishableKeyHeader } from './publishable-key-alias';
 export { requestIdMiddleware, requestIdOf } from './request-id';
 export { CONTRACTS_VERSION_HEADER, contractsVersionHeader } from './contracts-version';
-export { coreErrorHandler, handle } from './errors';
+export { adminNotFound, coreErrorHandler, handle } from './errors';
 export {
   coreOrganizationId,
   requireTenant,
