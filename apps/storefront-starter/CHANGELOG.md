@@ -1,5 +1,32 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.1 — 2026-10-01
+
+Issue #274. No contract change.
+
+- **Page metadata is in `<head>` for every user agent.** Title, description, canonical, the
+  `hreflang` alternates and the og/twitter tags were written into `<body>` on every route for
+  browsers, Lighthouse and Googlebot: since Next 15.2 `generateMetadata` is streamed unless the user
+  agent matches `htmlLimitedBots`, and the default pattern covers little more than link-preview
+  bots. Google ignores `hreflang` outside `<head>`, so the locale annotations were invisible to it.
+  `next.config.mjs` now sets `htmlLimitedBots: /.*/`, and the middleware names a request that
+  arrives with no `User-Agent` header, which Next would otherwise always stream.
+- **`e2e/seo-head.spec.ts`** asserts the byte offset of each tag against `</head>` in the served
+  HTML — raw requests, twice per route, five user agents including none, both locales — and
+  `test/seo-head.test.ts` pins the pattern in the unit run. The root layout's comment cited that
+  unit test before it existed and attributed head placement to the wrong cause; both are corrected.
+- **Lighthouse SEO budget 90 → 95** (`lighthouserc.json`), ending the deviation from #110 recorded
+  on 2026-09-21. Measured against the mock, three runs per URL: SEO was 100, 92, 92 on both the
+  listing and the product page and is 100, 100, 100 on both; performance 100/99/99 and 99/99/99
+  before, 100/99/99 on both after; server response time 19–30 ms warm before, 17–25 ms after.
+- **Brands:** a brand app picks this up from `next.config.mjs` and `src/middleware.ts` on re-sync. A
+  test that pins the old placement (metadata after `</head>`) is expected to fail afterwards and
+  should be turned round to assert `<head>`.
+- **JSON-LD price for currencies that are not two-decimal.** `priceString` knew only JPY and KRW as
+  zero-decimal, so a VND or CLP offer was published a hundred times too low and a KWD or BHD one
+  ten times too high. It now uses the kit's `minorUnitDigits` — the same exponent `Price` divides
+  by — so the structured price cannot disagree with the one on the page.
+
 ## 0.12.0 — 2026-09-24
 
 Task [storefront] 2.4 (issue #112), contracts `contracts-v0.4.4` (Store API 0.3.1). Closes Phase 2
