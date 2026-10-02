@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.7
+  version: 0.4.8
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -468,6 +468,7 @@ paths:
                   message: the store's last live publishable key cannot be revoked,
                   details: { key_id: 40000000-0000-4000-8000-000000000101 },
                 }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /admin/warehouses:
     get:
@@ -3858,6 +3859,8 @@ components:
           settings,
           created_at,
           updated_at,
+          currencies,
+          locales,
         ]
       properties:
         id: { type: string, format: uuid }

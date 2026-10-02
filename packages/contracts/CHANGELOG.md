@@ -79,3 +79,17 @@
 - Store API 0.5.0 (22 operations): the typed review shape (#270) — `Review` (author is a display name provided or chosen AT REVIEW TIME, never derived from the account: the manager's PII constraint, in the schema comment), `ReviewSummary` (`average` null when count is 0, never 0), `ReviewPage`, optional `Product.review_summary` (omitted = no reviews feature, null/summary = has one), and read-only `GET /store/products/{handle}/reviews`. The storefront deletes its free-form `attributes.reviews` parser when a producer exists; until then the shape is authoritative for feeds and JSON-LD.
 - Admin API 0.4.7 (111 operations): #264 customers — `listCustomerAddresses` (`support`, extends the shared `Address`), `exportCustomer` (202, `store_admin`; bundle format is window 13's Phase 3 decision), `listCustomerGroups` (`viewer`); #279 registry — `revokeApiKey` (idempotent, 409 `last_live_key` on the store's last live publishable key), `PATCH /admin/stores/{storeId}/domains/{domainId}` (`owner`, moves the primary; clearing the current primary is 409), `Store.currencies`/`locales` in the response — OPTIONAL until window 1's registry bundle returns them (recorded deviation on #279; the bundle flips both to required) — with `StoreInput` replace-the-whole-set semantics.
 - `ERROR_CODES` += `last_live_key`. `CONTRACTS_VERSION = '0.4.7'`; types regenerated. Core-side registry work (set replacement, revoke, primary move) is window 1's, bundled with #265 and #284.
+
+## 0.4.8 — 2026-10-02 (#279 required flip + #303 customer self-service + CONTRACT CHANGE #310; contracts-v0.4.8)
+
+- Admin API 0.4.8 (111 operations, unchanged): `Store.currencies` and `Store.locales` are **required** — the recorded 0.4.7 deviation
+  (optional until the core returned them) ends with core #308; `revokeApiKey` documents `400` (malformed key id).
+- Store API 0.5.1 (22 operations, unchanged): `registerCustomer` documents `200` (the row already existed; names and consent applied),
+  `400` (body `email` differs from the token's — subject and email always come from the customer token) and `409` (`conflict`: the email
+  belongs to a row that cannot be adopted); the `/store/customers/me*` operations create the store-level row from the verified token on
+  first use and document `409` for the same collision (`addMyAddress` also gains the missing `401`); `createCart` and `completeCart`
+  accept an OPTIONAL customer token (#310): a valid token links the cart / the placed order to that customer, a token that is sent but
+  invalid is a `401` and never ignored, a cart linked to another customer is a `409` `conflict` at completion. New shared `Conflict`
+  response. No schema change: neither `Cart` nor `Order` exposes `customer_id`.
+- `CONTRACTS_VERSION = '0.4.8'`; types regenerated. Producers: window 1 (#303 PR A/B/C). Consumers: window 3 (the storefront sends the
+  customer token on cart create/complete when signed in), window 4 (settings cards may rely on the sets), brands by re-sync.
