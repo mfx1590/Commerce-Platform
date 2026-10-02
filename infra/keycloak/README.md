@@ -50,6 +50,10 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 
 ## Customers realm
 
+- **Customers cannot change their email (#314).** `registrationEmailAsUsername: true` with
+  `editUsernameAllowed: false` makes `email` read-only in the account console (measured: the account API
+  answers 204 and ignores a new address). Do not change either setting without first measuring that an email
+  change resets `email_verified` — auth-sdk's `emailVerified` rule depends on it.
 - Self-registration (email as username), password reset, remember-me. Email verification is off locally
   (no SMTP); turn `verifyEmail` on where an SMTP server is configured.
 - **`email_verified` claim (#307).** Every client carries the `email verified` mapper (user property

@@ -215,6 +215,11 @@ interface Tokens {
   access_token: string;
   refresh_token: string;
 }
+/** The account API's own profile representation (what the account console reads and posts back). */
+interface AccountProfile {
+  email?: string;
+  userProfileMetadata?: { attributes: { name: string; readOnly: boolean }[] };
+}
 
 function rawClaims(jwt: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(jwt.split('.')[1] ?? '', 'base64url').toString()) as Record<
@@ -385,7 +390,7 @@ describe.runIf(live)('CustomerClaims.emailVerified (live Keycloak)', () => {
 
   // #314: #303 links guest orders by a verified email, so a verified user must not be able to move to
   // another address and keep the verification. The request below is the one the account console sends.
-  it('a verified user who changes their email is not verified for the new address', async () => {
+  it('a verified user cannot move to another address: the account API ignores the change, the token keeps the original', async () => {
     const tag = freshTag();
     const original = `${tag}@example.com`;
     const moved = `${tag}.moved@example.com`;
@@ -398,23 +403,31 @@ describe.runIf(live)('CustomerClaims.emailVerified (live Keycloak)', () => {
     const asUser = { authorization: `Bearer ${tokens.access_token}`, accept: 'application/json' };
     const profile = await fetch(account, { headers: asUser });
     expect(profile.status, 'account API: read own profile').toBe(200);
-    await fetch(account, {
+    const before = (await profile.json()) as AccountProfile;
+    const changed = await fetch(account, {
       method: 'POST',
       headers: { ...asUser, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...((await profile.json()) as object), email: moved }),
+      body: JSON.stringify({ ...before, email: moved }),
     });
+    const after = (await (await fetch(account, { headers: asUser })).json()) as AccountProfile;
 
     const next = rawClaims((tokens = await refresh(tokens)).access_token);
     const carried = { email: next.email, email_verified: next.email_verified };
     // SECURITY FINDING if this fails — stop and report (#314): the token vouches for an unverified address.
     expect(carried).not.toEqual({ email: moved, email_verified: true });
-    // Exactly two acceptable outcomes: the address moved and lost its verification, or the realm refused
-    // the change and the token still describes the original, verified address.
-    expect([
-      { email: moved, email_verified: false },
-      { email: original, email_verified: true },
-    ]).toContainEqual(carried);
+
+    // Measured 2026-10-02 (Keycloak 26.0, this realm): the address does NOT move. Email is the username
+    // and usernames are not editable, so the account API marks `email` read-only, answers 204 and ignores
+    // the new value. The other safe outcome — address moved, email_verified reset to false — was not
+    // observed and cannot be reached with this realm configuration. If one of the next four lines fails,
+    // the realm now lets customers change their address: measure the reset before changing them.
+    const emailAttribute = before.userProfileMetadata?.attributes.find((a) => a.name === 'email');
+    expect(emailAttribute?.readOnly).toBe(true);
+    expect(changed.status).toBe(204);
+    expect(after.email).toBe(original);
+    expect(carried).toEqual({ email: original, email_verified: true });
+
     const claims = await createCustomerTokenVerifier().verify(tokens.access_token, 'brand-a');
-    expect(claims).toMatchObject({ email: next.email, emailVerified: next.email === original });
+    expect(claims).toMatchObject({ email: original, emailVerified: true });
   });
 });
