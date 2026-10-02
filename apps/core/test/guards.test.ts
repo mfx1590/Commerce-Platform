@@ -63,9 +63,10 @@ describe('structural guards', () => {
     const offenders = files
       .filter((f) => f.rel.startsWith('modules/cart/') || f.rel.startsWith('modules/checkout/'))
       // `from '../promotions'`, a deep path (`../promotions/pricing`), a longer way round
-      // (`../../modules/promotions`), `import('…')` and `require('…')` — all of them
+      // (`../../modules/promotions`), `import('…')`, `require('…')` and a bare side-effect
+      // `import '../promotions/x'` — all of them
       .filter((f) =>
-        /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/.test(
+        /(?:from\s+|import\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/.test(
           f.text,
         ),
       )
@@ -86,15 +87,16 @@ describe('structural guards', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('the promotions-import pattern catches deep, roundabout, dynamic and require forms', () => {
+  it('the promotions-import pattern catches deep, roundabout, dynamic, require and bare side-effect forms', () => {
     const pattern =
-      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/;
+      /(?:from\s+|import\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/;
     for (const line of [
       "import { resolvePrices } from '../promotions';",
       "import { resolvePrices } from '../promotions/pricing';",
       "import { resolvePrices } from '../../modules/promotions';",
       "const m = await import('../promotions');",
       "const m = require('../promotions/index');",
+      "import '../promotions/register';",
     ]) {
       expect(pattern.test(line)).toBe(true);
     }

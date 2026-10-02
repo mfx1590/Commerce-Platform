@@ -855,7 +855,12 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     expect(unknownOrder.status).toBe(404);
     const noKey = await support.post(refundPath, refundBody);
     expect(noKey.status).toBe(400);
-    const staffRefund = await storeStaff.post(refundPath, refundBody);
+    // With the key: the 403 is the permission, whichever of the two the route validates first.
+    const staffRefund = await request(app)
+      .post(refundPath)
+      .set('Authorization', 'Bearer dev:seed-store-staff')
+      .set('Idempotency-Key', 'idem-refund-staff-check')
+      .send(refundBody);
     expect(staffRefund.status).toBe(403);
     // window 8: fulfillmentAdminRouter (#133) — pick lists answer behind staff auth; an unknown shipment is a 404
     const pickLists = await as('seed-operations').get(`/admin/stores/${A}/pick-lists`);
