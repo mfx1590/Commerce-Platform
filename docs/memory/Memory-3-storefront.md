@@ -252,32 +252,42 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   - **Seed stock used by me on 2026-10-02: one unit** (one green core run; the mutation runs
     placed no order).
 
-- **#298 — LEAD ESTABLISHED, AND IT IS WIDER THAN THE ISSUE. PLAN WRITTEN, WAITING FOR THE MANAGER'S
-  RULING ON SCOPE. Nothing built.** Measured 2026-10-02 on `next start`, `SITE_URL=
-  https://shop.public.example`, requests sent with `Host: shop.public.example` and
-  `X-Forwarded-Proto: https` (what an ingress forwards):
-  - In a route handler `request.nextUrl.origin` is **`localhost:3100` whatever the Host header**
-    (six header combinations tried, incl. `X-Forwarded-Host` and an attacker-chosen Host); only
-    the scheme follows `X-Forwarded-Proto`. So it is never the public origin, and it is not
-    attacker-controlled either.
-  - `POST /auth/sign-out` → `post_logout_redirect_uri=http(s)://localhost:3100/` (the issue).
-  - `GET /auth/callback` (both the error path and a bad code) → `Location:
-    https://localhost:3100/en-GB/account?error=sign_in_failed` — after sign-in the customer is sent
-    to localhost. Not in the issue.
-  - `GET /r/{code}` → `Location: https://localhost:3100/` (and `/en-GB/products` with `?to=`) —
-    every referral link lands on localhost in a deployment. Not in the issue.
-  - Fine already: `/auth/sign-in` builds `redirect_uri` from `SITE_URL`; the middleware's locale
-    redirect and the pages' redirects are relative (`Location: /en-GB`).
-  - Not yet measured: `src/middleware.ts:64` passes `request.nextUrl.origin` as `siteOrigin` to
-    the attribution reader. If that is also `localhost`, a customer's own navigation inside the
-    shop (Referer = the public origin) would be recorded as an external referral touch.
-  - Why no test saw it: locally and in e2e the public origin **is** `localhost:3100`.
-  Plan: one helper for "this site's origin" (`siteUrl()`, i.e. `SITE_URL`) used by sign-out,
-  callback, `/r/` and the attribution `siteOrigin`; unit tests that call each route handler with
-  a request whose own origin differs from `SITE_URL` and assert the `Location` (red first); the
-  middleware case measured and covered the same way; README, CHANGELOG, memory.
-  **Ruling needed:** fix all four under #298 (recommended — one cause, one helper), or only
-  sign-out as filed and separate issues for the rest.
+- **#298 — CODE AND UNIT TESTS WRITTEN, NOTHING RUN YET. Local-only branch `storefront/hold-298`
+  (one commit on top of `storefront/phase2`; keep it rebased there, never push it). Go-live blocker (Integration 2 checklist).** Written on
+  2026-10-02 while window 10 had the machine for timed runs (file edits and git only).
+  Ruling (manager): fix ALL of them under #298, one helper, a unit test per route handler; origin
+  from `SITE_URL` read at request time, NEVER from `Host` / `X-Forwarded-Host`; fail closed when
+  `SITE_URL` is unset outside local development; every redirect still passes the safe-path rule;
+  measure the attribution reader and fix it in the same PR if it is the same cause.
+  - What was measured (2026-10-02, `next start`, `SITE_URL=https://shop.public.example`): in a
+    route handler `request.nextUrl.origin` is `localhost:3100` whatever `Host` /
+    `X-Forwarded-Host` say (only the scheme follows `X-Forwarded-Proto`). Sign-out sent
+    `post_logout_redirect_uri=http(s)://localhost:3100/`; `/auth/callback` (two failure paths)
+    and `/r/{code}` redirected to `https://localhost:3100/…`. `/auth/sign-in`, the middleware's
+    locale redirect and the pages' redirects were fine (relative, or built from `SITE_URL`).
+  - Written: `siteUrl()` in `src/brand/config.ts` is the one definition and fails closed
+    (`SiteUrlError`; default only when `NODE_ENV !== 'production'` or `NEXT_PHASE ===
+    'phase-production-build'`; a non-http(s) value is refused). `src/lib/site-origin.ts`:
+    `siteOrigin()`, `urlOnThisSite(path, fallbackPath)` (both safe-path layers). Sign-out (takes
+    no request; unconfigured → still signs out, no return address), callback (resolves the origin
+    before touching the session), `/r/` (target and `siteOrigin` for the referrer comparison).
+    `oidcConfigFromEnv` uses `siteUrl()`; `oidcProviderFromEnv` is the part without the origin.
+    Tests: `test/site-origin.test.ts`, `test/route-origin.test.ts`. README, CHANGELOG 0.12.5.
+  **Owed once the manager says the machine is free, in this order:**
+  1. Rebase onto `storefront/phase2` once PR four has merged (the e2e server gets its explicit
+     `SITE_URL` from there; under the new rule a production server without one fails every page).
+  2. prettier, lint, typecheck; show the route tests RED on the old handlers, then green.
+  3. Check that `next build` with no `SITE_URL` still works (the rule relies on `NEXT_PHASE`
+     being visible to the prerender workers) and that `next start` without it fails as designed.
+  4. **Measure the middleware case**: `src/middleware.ts` passes `request.nextUrl.origin` as
+     `siteOrigin` to `readTouch`. If it is the pod's origin there too, in-shop navigation is
+     recorded as an external referral on every page — same cause, fix with `siteOrigin()` and a
+     test. Not changed yet, on purpose: measure first.
+  5. Re-measure the three handlers behind simulated ingress headers; full e2e (account journeys
+     included); perf gate (ask the manager first).
+  6. Same cause, **not mine to fix**: `src/lib/cms/handlers.ts` (window 6) builds the preview and
+     preview-exit redirects on `new URL(request.url)`. Measure `/api/cms/preview`, then file a
+     REQUEST to window 6 with the numbers.
 
 - **#312 — READ, NOT STARTED. After #298; waits for the core's side (#303 PR C, window 1; core
   merges first, coordinate with the manager).** Store API 0.5.1: `createCart` and `completeCart`
