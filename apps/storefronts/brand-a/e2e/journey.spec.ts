@@ -340,17 +340,17 @@ test.describe('buy', () => {
 
     // Everything asserted on the confirmation is captured HERE, at runtime, from what the cart
     // rendered — never from a fixture and never from the dataset.
-    const cartLines = (await page.getByRole('listitem').allTextContents())
-      .map((t) => t.replace(/\s+/g, ' ').trim())
-      .filter((t) => t.length > 0);
     const cartTotal = (await page.getByTestId(PRICE).last().textContent())?.trim() ?? '';
     expect(cartTotal.length, 'the cart showed no total').toBeGreaterThan(0);
     const cartTotalMinor = minor(cartTotal);
 
     // The quantity that actually went in, read from the cart line for the product bought.
-    const cartLineText = cartLines.find((t) => t.includes(product!.title)) ?? '';
-    const cartQty = quantityIn(cartLineText);
-    expect(cartQty, 'the cart line shows no quantity').not.toBeNull();
+    //
+    // The cart renders quantity as an editable `<input name="quantity">`, not as the `× N` text the
+    // order line uses — reading it as text returned null, which is how this assertion first failed.
+    const cartRow = page.getByRole('listitem').filter({ hasText: product!.title }).first();
+    const cartQty = Number(await cartRow.locator('input[name="quantity"]').first().inputValue());
+    expect(cartQty, 'the cart line shows no quantity').toBeGreaterThan(0);
 
     await page
       .getByRole('link', { name: /checkout/i })
