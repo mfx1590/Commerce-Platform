@@ -5,7 +5,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Queryable, ScopedClient } from '@platform/db';
 import type { EventEnvelope } from '@platform/events';
 import { SYSTEM_ACTOR, writeAudit, type Actor } from '../../lib/audit';
-import { conflict, forbidden, mapPgError, notFound, validationError } from '../../lib/errors';
+import {
+  AppError,
+  conflict,
+  forbidden,
+  mapPgError,
+  notFound,
+  validationError,
+} from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import type {
   ApiKey,
@@ -13,6 +20,7 @@ import type {
   ApiKeyInput,
   Domain,
   DomainInput,
+  DomainUpdate,
   Page,
   SalesChannel,
   SortOrder,
@@ -62,6 +70,23 @@ function requireOrganizationScope(client: ScopedClient, what: string): void {
   if (client.scope !== 'organization') throw forbidden(`${what} requires organization scope`);
 }
 
+/** The default first, then the rest in stored order: the contract's "always contains the default". */
+const withDefault = (set: string[] | undefined, def: string): string[] => [
+  def,
+  ...(set ?? []).filter((v) => v !== def),
+];
+
+/**
+ * A store row with its enabled sets (Admin API 0.4.7 `Store.currencies` / `Store.locales`, #279), default
+ * first. RLS applies to the sub-selects like to any other read of the two tables.
+ */
+const STORE_SELECT = `SELECT s.*,
+         ARRAY(SELECT c.currency::text FROM store_currency c WHERE c.store_id = s.id
+               ORDER BY c.is_default DESC, c.currency) AS currencies,
+         ARRAY(SELECT l.locale::text FROM store_locale l WHERE l.store_id = s.id
+               ORDER BY l.is_default DESC, l.locale) AS locales
+       FROM store s`;
+
 export function toStore(r: StoreRow): Store {
   return {
     id: r.id,
@@ -73,6 +98,8 @@ export function toStore(r: StoreRow): Store {
     default_locale: r.default_locale,
     default_country: r.default_country,
     timezone: r.timezone,
+    currencies: withDefault(r.currencies, r.default_currency),
+    locales: withDefault(r.locales, r.default_locale),
     content_space_id: r.content_space_id,
     search_index: r.search_index,
     psp_account_id: r.psp_account_id,
@@ -109,52 +136,88 @@ function validateStoreInput(input: StoreInput, mode: 'create' | 'update'): void 
 }
 
 async function loadStore(tx: Queryable, id: string): Promise<StoreRow> {
-  const r = await tx.query<StoreRow>('SELECT * FROM store WHERE id = $1', [id]);
+  const r = await tx.query<StoreRow>(`${STORE_SELECT} WHERE s.id = $1`, [id]);
   const row = r.rows[0];
   if (!row) throw notFound('store', id);
   return row;
 }
 
-/** Adds locale/currency rows (idempotent) and, when a default is named, makes it the single default. */
+/**
+ * A foreign key that refuses the removal of an enabled locale/currency is a 409 naming the constraint — never
+ * a 500 and never a cascade. (No constraint references either table today; registry.test.ts pins that.)
+ */
+function refuseSetRemoval(err: unknown, what: string): never {
+  const e = err as { code?: string; constraint?: string };
+  if (e?.code === '23503') {
+    throw conflict(`${what} is still in use and cannot be removed`, {
+      constraint: e.constraint ?? null,
+    });
+  }
+  throw err;
+}
+
+/**
+ * Brings one enabled set (`store_locale` or `store_currency`) in line with the request (#279). The store's
+ * default — given in the same request or current — always has a row and is the single default. A `requested`
+ * list REPLACES the set: rows outside it are deleted (never the default), missing ones inserted; `[]` leaves
+ * the default alone. `undefined` (field omitted) leaves the other rows untouched.
+ */
+async function syncStoreSet(
+  tx: Queryable,
+  set: { table: 'store_locale' | 'store_currency'; column: 'locale' | 'currency' },
+  organizationId: string,
+  storeId: string,
+  requested: string[] | undefined,
+  defaultValue: string,
+): Promise<void> {
+  const { table, column } = set; // literals from the two call sites below, never request input
+  const target = [...new Set([defaultValue, ...(requested ?? [])])];
+  if (requested !== undefined) {
+    await tx
+      .query(`DELETE FROM ${table} WHERE store_id = $1 AND ${column} <> ALL($2::text[])`, [
+        storeId,
+        target,
+      ])
+      .catch((e) => refuseSetRemoval(e, `a ${column} of the store`));
+  }
+  for (const value of target) {
+    await tx.query(
+      `INSERT INTO ${table} (organization_id, store_id, ${column}) VALUES ($1, $2, $3)
+       ON CONFLICT (store_id, ${column}) DO NOTHING`,
+      [organizationId, storeId, value],
+    );
+  }
+  await tx.query(
+    `UPDATE ${table} SET is_default = (${column} = $2) WHERE store_id = $1 AND is_default <> (${column} = $2)`,
+    [storeId, defaultValue],
+  );
+}
+
 async function syncStoreSets(
   tx: Queryable,
   organizationId: string,
   storeId: string,
-  locales: string[],
-  defaultLocale: string | undefined,
-  currencies: string[],
-  defaultCurrency: string | undefined,
+  locales: string[] | undefined,
+  defaultLocale: string,
+  currencies: string[] | undefined,
+  defaultCurrency: string,
 ): Promise<void> {
-  const allLocales = [...new Set([...(defaultLocale ? [defaultLocale] : []), ...locales])];
-  for (const locale of allLocales) {
-    await tx.query(
-      `INSERT INTO store_locale (organization_id, store_id, locale) VALUES ($1, $2, $3)
-       ON CONFLICT (store_id, locale) DO NOTHING`,
-      [organizationId, storeId, locale],
-    );
-  }
-  if (defaultLocale) {
-    await tx.query(
-      `UPDATE store_locale SET is_default = (locale = $2) WHERE store_id = $1 AND is_default <> (locale = $2)`,
-      [storeId, defaultLocale],
-    );
-  }
-  const allCurrencies = [
-    ...new Set([...(defaultCurrency ? [defaultCurrency] : []), ...currencies]),
-  ];
-  for (const currency of allCurrencies) {
-    await tx.query(
-      `INSERT INTO store_currency (organization_id, store_id, currency) VALUES ($1, $2, $3)
-       ON CONFLICT (store_id, currency) DO NOTHING`,
-      [organizationId, storeId, currency],
-    );
-  }
-  if (defaultCurrency) {
-    await tx.query(
-      `UPDATE store_currency SET is_default = (currency = $2) WHERE store_id = $1 AND is_default <> (currency = $2)`,
-      [storeId, defaultCurrency],
-    );
-  }
+  await syncStoreSet(
+    tx,
+    { table: 'store_locale', column: 'locale' },
+    organizationId,
+    storeId,
+    locales,
+    defaultLocale,
+  );
+  await syncStoreSet(
+    tx,
+    { table: 'store_currency', column: 'currency' },
+    organizationId,
+    storeId,
+    currencies,
+    defaultCurrency,
+  );
 }
 
 // ---------------------------------------------------------------------------------------------------- stores
@@ -180,7 +243,7 @@ export async function listStores(
   return client.transaction(async (tx) => {
     const total = await tx.query<{ n: string }>('SELECT count(*)::text AS n FROM store');
     const rows = await tx.query<StoreRow>(
-      `SELECT * FROM store ORDER BY ${orderBy} LIMIT $1 OFFSET $2`,
+      `${STORE_SELECT} ORDER BY ${orderBy} LIMIT $1 OFFSET $2`,
       [limit, (page - 1) * limit],
     );
     return { page, limit, total: Number(total.rows[0]?.n ?? 0), items: rows.rows.map(toStore) };
@@ -225,18 +288,19 @@ export async function createStore(
         ],
       )
       .catch((e) => mapPgError(e, `store "${input.code}"`));
-    const row = inserted.rows[0]!;
+    const created = inserted.rows[0]!;
 
     await syncStoreSets(
       tx,
       organizationId,
-      row.id,
-      input.locales ?? [],
-      row.default_locale,
-      input.currencies ?? [],
-      row.default_currency,
+      created.id,
+      input.locales,
+      created.default_locale,
+      input.currencies,
+      created.default_currency,
     );
 
+    const row = await loadStore(tx, created.id); // with the enabled sets just written
     const store = toStore(row);
     await writeAudit(tx, {
       organizationId,
@@ -291,30 +355,31 @@ export async function updateStore(
       params.push(col === 'theme' || col === 'settings' ? JSON.stringify(value) : value);
       sets.push(`${col} = $${params.length}`);
     }
-    let after = before;
     if (sets.length) {
-      const r = await tx
-        .query<StoreRow>(`UPDATE store SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, params)
+      await tx
+        .query(`UPDATE store SET ${sets.join(', ')} WHERE id = $1`, params)
         .catch((e) => mapPgError(e, `store "${patch.code ?? before.code}"`));
-      after = r.rows[0]!;
     }
+    // The default kept in each set is the one given in this request, or the current one.
     await syncStoreSets(
       tx,
       organizationId,
       id,
-      patch.locales ?? [],
-      patch.default_locale,
-      patch.currencies ?? [],
-      patch.default_currency,
+      patch.locales,
+      patch.default_locale ?? before.default_locale,
+      patch.currencies,
+      patch.default_currency ?? before.default_currency,
     );
+    const after = await loadStore(tx, id);
 
     const beforeStore = toStore(before);
     const afterStore = toStore(after);
+    // The two sets are compared as sets: a new default only reorders them (default first).
+    const comparable = (k: keyof Store, s: Store): string =>
+      JSON.stringify(k === 'currencies' || k === 'locales' ? [...(s[k] ?? [])].sort() : s[k]);
     const changed = (Object.keys(afterStore) as (keyof Store)[]).filter(
-      (k) => k !== 'updated_at' && JSON.stringify(beforeStore[k]) !== JSON.stringify(afterStore[k]),
+      (k) => k !== 'updated_at' && comparable(k, beforeStore) !== comparable(k, afterStore),
     );
-    if (patch.locales?.length) changed.push('locales' as keyof Store);
-    if (patch.currencies?.length) changed.push('currencies' as keyof Store);
     if (changed.length === 0) return afterStore;
 
     await writeAudit(tx, {
@@ -344,6 +409,32 @@ export async function updateStore(
       }),
     ]);
     return afterStore;
+  });
+}
+
+/**
+ * `store.updated` for a change to something the store owns besides its own row (keys, domains): the payload
+ * names the area in `changed_fields` and carries no key material and no hostname.
+ */
+function storeUpdatedEvent(
+  store: StoreRow,
+  organizationId: string,
+  actor: Actor,
+  changedFields: string[],
+): Promise<EventEnvelope> {
+  return buildEvent({
+    topic: 'store.updated',
+    organizationId,
+    storeId: store.id,
+    aggregateType: 'store',
+    aggregateId: store.id,
+    actor: eventActor(actor),
+    payload: {
+      store_id: store.id,
+      code: store.code,
+      status: store.status,
+      changed_fields: changedFields,
+    },
   });
 }
 
@@ -421,6 +512,67 @@ export async function addDomain(
   });
 }
 
+/**
+ * Moves the primary flag to this domain (Admin API 0.4.7 `updateDomain`, #279): exactly one primary per store,
+ * moved in one transaction. `is_primary: false` on the current primary is a 409 — a store always has one;
+ * a request that changes nothing (already primary, or `false` on a non-primary) answers the row and writes
+ * nothing. Emits `store.updated` (`changed_fields: ['domains']`, no hostname) with the move.
+ */
+export async function updateDomain(
+  client: ScopedClient,
+  storeId: string,
+  domainId: string,
+  input: DomainUpdate,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<Domain> {
+  if (typeof input?.is_primary !== 'boolean')
+    throw validationError('invalid domain input', { is_primary: 'required boolean' });
+  const organizationId = organizationOf(client);
+
+  return client.transaction(async (tx) => {
+    const store = await loadStore(tx, storeId);
+    // The store's domain rows are locked in one order, so two concurrent moves queue instead of racing the
+    // one-primary index.
+    const domains = await tx.query<DomainRow>(
+      `SELECT id, hostname, is_primary, verified_at FROM store_domain WHERE store_id = $1
+       ORDER BY id FOR UPDATE`,
+      [storeId],
+    );
+    const before = domains.rows.find((d) => d.id === domainId);
+    if (!before) throw notFound('domain', domainId);
+    if (before.is_primary === input.is_primary) return toDomain(before);
+    if (!input.is_primary) {
+      throw conflict(
+        'a store always has one primary domain: move it by setting another domain primary',
+        { domain_id: domainId },
+      );
+    }
+    // Clear, then set: `store_domain_one_primary` allows one primary row per store at any moment.
+    await tx.query(
+      'UPDATE store_domain SET is_primary = false WHERE store_id = $1 AND is_primary',
+      [storeId],
+    );
+    const r = await tx.query<DomainRow>(
+      `UPDATE store_domain SET is_primary = true WHERE id = $1
+       RETURNING id, hostname, is_primary, verified_at`,
+      [domainId],
+    );
+    const domain = toDomain(r.rows[0]!);
+    await writeAudit(tx, {
+      organizationId,
+      storeId,
+      actor,
+      action: 'store_domain.update',
+      entityType: 'store_domain',
+      entityId: domainId,
+      before: toDomain(before),
+      after: domain,
+    });
+    await withEvents(tx, [await storeUpdatedEvent(store, organizationId, actor, ['domains'])]);
+    return domain;
+  });
+}
+
 // ---------------------------------------------------------------------------------------- locales / currencies
 
 export async function listLocales(client: ScopedClient, storeId: string): Promise<StoreLocale[]> {
@@ -457,7 +609,16 @@ export async function addLocale(
   } else {
     await client.transaction(async (tx) => {
       const store = await loadStore(tx, storeId);
-      await syncStoreSets(tx, store.organization_id, storeId, [locale], undefined, [], undefined);
+      // Add-only: the current set plus the new locale; currencies untouched.
+      await syncStoreSets(
+        tx,
+        store.organization_id,
+        storeId,
+        [...(store.locales ?? []), locale],
+        store.default_locale,
+        undefined,
+        store.default_currency,
+      );
       await writeAudit(tx, {
         organizationId: store.organization_id,
         storeId,
@@ -486,7 +647,16 @@ export async function addCurrency(
   } else {
     await client.transaction(async (tx) => {
       const store = await loadStore(tx, storeId);
-      await syncStoreSets(tx, store.organization_id, storeId, [], undefined, [currency], undefined);
+      // Add-only: the current set plus the new currency; locales untouched.
+      await syncStoreSets(
+        tx,
+        store.organization_id,
+        storeId,
+        undefined,
+        store.default_locale,
+        [...(store.currencies ?? []), currency],
+        store.default_currency,
+      );
       await writeAudit(tx, {
         organizationId: store.organization_id,
         storeId,
@@ -663,6 +833,12 @@ export async function createApiKey(
   });
 }
 
+/**
+ * Revokes a key (Admin API 0.4.7 `revokeApiKey`, #279). Idempotent on an already revoked key. The store's last
+ * publishable key with `revoked_at IS NULL` is refused with 409 `last_live_key` — the storefront would lose
+ * its only credential; secret keys are not counted and never refused. Emits `store.updated`
+ * (`changed_fields: ['api_keys']`, no key material) in the same transaction.
+ */
 export async function revokeApiKey(
   client: ScopedClient,
   storeId: string,
@@ -671,13 +847,28 @@ export async function revokeApiKey(
 ): Promise<ApiKey> {
   const organizationId = organizationOf(client);
   return client.transaction(async (tx) => {
-    const before = await tx.query<ApiKeyRow>(
+    const store = await loadStore(tx, storeId);
+    // Every key row of the store is locked in one order: two concurrent revokes of the last two live
+    // publishable keys queue here, and the second one sees the first one's result.
+    const keys = await tx.query<ApiKeyRow>(
       `SELECT id, name, type, key_prefix, sales_channel_id, revoked_at, created_at
-       FROM store_api_key WHERE id = $1 AND store_id = $2`,
-      [keyId, storeId],
+       FROM store_api_key WHERE store_id = $1 ORDER BY id FOR UPDATE`,
+      [storeId],
     );
-    if (!before.rows[0]) throw notFound('api key', keyId);
-    if (before.rows[0].revoked_at) throw conflict('api key already revoked');
+    const before = keys.rows.find((k) => k.id === keyId);
+    if (!before) throw notFound('api key', keyId);
+    // Idempotent: same row, same revoked_at — nothing written, nothing emitted.
+    if (before.revoked_at) return toApiKey(before);
+    const otherLiveKey = keys.rows.some(
+      (k) => k.id !== keyId && k.type === 'publishable' && !k.revoked_at,
+    );
+    if (before.type === 'publishable' && !otherLiveKey) {
+      throw new AppError(
+        'last_live_key',
+        "the store's last live publishable key cannot be revoked",
+        { key_id: keyId },
+      );
+    }
     const r = await tx.query<ApiKeyRow>(
       `UPDATE store_api_key SET revoked_at = now() WHERE id = $1
        RETURNING id, name, type, key_prefix, sales_channel_id, revoked_at, created_at`,
@@ -691,9 +882,10 @@ export async function revokeApiKey(
       action: 'store_api_key.revoke',
       entityType: 'store_api_key',
       entityId: keyId,
-      before: toApiKey(before.rows[0]),
+      before: toApiKey(before),
       after: key,
     });
+    await withEvents(tx, [await storeUpdatedEvent(store, organizationId, actor, ['api_keys'])]);
     return key;
   });
 }

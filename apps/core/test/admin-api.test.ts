@@ -332,6 +332,109 @@ describe('registry routes', () => {
     expect((await storeAdmin.get('/admin/legal-entities')).status).toBe(403);
     expect((await owner.get('/admin/legal-entities')).status).toBe(200);
   });
+
+  it('Store.currencies / locales (0.4.7, #279): returned on every store read, replaced as a set by PATCH', async () => {
+    const read = await storeStaff.get(`/admin/stores/${A}`);
+    expect(read.status).toBe(200);
+    spec.assertSchema('Store', read.body);
+    expect(read.body.currencies).toEqual([read.body.default_currency]);
+    expect(read.body.locales[0]).toBe(read.body.default_locale);
+    const list = await owner.get('/admin/stores');
+    for (const s of list.body.items as {
+      default_currency: string;
+      default_locale: string;
+      currencies: string[];
+      locales: string[];
+    }[]) {
+      expect(s.currencies).toContain(s.default_currency);
+      expect(s.locales).toContain(s.default_locale);
+    }
+
+    const widened = await storeAdmin.patch(`/admin/stores/${A}`, {
+      currencies: ['EUR', 'USD', 'CHF'],
+    });
+    expect(widened.status).toBe(200);
+    spec.assertSchema('Store', widened.body);
+    expect(widened.body.currencies).toEqual(['EUR', 'CHF', 'USD']);
+    expect(widened.body.locales).toEqual(read.body.locales); // omitted = unchanged
+    const narrowed = await storeAdmin.patch(`/admin/stores/${A}`, { currencies: ['USD'] });
+    expect(narrowed.body.currencies).toEqual(['EUR', 'USD']); // the default is never removed
+    const back = await storeAdmin.patch(`/admin/stores/${A}`, { currencies: [] });
+    expect(back.body.currencies).toEqual(['EUR']);
+    expect((await storeStaff.patch(`/admin/stores/${A}`, { currencies: ['USD'] })).status).toBe(
+      403,
+    );
+    expect((await storeAdmin.patch(`/admin/stores/${A}`, { currencies: 'USD' })).status).toBe(400);
+  });
+
+  it('POST …/api-keys/{keyId}/revoke (0.4.7, #279): store_admin; idempotent 200; 409 last_live_key', async () => {
+    const keys = (await storeAdmin.get(`/admin/stores/${A}/api-keys`)).body.items as {
+      id: string;
+      type: string;
+      revoked_at: string | null;
+    }[];
+    const live = keys.filter((k) => k.type === 'publishable' && !k.revoked_at);
+    expect(live).toHaveLength(2); // the seeded key and "storefront 2" from the test above
+    const path = (id: string) => `/admin/stores/${A}/api-keys/${id}/revoke`;
+
+    expect((await storeStaff.post(path(live[1]!.id))).status).toBe(403);
+    expect((await request(app).post(path(live[1]!.id))).status).toBe(401);
+    const revoked = await storeAdmin.post(path(live[1]!.id));
+    expect(revoked.status).toBe(200);
+    spec.assertSchema('ApiKey', revoked.body);
+    expect(revoked.body.revoked_at).not.toBeNull();
+    const again = await storeAdmin.post(path(live[1]!.id));
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(revoked.body); // same revoked_at
+
+    const last = await storeAdmin.post(path(live[0]!.id));
+    expect(last.status).toBe(409);
+    spec.assertSchema('Error', last.body);
+    expect(last.body).toMatchObject({ code: 'last_live_key', details: { key_id: live[0]!.id } });
+
+    expect((await storeAdmin.post(path('not-a-uuid'))).status).toBe(400);
+    expect((await storeAdmin.post(path('00000000-0000-4000-8000-0000000000ff'))).status).toBe(404);
+    // brand-a's key through brand-b's path: not found there
+    expect(
+      (await storeAdmin.post(`/admin/stores/${B}/api-keys/${live[0]!.id}/revoke`)).status,
+    ).toBe(404);
+  });
+
+  it('PATCH …/domains/{domainId} (0.4.7, #279): owner only; moves the primary; clearing it is a 409', async () => {
+    const domains = (await owner.get(`/admin/stores/${A}/domains`)).body.items as {
+      id: string;
+      is_primary: boolean;
+    }[];
+    const primary = domains.find((d) => d.is_primary)!;
+    const other = domains.find((d) => !d.is_primary)!;
+    const path = (id: string) => `/admin/stores/${A}/domains/${id}`;
+
+    expect((await storeAdmin.patch(path(other.id), { is_primary: true })).status).toBe(403);
+    expect((await owner.patch(path(other.id), {})).status).toBe(400);
+    expect((await owner.patch(path(other.id), { is_primary: 'yes' })).status).toBe(400);
+    const cleared = await owner.patch(path(primary.id), { is_primary: false });
+    expect(cleared.status).toBe(409);
+    spec.assertSchema('Error', cleared.body);
+    expect(cleared.body.code).toBe('conflict');
+
+    const moved = await owner.patch(path(other.id), { is_primary: true });
+    expect(moved.status).toBe(200);
+    spec.assertSchema('Domain', moved.body);
+    expect(moved.body).toMatchObject({ id: other.id, is_primary: true });
+    const after = (await owner.get(`/admin/stores/${A}/domains`)).body.items as {
+      id: string;
+      is_primary: boolean;
+    }[];
+    expect(after.filter((d) => d.is_primary).map((d) => d.id)).toEqual([other.id]);
+
+    expect(
+      (await owner.patch(path('00000000-0000-4000-8000-0000000000ff'), { is_primary: true }))
+        .status,
+    ).toBe(404);
+    expect(
+      (await owner.patch(`/admin/stores/${B}/domains/${other.id}`, { is_primary: true })).status,
+    ).toBe(404);
+  });
 });
 
 describe('catalog routes', () => {

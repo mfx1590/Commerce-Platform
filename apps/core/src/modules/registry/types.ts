@@ -82,6 +82,13 @@ export interface StoreRow {
   next_order_number: string;
   created_at: Date;
   updated_at: Date;
+  /** Enabled sets from `store_currency` / `store_locale`; only on rows read through the registry's store select. */
+  currencies?: string[];
+  locales?: string[];
+}
+
+export interface DomainUpdate {
+  is_primary: boolean;
 }
 
 export type Warehouse = AdminComponents['schemas']['Warehouse'];

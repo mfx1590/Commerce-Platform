@@ -13,8 +13,11 @@ import {
   createStore,
   getStore,
   listApiKeys,
+  listDomains,
+  listSalesChannels,
   listStores,
   revokeApiKey,
+  updateDomain,
   updateStore,
 } from './index';
 
@@ -220,7 +223,8 @@ describe('registry: domains, locales, currencies', () => {
       `SELECT payload FROM outbox WHERE aggregate_id = $1 AND topic = 'store.updated' ORDER BY seq DESC LIMIT 1`,
       [store.id],
     );
-    expect(last.rows[0]!.payload.changed_fields).toEqual(['default_currency']);
+    // USD became the default AND joined the enabled set (#279: the sets are part of the store now).
+    expect(last.rows[0]!.payload.changed_fields).toEqual(['currencies', 'default_currency']);
   });
 });
 
@@ -265,13 +269,253 @@ describe('registry: sales channels and api keys', () => {
     );
     expect(JSON.stringify(audit.rows[0]!.after)).not.toContain(created.key);
 
-    const revoked = await revokeApiKey(hq, store.id, created.id, actor);
-    expect(revoked.revoked_at).not.toBeNull();
-    await expect(revokeApiKey(hq, store.id, created.id)).rejects.toMatchObject({
-      code: 'conflict',
-    });
     await expect(
       createApiKey(hq, store.id, { name: 'x', type: 'secret', sales_channel_id: LE }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+describe('registry settings (Admin API 0.4.7, #279)', () => {
+  const brand = async (code: string) => (await listStores(hq)).items.find((s) => s.code === code)!;
+  /** `changed_fields` of every `store.updated` of the store, oldest first. */
+  const storeUpdates = async (storeId: string) =>
+    (
+      await hq.query<{ payload: { changed_fields: string[] } }>(
+        `SELECT payload FROM outbox WHERE aggregate_id = $1 AND topic = 'store.updated' ORDER BY seq`,
+        [storeId],
+      )
+    ).rows.map((r) => r.payload);
+  const setRows = async (table: 'store_currency' | 'store_locale', storeId: string) => {
+    const column = table === 'store_currency' ? 'currency' : 'locale';
+    const r = await hq.query<{ value: string; is_default: boolean }>(
+      `SELECT ${column}::text AS value, is_default FROM ${table} WHERE store_id = $1 ORDER BY 1`,
+      [storeId],
+    );
+    return r.rows.map((x) => (x.is_default ? `${x.value}*` : x.value));
+  };
+
+  it('store reads return the enabled sets with the default first (get, list, create)', async () => {
+    const store = await brand('brand-a');
+    expect(store.currencies).toEqual(['USD', 'EUR', 'GBP']);
+    expect(store.locales).toEqual(['en-GB', 'de-DE', 'fr-FR']);
+    const read = await getStore(hq, store.id);
+    expect(read.currencies).toEqual(store.currencies);
+    expect(read.locales).toEqual(store.locales);
+
+    const bare = await createStore(
+      hq,
+      {
+        legal_entity_id: LE,
+        code: 'brand-d',
+        name: 'Brand D',
+        default_currency: 'EUR',
+        default_locale: 'en-GB',
+        default_country: 'NL',
+      },
+      actor,
+    );
+    expect(bare.currencies).toEqual(['EUR']);
+    expect(bare.locales).toEqual(['en-GB']);
+  });
+
+  it('updateStore replaces a given set (never the default), leaves an omitted one alone, and reports real changes only', async () => {
+    const store = await brand('brand-a');
+    const before = (await storeUpdates(store.id)).length;
+
+    // Replacement: EUR goes; the default (USD) stays although the list does not name it.
+    const replaced = await updateStore(hq, store.id, { currencies: ['GBP'] }, actor);
+    expect(replaced.currencies).toEqual(['USD', 'GBP']);
+    expect(replaced.locales).toEqual(['en-GB', 'de-DE', 'fr-FR']); // omitted = unchanged
+    expect(await setRows('store_currency', store.id)).toEqual(['GBP', 'USD*']);
+
+    // Neither field in the patch: both sets untouched.
+    const renamed = await updateStore(hq, store.id, { name: 'Brand A' }, actor);
+    expect(renamed.currencies).toEqual(['USD', 'GBP']);
+    expect(renamed.locales).toEqual(['en-GB', 'de-DE', 'fr-FR']);
+
+    // An empty list is a replacement too: the default alone remains.
+    const emptied = await updateStore(hq, store.id, { locales: [] }, actor);
+    expect(emptied.locales).toEqual(['en-GB']);
+    expect(await setRows('store_locale', store.id)).toEqual(['en-GB*']);
+
+    // A default given in the same request is the one kept; the former default is an ordinary member and goes.
+    const moved = await updateStore(
+      hq,
+      store.id,
+      { default_currency: 'EUR', currencies: ['CHF'] },
+      actor,
+    );
+    expect(moved.default_currency).toBe('EUR');
+    expect(moved.currencies).toEqual(['EUR', 'CHF']);
+    expect(await setRows('store_currency', store.id)).toEqual(['CHF', 'EUR*']);
+
+    // A new default without the list joins the set; nothing is removed.
+    const relocated = await updateStore(hq, store.id, { default_locale: 'nl-NL' }, actor);
+    expect(relocated.locales).toEqual(['nl-NL', 'en-GB']);
+    expect(await setRows('store_locale', store.id)).toEqual(['en-GB', 'nl-NL*']);
+
+    // The same sets again (any order): nothing changed, nothing emitted.
+    await updateStore(
+      hq,
+      store.id,
+      { currencies: ['CHF', 'EUR'], locales: ['en-GB', 'nl-NL'] },
+      actor,
+    );
+
+    expect((await storeUpdates(store.id)).slice(before).map((p) => p.changed_fields)).toEqual([
+      ['currencies'],
+      ['name'],
+      ['locales'],
+      ['currencies', 'default_currency'],
+      ['default_locale', 'locales'],
+    ]);
+  });
+
+  it('a refused update changes neither the store nor its sets', async () => {
+    const store = await brand('brand-a');
+    await expect(
+      updateStore(hq, store.id, { code: 'brand-b', currencies: ['JPY'] }, actor),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect((await getStore(hq, store.id)).currencies).toEqual(['EUR', 'CHF']);
+  });
+
+  it('no foreign key references store_currency / store_locale: a removal cannot be refused today', async () => {
+    // When this fails, a constraint can now refuse the DELETE in syncStoreSet: it must answer 409 naming the
+    // constraint (refuseSetRemoval) — add that case here.
+    const fks = await db.owner.query(
+      `SELECT conname FROM pg_constraint
+       WHERE contype = 'f' AND confrelid IN ('store_currency'::regclass, 'store_locale'::regclass)`,
+    );
+    expect(fks.rows).toEqual([]);
+  });
+
+  it('revokeApiKey: idempotent, never the last live publishable key, store.updated without key material', async () => {
+    const store = await brand('brand-a');
+    const [web] = await listSalesChannels(hq, store.id);
+    const [first] = await listApiKeys(hq, store.id); // "storefront": the only live publishable key
+    // A secret key is not a storefront credential: it does not make the publishable key revocable.
+    const secret = await createApiKey(hq, store.id, { name: 'backend', type: 'secret' }, actor);
+    await expect(revokeApiKey(hq, store.id, first!.id, actor)).rejects.toMatchObject({
+      code: 'last_live_key',
+      status: 409,
+      details: { key_id: first!.id },
+    });
+
+    const second = await createApiKey(
+      hq,
+      store.id,
+      { name: 'storefront 2', type: 'publishable', sales_channel_id: web!.id },
+      actor,
+    );
+    const before = (await storeUpdates(store.id)).length;
+    const revoked = await revokeApiKey(hq, store.id, first!.id, actor);
+    expect(revoked.revoked_at).not.toBeNull();
+    // Idempotent: the same row with the same revoked_at, one audit row, one event.
+    expect(await revokeApiKey(hq, store.id, first!.id, actor)).toEqual(revoked);
+    const audit = await hq.query(
+      `SELECT 1 FROM audit_log WHERE entity_id = $1 AND action = 'store_api_key.revoke'`,
+      [first!.id],
+    );
+    expect(audit.rows).toHaveLength(1);
+    const emitted = (await storeUpdates(store.id)).slice(before);
+    expect(emitted).toEqual([
+      { store_id: store.id, code: 'brand-a', status: 'active', changed_fields: ['api_keys'] },
+    ]);
+    expect(JSON.stringify(emitted)).not.toContain(first!.key_prefix);
+
+    // The revoked key no longer counts: "storefront 2" is now the last live one.
+    await expect(revokeApiKey(hq, store.id, second.id, actor)).rejects.toMatchObject({
+      code: 'last_live_key',
+    });
+    // Secret keys are never refused.
+    expect((await revokeApiKey(hq, store.id, secret.id, actor)).revoked_at).not.toBeNull();
+
+    // Unknown key, and a key reached through another store: 404.
+    await expect(revokeApiKey(hq, store.id, LE, actor)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    const other = await brand('brand-b');
+    await expect(revokeApiKey(hq, other.id, second.id, actor)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
+  it('two concurrent revokes of the last two live publishable keys: exactly one goes through', async () => {
+    const store = await brand('brand-a');
+    const [web] = await listSalesChannels(hq, store.id);
+    const third = await createApiKey(
+      hq,
+      store.id,
+      { name: 'storefront 3', type: 'publishable', sales_channel_id: web!.id },
+      actor,
+    );
+    const live = (await listApiKeys(hq, store.id)).filter(
+      (k) => k.type === 'publishable' && !k.revoked_at,
+    );
+    expect(live.map((k) => k.id)).toContain(third.id);
+    expect(live).toHaveLength(2);
+
+    const results = await Promise.allSettled(
+      live.map((k) => revokeApiKey(hq, store.id, k.id, actor)),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(refused.reason).toMatchObject({ code: 'last_live_key', status: 409 });
+    const left = (await listApiKeys(hq, store.id)).filter(
+      (k) => k.type === 'publishable' && !k.revoked_at,
+    );
+    expect(left).toHaveLength(1);
+  });
+
+  it('updateDomain moves the primary in one transaction; clearing the primary is a 409; a no-op writes nothing', async () => {
+    const store = await brand('brand-a');
+    const domains = await listDomains(hq, store.id);
+    const primary = domains.find((d) => d.is_primary)!;
+    const other = domains.find((d) => !d.is_primary)!;
+    const before = (await storeUpdates(store.id)).length;
+
+    await expect(
+      updateDomain(hq, store.id, primary.id, { is_primary: false }, actor),
+    ).rejects.toMatchObject({ code: 'conflict', status: 409 });
+    // Requests that change nothing answer the row as it is.
+    expect(await updateDomain(hq, store.id, primary.id, { is_primary: true }, actor)).toEqual(
+      primary,
+    );
+    expect(await updateDomain(hq, store.id, other.id, { is_primary: false }, actor)).toEqual(other);
+    expect((await storeUpdates(store.id)).slice(before)).toEqual([]);
+
+    const moved = await updateDomain(hq, store.id, other.id, { is_primary: true }, actor);
+    expect(moved).toEqual({ ...other, is_primary: true });
+    const primaries = await hq.query<{ id: string }>(
+      'SELECT id FROM store_domain WHERE store_id = $1 AND is_primary',
+      [store.id],
+    );
+    expect(primaries.rows).toEqual([{ id: other.id }]);
+
+    const emitted = (await storeUpdates(store.id)).slice(before);
+    expect(emitted).toEqual([
+      { store_id: store.id, code: 'brand-a', status: 'active', changed_fields: ['domains'] },
+    ]);
+    expect(JSON.stringify(emitted)).not.toContain(other.hostname);
+    const audit = await hq.query<{ was: boolean; is: boolean }>(
+      `SELECT (before->>'is_primary')::boolean AS was, (after->>'is_primary')::boolean AS is
+       FROM audit_log WHERE entity_id = $1 AND action = 'store_domain.update'`,
+      [other.id],
+    );
+    expect(audit.rows).toEqual([{ was: false, is: true }]);
+
+    // Unknown domain, a domain of another store, and another store through a store-scoped client: 404.
+    await expect(updateDomain(hq, store.id, LE, { is_primary: true }, actor)).rejects.toMatchObject(
+      { code: 'not_found' },
+    );
+    const b = await brand('brand-b');
+    const foreign = await addDomain(hq, b.id, { hostname: 'shop.brand-b.example' }, actor);
+    await expect(
+      updateDomain(hq, store.id, foreign.id, { is_primary: true }, actor),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    const scopedA = createTenantClient(db.app, { organizationId: ORG, storeIds: [store.id] });
+    await expect(
+      updateDomain(scopedA, b.id, foreign.id, { is_primary: true }, actor),
     ).rejects.toMatchObject({ code: 'not_found' });
   });
 });
