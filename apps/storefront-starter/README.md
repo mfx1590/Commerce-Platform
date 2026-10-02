@@ -406,6 +406,38 @@ otherwise `robots.txt` would advertise a URL that 404s. Both read the same `site
 index cannot list a page that does not exist. A failure part-way through the walk returns what was
 collected: a short sitemap is a crawler inefficiency, a 500 makes it back off from all of it.
 
+**The sitemap is rendered per request (#302).** Both routes are `force-dynamic`. As prerendered
+routes with `revalidate` they were written by `next build` with the build machine's `SITE_URL`,
+and served that origin — in every `<loc>` and every `hreflang` alternate — for the first hour after
+each deploy. What is cached is the upstream reads (an hour, by tag), so a request costs a render
+(about 5 ms measured), not a walk of the catalogue. `robots.txt` and the pages' canonical and
+alternate links were checked for the same capture and do not have it: they already render per
+request.
+
+**The end-to-end server is built somewhere it does not run.** `scripts/e2e-server.mjs` runs
+`next build` with `SITE_URL=https://build-time.invalid` and `next start` with the runtime one, and
+`e2e/runtime-origin.spec.ts` asserts that every sitemap `<loc>` and alternate, the `Sitemap:` line
+of `robots.txt` and the pages' canonical links are on the **runtime** origin — compared for
+equality with the value the server was started with — and that the build origin appears in
+none of them. Presence is asserted before absence: the e2e server runs with
+`ROBOTS_ALLOW_INDEXING=1` so that `robots.txt` has a `Sitemap:` line at all; without it the file
+is a bare `Disallow: /`, there is no origin in it, and "the build origin is absent" passes
+whatever `robots.txt` does (the first version of the spec had exactly that hole). It exists because this class of defect — a per-environment value captured at build time
+— had shipped three times (the CSP, `robots.txt`, the sitemap) and was invisible each time: every
+test built and started the app with the same environment, where the two values are the same
+string.
+
+**That spec refuses to pass vacuously.** Locally Playwright reuses a server that is already
+running on the port, and one you built with `pnpm build` has the same origin at build time and
+at run time — nothing in the spec could fail against it. `e2e-server.mjs` therefore leaves a
+marker next to its build (`.next/e2e-build.json`: the build id and the origin it was built with),
+and the spec checks it first. Without a matching marker the three tests are **skipped, and the
+reason is printed** (`runtime-origin would pass vacuously: the build was not made by
+scripts/e2e-server.mjs …`); when `CI` is set they **fail** instead, because CI never reuses a
+server and getting there means the setup is broken. To run it for real on a laptop, stop the
+server on :3100 and let Playwright start it. The rules are in `e2e/support/build-origin.ts`
+and unit-tested in `test/e2e-build-origin.test.ts`.
+
 **Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
 agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,
 canonical, `hreflang` alternates and og/twitter tags are written into `<body>` afterwards. A
