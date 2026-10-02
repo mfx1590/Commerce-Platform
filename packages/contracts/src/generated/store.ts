@@ -98,7 +98,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create an empty cart for the resolved store and sales channel */
+        /**
+         * Create an empty cart for the resolved store and sales channel
+         * @description With a valid customer token the new cart is linked to that customer (the store-level customer row is
+         *     resolved or provisioned from the token, as on `/store/customers/me`). Without a token the cart is a
+         *     guest cart, as before. A token that is sent but invalid, expired or bound to another store is a 401 —
+         *     it is never silently ignored.
+         */
         post: operations["createCart"];
         delete?: never;
         options?: never;
@@ -212,7 +218,16 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Place the order (reserve stock, authorize payment, emit order.placed) */
+        /**
+         * Place the order (reserve stock, authorize payment, emit order.placed)
+         * @description With a valid customer token the order is placed for that customer: a guest cart is linked to the
+         *     customer inside the placement transaction, so the order appears in `listMyOrders` without relying on
+         *     the email match. A cart already linked to ANOTHER customer is refused with 409 `conflict` and nothing
+         *     is placed. Without a token the order keeps the cart's link (a guest cart places a guest order, as
+         *     before). A token that is sent but invalid, expired or bound to another store is a 401. The email on
+         *     the order stays the cart's checkout email. A replay with the same Idempotency-Key answers the stored
+         *     order and changes no link.
+         */
         post: operations["completeCart"];
         delete?: never;
         options?: never;
@@ -273,7 +288,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Link the authenticated Keycloak customer to this store (creates the store-level customer row) */
+        /**
+         * Link the authenticated Keycloak customer to this store (creates the store-level customer row)
+         * @description Resolves or creates the store-level customer row for the token's identity, then applies the supplied
+         *     names and consent. 201 when this call created the row, 200 when it already existed (every
+         *     `/store/customers/me` operation creates it on first use). The subject and the email always come
+         *     from the customer token: a body `email` that differs from the token's is a 400.
+         */
         post: operations["registerCustomer"];
         delete?: never;
         options?: never;
@@ -288,6 +309,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /**
+         * @description The store-level customer row is created from the verified token on first use (subject and email from
+         *     the token, `marketing_consent` false), so a signed-in customer never needs to register first.
+         */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -652,6 +677,22 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The request conflicts with the current state */
+        Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "conflict",
+                 *       "message": "Conflict",
+                 *       "details": {}
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         CartId: string;
@@ -881,6 +922,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
         };
     };
     getCart: {
@@ -1166,6 +1208,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             /** @description Payment not authorized */
             402: {
                 headers: {
@@ -1182,7 +1225,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Cart already completed (`cart_completed`), stock no longer available (`out_of_stock`), or a line's price changed since the cart was last priced (`price_changed`). On `price_changed` nothing was placed or authorized and the cart has been re-priced: read the cart again, show the new prices, create the payment session again for the new total, then retry (the same Idempotency-Key is fine — no order exists for it). `unit_price_minor: null` in an item means the variant has no applicable price in the cart's currency any more (not sellable): the storefront removes the line. */
+            /** @description Cart already completed (`cart_completed`), stock no longer available (`out_of_stock`), the cart is linked to another customer than the token's (`conflict`), or a line's price changed since the cart was last priced (`price_changed`). On `price_changed` nothing was placed or authorized and the cart has been re-priced: read the cart again, show the new prices, create the payment session again for the new total, then retry (the same Idempotency-Key is fine — no order exists for it). `unit_price_minor: null` in an item means the variant has no applicable price in the cart's currency any more (not sellable): the storefront removes the line. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -1270,6 +1313,15 @@ export interface operations {
             };
         };
         responses: {
+            /** @description The customer row already existed; the supplied names and consent were applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Customer"];
+                };
+            };
             /** @description Created */
             201: {
                 headers: {
@@ -1279,7 +1331,24 @@ export interface operations {
                     "application/json": components["schemas"]["Customer"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getMe: {
@@ -1301,6 +1370,22 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     updateMe: {
@@ -1331,6 +1416,22 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listMyAddresses: {
@@ -1375,6 +1476,22 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     addMyAddress: {
@@ -1417,6 +1534,23 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listMyOrders: {
@@ -1464,6 +1598,22 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
 }
