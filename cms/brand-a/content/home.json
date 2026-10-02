@@ -1,0 +1,204 @@
+[
+  {
+    "_id": "page.en-GB.home",
+    "_type": "page",
+    "locale": "en-GB",
+    "title": "Fieldnote",
+    "slug": { "_type": "slug", "current": "home" },
+    "hero": {
+      "_type": "hero",
+      "eyebrow": "Autumn 2026",
+      "headline": "Clothes that get better with wearing",
+      "subheadline": "A small range, made in short runs, in cloth we can name. Nothing here is designed to be replaced next season.",
+      "layout": "image-right",
+      "ctas": [
+        {
+          "_type": "cta",
+          "_key": "cta-shop",
+          "label": "Shop the range",
+          "href": "/products",
+          "variant": "primary"
+        },
+        {
+          "_type": "cta",
+          "_key": "cta-cloth",
+          "label": "How we choose cloth",
+          "href": "/pages/cloth",
+          "variant": "secondary"
+        }
+      ]
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "block-intro",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "intro-h",
+            "style": "h2",
+            "children": [
+              { "_type": "span", "_key": "intro-h-span", "text": "Fewer, better, slower" }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "intro-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "intro-p1-span",
+                "text": "We put out two collections a year and keep most pieces in the range for as long as the cloth is available. That means we can order fabric in quantities a mill takes seriously, and it means a jacket you bought two years ago can still be repaired with the same thread."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "intro-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "intro-p2-span",
+                "text": "Everything ships from our own warehouse in the Netherlands. Returns are free across the EU for thirty days, and we will repair anything we made for as long as we can get the parts."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "_type": "productStory",
+        "_key": "block-tee",
+        "productHandle": "classic-tee",
+        "headline": "The Classic Tee, in its fourth year",
+        "body": [
+          {
+            "_type": "block",
+            "_key": "tee-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "tee-p-span",
+                "text": "Organic cotton, knitted in Portugal at a weight that holds its shape. We have changed the neckline twice since 2022 and nothing else."
+              }
+            ]
+          }
+        ],
+        "cta": {
+          "_type": "cta",
+          "_key": "tee-cta",
+          "label": "See the Classic Tee",
+          "href": "/products/classic-tee",
+          "variant": "secondary"
+        }
+      }
+    ],
+    "seo": {
+      "metaTitle": "Fieldnote — considered apparel, made in small runs",
+      "metaDescription": "A small range of clothes made in short runs from named cloth, shipped across the EU with free thirty-day returns."
+    }
+  },
+  {
+    "_id": "page.de-DE.home",
+    "_type": "page",
+    "locale": "de-DE",
+    "title": "Fieldnote",
+    "slug": { "_type": "slug", "current": "home" },
+    "hero": {
+      "_type": "hero",
+      "eyebrow": "Herbst 2026",
+      "headline": "Kleidung, die beim Tragen besser wird",
+      "subheadline": "Eine kleine Kollektion, in kurzen Serien gefertigt, aus Stoffen, die wir benennen können. Nichts davon ist dafür gemacht, nächste Saison ersetzt zu werden.",
+      "layout": "image-right",
+      "ctas": [
+        {
+          "_type": "cta",
+          "_key": "cta-shop",
+          "label": "Kollektion ansehen",
+          "href": "/products",
+          "variant": "primary"
+        },
+        {
+          "_type": "cta",
+          "_key": "cta-cloth",
+          "label": "Wie wir Stoffe auswählen",
+          "href": "/pages/cloth",
+          "variant": "secondary"
+        }
+      ]
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "block-intro",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "intro-h",
+            "style": "h2",
+            "children": [
+              { "_type": "span", "_key": "intro-h-span", "text": "Weniger, besser, langsamer" }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "intro-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "intro-p1-span",
+                "text": "Wir bringen zwei Kollektionen im Jahr heraus und behalten die meisten Stücke so lange im Programm, wie der Stoff lieferbar ist. Dadurch können wir Mengen bestellen, die eine Weberei ernst nimmt — und eine Jacke, die Sie vor zwei Jahren gekauft haben, lässt sich noch mit demselben Garn reparieren."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "intro-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "intro-p2-span",
+                "text": "Alles wird aus unserem eigenen Lager in den Niederlanden versandt. Rücksendungen sind EU-weit dreißig Tage lang kostenlos, und wir reparieren alles, was wir hergestellt haben, solange wir die Materialien bekommen."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "_type": "productStory",
+        "_key": "block-tee",
+        "productHandle": "classic-tee",
+        "headline": "Das Classic Tee, im vierten Jahr",
+        "body": [
+          {
+            "_type": "block",
+            "_key": "tee-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "tee-p-span",
+                "text": "Bio-Baumwolle, in Portugal gestrickt, in einem Gewicht, das seine Form hält. Seit 2022 haben wir zweimal den Halsausschnitt geändert — sonst nichts."
+              }
+            ]
+          }
+        ],
+        "cta": {
+          "_type": "cta",
+          "_key": "tee-cta",
+          "label": "Zum Classic Tee",
+          "href": "/products/classic-tee",
+          "variant": "secondary"
+        }
+      }
+    ],
+    "seo": {
+      "metaTitle": "Fieldnote — durchdachte Kleidung in kleinen Serien",
+      "metaDescription": "Eine kleine Kollektion aus benannten Stoffen, in kurzen Serien gefertigt, EU-weit versandt mit dreißig Tagen kostenloser Rückgabe."
+    }
+  }
+]

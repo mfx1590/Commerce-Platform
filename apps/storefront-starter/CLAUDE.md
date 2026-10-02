@@ -17,14 +17,17 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
 - `pnpm --filter @platform/storefront-starter typecheck`
 - `pnpm --filter @platform/storefront-starter test` — Vitest (tests live in test/)
 - `pnpm --filter @platform/storefront-starter e2e` — Playwright (specs in `e2e/`); boots the Prism
-  mock and a production build itself, headless, non-zero exit on failure. `e2e:ui` for the
+  mock and a production build itself (`scripts/e2e-server.mjs`: built with a **different**
+  `SITE_URL` than it runs with, so a value captured at build time fails a spec), headless,
+  non-zero exit on failure. `e2e:ui` for the
   interactive runner. Uses the locally installed Chrome; on CI, Playwright's bundled chromium
   (REQUEST #84) — `E2E_CHANNEL` overrides either way. The account journeys need Keycloak
   (`docker compose -f infra/docker/docker-compose.yml up -d keycloak`): they skip locally without it
   and are **required** when `$CI` is set.
 - `pnpm --filter @platform/storefront-starter lighthouse` — Lighthouse CI against `lighthouserc.json`
-  (mobile, 3 runs, median). Needs a running app on :3100 and `CHROME_PATH` on Windows. Budgets:
-  performance and accessibility ≥ 90, LCP ≤ 2.5 s, CLS ≤ 0.1.
+  (mobile, 3 runs per URL; each budget is checked against the **best** run, LHCI's default, except
+  SEO, which is checked against the **worst**). Needs a running app on :3100 and `CHROME_PATH` on
+  Windows. Budgets: performance and accessibility ≥ 90, SEO ≥ 95, LCP ≤ 2.5 s, CLS ≤ 0.1.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/storefront-starter` before finishing any task.
 
 ## Public API

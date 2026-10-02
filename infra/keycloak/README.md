@@ -50,11 +50,36 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 
 ## Customers realm
 
+- **Customers cannot change their email (#314).** `registrationEmailAsUsername: true` with
+  `editUsernameAllowed: false` makes `email` read-only in the account console (measured: the account API
+  answers 204 and ignores a new address). Do not change either setting without first measuring that an email
+  change resets `email_verified` — auth-sdk's `emailVerified` rule depends on it.
 - Self-registration (email as username), password reset, remember-me. Email verification is off locally
   (no SMTP); turn `verifyEmail` on where an SMTP server is configured.
-- One public PKCE client per brand: `storefront-brand-a` (`:3100`), `storefront-brand-b` (`:3101`),
-  `storefront-brand-c` (`:3102`). Each client hard-codes a `store_code` claim (`brand-a` …) and `aud: core-api`
-  so the core can bind a customer token to one store (ADR 0002 §8).
+- **`email_verified` claim (#307).** Every client carries the `email verified` mapper (user property
+  `emailVerified` → boolean claim in the access token), so a token always states it: `true` for the seeded
+  Jane, `false` for anyone who self-registers locally (nothing verifies the address while `verifyEmail` is
+  off). The `google` provider has `trustEmail: true`: Keycloak is expected to mark a user created through it as
+  verified at first broker login, and the same mapper would emit that — **not measured live, the provider is
+  disabled**; it must be tested before the provider is enabled (#297). auth-sdk surfaces it as `CustomerClaims.emailVerified`;
+  email is identity only when it is true.
+- One public PKCE client per brand. Each client hard-codes a `store_code` claim (`brand-a` …) and `aud: core-api`
+  so the core can bind a customer token to one store (ADR 0002 §8) — which is also why an origin is
+  registered on exactly one client (`test/keycloak-realms.test.ts` enforces it).
+
+  | Client               | Redirect URIs                                                                                  | Served by                                         |
+  | -------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+  | `storefront-brand-a` | `http://localhost:3100/*`, `http://localhost:3101/*`                                           | the starter (`:3100`) and brand A (`:3101`, #212) |
+  |                      | `https://shop.dev.example.com/auth/callback`, `https://shop.staging.example.com/auth/callback` | the storefront on dev / staging (`infra/helm`)    |
+  | `storefront-brand-b` | `http://localhost:3102/*`                                                                      | brand B, once cloned                              |
+  | `storefront-brand-c` | `http://localhost:3103/*`                                                                      | brand C, once cloned                              |
+
+  Web origins are the origins of those URIs, spelled out (no `*`, no `+`). Post-logout redirects: the same
+  `http://localhost:<port>/*` locally and exactly `https://shop.<env>.example.com/` on dev/staging — the
+  storefront's sign-out sends `<origin>/`. **Rule for anything that is not localhost: `https`, the exact
+  callback URL, no wildcard anywhere.** A new environment or brand host is a new exact entry here, never a
+  pattern. After editing: `node infra/keycloak/reimport.mjs customers`.
+
 - `test-cli` (dev/CI only) as above — it also stamps `store_code=brand-a` so `verifyCustomerToken` has a live positive path in tests.
 - Social login: `google` identity provider present but **disabled**; its client id/secret come from the
   environment (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) via realm-import placeholders. Enable it by setting
@@ -76,6 +101,7 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 | Redirect URIs / web origins              | `http://localhost:*`       | the real app origins                    |
 | `hq-sso` / `google` identity providers   | disabled placeholders      | real client ids from the environment    |
 | `admin-app` second redirect (:3200, #82) | registered                 | exactly one redirect URI per app        |
+| `storefront-brand-a` redirects (#212)    | localhost + dev + staging  | only that environment's own callback    |
 | Keycloak `KC_DB=dev-file` + volume       | one-shot import, persisted | Postgres                                |
 
 Secrets: no confidential client is defined, so no client secret is committed. Identity-provider secrets are

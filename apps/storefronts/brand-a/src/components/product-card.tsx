@@ -1,6 +1,6 @@
 import { Badge, Price } from '@platform/ui';
 import { useTranslations } from 'next-intl';
-import Image from 'next/image';
+import { ProductImage } from '@/components/product-image';
 import { Link } from '@/i18n/navigation';
 import type { ProductSummary } from '@/lib/store-api';
 
@@ -31,7 +31,7 @@ export function ProductCard({ product, locale, priority = false }: ProductCardPr
             {t('noImage')}
           </span>
         ) : (
-          <Image
+          <ProductImage
             src={product.thumbnail_url}
             alt={product.title}
             fill

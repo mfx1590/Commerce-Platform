@@ -83,16 +83,26 @@ export function listHref(basePath: string, params: ListHrefParams): string {
   return query === '' ? basePath : `${basePath}?${query}`;
 }
 
-export const listProducts = cache(async (params: ListParams): Promise<ProductPage> => {
-  const query: ListProductsQuery = { page: params.page, limit: params.limit, sort: params.sort };
-  if (params.category !== undefined) query.category = params.category;
-  if (params.q !== undefined) query.q = params.q;
+/**
+ * `currency` (Store API 0.3.0) is the customer's chosen currency, already reconciled against
+ * `store.currencies` by `resolveCurrency` — the core answers 400 `validation_error` for one the
+ * store does not sell in. It is part of the URL, so each currency caches separately at the fetch
+ * layer instead of one price list poisoning the other; omitted, the core prices in the store
+ * default, which is what an unpriced context (a sitemap, a build with no cookie) wants.
+ */
+export const listProducts = cache(
+  async (params: ListParams, currency?: string): Promise<ProductPage> => {
+    const query: ListProductsQuery = { page: params.page, limit: params.limit, sort: params.sort };
+    if (params.category !== undefined) query.category = params.category;
+    if (params.q !== undefined) query.q = params.q;
+    if (currency !== undefined) query.currency = currency;
 
-  return storeApi().listProducts(query, {
-    tags: [cacheTags.products],
-    revalidate: CATALOG_REVALIDATE,
-  });
-});
+    return storeApi().listProducts(query, {
+      tags: [cacheTags.products],
+      revalidate: CATALOG_REVALIDATE,
+    });
+  },
+);
 
 export const listCategories = cache(async (): Promise<Category[]> => {
   const { items } = await storeApi().listCategories({
@@ -102,8 +112,8 @@ export const listCategories = cache(async (): Promise<Category[]> => {
   return items;
 });
 
-export const getProduct = cache(async (handle: string): Promise<Product> =>
-  storeApi().getProduct(handle, {
+export const getProduct = cache(async (handle: string, currency?: string): Promise<Product> =>
+  storeApi().getProduct(handle, currency === undefined ? undefined : { currency }, {
     tags: [cacheTags.products, cacheTags.product(handle)],
     revalidate: CATALOG_REVALIDATE,
   }),

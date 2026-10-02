@@ -49,28 +49,52 @@ package's `http://localhost:4011`. Nothing else changes: the same real Keycloak 
 forwarded as the bearer, because the core validates staff tokens from the same realm the app signs
 into.
 
-The core answers the registry and catalog routes — `/admin/me`, `/admin/stores`,
-`/admin/stores/{id}/products` and the users, roles and audit-log routes. **Every other screen still
-needs the mock**, so expect 404s across the rest of the app; they render `ApiStatePanel` rather than
-breaking, which is the point of the state pattern — a half-implemented backend gives you a page that
-says what is missing, not a stack trace. Run the mock when you need those screens, and switch back to
-`ADMIN_API_URL` when you are working on the ones the core serves.
+### Core mode (task 2.6, issue #118)
 
-E2E and the contract suite ignore all of this on purpose: `playwright.config.ts` and
-`vitest.contract.config.ts` force `ADMIN_API_URL` to the Prism they start, so a `.env` pointing at
-the core does not make an e2e run depend on whatever the core is currently serving.
+**Which API am I on?** Every page carries a line above its content, from a `GET {API}/health` probe
+(`src/lib/api/api-mode.ts`, cached for a minute, 1.5 s timeout): the core answers 200, Prism 404.
 
-**The one journey that does talk to the core** is `e2e/catalog-core.spec.ts`, and it is opt-in:
-it writes real rows into the shared local database, so it never runs by accident. Start the app
-yourself against the core (the config reuses a server that already answers `/health` instead of
-starting one pinned to the mock), then run it with `E2E_API=core`:
+- `Prism mock · contracts 0.4.6`, or `Core · contracts 0.4.6`: a quiet chip, all is well.
+- **Warning line, never a block:** the core reports another contracts version (it sends
+  `X-Contracts-Version` on `/health` once REQUEST #284 lands), does not report one yet ("version
+  unknown"), or did not answer. The version on the app side is `CONTRACTS_VERSION` from
+  `@platform/contracts` — as **built** into `packages/contracts/dist`. A stale `dist` shows up
+  here as a mismatch: rebuild it (`pnpm --filter @platform/contracts build`).
+
+**"Not available on this API yet."** A route the core has not mounted renders its own panel, which
+names the route (`GET /admin/stores/{id}/customers`) instead of a missing record or an ended
+session (`src/lib/api/not-implemented.ts`, core only):
+
+- a **404 without the contract's `not_found` code** is an unmounted route (the core's own
+  missing-record 404s always say `not_found`);
+- a **401 while `GET /admin/me` with the same token answers 200** is the same thing before #265
+  (Medusa's admin auth answers unmatched `/admin/*` with 401). An expired session fails both.
+
+Against Prism nothing is reclassified, so the contract suite's forced `Prefer: code=401` stays a 401.
+Screenshot: [`docs/core-mode/`](./docs/core-mode/).
+
+**The whole e2e suite against the core.** `pnpm --filter @platform/admin e2e` is unchanged (Prism,
+hermetic). With the stack up (`pnpm compose:up`, `pnpm --filter @platform/auth-sdk fga:seed`,
+the core running):
 
 ```bash
-PORT=3200 ADMIN_API_URL=http://localhost:9000 ADMIN_APP_URL=http://localhost:3200 ADMIN_SESSION_SECRET=… pnpm --filter @platform/admin start
+E2E_API=core CORE_URL=http://localhost:9000 pnpm --filter @platform/admin e2e
 ```
 
+In core mode the config starts no Prism, starts the app against `CORE_URL` (or reuses one already
+answering `/health`), and fails fast with instructions if the core is not up. The journeys share
+one body; `e2e/api-mode.ts` holds the few things that differ (display name, domain, key format,
+which routes the core does not mount). **Core-mode journeys write into the shared local
+database**: everything they create is stamped with the run (product handles, promotion codes, key
+names), so reruns never collide, and nothing irreversible is confirmed on seeded data (the refund
+journey stops at the question and cancels; it skips when no seeded order has a refundable payment).
+Recorded run 2026-09-28 (core from this branch on :9100): mock 21 passed + 2 core-only skipped;
+core 22 passed + 1 skipped (no refundable order). A CI variant is REQUEST #285 (window 5).
+
+`e2e/catalog-core.spec.ts` is the deep catalog journey and runs in core mode only:
+
 ```bash
-E2E_API=core PORT=3200 pnpm --filter @platform/admin e2e catalog-core
+E2E_API=core CORE_URL=http://localhost:9000 pnpm --filter @platform/admin e2e catalog-core
 ```
 
 It signs in as the seeded `store-admin`, creates a product with a fresh handle on brand-a, creates
@@ -445,7 +469,50 @@ rows the preview accepted are sent, and the server action re-validates the whole
 (`priceUpsertBatchSchema`) and refuses it entirely — naming the row — if anything slipped in.
 Rejections are named: a non-integer minor amount for the currency (`12.345` in EUR, `12.5` in JPY),
 words, negatives, an unknown SKU, a compare-at below the amount, a bad minimum quantity. Amounts
-are parsed by `parseMoney`, string arithmetic, never a float.
+are parsed by `parseMoney`, string arithmetic, never a float. The action also refuses a
+compare-at below the amount (the preview and the core refuse it too); every refusal class has a
+batch test in `test/pricing.test.ts`, which is the standard for any money-adjacent import.
+
+## Store settings (task 2.5, issue #117 — part one; 2.5b after CONTRACT CHANGE #279)
+
+**Store · Settings** (`settings`, `/{storeId}/settings`) is open to **store_staff and up**, and
+read-only below store_admin. One page, four cards, each form offered only to the relation its
+operation needs and otherwise replaced by a line naming that relation (`src/lib/settings`):
+
+| Card           | Read (x-permission)             | Write (x-permission)                                      |
+| -------------- | ------------------------------- | --------------------------------------------------------- |
+| General        | `getStore` — viewer             | `updateStore` — store_admin (name, status, defaults)      |
+| Domains        | `listDomains` — viewer          | `addDomain` — **owner on organization:hq**, not the store |
+| Sales channels | `listSalesChannels` — viewer    | `createSalesChannel` — store_admin                        |
+| API keys       | `listApiKeys` — **store_admin** | `createApiKey` — store_admin, publishable only here       |
+
+Below store_admin the keys list is not even requested; the card is the relation panel. Moving the
+status to `paused` or `archived` asks first (it takes the storefront offline). The Store view's
+General action parses with `storeSettingsSchema.strict()`, so an edited request cannot reach the
+legal entity or the code — those are HQ's (`/stores/{id}`).
+
+**The one-time key.** `createApiKey` returns the plain key once. It lives in `CreateApiKey`'s state
+only — never in the URL, storage, a prop, a log, or the server-rendered list (which has
+`key_prefix`) — and "Done" removes it from the document for good (tested in unit and e2e).
+
+**Shared with HQ.** `src/components/registry/` holds the lists (server components, the records
+stay on the server) and the three client forms (ids and `ClientSafe` options only). The HQ store
+page and the settings page both use them; every registry action revalidates both paths.
+
+**Not yet (2.5b).** Revoking a key (with the last-live-key refusal), moving the primary domain and
+the enabled locale/currency sets have no operation in Admin API 0.4.6 — CONTRACT CHANGE #279
+asks for them. Nothing is shown for them until then.
+
+**Real core run** (2026-09-26; core from this branch on :9100, the built app on :3000 with
+`ADMIN_API_URL` pointing at it, real Keycloak sign-in, OpenFGA re-seeded). As **store-admin**: all
+four cards rendered from the core (`shop.brand-a.local` primary/unverified, channel `web`, key
+`storefront (dev)` live), the domain form replaced by "needs owner on organization:hq"; General
+saved unchanged → "Saved."; a new channel was created and listed; a new publishable key was shown
+once, gone from the document after Done and after a reload, never in the URL, and listed by
+prefix; choosing `paused` asked first (cancelled — the store stays active). As **store-staff**: no
+forms at all, every card read-only with the relation named, keys card the store_admin panel.
+No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
+redacted in the DOM before capture; no key value is committed.
 
 ## When a screen cannot show what was asked for
 

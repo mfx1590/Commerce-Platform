@@ -9,6 +9,8 @@ import {
   totalPages,
   type ListParams,
 } from '@/lib/catalog';
+import { getCurrency } from '@/lib/i18n';
+import { getStoreOrNull } from '@/lib/store';
 
 /**
  * The listing itself, shared by `/products` and `/categories/[handle]`.
@@ -29,8 +31,11 @@ export async function ProductListView({
   params: ListParams;
   activeCategoryHandle?: string | undefined;
 }) {
+  // Prices follow the currency switcher, not the store default: the cookie is reconciled against
+  // `store.currencies` first, then sent as the 0.3.0 `currency` query so the API prices the list.
+  const currency = await getCurrency(await getStoreOrNull());
   const [page, categories, t] = await Promise.all([
-    listProducts(params),
+    listProducts(params, currency),
     listCategories(),
     getTranslations('plp'),
   ]);

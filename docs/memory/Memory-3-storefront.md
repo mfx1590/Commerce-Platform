@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-24 · Contracts: contracts-v0.4.4 (Store API 0.3.1; the `currency` query is in use since 2.1) · Branch: `storefront/phase2` · Status: **Phase 2 complete for this window** — 2.1–2.3 merged, 2.4 in PR
+Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `d0da986`) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (PR #299) and #286/#278 (PR #305) merged; #302 in PR three; next #304 (+#306) → #298; #293 parked until #300 lands**
 
 ## Identity (does not change)
 
@@ -159,7 +159,135 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       nits — see Decisions. 339 app tests (26 files) + 47 kit tests; lint, typecheck, format,
       `next build`, `perf`, and the new `/r/` e2e (3 specs) green.
 
+- [x] **#274 Page metadata in `<head>` for every user agent** — commits `e78a1a5` (priceString
+      nit), `dca3201` (the fix), `865ce22` (SEO budget 95); **PR #299 merged** (merge commit
+      `39e7321`, 2026-10-02). `htmlLimitedBots: /.*/` in `next.config.mjs`; the middleware gives a
+      request with no `User-Agent` a placeholder one, because Next never consults the pattern for
+      it. `e2e/seo-head.spec.ts` asserts byte offsets on raw responses; `test/seo-head.test.ts` pins
+      the pattern. Evidence, against the Docker mock on 127.0.0.1:4010: e2e 40/40 red on the old
+      config and 40 passed with the fix; Lighthouse SEO 100/92/92 → 100/100/100 on PLP and PDP,
+      performance 99–100 both ways; probe 60/60 rows in `<head>`, warm first byte 9–16 ms (before:
+      10–24 ms). The reviewer rebuilt the branch and reproduced all of it. **Named gap, still open:
+      a content route answering 200 was never probed** — no Sanity dataset exists anywhere.
+      JSON-LD stays in `<body>` on purpose. **The 95 gate shipped in this PR did not guard the fix**
+      — see the LHCI gotcha; corrected in the #286/#278 PR.
+
+- [x] **#286 + #278, with the rider from #299's review** — commits `09e5cac`, `33e48f3`; **PR #305
+      merged** (merge commit `cf25d16`, 2026-10-02). #286: `StoreFacts`
+      (`src/components/store-facts.tsx`), one padded `Card` per fact, `dl > div > dt/dd`;
+      `test/store-facts.test.ts` asserts the rendered structure. #278: `mergeSlots` exported and
+      tested with fixtures; starter-only assertions in `test/starter-defaults.test.ts` under
+      `describe.runIf(package name is the starter's)` — the reviewer saw it skip in a clone. Rider:
+      `categories:seo` uses `aggregationMethod: "pessimistic"` (the 95 gate from #299 passed the
+      broken build on its best run; now RED on the pre-#299 config, `found: 0.92, all values: 1,
+      0.92, 0.92`); empty `User-Agent` case in `e2e/seo-head.spec.ts`; "median of three" texts
+      corrected. **Performance, accessibility, LCP and CLS stay on LHCI's default (best run)** —
+      manager's ruling 2026-10-02; `ci.yml`'s wording is routed to window 5.
+
 ## In progress
+
+- **Docket (manager, 2026-10-02), each its own small PR, in this order: #302 (PR three, open) →
+  #304 with #306 folded in → #298 (sign-out derives the post-logout URI from the request
+  origin vs `SITE_URL` — an unverified lead, establish it first). #293 slots in whenever #300
+  lands.** Standing rules: plan-paste anything over ~20 calls. One PR at a time; push each only
+  after the previous merges and the manager confirms no queue is running. No `docker exec`. No
+  closing keyword in a commit message unless that commit finishes the issue. Never attempt stack
+  recovery from this window. **One window measures at a time on this machine (manager,
+  2026-10-02): before a perf gate, a Lighthouse run or a flake check, ask the manager and wait
+  to be told the machine is quiet** — my builds and Lighthouse runs degraded window 10's browser
+  suite on 2026-10-02.
+
+- **#302 — PR THREE OPEN (pushed 2026-10-02; number and SHAs in the next commit). Waiting for
+  review.** Gates on the final tree: 379 unit tests, lint, typecheck, format, full e2e (63 passed,
+  1 skipped, the origin spec running for real), `perf` PASS. **When #293 comes over later, keep
+  the `force-dynamic` exports on both sitemap routes** (manager).
+  - **Review of #309: BLOCK, two test gaps; the fix itself was verified right.** (1) the robots
+    test could not fail: without `ROBOTS_ALLOW_INDEXING=1` robots.txt is `Disallow: /` with no
+    origin in it, so `not.toContain(build host)` passed whatever robots did — and README, PR body,
+    CHANGELOG and this file all claimed that coverage. (2) nothing compared the served origin with
+    the expected runtime one. Fixed: `playwright.config.ts` sets `ROBOTS_ALLOW_INDEXING: '1'` and
+    `SITE_URL: RUNTIME_SITE_URL` for the e2e server; the spec asserts presence first (a
+    `Sitemap:` line), then equality with the expected runtime origin for every sitemap `<loc>`
+    and alternate, the robots `Sitemap:` line and the canonical of home, listing and one product
+    (computed through the app's `siteUrl()`), then absence of the build host.
+    **Run on 2026-10-02 once the machine was free:** lint, typecheck, 379 unit tests, format; the
+    origin spec with `robots.ts` stripped of `force-dynamic` (the 2.2 behaviour) → robots test RED,
+    `Expected: "http://localhost:3100/sitemap.xml"` / `Received:
+    "https://build-time.invalid/sitemap.xml"`, the other three green; restored → full e2e 64
+    passed, 1 skipped. Pushed after merging main `d0da986`.
+    Parked nits from that review: the marker checks the build on disk, not the running process;
+    an out-of-range `/sitemap/N.xml` answers 200 empty after a full walk; a cold cache can be hit
+    by several requests at once; the 10k-product cap truncates silently. "`SITE_URL` unset falls
+    back to localhost" folds into #298's fail-closed rule.
+  - Measured first (build with the default origin, start with `SITE_URL=https://runtime.example`,
+    count each origin per route, three passes): only `/sitemap.xml` (1) and `/sitemap/0.xml` (36)
+    served the build origin, both cache HIT; `robots.txt` and every page (home, PLP, PDP,
+    category, cart, checkout redirect, content 404) already served the runtime one. So the issue's
+    "check robots and the canonical/alternate helpers" comes back clean.
+  - Fix: both sitemap routes `force-dynamic`, no `revalidate`; upstream reads stay cached
+    (~5 ms per request measured). After: 0 build-origin occurrences anywhere, and no file under
+    `.next/server/app` contains the build origin.
+  - `scripts/e2e-server.mjs` builds with `SITE_URL=https://build-time.invalid` and starts without
+    it; `playwright.config.ts` uses it, so **every** e2e run is now built somewhere it does not
+    run. `e2e/runtime-origin.spec.ts`: red on the old routes (1 failed: `the sitemap index names
+    the build origin`; robots and pages passed), green after. `test/sitemap-dynamic.test.ts` pins
+    both routes (2 failed before, green after). Full e2e: 63 passed, 1 skipped.
+  - Manager's addition (2026-10-02): the spec must not pass vacuously against a reused, ordinarily
+    built server. `e2e-server.mjs` writes `.next/e2e-build.json` (build id + build origin);
+    `e2e/support/build-origin.ts` decides: matching marker — run; otherwise skip with the reason
+    locally, **fail when `CI` is set**. Unit-tested (`test/e2e-build-origin.test.ts`, 8 cases incl.
+    a stale marker after an ordinary rebuild). Seen live: ordinary build + running server gives
+    3 skipped with `runtime-origin would pass vacuously: the build was not made by
+    scripts/e2e-server.mjs`. **The CI=fail branch was exercised only in the unit test** — with
+    `CI` set Playwright refuses to reuse the Docker mock on :4010, so it cannot be run here.
+
+- **#304 (+ #306 folded in) — PLAN APPROVED (manager, 2026-10-02); build once #302 is in review.
+  Nothing built yet.** Findings from the read on 2026-10-02:
+  - The confirmation page renders `order.display_id`, each line and its total, but nothing on
+    cart, review or confirmation has a test hook (the only `data-testid` in the app is the kit's
+    `price-value`), so the spec cannot read a line, a quantity or a total today.
+  - The Prism mock answers `GET /store/products` with the **same single product** whatever the
+    `sort` or `category` (checked: plain, `price_asc`, `price_desc`, `category=tops`). So against
+    the mock no assertion on result order or on a filtered set can fail — an order check is
+    vacuous with one row. It can only be real against the core (`E2E_STORE_API_URL`).
+  - The mock is stateless, so stock is drained **only** in runs against the core: one order per
+    run on the first listed product's first purchasable variant, never cancelled.
+  Plan:
+  1. Test hooks on my `(checkout)` pages: cart lines (name, quantity, line total, cart total in
+     minor units as `data-*`), review, confirmation (order number, lines, total).
+  2. Journey: capture the cart at runtime (lines, quantities, total in minor units), then assert
+     the confirmation shows a non-empty order number and the **same** lines and total. Mutation
+     check: a wrong quantity or total on the confirmation must turn it red.
+  3. Stock (decision A below).
+  4. Sort and filter (decision B below): assert the rendered order (prices non-decreasing for
+     `price_asc`, non-increasing for `price_desc`) and, for a category, that every card belongs to
+     it and the count changed; the active control carries `aria-current`.
+  5. README (the stock budget, what each backend can and cannot prove), CHANGELOG, memory, gates.
+  **Rulings:** (hooks) yes, on cart, review and confirmation; assert order number, lines and total
+  against the cart captured at runtime. (stock) choose the product by reported stock; document
+  that a core run consumes one unit; when nothing has enough stock, fail with a clear
+  "seed stock exhausted — reseed" message, not a timeout; **no Admin API or staff token in the
+  storefront's e2e**. (sort/filter) real only against the core, where it FAILS (not skips) with
+  fewer than two products; against the mock it skips visibly with the reason; **no contract
+  change** — Prism returns its example whatever the query. (#306, `account.spec.ts`)
+  assertions on values only Prism can produce (the mock customer, Order #1000) are labelled
+  mock-only or removed; the core-backed version waits for #303.
+
+- **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
+  window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
+  `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
+  do not merge the branch; expect conflicts in CHANGELOG, the package version, `sitemap.ts` and
+  `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that, the manager
+  said so too). Never push the branch. It is the only local-only branch left. When #300 has
+  merged: merge main, bring the commit over, **swap the local `scheduleIsLive` copy for the
+  exported `campaignIsLive`, replace the `Reflect.get` method detection with a plain typed call
+  (and delete the "before #300" test), use window 6's `RoutedDocument` type**, re-run the gates.
+  What is in it: `seo.ts` `sitemapUrls()` (the one expansion from paths to URLs; both sitemap
+  routes count it); `sitemap-data.ts` `contentEntries()` over a narrow `ContentSource`, default
+  source built with `createReader`, never `getCms()` (preview cookie); tests
+  `sitemap-content`, `sitemap-urls`, `sitemap-cms-binding`. Verified on a production build:
+  the served sitemap is unchanged while the reader has no `routedDocuments`. **Not verified:
+  content appearing in a served sitemap** — needs #300 and a dataset.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
@@ -211,10 +339,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **Review nits from #254, still deferred by the manager ("not now"):** (a) the comment in
-      `src/app/[locale]/layout.tsx` cites `test/seo-head.test.ts`, **which does not exist** — the
-      head-placement check was done by hand against the built HTML, so either write that test or
-      drop the reference; (b) `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice.
+- [ ] **Review nit from #254, still deferred by the manager ("not now"):**
+      `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice. (The other one — the layout
+      comment citing a `test/seo-head.test.ts` that did not exist — is fixed in the #274 commit.)
 
 ## Decisions made (with reasons)
 
@@ -295,9 +422,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 - **The CSP imports `EMBED_HOSTS` from `@platform/cms` rather than copying the host list.** It is
   the same list window 6's Studio validates an editor's embed URL against, so a copy that drifts
   would either block an embed the Studio accepted or permit one it rejected.
-- **The Lighthouse SEO budget stays at 90, deliberately, and the README says why.** The score moves
-  between 92 and 100 on the same build (see In progress); a 95 gate would be flaky, and turning off
-  the `meta-description` audit to force a pass would hide a real signal.
+- **The Lighthouse SEO budget is 95 and is checked against the worst of three runs.** It was 90
+  from 2026-09-21 to 2026-10-01 because the score moved between 92 and 100 on one build; #274
+  found the cause (streamed metadata) and removed it. "Worst run" is not pedantry: the defect is
+  absent on run 1 and present on runs 2 and 3.
 
 - **A test may assert on our own copy; it may never assert on the dataset.** That is the line the
   Phase 1 e2e crossed, and it is why the suite could not run against the core: the fixture's product
@@ -479,6 +607,50 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **A "does not contain X" assertion needs a "does contain the thing that would carry X" in
+  front of it.** My robots.txt origin test passed on a file with no origin in it at all
+  (`Disallow: /`), and the sitemap test compared the index with its own pages, which agree just
+  as well when both are wrong. Assert presence, then equality with a value computed in the test,
+  then absence — and run the test against the defect it is for. Second time the reviewer caught
+  a check of mine that could not fail (the first: the LHCI gate).
+- **One window measures at a time.** While another window is taking timed runs: file edits and
+  git only — no builds, tests, e2e, Lighthouse or servers — until the manager says the machine is
+  free.
+
+- **`next build` still prints the prerender marker for `/sitemap/[__metadata_id__]` after
+  `force-dynamic`.** `generateSitemaps` lists the ids like `generateStaticParams`, so the route
+  table shows `/sitemap/0.xml` under it. Nothing is prerendered: no `.body`/`.meta` file exists
+  under `.next/server/app` and `prerender-manifest.json` has no sitemap route. Check the
+  artefacts, not the table.
+
+- **LHCI checks an assertion against the BEST run unless told otherwise** (`aggregationMethod`
+  defaults to `optimistic`; `@lhci/utils/src/assertions.js`). "Median of three" was written in
+  three places here and was never true. Worse, I raised the SEO budget to 95 in #299 and called
+  it a guard: the broken build scores 100, 92, 92, and best-of-three passes it. **A gate is only
+  proven by running it against the defect and watching it fail** — I showed the e2e red and
+  never the gate. Caught by the reviewer of #299.
+- **An empty header value and a missing header are different requests** and Next treats both as
+  "no user agent". `node:http` sends `user-agent:` with an empty value when asked to; the spec
+  covers both.
+
+- **Next streams `generateMetadata` into `<body>` for any user agent outside `htmlLimitedBots`
+  (15.2+), and never consults the pattern for a request with no `User-Agent`.** The older entries
+  below that call head placement "timing-dependent" describe the symptom, not the cause: streamed
+  metadata is a race the first request to a route after boot can win, so a single curl or
+  Lighthouse's run 1 says HEAD and everything after says BODY. Probe with byte offsets, at least
+  twice, with a real browser user agent — and with none (`node:http`; `fetch` and Playwright's
+  client always send one).
+- **Git Bash rewrites an argument that starts with `/` into a Windows path** (`/en-GB` became
+  `C:/Program Files/Git/en-GB` inside a node script's argv). Prefix `MSYS_NO_PATHCONV=1` or do not
+  pass URL paths as arguments.
+- **After a reboot Windows can reserve TCP 3020–3419** (`netsh interface ipv4 show excludedportrange
+  protocol=tcp`), which covers :3100 and the brands' :3101–3103: `next start` dies with
+  `listen EACCES 0.0.0.0:3100`. It is a system setting — report it, do not fix it. A probe that
+  needs no fixed port can run on a spare one (`PORT=4100`); Playwright and `perf` take
+  `E2E_BASE_URL` / `PERF_PORT`.
+- **`pnpm mock` failing with `EADDRINUSE 0.0.0.0:4010` while nothing listens there** means the dead
+  Docker backend still holds the port. The mock that counts is the Docker one; do not start a second.
 
 - **URL parsing strips tab, newline and carriage return *before* parsing, so `/\t/evil.example`
   resolves to `https://evil.example`.** A path guard that checks only the leading characters cannot

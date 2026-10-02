@@ -21,20 +21,34 @@ import type {
   ApiResult,
 } from './admin-client';
 import { adminRequest, buildPath } from './admin-client';
+import { apiMode } from './api-mode';
+import { reclassifyUnmounted } from './not-implemented';
 
 type CallOptions = Omit<AdminRequestOptions, 'baseUrl' | 'accessToken'>;
 type Query = Record<string, string | number>;
 
-/** Every Admin API call goes through here, so the token is attached in exactly one place. */
+/**
+ * Every Admin API call goes through here, so the token is attached in exactly one place — and a
+ * route the core has not mounted yet comes back as `not_implemented` rather than as a missing
+ * record or an ended session (`./not-implemented.ts`; core only).
+ */
 export async function adminCall<K extends keyof operations>(
   options: CallOptions,
 ): Promise<ApiResult<AdminResponse<K>>> {
   const session = await getSession();
-  return adminRequest<K>({
-    ...options,
-    baseUrl: env.adminApiUrl,
-    accessToken: session?.accessToken,
-  });
+  const accessToken = session?.accessToken;
+  const result = await adminRequest<K>({ ...options, baseUrl: env.adminApiUrl, accessToken });
+  if (result.ok) return result;
+  return reclassifyUnmounted(
+    result,
+    { method: options.method ?? 'GET', path: options.path },
+    {
+      mode: (await apiMode(env.adminApiUrl)).mode,
+      meStatus: async () =>
+        (await adminRequest<'getMe'>({ path: '/admin/me', baseUrl: env.adminApiUrl, accessToken }))
+          .status,
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------- me

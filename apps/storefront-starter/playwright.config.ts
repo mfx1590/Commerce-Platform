@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { RUNTIME_SITE_URL } from './e2e/support/build-origin';
 
 /**
  * End-to-end config for the storefront.
@@ -53,14 +54,23 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'pnpm run build && pnpm run start',
+      // Builds with one `SITE_URL` and starts with another, so a value captured by `next build`
+      // shows up as the wrong origin in a spec instead of in production (#302).
+      command: 'node scripts/e2e-server.mjs',
       url: APP_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
-      // `start` honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
+      // The server honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
       env: {
         MOCK_API_URL: MOCK_URL,
         PORT: new URL(APP_URL).port,
+        // Said out loud rather than inherited: e2e/runtime-origin.spec.ts compares what is served
+        // against this value, and the build is made with a different one.
+        SITE_URL: RUNTIME_SITE_URL,
+        // The indexable configuration, as in `perf`. Without it `/robots.txt` is a bare
+        // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
+        // build origin is absent from it could not fail whatever robots.txt did (#309 review).
+        ROBOTS_ALLOW_INDEXING: '1',
         ...(STORE_API_URL === undefined ? {} : { STORE_API_URL }),
       },
     },

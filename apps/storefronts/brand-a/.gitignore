@@ -4,3 +4,8 @@ next-env.d.ts
 test-results/
 playwright-report/
 .lighthouseci/
+
+# Lighthouse CI report artifacts (task 2.2). Build output, never committed; the root
+# .prettierignore is the main window's file, so `pnpm format:check` will flag these locally
+# after a lighthouse run until that line is requested — CI never sees them.
+.lighthouseci/

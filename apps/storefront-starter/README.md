@@ -104,6 +104,11 @@ const products = await storeApi().listProducts(
 A brand app edits `src/brand/` and, when it must, whole route files. Everything else stays identical
 to the starter, so a re-sync from the starter shows real drift instead of noise.
 
+That includes `test/`: the starter's tests are copied into a brand app, so none of them may assert
+what `src/brand/` contains. The slot mechanism is tested with fixtures (`test/slots.test.ts`); the
+facts that hold only for the starter — no overrides, no tokens — are in
+`test/starter-defaults.test.ts`, which runs only when the package name is the starter's.
+
 ```
 src/brand/
   tokens.ts          # 1. design tokens — colours, type scale, radii, shadows
@@ -128,8 +133,8 @@ export const layoutOverrides: Partial<LayoutSlots> = { Header: BrandHeader };
 
 **3. Identity.** `brandConfig` in `src/brand/config.ts` holds the brand name, the default meta
 description and, optionally, the canonical origin and Twitter handle. This is **build configuration
-rather than API data on purpose**: root metadata that awaits `GET /store` is resolved too late to
-land in `<head>`, which is what cost the storefront SEO points in Phase 1 (see "SEO" below). Prices,
+rather than API data on purpose**: root metadata must not make the first byte of every page wait on
+`GET /store` for a title (see "SEO" below for what does and does not decide `<head>` placement). Prices,
 availability, locales and the theme still come from the Store API, where they belong.
 
 **4. Route files.** Anything more than a slot — a bespoke home page, an extra route — is a normal
@@ -401,25 +406,84 @@ otherwise `robots.txt` would advertise a URL that 404s. Both read the same `site
 index cannot list a page that does not exist. A failure part-way through the walk returns what was
 collected: a short sitemap is a crawler inefficiency, a 500 makes it back off from all of it.
 
-**Where metadata ends up, and the limit of this.** Next resolves page metadata during the render and
-emits it in `<head>` only if it is ready before the shell is flushed; when it is not, the tags are
-appended to `<body>` and React hoists them at hydration. The DOM is correct either way and every
-end-to-end assertion passes — but a crawler reading raw HTML, and Lighthouse's `meta-description`
-audit, see nothing. That is what put the PLP at SEO 91 in Phase 1, with the tag present and correct.
+**The sitemap is rendered per request (#302).** Both routes are `force-dynamic`. As prerendered
+routes with `revalidate` they were written by `next build` with the build machine's `SITE_URL`,
+and served that origin — in every `<loc>` and every `hreflang` alternate — for the first hour after
+each deploy. What is cached is the upstream reads (an hour, by tag), so a request costs a render
+(about 5 ms measured), not a walk of the catalogue. `robots.txt` and the pages' canonical and
+alternate links were checked for the same capture and do not have it: they already render per
+request.
 
-Taking `GET /store` out of the root layout's metadata (hence `src/brand/config.ts`) removes the
-biggest cause. It does **not** make head placement deterministic: both catalogue routes still render
-dynamically because pricing reads the currency cookie, so under a cold fetch cache the metadata can
-still be flushed late. Measured, the SEO score therefore moves between **92 and 100** for the same
-build. The budget is set at 90 rather than 95 because a 95 gate would be flaky, not because 95 is
-unreachable — and the one audit that flips is `meta-description`, whose tag is always in the DOM.
+**The end-to-end server is built somewhere it does not run.** `scripts/e2e-server.mjs` runs
+`next build` with `SITE_URL=https://build-time.invalid` and `next start` with the runtime one, and
+`e2e/runtime-origin.spec.ts` asserts that every sitemap `<loc>` and alternate, the `Sitemap:` line
+of `robots.txt` and the pages' canonical links are on the **runtime** origin — compared for
+equality with the value the server was started with — and that the build origin appears in
+none of them. Presence is asserted before absence: the e2e server runs with
+`ROBOTS_ALLOW_INDEXING=1` so that `robots.txt` has a `Sitemap:` line at all; without it the file
+is a bare `Disallow: /`, there is no origin in it, and "the build origin is absent" passes
+whatever `robots.txt` does (the first version of the spec had exactly that hole). It exists because this class of defect — a per-environment value captured at build time
+— had shipped three times (the CSP, `robots.txt`, the sitemap) and was invisible each time: every
+test built and started the app with the same environment, where the two values are the same
+string.
 
-Making it deterministic means making the catalogue routes statically renderable, which means taking
-per-request currency out of the server render — a trade against the behaviour task 2.1 shipped
-deliberately. Worth revisiting when partial prerendering is stable in Next.
+**That spec refuses to pass vacuously.** Locally Playwright reuses a server that is already
+running on the port, and one you built with `pnpm build` has the same origin at build time and
+at run time — nothing in the spec could fail against it. `e2e-server.mjs` therefore leaves a
+marker next to its build (`.next/e2e-build.json`: the build id and the origin it was built with),
+and the spec checks it first. Without a matching marker the three tests are **skipped, and the
+reason is printed** (`runtime-origin would pass vacuously: the build was not made by
+scripts/e2e-server.mjs …`); when `CI` is set they **fail** instead, because CI never reuses a
+server and getting there means the setup is broken. To run it for real on a laptop, stop the
+server on :3100 and let Playwright start it. The rules are in `e2e/support/build-origin.ts`
+and unit-tested in `test/e2e-build-origin.test.ts`.
 
-**This is a recorded deviation from #110's acceptance criterion (SEO ≥ 95), accepted by the manager
-on 2026-09-21:** the budget stays at 90 until the catalogue routes can render statically.
+**Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
+agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,
+canonical, `hreflang` alternates and og/twitter tags are written into `<body>` afterwards. A
+browser's DOM still finds them, so every page-level assertion passes — but Google ignores `hreflang`
+outside `<head>`, and Lighthouse's `meta-description` audit fails. Next's default pattern covers
+link-preview bots and Bing; it leaves out ordinary browsers, Lighthouse (whose user agent no longer
+carries a `Chrome-Lighthouse` token) and Googlebot itself.
+
+This was first read as a timing problem ("metadata that resolves before the shell is flushed lands
+in `<head>`"), and `src/brand/config.ts` was introduced to make the root metadata resolve at once.
+That reading was wrong, and the measurement that supported it was the trap: streamed metadata is a
+race that the **first request to a route after boot can win**, so one `curl`, or Lighthouse's first
+run of three, reports "in head" while every later request gets it in `<body>`. The same build scored
+SEO 92–100 for that reason.
+
+Two things make the placement deterministic:
+
+- `htmlLimitedBots: /.*/` in `next.config.mjs` — metadata blocks for every user agent, so it is in
+  `<head>` before the first byte. The price is that the first byte waits for `generateMetadata`,
+  which awaits the same cached reads the page needs before it can render anything. The same holds
+  for a **soft navigation**: the client-side transition to a route also waits for that route's
+  metadata instead of streaming it in afterwards, so a slow `generateMetadata` is felt on every
+  in-app link, not only on a first load. Keep metadata on reads the page already makes.
+- The middleware gives a request with **no** `User-Agent` header a placeholder one. Next never
+  consults the pattern for such a request and always streams; a bare HTTP client is a crawler far
+  more often than a customer.
+
+`e2e/seo-head.spec.ts` holds it: raw requests (no page, so hydration cannot rescue anything), twice
+per route, for home, listing, product and the content not-found path in both locales, with six
+user agents including none and an empty one — asserting the **byte offset** of each tag against `</head>`. The HTML
+is a single line, so a line-based check (`sed -n '1,/<\/head>/p' | grep …`) prints the whole
+document and passes falsely. `test/seo-head.test.ts` pins the pattern in the unit run.
+
+**JSON-LD stays in `<body>`, deliberately.** It is a `<script type="application/ld+json">` the page
+renders next to the content it describes, not Metadata API output, and Google reads structured data
+from either place. Moving it would mean a second data read in the layout for no reader's benefit.
+
+**Not verified: a content route answering 200.** No CMS dataset exists in any local or CI
+environment, so `(content)` is exercised on its not-found path, which renders through the same root
+layout. A published `/pages/<slug>` should be probed the first time a dataset exists.
+
+**The Lighthouse SEO budget is 95**, which is #110's original criterion. It was held at 90 from
+2026-09-21 to 2026-10-01 as a recorded deviation, because the race above made the same build score
+92 on some runs and 100 on others. With the placement fixed, all three runs of both URLs score 100
+(before, on the same machine and mock: 100, 92, 92), and the first byte is no slower — Lighthouse's
+server response time was 19–30 ms warm before and 17–25 ms after.
 
 **Indexing is opt-in.** `/robots.txt` says `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, and it is
 rendered per request. In 2.2 it was static — baked by `next build`, which always runs with
@@ -480,8 +544,16 @@ pnpm --filter @platform/storefront-starter perf
 ```
 
 It makes a production build against the mock, checks the **bundle budget**, starts the server, runs
-**Lighthouse CI** (median of three, mobile), stops the server whatever happened, and reports both
+**Lighthouse CI** (three runs per URL, mobile), stops the server whatever happened, and reports both
 results — one failure never hides the other.
+
+**Which of the three runs a budget is checked against.** Not the median, although this README said
+so until #286's PR: LHCI's default `aggregationMethod` is `optimistic`, the **best** of the runs.
+That is a reasonable way to keep runner noise out of the performance, LCP and CLS budgets, and it
+is still what they use. It is the wrong way to guard metadata placement: the streaming race
+(#274) is won by run 1 and lost by runs 2 and 3, so the old build's SEO of 100, 92, 92 passes a
+95 budget on its best run. `categories:seo` therefore sets `aggregationMethod: "pessimistic"` —
+the **worst** run must clear 95 — and `test/perf-budget.test.ts` pins that setting.
 
 The measured run sets `ROBOTS_ALLOW_INDEXING=1`, because it is measuring the configuration that goes
 to production. Without it `/robots.txt` serves `Disallow: /` — correct for staging — and Lighthouse's
@@ -494,7 +566,7 @@ budget to 100 ms each turned the exit code to 1, and restoring them returned it 
 | Budget                     | Where                | Limit                                                                 |
 | -------------------------- | -------------------- | --------------------------------------------------------------------- |
 | Performance, accessibility | `lighthouserc.json`  | ≥ 90                                                                  |
-| SEO                        | `lighthouserc.json`  | ≥ 90 (see "SEO" — a recorded deviation)                               |
+| SEO                        | `lighthouserc.json`  | ≥ 95 (see "SEO": metadata placement is deterministic since #274)      |
 | LCP / CLS / TBT            | `lighthouserc.json`  | ≤ 2.5 s / ≤ 0.1 / ≤ 300 ms (warn)                                     |
 | First-load JS per route    | `bundle-budget.json` | measured + ~5 kB, per route                                           |
 | Web fonts                  | —                    | **none**: the system font stack, zero requests                        |
@@ -564,15 +636,15 @@ nothing that reflects on the app is skipped.
 The config targets `127.0.0.1`, not `localhost`: on Windows `localhost` resolves to `::1` first,
 where nothing listens, and Lighthouse then fails to connect to a server that is plainly running.
 
-Latest Lighthouse run (2026-09-24, median of 3, against the mock, after task 2.4):
+Latest Lighthouse run (2026-10-01, three runs each, against the mock, after #274):
 
-| Page                   | Perf | A11y | Best practices | SEO    |
-| ---------------------- | ---- | ---- | -------------- | ------ |
-| `/en-GB/products`      | 98   | 100  | 96             | 92–100 |
-| `/en-GB/products/…tee` | 94   | 100  | 96             | 92–100 |
+| Page                   | Perf        | A11y | Best practices | SEO           |
+| ---------------------- | ----------- | ---- | -------------- | ------------- |
+| `/en-GB/products`      | 100, 99, 99 | 100  | 96             | 100, 100, 100 |
+| `/en-GB/products/…tee` | 100, 99, 99 | 100  | 96             | 100, 100, 100 |
 
-The SEO range is not noise in the measurement but a real property of the build: see "SEO" above for
-why metadata placement varies with cache warmth, and what making it deterministic would cost.
+The same build without the #274 change scored SEO 100, 92, 92 on both pages: run 1 won the streaming
+race and runs 2 and 3 found no description in `<head>`. See "SEO" above.
 
 The first measurement came in at 89 and 85, entirely on blocking time: the root layout was handing
 `NextIntlClientProvider` the whole message catalogue, so every page serialised and hydrated strings

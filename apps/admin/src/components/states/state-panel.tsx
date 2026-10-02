@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import type { AdminError } from '@/lib/api/admin-client';
+import { NOT_IMPLEMENTED } from '@/lib/api/not-implemented';
 import { RetryButton } from './retry-button';
 
 /**
@@ -204,7 +205,27 @@ export function EmptyPanel({
  * Network failure or `5xx` — the one case where trying again is genuinely reasonable, so it is the
  * only panel with a retry.
  */
+/**
+ * The core has not mounted this route yet (`src/lib/api/not-implemented.ts`, #118). Not an error
+ * the reader can fix and not a lost session: say which route, and that the mock serves it.
+ */
+export function NotImplementedPanel({ error }: { error: AdminError }) {
+  const route = detail(error, 'route');
+  return (
+    <StatePanel
+      title="Not available on this API yet"
+      description={route === null ? error.message : `The core does not serve ${route} yet.`}
+    >
+      <p className="text-muted text-sm">
+        Nothing is wrong with your account or this page. The screen works against the Prism mock; it
+        will work here once the core implements the route.
+      </p>
+    </StatePanel>
+  );
+}
+
 export function RequestErrorPanel({ status, error }: { status: number; error: AdminError }) {
+  if (error.code === NOT_IMPLEMENTED) return <NotImplementedPanel error={error} />;
   const unreachable = status === 0;
   return (
     <StatePanel
@@ -244,6 +265,7 @@ export function ApiStatePanel({
   backLabel?: string;
   hint?: string;
 }) {
+  if (error.code === NOT_IMPLEMENTED) return <NotImplementedPanel error={error} />;
   if (status === 401) return <UnauthorizedPanel />;
   if (status === 403) {
     return <ForbiddenPanel error={error} {...(hint === undefined ? {} : { hint })} />;

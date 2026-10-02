@@ -1,5 +1,86 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.3 — 2026-10-02
+
+Issue #302. No contract change.
+
+- **The sitemap no longer serves the build machine's origin.** `/sitemap.xml` and
+  `/sitemap/<n>.xml` were prerendered by `next build` and revalidated hourly, so for the first
+  hour after a deploy every `<loc>` and `hreflang` alternate pointed at the origin the image was
+  built with (`http://localhost:3100`). Both routes are now `force-dynamic`; the upstream reads
+  stay cached, so a request is a ~5 ms render. `robots.txt` and the pages' canonical/alternate
+  links were checked and were not affected.
+- **The e2e server is built with one `SITE_URL` and started with another**
+  (`scripts/e2e-server.mjs`, used by `playwright.config.ts`), and `e2e/runtime-origin.spec.ts`
+  asserts that the sitemap's `<loc>`s and alternates, the `Sitemap:` line of `robots.txt` and the
+  pages' canonicals **equal the runtime origin**, and that the build origin is in none of them.
+  Red on the old sitemap routes, green now. `test/sitemap-dynamic.test.ts` pins both routes in
+  the unit run. The e2e server runs with `ROBOTS_ALLOW_INDEXING=1`: without it `robots.txt` has
+  no `Sitemap:` line and nothing about it could be asserted (review of #309 — the first version
+  of the spec only checked that the build origin was absent, which an origin-less file passes).
+- **The origin spec cannot pass vacuously.** Against a server that was already running and was
+  built the ordinary way it could not fail, so it now checks a marker `e2e-server.mjs` leaves
+  next to its build: no matching marker means skipped with a printed reason locally, and a
+  failure when `CI` is set.
+- **Brands:** picked up on re-sync (`src/app/sitemap*`, `scripts/e2e-server.mjs`,
+  `playwright.config.ts`). A brand that fixes its origin in `src/brand/config.ts` is unaffected.
+
+## 0.12.2 — 2026-10-01
+
+Issues #286 and #278, and three corrections from the review of #299. No contract change.
+
+- **The Lighthouse SEO budget is now checked against the worst of the three runs.** LHCI's default
+  aggregation is `optimistic` — the best run — so the 95 budget added in 0.12.1 did not guard the
+  metadata fix it was added for: the old build scores 100, 92, 92 and passed. `categories:seo` sets
+  `aggregationMethod: "pessimistic"`; against the pre-fix config the gate now fails (`found: 0.92,
+all values: 1, 0.92, 0.92`) and `test/perf-budget.test.ts` pins the setting. The other budgets
+  keep the default. **"Median of three" in `perf.mjs`, `CLAUDE.md`, the README and earlier entries
+  of this file was never what the gate did**; the first three are corrected.
+- **`e2e/seo-head.spec.ts` covers an empty `User-Agent` header** as well as a missing one. The
+  middleware already handled it; nothing tested it.
+- README: blocking metadata is also waited for on soft navigations, not only on first loads.
+
+- **Home page store facts are a valid description list** (#286). Each fact was a `Card` with a
+  `CardContent` inside it, so the markup was `dl > div > div > dt` — HTML allows one wrapper, not
+  two, and every term was detached from its list: axe `dlitem` and `definition-list`, both serious,
+  on the home page of every locale. The facts are now `StoreFacts` (`src/components/store-facts.tsx`),
+  one padded `Card` per fact, and `test/store-facts.test.ts` asserts the rendered structure.
+  Lighthouse never reported it because the home page is not among the URLs it audits.
+- **`test/slots.test.ts` no longer asserts what a brand's files contain** (#278). `test/**` is copied
+  into every brand app while `src/brand/**` is the brand's own, so "this app overrides nothing" was
+  false by construction in any clone. The slot mechanism is now tested with fixture overrides
+  (`mergeSlots` is exported for that) and against whatever the app overrides; the starter-only facts
+  moved to `test/starter-defaults.test.ts`, which runs only when the package name is the starter's.
+  **Brands:** a clone can drop its local copy of `slots.test.ts` and take both files from the sync —
+  no exclude-list entry is needed.
+
+## 0.12.1 — 2026-10-01
+
+Issue #274. No contract change.
+
+- **Page metadata is in `<head>` for every user agent.** Title, description, canonical, the
+  `hreflang` alternates and the og/twitter tags were written into `<body>` on every route for
+  browsers, Lighthouse and Googlebot: since Next 15.2 `generateMetadata` is streamed unless the user
+  agent matches `htmlLimitedBots`, and the default pattern covers little more than link-preview
+  bots. Google ignores `hreflang` outside `<head>`, so the locale annotations were invisible to it.
+  `next.config.mjs` now sets `htmlLimitedBots: /.*/`, and the middleware names a request that
+  arrives with no `User-Agent` header, which Next would otherwise always stream.
+- **`e2e/seo-head.spec.ts`** asserts the byte offset of each tag against `</head>` in the served
+  HTML — raw requests, twice per route, five user agents including none, both locales — and
+  `test/seo-head.test.ts` pins the pattern in the unit run. The root layout's comment cited that
+  unit test before it existed and attributed head placement to the wrong cause; both are corrected.
+- **Lighthouse SEO budget 90 → 95** (`lighthouserc.json`), ending the deviation from #110 recorded
+  on 2026-09-21. Measured against the mock, three runs per URL: SEO was 100, 92, 92 on both the
+  listing and the product page and is 100, 100, 100 on both; performance 100/99/99 and 99/99/99
+  before, 100/99/99 on both after; server response time 19–30 ms warm before, 17–25 ms after.
+- **Brands:** a brand app picks this up from `next.config.mjs` and `src/middleware.ts` on re-sync. A
+  test that pins the old placement (metadata after `</head>`) is expected to fail afterwards and
+  should be turned round to assert `<head>`.
+- **JSON-LD price for currencies that are not two-decimal.** `priceString` knew only JPY and KRW as
+  zero-decimal, so a VND or CLP offer was published a hundred times too low and a KWD or BHD one
+  ten times too high. It now uses the kit's `minorUnitDigits` — the same exponent `Price` divides
+  by — so the structured price cannot disagree with the one on the page.
+
 ## 0.12.0 — 2026-09-24
 
 Task [storefront] 2.4 (issue #112), contracts `contracts-v0.4.4` (Store API 0.3.1). Closes Phase 2

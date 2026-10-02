@@ -79,3 +79,37 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
 
 - `exports["."]` gains a `default` condition (same fix as `@platform/db`, issue #40) so the CommonJS core can
   `require()` the package at runtime under `pnpm dev`; typecheck and vitest were unaffected, the Medusa server was not.
+
+## Unreleased — 2026-10-01 (auth/phase1)
+
+- REQUEST #212: customers realm redirect registrations. `storefront-brand-a` now also accepts brand A's own
+  port (`http://localhost:3101/*`) and the exact dev/staging callbacks
+  (`https://shop.dev.example.com/auth/callback`, `https://shop.staging.example.com/auth/callback`) with their
+  web origins and `https://shop.<env>.example.com/` post-logout redirects; `storefront-brand-b` /
+  `storefront-brand-c` move from `:3101` / `:3102` to `:3102` / `:3103` (brand A serves on 3101, so the old
+  rows put brand A's origin on brand B's client). `test/keycloak-realms.test.ts` pins the exact lists and the
+  rules — off localhost: https, exact URL, no wildcard; one client per origin — plus live checks (sign-in round
+  trip from `:3101`, refused look-alikes). Apply with `node infra/keycloak/reimport.mjs customers`.
+
+## Unreleased — 2026-10-02 (auth/phase1)
+
+- REQUEST #307: `CustomerClaims.emailVerified: boolean` — `true` ONLY when the token's `email_verified` claim
+  is the boolean `true`; absent, `null`, the string `"true"` or any other value is `false`. Rule for
+  consumers: email is identity only when `emailVerified` (the customers realm allows self-registration, so an
+  unverified address may belong to someone else). `CustomerTokenVerifierOptions` gains `jwksUri` (tests).
+  Realm export: the three storefront clients already carried the `email verified` mapper; the dev/CI-only
+  customers `test-cli` did not state it and now does (it emitted the claim only through Keycloak's built-in
+  `email` scope). `verifyEmail` stays `false` in the dev export (no SMTP locally; production setting on #297).
+  Tests: `test/customer-claims.test.ts` (verified, unverified, absent, string `"true"`, `null`, other truthy
+  values; live: jane and a freshly self-registered user), two static realm tests.
+- REQUEST #314 (hardening after #313): `createStaffTokenVerifier` — and through it
+  `createCustomerTokenVerifier` — throws at construction when `jwksUri` is set and `NODE_ENV === 'production'`.
+  Tests in `test/customer-claims.test.ts`: the guard on both verifiers; the default path fetches the JWKS from
+  the issuer's own `certs` URL; with `jwksUri` set, a token signed by a different key, expired, from the wrong
+  issuer, for the wrong audience or for the wrong store is still a 401; live: a verified user who posts a new
+  address to the account API keeps the original one — the realm makes `email` read-only (email is the
+  username, usernames are not editable), answers 204 and ignores the value; the reset of `email_verified`
+  on a real change was not observed because the change cannot happen. A static realm test pins the two
+  settings. Test hygiene: users this file
+  registers are tracked by email prefix before the registration POST, and cleanup throws when the admin API
+  refuses. `infra/keycloak/README.md`: the Google `trustEmail` sentence now says it is not measured live.

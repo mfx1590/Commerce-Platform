@@ -3,7 +3,8 @@ import './types';
 
 export { aliasPublishableKeyHeader } from './publishable-key-alias';
 export { requestIdMiddleware, requestIdOf } from './request-id';
-export { coreErrorHandler, handle } from './errors';
+export { CONTRACTS_VERSION_HEADER, contractsVersionHeader } from './contracts-version';
+export { adminNotFound, coreErrorHandler, handle } from './errors';
 export {
   coreOrganizationId,
   requireTenant,

@@ -15,11 +15,16 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3101';
 const MOCK_URL = process.env.MOCK_API_URL ?? 'http://localhost:4010';
+const STORE_API_URL = process.env.E2E_STORE_API_URL;
 const CHANNEL = process.env.E2E_CHANNEL ?? (process.env.CI ? undefined : 'chrome');
 const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 
 export default defineConfig({
   testDir: './e2e',
+  // Visual baselines are keyed by platform: font rasterisation differs between a Windows laptop and
+  // CI's Linux, so one PNG cannot serve both. Without this, taking a baseline locally guarantees a
+  // meaningless red build on CI. See e2e/visual.spec.ts.
+  snapshotPathTemplate: '{testDir}/__screenshots__/{platform}/{arg}{ext}',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
@@ -49,7 +54,15 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
       // `start` honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
-      env: { MOCK_API_URL: MOCK_URL, PORT: new URL(APP_URL).port },
+      env: {
+        MOCK_API_URL: MOCK_URL,
+        PORT: new URL(APP_URL).port,
+        // Forward the backend the suite is pointed at. Without this the webServer boots against
+        // Prism whatever `E2E_STORE_API_URL` says — harmless locally with `reuseExistingServer`,
+        // but in CI (#295) `reuseExistingServer` is false, so the run would silently exercise the
+        // mock while reporting as a core run. Mirrors the starter.
+        ...(STORE_API_URL === undefined ? {} : { STORE_API_URL }),
+      },
     },
   ],
 });

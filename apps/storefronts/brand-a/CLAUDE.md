@@ -11,7 +11,8 @@ refreshed with `pnpm --filter @platform/storefront-brand-a sync` after merging m
 ## Owner
 
 window 10 (brands). The starter itself is window 3 — never edit it from here; file a REQUEST.
-No Dockerfile in this app: `**/Dockerfile` is window 5's (REQUEST filed for the image).
+The Dockerfile is window 5's (`**/Dockerfile`), delivered via REQUEST #197 — it exists and the
+compose build uses it, but it is never authored or synced from here.
 
 ## Run / test
 

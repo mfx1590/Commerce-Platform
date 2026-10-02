@@ -29,6 +29,21 @@ export const coreErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
 };
 
 /**
+ * Terminal handler for `/admin/*` (#265): a path none of our routers answered is the contract's 404, not
+ * whatever Medusa's own admin auth makes of it (401 — which the admin app reads as "your session has ended").
+ * src/server.ts mounts it after `mountCoreMiddleware` and before Medusa's loaders. Our staff auth has already
+ * run, so a caller without a valid token got its 401 there and learns nothing about the route table; any
+ * authenticated staff user gets the 404 — no permission is checked for a route that does not exist.
+ */
+export const adminNotFound: RequestHandler = (req, res) => {
+  res.status(404).json({
+    code: 'not_found',
+    message: `${req.method} ${req.baseUrl}${req.path} is not implemented`,
+    details: {},
+  });
+};
+
+/**
  * Wraps an async handler so thrown `AppError`s (and anything else) reach `coreErrorHandler` instead of Medusa's
  * error handler. Our contract route files export `handle(async (req, res) => …)`.
  */

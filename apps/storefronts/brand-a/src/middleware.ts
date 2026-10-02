@@ -8,19 +8,32 @@ import {
   parseAttribution,
   readTouch,
 } from '@/lib/attribution';
+import { contentSecurityPolicy } from '@/lib/csp';
 
 /**
  * Puts every page under a locale prefix, remembers the choice in a cookie, and captures marketing
  * attribution on the way through.
  *
  * The matcher excludes the route handlers deliberately: `/health` is the container probe and must
- * answer 200 without a redirect, and `/auth/*` carries the OIDC round trip — its callback URL is
- * registered with Keycloak, so it cannot grow a locale prefix.
+ * answer 200 without a redirect, `/auth/*` carries the OIDC round trip — its callback URL is
+ * registered with Keycloak, so it cannot grow a locale prefix — and `/r/*` is the referral landing,
+ * a shared short link that must not have to carry a locale and must not take a second redirect hop.
  */
 const intlMiddleware = createMiddleware(routing);
 
 export default function middleware(request: NextRequest) {
   const response = intlMiddleware(request);
+
+  // Built per request from this deployment's environment — see src/lib/csp.ts for why this cannot
+  // live in next.config.mjs. Every page response passes through here; the routes the matcher skips
+  // (`/api`, `/auth`, `/health`, static files) render no document to protect.
+  response.headers.set(
+    'Content-Security-Policy',
+    contentSecurityPolicy({
+      keycloakUrl: process.env.KEYCLOAK_URL,
+      frameHosts: process.env.CSP_FRAME_HOSTS,
+    }),
+  );
 
   // The landing touch has to be recorded before the customer navigates away from the campaign URL,
   // and the middleware is the only thing that sees every request. `document.referrer` is not
@@ -49,5 +62,5 @@ export default function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|auth|_next|_vercel|health|[^?]*[.][a-zA-Z0-9]+).*)'],
+  matcher: ['/((?!api|auth|r/|_next|_vercel|health|[^?]*[.][a-zA-Z0-9]+).*)'],
 };

@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### Added — task 2.6, issue #118: the real core as a first-class mode
+
+- **API mode line** above every page (`ApiModeBanner` in the shell): a `/health` probe (core 200,
+  Prism 404; cached a minute, 1.5 s timeout) shows `Prism mock · contracts X` or
+  `Core · contracts X`, and a **warning, never a block**, when the core reports another contracts
+  version, reports none (until REQUEST #284 adds `X-Contracts-Version`), or does not answer.
+- **Not-implemented detection** in `adminCall`, core only: a 404 without `not_found`, or a 401
+  while `/admin/me` with the same token answers 200 (until #265), becomes 501 `not_implemented`
+  with the route; `ApiStatePanel` / `RequestErrorPanel` render "Not available on this API yet"
+  naming it, instead of a missing record or a false "session ended".
+- **`E2E_API=core`** runs the whole suite against the core: no Prism, the app started (or reused)
+  against `CORE_URL`, a fast failure with instructions when the core is down; `e2e/api-mode.ts`
+  holds the mode differences; core-mode journeys stamp what they create and confirm nothing
+  irreversible. Default `pnpm e2e` unchanged. CI variant: REQUEST #285.
+- Tests: `test/api-mode.test.tsx` (probe, cache, verdicts, the three cases — expired session,
+  unmounted 401, unmounted 404 — plus not_found, Prism and `/admin/me` pass-throughs, panels).
+
+### Added — task 2.5, issue #117 (part one): Store settings (Admin API 0.4.6)
+
+- **Settings** `/{storeId}/settings`, open to store_staff and up (the section was store_admin):
+  General (`updateStore`: name, status, default currency / locale / country, timezone; a move to
+  paused or archived asks first), Domains (list; add with make-primary for **owner on
+  organization:hq** only), Sales channels (list; create for store_admin), API keys (list and create
+  for store_admin; publishable only in the Store view; the plain key shown once and gone after
+  "Done"). Below the needed relation each form is replaced by a line naming it; below store_admin
+  the keys list is not requested and the card is the relation panel.
+- `updateStoreSettingsAction` parses with `storeSettingsSchema.strict()` — HQ fields in an edited
+  request are refused before the API.
+- `src/components/registry/`: server-rendered lists plus client forms, shared by the HQ store page
+  and the settings page (the HQ `api-keys-panel` / `registry-panels` are gone; no record crosses
+  into a client component). Registry actions revalidate both paths.
+- Tests: `test/settings.test.tsx` (permission table, rendered page per role, status confirmation,
+  one-time key), `test-contract/settings.test.tsx` (8 operations + documented 403/409/401), e2e
+  settings journey.
+- **Not yet:** revoke key, move the primary domain, enabled locale/currency sets — CONTRACT
+  CHANGE #279 → 2.5b, which closes #117.
+
+### Changed — review nits from #268 and #276
+
+- `markClientSafe` refuses (at compile time) a PII record or an object holding one; the guard
+  test recognises a comment-preceded `'use client'` and follows exported type aliases of PII
+  records across modules (it found `orders/quantities` exporting `Order`).
+- `priceUpsertRowSchema` refuses a compare-at below the amount server-side (batch test added).
+- `upsertPricesAction` returns `ActionResult<AdminResponse<'upsertPrices'>>` (no conditional-type
+  trick); `toPromotionInput` spreads a shared builder instead of re-setting three fields.
+
 ### Added — task 2.4, issue #116: Promotions and price lists (Admin API 0.4.5)
 
 - **Promotions list** `/{storeId}/promotions` (viewer): `listPromotions` with the contract's sort

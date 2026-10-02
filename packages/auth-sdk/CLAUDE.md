@@ -21,7 +21,8 @@ window 2 (auth).
 - `verifyCustomerToken(tokenOrHeader, storeCode) → CustomerClaims` — customers realm, and the token's
   `store_code` claim must equal the request's **store code** (`store.code`, e.g. `brand-a`), not a store id:
   the storefront client stamps its brand, and the core resolves publishable key/host → code anyway. A token
-  for another brand is 401 `store_mismatch` (ADR 0002 §8).
+  for another brand is 401 `store_mismatch` (ADR 0002 §8). `claims.emailVerified` is true only for the literal
+  boolean `email_verified: true`; **email is identity only when `emailVerified`** (#307).
 - `can(subject, relation, object) → Promise<boolean>` e.g. `can(scope, 'finance', 'organization:hq')`;
   `object: 'store:*'` asks "any store this subject can view".
 - `allowedStores(subject) → Promise<string[]>` · `resolveScope(subject) → { storeIds, organizationRelations, scope }`

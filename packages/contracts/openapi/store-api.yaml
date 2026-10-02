@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.4.0
+  version: 0.5.1
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -9,7 +9,8 @@ info:
     Money is `{ amount_minor, currency }`. Ids are uuids. Frozen at tag contracts-v0.1; 0.2.0 adds optional cart/order `metadata` (additive);
     0.3.0 adds the optional `currency` query on listProducts/getProduct (additive);
     0.3.1 adds the `price_changed` error code on completeCart's 409 (additive);
-    0.4.0 adds POST /store/cart-recovery/{token} (additive).
+    0.4.0 adds POST /store/cart-recovery/{token} (additive);
+    0.5.0 adds the typed review shape — Product.review_summary and GET /store/products/{handle}/reviews (additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -157,11 +158,51 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /store/products/{handle}/reviews:
+    get:
+      operationId: listProductReviews
+      summary: Published reviews for a product, newest first
+      tags: [catalog]
+      parameters:
+        # `handle` is declared inline on getProduct too — there is no ProductHandle component.
+        - { name: handle, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewPage' }
+              example:
+                items:
+                  - id: 00000000-0000-4000-8000-000000000901
+                    rating: 5
+                    title: Exactly as described
+                    body: Wore it all summer.
+                    author: Ada L.
+                    created_at: '2026-09-01T10:00:00Z'
+                    verified_purchase: true
+                total: 1
+                page: 1
+                limit: 24
+                summary: { count: 1, average: 5 }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /store/carts:
     post:
       tags: [cart]
       operationId: createCart
       summary: Create an empty cart for the resolved store and sales channel
+      description: |
+        With a valid customer token the new cart is linked to that customer (the store-level customer row is
+        resolved or provisioned from the token, as on `/store/customers/me`). Without a token the cart is a
+        guest cart, as before. A token that is sent but invalid, expired or bound to another store is a 401 —
+        it is never silently ignored.
+      security:
+        - publishableKey: []
+        - publishableKey: []
+          customerToken: []
       requestBody:
         required: false
         content:
@@ -192,6 +233,7 @@ paths:
               examples:
                 empty: { $ref: '#/components/examples/CartEmpty' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /store/carts/{cartId}:
     parameters:
@@ -389,6 +431,18 @@ paths:
       tags: [checkout]
       operationId: completeCart
       summary: Place the order (reserve stock, authorize payment, emit order.placed)
+      description: |
+        With a valid customer token the order is placed for that customer: a guest cart is linked to the
+        customer inside the placement transaction, so the order appears in `listMyOrders` without relying on
+        the email match. A cart already linked to ANOTHER customer is refused with 409 `conflict` and nothing
+        is placed. Without a token the order keeps the cart's link (a guest cart places a guest order, as
+        before). A token that is sent but invalid, expired or bound to another store is a 401. The email on
+        the order stays the cart's checkout email. A replay with the same Idempotency-Key answers the stored
+        order and changes no link.
+      security:
+        - publishableKey: []
+        - publishableKey: []
+          customerToken: []
       parameters:
         - {
             name: Idempotency-Key,
@@ -413,7 +467,8 @@ paths:
               example: { code: payment_failed, message: Card declined, details: {} }
         '409':
           description: >-
-            Cart already completed (`cart_completed`), stock no longer available (`out_of_stock`), or a line's price
+            Cart already completed (`cart_completed`), stock no longer available (`out_of_stock`), the cart is
+            linked to another customer than the token's (`conflict`), or a line's price
             changed since the cart was last priced (`price_changed`). On `price_changed` nothing was placed or
             authorized and the cart has been re-priced: read the cart again, show the new prices, create the payment
             session again for the new total, then retry (the same Idempotency-Key is fine — no order exists for it).
@@ -449,6 +504,7 @@ paths:
                             ],
                         },
                     }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /store/cart-recovery/{token}:
     parameters:
@@ -509,6 +565,11 @@ paths:
       tags: [customers]
       operationId: registerCustomer
       summary: Link the authenticated Keycloak customer to this store (creates the store-level customer row)
+      description: |
+        Resolves or creates the store-level customer row for the token's identity, then applies the supplied
+        names and consent. 201 when this call created the row, 200 when it already existed (every
+        `/store/customers/me` operation creates it on first use). The subject and the email always come
+        from the customer token: a body `email` that differs from the token's is a 400.
       security:
         - publishableKey: []
           customerToken: []
@@ -533,11 +594,31 @@ paths:
               examples:
                 jane: { $ref: '#/components/examples/CustomerJane' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '200':
+          description: The customer row already existed; the supplied names and consent were applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+              examples:
+                jane: { $ref: '#/components/examples/CustomerJane' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
 
   /store/customers/me:
     get:
       tags: [customers]
       operationId: getMe
+      description: |
+        The store-level customer row is created from the verified token on first use (subject and email from
+        the token, `marketing_consent` false), so a signed-in customer never needs to register first.
       security:
         - publishableKey: []
           customerToken: []
@@ -550,6 +631,15 @@ paths:
               examples:
                 jane: { $ref: '#/components/examples/CustomerJane' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
     patch:
       tags: [customers]
       operationId: updateMe
@@ -576,6 +666,15 @@ paths:
               examples:
                 jane: { $ref: '#/components/examples/CustomerJane' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
 
   /store/customers/me/addresses:
     get:
@@ -612,6 +711,15 @@ paths:
                     is_default_shipping: true
                     is_default_billing: true
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
     post:
       tags: [customers]
       operationId: addMyAddress
@@ -644,6 +752,16 @@ paths:
                 is_default_shipping: true
                 is_default_billing: true
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
 
   /store/customers/me/orders:
     get:
@@ -684,6 +802,15 @@ paths:
                       placed_at: '2026-09-04T10:00:00Z',
                     }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
 
 components:
   securitySchemes:
@@ -739,6 +866,12 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { code: not_found, message: Not found, details: {} }
+    Conflict:
+      description: The request conflicts with the current state
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: conflict, message: Conflict, details: {} }
 
   schemas:
     Error:
@@ -825,6 +958,39 @@ components:
             `{ color: { primary: "#1E40AF", primaryForeground: "#ffffff" } }`. Unknown groups, unknown keys and
             non-string values are ignored by the storefront.
 
+    Review:
+      type: object
+      required: [id, rating, title, body, author, created_at, verified_purchase]
+      properties:
+        id: { type: string, format: uuid }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        title: { type: [string, 'null'] }
+        body: { type: [string, 'null'] }
+        # A display name only, provided or chosen by the customer AT REVIEW TIME — never an email,
+        # and never a name derived from the account (CONTRACT CHANGE #270, manager constraint):
+        # reviews are public, and this is the field that leaks PII if it carries an identity.
+        author: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+        verified_purchase: { type: boolean }
+
+    ReviewSummary:
+      type: object
+      required: [count, average]
+      properties:
+        count: { type: integer, minimum: 0 }
+        # null when count is 0 — never 0, which a shopper reads as "rated zero out of five".
+        average: { type: [number, 'null'], minimum: 1, maximum: 5 }
+
+    ReviewPage:
+      type: object
+      required: [items, total, page, limit, summary]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Review' } }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        summary: { $ref: '#/components/schemas/ReviewSummary' }
+
     Category:
       type: object
       required: [id, handle, name, parent_id, position]
@@ -894,6 +1060,13 @@ components:
             title: { type: string }
             description: { type: string }
             canonical: { type: string }
+        # Present so a PDP can render a rating without a second request. The full list is paged
+        # through `listProductReviews`; omit the field entirely when the store has no reviews
+        # feature, which is different from a store that has it and has none yet.
+        review_summary:
+          oneOf:
+            - $ref: '#/components/schemas/ReviewSummary'
+            - type: 'null'
         options:
           type: array
           items:

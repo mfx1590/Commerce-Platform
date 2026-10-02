@@ -12,6 +12,7 @@ import { expect, test } from '@playwright/test';
  * are started by `playwright.config.ts`.
  */
 
+import { AGAINST_CORE, EXPECT, stamped } from './api-mode';
 import { BRAND_A, BRAND_C, sessionCookies, signIn } from './staff';
 
 test.describe('store-admin', () => {
@@ -23,10 +24,9 @@ test.describe('store-admin', () => {
     // `/` sends a principal with no HQ relations to their first store section.
     await page.waitForURL(new RegExp(`/${BRAND_A}/catalog`));
     await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
-    // The shell shows `display_name` from GET /admin/me — the Prism mock's "Store Admin" — not the
-    // ID token's `name` claim ("Sam StoreAdmin" in the DB seed). The two differ on purpose: the
-    // principal is what the API says, not what the token asserts.
-    await expect(page.getByText('Store Admin')).toBeVisible();
+    // The shell shows `display_name` from GET /admin/me — the Prism mock's "Store Admin", the core's
+    // "Sam StoreAdmin" — never the ID token's claim: the principal is what the API says.
+    await expect(page.getByText(EXPECT.displayName, { exact: true })).toBeVisible();
   });
 
   test('sees the store view and no HQ view at all', async ({ page }) => {
@@ -116,8 +116,8 @@ test.describe('store-admin', () => {
     await page.waitForURL(/\/catalog\/new/);
 
     // Anchored: a substring match on "Title" would also hit "Subtitle" and trip strict mode.
-    await page.getByLabel(/^Title/).fill('E2E Tee');
-    await page.getByLabel(/^Handle/).fill('e2e-tee');
+    await page.getByLabel(/^Title/).fill(stamped('E2E Tee', ' '));
+    await page.getByLabel(/^Handle/).fill(stamped('e2e-tee'));
     await page.getByRole('button', { name: 'Create product' }).click();
 
     // The mock answers with its own example product, so the id in the URL is the API's, not ours —
@@ -160,21 +160,55 @@ test.describe('store-admin', () => {
 
     const table = page.getByRole('table', { name: 'Orders' });
     await expect(table).toBeVisible();
-    // The mock's example: #1000, confirmed, captured, unfulfilled, €29.18.
-    await expect(table.getByRole('link', { name: '#1000' })).toBeVisible();
-    await expect(table.getByText('confirmed')).toBeVisible();
-    await expect(table.getByText(/29[.,]18/)).toBeVisible();
+    if (AGAINST_CORE) {
+      // Whatever orders the shared database holds: a number link and a money cell.
+      await expect(table.getByRole('link', { name: /^#\d+$/ }).first()).toBeVisible();
+      await expect(table.getByText(/\d[.,]\d{2}/).first()).toBeVisible();
+    } else {
+      // The mock's example: #1000, confirmed, captured, unfulfilled, €29.18.
+      await expect(table.getByRole('link', { name: '#1000' })).toBeVisible();
+      await expect(table.getByText('confirmed')).toBeVisible();
+      await expect(table.getByText(/29[.,]18/)).toBeVisible();
+    }
 
-    await table.getByRole('link', { name: '#1000' }).click();
+    const first = table.getByRole('link', { name: /^#\d+$/ }).first();
+    const number = (await first.innerText()).trim();
+    await first.click();
     await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));
-    await expect(page.getByRole('heading', { name: 'Order #1000' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: `Order ${number}` })).toBeVisible();
     await expect(page.getByRole('table', { name: 'Order lines' })).toBeVisible();
     await expect(page.getByRole('list', { name: 'Order timeline' })).toBeVisible();
   });
 
   test('orders: a refund asks first and states the ceiling', async ({ page }) => {
     await signIn(page, `/${BRAND_A}/orders`);
-    await page.getByRole('table', { name: 'Orders' }).getByRole('link', { name: '#1000' }).click();
+    const orders = page.getByRole('table', { name: 'Orders' });
+    await expect(orders).toBeVisible();
+
+    if (AGAINST_CORE) {
+      // Seeded orders are shared: find one with a captured payment, go as far as the question with
+      // its ceiling, and cancel. Nothing is refunded.
+      const count = await orders.getByRole('link', { name: /^#\d+$/ }).count();
+      for (let index = 0; index < count; index += 1) {
+        await page.goto(`/${BRAND_A}/orders`);
+        await orders
+          .getByRole('link', { name: /^#\d+$/ })
+          .nth(index)
+          .click();
+        await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));
+        const refund = page.getByRole('button', { name: 'Refund', exact: true });
+        if ((await refund.count()) === 0) continue;
+        await refund.click();
+        await expect(page.getByText(/can still be refunded/)).toBeVisible();
+        await expect(page.getByRole('button', { name: /Yes, refund/ })).toBeVisible();
+        await page.getByRole('button', { name: 'Cancel' }).click();
+        await expect(page.getByRole('button', { name: /Yes, refund/ })).toHaveCount(0);
+        return;
+      }
+      test.skip(true, 'no order in the shared database has a refundable payment');
+    }
+
+    await orders.getByRole('link', { name: '#1000' }).click();
     await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));
 
     // store_admin implies support, so the refund is offered; the mock's payment is captured.
@@ -193,6 +227,19 @@ test.describe('store-admin', () => {
     // store_admin implies support, so the section is offered and the direct URL renders data.
     await signIn(page, `/${BRAND_A}/customers`);
     await page.waitForURL(new RegExp(`/${BRAND_A}/customers`));
+
+    if (EXPECT.customersRoute !== null) {
+      // The core does not mount the customers routes yet (#265 class): the screen says so, names
+      // the route, and does not pretend the session ended.
+      await expect(
+        page.getByRole('heading', { name: 'Not available on this API yet' }),
+      ).toBeVisible();
+      await expect(
+        page.getByText(`The core does not serve ${EXPECT.customersRoute} yet.`),
+      ).toBeVisible();
+      await expect(page.getByRole('heading', { name: /session/i })).toHaveCount(0);
+      return;
+    }
 
     const table = page.getByRole('table', { name: 'Customers' });
     await expect(table).toBeVisible();
@@ -223,16 +270,21 @@ test.describe('store-admin', () => {
 
     const table = page.getByRole('table', { name: 'Promotions' });
     await expect(table).toBeVisible();
-    // The mock's example: WELCOME10, 10 %, active.
+    // The mock's example, which the core's seed also holds: WELCOME10, 10 %.
     await expect(table.getByText('WELCOME10')).toBeVisible();
-    await expect(table.getByText(/10 %/)).toBeVisible();
-    // The usage card from the marketing report.
-    await expect(page.getByRole('table', { name: 'Promotion usage' })).toBeVisible();
+    await expect(table.getByText(/10 %/).first()).toBeVisible();
+    // The usage card from the marketing report: the mock's example rows, or the core's real window
+    // (empty until a promotion is used).
+    await expect(
+      page
+        .getByRole('table', { name: 'Promotion usage' })
+        .or(page.getByText('No promotion was used in this window.')),
+    ).toBeVisible();
 
     await page.getByRole('link', { name: 'New promotion' }).click();
     await page.waitForURL(/\/promotions\/new/);
-    await page.getByLabel(/^Name/).fill('E2E percent');
-    await page.getByLabel(/^Code/).fill('e2e10');
+    await page.getByLabel(/^Name/).fill(stamped('E2E percent', ' '));
+    await page.getByLabel(/^Code/).fill(stamped('e2e10'));
     // Percentage without a value: refused client-side, with the message under the field.
     await page.getByRole('button', { name: 'Create promotion' }).click();
     await expect(page.getByText('Enter a percentage')).toBeVisible();
@@ -271,6 +323,39 @@ test.describe('store-admin', () => {
     await expect(preview.getByText('Unknown SKU or variant: NOPE')).toBeVisible();
     await expect(preview.getByText(/not a whole number of minor units/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Import 1 accepted row' })).toBeVisible();
+  });
+
+  test('settings: domains are owner-only, and a new publishable key is shown exactly once', async ({
+    page,
+  }) => {
+    await signIn(page, `/${BRAND_A}/settings`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/settings$`));
+
+    await expect(page.getByRole('form', { name: 'General settings' })).toBeVisible();
+    // The registry's domain, rendered on the server.
+    await expect(page.getByText(EXPECT.primaryDomain)).toBeVisible();
+    await expect(
+      page.getByRole('list', { name: 'API keys' }).getByText('pk_brand…').first(),
+    ).toBeVisible();
+    // store_admin is not owner on organization:hq: the domain form is replaced by what it needs.
+    await expect(page.getByRole('form', { name: 'Add domain' })).toHaveCount(0);
+    await expect(page.getByText(/Adding a domain needs/)).toContainText('owner on organization:hq');
+
+    const keyForm = page.getByRole('form', { name: 'New API key' });
+    await keyForm.getByLabel(/^Name/).fill(stamped('e2e storefront', ' '));
+    await keyForm.getByRole('button', { name: 'Create key' }).click();
+    const revealed = page.getByTestId('revealed-api-key');
+    await expect(revealed).toHaveText(EXPECT.keyPattern);
+    // Held for the assertions below only; never logged or attached to the report.
+    const value = (await revealed.innerText()).trim();
+    expect(page.url()).not.toContain(value);
+
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(revealed).toHaveCount(0);
+    expect(await page.content()).not.toContain(value);
+    // And a fresh server render does not bring it back.
+    await page.reload();
+    expect(await page.content()).not.toContain(value);
   });
 
   test('the media rows can be reordered in the editor', async ({ page }) => {

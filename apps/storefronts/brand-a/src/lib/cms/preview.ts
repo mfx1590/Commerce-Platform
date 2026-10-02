@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { isSafeInternalPath } from '@/lib/safe-path';
 
 /**
  * Preview mode: an httpOnly cookie whose value is an HMAC over the dataset and an expiry, signed
@@ -42,14 +43,14 @@ export function verifyPreviewToken(
 }
 
 /**
- * Only a same-site path may be the redirect target: an open redirect on the preview link would hand
- * an editor to somebody else's site. `//host` and backslash tricks are rejected too.
+ * Only a same-site path may be the redirect target: an open redirect on the preview link would
+ * hand an editor to somebody else's site. The rule is the shared `isSafeInternalPath`
+ * (`src/lib/safe-path.ts`, #273) — this module's own copy missed control characters, which WHATWG
+ * URL parsing strips before parsing, so `?redirect=%2F%09%2Fevil.example` resolved off-origin
+ * (REQUEST #277). The handlers additionally assert the resolved origin before redirecting.
  */
 export function safeRedirectPath(value: string | null | undefined): string {
-  if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
-    return '/';
-  }
-  return value;
+  return isSafeInternalPath(value) ? value : '/';
 }
 
 export interface CookieAttributes {

@@ -28,6 +28,8 @@ const updateCart = vi.fn(async (_id: string, body: unknown) => ({
   id: 'cart-1',
   ...(body as object),
 }));
+const listProductsApi = vi.fn(async () => ({ items: [], total: 0, page: 1, limit: 24 }));
+const getProductApi = vi.fn(async () => ({ handle: 'a-product' }));
 
 vi.mock('next/headers', () => ({
   cookies: async () => ({
@@ -55,7 +57,16 @@ vi.mock('@/lib/store', () => ({
 
 vi.mock('@/lib/store-api', async (importOriginal) => {
   const actual = await importOriginal<typeof StoreApi>();
-  return { ...actual, storeApi: () => ({ createCart, getCart: getCartApi, updateCart }) };
+  return {
+    ...actual,
+    storeApi: () => ({
+      createCart,
+      getCart: getCartApi,
+      updateCart,
+      listProducts: listProductsApi,
+      getProduct: getProductApi,
+    }),
+  };
 });
 
 const { setCurrencyAction } = await import('@/lib/i18n-actions');
@@ -64,6 +75,8 @@ const { getCurrency, readCurrencyCookie } = await import('@/lib/i18n');
 const { refreshCartAttribution } = await import('@/lib/cart');
 const { ATTRIBUTION_COOKIE, mergeAttribution, readTouch } = await import('@/lib/attribution');
 const { MarketSwitcher } = await import('@/components/market-switcher');
+const { listProducts: listCatalogProducts, getProduct: getCatalogProduct } =
+  await import('@/lib/catalog');
 
 /** Walk a rendered element tree for the first node matching `type`. */
 function findNode(node: unknown, type: string): { props: Record<string, unknown> } | undefined {
@@ -92,6 +105,49 @@ beforeEach(() => {
   createCart.mockClear();
   getCartApi.mockClear();
   updateCart.mockClear();
+  listProductsApi.mockClear();
+  getProductApi.mockClear();
+});
+
+/**
+ * The catalog leg of the same round trip (task 2.1). The cart leg below proved the choice reaches
+ * `POST /store/carts`; this proves it also reaches the *prices the customer is shown*, which is the
+ * half that would otherwise fail silently — the page would render happily in the wrong currency.
+ */
+describe('the chosen currency reaches the catalogue reads', () => {
+  it('sends the switched currency as the 0.3.0 query on the listing', async () => {
+    await setCurrencyAction(form('GBP'));
+    const currency = await getCurrency(STORE);
+
+    await listCatalogProducts({ page: 1, limit: 24, sort: 'relevance' }, currency);
+
+    expect(listProductsApi).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'GBP' }),
+      expect.anything(),
+    );
+  });
+
+  it('sends it on the product detail too, so PLP and PDP cannot disagree', async () => {
+    await setCurrencyAction(form('GBP'));
+
+    await getCatalogProduct('a-product', await getCurrency(STORE));
+
+    expect(getProductApi).toHaveBeenCalledWith('a-product', { currency: 'GBP' }, expect.anything());
+  });
+
+  it('falls back to the store default for a currency the store stopped selling in', async () => {
+    // A cookie can hold anything, including a currency that was valid when it was written.
+    cookieJar.set('currency', 'JPY');
+
+    await listCatalogProducts({ page: 1, limit: 24, sort: 'relevance' }, await getCurrency(STORE));
+
+    // Not JPY: the core would answer 400 validation_error, and the page would be an error instead
+    // of a correctly priced one.
+    expect(listProductsApi).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: 'EUR' }),
+      expect.anything(),
+    );
+  });
 });
 
 /** The attribution the middleware would have written for a campaign landing. */

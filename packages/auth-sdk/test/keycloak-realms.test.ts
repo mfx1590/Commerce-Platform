@@ -22,6 +22,9 @@ interface Client {
   secret?: string;
   standardFlowEnabled?: boolean;
   directAccessGrantsEnabled?: boolean;
+  rootUrl?: string;
+  redirectUris?: string[];
+  webOrigins?: string[];
   attributes?: Record<string, string>;
   protocolMappers?: Mapper[];
 }
@@ -46,12 +49,20 @@ interface User {
 interface Realm {
   realm: string;
   registrationAllowed: boolean;
+  verifyEmail?: boolean;
+  registrationEmailAsUsername?: boolean;
+  editUsernameAllowed?: boolean;
   resetPasswordAllowed: boolean;
   bruteForceProtected: boolean;
   browserFlow?: string;
   otpPolicyType?: string;
   authenticationFlows?: Flow[];
-  identityProviders?: { alias: string; enabled: boolean; config: Record<string, string> }[];
+  identityProviders?: {
+    alias: string;
+    enabled: boolean;
+    trustEmail?: boolean;
+    config: Record<string, string>;
+  }[];
   clients: Client[];
   users: User[];
 }
@@ -170,6 +181,104 @@ describe('customers realm export (static)', () => {
     },
   );
 
+  // #212: the starter (:3100) and brand A (:3101) both sign in through storefront-brand-a; brand B/C
+  // serve on :3102/:3103. The shop.<env> hosts are the storefront ingress hosts of infra/helm.
+  const registered = {
+    'storefront-brand-a': {
+      redirectUris: [
+        'http://localhost:3100/*',
+        'http://localhost:3101/*',
+        'https://shop.dev.example.com/auth/callback',
+        'https://shop.staging.example.com/auth/callback',
+      ],
+      webOrigins: [
+        'http://localhost:3100',
+        'http://localhost:3101',
+        'https://shop.dev.example.com',
+        'https://shop.staging.example.com',
+      ],
+      postLogout: [
+        'http://localhost:3100/*',
+        'http://localhost:3101/*',
+        'https://shop.dev.example.com/',
+        'https://shop.staging.example.com/',
+      ],
+    },
+    'storefront-brand-b': {
+      redirectUris: ['http://localhost:3102/*'],
+      webOrigins: ['http://localhost:3102'],
+      postLogout: ['http://localhost:3102/*'],
+    },
+    'storefront-brand-c': {
+      redirectUris: ['http://localhost:3103/*'],
+      webOrigins: ['http://localhost:3103'],
+      postLogout: ['http://localhost:3103/*'],
+    },
+  };
+  const postLogoutUris = (c: Client) =>
+    (c.attributes?.['post.logout.redirect.uris'] ?? '').split('##').filter(Boolean);
+
+  it.each(Object.entries(registered))(
+    '%s registers exactly its own redirect URIs, web origins and post-logout URIs (#212)',
+    (id, expected) => {
+      const c = client(customers, id);
+      expect(c.redirectUris).toEqual(expected.redirectUris);
+      expect(c.webOrigins).toEqual(expected.webOrigins);
+      expect(postLogoutUris(c)).toEqual(expected.postLogout);
+    },
+  );
+
+  it('redirect URIs: no wildcard hosts, https and no wildcard at all off localhost, one client per origin', () => {
+    const LOCAL = /^http:\/\/localhost:\d+\/\*$/;
+    const ownerOf = new Map<string, string>();
+    for (const c of customers.clients) {
+      const redirects = c.redirectUris ?? [];
+      for (const uri of [...redirects, ...postLogoutUris(c)]) {
+        if (LOCAL.test(uri)) continue;
+        expect(uri, `${c.clientId}: ${uri}`).not.toContain('*');
+        const url = new URL(uri);
+        expect(url.protocol, `${c.clientId}: ${uri}`).toBe('https:');
+        expect(url.search + url.hash, `${c.clientId}: ${uri}`).toBe('');
+      }
+      // Web origins are spelled out: never `*`, never `+` (which would follow the redirect URIs).
+      expect(c.webOrigins ?? []).toEqual(redirects.map((uri) => new URL(uri).origin));
+      // A second client on the same origin could mint another brand's store_code for it (ADR 0002 §8).
+      for (const origin of c.webOrigins ?? []) {
+        expect(ownerOf.get(origin), `${origin} is registered on two clients`).toBeUndefined();
+        ownerOf.set(origin, c.clientId);
+      }
+    }
+  });
+
+  // #307: CustomerClaims.emailVerified reads this claim; every client states the mapper itself (the
+  // export declares no clientScopes, so nothing here depends on Keycloak's built-in `email` scope).
+  it('every client emits email_verified as a JSON boolean in the access token (#307)', () => {
+    expect(customers.clients.map((c) => c.clientId)).toContain('test-cli');
+    for (const c of customers.clients) {
+      const m = c.protocolMappers?.find((x) => x.config['claim.name'] === 'email_verified');
+      expect(m, `${c.clientId}: email_verified mapper`).toBeDefined();
+      expect(m!.protocolMapper).toBe('oidc-usermodel-property-mapper');
+      expect(m!.config).toMatchObject({
+        'user.attribute': 'emailVerified',
+        'jsonType.label': 'boolean',
+        'access.token.claim': 'true',
+      });
+    }
+  });
+
+  it('dev export: verifyEmail stays off (no SMTP locally; production turns it on, #297); Google is trusted for email', () => {
+    expect(customers.verifyEmail).toBe(false);
+    expect(customers.identityProviders?.find((i) => i.alias === 'google')?.trustEmail).toBe(true);
+  });
+
+  // #314: these two together make `email` read-only for the customer (measured live in
+  // customer-claims.test.ts), so a verified address cannot be swapped for an unverified one. Changing
+  // either opens the email-change path, whose email_verified reset has NOT been measured in this realm.
+  it('email is the username and usernames are not editable — customers cannot change their address (#314)', () => {
+    expect(customers.registrationEmailAsUsername).toBe(true);
+    expect(customers.editUsernameAllowed).toBe(false);
+  });
+
   it('keeps social login disabled with env placeholders, never literal secrets', () => {
     const google = customers.identityProviders?.find((i) => i.alias === 'google');
     expect(google?.enabled).toBe(false);
@@ -238,8 +347,17 @@ function totp(secret: string, at = Date.now()): string {
   return ((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
 }
 
-/** Opens the admin-app authorization page and returns the login-form action plus a cookie-jar fetch. */
-async function startBrowserLogin() {
+const authorizeUrl = (realm: string, clientId: string, redirectUri: string) =>
+  `${KC}/realms/${realm}/protocol/openid-connect/auth?client_id=${clientId}&response_type=code&scope=openid` +
+  `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+  `&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=t`;
+
+/** Opens a client's authorization page (admin-app by default) and returns the login-form action plus a cookie-jar fetch. */
+async function startBrowserLogin(
+  realm = 'staff',
+  clientId = 'admin-app',
+  redirectUri = 'http://localhost:3000/callback',
+) {
   const jar = new Map<string, string>();
   const store = (res: Response) => {
     for (const c of res.headers.getSetCookie()) {
@@ -249,11 +367,7 @@ async function startBrowserLogin() {
     }
   };
   const cookieHeader = () => [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
-  const authUrl =
-    `${KC}/realms/staff/protocol/openid-connect/auth?client_id=admin-app&response_type=code&scope=openid` +
-    `&redirect_uri=${encodeURIComponent('http://localhost:3000/callback')}` +
-    `&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&state=t`;
-  const page = await fetch(authUrl, { redirect: 'manual' });
+  const page = await fetch(authorizeUrl(realm, clientId, redirectUri), { redirect: 'manual' });
   store(page);
   const html = await page.text();
   const action = html.match(/id="kc-form-login"[^>]*action="([^"]+)"/)?.[1]?.replace(/&amp;/g, '&');
@@ -361,4 +475,35 @@ describe.runIf(live)('staff realm (live Keycloak)', () => {
     expect(c.email).toBe('jane@example.com');
     expect(c.aud).toBe('core-api');
   });
+
+  it('customers realm: jane signs in from brand A on :3101 and lands on its callback (#212)', async () => {
+    const callback = 'http://localhost:3101/auth/callback';
+    const login = await startBrowserLogin('customers', 'storefront-brand-a', callback);
+    const after = await login.postForm(login.action, {
+      username: 'jane@example.com',
+      password: 'jane',
+    });
+    expect(after.status).toBe(302);
+    const location = after.headers.get('location') ?? '';
+    expect(location.startsWith(`${callback}?`)).toBe(true);
+    expect(location).toContain('code=');
+  });
+
+  it.each([
+    ['storefront-brand-a', 'https://shop.dev.example.com/auth/callback', 200],
+    ['storefront-brand-a', 'https://shop.staging.example.com/auth/callback', 200],
+    // Exact URIs: another path on the same host, plain http, or another brand's port are refused.
+    ['storefront-brand-a', 'https://shop.dev.example.com/auth/callback/extra', 400],
+    ['storefront-brand-a', 'http://shop.dev.example.com/auth/callback', 400],
+    ['storefront-brand-a', 'http://localhost:3102/auth/callback', 400],
+    ['storefront-brand-b', 'http://localhost:3101/auth/callback', 400],
+    ['storefront-brand-b', 'http://localhost:3102/auth/callback', 200],
+    ['storefront-brand-c', 'http://localhost:3103/auth/callback', 200],
+  ])(
+    'customers realm: %s authorization with redirect_uri %s → %i (#212)',
+    async (id, uri, status) => {
+      const res = await fetch(authorizeUrl('customers', id, uri), { redirect: 'manual' });
+      expect(res.status).toBe(status);
+    },
+  );
 });

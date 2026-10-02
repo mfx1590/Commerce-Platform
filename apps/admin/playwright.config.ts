@@ -32,10 +32,20 @@ const APP_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
  * Deliberately **not** derived from `ADMIN_API_URL`: that variable points a developer's app at the
  * real core, and an e2e run that silently followed it would stop being hermetic — the journey would
  * pass or fail on whatever the core happened to be serving. The webServer block below forces
- * `ADMIN_API_URL` to this value for the same reason, so a `.env` carrying
+ * `ADMIN_API_URL` to this value (unless `E2E_API=core`, below) for the same reason, so a `.env` carrying
  * `ADMIN_API_URL=http://localhost:9000` changes nothing here.
  */
 const MOCK_URL = process.env.MOCK_ADMIN_API_URL ?? 'http://localhost:4011';
+/**
+ * `E2E_API=core` (#118): the same journeys against the real core instead of Prism. Nothing about
+ * the default run changes. In core mode Prism is not started, the app is started (or reused)
+ * against `CORE_URL`, and the core itself must already be up — the guard entry below fails fast
+ * with the command to run rather than letting every journey time out. Core-mode journeys write
+ * stamped rows into the shared local database (README, "Core mode").
+ */
+const AGAINST_CORE = process.env.E2E_API === 'core';
+const CORE_URL = process.env.CORE_URL ?? 'http://localhost:9000';
+const API_URL = AGAINST_CORE ? CORE_URL : MOCK_URL;
 
 /**
  * What the app calls itself, which is what it builds `redirect_uri` from. It must be an origin the
@@ -64,14 +74,23 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], ...browser } }],
 
   webServer: [
-    {
-      command: 'pnpm --filter @platform/contracts mock',
-      // Any HTTP answer means Prism is up; the admin mock answers /admin/me with any bearer token.
-      url: `${MOCK_URL}/admin/me`,
-      cwd: '../..',
-      reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
-    },
+    AGAINST_CORE
+      ? {
+          // Never starts anything: answers only when the core is already up (reuse), otherwise
+          // exits with the instructions.
+          command: `node -e "console.error('E2E_API=core: start the core first (pnpm --filter @platform/core dev, then ${CORE_URL}/health)'); process.exit(1)"`,
+          url: `${CORE_URL}/health`,
+          reuseExistingServer: true,
+          timeout: 5_000,
+        }
+      : {
+          command: 'pnpm --filter @platform/contracts mock',
+          // Any HTTP answer means Prism is up; the admin mock answers /admin/me with any bearer token.
+          url: `${MOCK_URL}/admin/me`,
+          cwd: '../..',
+          reuseExistingServer: !process.env.CI,
+          timeout: 60_000,
+        },
     {
       command: 'pnpm run build && pnpm run start',
       // `/health` is unauthenticated on purpose, so it is the one URL that answers 200 before a
@@ -84,7 +103,7 @@ export default defineConfig({
         PORT: new URL(APP_URL).port || '3000',
         // Both names, highest-precedence one first: `ADMIN_API_URL` wins in the app, so setting it
         // is what actually pins the run to Prism when the developer's .env points at the core.
-        ADMIN_API_URL: MOCK_URL,
+        ADMIN_API_URL: API_URL,
         MOCK_ADMIN_API_URL: MOCK_URL,
         ADMIN_APP_URL: APP_ORIGIN,
         // Required in every environment; a throwaway value is right for a test run.

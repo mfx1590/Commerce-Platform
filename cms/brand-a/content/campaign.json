@@ -1,0 +1,170 @@
+[
+  {
+    "_id": "campaignLanding.en-GB.autumn-cloth",
+    "_type": "campaignLanding",
+    "locale": "en-GB",
+    "title": "The autumn cloth",
+    "slug": { "_type": "slug", "current": "autumn-cloth" },
+    "campaignId": "autumn-2026-cloth",
+    "startsAt": "2026-09-01T00:00:00.000Z",
+    "endsAt": "2026-12-01T00:00:00.000Z",
+    "hero": {
+      "_type": "hero",
+      "eyebrow": "Autumn 2026",
+      "headline": "One mill, two cloths, six pieces",
+      "subheadline": "We bought the whole run. When it is gone the pieces go with it, and we will tell you rather than quietly substitute something else.",
+      "layout": "full-bleed",
+      "ctas": [
+        {
+          "_type": "cta",
+          "_key": "cta-see",
+          "label": "See the six pieces",
+          "href": "/products",
+          "variant": "primary"
+        }
+      ]
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "c-why",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "c-why-h",
+            "style": "h2",
+            "children": [{ "_type": "span", "_key": "c-why-h-s", "text": "Why a whole run" }]
+          },
+          {
+            "_type": "block",
+            "_key": "c-why-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-why-p-s",
+                "text": "Buying a mill's full run of a cloth is the only way we have found to get a price that lets us pay properly for the weaving and still sell the finished piece at a number we can defend. The cost is that it ends. We would rather tell you a thing is finished than replace the cloth and keep the name."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "_type": "productStory",
+        "_key": "c-story",
+        "productHandle": "classic-tee",
+        "headline": "Start with the tee",
+        "body": [
+          {
+            "_type": "block",
+            "_key": "c-story-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-story-p-s",
+                "text": "If you have not bought from us before, this is the piece to judge us on — it is the one we have made the longest."
+              }
+            ]
+          }
+        ],
+        "cta": {
+          "_type": "cta",
+          "_key": "c-story-cta",
+          "label": "See the Classic Tee",
+          "href": "/products/classic-tee",
+          "variant": "secondary"
+        }
+      }
+    ],
+    "seo": {
+      "metaTitle": "The autumn cloth — one mill, two cloths, six pieces",
+      "metaDescription": "We bought a mill's whole run of two cloths and made six pieces from it. When it is gone, it is gone."
+    }
+  },
+  {
+    "_id": "campaignLanding.de-DE.autumn-cloth",
+    "_type": "campaignLanding",
+    "locale": "de-DE",
+    "title": "Der Herbststoff",
+    "slug": { "_type": "slug", "current": "autumn-cloth" },
+    "campaignId": "autumn-2026-cloth",
+    "startsAt": "2026-09-01T00:00:00.000Z",
+    "endsAt": "2026-12-01T00:00:00.000Z",
+    "hero": {
+      "_type": "hero",
+      "eyebrow": "Herbst 2026",
+      "headline": "Eine Weberei, zwei Stoffe, sechs Teile",
+      "subheadline": "Wir haben die gesamte Produktion gekauft. Wenn sie aufgebraucht ist, verschwinden auch die Teile — und wir sagen es Ihnen, statt still etwas anderes einzusetzen.",
+      "layout": "full-bleed",
+      "ctas": [
+        {
+          "_type": "cta",
+          "_key": "cta-see",
+          "label": "Die sechs Teile ansehen",
+          "href": "/products",
+          "variant": "primary"
+        }
+      ]
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "c-why",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "c-why-h",
+            "style": "h2",
+            "children": [
+              { "_type": "span", "_key": "c-why-h-s", "text": "Warum die ganze Produktion" }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "c-why-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-why-p-s",
+                "text": "Die gesamte Produktion eines Stoffes abzunehmen ist für uns der einzige Weg zu einem Preis, der es erlaubt, die Weberei anständig zu bezahlen und das fertige Teil trotzdem zu einem vertretbaren Preis anzubieten. Der Preis dafür ist, dass es endet. Uns ist lieber, Ihnen zu sagen, dass ein Stück ausläuft, als den Stoff zu tauschen und den Namen zu behalten."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "_type": "productStory",
+        "_key": "c-story",
+        "productHandle": "classic-tee",
+        "headline": "Fangen Sie mit dem Tee an",
+        "body": [
+          {
+            "_type": "block",
+            "_key": "c-story-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-story-p-s",
+                "text": "Wenn Sie noch nie bei uns gekauft haben, ist dies das Stück, an dem Sie uns messen sollten — wir machen es am längsten."
+              }
+            ]
+          }
+        ],
+        "cta": {
+          "_type": "cta",
+          "_key": "c-story-cta",
+          "label": "Zum Classic Tee",
+          "href": "/products/classic-tee",
+          "variant": "secondary"
+        }
+      }
+    ],
+    "seo": {
+      "metaTitle": "Der Herbststoff — eine Weberei, zwei Stoffe, sechs Teile",
+      "metaDescription": "Wir haben die gesamte Produktion zweier Stoffe gekauft und sechs Teile daraus gemacht. Wenn sie weg ist, ist sie weg."
+    }
+  }
+]
