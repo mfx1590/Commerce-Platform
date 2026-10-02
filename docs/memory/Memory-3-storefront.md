@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `a8bde50`) · Branch: `storefront/phase2` (PR #305 in review — do not push) — **the worktree sits on the local-only `storefront/hold-302`** · Status: 2.1–2.4 merged; **#274 merged (PR #299); #286/#278 in PR #305; #302 built locally; #293 parked locally until #300 (window 6) lands; then #302 → #304 → #298**
+Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `a8bde50`) · Branch: `storefront/phase2` (PR #305 in review — do not push) — **the worktree sits on the local-only `storefront/hold-302`** · Status: 2.1–2.4 merged; **#274 merged (PR #299); #286/#278 in PR #305 (verdict MERGE, queue running — no push until the manager gives the merge sha); #302 built locally; #304 plan awaiting two decisions; #293 parked locally until #300 (window 6) lands; then #302 → #304 → #298**
 
 ## Identity (does not change)
 
@@ -225,6 +225,37 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     both routes (2 failed before, green after). Full e2e: 63 passed, 1 skipped.
   - Known limit, written in the spec: against a server that was already running and was built
     the ordinary way the origin spec is vacuous (locally a running server is reused; never on CI).
+
+- **#304 — PLAN WRITTEN, WAITING FOR THE MANAGER (more than ~20 calls, two decisions). Nothing
+  built.** Read on 2026-10-02:
+  - The confirmation page renders `order.display_id`, each line and its total, but nothing on
+    cart, review or confirmation has a test hook (the only `data-testid` in the app is the kit's
+    `price-value`), so the spec cannot read a line, a quantity or a total today.
+  - The Prism mock answers `GET /store/products` with the **same single product** whatever the
+    `sort` or `category` (checked: plain, `price_asc`, `price_desc`, `category=tops`). So against
+    the mock no assertion on result order or on a filtered set can fail — an order check is
+    vacuous with one row. It can only be real against the core (`E2E_STORE_API_URL`).
+  - The mock is stateless, so stock is drained **only** in runs against the core: one order per
+    run on the first listed product's first purchasable variant, never cancelled.
+  Plan:
+  1. Test hooks on my `(checkout)` pages: cart lines (name, quantity, line total, cart total in
+     minor units as `data-*`), review, confirmation (order number, lines, total).
+  2. Journey: capture the cart at runtime (lines, quantities, total in minor units), then assert
+     the confirmation shows a non-empty order number and the **same** lines and total. Mutation
+     check: a wrong quantity or total on the confirmation must turn it red.
+  3. Stock (decision A below).
+  4. Sort and filter (decision B below): assert the rendered order (prices non-decreasing for
+     `price_asc`, non-increasing for `price_desc`) and, for a category, that every card belongs to
+     it and the count changed; the active control carries `aria-current`.
+  5. README (the stock budget, what each backend can and cannot prove), CHANGELOG, memory, gates.
+  **Decision A — stock:** (1) choose by property: the first listed product whose variant reports
+  enough stock, and document that a run against the core consumes one unit (recommended: no new
+  credentials, but the budget stays finite); or (2) stock-neutral: cancel the order afterwards,
+  which needs the Admin API and a staff token in the storefront's e2e — another module's surface.
+  **Decision B — what counts as proof of sort/filter:** against the mock the order assertion is
+  vacuous; either accept that it is real only in the core run and say so in the spec (and make
+  the spec fail, not skip, when it runs against the core with fewer than two products), or the
+  manager wants a multi-product example added to the contract's mock data (CONTRACT CHANGE).
 
 - **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
   window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
@@ -560,6 +591,12 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`next build` still prints the prerender marker for `/sitemap/[__metadata_id__]` after
+  `force-dynamic`.** `generateSitemaps` lists the ids like `generateStaticParams`, so the route
+  table shows `/sitemap/0.xml` under it. Nothing is prerendered: no `.body`/`.meta` file exists
+  under `.next/server/app` and `prerender-manifest.json` has no sitemap route. Check the
+  artefacts, not the table.
 
 - **LHCI checks an assertion against the BEST run unless told otherwise** (`aggregationMethod`
   defaults to `optimistic`; `@lhci/utils/src/assertions.js`). "Median of three" was written in
