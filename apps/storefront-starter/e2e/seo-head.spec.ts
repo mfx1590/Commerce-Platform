@@ -33,6 +33,9 @@ const BROWSER_AGENTS = {
   googlebot: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
   curl: 'curl/8.9.1',
   'no user-agent header': null,
+  // Not the same request as the one above: the header is present and says nothing. Next treats
+  // both as "no user agent" and streams, so the middleware has to catch both.
+  'empty user-agent header': '',
 } as const satisfies Record<string, string | null>;
 
 const LOCALES = ['en-GB', 'de-DE'] as const;

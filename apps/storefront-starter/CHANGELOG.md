@@ -1,5 +1,34 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.2 — 2026-10-01
+
+Issues #286 and #278, and three corrections from the review of #299. No contract change.
+
+- **The Lighthouse SEO budget is now checked against the worst of the three runs.** LHCI's default
+  aggregation is `optimistic` — the best run — so the 95 budget added in 0.12.1 did not guard the
+  metadata fix it was added for: the old build scores 100, 92, 92 and passed. `categories:seo` sets
+  `aggregationMethod: "pessimistic"`; against the pre-fix config the gate now fails (`found: 0.92,
+all values: 1, 0.92, 0.92`) and `test/perf-budget.test.ts` pins the setting. The other budgets
+  keep the default. **"Median of three" in `perf.mjs`, `CLAUDE.md`, the README and earlier entries
+  of this file was never what the gate did**; the first three are corrected.
+- **`e2e/seo-head.spec.ts` covers an empty `User-Agent` header** as well as a missing one. The
+  middleware already handled it; nothing tested it.
+- README: blocking metadata is also waited for on soft navigations, not only on first loads.
+
+- **Home page store facts are a valid description list** (#286). Each fact was a `Card` with a
+  `CardContent` inside it, so the markup was `dl > div > div > dt` — HTML allows one wrapper, not
+  two, and every term was detached from its list: axe `dlitem` and `definition-list`, both serious,
+  on the home page of every locale. The facts are now `StoreFacts` (`src/components/store-facts.tsx`),
+  one padded `Card` per fact, and `test/store-facts.test.ts` asserts the rendered structure.
+  Lighthouse never reported it because the home page is not among the URLs it audits.
+- **`test/slots.test.ts` no longer asserts what a brand's files contain** (#278). `test/**` is copied
+  into every brand app while `src/brand/**` is the brand's own, so "this app overrides nothing" was
+  false by construction in any clone. The slot mechanism is now tested with fixture overrides
+  (`mergeSlots` is exported for that) and against whatever the app overrides; the starter-only facts
+  moved to `test/starter-defaults.test.ts`, which runs only when the package name is the starter's.
+  **Brands:** a clone can drop its local copy of `slots.test.ts` and take both files from the sync —
+  no exclude-list entry is needed.
+
 ## 0.12.1 — 2026-10-01
 
 Issue #274. No contract change.
