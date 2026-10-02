@@ -266,6 +266,33 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   - **Seed stock used by me on 2026-10-02: one unit** (one green core run; the mutation runs
     placed no order).
 
+- **#298 — LEAD ESTABLISHED, AND IT IS WIDER THAN THE ISSUE. PLAN WRITTEN, WAITING FOR THE MANAGER'S
+  RULING ON SCOPE. Nothing built.** Measured 2026-10-02 on `next start`, `SITE_URL=
+  https://shop.public.example`, requests sent with `Host: shop.public.example` and
+  `X-Forwarded-Proto: https` (what an ingress forwards):
+  - In a route handler `request.nextUrl.origin` is **`localhost:3100` whatever the Host header**
+    (six header combinations tried, incl. `X-Forwarded-Host` and an attacker-chosen Host); only
+    the scheme follows `X-Forwarded-Proto`. So it is never the public origin, and it is not
+    attacker-controlled either.
+  - `POST /auth/sign-out` → `post_logout_redirect_uri=http(s)://localhost:3100/` (the issue).
+  - `GET /auth/callback` (both the error path and a bad code) → `Location:
+    https://localhost:3100/en-GB/account?error=sign_in_failed` — after sign-in the customer is sent
+    to localhost. Not in the issue.
+  - `GET /r/{code}` → `Location: https://localhost:3100/` (and `/en-GB/products` with `?to=`) —
+    every referral link lands on localhost in a deployment. Not in the issue.
+  - Fine already: `/auth/sign-in` builds `redirect_uri` from `SITE_URL`; the middleware's locale
+    redirect and the pages' redirects are relative (`Location: /en-GB`).
+  - Not yet measured: `src/middleware.ts:64` passes `request.nextUrl.origin` as `siteOrigin` to
+    the attribution reader. If that is also `localhost`, a customer's own navigation inside the
+    shop (Referer = the public origin) would be recorded as an external referral touch.
+  - Why no test saw it: locally and in e2e the public origin **is** `localhost:3100`.
+  Plan: one helper for "this site's origin" (`siteUrl()`, i.e. `SITE_URL`) used by sign-out,
+  callback, `/r/` and the attribution `siteOrigin`; unit tests that call each route handler with
+  a request whose own origin differs from `SITE_URL` and assert the `Location` (red first); the
+  middleware case measured and covered the same way; README, CHANGELOG, memory.
+  **Ruling needed:** fix all four under #298 (recommended — one cause, one helper), or only
+  sign-out as filed and separate issues for the rest.
+
 - **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
   window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
   `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
