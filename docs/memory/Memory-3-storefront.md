@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `7aabc9c`; Store API 0.5.1) · Branch: `storefront/phase2` (level with main); **the worktree sits on the local-only `storefront/hold-298`, which has the newest copy of this file** · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309) and #304/#306 (#316) merged; #298 is next as PR five — written with its six riders, nothing run; then #312; #293 parked on `storefront/hold-293` until #300 lands**
+Last updated: 2026-10-02 (end of day) · Contracts: **contracts-v0.4.8** (main `900059c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309) and #304/#306 (#316) merged; #298 is PR five, a DRAFT — its full e2e has not passed locally and the cause is not attributed; START TOMORROW WITH THE "Tomorrow, first" LIST under #298; then #312; #293 is unblocked (#300 landed as #317, `d46a273`)**
 
 ## Identity (does not change)
 
@@ -231,9 +231,28 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   workspace packages), tests, e2e, Lighthouse or servers. Every command bounded; never start a
   server in a command that waits for it. Ask before a perf gate.**
 
-- **#298 — NEXT UP AS PR FIVE. CODE, UNIT TESTS AND THE SIX RIDERS ARE WRITTEN; NOTHING HAS BEEN
-  RUN. Local-only branch `storefront/hold-298` (on top of `storefront/phase2` = main `7aabc9c`;
-  keep it rebased there, never push it). Go-live blocker (Integration 2 checklist).**
+- **#298 — PR FIVE IS OPEN AS A DRAFT (pushed 2026-10-02; number and SHAs in the next commit).
+  NOT READY: the full e2e against the mock has not passed locally on this branch, the cause is
+  not attributed, and the one core run for riders 3 and 4 has not been made. Go-live blocker
+  (Integration 2 checklist). CI's e2e job on the push is the independent datapoint (Linux, no
+  laptop start-up load) — read it first thing.**
+  **Tomorrow, first (the manager gives me the machine first). Every run: output to a file,
+  started detached, polled with a bounded loop; no step waits on a pipe.**
+  1. Read CI's e2e result for the draft PR.
+  2. Alternate bounded, detached full-suite runs of this branch and of the control (`main`),
+     three or four each, sampling machine and server CPU at the moment the tests start.
+  3. Check whether the e2e server reports ready **before** the first page and a static chunk
+     answer quickly. If tests start on a cold, busy server, the fix is a **warm-readiness gate
+     in `scripts/e2e-server.mjs`** (or the URL Playwright waits on), **not longer timeouts**.
+  4. Measurement only, change no system setting: on this machine a fresh build's files are
+     scanned by the antivirus while the first requests arrive — sample its process's CPU
+     during a stall.
+  5. Then the one core run of the checkout spec (riders 3 and 4; one unit of seed stock,
+     approved; name the product and its stock before and after in the PR body). Start the core
+     detached, poll `/health` bounded, stop it afterwards.
+  6. This branch was not typechecked or tested after merging main `900059c`, which brought
+     window 6's `routedDocuments` into `src/lib/cms/**` — rebuild the workspace packages and
+     run lint, typecheck and the unit tests before anything else is concluded.
   Ruling (manager): fix ALL of them under #298, one helper, a unit test per route handler; origin
   from `SITE_URL` read at request time, NEVER from `Host` / `X-Forwarded-Host`; fail closed when
   `SITE_URL` is unset outside local development; every redirect still passes the safe-path rule;
@@ -277,19 +296,6 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   the manager's call: alternating bounded runs, branch and control, several each.
   **Method, from the manager: every long run writes to a file, starts detached, and is polled
   with a bounded loop; no step may wait on a pipe.**
-  **When the manager gives the machine (after window 1), in this order:**
-  a. The preview-redirect measurement (`ingress-probe.mjs`, on `storefront/phase2`), then file
-     the URGENT REQUEST for window 6 with the numbers (draft in the scratchpad).
-  b. On this branch: rebuild nothing unless needed, then prettier, lint, typecheck, unit tests.
-  c. Route tests RED on the old handlers (restore the three route files and `oidc.ts` from
-     `storefront/phase2`, run `test/route-origin.test.ts`), then green.
-  d. `next build` with no `SITE_URL` still works; `next start` without it fails as designed.
-  e. The attribution-origin measurement (same probe); if it is the same cause, fix
-     `src/middleware.ts` with `siteOrigin()` and add a test.
-  f. The three handlers behind ingress headers, on this branch's build: every `Location` on
-     `SITE_URL`.
-  g. Full e2e on the mock (riders 2–5 change the spec); the checkout spec on the core costs one
-     unit of stock — ask the manager whether to spend it. Then merge main, push, open PR five.
   - What was measured (2026-10-02, `next start`, `SITE_URL=https://shop.public.example`): in a
     route handler `request.nextUrl.origin` is `localhost:3100` whatever `Host` /
     `X-Forwarded-Host` say (only the scheme follows `X-Forwarded-Proto`). Sign-out sent
@@ -327,8 +333,8 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     as a guest and completed after sign-in must still work; tests for signed-in create and
     complete (token sent), guest (none), the 401 and the 409 paths.
 
-- **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
-  window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
+- **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY. UNBLOCKED on 2026-10-02: window 6's reader method
+  landed (#300, PR #317, `d46a273`) and is on main. It goes up after #298, one PR at a time.** The commit is `2587ec9` on the **local-only** branch
   `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
   do not merge the branch; expect conflicts in CHANGELOG, the package version, `sitemap.ts` and
   `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that, the manager
