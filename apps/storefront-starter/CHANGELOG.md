@@ -1,5 +1,38 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.4 — 2026-10-02
+
+Issues #304 and #306. No contract change. Tests and test hooks only — no behaviour change.
+
+- **The journey asserts the order it placed.** `e2e/checkout.spec.ts` stopped at the
+  confirmation's heading, which wrong lines, a wrong total or someone else's order would pass.
+  It now captures lines, quantities and total (minor units) at the review step and requires the
+  confirmation to show the same ones under an order number that is on the page and matches the
+  URL. Mutation-checked: a confirmation showing one unit too many fails it.
+- **The product is chosen by reported stock.** Against the core every run places a real order
+  and nothing cancels it, so "the first product" was drained run by run. The journey takes the
+  first listed product the storefront reports as purchasable, and fails with
+  `Seed stock exhausted — reseed` when none of the first twelve is. A core run costs one unit;
+  the README says so.
+- **Sort and filter are asserted on results, where that is possible.** Against the core: prices
+  non-decreasing, then non-increasing, the two orders differing; a category lists the product
+  it was taken from and nothing outside it. Fails with fewer than two products. Against the mock
+  it is skipped with the reason — Prism answers every query with the same example.
+  Mutation-checked against the core: dropping `sort` or `category` from the request fails it.
+- **`e2e/account.spec.ts` says which backend answers what** (#306). The profile and order-history
+  assertions (`jane@example.com`, `Order #1000`) are Prism's examples even in a core run, so they
+  moved to a test labelled mock-only that does not run against the core; sign-in, return URL,
+  session and sign-out stay as they were. The core-backed version waits for #303.
+- **Two flakes in the journey spec, same shape** (window 10's measurements on #304: the cart step
+  failed about one run in three, the sort click one in four, on a quiet machine). A click was
+  dispatched before the page could act on it, and the 5 s default of `toHaveURL` is too tight
+  for a server action that writes through to the core. Every click that starts a navigation now
+  goes through `clickWhenReady` (visible, enabled, network quiet), and the URL expectations have
+  explicit deadlines: 30 s after "Add to cart" and "Place order", 15 s after a link.
+- **Test hooks** (`src/lib/test-hooks.ts`): `data-*` attributes on listing cards, the add-to-cart
+  form, cart/review/confirmation lines, the totals table and the confirmation header.
+- **Brands:** all of it arrives by re-sync; a brand's own journey spec can read the same hooks.
+
 ## 0.12.3 — 2026-10-02
 
 Issue #302. No contract change.
