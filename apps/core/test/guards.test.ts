@@ -140,6 +140,27 @@ describe('structural guards', () => {
     expect(seam.replace(resolver, '')).not.toContain('process.env');
   });
 
+  it('no Promise.all / allSettled / race over queries of ONE transaction client (tx.query): a connection runs one statement at a time', () => {
+    // The argument of every Promise.all(…) / allSettled(…) / race(…) in non-test source, parentheses balanced.
+    const offenders: string[] = [];
+    for (const f of files.filter((x) => !x.rel.endsWith('.test.ts'))) {
+      for (const m of f.text.matchAll(/Promise\.(?:all|allSettled|race)\(/g)) {
+        let depth = 1;
+        const start = (m.index ?? 0) + m[0].length;
+        let i = start;
+        for (; i < f.text.length && depth > 0; i += 1) {
+          if (f.text[i] === '(') depth += 1;
+          else if (f.text[i] === ')') depth -= 1;
+        }
+        const argument = f.text.slice(start, i);
+        if (/\btx\.query\b/.test(argument)) {
+          offenders.push(`${f.rel}:${f.text.slice(0, start).split('\n').length}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('modules import the outbox helper through its index only', () => {
     const offenders = files
       .filter((f) => !f.rel.startsWith('outbox/'))

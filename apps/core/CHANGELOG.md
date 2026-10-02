@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-02 · catalog: one statement at a time on a transaction client
+
+- `loadAggregates` (catalog, since Phase 1) issued three and then two queries at once on ONE transaction
+  connection (`Promise.all` over `tx.query`). A connection runs its statements in sequence anyway, so nothing
+  was gained; pg queued them and printed "Calling client.query() when the client is already executing a query"
+  — an error from pg 9 on. Now five sequential awaits; same queries, same results. Every product read that
+  loads variants went through it (Store and Admin product lists and details).
+- Tests: the catalog suite fails on that pg notice; a guard refuses `Promise.all` / `allSettled` / `race` over
+  `tx.query` anywhere in non-test source. It was the only such place in `apps/core/src`.
+
 ### 2026-10-02 · customer self-service, part A (#303)
 
 - New module `src/modules/customers` (window 1 by ruling): the store-level customer of a signed-in shopper is
