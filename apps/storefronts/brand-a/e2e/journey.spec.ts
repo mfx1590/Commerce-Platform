@@ -174,8 +174,14 @@ test.describe('PLP sorting and filtering have an observable effect', () => {
     const before = await priceText();
     expect(before.length, 'the listing rendered no prices').toBeGreaterThan(2);
 
-    await page.getByRole('link', { name: 'Price: low to high' }).click();
-    await expect(page).toHaveURL(/sort=price_asc/);
+    // Wait for the control to be interactive before clicking it. The sort links are server-rendered
+    // anchors, but a click dispatched while the route is still settling can be swallowed — this
+    // failed once that way, with the URL simply never changing.
+    const sortLink = page.getByRole('link', { name: 'Price: low to high' });
+    await expect(sortLink).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    await sortLink.click();
+    await expect(page).toHaveURL(/sort=price_asc/, { timeout: 15_000 });
     const ascending = await priceText();
 
     // The effect, not the URL: ascending order is actually ascending.
@@ -280,10 +286,20 @@ test.describe('buy', () => {
 
     await page.goto(`/en-GB/products/${product!.handle}`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    await page.getByRole('button', { name: /add to cart/i }).click();
+
+    // Wait for the button to be interactive before clicking: the form uses `useActionState`, so a
+    // click dispatched during hydration is swallowed and the navigation never happens.
+    const addToCart = page.getByRole('button', { name: /add to cart/i });
+    await expect(addToCart).toBeEnabled();
+    await page.waitForLoadState('networkidle');
+    await addToCart.click();
 
     // The app navigates to the cart itself; `page.goto` would race the pending server action.
-    await expect(page).toHaveURL(/\/en-GB\/cart$/);
+    //
+    // 30 s, not the 5 s default: add-to-cart is a server action that writes through to the core, and
+    // five seconds is simply too tight for it. This exact assertion flaked about one run in three
+    // here, and does the same in the starter's checkout spec — reported on #304 with the evidence.
+    await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: 30_000 });
 
     // Everything asserted on the confirmation is captured HERE, at runtime, from what the cart
     // rendered — never from a fixture and never from the dataset.
@@ -297,11 +313,11 @@ test.describe('buy', () => {
       .getByRole('link', { name: /checkout/i })
       .first()
       .click();
-    await expect(page).toHaveURL(/\/checkout\//);
+    await expect(page).toHaveURL(/\/checkout\//, { timeout: 30_000 });
     await completeCheckout(page);
 
     // A real order: the confirmation is /orders/{id} and the id is the one the core minted.
-    await expect(page).toHaveURL(/\/orders\/[\w-]+$/);
+    await expect(page).toHaveURL(/\/orders\/[\w-]+$/, { timeout: 30_000 });
     const orderId = new URL(page.url()).pathname.split('/').pop() ?? '';
     expect(orderId.length, 'no order id in the confirmation URL').toBeGreaterThan(0);
 
@@ -312,7 +328,16 @@ test.describe('buy', () => {
     // The product bought is on the confirmation, by the title captured from the cart.
     const boughtTitle = product!.title;
     expect(cartLines.join(' ')).toContain(boughtTitle);
-    await expect(page.getByText(boughtTitle, { exact: false }).first()).toBeVisible();
+    // Located by ROLE, not by text. Two text-based attempts failed here against a page that was
+    // perfectly correct: `getByText(title)` resolved to the document's own <title> element, which is
+    // hidden — and scoping to <body> did not help, because this app streams its metadata into the
+    // body rather than the head (#274). The order lines are <li>, which a <title> can never be.
+    const line = page.getByRole('listitem').filter({ hasText: boughtTitle }).first();
+    await expect(line, 'the order line for the bought product is missing').toBeVisible();
+
+    // Server-produced line data: the title the cart showed, and a quantity.
+    await expect(line).toContainText(boughtTitle);
+    await expect(line, 'the order line shows no quantity').toContainText(/×\s*\d+/);
 
     // The cart total and the order total are NOT equal, and should not be: delivery is chosen after
     // the cart, so the order carries a shipping line the cart never showed. Asserting equality was

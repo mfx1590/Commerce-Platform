@@ -27,13 +27,30 @@
   Locally invisible (`reuseExistingServer`), but in CI (#295) the run would have booted against
   Prism while reporting as a core run.
 - README: corrected the stale `#212` references and a Stone hex (`#746C60` → `#6B6357`).
-- **The three-run flake check has NOT been re-taken for this revision.** The runs attempted on
-  2026-10-02 degraded (4 → 3 → 8 failures, wall time 55s → 1.4m, every failure a timeout and never
-  an assertion) and were stopped. Two candidate causes: this suite contending with itself, and
-  another window building and running Lighthouse on the same machine at the same time. A worker cap
-  looked like the fix and was **reverted** — it was measured during that other build, so the
-  evidence is worthless either way. To be re-taken on a quiet machine before this is called
-  flake-free.
+- **Flake check, taken on a quiet machine** (windows 1 and 3 idle by arrangement, CPU 0–12% sampled
+  immediately before, fresh core and storefront, every run bounded with `--max-failures=1` and
+  `--global-timeout`):
+
+  | Full-suite pass | Result                                                                           |
+  | --------------- | -------------------------------------------------------------------------------- |
+  | 1               | 34 passed, 21 skipped, exit 0                                                    |
+  | 2               | 34 passed, 21 skipped, exit 0                                                    |
+  | 3               | 33 passed, 1 failed, 21 skipped — `checkout.spec.ts:182`, the **starter's** file |
+
+  `journey.spec.ts` passed **5/5 in every one** of those passes, and five consecutive standalone
+  passes besides. The single failure is the starter's, reported with its fix on **#304**.
+
+- **Three flakes found and fixed in this app's own spec**, each one a real defect in the test rather
+  than the app:
+  - add-to-cart asserted the cart URL on Playwright's 5 s default; it is a server action writing
+    through to the core, so it now waits for the button to be enabled and allows 30 s;
+  - a sort-link click was dispatched before the page was interactive and silently swallowed;
+  - `getByText(productTitle)` resolved to the document's `<title>`, and scoping to `<body>` did not
+    help because this app streams metadata into the body (#274) — the order line is now located by
+    `getByRole('listitem')`, which also made asserting the quantity natural.
+- **An earlier worker cap was reverted.** It was measured while another window was building and
+  running Lighthouse on the same machine, so the evidence for it was worthless; the real causes were
+  the three test defects above.
 - The buy test now requires **10+ units** on the variant it buys and names the shortfall if the seed
   drains, instead of failing as a navigation timeout. Stock measured 2026-10-02: the starter's
   target `alpine-backpack` is at 18 (from ~35); the deepest in the first 20 products is 49.
