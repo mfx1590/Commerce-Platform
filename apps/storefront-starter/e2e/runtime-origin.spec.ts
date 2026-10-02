@@ -1,4 +1,6 @@
+import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { BUILD_SITE_URL, originSpecMode, vacuousReason } from './support/build-origin';
 
 /**
  * Nothing the app serves may carry the origin it was **built** with (#302).
@@ -12,18 +14,34 @@ import { expect, test } from '@playwright/test';
  * Reads raw responses on purpose. The question is what is in the bytes, and the sitemap and
  * `robots.txt` are not pages.
  *
- * **Vacuous against a server that was not started by `scripts/e2e-server.mjs`** — a server already
- * running on the port is reused locally, and one built the ordinary way has the same origin at both
- * times. On CI the server is never reused.
+ * **It refuses to pass vacuously.** Against a server that was not built by `scripts/e2e-server.mjs`
+ * — one already running on the port, which Playwright reuses locally — the build origin and the
+ * runtime origin are the same string and nothing here could fail. The script leaves a marker next
+ * to its build; without a matching one these tests are **skipped with the reason** on a laptop and
+ * **fail** when `CI` is set, where the server is never reused and getting here means a broken setup.
  */
 
-/** Keep in step with `BUILD_SITE_URL` in scripts/e2e-server.mjs. */
-const BUILD_SITE_URL = process.env.E2E_BUILD_SITE_URL ?? 'https://build-time.invalid';
 const BUILD_HOST = new URL(BUILD_SITE_URL).host;
 
 const LOCALE = 'en-GB';
 
 test.describe('the build-time origin is served nowhere', () => {
+  // Playwright insists on a destructuring pattern for the fixtures argument, even an empty one.
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeEach(({}, testInfo) => {
+    // The build sits next to the config file; `rootDir` is the test directory, one level down.
+    const appDir = dirname(
+      testInfo.config.configFile ?? join(process.cwd(), 'playwright.config.ts'),
+    );
+    const reason = vacuousReason(join(appDir, '.next'), BUILD_SITE_URL);
+    const mode = originSpecMode(reason, Boolean(process.env.CI));
+    if (mode.run) return;
+    if (mode.fail) throw new Error(mode.message);
+    // The list reporter prints a skip as a bare dash; the reason belongs in the terminal too.
+    console.warn(`[e2e] ${mode.message}`);
+    testInfo.skip(true, mode.message);
+  });
+
   test('sitemap index and sitemap pages', async ({ request }) => {
     const index = await request.get('/sitemap.xml');
     expect(index.status()).toBe(200);

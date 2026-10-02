@@ -14,6 +14,10 @@ Issue #302. No contract change.
   (`scripts/e2e-server.mjs`, used by `playwright.config.ts`), and `e2e/runtime-origin.spec.ts`
   asserts the build origin is served nowhere. Red on the old routes (`the sitemap index names the
 build origin`), green now. `test/sitemap-dynamic.test.ts` pins both routes in the unit run.
+- **The origin spec cannot pass vacuously.** Against a server that was already running and was
+  built the ordinary way it could not fail, so it now checks a marker `e2e-server.mjs` leaves
+  next to its build: no matching marker means skipped with a printed reason locally, and a
+  failure when `CI` is set.
 - **Brands:** picked up on re-sync (`src/app/sitemap*`, `scripts/e2e-server.mjs`,
   `playwright.config.ts`). A brand that fixes its origin in `src/brand/config.ts` is unaffected.
 

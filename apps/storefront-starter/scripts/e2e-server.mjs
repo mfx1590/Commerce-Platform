@@ -18,6 +18,7 @@
  * syntax does not exist on Windows, where this repo is developed.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +27,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Resolved, not looked up on PATH — see scripts/perf.mjs for why.
 const NEXT_BIN = createRequire(join(root, 'package.json')).resolve('next/dist/bin/next');
 
-/** Keep in step with `BUILD_SITE_URL` in e2e/runtime-origin.spec.ts. `.invalid` never resolves. */
+/**
+ * Keep both in step with e2e/support/build-origin.ts, which reads them back. `.invalid` never
+ * resolves.
+ */
 const BUILD_SITE_URL = process.env.E2E_BUILD_SITE_URL ?? 'https://build-time.invalid';
+const BUILD_MARKER_FILE = 'e2e-build.json';
 
 const built = spawnSync(process.execPath, [NEXT_BIN, 'build'], {
   cwd: root,
@@ -35,6 +40,18 @@ const built = spawnSync(process.execPath, [NEXT_BIN, 'build'], {
   stdio: 'inherit',
 });
 if (built.status !== 0) process.exit(built.status ?? 1);
+
+// The marker the origin spec looks for: which build this is, and the origin it was made with. It
+// names the build id so that it cannot vouch for an ordinary `next build` run afterwards — that
+// leaves this file where it is and changes BUILD_ID.
+const nextDir = join(root, '.next');
+writeFileSync(
+  join(nextDir, BUILD_MARKER_FILE),
+  JSON.stringify({
+    buildId: readFileSync(join(nextDir, 'BUILD_ID'), 'utf8').trim(),
+    siteUrl: BUILD_SITE_URL,
+  }),
+);
 
 const port = process.env.PORT ?? '3100';
 const server = spawn(process.execPath, [NEXT_BIN, 'start', '--port', port], {

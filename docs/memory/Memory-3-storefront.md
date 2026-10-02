@@ -223,8 +223,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     run. `e2e/runtime-origin.spec.ts`: red on the old routes (1 failed: `the sitemap index names
     the build origin`; robots and pages passed), green after. `test/sitemap-dynamic.test.ts` pins
     both routes (2 failed before, green after). Full e2e: 63 passed, 1 skipped.
-  - Known limit, written in the spec: against a server that was already running and was built
-    the ordinary way the origin spec is vacuous (locally a running server is reused; never on CI).
+  - Manager's addition (2026-10-02): the spec must not pass vacuously against a reused, ordinarily
+    built server. `e2e-server.mjs` writes `.next/e2e-build.json` (build id + build origin);
+    `e2e/support/build-origin.ts` decides: matching marker — run; otherwise skip with the reason
+    locally, **fail when `CI` is set**. Unit-tested (`test/e2e-build-origin.test.ts`, 8 cases incl.
+    a stale marker after an ordinary rebuild). Seen live: ordinary build + running server gives
+    3 skipped with `runtime-origin would pass vacuously: the build was not made by
+    scripts/e2e-server.mjs`. **The CI=fail branch was exercised only in the unit test** — with
+    `CI` set Playwright refuses to reuse the Docker mock on :4010, so it cannot be run here.
 
 - **#304 — PLAN WRITTEN, WAITING FOR THE MANAGER (more than ~20 calls, two decisions). Nothing
   built.** Read on 2026-10-02:

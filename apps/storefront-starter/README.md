@@ -422,6 +422,17 @@ page. It exists because this class of defect — a per-environment value capture
 test built and started the app with the same environment, where the two values are the same
 string.
 
+**That spec refuses to pass vacuously.** Locally Playwright reuses a server that is already
+running on the port, and one you built with `pnpm build` has the same origin at build time and
+at run time — nothing in the spec could fail against it. `e2e-server.mjs` therefore leaves a
+marker next to its build (`.next/e2e-build.json`: the build id and the origin it was built with),
+and the spec checks it first. Without a matching marker the three tests are **skipped, and the
+reason is printed** (`runtime-origin would pass vacuously: the build was not made by
+scripts/e2e-server.mjs …`); when `CI` is set they **fail** instead, because CI never reuses a
+server and getting there means the setup is broken. To run it for real on a laptop, stop the
+server on :3100 and let Playwright start it. The rules are in `e2e/support/build-origin.ts`
+and unit-tested in `test/e2e-build-origin.test.ts`.
+
 **Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
 agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,
 canonical, `hreflang` alternates and og/twitter tags are written into `<body>` afterwards. A
