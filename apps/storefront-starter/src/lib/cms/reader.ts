@@ -9,7 +9,7 @@ import { BRAND_DATASETS, datasetForStore } from '@platform/cms';
 import { CmsClient, CmsError, type GroqQuery, type GroqParams } from './client';
 import type { CmsConfig } from './config';
 import { isCmsConfigured } from './config';
-import { queries } from './queries';
+import { HOME_SLUG, queries, type RoutedDocumentRow } from './queries';
 import { CMS_REVALIDATE_SECONDS, cmsTags } from './tags';
 
 /**
@@ -31,6 +31,51 @@ export interface CmsReader {
   footer(locale: string): Promise<FooterDocument | null>;
   pageSlugs(locale: string): Promise<string[]>;
   legalSlugs(locale: string): Promise<string[]>;
+  /** Every routed, indexable document published in `locale`. `[]` when there is none or the read fails. */
+  routedDocuments(locale: string): Promise<RoutedDocument[]>;
+}
+
+/** One routed, indexable document — what a sitemap needs and nothing else. */
+export interface RoutedDocument {
+  type: 'page' | 'legal' | 'campaignLanding';
+  slug: string;
+  /**
+   * Campaign landings only; absent means unbounded on that side. Returned, not applied: the list is
+   * cached, so whether a campaign is live is the caller's question at request time (`campaignIsLive`).
+   */
+  startsAt?: string;
+  endsAt?: string;
+}
+
+const ROUTED_TYPES = ['page', 'legal', 'campaignLanding'] as const;
+
+function isRoutedType(type: unknown): type is RoutedDocument['type'] {
+  return (ROUTED_TYPES as readonly unknown[]).includes(type);
+}
+
+/**
+ * Rows → the public shape. The query does the filtering; this only keeps the promise the type
+ * makes: Sanity answers a missing `startsAt`/`endsAt` with `null`, which `campaignIsLive` would
+ * read as an unparseable date and fail closed on, so a missing side is dropped rather than passed
+ * on. One entry per `(type, slug)` — the rows arrive newest first.
+ */
+function toRoutedDocuments(rows: unknown): RoutedDocument[] {
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set<string>();
+  const documents: RoutedDocument[] = [];
+  for (const row of rows as Partial<RoutedDocumentRow>[]) {
+    if (!isRoutedType(row?.type) || typeof row.slug !== 'string' || row.slug === '') continue;
+    const id = `${row.type}:${row.slug}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const document: RoutedDocument = { type: row.type, slug: row.slug };
+    if (row.type === 'campaignLanding') {
+      if (typeof row.startsAt === 'string') document.startsAt = row.startsAt;
+      if (typeof row.endsAt === 'string') document.endsAt = row.endsAt;
+    }
+    documents.push(document);
+  }
+  return documents;
 }
 
 export interface ReaderOptions {
@@ -60,6 +105,7 @@ const empty: CmsReader = {
   footer: async () => null,
   pageSlugs: async () => [],
   legalSlugs: async () => [],
+  routedDocuments: async () => [],
 };
 
 function warnOnce(warn: (message: string) => void, message: string): void {
@@ -157,5 +203,14 @@ export function createReader(options: ReaderOptions): CmsReader {
       ),
     pageSlugs: (locale) => read(queries.pageSlugs, { locale }, [cmsTags.type('page')], []),
     legalSlugs: (locale) => read(queries.legalSlugs, { locale }, [cmsTags.type('legal')], []),
+    routedDocuments: async (locale) =>
+      toRoutedDocuments(
+        await read(
+          queries.routedDocuments,
+          { locale, home: HOME_SLUG },
+          ROUTED_TYPES.map((type) => cmsTags.type(type)),
+          [],
+        ),
+      ),
   };
 }

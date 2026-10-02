@@ -70,6 +70,7 @@ function reader(overrides: Partial<CmsReader> = {}): CmsReader {
     footer: async () => null,
     pageSlugs: async () => [],
     legalSlugs: async () => [],
+    routedDocuments: async () => [],
     ...overrides,
   };
 }
