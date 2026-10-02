@@ -49,12 +49,18 @@ interface User {
 interface Realm {
   realm: string;
   registrationAllowed: boolean;
+  verifyEmail?: boolean;
   resetPasswordAllowed: boolean;
   bruteForceProtected: boolean;
   browserFlow?: string;
   otpPolicyType?: string;
   authenticationFlows?: Flow[];
-  identityProviders?: { alias: string; enabled: boolean; config: Record<string, string> }[];
+  identityProviders?: {
+    alias: string;
+    enabled: boolean;
+    trustEmail?: boolean;
+    config: Record<string, string>;
+  }[];
   clients: Client[];
   users: User[];
 }
@@ -240,6 +246,27 @@ describe('customers realm export (static)', () => {
         ownerOf.set(origin, c.clientId);
       }
     }
+  });
+
+  // #307: CustomerClaims.emailVerified reads this claim; every client states the mapper itself (the
+  // export declares no clientScopes, so nothing here depends on Keycloak's built-in `email` scope).
+  it('every client emits email_verified as a JSON boolean in the access token (#307)', () => {
+    expect(customers.clients.map((c) => c.clientId)).toContain('test-cli');
+    for (const c of customers.clients) {
+      const m = c.protocolMappers?.find((x) => x.config['claim.name'] === 'email_verified');
+      expect(m, `${c.clientId}: email_verified mapper`).toBeDefined();
+      expect(m!.protocolMapper).toBe('oidc-usermodel-property-mapper');
+      expect(m!.config).toMatchObject({
+        'user.attribute': 'emailVerified',
+        'jsonType.label': 'boolean',
+        'access.token.claim': 'true',
+      });
+    }
+  });
+
+  it('dev export: verifyEmail stays off (no SMTP locally; production turns it on, #297); Google is trusted for email', () => {
+    expect(customers.verifyEmail).toBe(false);
+    expect(customers.identityProviders?.find((i) => i.alias === 'google')?.trustEmail).toBe(true);
   });
 
   it('keeps social login disabled with env placeholders, never literal secrets', () => {

@@ -52,6 +52,12 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 
 - Self-registration (email as username), password reset, remember-me. Email verification is off locally
   (no SMTP); turn `verifyEmail` on where an SMTP server is configured.
+- **`email_verified` claim (#307).** Every client carries the `email verified` mapper (user property
+  `emailVerified` → boolean claim in the access token), so a token always states it: `true` for the seeded
+  Jane, `false` for anyone who self-registers locally (nothing verifies the address while `verifyEmail` is
+  off). The `google` provider has `trustEmail: true`: Keycloak marks a user created through it as verified at
+  first broker login, and the same mapper emits that. auth-sdk surfaces it as `CustomerClaims.emailVerified`;
+  email is identity only when it is true.
 - One public PKCE client per brand. Each client hard-codes a `store_code` claim (`brand-a` …) and `aud: core-api`
   so the core can bind a customer token to one store (ADR 0002 §8) — which is also why an origin is
   registered on exactly one client (`test/keycloak-realms.test.ts` enforces it).
