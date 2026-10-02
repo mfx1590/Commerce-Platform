@@ -201,6 +201,19 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   review.** Gates on the final tree: 379 unit tests, lint, typecheck, format, full e2e (63 passed,
   1 skipped, the origin spec running for real), `perf` PASS. **When #293 comes over later, keep
   the `force-dynamic` exports on both sitemap routes** (manager).
+  - **Review of #309: BLOCK, two test gaps; the fix itself was verified right.** (1) the robots
+    test could not fail: without `ROBOTS_ALLOW_INDEXING=1` robots.txt is `Disallow: /` with no
+    origin in it, so `not.toContain(build host)` passed whatever robots did — and README, PR body,
+    CHANGELOG and this file all claimed that coverage. (2) nothing compared the served origin with
+    the expected runtime one. Fixed: `playwright.config.ts` sets `ROBOTS_ALLOW_INDEXING: '1'` and
+    `SITE_URL: RUNTIME_SITE_URL` for the e2e server; the spec asserts presence first (a
+    `Sitemap:` line), then equality with the expected runtime origin for every sitemap `<loc>`
+    and alternate, the robots `Sitemap:` line and the canonical of home, listing and one product
+    (computed through the app's `siteUrl()`), then absence of the build host.
+    Parked nits from that review: the marker checks the build on disk, not the running process;
+    an out-of-range `/sitemap/N.xml` answers 200 empty after a full walk; a cold cache can be hit
+    by several requests at once; the 10k-product cap truncates silently. "`SITE_URL` unset falls
+    back to localhost" folds into #298's fail-closed rule.
   - Measured first (build with the default origin, start with `SITE_URL=https://runtime.example`,
     count each origin per route, three passes): only `/sitemap.xml` (1) and `/sitemap/0.xml` (36)
     served the build origin, both cache HIT; `robots.txt` and every page (home, PLP, PDP,
@@ -589,6 +602,16 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **A "does not contain X" assertion needs a "does contain the thing that would carry X" in
+  front of it.** My robots.txt origin test passed on a file with no origin in it at all
+  (`Disallow: /`), and the sitemap test compared the index with its own pages, which agree just
+  as well when both are wrong. Assert presence, then equality with a value computed in the test,
+  then absence — and run the test against the defect it is for. Second time the reviewer caught
+  a check of mine that could not fail (the first: the LHCI gate).
+- **One window measures at a time.** While another window is taking timed runs: file edits and
+  git only — no builds, tests, e2e, Lighthouse or servers — until the manager says the machine is
+  free.
 
 - **`next build` still prints the prerender marker for `/sitemap/[__metadata_id__]` after
   `force-dynamic`.** `generateSitemaps` lists the ids like `generateStaticParams`, so the route

@@ -12,8 +12,12 @@ Issue #302. No contract change.
   links were checked and were not affected.
 - **The e2e server is built with one `SITE_URL` and started with another**
   (`scripts/e2e-server.mjs`, used by `playwright.config.ts`), and `e2e/runtime-origin.spec.ts`
-  asserts the build origin is served nowhere. Red on the old routes (`the sitemap index names the
-build origin`), green now. `test/sitemap-dynamic.test.ts` pins both routes in the unit run.
+  asserts that the sitemap's `<loc>`s and alternates, the `Sitemap:` line of `robots.txt` and the
+  pages' canonicals **equal the runtime origin**, and that the build origin is in none of them.
+  Red on the old sitemap routes, green now. `test/sitemap-dynamic.test.ts` pins both routes in
+  the unit run. The e2e server runs with `ROBOTS_ALLOW_INDEXING=1`: without it `robots.txt` has
+  no `Sitemap:` line and nothing about it could be asserted (review of #309 — the first version
+  of the spec only checked that the build origin was absent, which an origin-less file passes).
 - **The origin spec cannot pass vacuously.** Against a server that was already running and was
   built the ordinary way it could not fail, so it now checks a marker `e2e-server.mjs` leaves
   next to its build: no matching marker means skipped with a printed reason locally, and a

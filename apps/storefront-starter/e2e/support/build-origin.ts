@@ -15,6 +15,16 @@ import { join } from 'node:path';
 /** The origin the e2e build is made with. `.invalid` never resolves. */
 export const BUILD_SITE_URL = process.env.E2E_BUILD_SITE_URL ?? 'https://build-time.invalid';
 
+/**
+ * The `SITE_URL` the e2e server is **started** with. `playwright.config.ts` passes exactly this to
+ * the server, and the origin spec compares what is served against it — so "the build origin is
+ * absent" is never the whole claim; "the runtime origin is present" is asserted too.
+ *
+ * The default is the app's own: `http://localhost:3100` is also the redirect URI the Keycloak
+ * customers realm registers, so the account journeys depend on it.
+ */
+export const RUNTIME_SITE_URL = process.env.SITE_URL ?? 'http://localhost:3100';
+
 /** Written by `scripts/e2e-server.mjs` into the build directory after a successful `next build`. */
 export const BUILD_MARKER_FILE = 'e2e-build.json';
 

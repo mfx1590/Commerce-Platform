@@ -415,9 +415,14 @@ alternate links were checked for the same capture and do not have it: they alrea
 request.
 
 **The end-to-end server is built somewhere it does not run.** `scripts/e2e-server.mjs` runs
-`next build` with `SITE_URL=https://build-time.invalid` and `next start` without it, and
-`e2e/runtime-origin.spec.ts` asserts that origin appears in no sitemap, in `robots.txt` or in a
-page. It exists because this class of defect — a per-environment value captured at build time
+`next build` with `SITE_URL=https://build-time.invalid` and `next start` with the runtime one, and
+`e2e/runtime-origin.spec.ts` asserts that every sitemap `<loc>` and alternate, the `Sitemap:` line
+of `robots.txt` and the pages' canonical links are on the **runtime** origin — compared for
+equality with the value the server was started with — and that the build origin appears in
+none of them. Presence is asserted before absence: the e2e server runs with
+`ROBOTS_ALLOW_INDEXING=1` so that `robots.txt` has a `Sitemap:` line at all; without it the file
+is a bare `Disallow: /`, there is no origin in it, and "the build origin is absent" passes
+whatever `robots.txt` does (the first version of the spec had exactly that hole). It exists because this class of defect — a per-environment value captured at build time
 — had shipped three times (the CSP, `robots.txt`, the sitemap) and was invisible each time: every
 test built and started the app with the same environment, where the two values are the same
 string.

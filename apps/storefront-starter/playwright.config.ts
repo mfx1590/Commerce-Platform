@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { RUNTIME_SITE_URL } from './e2e/support/build-origin';
 
 /**
  * End-to-end config for the storefront.
@@ -63,6 +64,13 @@ export default defineConfig({
       env: {
         MOCK_API_URL: MOCK_URL,
         PORT: new URL(APP_URL).port,
+        // Said out loud rather than inherited: e2e/runtime-origin.spec.ts compares what is served
+        // against this value, and the build is made with a different one.
+        SITE_URL: RUNTIME_SITE_URL,
+        // The indexable configuration, as in `perf`. Without it `/robots.txt` is a bare
+        // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
+        // build origin is absent from it could not fail whatever robots.txt did (#309 review).
+        ROBOTS_ALLOW_INDEXING: '1',
         ...(STORE_API_URL === undefined ? {} : { STORE_API_URL }),
       },
     },
