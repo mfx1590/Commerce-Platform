@@ -19,6 +19,7 @@ export {
   listLegalEntities,
   revokeApiKey,
   toStore,
+  updateDomain,
   updateStore,
 } from './service';
 export { STORE_SORT_FIELDS } from './types';
@@ -29,6 +30,7 @@ export type {
   ApiKeyType,
   Domain,
   DomainInput,
+  DomainUpdate,
   Page,
   PageQuery,
   SalesChannel,

@@ -11,10 +11,12 @@ import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
 import {
+  adminNotFound,
   aliasPublishableKeyHeader,
   coreErrorHandler,
   adminRouter,
   composeStaffTokenVerifier,
+  contractsVersionHeader,
   DEV_TOKENS_FLAG,
   devTokensEnabled,
   DevTokenVerifier,
@@ -148,8 +150,9 @@ export function mountCoreMiddleware(
 
   app.use(requestIdMiddleware);
 
-  // Liveness probe: answers before any session/auth middleware, no database round trip.
-  app.get('/health', (_req, res) => {
+  // Liveness probe: answers before any session/auth middleware, no database round trip. The body stays the bare
+  // `OK`; the contracts version travels as a header (#284).
+  app.get('/health', contractsVersionHeader, (_req, res) => {
     res.status(200).send('OK');
   });
 
@@ -170,7 +173,9 @@ export function mountCoreMiddleware(
   // each router reads the raw body itself and authenticates the provider's signature (#176 part 3).
   for (const router of opts.webhookRouters ?? []) app.use(router);
   // Admin API: 401 without a valid staff token; req.principal otherwise. Our admin route files opt out of
-  // Medusa's auth (`export const AUTHENTICATE = false`).
+  // Medusa's auth (`export const AUTHENTICATE = false`). X-Contracts-Version is stamped first, so the 401 / 503
+  // of the staff auth and every later answer carry it (#284).
+  app.use('/admin', contractsVersionHeader);
   app.use('/admin', staffAuthMiddleware(verifier));
   app.use('/admin', express.json({ limit: '1mb' }));
   // hq-rbac (window 2): /admin/users, /admin/users/{id}/roles, /admin/audit-log, /admin/finance/ping — gets the
@@ -179,7 +184,7 @@ export function mountCoreMiddleware(
     hqRbacAdapter({ fga, ...(opts.onRoleChange ? { onRoleChange: opts.onRoleChange } : {}) }),
   );
   // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): x-permission from the spec (OpenFGA
-  // for real tokens), then the module services. Every other /admin path falls through to Medusa.
+  // for real tokens), then the module services. Every other /admin path ends in createServer()'s terminal 404.
   app.use(adminRouter());
   // Admin routers other modules export (src/http/module-routers.ts — the named mount point, #162 part 3).
   for (const router of opts.moduleRouters ?? []) app.use(router);
@@ -228,6 +233,10 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
     });
   }
+  // #265: an /admin path none of the routers above answered is the contract's 404 — decided here, before
+  // Medusa's loaders register its own admin auth (which answers 401 to a signed-in staff user). Not part of
+  // mountCoreMiddleware: module tests mount their router after that chain.
+  app.use('/admin', adminNotFound);
 
   const { container, shutdown } = await loaders({ directory, expressApp: app });
   const logger = container.resolve<Logger>(ContainerRegistrationKeys.LOGGER);

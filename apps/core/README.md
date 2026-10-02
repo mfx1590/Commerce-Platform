@@ -111,6 +111,11 @@ real Keycloak tokens and a throw-away OpenFGA store).
 `pnpm build` (`medusa build`) compiles to `.medusa/server` and works on a clean checkout (`ts-node` dev dependency,
 #60; `medusa-config.ts` tolerates missing connection settings at build time); `pnpm start` runs the compiled entry.
 
+Since the 2026-10-02 bundle: `/health` and every `/admin/*` answer carry `X-Contracts-Version` (#284); an
+`/admin/*` path the core does not mount answers the contract 404 to authenticated staff and 401 to everyone
+else, decided before Medusa's admin auth (#265); the registry returns `Store.currencies` / `locales`, replaces
+them as sets, revokes API keys (never the last live publishable one) and moves the primary domain (#279).
+
 ## Module layout
 
 ```
