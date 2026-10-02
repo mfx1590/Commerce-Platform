@@ -3,6 +3,7 @@
 // bodies are validated against the spec, responses are checked against the spec's components.
 import express from 'express';
 import request from 'supertest';
+import { CONTRACTS_VERSION } from '@platform/contracts';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -96,6 +97,27 @@ describe('/admin/me', () => {
       ['brand-b', ['store_admin']],
     ]);
     expect((await request(app).get('/admin/me')).status).toBe(401);
+  });
+});
+
+describe('X-Contracts-Version (#284)', () => {
+  it('travels on /health (body stays the bare OK) and on every /admin answer: 200, 401, 403, 404', async () => {
+    const health = await request(app).get('/health');
+    expect(health.status).toBe(200);
+    expect(health.text).toBe('OK');
+    expect(health.headers['x-contracts-version']).toBe(CONTRACTS_VERSION);
+
+    const answers = [
+      [200, await storeAdmin.get('/admin/me')],
+      [401, await request(app).get('/admin/me')],
+      [403, await storeStaff.post('/admin/stores', {})],
+      [404, await owner.get('/admin/stores/00000000-0000-4000-8000-0000000000ff')],
+    ] as const;
+    for (const [status, res] of answers) {
+      expect(res.status).toBe(status);
+      expect(res.headers['x-contracts-version']).toBe(CONTRACTS_VERSION);
+    }
+    expect(CONTRACTS_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });
 
