@@ -1,7 +1,8 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `cbd06c1`; Store API 0.5.1) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **#274 (PR #299), #286/#278 (PR #305) and #302 (PR #309) merged; #304 (+#306) in PR four (pushed, in review); then #298 (`storefront/hold-298`, unrun) → #312; #293 parked on `storefront/hold-293` until #300 lands**
+Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `cbd06c1`; Store API 0.5.1) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **#274 (PR #299), #286/#278 (PR #305) and #302 (PR #309) merged; #304 (+#306) in PR #316 at `90402db` (in review — do not push); **the worktree sits on the local-only
+`storefront/hold-298`, which has the newest copy of this file**; then #298 (`storefront/hold-298`, unrun) → #312; #293 parked on `storefront/hold-293` until #300 lands**
 
 ## Identity (does not change)
 
@@ -207,8 +208,8 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   is mine, git and file work only — no builds (not even the workspace packages), tests, e2e,
   Lighthouse or servers. Ask before a perf gate.**
 
-- **#304 (+ #306) — PR FOUR OPEN (pushed 2026-10-02; number and SHAs in the next commit). Waiting
-  for review. The perf gate was NOT run locally: the manager said to ask first, and CI runs it.**
+- **#304 (+ #306) — PR #316, head `90402db`, IN REVIEW. DO NOT PUSH `storefront/phase2` until the
+  verdict. Perf gate: not to be run locally for this PR (manager: CI's run is enough).**
   Runs on the final tree, contracts 0.4.8, all on 2026-10-02 with the machine granted:
   - lint, typecheck, 383 unit tests, format; bundle budget PASS (cart 139.6, PDP 139.1 kB).
   - Full e2e against the mock: 65 passed, 2 skipped (both core-only, with reasons).
@@ -286,8 +287,18 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   5. Re-measure the three handlers behind simulated ingress headers; full e2e (account journeys
      included); perf gate (ask the manager first).
   6. Same cause, **not mine to fix**: `src/lib/cms/handlers.ts` (window 6) builds the preview and
-     preview-exit redirects on `new URL(request.url)`. Measure `/api/cms/preview`, then file a
-     REQUEST to window 6 with the numbers.
+     preview-exit redirects on `new URL(request.url)`. **Manager (2026-10-02): the next time I
+     have the machine, measure it and file the REQUEST to window 6 — marked URGENT in the title,
+     because preview-exit is unauthenticated; it rides with #300, which window 6 is doing now.**
+     Prepared in the scratchpad (rewrite if gone): `ingress-probe.mjs` — one bounded script that
+     requests preview-exit, preview (with a test secret), `/r/`, the callback and sign-out under
+     five header sets, and checks whether the middleware writes an attribution cookie for an
+     in-shop navigation (item 4 above); and `request-cms-preview-origin.DRAFT.md`, the issue
+     body with placeholders for the measured values. The server for it: `next start` DETACHED
+     with `SITE_URL=https://shop.public.example`, `SANITY_PROJECT_ID`, `SANITY_PREVIEW_SECRET`
+     and `SANITY_READ_TOKEN` set to test words; poll `/health` for at most 60 s; stop it after.
+     Measure on `storefront/phase2` (window 6's handlers are the same on both branches), and say
+     in the issue whether a `Host` / `X-Forwarded-Host` header can steer the redirect or not.
 
 - **#312 — READ, NOT STARTED. After #298; waits for the core's side (#303 PR C, window 1; core
   merges first, coordinate with the manager).** Store API 0.5.1: `createCart` and `completeCart`
