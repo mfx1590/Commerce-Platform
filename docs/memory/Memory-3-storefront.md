@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `f9ec018`) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (PR #299) and #286/#278 (PR #305) merged; #302 in PR three; next #304 (+#306) → #298; #293 parked until #300 lands**
+Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `d0da986`) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (PR #299) and #286/#278 (PR #305) merged; #302 in PR three; next #304 (+#306) → #298; #293 parked until #300 lands**
 
 ## Identity (does not change)
 
@@ -210,6 +210,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     `Sitemap:` line), then equality with the expected runtime origin for every sitemap `<loc>`
     and alternate, the robots `Sitemap:` line and the canonical of home, listing and one product
     (computed through the app's `siteUrl()`), then absence of the build host.
+    **Run on 2026-10-02 once the machine was free:** lint, typecheck, 379 unit tests, format; the
+    origin spec with `robots.ts` stripped of `force-dynamic` (the 2.2 behaviour) → robots test RED,
+    `Expected: "http://localhost:3100/sitemap.xml"` / `Received:
+    "https://build-time.invalid/sitemap.xml"`, the other three green; restored → full e2e 64
+    passed, 1 skipped. Pushed after merging main `d0da986`.
     Parked nits from that review: the marker checks the build on disk, not the running process;
     an out-of-range `/sitemap/N.xml` answers 200 empty after a full walk; a cold cache can be hit
     by several requests at once; the 10k-product cap truncates silently. "`SITE_URL` unset falls
