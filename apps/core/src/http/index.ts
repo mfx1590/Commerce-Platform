@@ -47,6 +47,7 @@ export {
   createPaymentSessionRoute,
   getCartRoute,
   getOrderRoute,
+  getOrderRouteWith,
   listShippingOptionsRoute,
   getProductRoute,
   getStoreRoute,
@@ -60,6 +61,15 @@ export {
   updateCartRoute,
   updateLineItemRoute,
 } from './store-routes';
+export {
+  CUSTOMER_STORE_PATHS,
+  customerTokenVerifierFor,
+  identityOf,
+  keycloakCustomerTokenVerifier,
+  mountCustomerRoutes,
+  requireCustomer,
+} from './customer-routes';
+export type { CustomerTokenVerifier } from './customer-routes';
 export { adminRouter } from './admin-routes';
 export { moduleAdminRouters, moduleWebhookRouters } from './module-routers';
 export { loadSpec, openApiDir } from './openapi';

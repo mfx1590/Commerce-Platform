@@ -3,13 +3,12 @@
 // query since 0.3.0) and the cart operations POST /store/carts, GET/PATCH /store/carts/{cartId},
 // POST /store/carts/{cartId}/line-items, PATCH/DELETE /store/carts/{cartId}/line-items/{lineItemId} (task 2.1),
 // GET /store/carts/{cartId}/shipping-options, POST …/payment-session, POST …/complete, GET /store/orders/{orderId}
-// (task 2.2, src/modules/checkout).
+// (task 2.2, src/modules/checkout), and the customer self-service routes of src/http/customer-routes.ts (#303).
 // Plain Express handlers over `req.tenant` (set by storeContextMiddleware), wrapped in `handle()` so errors render
 // as the contract `Error`. Mounted by src/server.ts (mountCoreMiddleware) AHEAD of Medusa: Medusa registers its
 // own routes at these paths and its publishable-key gate on /store, so a Medusa file route could not be guaranteed
 // to win — ours answer first. Everything else on the Store API falls through to the fallback proxy / Medusa.
 import express, { type RequestHandler } from 'express';
-import { verifyCustomerToken } from '@platform/auth-sdk';
 import type { StoreComponents } from '@platform/contracts';
 import {
   addLineItem,
@@ -22,7 +21,8 @@ import {
   type UpdateCartInput,
 } from '../modules/cart';
 import { completeCart, createPaymentSession, listShippingOptions } from '../modules/checkout';
-import { customerIdForSubject, getStoreOrder } from '../modules/orders';
+import { findCustomerForSubject } from '../modules/customers';
+import { getStoreOrder } from '../modules/orders';
 import {
   getStoreProduct,
   listStoreCategories,
@@ -31,6 +31,14 @@ import {
 } from '../modules/catalog';
 import { getStore, listCurrencies, listLocales, listSalesChannels } from '../modules/registry';
 import { AppError, notFound, validationError } from '../lib/errors';
+import {
+  CUSTOMER_STORE_PATHS,
+  customerTokenVerifierFor,
+  identityOf,
+  keycloakCustomerTokenVerifier,
+  mountCustomerRoutes,
+  type CustomerTokenVerifier,
+} from './customer-routes';
 import { handle } from './errors';
 import { loadSpec } from './openapi';
 import { intParam, one, uuidParam } from './query';
@@ -245,26 +253,42 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * or the guest `?email=`. Any failure — bad token, unknown customer, wrong email, other store, a malformed id
  * or email — is a 404 exactly like the contract says (never 400/401/403): an order id must not be confirmable
  * and the shape of the input must not be either. Nothing here logs the email or the query string.
+ *
+ * What a token opens (#303): the orders placed for its customer, and — only when the token carries
+ * `email_verified` — guest orders placed with the token's email. An unverified email opens nothing by itself.
+ * This route never creates a customer row; a disabled or erased customer's token opens nothing.
  */
-export const getOrderRoute: RequestHandler = handle(async (req, res) => {
-  const t = requireTenant(req);
-  const orderIdRaw = one(req.params.orderId) ?? '';
-  if (!UUID.test(orderIdRaw)) throw notFound('order', orderIdRaw);
-  const orderId = orderIdRaw;
-  const emailRaw = one(req.query.email);
-  if (emailRaw !== undefined && !EMAIL.test(emailRaw.trim())) throw notFound('order', orderId);
-  let customerId: string | null = null;
-  const authorization = req.headers.authorization;
-  if (authorization) {
-    try {
-      const claims = await verifyCustomerToken(authorization, t.storeCode);
-      customerId = await customerIdForSubject(t.client, t.storeId, claims.subject);
-    } catch {
-      customerId = null; // invalid or foreign token → same 404 as no credentials
+export const getOrderRouteWith = (verifier: CustomerTokenVerifier): RequestHandler =>
+  handle(async (req, res) => {
+    const t = requireTenant(req);
+    const orderIdRaw = one(req.params.orderId) ?? '';
+    if (!UUID.test(orderIdRaw)) throw notFound('order', orderIdRaw);
+    const orderId = orderIdRaw;
+    const emailRaw = one(req.query.email);
+    if (emailRaw !== undefined && !EMAIL.test(emailRaw.trim())) throw notFound('order', orderId);
+    let customerId: string | null = null;
+    let verifiedEmail: string | null = null;
+    const authorization = req.headers.authorization;
+    if (authorization) {
+      try {
+        const identity = identityOf(await verifier.verify(authorization, t.storeCode));
+        const customer = await findCustomerForSubject(t.client, t.storeId, identity.subject);
+        if (!customer || (customer.status !== 'disabled' && customer.status !== 'erased')) {
+          customerId = customer?.id ?? null;
+          verifiedEmail = identity.emailVerified ? (identity.email ?? null) : null;
+        }
+      } catch {
+        // invalid or foreign token → same 404 as no credentials
+        customerId = null;
+        verifiedEmail = null;
+      }
     }
-  }
-  res.json(await getStoreOrder(t.client, orderId, { customerId, email: emailRaw }));
-});
+    res.json(
+      await getStoreOrder(t.client, orderId, { customerId, email: emailRaw, verifiedEmail }),
+    );
+  });
+
+export const getOrderRoute: RequestHandler = getOrderRouteWith(keycloakCustomerTokenVerifier);
 
 /** The Store API paths the core answers itself (README "What is real"; the fallback proxy covers the rest). */
 export const REAL_STORE_PATHS = [
@@ -283,10 +307,18 @@ export const REAL_STORE_PATHS = [
   'POST /store/carts/{cartId}/payment-session',
   'POST /store/carts/{cartId}/complete',
   'GET /store/orders/{orderId}',
+  ...CUSTOMER_STORE_PATHS,
 ] as const;
 
-/** Mounts the Store API routes (src/server.ts and the HTTP tests use the same function). */
-export function mountStoreRoutes(app: express.Express): void {
+/**
+ * Mounts the Store API routes (src/server.ts and the HTTP tests use the same function). `customerTokenVerifier`
+ * is a test seam (src/http/customer-routes.ts): code only, refused in production, never passed by createServer().
+ */
+export function mountStoreRoutes(
+  app: express.Express,
+  customerTokenVerifier?: CustomerTokenVerifier,
+): void {
+  const customerVerifier = customerTokenVerifierFor(customerTokenVerifier);
   app.get('/store', getStoreRoute);
   app.get('/store/categories', listCategoriesRoute);
   app.get('/store/products', listProductsRoute);
@@ -304,5 +336,7 @@ export function mountStoreRoutes(app: express.Express): void {
   app.get('/store/carts/:cartId/shipping-options', listShippingOptionsRoute);
   app.post('/store/carts/:cartId/payment-session', createPaymentSessionRoute);
   app.post('/store/carts/:cartId/complete', completeCartRoute);
-  app.get('/store/orders/:orderId', getOrderRoute);
+  app.get('/store/orders/:orderId', getOrderRouteWith(customerVerifier));
+  // Customer self-service (#303): POST /store/customers, GET /store/customers/me, GET …/me/orders.
+  mountCustomerRoutes(app, customerVerifier);
 }

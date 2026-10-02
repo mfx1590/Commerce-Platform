@@ -6,16 +6,15 @@ module: `GET /store/carts/{cartId}/shipping-options`, `POST …/payment-session`
 
 ## Public API (`index.ts`)
 
-| Function                                                  | Contract operation                           | Notes                                                                                                                                                            |
-| --------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `listShippingOptions(client, cartId)`                     | `GET /store/carts/{cartId}/shipping-options` | the cart module's `ShippingRateProvider.list()` for the cart's destination, currency and channel; 404 for an invisible cart                                      |
-| `createPaymentSession(client, cartId, { provider })`      | `POST /store/carts/{cartId}/payment-session` | provider must be registered (400 otherwise); the session is stored on `cart.payment_session` as the contract `PaymentSession` (ids and amounts, never card data) |
-| `completeCart(client, { cartId, idempotencyKey, actor })` | `POST /store/carts/{cartId}/complete` → 201  | placement, see below; returns `{ order, replayed }`                                                                                                              |
-| `getStoreOrder(client, orderId, { customerId?, email? })` | `GET /store/orders/{orderId}`                | access rule below; 200 or 404, nothing else                                                                                                                      |
-| `customerIdForSubject(client, storeId, subject)`          | —                                            | `customer.id` for a verified customers-realm `sub` (the route calls it after `verifyCustomerToken`)                                                              |
-| `setPaymentProvider(provider)` / `paymentProvider(name)`  | —                                            | provider registry, see below                                                                                                                                     |
-| `renderOrder(tx, orderId)`                                | —                                            | contract `Order` for an id (moves to the orders module in 2.3)                                                                                                   |
-| `emailHash(email)`                                        | —                                            | sha256 hex of the trimmed, lowercased email — the events' `email_hash`                                                                                           |
+| Function                                                                                  | Contract operation                           | Notes                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listShippingOptions(client, cartId)`                                                     | `GET /store/carts/{cartId}/shipping-options` | the cart module's `ShippingRateProvider.list()` for the cart's destination, currency and channel; 404 for an invisible cart                                      |
+| `createPaymentSession(client, cartId, { provider })`                                      | `POST /store/carts/{cartId}/payment-session` | provider must be registered (400 otherwise); the session is stored on `cart.payment_session` as the contract `PaymentSession` (ids and amounts, never card data) |
+| `completeCart(client, { cartId, idempotencyKey, actor })`                                 | `POST /store/carts/{cartId}/complete` → 201  | placement, see below; returns `{ order, replayed }`                                                                                                              |
+| `getStoreOrder(client, orderId, { customerId?, email?, verifiedEmail? })` (orders module) | `GET /store/orders/{orderId}`                | access rule below; 200 or 404, nothing else                                                                                                                      |
+| `setPaymentProvider(provider)` / `paymentProvider(name)`                                  | —                                            | provider registry, see below                                                                                                                                     |
+| `renderOrder(tx, orderId)`                                                                | —                                            | contract `Order` for an id (moves to the orders module in 2.3)                                                                                                   |
+| `emailHash(email)`                                                                        | —                                            | sha256 hex of the trimmed, lowercased email — the events' `email_hash`                                                                                           |
 
 ## Placement — one transaction on the locked cart
 
@@ -94,16 +93,19 @@ replaces the old one and carries the current total. The session stored on the ca
 The contract allows only 200 or 404, so an order id can never be confirmed by probing:
 
 - `Authorization: Bearer <customers-realm token>` → `verifyCustomerToken(header, store.code)` (auth-sdk) →
-  `customer` by `(store_id, keycloak_subject)` → the order is visible when `order.customer_id` is that customer
-  **or** the order's email equals the customer's (case-insensitive). An invalid token is treated like no token.
+  `customer` by `(store_id, keycloak_subject)` → the order is visible when `order.customer_id` is that customer,
+  **or** when it is a guest order (no `customer_id`) whose email equals the **token's** email and the token
+  carries `email_verified: true` (#303: an unverified email is not an identity; the customer row's email is not
+  consulted). An invalid token is treated like no token; a disabled or erased customer's token opens nothing.
+  This route never creates a customer row.
 - Guest: `?email=` (validated as an email → 400 otherwise) compared to the checkout email **trimmed and
   case-insensitively**.
 - Neither, a mismatch, or another store's order → 404 `not_found`.
 - Nothing in this path logs the email or the query string (tested: the console output of an order lookup
   contains neither).
 
-`order.customer_id` at placement is `cart.customer_id` (set by window 13's customer flows); guest carts place
-guest orders. The storefront's client never sends the customer token to cart paths.
+`order.customer_id` at placement is `cart.customer_id` (nothing sets it yet: the placement-time link is #310 /
+#303 part C); guest carts place guest orders. The storefront's client never sends the customer token to cart paths.
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
@@ -170,7 +172,7 @@ guest orders. The storefront's client never sends the customer token to cart pat
   session is a 400, so a storefront that forgets the step cannot place unpaid orders by accident.
 - **2026-09-08 · Display id via the existing store-row trigger** (see above); per-store serialisation accepted
   for Phase 2.
-- The order read model (`renderStoreOrder`, `getStoreOrder`, `customerIdForSubject`) moved to
+- The order read model (`renderStoreOrder`, `getStoreOrder`) moved to
   `src/modules/orders` in task 2.3; the access rule above is implemented there. `GET /store/orders/{orderId}`
   also answers 404 for a malformed id or email (never a 400 that would confirm the id exists).
 

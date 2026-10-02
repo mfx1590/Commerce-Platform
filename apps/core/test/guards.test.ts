@@ -120,6 +120,26 @@ describe('structural guards', () => {
     expect(medusa).toBeGreaterThan(terminal);
   });
 
+  it('the customer token verifier seam is code-only: no environment switch, and createServer() never passes one (#303)', () => {
+    const server = files.find((f) => f.rel === 'server.ts')!.text;
+    const boot = server.slice(server.indexOf('export async function createServer'));
+    expect(boot).not.toContain('customerTokenVerifier');
+    // CreateServerOptions has no such field either: nothing a deployment configures can reach the seam
+    const options = server.slice(
+      server.indexOf('export interface CreateServerOptions'),
+      server.indexOf('export interface CoreMiddlewareOptions'),
+    );
+    expect(options).not.toContain('ustomerTokenVerifier');
+    const seam = files.find((f) => f.rel === 'http/customer-routes.ts')!.text;
+    const resolver = seam.slice(
+      seam.indexOf('export function customerTokenVerifierFor'),
+      seam.indexOf('export function identityOf'),
+    );
+    // the only thing it reads from the environment is NODE_ENV — to refuse
+    expect(resolver.match(/process\.env\.(\w+)/g)).toEqual(['process.env.NODE_ENV']);
+    expect(seam.replace(resolver, '')).not.toContain('process.env');
+  });
+
   it('modules import the outbox helper through its index only', () => {
     const offenders = files
       .filter((f) => !f.rel.startsWith('outbox/'))

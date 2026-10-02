@@ -2,6 +2,31 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-02 · customer self-service, part A (#303)
+
+- New module `src/modules/customers` (window 1 by ruling): the store-level customer of a signed-in shopper is
+  resolved from the verified customers-realm token and **created on first use** — no `getMe` 404, no "register
+  first". Store from the publishable key, subject and email from the token only.
+- Routes (`src/http/customer-routes.ts`, in `REAL_STORE_PATHS`): `POST /store/customers` (201 when this call
+  created the row, 200 when it existed; a body email that is not the token's → 400), `GET /store/customers/me`,
+  `GET /store/customers/me/orders`. 401 without a valid token for this store, for a disabled or erased customer,
+  and for a token without an email that has no row yet. 409 `conflict` when the token's email is on a row that
+  cannot be adopted; a **verified** email adopts a row without a subject (a guest who signs in keeps one row).
+- Events `customer.created` / `customer.updated` and one audit row per change, in the same transaction; ids,
+  `email_hash`, status, consent and column names only.
+- **An email is an identity only when the token says it is verified.** `getStoreOrder`'s token arm no longer
+  matches on the customer row's email: it opens orders linked to the customer, and guest orders with the
+  token's email only when `email_verified` is true (`OrderAccess.verifiedEmail`). An order linked to a customer
+  is not opened by anyone else's verified email. The guest `?email=` rule is unchanged. New
+  `listStoreOrders` (orders module) under the same rule. Until auth-sdk surfaces the claim (#307) every token
+  counts as unverified.
+- `customerIdForSubject` left the orders module; the route uses `findCustomerForSubject` (customers module),
+  and a disabled or erased customer's token opens no order.
+- Test seam for the customers-realm verifier: `mountCoreMiddleware(app, verifier, { customerTokenVerifier })` /
+  `mountStoreRoutes(app, verifier)` — code only, no environment variable, never passed by `createServer()`,
+  refused when `NODE_ENV` is `production`.
+- Still on the fallback proxy until part B: `PATCH /store/customers/me`, `…/me/addresses`.
+
 ### 2026-10-02 · registry outbox completeness (#308 review ruling)
 
 - Every registry mutation writes `store.updated` in its transaction; these five wrote an audit row only:
