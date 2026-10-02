@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { updateLineItemAction, type ActionState } from '@/lib/actions';
 import type { LineItem } from '@/lib/store-api';
+import { orderLineHooks } from '@/lib/test-hooks';
 
 const EMPTY: ActionState = {};
 
@@ -20,7 +21,7 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
   const t = useTranslations('cart');
 
   return (
-    <li className="flex gap-4 border-b border-border py-6">
+    <li className="flex gap-4 border-b border-border py-6" {...orderLineHooks(item)}>
       <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md bg-muted">
         {item.thumbnail_url === null ? null : (
           <ProductImage
