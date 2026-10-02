@@ -39,7 +39,7 @@ From the review of #316 (tests and docs; no behaviour change):
   default the 30 s server-action deadline could never be used in full.
 - Docs: the `data-*` hooks ship in production builds, and four of them are not text on the page
   (`data-order-id`, `data-category`, `data-availability`, `data-purchasable`); 0.12.4 said the
-  order *number* matches the URL — it is the order *id*.
+  order _number_ matches the URL — it is the order _id_.
 
 ## 0.12.4 — 2026-10-02
 

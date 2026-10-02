@@ -41,6 +41,12 @@ vi.mock('@/lib/auth/session', () => ({
   sessionFromTokens: () => ({ accessToken: 'access-token', idToken: 'id-token' }),
 }));
 
+// The locale middleware is not under test: it answers "carry on" and nothing else.
+vi.mock('next-intl/middleware', async () => {
+  const { NextResponse: Response } = await import('next/server');
+  return { default: () => () => Response.next() };
+});
+
 const exchangeCode = vi.fn();
 vi.mock('@/lib/auth/oidc', async (importOriginal) => ({
   ...(await importOriginal<typeof Oidc>()),
@@ -51,6 +57,7 @@ const { SiteUrlError } = await import('@/brand/config');
 const signOut = await import('@/app/auth/sign-out/route');
 const callback = await import('@/app/auth/callback/route');
 const referral = await import('@/app/r/[code]/route');
+const { default: middleware } = await import('@/middleware');
 
 /** A request as a route handler receives it behind the ingress. */
 function behindIngress(path: string, headers: Record<string, string> = {}): NextRequest {
@@ -260,5 +267,50 @@ describe('GET /r/{code}', () => {
     await expect(referral.GET(behindIngress(`/r/${CODE}`), context)).rejects.toBeInstanceOf(
       SiteUrlError,
     );
+  });
+});
+
+// ── The middleware's attribution capture ────────────────────────────────────────────────────────
+
+describe('middleware: which referrers count as external', () => {
+  function attributionCookie(response: NextResponse) {
+    const cookie = response.cookies.get('sf_attribution');
+    return cookie === undefined
+      ? null
+      : (JSON.parse(cookie.value) as { last: { referrer: string | null } });
+  }
+
+  it('does not record a click from one of our own pages as a referral', () => {
+    // Measured before the fix: this request wrote a cookie with referrer = the shop's own origin,
+    // because "this site" was taken to be the pod (http://localhost:3100).
+    const response = middleware(
+      behindIngress('/en-GB/products', { referer: `${PUBLIC}/en-GB` }),
+    ) as NextResponse;
+
+    expect(attributionCookie(response)).toBeNull();
+  });
+
+  it("still records a visit that arrives from somebody else's site", () => {
+    const response = middleware(
+      behindIngress('/en-GB/products', { referer: 'https://news.example/article' }),
+    ) as NextResponse;
+
+    expect(attributionCookie(response)?.last.referrer).toBe('https://news.example');
+  });
+
+  it("treats the pod's own origin as foreign: it is not this site", () => {
+    // Nothing legitimate sends this Referer in a deployment; the point is that the comparison is
+    // against the configured origin and nothing else.
+    const response = middleware(
+      behindIngress('/en-GB/products', { referer: `${POD}/en-GB` }),
+    ) as NextResponse;
+
+    expect(attributionCookie(response)?.last.referrer).toBe(POD);
+  });
+
+  it('fails closed when the origin is not configured', () => {
+    unconfigure();
+
+    expect(() => middleware(behindIngress('/en-GB/products'))).toThrow(SiteUrlError);
   });
 });
