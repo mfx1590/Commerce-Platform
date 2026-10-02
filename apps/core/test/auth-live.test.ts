@@ -12,6 +12,7 @@ import {
   seedOpenFga,
   type OpenFgaClient,
 } from '@platform/auth-sdk';
+import { CONTRACTS_VERSION } from '@platform/contracts';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -305,6 +306,7 @@ describe.runIf(live)(
         code: 'internal',
         message: 'authorization service unavailable',
       });
+      expect(res.headers['x-contracts-version']).toBe(CONTRACTS_VERSION); // #284: on the 503 too
     });
   },
 );
