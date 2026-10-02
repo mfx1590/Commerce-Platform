@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `d0da986`) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (PR #299) and #286/#278 (PR #305) merged; #302 in PR three; next #304 (+#306) → #298; #293 parked until #300 lands**
+Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `c78b903`) · Branch: `storefront/phase2` (PR #309, verdict MERGE, in the queue — **do not push until the manager gives the merge sha**) · Status: 2.1–2.4 merged; **#274 (PR #299) and #286/#278 (PR #305) merged; #302 in PR #309 at `1a91dfd`; #304 (+#306) ready on `storefront/hold-304`; #298 written, unrun, on `storefront/hold-298`; #293 parked on `storefront/hold-293` until #300 lands. PR order: #309 → #304 → #298, one at a time**
 
 ## Identity (does not change)
 
@@ -197,8 +197,8 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   to be told the machine is quiet** — my builds and Lighthouse runs degraded window 10's browser
   suite on 2026-10-02.
 
-- **#302 — PR #309 OPEN (pushed 2026-10-02 at `1750ba2`: commits `6beef05`, `5cc8854`). Waiting for
-  review.** Gates on the final tree: 379 unit tests, lint, typecheck, format, full e2e (63 passed,
+- **#302 — PR #309, head `1a91dfd` (commits `6beef05`, `5cc8854`, `9a0cc3a`, `990cbaf`). Verdict MERGE
+  on 2026-10-02 after one BLOCK; in the merge queue. Do not push the branch until it has merged.** Gates on the final tree: 379 unit tests, lint, typecheck, format, full e2e (63 passed,
   1 skipped, the origin spec running for real), `perf` PASS. **When #293 comes over later, keep
   the `force-dynamic` exports on both sitemap routes** (manager).
   - **Review of #309: BLOCK, two test gaps; the fix itself was verified right.** (1) the robots
@@ -241,9 +241,23 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     scripts/e2e-server.mjs`. **The CI=fail branch was exercised only in the unit test** — with
     `CI` set Playwright refuses to reuse the Docker mock on :4010, so it cannot be run here.
 
-- **#304 (+ #306) — BUILT AND COMMITTED on the local-only branch `storefront/hold-304` (on top of
-  PR three's head). Becomes PR four after #302's PR merges and the manager confirms no queue:
-  merge main into `storefront/phase2`, cherry-pick the commits, re-run the gates, push.**
+- **#304 (+ #306) — ACCEPTED IN SHAPE; READY TO COME OVER AS PR FOUR. On the local-only branch
+  `storefront/hold-304`, rebased 2026-10-02 onto the reviewed PR head `1a91dfd` (three commits on
+  top of it). When the manager gives #309's merge sha and says no queue is running:** merge main
+  into `storefront/phase2`, bring the hold-304 commits over (cherry-pick; they sit directly on the
+  PR head, so no conflict is expected beyond this file), **then run before pushing, with the
+  machine granted:** lint, typecheck, unit tests, format, full e2e against the mock, the checkout
+  and account specs against the core (`E2E_STORE_API_URL` + `STORE_PUBLISHABLE_KEY`; costs one
+  unit of seed stock), bundle budget; ask before the perf gate.
+  - **Written 2026-10-02 without running anything (window 10 had the machine): window 10's two
+    flake notes on the issue.** Every click that starts a navigation goes through
+    `clickWhenReady` (visible, enabled, `networkidle`, then click); `toHaveURL` has explicit
+    deadlines — `SERVER_ACTION_TIMEOUT` 30 s after "Add to cart" and "Place order",
+    `NAVIGATION_TIMEOUT` 15 s after a link (card, Checkout, sort, category). **Not yet run, not
+    even formatted or typechecked.** A flake fix cannot be shown by one green run: ask the manager
+    for a quiet machine and take repeated passes (window 10 measured 1 in 3 and 1 in 4 before).
+    Also from that note, already true here: lines are located by test id, never `getByText`
+    (which matches the `<title>` element).
   - Hooks: `src/lib/test-hooks.ts` (`orderLineHooks`, `totalsHooks`, `orderConfirmationHooks`,
     `productCardHooks`) on cart, review, confirmation, totals and listing cards; the add-to-cart
     form carries `data-purchasable`, `data-availability`, `data-sku`; category links carry

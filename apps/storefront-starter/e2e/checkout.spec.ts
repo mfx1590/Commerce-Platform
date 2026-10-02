@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /**
  * The journey the storefront exists to support, end to end — against **either** backend.
@@ -112,6 +112,34 @@ async function advanceToReview(page: Page): Promise<string[]> {
   }
 
   throw new Error(`Checkout did not reach the review step; visited ${visited.join(' → ')}`);
+}
+
+// ── Clicking, and how long to wait for what it starts ────────────────────────────────────────────
+
+/**
+ * Two deadlines, because a click here starts one of two different things (#304).
+ *
+ * Playwright's default for `expect(page).toHaveURL()` is 5 s. That is ample for a client-side route
+ * change and too tight for a **server action that writes through to the core**: "Add to cart" and
+ * "Place order" answer when the core has. Measured by window 10 on a quiet machine, the cart step
+ * missed the 5 s deadline about one run in three — the page was not broken, the deadline was wrong.
+ */
+const SERVER_ACTION_TIMEOUT = 30_000;
+const NAVIGATION_TIMEOUT = 15_000;
+
+/**
+ * Click a control once the page can act on it.
+ *
+ * The other half of the same flake: a click dispatched before hydration has attached the handler is
+ * swallowed — the sort link was clicked, the URL never changed, and the test waited out its deadline
+ * on a page that was fine (one run in four on a quiet machine). Visible, enabled and the network
+ * quiet is the same settling `settleOn` does for the checkout steps.
+ */
+async function clickWhenReady(page: Page, control: Locator): Promise<void> {
+  await expect(control).toBeVisible();
+  await expect(control).toBeEnabled();
+  await page.waitForLoadState('networkidle');
+  await control.click();
 }
 
 // ── Reading the page ─────────────────────────────────────────────────────────────────────────────
@@ -245,9 +273,11 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
       .locator(`[data-testid="product-card"][data-handle="${chosen.handle}"]`)
       .first();
     const cardTitle = (await card.getByRole('heading').innerText()).trim();
-    await card.getByRole('heading').getByRole('link').click();
+    await clickWhenReady(page, card.getByRole('heading').getByRole('link'));
 
-    await expect(page).toHaveURL(new RegExp(`/en-GB/products/${chosen.handle}$`));
+    await expect(page).toHaveURL(new RegExp(`/en-GB/products/${chosen.handle}$`), {
+      timeout: NAVIGATION_TIMEOUT,
+    });
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(cardTitle);
   });
 
@@ -256,11 +286,12 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
     await expect(page.getByTestId('price-value').first()).toBeVisible();
     await expect(page.getByTestId('price-value').first()).not.toBeEmpty();
 
-    await page.getByRole('button', { name: 'Add to cart' }).click();
+    await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
   });
 
   await test.step('cart: the variant that was added is the line in the cart', async () => {
-    await expect(page).toHaveURL(/\/en-GB\/cart$/);
+    // The add-to-cart action answers when the core has: its own deadline, not the 5 s default.
+    await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
     await expect(page.getByRole('heading', { level: 1, name: 'Cart' })).toBeVisible();
 
     const cart = await captureOrder(page, 'the cart');
@@ -269,11 +300,11 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
       'the cart holds the SKU the product page offered',
     ).toContain(chosen.sku);
 
-    await page.getByRole('link', { name: 'Checkout' }).click();
+    await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
   });
 
   await test.step('checkout: what the customer agrees to', async () => {
-    await expect(page).toHaveURL(CHECKOUT_STEP);
+    await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
     const visited = await advanceToReview(page);
 
     await expect(page).toHaveURL(/\/en-GB\/checkout\/review$/);
@@ -288,11 +319,11 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
     reviewed = await captureOrder(page, 'the review step');
     expect(reviewed.lines.map((line) => line.sku)).toContain(chosen.sku);
 
-    await page.getByRole('button', { name: 'Place order' }).click();
+    await clickWhenReady(page, page.getByRole('button', { name: 'Place order' }));
   });
 
   await test.step('confirmation: the order is the one that was reviewed', async () => {
-    await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/);
+    await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
     await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
     await expect(page.getByText('Order placed')).toBeVisible();
 
@@ -343,9 +374,9 @@ test('the sort control puts its choice in the URL and marks it current', async (
   // What can be checked against either backend: the control itself. Whether the *results* follow
   // is the next test's business.
   await page.goto('/en-GB/products');
-  await page.getByRole('link', { name: 'Price: low to high' }).click();
+  await clickWhenReady(page, page.getByRole('link', { name: 'Price: low to high' }));
 
-  await expect(page).toHaveURL(/sort=price_asc/);
+  await expect(page).toHaveURL(/sort=price_asc/, { timeout: NAVIGATION_TIMEOUT });
   await expect(page.getByRole('heading', { level: 1, name: 'All products' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Price: low to high' })).toHaveAttribute(
     'aria-current',
@@ -378,13 +409,13 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
   ).toBeGreaterThanOrEqual(2);
 
   await test.step('price ascending, then descending', async () => {
-    await page.getByRole('link', { name: 'Price: low to high' }).click();
-    await expect(page).toHaveURL(/sort=price_asc/);
+    await clickWhenReady(page, page.getByRole('link', { name: 'Price: low to high' }));
+    await expect(page).toHaveURL(/sort=price_asc/, { timeout: NAVIGATION_TIMEOUT });
     const ascending = (await readCards(page)).map((card) => card.priceMinor);
     expect(ascending, 'low to high').toEqual([...ascending].sort((a, b) => a - b));
 
-    await page.getByRole('link', { name: 'Price: high to low' }).click();
-    await expect(page).toHaveURL(/sort=price_desc/);
+    await clickWhenReady(page, page.getByRole('link', { name: 'Price: high to low' }));
+    await expect(page).toHaveURL(/sort=price_desc/, { timeout: NAVIGATION_TIMEOUT });
     const descending = (await readCards(page)).map((card) => card.priceMinor);
     expect(descending, 'high to low').toEqual([...descending].sort((a, b) => b - a));
 
@@ -414,8 +445,10 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
       .locator('a[data-category]')
       .evaluateAll((elements) => elements.map((element) => element.getAttribute('data-category')));
 
-    await link.click();
-    await expect(page).toHaveURL(new RegExp(`/en-GB/categories/${target!.category}$`));
+    await clickWhenReady(page, link);
+    await expect(page).toHaveURL(new RegExp(`/en-GB/categories/${target!.category}$`), {
+      timeout: NAVIGATION_TIMEOUT,
+    });
     await expect(
       page
         .getByRole('navigation', { name: 'Categories' })

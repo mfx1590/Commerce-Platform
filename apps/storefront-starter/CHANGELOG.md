@@ -23,6 +23,12 @@ Issues #304 and #306. No contract change. Tests and test hooks only — no behav
   assertions (`jane@example.com`, `Order #1000`) are Prism's examples even in a core run, so they
   moved to a test labelled mock-only that does not run against the core; sign-in, return URL,
   session and sign-out stay as they were. The core-backed version waits for #303.
+- **Two flakes in the journey spec, same shape** (window 10's measurements on #304: the cart step
+  failed about one run in three, the sort click one in four, on a quiet machine). A click was
+  dispatched before the page could act on it, and the 5 s default of `toHaveURL` is too tight
+  for a server action that writes through to the core. Every click that starts a navigation now
+  goes through `clickWhenReady` (visible, enabled, network quiet), and the URL expectations have
+  explicit deadlines: 30 s after "Add to cart" and "Place order", 15 s after a link.
 - **Test hooks** (`src/lib/test-hooks.ts`): `data-*` attributes on listing cards, the add-to-cart
   form, cart/review/confirmation lines, the totals table and the confirmation header.
 - **Brands:** all of it arrives by re-sync; a brand's own journey spec can read the same hooks.
