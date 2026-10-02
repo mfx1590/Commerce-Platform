@@ -38,10 +38,15 @@ const listed = documents.filter((d) => d.type !== 'campaignLanding' || campaignI
 Every published `page`, `legal` and `campaignLanding` of the locale as `{ type, slug }`, campaign
 landings with their `startsAt` / `endsAt` when set (a missing side is absent, never `null`).
 
-- **Filtered at the source** (the GROQ in `queries.ts`): no document without a slug, none with
-  `seo.noIndex: true`, and not the `page` with slug `home` (`HOME_SLUG`) — it is mounted on `/`, so
-  `/pages/home` would be a duplicate. `coalesce(seo.noIndex, false) == false` on purpose: most
-  documents have no `seo` object at all, and they must still be listed.
+- **Filtered in the query** (`queries.ts`): no document without a slug, and not the `page` with
+  slug `home` (`HOME_SLUG`) — it is mounted on `/`, so `/pages/home` would be a duplicate.
+- **`seo.noIndex: true` is left out by the reader, not by the query.** The query returns the flag
+  (`coalesce(seo.noIndex, false)` — most documents have no `seo` object at all, and they are
+  listed); the reader first keeps the newest row per `(type, slug)`, the document the by-slug read
+  renders, and then applies that document's flag. Filtering in the query would let an older
+  indexable twin be listed in place of a newer noIndex document. Two documents on one
+  `(type, locale, slug)` should not exist — the Studio refuses them — but if they do, the list
+  describes the one that renders: its `noIndex`, its schedule. The flag is never returned.
 - **The schedule is returned, not applied.** The list is cached (tags + `CMS_REVALIDATE_SECONDS`),
   so "live now" is the caller's question at request time — `campaignIsLive` — otherwise an ended
   campaign would stay listed until the next revalidation.

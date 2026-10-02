@@ -9,7 +9,7 @@ import { createReader, resetCmsWarnings } from '@/lib/cms/reader';
 import { campaignIsLive } from '@/lib/cms/schedule';
 
 /**
- * `routedDocuments` filters at the source, so a canned response would test nothing: these tests
+ * `routedDocuments` filters in its query and on the rows, so a canned response would test nothing: these tests
  * answer the reader's request by running its real GROQ against a dataset, with the evaluator the
  * Studio ships (`groq-js`, reached through `@platform/cms` → `sanity`; the storefront does not
  * depend on it). If it cannot be resolved the suite fails — it never skips.
@@ -154,7 +154,9 @@ describe('routedDocuments', () => {
 
     expect(await reader.routedDocuments('en-GB')).toEqual([{ type: 'page', slug: 'about' }]);
     // filtered at the source: the reader's own tidying never saw the two unslugged documents
-    expect(answers).toEqual([[{ type: 'page', slug: 'about', startsAt: null, endsAt: null }]]);
+    expect(answers).toEqual([
+      [{ type: 'page', slug: 'about', noIndex: false, startsAt: null, endsAt: null }],
+    ]);
   });
 
   it('a document with no seo object at all is still returned, like one that leaves noIndex unset or false', async () => {
@@ -202,18 +204,40 @@ describe('routedDocuments', () => {
     expect(page).not.toHaveProperty('endsAt');
   });
 
-  it('when two documents collide on (type, slug) the newest wins, once', async () => {
+  // Two documents on one (type, locale, slug) should not exist (the Studio refuses them), but the
+  // routes are defined for it: the by-slug read renders the newest. The list must describe that
+  // document — its noIndex, its schedule — never an older one standing in for it.
+  const OLDER = { _id: 'older', _updatedAt: '2026-08-01T00:00:00Z' };
+  const NEWER = { _id: 'newer', _updatedAt: '2026-09-15T00:00:00Z' };
+
+  it('collision: an older indexable document never stands in for a newer noIndex one', async () => {
+    const documents = await routed([
+      stored('page', 'about', { ...OLDER }),
+      stored('page', 'about', { ...NEWER, seo: { noIndex: true } }),
+      stored('campaignLanding', 'spring-sale', { ...OLDER, endsAt: '2026-12-31T00:00:00.000Z' }),
+      stored('campaignLanding', 'spring-sale', { ...NEWER, seo: { noIndex: true } }),
+    ]);
+
+    expect(documents).toEqual([]);
+  });
+
+  it('collision: a newer indexable document is listed although an older one was noIndex', async () => {
+    const documents = await routed([
+      stored('legal', 'terms', { ...OLDER, seo: { noIndex: true } }),
+      stored('legal', 'terms', { ...NEWER }),
+    ]);
+
+    expect(documents).toEqual([{ type: 'legal', slug: 'terms' }]);
+  });
+
+  it('collision: two campaigns with different schedules — the newer one’s dates, once', async () => {
     const documents = await routed([
       stored('campaignLanding', 'spring-sale', {
-        _id: 'older',
-        _updatedAt: '2026-08-01T00:00:00Z',
+        ...OLDER,
+        startsAt: '2026-08-01T00:00:00.000Z',
         endsAt: '2026-08-31T00:00:00.000Z',
       }),
-      stored('campaignLanding', 'spring-sale', {
-        _id: 'newer',
-        _updatedAt: '2026-09-15T00:00:00Z',
-        endsAt: '2026-12-31T00:00:00.000Z',
-      }),
+      stored('campaignLanding', 'spring-sale', { ...NEWER, endsAt: '2026-12-31T00:00:00.000Z' }),
     ]);
 
     expect(documents).toEqual([

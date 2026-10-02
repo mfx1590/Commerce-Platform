@@ -54,10 +54,14 @@ function isRoutedType(type: unknown): type is RoutedDocument['type'] {
 }
 
 /**
- * Rows → the public shape. The query does the filtering; this only keeps the promise the type
- * makes: Sanity answers a missing `startsAt`/`endsAt` with `null`, which `campaignIsLive` would
- * read as an unparseable date and fail closed on, so a missing side is dropped rather than passed
- * on. One entry per `(type, slug)` — the rows arrive newest first.
+ * Rows → the public shape, in this order:
+ *
+ * 1. One row per `(type, slug)`. The rows arrive newest first, so the one kept is the document the
+ *    by-slug reads render if two ever collide.
+ * 2. Only then, `noIndex`: the flag of the document that renders decides, so an older indexable
+ *    twin is never listed in its place. Anything but an explicit `false` is left out.
+ * 3. Sanity answers a missing `startsAt`/`endsAt` with `null`, which `campaignIsLive` would read as
+ *    an unparseable date and fail closed on, so a missing side is dropped rather than passed on.
  */
 function toRoutedDocuments(rows: unknown): RoutedDocument[] {
   if (!Array.isArray(rows)) return [];
@@ -68,6 +72,7 @@ function toRoutedDocuments(rows: unknown): RoutedDocument[] {
     const id = `${row.type}:${row.slug}`;
     if (seen.has(id)) continue;
     seen.add(id);
+    if (row.noIndex !== false) continue;
     const document: RoutedDocument = { type: row.type, slug: row.slug };
     if (row.type === 'campaignLanding') {
       if (typeof row.startsAt === 'string') document.startsAt = row.startsAt;

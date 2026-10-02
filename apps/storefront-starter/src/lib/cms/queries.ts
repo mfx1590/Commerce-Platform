@@ -24,6 +24,8 @@ export const HOME_SLUG = 'home';
 export interface RoutedDocumentRow {
   type: string;
   slug: string | null;
+  /** `coalesce(seo.noIndex, false)`: `false` unless the document says otherwise. */
+  noIndex: boolean;
   startsAt: string | null;
   endsAt: string | null;
 }
@@ -45,17 +47,18 @@ export const queries = {
   pageSlugs: defineQuery<string[]>(`*[_type == "page" && locale == $locale].slug.current`),
   legalSlugs: defineQuery<string[]>(`*[_type == "legal" && locale == $locale].slug.current`),
   /**
-   * Every routed, indexable document in a locale — for the sitemap (#300). Newest first, so the
-   * reader keeps the document the by-slug reads would render if two ever collide.
+   * Every routed document in a locale, newest first — the rows behind the sitemap's list (#300).
+   * Slugless documents and the home page are filtered here. `noIndex` is NOT: it travels as a flag
+   * and the reader applies it after choosing the newest row per `(type, slug)`, the same choice as
+   * `order(_updatedAt desc)[0]` in the by-slug reads. Filtering it here would let an older
+   * indexable document stand in for a newer noIndex one that the route actually renders.
    *
-   * `coalesce` on purpose: most documents have no `seo` object, and a filter that compares the
-   * missing flag directly (`seo.noIndex == false`) drops every one of them.
+   * `coalesce` on purpose: most documents have no `seo` object, and they are indexable.
    */
   routedDocuments: defineQuery<RoutedDocumentRow[]>(
     `*[_type in ["page", "legal", "campaignLanding"] && locale == $locale && defined(slug.current)` +
-      ` && coalesce(seo.noIndex, false) == false` +
       ` && !(_type == "page" && slug.current == $home)]` +
       ` | order(_updatedAt desc)` +
-      ` { "type": _type, "slug": slug.current, startsAt, endsAt }`,
+      ` { "type": _type, "slug": slug.current, "noIndex": coalesce(seo.noIndex, false), startsAt, endsAt }`,
   ),
 } as const;
