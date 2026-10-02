@@ -17,7 +17,9 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
 - `pnpm --filter @platform/storefront-starter typecheck`
 - `pnpm --filter @platform/storefront-starter test` — Vitest (tests live in test/)
 - `pnpm --filter @platform/storefront-starter e2e` — Playwright (specs in `e2e/`); boots the Prism
-  mock and a production build itself, headless, non-zero exit on failure. `e2e:ui` for the
+  mock and a production build itself (`scripts/e2e-server.mjs`: built with a **different**
+  `SITE_URL` than it runs with, so a value captured at build time fails a spec), headless,
+  non-zero exit on failure. `e2e:ui` for the
   interactive runner. Uses the locally installed Chrome; on CI, Playwright's bundled chromium
   (REQUEST #84) — `E2E_CHANNEL` overrides either way. The account journeys need Keycloak
   (`docker compose -f infra/docker/docker-compose.yml up -d keycloak`): they skip locally without it
