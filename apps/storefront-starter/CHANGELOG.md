@@ -2,7 +2,18 @@
 
 ## 0.12.2 — 2026-10-01
 
-Issues #286 and #278. No contract change.
+Issues #286 and #278, and three corrections from the review of #299. No contract change.
+
+- **The Lighthouse SEO budget is now checked against the worst of the three runs.** LHCI's default
+  aggregation is `optimistic` — the best run — so the 95 budget added in 0.12.1 did not guard the
+  metadata fix it was added for: the old build scores 100, 92, 92 and passed. `categories:seo` sets
+  `aggregationMethod: "pessimistic"`; against the pre-fix config the gate now fails (`found: 0.92,
+all values: 1, 0.92, 0.92`) and `test/perf-budget.test.ts` pins the setting. The other budgets
+  keep the default. **"Median of three" in `perf.mjs`, `CLAUDE.md`, the README and earlier entries
+  of this file was never what the gate did**; the first three are corrected.
+- **`e2e/seo-head.spec.ts` covers an empty `User-Agent` header** as well as a missing one. The
+  middleware already handled it; nothing tested it.
+- README: blocking metadata is also waited for on soft navigations, not only on first loads.
 
 - **Home page store facts are a valid description list** (#286). Each fact was a `Card` with a
   `CardContent` inside it, so the markup was `dl > div > div > dt` — HTML allows one wrapper, not

@@ -425,14 +425,17 @@ Two things make the placement deterministic:
 
 - `htmlLimitedBots: /.*/` in `next.config.mjs` — metadata blocks for every user agent, so it is in
   `<head>` before the first byte. The price is that the first byte waits for `generateMetadata`,
-  which awaits the same cached reads the page needs before it can render anything.
+  which awaits the same cached reads the page needs before it can render anything. The same holds
+  for a **soft navigation**: the client-side transition to a route also waits for that route's
+  metadata instead of streaming it in afterwards, so a slow `generateMetadata` is felt on every
+  in-app link, not only on a first load. Keep metadata on reads the page already makes.
 - The middleware gives a request with **no** `User-Agent` header a placeholder one. Next never
   consults the pattern for such a request and always streams; a bare HTTP client is a crawler far
   more often than a customer.
 
 `e2e/seo-head.spec.ts` holds it: raw requests (no page, so hydration cannot rescue anything), twice
-per route, for home, listing, product and the content not-found path in both locales, with five
-user agents including none — asserting the **byte offset** of each tag against `</head>`. The HTML
+per route, for home, listing, product and the content not-found path in both locales, with six
+user agents including none and an empty one — asserting the **byte offset** of each tag against `</head>`. The HTML
 is a single line, so a line-based check (`sed -n '1,/<\/head>/p' | grep …`) prints the whole
 document and passes falsely. `test/seo-head.test.ts` pins the pattern in the unit run.
 
@@ -509,8 +512,16 @@ pnpm --filter @platform/storefront-starter perf
 ```
 
 It makes a production build against the mock, checks the **bundle budget**, starts the server, runs
-**Lighthouse CI** (median of three, mobile), stops the server whatever happened, and reports both
+**Lighthouse CI** (three runs per URL, mobile), stops the server whatever happened, and reports both
 results — one failure never hides the other.
+
+**Which of the three runs a budget is checked against.** Not the median, although this README said
+so until #286's PR: LHCI's default `aggregationMethod` is `optimistic`, the **best** of the runs.
+That is a reasonable way to keep runner noise out of the performance, LCP and CLS budgets, and it
+is still what they use. It is the wrong way to guard metadata placement: the streaming race
+(#274) is won by run 1 and lost by runs 2 and 3, so the old build's SEO of 100, 92, 92 passes a
+95 budget on its best run. `categories:seo` therefore sets `aggregationMethod: "pessimistic"` —
+the **worst** run must clear 95 — and `test/perf-budget.test.ts` pins that setting.
 
 The measured run sets `ROBOTS_ALLOW_INDEXING=1`, because it is measuring the configuration that goes
 to production. Without it `/robots.txt` serves `Disallow: /` — correct for staging — and Lighthouse's
