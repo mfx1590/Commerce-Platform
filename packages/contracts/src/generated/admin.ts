@@ -1515,9 +1515,9 @@ export interface components {
             default_country: string;
             timezone: string;
             /** @description Enabled ISO-4217 codes; always contains default_currency */
-            currencies?: string[];
+            currencies: string[];
             /** @description Enabled BCP-47 tags; always contains default_locale */
-            locales?: string[];
+            locales: string[];
             content_space_id: string | null;
             search_index: string | null;
             psp_account_id: string | null;
@@ -3227,6 +3227,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiKey"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

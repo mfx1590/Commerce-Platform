@@ -2,6 +2,35 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-02 · registry settings, admin 404, contracts version header (#279, #265, #284; contracts-v0.4.7)
+
+- **`X-Contracts-Version`** (#284): `CONTRACTS_VERSION` from `@platform/contracts` on `GET /health` (body still
+  the bare `OK`) and on every `/admin/*` answer — 200, 401, 403, 404, 503 — stamped ahead of the staff auth.
+- **Unmounted `/admin/*` paths answer the contract 404** (#265) instead of Medusa's 401: `createServer()` mounts
+  a terminal handler after our chain and before Medusa's loaders. No valid staff token → 401 from our own auth
+  (the route table stays unknown to anonymous callers); any authenticated staff user → 404 `not_found`
+  ("`<METHOD> <path>` is not implemented", `details: {}`), no permission checked, never 403. Mounted routes are
+  unchanged.
+- **Registry set replacement** (#279): `StoreInput.currencies` / `locales` replace the enabled set (delete what
+  is not in it — never the default, given or current —, insert what is missing; `[]` = default only; omitted =
+  unchanged), with `store.updated` in the same transaction and `changed_fields` computed from the real
+  before/after sets (a repeat emits nothing). `getStore` / `listStores` / `createStore` / `updateStore` return
+  `currencies` and `locales`, default first. Removing a set member that is still in use is not blocked; an
+  existing cart in a removed currency still reads (tested).
+- **The store row is locked before the sets are read** (#308 review): `updateStore`, `addLocale`, `addCurrency`
+  take `FOR NO KEY UPDATE` on the store row, then read. Unlocked, a replacement that had read the old default
+  could delete or un-flag the row of a default a concurrent request had just committed (the store row said USD,
+  `store_currency` flagged EUR), and two overlapping replacements left the union neither caller asked for.
+- **`revokeApiKey`** (`POST /admin/stores/{storeId}/api-keys/{keyId}/revoke`, store_admin): idempotent; 409
+  `last_live_key` for the store's last publishable key with `revoked_at IS NULL` (rows locked: two concurrent
+  revokes cannot both pass); `store.updated` `changed_fields: ['api_keys']`, no key material. **Behaviour
+  change** of the module function: a repeat used to throw 409 `conflict`.
+- **`updateDomain`** (`PATCH /admin/stores/{storeId}/domains/{domainId}`, owner): moves the primary in one
+  transaction; `is_primary: false` on the current primary → 409; a no-op writes nothing; `store.updated`
+  `changed_fields: ['domains']`, no hostname.
+- Parked #233 nits: the promotions import guard also catches a bare side-effect import; the store-staff 403
+  refund assertion sends `Idempotency-Key`, so it no longer depends on permission being checked first.
+
 ### 2026-09-20 · promotions at placement, order freeze, pro-rata edits; fraud block hook (#230 PR B, #241)
 
 - **Placement re-evaluates promotions under the cart lock** at its own clock. A changed discount or a lost/gained

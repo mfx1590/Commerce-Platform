@@ -75,6 +75,35 @@ describe('store-api.yaml', () => {
     expect(complete.body).toMatch(/previous_unit_price_minor/);
   });
 
+  it('0.5.1 (#303, #310): customer self-service statuses and the optional customer token on cart create/complete', () => {
+    const body = (id: string) => ops.find((o) => o.id === id)!.body;
+    // registerCustomer: 201 created, 200 the row existed, 400 body email differs from the token's, 409 collision
+    for (const status of ['201', '200', '400', '401', '409']) {
+      expect(body('registerCustomer'), `registerCustomer ${status}`).toContain(`'${status}':`);
+    }
+    expect(body('registerCustomer')).toMatch(/always come\s+from the customer token/);
+    for (const id of ['getMe', 'updateMe', 'listMyAddresses', 'addMyAddress', 'listMyOrders']) {
+      expect(body(id), `${id} 401`).toContain(`'401':`);
+      expect(body(id), `${id} 409`).toContain(`'409':`);
+    }
+    // the token is OPTIONAL on the two cart operations: a key-only alternative is listed first
+    const optionalToken =
+      /security:\n\s+- publishableKey: \[\]\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]/;
+    for (const id of ['createCart', 'completeCart']) {
+      expect(body(id), id).toMatch(optionalToken);
+      expect(body(id), `${id} 401`).toContain(`'401':`);
+      expect(body(id), id).toMatch(
+        /A token that is sent but invalid, expired or bound to another store is a 401/,
+      );
+    }
+    expect(body('completeCart')).toMatch(
+      /linked to another customer than the token's \(`conflict`\)/,
+    );
+    const withToken = ops.filter((o) => optionalToken.test(o.body)).map((o) => o.id);
+    // getOrder has taken an optional token since 0.2 (a guest reads by key, a customer by token)
+    expect(withToken.sort()).toEqual(['completeCart', 'createCart', 'getOrder']);
+  });
+
   it('0.5.0 (#270): the typed review shape — null-average rule, author-PII constraint, read-only listing', () => {
     const op = ops.find((o) => o.id === 'listProductReviews')!;
     expect(op).toBeDefined();
@@ -106,7 +135,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.0/);
+    expect(text).toMatch(/version: 0\.5\.1/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -122,7 +151,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.7/);
+    expect(text).toMatch(/version: 0\.4\.8/);
     for (const tag of [
       'registry',
       'catalog',
@@ -306,6 +335,14 @@ describe('admin-api.yaml', () => {
     expect(text).toMatch(/always contains default_currency/);
     expect(text).toMatch(/always contains default_locale/);
     expect(text).toMatch(/conflict, last_live_key, out_of_stock/);
+  });
+
+  it('0.4.8 (#279): Store.currencies and Store.locales are required now that the core returns them', () => {
+    const start = text.indexOf('\n    Store:\n');
+    const required = text.slice(start, text.indexOf('\n      properties:', start));
+    expect(required).toMatch(/\n\s+currencies,\n\s+locales,\n\s+\]/);
+    // a malformed key id is a 400, not an undocumented answer
+    expect(ops.find((o) => o.id === 'revokeApiKey')!.body).toContain(`'400':`);
   });
 
   it('segment rules (0.4.4, #239): frozen closed grammar, no flat-shape leftovers', () => {

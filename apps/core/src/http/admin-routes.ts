@@ -33,6 +33,8 @@ import {
   listSalesChannels,
   listStores,
   listWarehouses,
+  revokeApiKey,
+  updateDomain,
   updateStore,
   STORE_SORT_FIELDS,
 } from '../modules/registry';
@@ -383,6 +385,16 @@ export function adminRouter(): Router {
       res.status(201).json(await addDomain(client, storeId, req.body, p.actor));
     }),
   );
+  r.patch(
+    '/admin/stores/:storeId/domains/:domainId',
+    permission('updateDomain'),
+    body('updateDomain'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      const domainId = uuidParam(req.params, 'domainId');
+      res.json(await updateDomain(client, storeId, domainId, req.body, p.actor));
+    }),
+  );
   r.get(
     '/admin/stores/:storeId/sales-channels',
     permission('listSalesChannels'),
@@ -415,6 +427,15 @@ export function adminRouter(): Router {
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
       res.status(201).json(await createApiKey(client, storeId, req.body, p.actor));
+    }),
+  );
+  r.post(
+    '/admin/stores/:storeId/api-keys/:keyId/revoke',
+    permission('revokeApiKey'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      const keyId = uuidParam(req.params, 'keyId');
+      res.json(await revokeApiKey(client, storeId, keyId, p.actor));
     }),
   );
 

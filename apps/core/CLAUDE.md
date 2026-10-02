@@ -61,6 +61,10 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `/admin` staff principal (`req.principal`, 401/503; `storeClientFor` 403 outside scope) → hq-rbac adapter →
   Admin API routes → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
   contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).
+- `createServer()` then mounts the terminal `/admin` 404 (`adminNotFound`, #265) before Medusa loads: an
+  unmounted `/admin/*` path is 404 `not_found` for any authenticated staff user and 401 without a valid token —
+  never Medusa's admin auth. `X-Contracts-Version` (`CONTRACTS_VERSION`) is on `/health` and every `/admin/*`
+  answer, errors included (#284).
 - Staff auth (`src/http/staff-auth.ts`): `KeycloakStaffTokenVerifier` (default, built by `buildStaffAuth()` in
   `src/server.ts`) = hq-rbac's `createStaffScopeMiddleware` over `@platform/auth-sdk`: JWT → `staff_user` →
   OpenFGA scope; the principal carries `scope: StaffScope` (+ the `fga` client). `composeStaffTokenVerifier`
