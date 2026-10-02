@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `a8bde50`) · Branch: `storefront/phase2` (PR #305 in review — do not push) — **the worktree sits on the local-only `storefront/hold-302`** · Status: 2.1–2.4 merged; **#274 merged (PR #299); #286/#278 in PR #305 (verdict MERGE, queue running — no push until the manager gives the merge sha); #302 built locally; #304 plan awaiting two decisions; #293 parked locally until #300 (window 6) lands; then #302 → #304 → #298**
+Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `f9ec018`) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (PR #299) and #286/#278 (PR #305) merged; #302 in PR three; next #304 (+#306) → #298; #293 parked until #300 lands**
 
 ## Identity (does not change)
 
@@ -172,44 +172,35 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       JSON-LD stays in `<body>` on purpose. **The 95 gate shipped in this PR did not guard the fix**
       — see the LHCI gotcha; corrected in the #286/#278 PR.
 
+- [x] **#286 + #278, with the rider from #299's review** — commits `09e5cac`, `33e48f3`; **PR #305
+      merged** (merge commit `cf25d16`, 2026-10-02). #286: `StoreFacts`
+      (`src/components/store-facts.tsx`), one padded `Card` per fact, `dl > div > dt/dd`;
+      `test/store-facts.test.ts` asserts the rendered structure. #278: `mergeSlots` exported and
+      tested with fixtures; starter-only assertions in `test/starter-defaults.test.ts` under
+      `describe.runIf(package name is the starter's)` — the reviewer saw it skip in a clone. Rider:
+      `categories:seo` uses `aggregationMethod: "pessimistic"` (the 95 gate from #299 passed the
+      broken build on its best run; now RED on the pre-#299 config, `found: 0.92, all values: 1,
+      0.92, 0.92`); empty `User-Agent` case in `e2e/seo-head.spec.ts`; "median of three" texts
+      corrected. **Performance, accessibility, LCP and CLS stay on LHCI's default (best run)** —
+      manager's ruling 2026-10-02; `ci.yml`'s wording is routed to window 5.
+
 ## In progress
 
-- **Docket (manager, 2026-10-02), each its own small PR, in this order: PR two (#286 + #278 with
-  the #299 review rider) → #302 (sitemap origin baked at build) → #304 (`checkout.spec`
-  asserts nothing server-produced, drains seed stock, its "filters" step is a sort click) →
-  #298 (sign-out derives the post-logout URI from the request origin vs `SITE_URL` — an
-  unverified lead, establish it first). #293 slots in whenever #300 lands.** Plan-paste anything
-  over ~20 calls. One PR at a time; push each only after the previous merges and the manager
-  confirms no queue is running. No `docker exec`. No closing keyword in a commit message unless
-  that commit finishes the issue. The Docker stack was down for much of 2026-10-01 (backend
-  crashing) and up again from 19:14; never attempt recovery from this window.
+- **Docket (manager, 2026-10-02), each its own small PR, in this order: #302 (PR three, open) →
+  #304 with #306 folded in → #298 (sign-out derives the post-logout URI from the request
+  origin vs `SITE_URL` — an unverified lead, establish it first). #293 slots in whenever #300
+  lands.** Standing rules: plan-paste anything over ~20 calls. One PR at a time; push each only
+  after the previous merges and the manager confirms no queue is running. No `docker exec`. No
+  closing keyword in a commit message unless that commit finishes the issue. Never attempt stack
+  recovery from this window. **One window measures at a time on this machine (manager,
+  2026-10-02): before a perf gate, a Lighthouse run or a flake check, ask the manager and wait
+  to be told the machine is quiet** — my builds and Lighthouse runs degraded window 10's browser
+  suite on 2026-10-02.
 
-- **PR two — #286 + #278 + the #299 review rider: PR #305, pushed 2026-10-02 at `33e48f3`. IN REVIEW
-  — instruction received 2026-10-02: "received, in review, do not push". Push nothing until it has merged and the
-  manager confirms no queue is running.**
-  - #286: `src/components/store-facts.tsx` (`StoreFacts`), one `Card className="p-4"` per fact and
-    no `CardContent`, so the chain is `dl > div > dt/dd`; `test/store-facts.test.ts` asserts the
-    rendered structure, shown red on the old markup. **Not run: axe itself** — it lives in
-    brand A's suite; window 10 removes its two-rule allowlist on re-sync.
-  - #278: `mergeSlots` exported and tested with fixture overrides; the starter-only assertions
-    are in `test/starter-defaults.test.ts` under `describe.runIf(package name is the starter's)`.
-    The skip path was not executed in a clone, only reasoned from the name.
-  - Rider 1, the gate: `categories:seo` has `aggregationMethod: "pessimistic"`. On the pre-#299
-    config the gate is now RED (`found: 0.92, all values: 1, 0.92, 0.92`, exit 1); the same six
-    runs asserted with main's config pass (exit 0) — the reviewer was right. Green with the fix:
-    SEO 100 × 6. `test/perf-budget.test.ts` pins the setting (red when removed). Performance,
-    accessibility, LCP and CLS are still checked against the **best** run (LHCI default), on
-    purpose left alone: moving them to median tightens a required CI check on a noisy runner and
-    is the manager's call. Texts corrected in `perf.mjs`, the package `CLAUDE.md`, the README.
-    `.github/workflows/ci.yml:185` still says "median of three" — window 5's file.
-  - Rider 2: `e2e/seo-head.spec.ts` has an **empty** `User-Agent` case (48 tests; 48/48 red on
-    the old config, green now). Rider 3: README cost note covers soft navigations.
-  - Gates on the final tree: unit tests, lint, typecheck, format, full e2e (60 passed, 1 skipped),
-    `perf` PASS.
-
-- **#302 — BUILT AND COMMITTED LOCALLY on the local-only branch `storefront/hold-302` (on top of
-  PR two's head). Becomes PR three after #305 merges: merge main into `storefront/phase2`,
-  bring the commit over, push, open the PR.**
+- **#302 — PR THREE OPEN (pushed 2026-10-02; number and SHAs in the next commit). Waiting for
+  review.** Gates on the final tree: 379 unit tests, lint, typecheck, format, full e2e (63 passed,
+  1 skipped, the origin spec running for real), `perf` PASS. **When #293 comes over later, keep
+  the `force-dynamic` exports on both sitemap routes** (manager).
   - Measured first (build with the default origin, start with `SITE_URL=https://runtime.example`,
     count each origin per route, three passes): only `/sitemap.xml` (1) and `/sitemap/0.xml` (36)
     served the build origin, both cache HIT; `robots.txt` and every page (home, PLP, PDP,
@@ -232,8 +223,8 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     scripts/e2e-server.mjs`. **The CI=fail branch was exercised only in the unit test** — with
     `CI` set Playwright refuses to reuse the Docker mock on :4010, so it cannot be run here.
 
-- **#304 — PLAN WRITTEN, WAITING FOR THE MANAGER (more than ~20 calls, two decisions). Nothing
-  built.** Read on 2026-10-02:
+- **#304 (+ #306 folded in) — PLAN APPROVED (manager, 2026-10-02); build once #302 is in review.
+  Nothing built yet.** Findings from the read on 2026-10-02:
   - The confirmation page renders `order.display_id`, each line and its total, but nothing on
     cart, review or confirmation has a test hook (the only `data-testid` in the app is the kit's
     `price-value`), so the spec cannot read a line, a quantity or a total today.
@@ -254,21 +245,22 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
      `price_asc`, non-increasing for `price_desc`) and, for a category, that every card belongs to
      it and the count changed; the active control carries `aria-current`.
   5. README (the stock budget, what each backend can and cannot prove), CHANGELOG, memory, gates.
-  **Decision A — stock:** (1) choose by property: the first listed product whose variant reports
-  enough stock, and document that a run against the core consumes one unit (recommended: no new
-  credentials, but the budget stays finite); or (2) stock-neutral: cancel the order afterwards,
-  which needs the Admin API and a staff token in the storefront's e2e — another module's surface.
-  **Decision B — what counts as proof of sort/filter:** against the mock the order assertion is
-  vacuous; either accept that it is real only in the core run and say so in the spec (and make
-  the spec fail, not skip, when it runs against the core with fewer than two products), or the
-  manager wants a multi-product example added to the contract's mock data (CONTRACT CHANGE).
+  **Rulings:** (hooks) yes, on cart, review and confirmation; assert order number, lines and total
+  against the cart captured at runtime. (stock) choose the product by reported stock; document
+  that a core run consumes one unit; when nothing has enough stock, fail with a clear
+  "seed stock exhausted — reseed" message, not a timeout; **no Admin API or staff token in the
+  storefront's e2e**. (sort/filter) real only against the core, where it FAILS (not skips) with
+  fewer than two products; against the mock it skips visibly with the reason; **no contract
+  change** — Prism returns its example whatever the query. (#306, `account.spec.ts`)
+  assertions on values only Prism can produce (the mock customer, Order #1000) are labelled
+  mock-only or removed; the core-backed version waits for #303.
 
 - **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
   window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
   `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
   do not merge the branch; expect conflicts in CHANGELOG, the package version, `sitemap.ts` and
-  `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that). Never push the
-  branch. When #300 has
+  `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that, the manager
+  said so too). Never push the branch. It is the only local-only branch left. When #300 has
   merged: merge main, bring the commit over, **swap the local `scheduleIsLive` copy for the
   exported `campaignIsLive`, replace the `Reflect.get` method detection with a plain typed call
   (and delete the "before #300" test), use window 6's `RoutedDocument` type**, re-run the gates.
