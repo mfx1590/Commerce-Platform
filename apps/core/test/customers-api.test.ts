@@ -505,7 +505,8 @@ describe('the verifier seam is code-only and never reaches production', () => {
 // test-cli password grant (stamps store_code=brand-a; her email is verified in the realm import); a second user
 // self-registers through storefront-brand-a's registration form — the same flow as
 // packages/auth-sdk/test/customer-claims.test.ts — and is therefore NOT verified (the dev realm has verifyEmail
-// off). Skipped when Keycloak is down. Needs the realm import of #313 (the `email verified` mapper on test-cli).
+// off). Skipped when Keycloak is down. Both tokens state `email_verified` through Keycloak's built-in email
+// scope (true for her, false for the fresh user); the mapper of #313 only makes that explicit in the realm export.
 const KC = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
 const REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
 const TOKEN_URL = `${KC}/realms/${REALM}/protocol/openid-connect/token`;
@@ -665,7 +666,7 @@ describe.runIf(live)('live: real customers-realm tokens through the real verifie
   it("the seeded customer's token reads verified: a guest order placed with her address is listed and opens by the token alone", async () => {
     expect(
       rawClaims(seedToken).email_verified,
-      'the running Keycloak has not imported customers-realm.json since #313 (test-cli needs the "email verified" mapper)',
+      `the seed customer's token carries email_verified = ${JSON.stringify(rawClaims(seedToken).email_verified)} (expected the boolean true)`,
     ).toBe(true);
     const orderId = await placeGuestOrder('Jane@Example.com');
 
