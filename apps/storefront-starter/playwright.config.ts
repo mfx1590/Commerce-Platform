@@ -53,11 +53,13 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'pnpm run build && pnpm run start',
+      // Builds with one `SITE_URL` and starts with another, so a value captured by `next build`
+      // shows up as the wrong origin in a spec instead of in production (#302).
+      command: 'node scripts/e2e-server.mjs',
       url: APP_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
-      // `start` honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
+      // The server honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
       env: {
         MOCK_API_URL: MOCK_URL,
         PORT: new URL(APP_URL).port,

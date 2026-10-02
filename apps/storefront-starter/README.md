@@ -406,6 +406,22 @@ otherwise `robots.txt` would advertise a URL that 404s. Both read the same `site
 index cannot list a page that does not exist. A failure part-way through the walk returns what was
 collected: a short sitemap is a crawler inefficiency, a 500 makes it back off from all of it.
 
+**The sitemap is rendered per request (#302).** Both routes are `force-dynamic`. As prerendered
+routes with `revalidate` they were written by `next build` with the build machine's `SITE_URL`,
+and served that origin — in every `<loc>` and every `hreflang` alternate — for the first hour after
+each deploy. What is cached is the upstream reads (an hour, by tag), so a request costs a render
+(about 5 ms measured), not a walk of the catalogue. `robots.txt` and the pages' canonical and
+alternate links were checked for the same capture and do not have it: they already render per
+request.
+
+**The end-to-end server is built somewhere it does not run.** `scripts/e2e-server.mjs` runs
+`next build` with `SITE_URL=https://build-time.invalid` and `next start` without it, and
+`e2e/runtime-origin.spec.ts` asserts that origin appears in no sitemap, in `robots.txt` or in a
+page. It exists because this class of defect — a per-environment value captured at build time
+— had shipped three times (the CSP, `robots.txt`, the sitemap) and was invisible each time: every
+test built and started the app with the same environment, where the two values are the same
+string.
+
 **Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
 agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,
 canonical, `hreflang` alternates and og/twitter tags are written into `<body>` afterwards. A

@@ -1,5 +1,22 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.3 — 2026-10-02
+
+Issue #302. No contract change.
+
+- **The sitemap no longer serves the build machine's origin.** `/sitemap.xml` and
+  `/sitemap/<n>.xml` were prerendered by `next build` and revalidated hourly, so for the first
+  hour after a deploy every `<loc>` and `hreflang` alternate pointed at the origin the image was
+  built with (`http://localhost:3100`). Both routes are now `force-dynamic`; the upstream reads
+  stay cached, so a request is a ~5 ms render. `robots.txt` and the pages' canonical/alternate
+  links were checked and were not affected.
+- **The e2e server is built with one `SITE_URL` and started with another**
+  (`scripts/e2e-server.mjs`, used by `playwright.config.ts`), and `e2e/runtime-origin.spec.ts`
+  asserts the build origin is served nowhere. Red on the old routes (`the sitemap index names the
+build origin`), green now. `test/sitemap-dynamic.test.ts` pins both routes in the unit run.
+- **Brands:** picked up on re-sync (`src/app/sitemap*`, `scripts/e2e-server.mjs`,
+  `playwright.config.ts`). A brand that fixes its origin in `src/brand/config.ts` is unaffected.
+
 ## 0.12.2 — 2026-10-01
 
 Issues #286 and #278, and three corrections from the review of #299. No contract change.

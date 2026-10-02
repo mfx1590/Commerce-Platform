@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `a8bde50`) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **#274 merged (PR #299); #286/#278 in PR two; #293 parked locally until #300 (window 6) lands; then #302 → #304 → #298**
+Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `a8bde50`) · Branch: `storefront/phase2` (PR #305 in review — do not push) — **the worktree sits on the local-only `storefront/hold-302`** · Status: 2.1–2.4 merged; **#274 merged (PR #299); #286/#278 in PR #305; #302 built locally; #293 parked locally until #300 (window 6) lands; then #302 → #304 → #298**
 
 ## Identity (does not change)
 
@@ -184,7 +184,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   that commit finishes the issue. The Docker stack was down for much of 2026-10-01 (backend
   crashing) and up again from 19:14; never attempt recovery from this window.
 
-- **PR two — #286 + #278 + the #299 review rider: PUSHED, PR OPEN (number in the next commit).**
+- **PR two — #286 + #278 + the #299 review rider: PR #305, pushed 2026-10-02 at `33e48f3`. IN REVIEW
+  — instruction received 2026-10-02: "received, in review, do not push". Push nothing until it has merged and the
+  manager confirms no queue is running.**
   - #286: `src/components/store-facts.tsx` (`StoreFacts`), one `Card className="p-4"` per fact and
     no `CardContent`, so the chain is `dl > div > dt/dd`; `test/store-facts.test.ts` asserts the
     rendered structure, shown red on the old markup. **Not run: axe itself** — it lives in
@@ -205,9 +207,31 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   - Gates on the final tree: unit tests, lint, typecheck, format, full e2e (60 passed, 1 skipped),
     `perf` PASS.
 
+- **#302 — BUILT AND COMMITTED LOCALLY on the local-only branch `storefront/hold-302` (on top of
+  PR two's head). Becomes PR three after #305 merges: merge main into `storefront/phase2`,
+  bring the commit over, push, open the PR.**
+  - Measured first (build with the default origin, start with `SITE_URL=https://runtime.example`,
+    count each origin per route, three passes): only `/sitemap.xml` (1) and `/sitemap/0.xml` (36)
+    served the build origin, both cache HIT; `robots.txt` and every page (home, PLP, PDP,
+    category, cart, checkout redirect, content 404) already served the runtime one. So the issue's
+    "check robots and the canonical/alternate helpers" comes back clean.
+  - Fix: both sitemap routes `force-dynamic`, no `revalidate`; upstream reads stay cached
+    (~5 ms per request measured). After: 0 build-origin occurrences anywhere, and no file under
+    `.next/server/app` contains the build origin.
+  - `scripts/e2e-server.mjs` builds with `SITE_URL=https://build-time.invalid` and starts without
+    it; `playwright.config.ts` uses it, so **every** e2e run is now built somewhere it does not
+    run. `e2e/runtime-origin.spec.ts`: red on the old routes (1 failed: `the sitemap index names
+    the build origin`; robots and pages passed), green after. `test/sitemap-dynamic.test.ts` pins
+    both routes (2 failed before, green after). Full e2e: 63 passed, 1 skipped.
+  - Known limit, written in the spec: against a server that was already running and was built
+    the ordinary way the origin spec is vacuous (locally a running server is reused; never on CI).
+
 - **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
-  window 6 builds it on its next wake).** The commit lives on the **local-only** branch
-  `storefront/hold-293` on top of `storefront/phase2` — never push that branch. When #300 has
+  window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
+  `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
+  do not merge the branch; expect conflicts in CHANGELOG, the package version, `sitemap.ts` and
+  `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that). Never push the
+  branch. When #300 has
   merged: merge main, bring the commit over, **swap the local `scheduleIsLive` copy for the
   exported `campaignIsLive`, replace the `Reflect.get` method detection with a plain typed call
   (and delete the "before #300" test), use window 6's `RoutedDocument` type**, re-run the gates.
