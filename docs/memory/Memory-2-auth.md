@@ -89,6 +89,7 @@ Role management UI support: APIs for listing users, assigning stores, finance ga
 - [ ] SSO config (`hq-sso` placeholder IdP already in the staff realm, disabled)
 - [ ] Session revocation on role change
 - [ ] `inviteUser` (`POST /admin/users`, needs a Keycloak service account) — deferred from task 1.3
+- [ ] Measure: a customer's email changed by staff through the admin API — does the next token still carry `email_verified: true` for the new address? Not measured in #314 (only the account-console request was); recorded here on the manager's instruction 2026-10-02
 - [ ] Nits parked from the #296 security review (customers realm, `test/keycloak-realms.test.ts`):
   - [ ] assert `implicitFlowEnabled === false` on every brand client (today only PKCE S256 + direct grants off are asserted)
   - [ ] pin the customers realm's client-id set (a new client must be a deliberate test change)
