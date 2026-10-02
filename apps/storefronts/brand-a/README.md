@@ -64,7 +64,7 @@ Brand A's design is authored in **[`src/brand/DESIGN.md`](src/brand/DESIGN.md)**
 Figma, so that file is the design and the code is held to it. Change it there first.
 
 In short: calm editorial D2C apparel. Five named colours (Paper `#F7F4EF`, Ink `#23201B`, Clay
-`#9C4A32`, Sage `#5F6B57`, Stone `#746C60`), every pair measured against WCAG and re-measured in
+`#9C4A32`, Sage `#5F6B57`, Stone `#6B6357`), every pair measured against WCAG and re-measured in
 `test/brand-theme.test.ts`. Newsreader over Hanken Grotesk, self-hosted as woff2 under
 `src/brand/fonts/` and loaded with `next/font/local` so no build and no page view touches
 `fonts.gstatic.com`. Square corners, no shadows.
@@ -94,8 +94,8 @@ Accessibility is checked by **axe over five pages, plus a contrast re-scan of th
 1.00 while the theme shipped a real AA failure in components that render on neither.
 
 **This runs locally, and is not yet a CI gate.** Brand-storefront e2e journeys stay opt-in
-(`E2E_INCLUDE_BRAND_STOREFRONTS=1`) until window 2 lands #212, so nothing in CI executes the a11y
-spec today; brand A opts in at 2.5 (#143). Run it by hand when you touch the theme. Visual baselines for home/PLP/PDP are opt-in
+(`E2E_INCLUDE_BRAND_STOREFRONTS=1`) until window 5 enables it (**#295**); #212 has landed, so
+sign-in itself works. Run it by hand when you touch the theme. Visual baselines for home/PLP/PDP are opt-in
 (`E2E_VISUAL=1`) and keyed by platform; see `e2e/visual.spec.ts` before regenerating one.
 
 Measured on a production build (Lighthouse, median of 3): performance 0.97, accessibility
@@ -126,7 +126,7 @@ brand-specific half — the starter's `test/seo.test.ts` and `test/i18n.test.ts`
 - **route rendering in both locales** — `e2e/routes.spec.ts` hits a real server and asserts 200,
   `<html lang>`, a self-referencing canonical and the full alternate set. Rendering is an HTTP
   property, so it is asserted over the real stack rather than through mocks. **Local only: nothing
-  in CI runs it** (brand journeys are opt-in until #212, and `CMS_DATASET` is set nowhere in
+  in CI runs it** (brand journeys are opt-in until **#295**, and `CMS_DATASET` is set nowhere in
   `.github`). Of 22 route renders, **8 run** — the four catalogue routes in both locales — and
   **14 skip** without a seeded Sanity dataset: `/pages/{about,cloth}`, `/legal/{imprint,privacy,
 terms,returns}` and `/campaign/autumn-cloth`, each in both locales. Those content-route renders
@@ -148,6 +148,29 @@ terms,returns}` and `/campaign/autumn-cloth`, each in both locales. Those conten
 - **hreflang is not yet effective on the content routes.** It is in `<body>` (ignored by Google, per
   #274) _and_ those routes are absent from the sitemap (**#293**), so both accepted mechanisms miss
   them at once. `/`, `/products` and the catalogue are fine — the sitemap carries their alternates.
+
+## Which backend answers what
+
+Running against the core does **not** mean every request reaches it. With
+`CORE_STORE_API_FALLBACK=1`, routes the core does not mount are proxied to Prism, so a green run can
+still be exercising the mock. Measured on this stack:
+
+| Request                                                             | Answered by                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `/store`, `/store/products*`, `/store/carts*`, `/store/orders/{id}` | **the core** (a cart is a real UUID, not a contract example)                    |
+| `/store/customers/me`, the `/store/orders` **list**                 | **Prism**, via the fallback — the core mounts no `/store/customers*` (**#303**) |
+| sign-in redirect, return URL, session cookie, sign-out              | **the real Keycloak**                                                           |
+
+So `e2e/journey.spec.ts` exercises the core and deliberately stays out of the account area. In
+`account.spec.ts` the Keycloak half is real; the customer identity and the order list are Prism, and
+the order-history assertions there are **mock-only** until #303 (REQUEST #306).
+
+## Stock budget
+
+The buy test **places a real order and consumes one unit per run**, against a seed shared with every
+other suite on the same publishable key. It buys from the deepest-stocked variant in the catalogue,
+chosen by property at runtime, so no single product is drained. Budget: **one unit per full-suite
+run**; a day of heavy iteration is tens of units against variants seeded with 17–44 each.
 
 ## End-to-end against the core
 

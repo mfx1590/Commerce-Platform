@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.5 RUN GREEN against the core (3 clean full-suite runs). PR next. 2.6 after.
+Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.5 BLOCK fixes built; flake check NOT re-taken (needs a quiet machine). Push held.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -148,6 +148,21 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **Never run an e2e suite unbounded.** Always `--max-failures=1 --global-timeout=<ms>` and a shell
+  `timeout`. An unbounded three-pass run went 29 minutes before the owner stopped it.
+- **A measurement taken while another window is building is not evidence.** My "suite contends with
+  itself, cap workers at 2" conclusion was measured while window 3 ran a build + Lighthouse on the
+  same machine. The cap was reverted. Ask whether the machine is quiet BEFORE a timing measurement.
+- **Read one failing test's actual error, not the failure count.** Every failure in those runs was
+  `Test timeout exceeded`, never an assertion and never out-of-stock — which rules out whole classes
+  of cause immediately.
+- **Running against the core does not mean the core answers.** With `CORE_STORE_API_FALLBACK=1` it
+  proxies what it does not mount: `/store/customers/me` and the `/store/orders` LIST are Prism
+  (#303), so `account.spec.ts`'s identity and order-history assertions prove nothing about the core.
+  The core does answer `/store`, `/store/products*`, `/store/carts*` (real UUID) and
+  `/store/orders/{id}`. Check per route before claiming "against the real stack".
+- **e2e that places orders consumes a SHARED seed.** The starter's checkout spec took its target
+  from ~35 units to 18. Pick by property including a stock floor, and say the run budget out loud.
 - **The Store API's product LIST is a summary projection with no `variants`** — counting variants
   from it reports zero for every product and looks like a seed gap. Ask for each product's DETAIL.
   This nearly had me file a bogus `REQUEST: seed — multi-variant product`; the catalogue has plenty

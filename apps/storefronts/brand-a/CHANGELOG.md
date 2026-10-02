@@ -1,22 +1,42 @@
 # Changelog — @platform/storefront-brand-a
 
-## 0.6.0 — 2026-10-01 · task 2.5 (#143)
+## 0.6.0 — 2026-10-02 · task 2.5 (#143, partial — see below)
 
-- **`e2e/journey.spec.ts`** — browse → buy against the **real core**, covering what the inherited
-  `checkout.spec.ts` does not: PDP variant selection (every value in a group reachable, selection
-  follows the click, exactly one pressed, price survives the swap) and the cart → checkout hand-off.
-- **Variant tests target a product by property, not by handle** — they walk the listing until they
-  find one whose first option group offers two or more selectable values. The seeded catalogue is
-  not this suite's to pin.
-- **`account.spec.ts` now runs** against the shared Keycloak, unblocked by #212: sign-in redirect,
-  order history, sign-out.
-- **Skips cleanly without the stack**, and `E2E_REQUIRE_CORE=1` / `E2E_REQUIRE_KEYCLOAK=1` turn an
-  unreachable backend into a failure rather than a silent skip — verified both ways.
-- **Flake-free over three consecutive full-suite runs** (32 passed, 21 skipped, exit 0 each).
-  Getting there found a flake **in my own test**: the `#274` placement pin asked the hydrated DOM,
-  which React sometimes rewrites, so it failed one run in five claiming the tags had moved to
-  `<head>`. The served bytes are deterministic — 60 of 60 requests across three routes put the
-  description after `</head>` — so the pin now measures the response, not the DOM.
+- **`e2e/journey.spec.ts`** — browse → buy against the **core**, covering what the inherited
+  `checkout.spec.ts` does not: PLP sorting and category filtering **with an observable effect**, PDP
+  variant selection, and a placed order whose server-produced values are asserted.
+  - sorting asserts the listing is **actually ordered by price**, not merely that the URL changed;
+  - the category filter compares **totals from the API**, because the listing is paginated and an
+    earlier version compared 24 cards against 24 cards and proved nothing;
+  - the buy test places a real order and ties it to the cart **arithmetically**: the order total is
+    the cart total plus a shipping amount that is itself a line on the confirmation. They are not
+    equal, and should not be — delivery is chosen after the cart. Asserting equality was wrong about
+    the app, and failed with €40.54 vs €45.53, exactly one delivery option apart.
+- **Which backend answers what is now documented per route** in the README. Running "against the
+  core" does not mean every request reaches it: with `CORE_STORE_API_FALLBACK=1` the core proxies
+  what it does not mount. The core answers `/store`, `/store/products*`, `/store/carts*` (a real
+  UUID) and `/store/orders/{id}`; **Prism answers `/store/customers/me` and the `/store/orders`
+  list** (#303). Keycloak is real throughout.
+- **Order history against the core is NOT verified**, and is no longer claimed. `account.spec.ts`
+  asserts `jane@example.com` and `Order #1000` — both Prism-served, the latter a hard-coded dataset
+  value — so it proves the Keycloak journey and nothing about the core's customer routes.
+  REQUEST **#306** asks window 3 to split the file; the core gap is **#303**.
+- **Stock budget stated**: the buy test consumes one unit per run from a shared seed, so it buys
+  from the deepest-stocked variant in the catalogue, chosen by property at runtime.
+- `playwright.config.ts` forwards `STORE_API_URL` into the `webServer` env, mirroring the starter.
+  Locally invisible (`reuseExistingServer`), but in CI (#295) the run would have booted against
+  Prism while reporting as a core run.
+- README: corrected the stale `#212` references and a Stone hex (`#746C60` → `#6B6357`).
+- **The three-run flake check has NOT been re-taken for this revision.** The runs attempted on
+  2026-10-02 degraded (4 → 3 → 8 failures, wall time 55s → 1.4m, every failure a timeout and never
+  an assertion) and were stopped. Two candidate causes: this suite contending with itself, and
+  another window building and running Lighthouse on the same machine at the same time. A worker cap
+  looked like the fix and was **reverted** — it was measured during that other build, so the
+  evidence is worthless either way. To be re-taken on a quiet machine before this is called
+  flake-free.
+- The buy test now requires **10+ units** on the variant it buys and names the shortfall if the seed
+  drains, instead of failing as a navigation timeout. Stock measured 2026-10-02: the starter's
+  target `alpine-backpack` is at 18 (from ~35); the deepest in the first 20 products is 49.
 
 ## 0.5.1 — 2026-10-01 · parked review nits
 
