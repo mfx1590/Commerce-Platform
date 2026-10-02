@@ -2,6 +2,13 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-02 · registry outbox completeness (#308 review ruling)
+
+- Every registry mutation writes `store.updated` in its transaction; these five wrote an audit row only:
+  `addDomain` (`['domains']`), `addLocale` / `addCurrency` without a new default (`['locales']` /
+  `['currencies']`; nothing when the value was already enabled), `createSalesChannel` (`['sales_channels']`),
+  `createApiKey` (`['api_keys']`). The payload names the area only — never a hostname, never key material.
+
 ### 2026-10-02 · registry settings, admin 404, contracts version header (#279, #265, #284; contracts-v0.4.7)
 
 - **`X-Contracts-Version`** (#284): `CONTRACTS_VERSION` from `@platform/contracts` on `GET /health` (body still
