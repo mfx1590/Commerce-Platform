@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.5 in PR #301 (ecace0e). Re-review BLOCK round 2 being fixed. Push on the verdict.
+Last updated: 2026-10-02 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: **PARKED** — 2.5 PR #301 (de3e9ef) verified MERGE, queued behind window 3. Waiting for the starter to be ready (#304 + #298), then one re-sync.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,6 +17,14 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#143 · 2.5 e2e browse → buy** — PR #301 (de3e9ef), verdict MERGE, queued behind window 3.
+  `journey.spec.ts`: PLP sort (asserts real ordering), category filter (page handles ⊆ API's
+  category handles), PDP variants, and a placed order tied to the cart — quantity from the cart's
+  `<input name="quantity">`, and `order total == cart total + the Delivery row` in **minor units**.
+  Proven by mutation: doubled quantity RED, dropped Delivery row RED (`order 2556 != cart 2057 +
+  delivery 499`), loose "any price" RED; float-vs-minor-units GREEN and reported as defensive
+  rather than proven. Three bounded full passes on a quiet machine (34/34, 34/34, 33+1 — the 1 in
+  the **starter's** `checkout.spec.ts:182`, routed as #304).
 - **#142 · 2.4 SEO + i18n (partial)** — **MERGED** as PR #294, merge commit db8aa80. #142 was
   auto-closed by a commit keyword and the manager reopened it — never put close/fix/resolve next to
   an issue number unless that commit finishes it. 49 tests: routes x both locales (canonical,
@@ -50,18 +58,44 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress
-- **2.5 (#143) — browse → buy green against the core; the account half is NOT.**
-  `journey.spec.ts` 5/5 in each of three bounded full passes on a quiet machine (34 passed /
-  21 skipped twice; the third had one failure in the **starter's** `checkout.spec.ts:182`, routed
-  as #304). Skips are content routes (`CMS_DATASET`) and opt-in visual baselines.
-  **Only browse and cart reach the core.** `/store/customers/me` and the `/store/orders` list are
-  Prism via the fallback (#303), so `account.spec.ts`'s identity and `Order #1000` assertions prove
-  the Keycloak journey and nothing about the core (#306). Order history: unverified.
-  Stack recipe that worked: `fga:seed` (OpenFGA in-memory, ids die with the container) → core via
-  `pnpm --filter @platform/core exec tsx src/server.ts` on :9000 → brand A on 3101 with
-  `STORE_API_URL=http://127.0.0.1:9000`. **The DB needed no migrate/seed** (51 tables, 3 stores,
-  607 products survived the reboot).
+## In progress — NOTHING. Parked by the manager.
+
+**Do not start the re-sync until the manager wakes you.** It is deliberately done ONCE, after
+window 3's **#304** (the starter's checkout + account specs, including my two flake notes) and
+**#298** (redirect origins) have landed — not twice.
+
+## RESUME HERE (the exact sequence, in order)
+
+1. **Re-sync from the starter**, on its own small PR.
+   `pnpm --filter @platform/storefront-brand-a sync`, then `node scripts/sync-from-starter.mjs --check`.
+   Expect `test/slots.test.ts` to still be PRESERVEd while #278 is open, and `package.json` to be
+   MERGEd (identity survives; see merge-package-json.mjs).
+2. **`e2e/routes.spec.ts`'s placement pin goes RED, by design.** #299 made the starter serve
+   metadata in `<head>` for every user agent. That red is the signal, not a regression: delete the
+   pin and assert the correct placement instead.
+3. **Re-measure SEO** and close **#142's two criteria** (SEO ≥ 95, hreflang effective). Hand-measure
+   and quote — the CI perf gate is still vacuous for brand storefronts (**#283**).
+   Needs `ROBOTS_ALLOW_INDEXING=1` or SEO caps around 0.58.
+   Also check **#293** (sitemap content routes): if it landed, delete the `STATIC_PATHS` pin in
+   `test/brand-i18n-seo.test.ts` and assert the real inventory.
+4. **Re-take the full-suite flake check.** It was [~] only because the starter's `checkout.spec.ts`
+   flaked (`:134` cart, `:182` sort) — both fixed by #304. With those gone it should be three clean
+   passes. Ask for a quiet machine first; bounded runs only.
+5. **#143's remaining criterion**: order history against the core, blocked on **#303**
+   (the core mounts no `/store/customers*`). `account.spec.ts`'s identity + `Order #1000` are
+   mock-only until then (**#306**).
+6. **2.6 (#144)** — launch checklist for brand A.
+
+### Machine recipe that works (verified 2026-10-02)
+```
+fga:seed                 pnpm --filter @platform/auth-sdk fga:seed     # OpenFGA is in-memory
+core  :9000              set -a && . ./.env && set +a; PORT=9000 CORE_DEV_TOKENS=1                          CORE_STORE_API_FALLBACK=1 CORE_STORE_API_FALLBACK_URL=http://127.0.0.1:4010                          pnpm --filter @platform/core exec tsx src/server.ts
+brand :3101              PORT=3101 STORE_API_URL=http://127.0.0.1:9000 SITE_URL=http://localhost:3101                          ROBOTS_ALLOW_INDEXING=1 pnpm --filter @platform/storefront-brand-a start
+e2e                      E2E_REQUIRE_CORE=1 E2E_REQUIRE_KEYCLOAK=1 E2E_STORE_API_URL=http://127.0.0.1:9000                          pnpm e2e --max-failures=1 --global-timeout=360000   (always bounded)
+```
+The DB needed no migrate/seed (51 tables, 3 stores, 607 products). **Stop :9000 and :3101 when
+done** and say the machine is free. Never `docker exec`; never touch the stack without the
+manager's OK.
 
 ## Blocked — infrastructure
 - (resolved 2026-10-01) **The shared Docker daemon was DOWN** (2026-10-01). `docker version` → server UNREACHABLE, API 500
@@ -152,6 +186,19 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **"Against the real stack" is a per-route claim, not a mode.** With `CORE_STORE_API_FALLBACK=1`
+  the core proxies what it does not mount. Browse + cart reach the core; `/store/customers/me` and
+  the `/store/orders` LIST are Prism (#303). This false claim survived three review rounds in three
+  different files — check body, README, CHANGELOG **and** the memory file, and grep before pushing.
+- **The cart and the order render quantity differently.** The cart has an editable
+  `<input name="quantity">`; the order line has `× N` text. An assertion written for one silently
+  returns null against the other.
+- **Playwright's 5 s default is too tight for a server action** that writes through to the core.
+  Add-to-cart and sort-link clicks need an explicit timeout and a wait for interactivity, or they
+  flake ~1 run in 3. Fixed here, reported for the starter on #304.
+- **A mutation that stays GREEN is a result, not a failure to report.** Removing the minor-units
+  rounding did not break anything, because those amounts are exact in float — so the rounding is
+  defensive, not load-bearing, and saying so is the honest record.
 - **Never run an e2e suite unbounded.** Always `--max-failures=1 --global-timeout=<ms>` and a shell
   `timeout`. An unbounded three-pass run went 29 minutes before the owner stopped it.
 - **A measurement taken while another window is building is not evidence.** My "suite contends with
