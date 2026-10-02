@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `3efc3a6`; Store API 0.5.1) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **#274 (PR #299), #286/#278 (PR #305) and #302 (PR #309) merged; #304 (+#306) is on `storefront/phase2`, unpushed, waiting for its runs; then #298 (`storefront/hold-298`, unrun) → #312; #293 parked on `storefront/hold-293` until #300 lands**
+Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `cbd06c1`; Store API 0.5.1) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **#274 (PR #299), #286/#278 (PR #305) and #302 (PR #309) merged; #304 (+#306) in PR four (pushed, in review); then #298 (`storefront/hold-298`, unrun) → #312; #293 parked on `storefront/hold-293` until #300 lands**
 
 ## Identity (does not change)
 
@@ -207,26 +207,20 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   is mine, git and file work only — no builds (not even the workspace packages), tests, e2e,
   Lighthouse or servers. Ask before a perf gate.**
 
-- **#304 (+ #306) — ON `storefront/phase2`, UNPUSHED (commits `1166715`, `f1d1782`, `19368f5`,
-  `3f6695a` on top of main `3efc3a6`). WAITING FOR THE MANAGER TO SAY THE MACHINE IS MINE.** Then,
-  in this order:
-  1. `pnpm --filter @platform/contracts build` and the other workspace packages (contracts 0.4.8
-     changed the generated types; `pnpm install` is already done, the lockfile did not change).
-  2. format, lint, typecheck, unit tests.
-  3. full e2e against the mock; the checkout and account specs against the core
-     (`E2E_STORE_API_URL=http://127.0.0.1:9000` + `STORE_PUBLISHABLE_KEY` from the repo-root
-     `.env`; costs one unit of seed stock per journey run); bundle budget.
-  4. **The flake fix: FIVE consecutive quiet passes each of the journey and of the sort test,
-     outputs quoted, BOTH AGAINST THE CORE** (manager, 2026-10-02: the flake was the add-to-cart
-     server action writing through to the core; the mock cannot show it). Five journey passes =
-     five units of seed stock, plus one for step 3 — accepted; the manager owns the seed and tops
-     it up before Integration 2. **The PR body must name the product bought and its stock before
-     and after.** The journey prints `[e2e] journey bought <sku> (<handle>), order <n>` for
-     that; stock is read from `GET /store/products/<handle>` on the core (`available_quantity` of
-     that SKU) before the first pass and after the last. Scratch helpers from the session that
-     prepared this: `passes.sh` and `stock.mjs` (scratchpad — rewrite them if gone).
-  5. Ask before the perf gate.
-  6. Push, open PR four; the body may close #304 and #306 if both are finished by it.
+- **#304 (+ #306) — PR FOUR OPEN (pushed 2026-10-02; number and SHAs in the next commit). Waiting
+  for review. The perf gate was NOT run locally: the manager said to ask first, and CI runs it.**
+  Runs on the final tree, contracts 0.4.8, all on 2026-10-02 with the machine granted:
+  - lint, typecheck, 383 unit tests, format; bundle budget PASS (cart 139.6, PDP 139.1 kB).
+  - Full e2e against the mock: 65 passed, 2 skipped (both core-only, with reasons).
+  - Checkout + account specs against the core: 10 passed, 1 skipped (the mock-only account test);
+    the journey bought `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack), order 1072.
+  - **Flake fix, five consecutive bounded passes each against the core, a fresh storefront build
+    and process per pass:** journey 5/5 (orders 1076–1080; 43–47 s, one at 1.3 min), sort/filter
+    5/5 (52–68 s). Window 10 had measured 1 failure in 3 and 1 in 4 before the fix.
+  - **Seed stock: alpine-backpack went 11 → 2, nine units, not the six agreed.** One for the core
+    run, five for the passes, and **three wasted** (orders 1073–1075): a five-pass command I had
+    launched was interrupted by the owner but kept running in the background, and my next run
+    overlapped it (two runs fighting over port 3100 and `.next`). See the gotcha.
   - **Written 2026-10-02 without running anything (window 10 had the machine): window 10's two
     flake notes on the issue.** Every click that starts a navigation goes through
     `clickWhenReady` (visible, enabled, `networkidle`, then click); `toHaveURL` has explicit
@@ -656,6 +650,29 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **An interrupted or rejected command may still be running.** On 2026-10-02 the owner stopped
+  one of my steps; the five-pass e2e loop I had launched carried on in the background, and the
+  next run overlapped it: `:3100` already held, `chrome-error://`, `Cannot find module
+  .next/server/middleware-manifest.json`, and three real orders nobody asked for. **Before any
+  run after an interruption: list the processes started from this worktree (PowerShell
+  `Get-CimInstance Win32_Process`, filter the command line on `wt-storefront`) and check `:3100`
+  is free.** A leftover `passes` log is not evidence either way.
+- **Never start a server in a command that waits for it.** Starting the core with the Bash tool's
+  background mode looked like a 24-minute hang to the manager, because the step never returned.
+  Start it detached, return, then poll `/health` in a separate, bounded loop (60 s). Every e2e
+  invocation gets a hard `timeout` as well as Playwright's `--global-timeout`.
+- **The core can fail to boot with `Cannot find module 'zod'`, from Medusa's own code**
+  (`@medusajs/medusa/dist/api/admin/property-labels/validators.js`). Medusa has no `zod` linked
+  beside it and resolves it only through pnpm's hoisted `node_modules/.pnpm/node_modules/zod`;
+  this worktree's install had no such entry (the main checkout did). `pnpm install
+  --frozen-lockfile --force` recreated it — and took 15 m 41 s, during which nothing else can run.
+  Not an `apps/core` import; reported to the manager for routing. Check
+  `ls node_modules/.pnpm/node_modules/zod` before planning a core run.
+- **Another window's core may not be there.** The core on `:9000` belongs to whoever started it.
+  When the other windows stop, a core run needs my own: `CORE_STORE_API_FALLBACK=1
+  CORE_STORE_API_FALLBACK_URL=http://127.0.0.1:4010 pnpm --filter @platform/core dev`, detached,
+  and stopped afterwards.
 
 - **A "does not contain X" assertion needs a "does contain the thing that would carry X" in
   front of it.** My robots.txt origin test passed on a file with no origin in it at all

@@ -350,7 +350,7 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
     // cost can be read off its output instead of being reconstructed from the database.
     const bought = `${chosen.sku} (${chosen.handle}), order ${orderNumber}, on ${BACKEND}`;
     test.info().annotations.push({ type: 'order placed', description: bought });
-    console.log(`[e2e] journey bought ${bought}`);
+    console.info(`[e2e] journey bought ${bought}`);
   });
 });
 
