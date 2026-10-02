@@ -1,7 +1,9 @@
 // Store API customer self-service (#303) through the exact chain src/server.ts mounts: publishable key → tenant
 // context → customer token → the customers module. The customers-realm verifier is replaced through the code-only
-// test seam (`customerTokenVerifier`); the last describe runs the REAL verifier against docker Keycloak and skips
-// itself when it is not reachable. Responses are validated against store-api.yaml. Tokens here are words.
+// test seam (`customerTokenVerifier`); the last describe runs the REAL verifier against docker Keycloak (the
+// seeded, verified customer and a freshly self-registered, unverified one) and skips itself when it is not
+// reachable. Responses are validated against store-api.yaml. Tokens here are words.
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express from 'express';
@@ -499,10 +501,15 @@ describe('the verifier seam is code-only and never reaches production', () => {
   });
 });
 
-// ---- live: docker Keycloak mints a real customers-realm token (dev-only test-cli password grant, which stamps
-// store_code=brand-a; seed user jane@example.com — infra/keycloak/README.md). Skipped when Keycloak is down.
+// ---- live: docker Keycloak mints real customers-realm tokens. The seeded customer signs in through the dev-only
+// test-cli password grant (stamps store_code=brand-a; her email is verified in the realm import); a second user
+// self-registers through storefront-brand-a's registration form — the same flow as
+// packages/auth-sdk/test/customer-claims.test.ts — and is therefore NOT verified (the dev realm has verifyEmail
+// off). Skipped when Keycloak is down. Needs the realm import of #313 (the `email verified` mapper on test-cli).
 const KC = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
 const REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
+const TOKEN_URL = `${KC}/realms/${REALM}/protocol/openid-connect/token`;
+const FORM = { 'content-type': 'application/x-www-form-urlencoded' };
 const SEED_CUSTOMER = 'jane@example.com';
 const live = await (async () => {
   try {
@@ -515,39 +522,184 @@ const live = await (async () => {
   }
 })();
 
-describe.runIf(live)('live: a real customers-realm token through the real verifier', () => {
-  it('GET /store/customers/me provisions the Keycloak customer in brand-a; the same token is a 401 for brand-b', async () => {
-    const grant = await fetch(`${KC}/realms/${REALM}/protocol/openid-connect/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: 'test-cli',
-        grant_type: 'password',
-        username: SEED_CUSTOMER,
-        // dev-only seed user of the local realm import: the password is the local part
-        password: SEED_CUSTOMER.split('@')[0]!,
-      }),
-    });
-    const { access_token: token } = (await grant.json()) as { access_token?: string };
-    expect(typeof token).toBe('string');
+const rawClaims = (jwt: string): Record<string, unknown> =>
+  JSON.parse(Buffer.from(jwt.split('.')[1] ?? '', 'base64url').toString()) as Record<
+    string,
+    unknown
+  >;
 
-    const real = express();
+async function seedCustomerToken(): Promise<string> {
+  const grant = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: FORM,
+    body: new URLSearchParams({
+      client_id: 'test-cli',
+      grant_type: 'password',
+      username: SEED_CUSTOMER,
+      // dev-only seed user of the local realm import: the password is the local part
+      password: SEED_CUSTOMER.split('@')[0]!,
+    }),
+  });
+  const { access_token: token } = (await grant.json()) as { access_token?: string };
+  if (!token) throw new Error(`no token for the seed customer: ${grant.status}`);
+  return token;
+}
+
+// RFC 7636 appendix B pair.
+const PKCE_VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+const PKCE_CHALLENGE = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM';
+const CALLBACK = 'http://localhost:3101/auth/callback';
+
+/** Self-registers through storefront-brand-a's registration form and returns the new user's access token. */
+async function registerAndSignIn(email: string, password: string): Promise<string> {
+  const jar = new Map<string, string>();
+  const keep = (res: Response) => {
+    for (const c of res.headers.getSetCookie()) {
+      const [pair] = c.split(';');
+      const i = pair!.indexOf('=');
+      jar.set(pair!.slice(0, i).trim(), pair!.slice(i + 1).trim());
+    }
+  };
+  const cookie = () => [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+  const unescape = (s: string) => s.replace(/&amp;/g, '&');
+
+  const authorize =
+    `${KC}/realms/${REALM}/protocol/openid-connect/auth?client_id=storefront-brand-a` +
+    `&response_type=code&scope=openid&redirect_uri=${encodeURIComponent(CALLBACK)}` +
+    `&code_challenge=${PKCE_CHALLENGE}&code_challenge_method=S256&state=t`;
+  const loginPage = await fetch(authorize, { redirect: 'manual' });
+  keep(loginPage);
+  const registerHref = (await loginPage.text()).match(/href="([^"]*registration[^"]*)"/)?.[1];
+  if (!registerHref) throw new Error('registration link not found on the login page');
+
+  const formPage = await fetch(new URL(unescape(registerHref), KC), {
+    redirect: 'manual',
+    headers: { cookie: cookie() },
+  });
+  keep(formPage);
+  const action = (await formPage.text()).match(/id="kc-register-form"[^>]*action="([^"]+)"/)?.[1];
+  if (!action) throw new Error('registration form not found');
+
+  const submitted = await fetch(unescape(action), {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { ...FORM, cookie: cookie() },
+    body: new URLSearchParams({
+      email,
+      firstName: 'Fresh',
+      lastName: 'Shopper',
+      password,
+      'password-confirm': password,
+    }),
+  });
+  const location = submitted.headers.get('location') ?? '';
+  if (submitted.status !== 302 || !location.startsWith(`${CALLBACK}?`)) {
+    throw new Error(`registration did not reach the callback: ${submitted.status}`);
+  }
+  const code = new URL(location).searchParams.get('code')!;
+
+  const exchanged = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: FORM,
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: 'storefront-brand-a',
+      code,
+      redirect_uri: CALLBACK,
+      code_verifier: PKCE_VERIFIER,
+    }),
+  });
+  if (!exchanged.ok) throw new Error(`code exchange: ${exchanged.status}`);
+  return ((await exchanged.json()) as { access_token: string }).access_token;
+}
+
+/** Best effort: removes a user this file registered, with the local bootstrap admin (as reimport.mjs does). */
+async function deleteKeycloakUser(subject: string): Promise<void> {
+  const admin = await fetch(`${KC}/realms/master/protocol/openid-connect/token`, {
+    method: 'POST',
+    headers: FORM,
+    body: new URLSearchParams({
+      client_id: 'admin-cli',
+      grant_type: 'password',
+      username: process.env.KEYCLOAK_ADMIN ?? 'admin',
+      password: process.env.KEYCLOAK_ADMIN_PASSWORD ?? 'admin',
+    }),
+  });
+  if (!admin.ok) return;
+  const { access_token: adminToken } = (await admin.json()) as { access_token: string };
+  await fetch(`${KC}/admin/realms/${REALM}/users/${subject}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${adminToken}` },
+  });
+}
+
+describe.runIf(live)('live: real customers-realm tokens through the real verifier', () => {
+  let real: express.Express;
+  let seedToken: string;
+  const registered: string[] = [];
+  const call = (token: string, path: string, key: string = KEY_A) =>
+    request(real).get(path).set('X-Publishable-Key', key).set('Authorization', `Bearer ${token}`);
+
+  beforeAll(async () => {
+    real = express();
     mountCoreMiddleware(real, new DevTokenVerifier()); // no seam: auth-sdk verifies against Keycloak's JWKS
-    const call = (path: string, key: string) =>
-      request(real).get(path).set('X-Publishable-Key', key).set('Authorization', `Bearer ${token}`);
+    seedToken = await seedCustomerToken();
+  });
 
-    const me = await call('/store/customers/me', KEY_A);
+  afterAll(async () => {
+    for (const subject of registered) await deleteKeycloakUser(subject).catch(() => undefined);
+  });
+
+  it('GET /store/customers/me provisions the Keycloak customer in brand-a; the same token is a 401 for brand-b', async () => {
+    const me = await call(seedToken, '/store/customers/me');
     expect(me.status).toBe(200);
     spec.assertSchema('Customer', me.body);
     expect(me.body).toMatchObject({ email: SEED_CUSTOMER, status: 'registered' });
-    expect((await call('/store/customers/me', KEY_A)).body).toEqual(me.body);
+    expect((await call(seedToken, '/store/customers/me')).body).toEqual(me.body);
 
-    const orders = await call('/store/customers/me/orders', KEY_A);
-    expect(orders.status).toBe(200);
-    spec.assertPage('OrderSummary', orders.body);
-
-    const otherStore = await call('/store/customers/me', KEY_B);
+    const otherStore = await call(seedToken, '/store/customers/me', KEY_B);
     expect(otherStore.status).toBe(401);
     expect(otherStore.body.code).toBe('unauthorized');
+  });
+
+  it("the seeded customer's token reads verified: a guest order placed with her address is listed and opens by the token alone", async () => {
+    expect(
+      rawClaims(seedToken).email_verified,
+      'the running Keycloak has not imported customers-realm.json since #313 (test-cli needs the "email verified" mapper)',
+    ).toBe(true);
+    const orderId = await placeGuestOrder('Jane@Example.com');
+
+    const orders = await call(seedToken, '/store/customers/me/orders');
+    expect(orders.status).toBe(200);
+    spec.assertPage('OrderSummary', orders.body);
+    expect(orders.body.items.map((o: { id: string }) => o.id)).toContain(orderId);
+
+    const opened = await call(seedToken, `/store/orders/${orderId}`);
+    expect(opened.status).toBe(200);
+    spec.assertSchema('Order', opened.body);
+  });
+
+  it('a freshly self-registered user (email NOT verified) sees none: the order placed with their address is neither listed nor opened by the token', async () => {
+    const email = `fresh-${randomUUID()}@example.com`;
+    const token = await registerAndSignIn(email, `pw-${randomUUID()}`);
+    const raw = rawClaims(token);
+    registered.push(String(raw.sub));
+    expect(raw.email_verified).toBe(false);
+    const orderId = await placeGuestOrder(email);
+
+    const me = await call(token, '/store/customers/me');
+    expect(me.status).toBe(200);
+    expect(me.body).toMatchObject({ email, status: 'registered' });
+
+    const orders = await call(token, '/store/customers/me/orders');
+    expect(orders.status).toBe(200);
+    expect(orders.body).toMatchObject({ total: 0, items: [] });
+    expect((await call(token, `/store/orders/${orderId}`)).status).toBe(404);
+    // the guest rule is unchanged: order id + checkout email opens it, token or not
+    const byEmail = await call(
+      token,
+      `/store/orders/${orderId}?email=${encodeURIComponent(email)}`,
+    );
+    expect(byEmail.status).toBe(200);
   });
 });

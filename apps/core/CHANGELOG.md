@@ -28,8 +28,8 @@
   matches on the customer row's email: it opens orders linked to the customer, and guest orders with the
   token's email only when `email_verified` is true (`OrderAccess.verifiedEmail`). An order linked to a customer
   is not opened by anyone else's verified email. The guest `?email=` rule is unchanged. New
-  `listStoreOrders` (orders module) under the same rule. Until auth-sdk surfaces the claim (#307) every token
-  counts as unverified.
+  `listStoreOrders` (orders module) under the same rule. The claim is auth-sdk's `CustomerClaims.emailVerified`
+  (#307), consumed only as `=== true`.
 - `customerIdForSubject` left the orders module; the route uses `findCustomerForSubject` (customers module),
   and a disabled or erased customer's token opens no order.
 - Test seam for the customers-realm verifier: `mountCoreMiddleware(app, verifier, { customerTokenVerifier })` /

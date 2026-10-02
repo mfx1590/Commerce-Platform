@@ -48,14 +48,15 @@ export function customerTokenVerifierFor(
 }
 
 /**
- * The identity a verified token carries. `emailVerified` is true only for an explicit `email_verified: true`
- * (auth-sdk surfaces it as `CustomerClaims.emailVerified`, #307; absent = false).
+ * The identity a verified token carries. `CustomerClaims.emailVerified` (auth-sdk, #307) is true only for the
+ * literal boolean `email_verified: true`; it is consumed here as `=== true` and nowhere else, so anything that
+ * is not exactly that — absent, null, a string — stays false.
  */
 export function identityOf(claims: CustomerClaims): CustomerIdentity {
   return {
     subject: claims.subject,
     email: claims.email,
-    emailVerified: (claims as { emailVerified?: unknown }).emailVerified === true,
+    emailVerified: claims.emailVerified === true,
   };
 }
 
