@@ -2,7 +2,6 @@
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
 Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `7aabc9c`; Store API 0.5.1) · Branch: `storefront/phase2` (level with main); **the worktree sits on the local-only `storefront/hold-298`, which has the newest copy of this file** · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309) and #304/#306 (#316) merged; #298 is next as PR five — written with its six riders, nothing run; then #312; #293 parked on `storefront/hold-293` until #300 lands**
-`storefront/hold-298`, which has the newest copy of this file**; then #298 (`storefront/hold-298`, unrun) → #312; #293 parked on `storefront/hold-293` until #300 lands**
 
 ## Identity (does not change)
 
