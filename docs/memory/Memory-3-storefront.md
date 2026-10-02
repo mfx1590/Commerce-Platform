@@ -197,7 +197,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   to be told the machine is quiet** — my builds and Lighthouse runs degraded window 10's browser
   suite on 2026-10-02.
 
-- **#302 — PR THREE OPEN (pushed 2026-10-02; number and SHAs in the next commit). Waiting for
+- **#302 — PR #309 OPEN (pushed 2026-10-02 at `1750ba2`: commits `6beef05`, `5cc8854`). Waiting for
   review.** Gates on the final tree: 379 unit tests, lint, typecheck, format, full e2e (63 passed,
   1 skipped, the origin spec running for real), `perf` PASS. **When #293 comes over later, keep
   the `force-dynamic` exports on both sitemap routes** (manager).
@@ -241,37 +241,30 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     scripts/e2e-server.mjs`. **The CI=fail branch was exercised only in the unit test** — with
     `CI` set Playwright refuses to reuse the Docker mock on :4010, so it cannot be run here.
 
-- **#304 (+ #306 folded in) — PLAN APPROVED (manager, 2026-10-02); build once #302 is in review.
-  Nothing built yet.** Findings from the read on 2026-10-02:
-  - The confirmation page renders `order.display_id`, each line and its total, but nothing on
-    cart, review or confirmation has a test hook (the only `data-testid` in the app is the kit's
-    `price-value`), so the spec cannot read a line, a quantity or a total today.
-  - The Prism mock answers `GET /store/products` with the **same single product** whatever the
-    `sort` or `category` (checked: plain, `price_asc`, `price_desc`, `category=tops`). So against
-    the mock no assertion on result order or on a filtered set can fail — an order check is
-    vacuous with one row. It can only be real against the core (`E2E_STORE_API_URL`).
-  - The mock is stateless, so stock is drained **only** in runs against the core: one order per
-    run on the first listed product's first purchasable variant, never cancelled.
-  Plan:
-  1. Test hooks on my `(checkout)` pages: cart lines (name, quantity, line total, cart total in
-     minor units as `data-*`), review, confirmation (order number, lines, total).
-  2. Journey: capture the cart at runtime (lines, quantities, total in minor units), then assert
-     the confirmation shows a non-empty order number and the **same** lines and total. Mutation
-     check: a wrong quantity or total on the confirmation must turn it red.
-  3. Stock (decision A below).
-  4. Sort and filter (decision B below): assert the rendered order (prices non-decreasing for
-     `price_asc`, non-increasing for `price_desc`) and, for a category, that every card belongs to
-     it and the count changed; the active control carries `aria-current`.
-  5. README (the stock budget, what each backend can and cannot prove), CHANGELOG, memory, gates.
-  **Rulings:** (hooks) yes, on cart, review and confirmation; assert order number, lines and total
-  against the cart captured at runtime. (stock) choose the product by reported stock; document
-  that a core run consumes one unit; when nothing has enough stock, fail with a clear
-  "seed stock exhausted — reseed" message, not a timeout; **no Admin API or staff token in the
-  storefront's e2e**. (sort/filter) real only against the core, where it FAILS (not skips) with
-  fewer than two products; against the mock it skips visibly with the reason; **no contract
-  change** — Prism returns its example whatever the query. (#306, `account.spec.ts`)
-  assertions on values only Prism can produce (the mock customer, Order #1000) are labelled
-  mock-only or removed; the core-backed version waits for #303.
+- **#304 (+ #306) — BUILT AND COMMITTED on the local-only branch `storefront/hold-304` (on top of
+  PR three's head). Becomes PR four after #302's PR merges and the manager confirms no queue:
+  merge main into `storefront/phase2`, cherry-pick the commits, re-run the gates, push.**
+  - Hooks: `src/lib/test-hooks.ts` (`orderLineHooks`, `totalsHooks`, `orderConfirmationHooks`,
+    `productCardHooks`) on cart, review, confirmation, totals and listing cards; the add-to-cart
+    form carries `data-purchasable`, `data-availability`, `data-sku`; category links carry
+    `data-category`. Money is always minor units.
+  - `checkout.spec.ts`: product chosen by `data-purchasable` (first of up to 12 listed), fails with
+    `Seed stock exhausted — reseed`; lines + total captured at **review** (tax and delivery are
+    only known there) and the confirmation must match, with an order number on the page and the
+    order id in the URL; sort/filter asserted on results, core-only (skip with reason on the mock,
+    FAIL under two products or one distinct price on the core).
+  - `account.spec.ts`: the `jane@example.com` / `Order #1000` assertions are in a test labelled
+    mock-only, skipped against the core (they are Prism's examples even there, #303).
+  - Runs: mock 9 passed / 2 skipped (both core-only, with reasons); **core 10 passed / 1 skipped**
+    (the mock-only test). Core run: `E2E_STORE_API_URL=http://127.0.0.1:9000` plus
+    `STORE_PUBLISHABLE_KEY` exported from the repo-root `.env` — without it the core answers 401.
+  - Mutation checks, each restored afterwards: confirmation quantity +1 → `the order has the
+    lines that were reviewed` (mock); `data-purchasable` forced false → `Seed stock exhausted —
+    reseed` naming the 12 products tried (core, no order placed); `sort` not sent →
+    `low to high` (core); `category` not sent → `everything listed under "bags" belongs to it`
+    (core).
+  - **Seed stock used by me on 2026-10-02: one unit** (one green core run; the mutation runs
+    placed no order).
 
 - **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
   window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
@@ -617,6 +610,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 - **One window measures at a time.** While another window is taking timed runs: file edits and
   git only — no builds, tests, e2e, Lighthouse or servers — until the manager says the machine is
   free.
+- **An e2e run against the core needs `STORE_PUBLISHABLE_KEY` in the shell**, not only
+  `E2E_STORE_API_URL`: the app's built-in default key is the mock's, and the core answers 401 to
+  it. The seeded key is in the repo-root `.env` (which Next does not read). Export it; never print
+  it.
+- **Prism answers `GET /store/products` with the same example for every `sort` and `category`**,
+  and its cart, review and order examples agree with each other. So against the mock a journey
+  can prove rendering and consistency, never ordering, filtering or that an order was placed. A
+  test that cannot fail against a backend must skip there with the reason, not pass.
 
 - **`next build` still prints the prerender marker for `/sitemap/[__metadata_id__]` after
   `force-dynamic`.** `generateSitemaps` lists the ids like `generateStaticParams`, so the route
