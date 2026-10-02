@@ -1,5 +1,84 @@
 # Changelog — @platform/storefront-brand-a
 
+## 0.6.0 — 2026-10-02 · task 2.5 (#143, partial — see below)
+
+- **`e2e/journey.spec.ts`** — browse → buy against the **core**, covering what the inherited
+  `checkout.spec.ts` does not: PLP sorting and category filtering **with an observable effect**, PDP
+  variant selection, and a placed order whose server-produced values are asserted.
+  - sorting asserts the listing is **actually ordered by price**, not merely that the URL changed;
+  - the category filter compares **totals from the API**, because the listing is paginated and an
+    earlier version compared 24 cards against 24 cards and proved nothing;
+  - the buy test places a real order and ties it to the cart **arithmetically**: the order total is
+    the cart total plus a shipping amount that is itself a line on the confirmation. They are not
+    equal, and should not be — delivery is chosen after the cart. Asserting equality was wrong about
+    the app, and failed with €40.54 vs €45.53, exactly one delivery option apart.
+- **Which backend answers what is now documented per route** in the README. Running "against the
+  core" does not mean every request reaches it: with `CORE_STORE_API_FALLBACK=1` the core proxies
+  what it does not mount. The core answers `/store`, `/store/products*`, `/store/carts*` (a real
+  UUID) and `/store/orders/{id}`; **Prism answers `/store/customers/me` and the `/store/orders`
+  list** (#303). Keycloak is real throughout.
+- **Order history against the core is NOT verified**, and is no longer claimed. `account.spec.ts`
+  asserts `jane@example.com` and `Order #1000` — both Prism-served, the latter a hard-coded dataset
+  value — so it proves the Keycloak journey and nothing about the core's customer routes.
+  REQUEST **#306** asks window 3 to split the file; the core gap is **#303**.
+- **Stock budget stated**: the buy test consumes one unit per run from a shared seed, so it buys
+  from the deepest-stocked variant in the catalogue, chosen by property at runtime.
+- `playwright.config.ts` forwards `STORE_API_URL` into the `webServer` env, mirroring the starter.
+  Locally invisible (`reuseExistingServer`), but in CI (#295) the run would have booted against
+  Prism while reporting as a core run.
+- README: corrected the stale `#212` references and a Stone hex (`#746C60` → `#6B6357`).
+- **Flake check, taken on a quiet machine** (windows 1 and 3 idle by arrangement, CPU 0–12% sampled
+  immediately before, fresh core and storefront, every run bounded with `--max-failures=1` and
+  `--global-timeout`):
+
+  | Full-suite pass | Result                                                                           |
+  | --------------- | -------------------------------------------------------------------------------- |
+  | 1               | 34 passed, 21 skipped, exit 0                                                    |
+  | 2               | 34 passed, 21 skipped, exit 0                                                    |
+  | 3               | 33 passed, 1 failed, 21 skipped — `checkout.spec.ts:182`, the **starter's** file |
+
+  `journey.spec.ts` passed **5/5 in every one** of those passes, and five consecutive standalone
+  passes besides. The single failure is the starter's, reported with its fix on **#304**.
+
+- **Three flakes found and fixed in this app's own spec**, each one a real defect in the test rather
+  than the app:
+  - add-to-cart asserted the cart URL on Playwright's 5 s default; it is a server action writing
+    through to the core, so it now waits for the button to be enabled and allows 30 s;
+  - a sort-link click was dispatched before the page was interactive and silently swallowed;
+  - `getByText(productTitle)` resolved to the document's `<title>`, and scoping to `<body>` did not
+    help because this app streams metadata into the body (#274) — the order line is now located by
+    `getByRole('listitem')`, which also made asserting the quantity natural.
+- **An earlier worker cap was reverted.** It was measured while another window was building and
+  running Lighthouse on the same machine, so the evidence for it was worthless; the real causes were
+  the three test defects above.
+- The buy test now requires **10+ units** on the variant it buys and names the shortfall if the seed
+  drains, instead of failing as a navigation timeout. Stock measured 2026-10-02: the starter's
+  target `alpine-backpack` is at 18 (from ~35); the deepest in the first 20 products is 49.
+
+## 0.5.1 — 2026-10-01 · parked review nits
+
+Housekeeping from the #289 and #291 reviews, built while the shared stack was unavailable. No
+behaviour change to the storefront; two real defects in the content and one in a script.
+
+- **The footer repeated every legal page, in both locales.** The "Help" column carried
+  `/legal/imprint` and `/legal/returns`, which `legalLinks` already listed. Brand A has no other
+  help pages authored, so the column had nothing of its own to say and is gone; a test pins that no
+  footer destination appears twice.
+- **`seed-content.mjs` now refuses to write without `--yes`.** `createOrReplace` is idempotent with
+  respect to the files, which is not the same as safe — it replaces whatever is in the dataset, so a
+  re-run silently overwrote an editor's work in the Studio. The destructive path is opt-in and the
+  refusal explains itself; `--dry-run` is unchanged.
+- **`lastReviewed` no longer implies a legal review.** The field is required by window 6's schema
+  and renders as "Last reviewed {date}", which contradicted this app saying the copy is unreviewed.
+  It means _last edited in this repository_, now documented in `cms/brand-a/README.md` and asserted.
+- **Hero and block CTAs joined the link-resolution walk**, which previously covered navigation and
+  footer only while the README claimed "every internal link".
+- **The `productStory` block is asserted positively**, not merely checked for absence of its
+  "not available" state — which an empty block would have passed.
+- **The contrast surface matrix no longer double-counts.** `card` equals `background`, so four of
+  twelve generated cases were exact duplicates. Surfaces are de-duplicated by value, with a tripwire
+  that fails if the two ever diverge, so the matrix widens on its own instead of under-covering.
+
 ## 0.5.0 — 2026-09-30 · task 2.4 (#142, partial — see below)
 
 - **`e2e/routes.spec.ts`** renders public routes in both locales against a real server — 200,

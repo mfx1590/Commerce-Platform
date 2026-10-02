@@ -127,13 +127,24 @@ describe('brand A palette', () => {
    * where the neutral Badge and the CMS hero eyebrow do not appear. Every text token is now checked
    * against every surface it can actually land on, so a passing page cannot hide a failing block.
    */
-  const SURFACES = ['background', 'muted', 'card'] as const;
+  /**
+   * Distinct surfaces only. `card` is Paper, the same value as `background`, so including both made
+   * four of the twelve generated cases exact duplicates — noise that makes the matrix look more
+   * thorough than it is. The pair is asserted once, below, so the day `card` stops equalling
+   * `background` the matrix widens on its own instead of silently under-covering.
+   */
+  const SURFACES = [
+    ...new Set(['background', 'muted', 'card'].map((k) => color[k as 'background'])),
+  ].map((hex) => ({
+    name: (['background', 'muted', 'card'] as const).find((k) => color[k] === hex) as string,
+    hex: hex as string,
+  }));
   const TEXT_ON_ANY_SURFACE = ['foreground', 'mutedForeground', 'accent', 'secondary'] as const;
 
   for (const fg of TEXT_ON_ANY_SURFACE) {
     for (const bg of SURFACES) {
-      it(`clears WCAG AA: ${fg} on ${bg}`, () => {
-        expect(contrast(color[fg] as string, color[bg] as string)).toBeGreaterThanOrEqual(4.5);
+      it(`clears WCAG AA: ${fg} on ${bg.name}`, () => {
+        expect(contrast(color[fg] as string, bg.hex)).toBeGreaterThanOrEqual(4.5);
       });
     }
   }
@@ -147,12 +158,19 @@ describe('brand A palette', () => {
     expect(contrast(color[fg] as string, color[bg] as string)).toBeGreaterThanOrEqual(target);
   });
 
+  it('keeps card and background identical — if they diverge, the matrix must widen', () => {
+    // The matrix above de-duplicates surfaces by value. This is the tripwire for that shortcut.
+    expect(color.card, 'card and background diverged: re-check the surface matrix').toBe(
+      color.background,
+    );
+  });
+
   it('gives form fields a 3:1 boundary on every surface (WCAG 1.4.11)', () => {
     // `input` is the edge of a text field, which identifies a UI component; `border` is decorative
     // rules and is exempt. They are different values for exactly this reason (DESIGN.md §2).
     expect(color.input).not.toBe(color.border);
     for (const bg of SURFACES) {
-      expect(contrast(color.input as string, color[bg] as string)).toBeGreaterThanOrEqual(3);
+      expect(contrast(color.input as string, bg.hex)).toBeGreaterThanOrEqual(3);
     }
   });
 

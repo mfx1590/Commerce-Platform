@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-09-29 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.4 in PR #294 (Refs #142, two criteria unmet + named). 2.5 next
+Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.5 in PR #301 (ecace0e). Re-review BLOCK round 2 being fixed. Push on the verdict.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,7 +17,9 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **#142 · 2.4 SEO + i18n (partial)** — PR #294. 49 tests: routes x both locales (canonical,
+- **#142 · 2.4 SEO + i18n (partial)** — **MERGED** as PR #294, merge commit db8aa80. #142 was
+  auto-closed by a commit keyword and the manager reopened it — never put close/fix/resolve next to
+  an issue number unless that commit finishes it. 49 tests: routes x both locales (canonical,
   alternates, x-default), BOTH message catalogues (cms one was unchecked), JSON-LD in EUR,
   sitemap paging. 5 mutations red. Manifest tripwire replaced with self-consistency +
   `sync-from-starter.mjs --check`. Measured perf 0.97 / a11y 1.00 / SEO 0.92 / CLS ~0.
@@ -49,7 +51,25 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.4 in PR #294** (52a76c1), `Refs #142` — awaiting verdict.
+- **2.5 (#143) — browse → buy green against the core; the account half is NOT.**
+  `journey.spec.ts` 5/5 in each of three bounded full passes on a quiet machine (34 passed /
+  21 skipped twice; the third had one failure in the **starter's** `checkout.spec.ts:182`, routed
+  as #304). Skips are content routes (`CMS_DATASET`) and opt-in visual baselines.
+  **Only browse and cart reach the core.** `/store/customers/me` and the `/store/orders` list are
+  Prism via the fallback (#303), so `account.spec.ts`'s identity and `Order #1000` assertions prove
+  the Keycloak journey and nothing about the core (#306). Order history: unverified.
+  Stack recipe that worked: `fga:seed` (OpenFGA in-memory, ids die with the container) → core via
+  `pnpm --filter @platform/core exec tsx src/server.ts` on :9000 → brand A on 3101 with
+  `STORE_API_URL=http://127.0.0.1:9000`. **The DB needed no migrate/seed** (51 tables, 3 stores,
+  607 products survived the reboot).
+
+## Blocked — infrastructure
+- (resolved 2026-10-01) **The shared Docker daemon was DOWN** (2026-10-01). `docker version` → server UNREACHABLE, API 500
+  on `/v1.54/version`; 5433/6381/8180/8081/9000/9092 all closed. Confirmed from the manager window;
+  their "stack is healthy" was stale. **The owner restarts Docker Desktop and the manager brings the
+  containers up** — I do not run the recovery, even though [[stack-interventions-need-prior-ok]]
+  records one as pre-approved: the manager's current instruction named `wsl --shutdown` as
+  stop-and-ask, and a standing pre-approval does not outrank a current instruction.
 
 ## Blocked on other windows (2.4 follow-up closes #142)
 - **#274** (window 3): metadata in `<body>` not `<head>` on home/PDP/content → SEO stuck at 0.92
@@ -57,21 +77,29 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#293** (window 3): sitemap `STATIC_PATHS = ['', '/products']` advertises none of the 20 brand-A
   documents — verified at runtime, 4 URLs served. Combined with #274 the content routes have
   hreflang in *neither* accepted mechanism.
+- **#295** (window 5, behind #283): run brand A's e2e in CI (`E2E_INCLUDE_BRAND_STOREFRONTS=1`).
+  Deliberately excludes the Keycloak half (#212) and the `CMS_DATASET` checks.
+- ~~**#212**~~ MERGED (871f086): brand A sign-in from :3101 works; `account.spec.ts` passes 3/3.
 - When both land: re-sync, delete the `STATIC_PATHS` pin in `test/brand-i18n-seo.test.ts`, assert
   the real inventory, re-measure SEO, close #142 in a small follow-up PR.
 
 ## Carried nits
-### From the #291 review (parked)
-- `sync-merge.test.ts` idempotency test passes two args; the script passes three — pass the manifest.
-- Nothing tests that `sync-from-starter.mjs` actually forwards `previousStarter` to the merge.
-- CHANGELOG wording "eight tests, each pairing" overstated it — fixed in 0.4.1; watch for that shape.
+### From the #291 review
+- ~~idempotency test passes two args~~ — DONE in the #294 fixes: it merges from the manifest.
+- **STILL PARKED, with a reason**: nothing tests that `sync-from-starter.mjs` forwards
+  `previousStarter`. The script resolves the starter path relative to itself, so testing the wiring
+  needs an env override or a subprocess against a fake tree — more machinery than the risk warrants.
+  The composition *is* proven end to end by hand (delete `bundle-budget` upstream, re-sync, it goes).
+  Do it properly if the script grows a second caller.
+- ~~CHANGELOG "eight tests, each pairing" overstated~~ — fixed in 0.4.1.
 
 ### From the #289 review (parked — do in 2.4 or a cleanup PR)
-- `productStory` block is never asserted after the harness-artefact fix — add a positive assertion.
-- Hero and campaign **CTA** hrefs are outside the link-resolution test, which only walks navigation
-  and footer. README now says so explicitly; widen the test.
-- `lastReviewed` dates sit on legal documents the PR calls unreviewed — reconcile the two.
-- The Impressum footer link is doubled per locale (`col-help` *and* `legalLinks`).
+- ~~`productStory` never asserted positively~~ — DONE (cleanup PR).
+- ~~hero/campaign CTA hrefs outside the link test~~ — DONE (cleanup PR).
+- ~~`lastReviewed` vs "unreviewed"~~ — DONE: it means *last edited here*, documented in
+  cms/brand-a/README.md and asserted.
+- ~~Impressum footer link doubled per locale~~ — DONE: `/legal/returns` was doubled too; the Help
+  column repeated what `legalLinks` already carried, so it is gone and a test pins no-duplicates.
 - **`CMS_DATASET` is set nowhere in `.github`**, so the content axe scans never run in CI.
 - `seed-content.mjs` without `--dry-run` overwrites Studio edits with no confirmation — add one.
 - The en-GB imprint cites German statutes (a lawyer item, not mine — carry to the legal review).
@@ -90,18 +118,19 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   CLOSED. Correct in passing with the content PR.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
-- [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a (in PR)
-- [ ] **#140 · 2.2** Theme and layout overrides from the brand design
-- [ ] **#141 · 2.3** CMS content for brand A
-- [ ] **#142 · 2.4** SEO and i18n for brand A
+- [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a — MERGED (#198)
+- [x] **#140 · 2.2** Theme and layout overrides from the brand design — MERGED (8c49bd4)
+- [x] **#141 · 2.3** CMS content for brand A — MERGED (1a44b04)
+- [~] **#142 · 2.4** SEO and i18n for brand A — MERGED (db8aa80) but **REOPENED**: SEO >=95 and
+      effective hreflang remain unmet, blocked on #274/#293
 - [ ] **#143 · 2.5** End-to-end suite browse → buy → account for brand A
 - [ ] **#144 · 2.6** Launch checklist for brand A
 
 ## Decisions made (with reasons)
 - **Brand A is designed here, not in Figma** (2.2): no Figma exists. `src/brand/DESIGN.md` is
   written before the code and the code is held to it. Calm editorial D2C apparel; five named values
-  (Paper #F7F4EF, Ink #23201B, Clay #9C4A32, Sage #5F6B57, Stone #746C60), all pairs measured
-  against WCAG (Stone was darkened from #7A7266 after it measured 4.32:1). Newsreader + Hanken
+  (Paper #F7F4EF, Ink #23201B, Clay #9C4A32, Sage #5F6B57, Stone **#6B6357**), all pairs measured
+  against WCAG (Stone failed twice: #7A7266 at 4.32:1 on Paper, then #746C60 at 4.36:1 on `muted` — now #6B6357, 5.40 / 4.98). Newsreader + Hanken
   Grotesk, self-hosted. Explicitly not the admin's dark Medusa rail and not the AI-default look
   (no purple gradients, glassmorphism, floating cards, stock hero).
 - **Fonts are wired through `tokens.ts`, not through a component slot** (2.2): the only
@@ -116,7 +145,6 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   theirs to maintain. The README/CLAUDE.md wording saying it is "absent" is stale (carried nit).
 
 ## Blocked / waiting
-- 2.3 part 1 (re-sync + merge mode) in PR; the CMS content half follows in its own PR.
 - **REQUEST #278** (window 3): the starter's `test/slots.test.ts` asserts the brand's own override
   files are empty — false by construction in a clone. Until it lands, that file deviates and is on
   the clone's PRESERVE list; drop it and re-sync afterwards.
@@ -124,6 +152,45 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas learned
+- **Never run an e2e suite unbounded.** Always `--max-failures=1 --global-timeout=<ms>` and a shell
+  `timeout`. An unbounded three-pass run went 29 minutes before the owner stopped it.
+- **A measurement taken while another window is building is not evidence.** My "suite contends with
+  itself, cap workers at 2" conclusion was measured while window 3 ran a build + Lighthouse on the
+  same machine. The cap was reverted. Ask whether the machine is quiet BEFORE a timing measurement.
+- **Read one failing test's actual error, not the failure count.** Every failure in those runs was
+  `Test timeout exceeded`, never an assertion and never out-of-stock — which rules out whole classes
+  of cause immediately.
+- **Running against the core does not mean the core answers.** With `CORE_STORE_API_FALLBACK=1` it
+  proxies what it does not mount: `/store/customers/me` and the `/store/orders` LIST are Prism
+  (#303), so `account.spec.ts`'s identity and order-history assertions prove nothing about the core.
+  The core does answer `/store`, `/store/products*`, `/store/carts*` (real UUID) and
+  `/store/orders/{id}`. Check per route before claiming "against the real stack".
+- **e2e that places orders consumes a SHARED seed.** The starter's checkout spec took its target
+  from ~35 units to 18. Pick by property including a stock floor, and say the run budget out loud.
+- **The Store API's product LIST is a summary projection with no `variants`** — counting variants
+  from it reports zero for every product and looks like a seed gap. Ask for each product's DETAIL.
+  This nearly had me file a bogus `REQUEST: seed — multi-variant product`; the catalogue has plenty
+  (Size:4 × Color:2, 8 variants).
+- **Variant options are `<fieldset>` + toggle `<button aria-pressed>`, not ARIA radios**, and the
+  PDP price is `data-testid="price-value"`. The listing card renders its title as a link INSIDE an
+  `<h3>` — "a link containing a heading" matches nothing.
+- **After "Add to cart" the app navigates to the cart itself** — `page.goto('/cart')` races the
+  pending server action and lands on an empty cart. Wait for the URL instead.
+- **Metadata placement is deterministic server-side and nondeterministic in the DOM.** 60/60
+  requests put it in `<body>`, but React sometimes hoists it at hydration, so a DOM-based assertion
+  flakes ~1 run in 5. Assert the served bytes. This is probably the real mechanism behind #274's
+  "fails on runs 2 and 3" Lighthouse flake.
+- **Always close a pg client in `finally`.** A probe that closed only on the happy path hung for
+  15+ minutes with no output and had to be killed. Give direct DB commands a hard timeout.
+- **A closing keyword next to an issue number closes the issue on merge**, even mid-sentence in a
+  commit body ("a follow-up closes #142"). It cost the manager a manual reopen. Write "#N stays
+  open; a follow-up PR finishes it".
+- **`/tmp` differs between the Bash tool and Python on Windows** — a bash redirect to `/tmp/x` is
+  invisible to `open('/tmp/x')`. Nearly made me write an unedited PR body back over itself. Use the
+  scratchpad path for anything both touch.
+- **An e2e suite that skips without its backend must be proven to FAIL when the backend is
+  required**, or "skips cleanly" is indistinguishable from "never runs". `E2E_REQUIRE_CORE=1` +
+  core down → exit 1 is that proof.
 - **`bundle-budget --sync-readme` fills an EXISTING `<!-- bundle-budget:start/end -->` block; it
   does not create one.** After a re-sync adds that requirement, add the markers to the README by
   hand once, then run it.
