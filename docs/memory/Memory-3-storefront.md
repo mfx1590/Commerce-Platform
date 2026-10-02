@@ -254,6 +254,29 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   6. Docs: the hooks ship in production builds; four of them are not text on the page; 0.12.4
      said the order number matches the URL — it is the order id. **The PR body must say which
      results are local and that CI covers only the mock.**
+  **State on 2026-10-02 ~16:45, machine granted, NOTHING PUSHED:** (a) done — REQUEST **#319** filed
+  for window 6 (preview / preview-exit always redirect to `localhost:3100`; `Host` and
+  `X-Forwarded-Host` cannot steer it, only the scheme follows `X-Forwarded-Proto`: broken, not an
+  open redirect). (c) done — route tests 18 failed / 2 passed on the old handlers, 20 passed on
+  the new. (d) done — `next build` with no `SITE_URL` exits 0; `next start` without it: pages,
+  sitemap, `/r/`, callback 500, `/health` 200, sign-out 303 with no return address and one log
+  line. (e) done — the middleware had the same cause (an in-shop navigation wrote an attribution
+  cookie naming the shop as referrer); fixed with `siteOrigin()` and tested. (f) done — fifteen
+  rows on `https://shop.public.example` whatever the headers. Lint, typecheck, 429 unit tests,
+  format: pass.
+  **OPEN, blocks the push: the full e2e on the mock failed on this branch** — `page.goto`
+  timeouts in the first seconds of a Playwright-started run (8, 9 and 6 failures in three runs),
+  one Playwright-started run passed (13/13), every run against a server I started by hand passed
+  (10 s), and one control run on `storefront/phase2` passed (65/65). Ruled out by measurement:
+  rider 2 falling back to the core (the server gets `MOCK_API_URL`, lists the mock's product, no
+  connection error in its log); the environment Playwright hands the server (dumped: identical
+  to a manual start); a slow server (`/en-GB` 0.04 s warm, `/health` under 0.1 s during a run).
+  The trace of a hung test shows the server taking 10 s for the document and up to 10 s to first
+  byte on static chunks while the machine was at ~90% CPU right after the build. **Not yet
+  attributed: this branch or load at start-up. One control run is not evidence.** Next step is
+  the manager's call: alternating bounded runs, branch and control, several each.
+  **Method, from the manager: every long run writes to a file, starts detached, and is polled
+  with a bounded loop; no step may wait on a pipe.**
   **When the manager gives the machine (after window 1), in this order:**
   a. The preview-redirect measurement (`ingress-probe.mjs`, on `storefront/phase2`), then file
      the URGENT REQUEST for window 6 with the numbers (draft in the scratchpad).
