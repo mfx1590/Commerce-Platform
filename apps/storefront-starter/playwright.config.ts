@@ -71,6 +71,9 @@ export default defineConfig({
         // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
         // build origin is absent from it could not fail whatever robots.txt did (#309 review).
         ROBOTS_ALLOW_INDEXING: '1',
+        // Set for a core run. For a mock run there is nothing to set here — and a `STORE_API_URL`
+        // exported by the shell would still reach the server, because Playwright merges this map
+        // over `process.env`. `scripts/e2e-env.mjs` removes it there, as `scripts/perf.mjs` does.
         ...(STORE_API_URL === undefined ? {} : { STORE_API_URL }),
       },
     },

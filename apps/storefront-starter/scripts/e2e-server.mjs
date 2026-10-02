@@ -22,6 +22,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { e2eServerEnv } from './e2e-env.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Resolved, not looked up on PATH — see scripts/perf.mjs for why.
@@ -34,9 +35,12 @@ const NEXT_BIN = createRequire(join(root, 'package.json')).resolve('next/dist/bi
 const BUILD_SITE_URL = process.env.E2E_BUILD_SITE_URL ?? 'https://build-time.invalid';
 const BUILD_MARKER_FILE = 'e2e-build.json';
 
+// The backend is the run's, not the shell's: see scripts/e2e-env.mjs.
+const serverEnv = e2eServerEnv(process.env);
+
 const built = spawnSync(process.execPath, [NEXT_BIN, 'build'], {
   cwd: root,
-  env: { ...process.env, SITE_URL: BUILD_SITE_URL },
+  env: { ...serverEnv, SITE_URL: BUILD_SITE_URL },
   stdio: 'inherit',
 });
 if (built.status !== 0) process.exit(built.status ?? 1);
@@ -56,7 +60,7 @@ writeFileSync(
 const port = process.env.PORT ?? '3100';
 const server = spawn(process.execPath, [NEXT_BIN, 'start', '--port', port], {
   cwd: root,
-  env: process.env,
+  env: serverEnv,
   stdio: 'inherit',
 });
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.kill(signal));

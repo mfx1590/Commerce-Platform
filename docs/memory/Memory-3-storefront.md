@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `cbd06c1`; Store API 0.5.1) · Branch: `storefront/phase2` · Status: 2.1–2.4 merged; **#274 (PR #299), #286/#278 (PR #305) and #302 (PR #309) merged; #304 (+#306) in PR #316 at `90402db` (in review — do not push); **the worktree sits on the local-only
+Last updated: 2026-10-02 · Contracts: **contracts-v0.4.8** (main `7aabc9c`; Store API 0.5.1) · Branch: `storefront/phase2` (level with main); **the worktree sits on the local-only `storefront/hold-298`, which has the newest copy of this file** · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309) and #304/#306 (#316) merged; #298 is next as PR five — written with its six riders, nothing run; then #312; #293 parked on `storefront/hold-293` until #300 lands**
 `storefront/hold-298`, which has the newest copy of this file**; then #298 (`storefront/hold-298`, unrun) → #312; #293 parked on `storefront/hold-293` until #300 lands**
 
 ## Identity (does not change)
@@ -197,69 +197,77 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       `ROBOTS_ALLOW_INDEXING=1`. The BLOCK: my first robots test could not fail (no origin in a
       bare `Disallow: /`) and nothing compared against the expected origin.
 
+- [x] **#304 + #306 The journey asserts the order it placed; honest sort, filter and account
+      tests** — commits `1166715`, `f1d1782`, `3f6695a`, `0d0510f`, `f88269a`; **PR #316 merged**
+      (merge commit `c50c61e`, 2026-10-02). Hooks in `src/lib/test-hooks.ts` (money in minor units)
+      on listing cards, the add-to-cart form, cart/review/confirmation lines, totals, confirmation
+      header. `checkout.spec.ts`: product chosen by `data-purchasable` (first of up to 12; fails
+      with `Seed stock exhausted — reseed`); lines and total captured at review and required on the
+      confirmation, with an order number on the page and the order **id** in the URL; sort/filter
+      on results, core-only (skips with the reason on the mock, fails under two products or one
+      price); `clickWhenReady` and explicit deadlines for window 10's two flakes. `account.spec.ts`:
+      the Prism-only assertions are in a test labelled mock-only.
+      **What was actually run, and when:** the final tree (contracts 0.4.8) — lint, typecheck, 383
+      unit tests, format, bundle budget; full e2e on the mock 65 passed / 2 skipped; checkout +
+      account on the core 10 passed / 1 skipped; five consecutive bounded passes each of the
+      journey and the sort test on the core, all green. **The four mutation checks** (confirmation
+      quantity +1; no stock; `sort` not sent; `category` not sent) **ran before the rebase onto
+      contracts 0.4.8 and before the flake fix, and were not repeated.** The perf gate was not run
+      locally (manager: CI's run is enough).
+      **Seed stock used on 2026-10-02: nine units of `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack),
+      11 → 2** — plus one unit earlier the same day for the first core run of the spec. Six of the
+      nine were agreed; three (orders 1073–1075) were wasted when an interrupted five-pass command
+      kept running and the next run overlapped it. The manager tops the seed up before
+      Integration 2.
+
 ## In progress
 
-- **Docket (manager, 2026-10-02), each its own small PR, one at a time, in this order: #304 with
-  #306 (PR four) → #298 → #312 (waits for the core's #303 PR C; core merges first). #293 slots
-  in whenever #300 lands.** Standing rules: plan-paste anything over ~20 calls. Push each PR only
-  after the previous merges and the manager confirms no queue is running. No `docker exec`. No
-  closing keyword in a commit message unless that commit finishes the issue. Never attempt stack
-  recovery from this window. **One window measures at a time: until the manager says the machine
-  is mine, git and file work only — no builds (not even the workspace packages), tests, e2e,
-  Lighthouse or servers. Ask before a perf gate.**
+- **Docket (manager, 2026-10-02), each its own small PR, one at a time, in this order: #298 (PR
+  five, with six riders from the review of #316) → #312 (waits for the core's #303 PR C; core
+  merges first). #293 slots in whenever #300 lands.** Standing rules: plan-paste anything over
+  ~20 calls. Push each PR only after the previous merges and the manager confirms no queue is
+  running. No `docker exec`. No closing keyword in a commit message unless that commit finishes
+  the issue. Never attempt stack recovery from this window. **One window measures at a time:
+  until the manager says the machine is mine, git and file work only — no builds (not even the
+  workspace packages), tests, e2e, Lighthouse or servers. Every command bounded; never start a
+  server in a command that waits for it. Ask before a perf gate.**
 
-- **#304 (+ #306) — PR #316, head `90402db`, IN REVIEW. DO NOT PUSH `storefront/phase2` until the
-  verdict. Perf gate: not to be run locally for this PR (manager: CI's run is enough).**
-  Runs on the final tree, contracts 0.4.8, all on 2026-10-02 with the machine granted:
-  - lint, typecheck, 383 unit tests, format; bundle budget PASS (cart 139.6, PDP 139.1 kB).
-  - Full e2e against the mock: 65 passed, 2 skipped (both core-only, with reasons).
-  - Checkout + account specs against the core: 10 passed, 1 skipped (the mock-only account test);
-    the journey bought `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack), order 1072.
-  - **Flake fix, five consecutive bounded passes each against the core, a fresh storefront build
-    and process per pass:** journey 5/5 (orders 1076–1080; 43–47 s, one at 1.3 min), sort/filter
-    5/5 (52–68 s). Window 10 had measured 1 failure in 3 and 1 in 4 before the fix.
-  - **Seed stock: alpine-backpack went 11 → 2, nine units, not the six agreed.** One for the core
-    run, five for the passes, and **three wasted** (orders 1073–1075): a five-pass command I had
-    launched was interrupted by the owner but kept running in the background, and my next run
-    overlapped it (two runs fighting over port 3100 and `.next`). See the gotcha.
-  - **Written 2026-10-02 without running anything (window 10 had the machine): window 10's two
-    flake notes on the issue.** Every click that starts a navigation goes through
-    `clickWhenReady` (visible, enabled, `networkidle`, then click); `toHaveURL` has explicit
-    deadlines — `SERVER_ACTION_TIMEOUT` 30 s after "Add to cart" and "Place order",
-    `NAVIGATION_TIMEOUT` 15 s after a link (card, Checkout, sort, category). **Not yet run, not
-    even formatted or typechecked.** A flake fix cannot be shown by one green run: ask the manager
-    for a quiet machine and take repeated passes (window 10 measured 1 in 3 and 1 in 4 before).
-    Also from that note, already true here: lines are located by test id, never `getByText`
-    (which matches the `<title>` element).
-  - Hooks: `src/lib/test-hooks.ts` (`orderLineHooks`, `totalsHooks`, `orderConfirmationHooks`,
-    `productCardHooks`) on cart, review, confirmation, totals and listing cards; the add-to-cart
-    form carries `data-purchasable`, `data-availability`, `data-sku`; category links carry
-    `data-category`. Money is always minor units.
-  - `checkout.spec.ts`: product chosen by `data-purchasable` (first of up to 12 listed), fails with
-    `Seed stock exhausted — reseed`; lines + total captured at **review** (tax and delivery are
-    only known there) and the confirmation must match, with an order number on the page and the
-    order id in the URL; sort/filter asserted on results, core-only (skip with reason on the mock,
-    FAIL under two products or one distinct price on the core).
-  - `account.spec.ts`: the `jane@example.com` / `Order #1000` assertions are in a test labelled
-    mock-only, skipped against the core (they are Prism's examples even there, #303).
-  - Runs: mock 9 passed / 2 skipped (both core-only, with reasons); **core 10 passed / 1 skipped**
-    (the mock-only test). Core run: `E2E_STORE_API_URL=http://127.0.0.1:9000` plus
-    `STORE_PUBLISHABLE_KEY` exported from the repo-root `.env` — without it the core answers 401.
-  - Mutation checks, each restored afterwards: confirmation quantity +1 → `the order has the
-    lines that were reviewed` (mock); `data-purchasable` forced false → `Seed stock exhausted —
-    reseed` naming the 12 products tried (core, no order placed); `sort` not sent →
-    `low to high` (core); `category` not sent → `everything listed under "bags" belongs to it`
-    (core).
-  - **Seed stock used by me on 2026-10-02: one unit** (one green core run; the mutation runs
-    placed no order).
-
-- **#298 — CODE AND UNIT TESTS WRITTEN, NOTHING RUN YET. Local-only branch `storefront/hold-298`
-  (one commit on top of `storefront/phase2`; keep it rebased there, never push it). Go-live blocker (Integration 2 checklist).** Written on
-  2026-10-02 while window 10 had the machine for timed runs (file edits and git only).
+- **#298 — NEXT UP AS PR FIVE. CODE, UNIT TESTS AND THE SIX RIDERS ARE WRITTEN; NOTHING HAS BEEN
+  RUN. Local-only branch `storefront/hold-298` (on top of `storefront/phase2` = main `7aabc9c`;
+  keep it rebased there, never push it). Go-live blocker (Integration 2 checklist).**
   Ruling (manager): fix ALL of them under #298, one helper, a unit test per route handler; origin
   from `SITE_URL` read at request time, NEVER from `Host` / `X-Forwarded-Host`; fail closed when
   `SITE_URL` is unset outside local development; every redirect still passes the safe-path rule;
-  measure the attribution reader and fix it in the same PR if it is the same cause.
+  measure the attribution reader and fix it in the same PR if it is the same cause. Sign-out
+  with no `SITE_URL`: keep my choice (clear the session, end the Keycloak session, no return
+  address) and log **one error line without PII** — a sign-out must never fail.
+  **Riders required in this PR (review of #316), all written 2026-10-02 without running:**
+  1. This file: the stale #304 lines are gone (the block moved to Done, with what really ran).
+  2. `scripts/e2e-env.mjs` (`e2eServerEnv`, used by `e2e-server.mjs`): a shell-exported
+     `STORE_API_URL` is dropped unless `E2E_STORE_API_URL` names the core. It could not be done
+     in `playwright.config.ts` itself: Playwright merges `webServer.env` over `process.env`, so
+     a key cannot be removed there. `test/e2e-server-env.test.ts`.
+  3. The journey ties the confirmation to its own run: a per-run email typed at the address step
+     (against the core that step must be visited) and required on the confirmation; and the cart
+     must be empty afterwards (both backends; `placeOrderAction` calls `clearCart()`).
+  4. The category test fails when no listed product is outside the chosen category.
+  5. `test.setTimeout`: 180 s for the journey, 120 s for the listing test.
+  6. Docs: the hooks ship in production builds; four of them are not text on the page; 0.12.4
+     said the order number matches the URL — it is the order id. **The PR body must say which
+     results are local and that CI covers only the mock.**
+  **When the manager gives the machine (after window 1), in this order:**
+  a. The preview-redirect measurement (`ingress-probe.mjs`, on `storefront/phase2`), then file
+     the URGENT REQUEST for window 6 with the numbers (draft in the scratchpad).
+  b. On this branch: rebuild nothing unless needed, then prettier, lint, typecheck, unit tests.
+  c. Route tests RED on the old handlers (restore the three route files and `oidc.ts` from
+     `storefront/phase2`, run `test/route-origin.test.ts`), then green.
+  d. `next build` with no `SITE_URL` still works; `next start` without it fails as designed.
+  e. The attribution-origin measurement (same probe); if it is the same cause, fix
+     `src/middleware.ts` with `siteOrigin()` and add a test.
+  f. The three handlers behind ingress headers, on this branch's build: every `Location` on
+     `SITE_URL`.
+  g. Full e2e on the mock (riders 2–5 change the spec); the checkout spec on the core costs one
+     unit of stock — ask the manager whether to spend it. Then merge main, push, open PR five.
   - What was measured (2026-10-02, `next start`, `SITE_URL=https://shop.public.example`): in a
     route handler `request.nextUrl.origin` is `localhost:3100` whatever `Host` /
     `X-Forwarded-Host` say (only the scheme follows `X-Forwarded-Proto`). Sign-out sent
@@ -274,31 +282,6 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     before touching the session), `/r/` (target and `siteOrigin` for the referrer comparison).
     `oidcConfigFromEnv` uses `siteUrl()`; `oidcProviderFromEnv` is the part without the origin.
     Tests: `test/site-origin.test.ts`, `test/route-origin.test.ts`. README, CHANGELOG 0.12.5.
-  **Owed once the manager says the machine is free, in this order:**
-  1. Rebase onto `storefront/phase2` once PR four has merged (the e2e server gets its explicit
-     `SITE_URL` from there; under the new rule a production server without one fails every page).
-  2. prettier, lint, typecheck; show the route tests RED on the old handlers, then green.
-  3. Check that `next build` with no `SITE_URL` still works (the rule relies on `NEXT_PHASE`
-     being visible to the prerender workers) and that `next start` without it fails as designed.
-  4. **Measure the middleware case**: `src/middleware.ts` passes `request.nextUrl.origin` as
-     `siteOrigin` to `readTouch`. If it is the pod's origin there too, in-shop navigation is
-     recorded as an external referral on every page — same cause, fix with `siteOrigin()` and a
-     test. Not changed yet, on purpose: measure first.
-  5. Re-measure the three handlers behind simulated ingress headers; full e2e (account journeys
-     included); perf gate (ask the manager first).
-  6. Same cause, **not mine to fix**: `src/lib/cms/handlers.ts` (window 6) builds the preview and
-     preview-exit redirects on `new URL(request.url)`. **Manager (2026-10-02): the next time I
-     have the machine, measure it and file the REQUEST to window 6 — marked URGENT in the title,
-     because preview-exit is unauthenticated; it rides with #300, which window 6 is doing now.**
-     Prepared in the scratchpad (rewrite if gone): `ingress-probe.mjs` — one bounded script that
-     requests preview-exit, preview (with a test secret), `/r/`, the callback and sign-out under
-     five header sets, and checks whether the middleware writes an attribution cookie for an
-     in-shop navigation (item 4 above); and `request-cms-preview-origin.DRAFT.md`, the issue
-     body with placeholders for the measured values. The server for it: `next start` DETACHED
-     with `SITE_URL=https://shop.public.example`, `SANITY_PROJECT_ID`, `SANITY_PREVIEW_SECRET`
-     and `SANITY_READ_TOKEN` set to test words; poll `/health` for at most 60 s; stop it after.
-     Measure on `storefront/phase2` (window 6's handlers are the same on both branches), and say
-     in the issue whether a `Host` / `X-Forwarded-Host` header can steer the redirect or not.
 
 - **#312 — READ, NOT STARTED. After #298; waits for the core's side (#303 PR C, window 1; core
   merges first, coordinate with the manager).** Store API 0.5.1: `createCart` and `completeCart`
@@ -331,6 +314,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   merged: merge main, bring the commit over, **swap the local `scheduleIsLive` copy for the
   exported `campaignIsLive`, replace the `Reflect.get` method detection with a plain typed call
   (and delete the "before #300" test), use window 6's `RoutedDocument` type**, re-run the gates.
+  **Window 6 (2026-10-02): its reader returns ABSENT keys for a missing schedule side, never
+  `null`.** The fakes in `sitemap-content.test.ts` already omit the key; when swapping to window
+  6's `RoutedDocument` type, keep `startsAt?` / `endsAt?` optional and do not add a `null` case.
   What is in it: `seo.ts` `sitemapUrls()` (the one expansion from paths to URLs; both sitemap
   routes count it); `sitemap-data.ts` `contentEntries()` over a narrow `ContentSource`, default
   source built with `createReader`, never `getCms()` (preview cookie); tests

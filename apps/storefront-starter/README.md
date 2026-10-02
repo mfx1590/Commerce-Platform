@@ -101,8 +101,20 @@ Prism returns the same example whatever `sort` or `category` it is sent, so more
 contract would not make the sort/filter test real against it; that is why it skips rather than
 passes. The journey reads what it compares from `data-*` hooks (`src/lib/test-hooks.ts`): lines,
 quantities and totals in minor units on cart, review and confirmation, the order number on the
-confirmation, handle, price and category on a listing card. Every value is already on the page
-as text; the hooks only spare the test from parsing `19,99 €`.
+confirmation, handle, price and category on a listing card. **The hooks ship in production
+builds** — they are ordinary attributes, and every visitor receives them. Most restate text that is
+on the same element (SKU, quantity, amounts, order number) and only spare the test from parsing
+`19,99 €`; `data-order-id`, `data-category`, `data-availability` and `data-purchasable` are not
+text on the page, and are public anyway: the order id is in the page's URL, the category handle
+in the link beside it, and the other two say what the buy button already shows.
+
+**A core run and a mock run cannot be confused by the shell.** The e2e server's backend comes
+from `E2E_STORE_API_URL` alone (`scripts/e2e-env.mjs`): a `STORE_API_URL` exported in the shell
+is dropped for a mock run. Before that, a shell carrying the `.env.example` value made a "mock"
+run talk to the core — the core-only tests skipped with the mock's reason while the journey spent
+real stock. The journey also ties the confirmation to its own run: against the core it enters an
+email only that run uses and requires the confirmation to name it, and on both backends the cart
+must be empty afterwards.
 
 **The suite is data-independent** (2.1). It used to encode the mock — the fixture's product name and
 handle, its price, its SKU, Jane's street, and the assumption that a cart already carries an address

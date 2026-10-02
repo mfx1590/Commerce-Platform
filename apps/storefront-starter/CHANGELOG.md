@@ -23,6 +23,24 @@ Issue #298. No contract change. **Go-live blocker for sign-in behind the ingress
 - A unit test per route handler (`test/route-origin.test.ts`), called as behind the ingress: the
   request's origin, a hostile forwarded host and the public origin are three different strings.
 
+From the review of #316 (tests and docs; no behaviour change):
+
+- **A mock e2e run can no longer talk to the core by accident.** A shell that exported
+  `STORE_API_URL` overrode the mock: the core-only tests skipped "because Prism" while the
+  journey spent real seed stock. `scripts/e2e-env.mjs` drops the variable unless
+  `E2E_STORE_API_URL` names the core, as `scripts/perf.mjs` already did.
+- **The journey ties the confirmation to its own run.** Every run bought the same SKU, one of
+  it, to the same address, so a redirect to an earlier run's order would have passed. Against
+  the core the run enters an email only it uses and the confirmation must name it; on both
+  backends the cart must be empty afterwards.
+- **The category test fails when nothing is outside the category**, where "everything shown
+  belongs" would hold for a filter that does nothing.
+- **The journey and the listing test set their own test timeout**; under Playwright's 30 s
+  default the 30 s server-action deadline could never be used in full.
+- Docs: the `data-*` hooks ship in production builds, and four of them are not text on the page
+  (`data-order-id`, `data-category`, `data-availability`, `data-purchasable`); 0.12.4 said the
+  order *number* matches the URL — it is the order *id*.
+
 ## 0.12.4 — 2026-10-02
 
 Issues #304 and #306. No contract change. Tests and test hooks only — no behaviour change.
@@ -30,8 +48,8 @@ Issues #304 and #306. No contract change. Tests and test hooks only — no behav
 - **The journey asserts the order it placed.** `e2e/checkout.spec.ts` stopped at the
   confirmation's heading, which wrong lines, a wrong total or someone else's order would pass.
   It now captures lines, quantities and total (minor units) at the review step and requires the
-  confirmation to show the same ones under an order number that is on the page and matches the
-  URL. Mutation-checked: a confirmation showing one unit too many fails it.
+  confirmation to show the same ones under an order number that is on the page, for the order
+  whose **id** is in the URL. Mutation-checked: a confirmation showing one unit too many fails it.
 - **The product is chosen by reported stock.** Against the core every run places a real order
   and nothing cancels it, so "the first product" was drained run by run. The journey takes the
   first listed product the storefront reports as purchasable, and fails with
