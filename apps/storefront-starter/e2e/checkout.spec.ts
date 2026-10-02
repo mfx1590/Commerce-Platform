@@ -345,6 +345,12 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
       reviewed.totalMinor,
     );
     expect(placed.currency).toBe(reviewed.currency);
+
+    // Against the core this was a real order and one unit of seed stock. Say which, so a run's
+    // cost can be read off its output instead of being reconstructed from the database.
+    const bought = `${chosen.sku} (${chosen.handle}), order ${orderNumber}, on ${BACKEND}`;
+    test.info().annotations.push({ type: 'order placed', description: bought });
+    console.log(`[e2e] journey bought ${bought}`);
   });
 });
 

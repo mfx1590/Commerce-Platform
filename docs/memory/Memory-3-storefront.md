@@ -217,8 +217,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
      (`E2E_STORE_API_URL=http://127.0.0.1:9000` + `STORE_PUBLISHABLE_KEY` from the repo-root
      `.env`; costs one unit of seed stock per journey run); bundle budget.
   4. **The flake fix: FIVE consecutive quiet passes each of the journey and of the sort test,
-     outputs quoted** (agreed with the manager). Each journey pass against the core is another
-     unit of stock — say so in the report.
+     outputs quoted, BOTH AGAINST THE CORE** (manager, 2026-10-02: the flake was the add-to-cart
+     server action writing through to the core; the mock cannot show it). Five journey passes =
+     five units of seed stock, plus one for step 3 — accepted; the manager owns the seed and tops
+     it up before Integration 2. **The PR body must name the product bought and its stock before
+     and after.** The journey prints `[e2e] journey bought <sku> (<handle>), order <n>` for
+     that; stock is read from `GET /store/products/<handle>` on the core (`available_quantity` of
+     that SKU) before the first pass and after the last. Scratch helpers from the session that
+     prepared this: `passes.sh` and `stock.mjs` (scratchpad — rewrite them if gone).
   5. Ask before the perf gate.
   6. Push, open PR four; the body may close #304 and #306 if both are finished by it.
   - **Written 2026-10-02 without running anything (window 10 had the machine): window 10's two
