@@ -175,8 +175,13 @@ run**; a day of heavy iteration is tens of units against variants seeded with 17
 ## End-to-end against the core
 
 `e2e/journey.spec.ts` covers what the inherited `checkout.spec.ts` does not: **PDP variant
-selection**, and the cart→checkout hand-off. `account.spec.ts` covers sign-in, order history and
-sign-out against the shared Keycloak.
+selection**, and the cart→checkout hand-off, against the core.
+
+`account.spec.ts` covers the **Keycloak** half — the sign-in redirect, the return URL, the session
+cookie and sign-out — which is genuinely real. Its customer identity and order-history assertions
+are **not**: `/store/customers/me` and the `/store/orders` list are answered by Prism through the
+fallback (see the table above), so they are mock-only until **#303**, and **#306** asks window 3 to
+mark them as such. Order history against the core is unverified.
 
 ```bash
 # the shared stack must be up (Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081)

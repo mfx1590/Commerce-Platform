@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.5 BLOCK fixes built; flake check NOT re-taken (needs a quiet machine). Push held.
+Last updated: 2026-10-01 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: 2.5 in PR #301 (ecace0e). Re-review BLOCK round 2 being fixed. Push on the verdict.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -51,9 +51,13 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
 ## In progress
-- **2.5 (#143) — browse → buy AND account both green against the real core.** Three consecutive
-  full-suite runs: 32 passed, 21 skipped, exit 0. Skips are content routes (need `CMS_DATASET`)
-  and visual baselines (opt-in) — none of them #143 criteria.
+- **2.5 (#143) — browse → buy green against the core; the account half is NOT.**
+  `journey.spec.ts` 5/5 in each of three bounded full passes on a quiet machine (34 passed /
+  21 skipped twice; the third had one failure in the **starter's** `checkout.spec.ts:182`, routed
+  as #304). Skips are content routes (`CMS_DATASET`) and opt-in visual baselines.
+  **Only browse and cart reach the core.** `/store/customers/me` and the `/store/orders` list are
+  Prism via the fallback (#303), so `account.spec.ts`'s identity and `Order #1000` assertions prove
+  the Keycloak journey and nothing about the core (#306). Order history: unverified.
   Stack recipe that worked: `fga:seed` (OpenFGA in-memory, ids die with the container) → core via
   `pnpm --filter @platform/core exec tsx src/server.ts` on :9000 → brand A on 3101 with
   `STORE_API_URL=http://127.0.0.1:9000`. **The DB needed no migrate/seed** (51 tables, 3 stores,

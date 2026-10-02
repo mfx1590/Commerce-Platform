@@ -10,7 +10,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  *
  * ## What is real here, and what is not
  *
- * The core answers browse and cart: `/store/products*`, `/store/product-categories*`,
+ * The core answers browse and cart: `/store/products*`, `/store/categories*`,
  * `/store/carts*` (a real UUID, not a contract example) and `/store/orders/{id}`. Those are the
  * requests this file depends on.
  *
@@ -67,6 +67,23 @@ test.beforeEach(() => {
 
 const optionGroups = (page: Page) => page.getByRole('group');
 const PRICE = 'price-value';
+
+/**
+ * Money as integer minor units.
+ *
+ * Comparing rendered money as floats is how 40.54 + 4.99 becomes 45.529999999999994. en-GB formats
+ * as `€1,234.56`, so thousands separators go and the decimal point stays.
+ */
+function minor(text: string): number {
+  const cleaned = text.replace(/[^\d.,]/g, '').replace(/,(?=\d{3}\b)/g, '');
+  return Math.round(Number(cleaned.replace(',', '.')) * 100);
+}
+
+/** The `× N` a cart or order line renders, or null when the line shows no quantity. */
+function quantityIn(text: string): number | null {
+  const match = /×\s*(\d+)/.exec(text);
+  return match ? Number(match[1]) : null;
+}
 
 async function api<T>(request: APIRequestContext, path: string): Promise<T | null> {
   const response = await request.get(`${CORE_URL}${path}`, {
@@ -212,13 +229,33 @@ test.describe('PLP sorting and filtering have an observable effect', () => {
     expect(totalInCategory, 'the category contains nothing').toBeGreaterThan(0);
     expect(totalInCategory, 'the category filter narrowed nothing').toBeLessThan(totalAll);
 
-    // And the page actually renders that narrower listing.
+    // And the page renders *that* category, not merely something non-empty. Counting cards above
+    // zero passed even if the storefront dropped the `category` parameter entirely, which is what
+    // the previous version of this assertion did.
+    const inCategory = await api<{ items: { handle: string }[] }>(
+      request,
+      `/store/products?limit=100&category=${handle}`,
+    );
+    const allowed = new Set((inCategory?.items ?? []).map((i) => i.handle));
+    expect(allowed.size, 'the category API returned nothing').toBeGreaterThan(0);
+
     await page.goto(`/en-GB/categories/${handle}`);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-    expect(
-      await page.getByTestId(PRICE).count(),
-      'the category page listed nothing',
-    ).toBeGreaterThan(0);
+
+    const shownHandles = (
+      await page
+        .getByRole('heading', { level: 3 })
+        .getByRole('link')
+        .evaluateAll((links) =>
+          links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+        )
+    )
+      .map((href) => href.split('/').pop() ?? '')
+      .filter((h) => h.length > 0);
+
+    expect(shownHandles.length, 'the category page listed nothing').toBeGreaterThan(0);
+    const strangers = shownHandles.filter((h) => !allowed.has(h));
+    expect(strangers, `the category page listed products outside ${handle}`).toEqual([]);
   });
 });
 
@@ -308,6 +345,12 @@ test.describe('buy', () => {
       .filter((t) => t.length > 0);
     const cartTotal = (await page.getByTestId(PRICE).last().textContent())?.trim() ?? '';
     expect(cartTotal.length, 'the cart showed no total').toBeGreaterThan(0);
+    const cartTotalMinor = minor(cartTotal);
+
+    // The quantity that actually went in, read from the cart line for the product bought.
+    const cartLineText = cartLines.find((t) => t.includes(product!.title)) ?? '';
+    const cartQty = quantityIn(cartLineText);
+    expect(cartQty, 'the cart line shows no quantity').not.toBeNull();
 
     await page
       .getByRole('link', { name: /checkout/i })
@@ -321,47 +364,54 @@ test.describe('buy', () => {
     const orderId = new URL(page.url()).pathname.split('/').pop() ?? '';
     expect(orderId.length, 'no order id in the confirmation URL').toBeGreaterThan(0);
 
-    // The order number the page shows is the core's, not a placeholder.
-    const confirmation = (await page.locator('body').textContent()) ?? '';
-    expect(confirmation, 'the confirmation shows no order number').toMatch(/\d{3,}/);
-
-    // The product bought is on the confirmation, by the title captured from the cart.
+    // The product bought, located by ROLE rather than text. `getByText(title)` resolves to the
+    // document's own <title>, and scoping to <body> does not help, because this app streams its
+    // metadata into the body rather than the head (#274). Order lines are <li>; a <title> is not.
+    //
+    // The title comes from the API record of the product being bought — it is the same value the
+    // cart rendered, which the cart assertion above already checked.
     const boughtTitle = product!.title;
-    expect(cartLines.join(' ')).toContain(boughtTitle);
-    // Located by ROLE, not by text. Two text-based attempts failed here against a page that was
-    // perfectly correct: `getByText(title)` resolved to the document's own <title> element, which is
-    // hidden — and scoping to <body> did not help, because this app streams its metadata into the
-    // body rather than the head (#274). The order lines are <li>, which a <title> can never be.
     const line = page.getByRole('listitem').filter({ hasText: boughtTitle }).first();
     await expect(line, 'the order line for the bought product is missing').toBeVisible();
-
-    // Server-produced line data: the title the cart showed, and a quantity.
     await expect(line).toContainText(boughtTitle);
-    await expect(line, 'the order line shows no quantity').toContainText(/×\s*\d+/);
+
+    // Quantity, compared with what went into the cart rather than merely "some number".
+    const orderQty = quantityIn((await line.textContent()) ?? '');
+    expect(orderQty, 'the order line shows no quantity').not.toBeNull();
+    expect(orderQty, `the order charged ${orderQty} of a cart holding ${cartQty}`).toBe(cartQty);
 
     // The cart total and the order total are NOT equal, and should not be: delivery is chosen after
     // the cart, so the order carries a shipping line the cart never showed. Asserting equality was
-    // wrong about the app, not a bug in it — the first run of this test failed with €40.54 vs
-    // €45.53, exactly one delivery option apart.
+    // wrong about the app and failed €40.54 vs €45.53 — exactly one delivery option apart.
     //
-    // What ties them is the arithmetic: the order total is the cart total plus a shipping amount
-    // that is itself shown on the confirmation. That cannot pass for an unrelated order.
-    const amount = (text: string) => Number(text.replace(/[^\d,.]/g, '').replace(',', '.'));
-    const orderTotal = (await page.getByTestId(PRICE).last().textContent())?.trim() ?? '';
-    const shown = await page.getByTestId(PRICE).allTextContents();
+    // What ties them is the arithmetic, against the SHIPPING ROW specifically. Matching the
+    // difference against "any price on the page" was too loose: with free shipping and a doubled
+    // quantity the difference equals the unit price, which is also on the page.
+    //
+    // Money is compared as integer minor units. Float arithmetic on 40.54 + 4.99 is exactly the
+    // kind of thing that produces 45.529999999999994.
+    const shippingCell = page
+      .locator('dt')
+      .filter({ hasText: /^Delivery$/ })
+      .locator('xpath=following-sibling::dd[1]');
+    await expect(shippingCell, 'the confirmation shows no delivery row').toBeVisible();
 
-    const delta = Number((amount(orderTotal) - amount(cartTotal)).toFixed(2));
-    expect(amount(orderTotal), 'the order total is below the cart total').toBeGreaterThanOrEqual(
-      amount(cartTotal),
-    );
+    const orderTotalMinor = minor((await page.getByTestId(PRICE).last().textContent()) ?? '');
+    const shippingMinor = minor((await shippingCell.textContent()) ?? '');
+
     expect(
-      shown.map(amount).map((n) => Number(n.toFixed(2))),
-      `the difference between cart (${cartTotal}) and order (${orderTotal}) is not a line on the confirmation`,
-    ).toContain(delta);
+      orderTotalMinor,
+      `order ${orderTotalMinor} != cart ${cartTotalMinor} + delivery ${shippingMinor}`,
+    ).toBe(cartTotalMinor + shippingMinor);
 
     // Re-reading the order by its id returns the same order — the id is real, not a render artefact.
+    // Compared in minor units, like every other money assertion here.
     await page.goto(`/en-GB/orders/${orderId}`);
-    await expect(page.getByTestId(PRICE).last()).toHaveText(orderTotal);
+    await expect(page.getByTestId(PRICE).last()).toBeVisible();
+    expect(
+      minor((await page.getByTestId(PRICE).last().textContent()) ?? ''),
+      'the order re-read by id shows a different total',
+    ).toBe(orderTotalMinor);
   });
 });
 
