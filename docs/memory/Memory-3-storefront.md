@@ -358,7 +358,12 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 - [ ] **#326 (REQUEST from window 10), its own PR after #312:** `test/starter-defaults.test.ts`
       imports `@/brand/*` at top level, so a clone whose `tokens.ts` uses `next/font/local` fails to
       collect the file before `runIf` is consulted. Fix: dynamic `await import(...)` inside each `it`
-      of the gated block. Brand A then drops its sync exclusion.
+      of the gated block. Brand A then drops its sync exclusion. **Written and committed as
+      `bdc92e0` on the local-only `storefront/hold-326` (off origin/main `2a0f828`; CHANGELOG
+      0.12.8, version 0.12.8). Verified: passes in the starter; fails when a token override is added;
+      skips (2 skipped) with a clone name and a `tokens.ts` that throws at import. Typecheck green.
+      After #312 merges: move onto `storefront/phase2`, merge main (CHANGELOG/version will conflict
+      with 0.12.7 — keep both entries, 0.12.8 on top), gates, PR "Closes #326".**
 
 - [ ] **Parked nits from the review of #309 (manager: "not now"):** the build marker describes the
       build on disk, not the running process; an out-of-range `/sitemap/N.xml` answers 200 empty
