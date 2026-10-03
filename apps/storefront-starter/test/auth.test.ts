@@ -20,7 +20,15 @@ const CONFIG = {
 
 describe('oidcConfigFromEnv', () => {
   it('defaults to the local customers realm and this app’s callback', () => {
-    expect(oidcConfigFromEnv({})).toEqual(CONFIG);
+    // Local development: the one place the callback may default to localhost (#298).
+    expect(oidcConfigFromEnv({ NODE_ENV: 'development' })).toEqual(CONFIG);
+  });
+
+  it('refuses to guess the callback when nothing says where the site is (#298)', () => {
+    // No NODE_ENV and no SITE_URL is how a misconfigured pod looks, not a laptop: a sign-in that
+    // cannot name its callback must not start.
+    expect(() => oidcConfigFromEnv({})).toThrow(/SITE_URL is not set/);
+    expect(() => oidcConfigFromEnv({ NODE_ENV: 'staging' })).toThrow(/SITE_URL is not set/);
   });
 
   it('follows the environment for Keycloak, realm, client and site URL', () => {

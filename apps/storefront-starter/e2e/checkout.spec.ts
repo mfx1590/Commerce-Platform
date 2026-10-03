@@ -63,8 +63,8 @@ async function settleOn(page: Page, step: string): Promise<void> {
 }
 
 /** Fill the address step. The values are ours, not the dataset's, so they are safe to assert on. */
-async function completeAddressStep(page: Page): Promise<void> {
-  await page.locator('input[name="email"]').fill('e2e-shopper@example.com');
+async function completeAddressStep(page: Page, email: string): Promise<void> {
+  await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="first_name"]').fill('Ada');
   await page.locator('input[name="last_name"]').fill('Lovelace');
   await page.locator('input[name="line1"]').fill('Keizersgracht 1');
@@ -81,7 +81,7 @@ async function completeAddressStep(page: Page): Promise<void> {
  * a real cart from the core starts at address. Driving whatever step is on screen is what makes one
  * spec cover both — and it exercises more of the funnel against the core, not less.
  */
-async function advanceToReview(page: Page): Promise<string[]> {
+async function advanceToReview(page: Page, email: string): Promise<string[]> {
   const visited: string[] = [];
 
   for (let guard = 0; guard < CHECKOUT_STEPS_MAX; guard += 1) {
@@ -92,7 +92,7 @@ async function advanceToReview(page: Page): Promise<string[]> {
 
     switch (step) {
       case 'address':
-        await completeAddressStep(page);
+        await completeAddressStep(page, email);
         break;
       case 'shipping':
         // The first option is preselected, so submitting is a real choice, not a no-op.
@@ -126,6 +126,15 @@ async function advanceToReview(page: Page): Promise<string[]> {
  */
 const SERVER_ACTION_TIMEOUT = 30_000;
 const NAVIGATION_TIMEOUT = 15_000;
+
+/**
+ * The budget of a whole test, which has to be larger than the deadlines inside it. Playwright's
+ * default is 30 s per test: under it a 30 s deadline can never be used in full — the test is
+ * killed first, and reports a test timeout instead of the assertion that was waiting. The journey
+ * has two server actions and three navigations; the listing test has four navigations.
+ */
+const JOURNEY_TIMEOUT = 180_000;
+const LISTING_TIMEOUT = 120_000;
 
 /**
  * Click a control once the page can act on it.
@@ -261,6 +270,16 @@ async function openPurchasableProduct(page: Page): Promise<{ handle: string; sku
 // ── The journey ──────────────────────────────────────────────────────────────────────────────────
 
 test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+
+  // An address only this run types. Every run buys the same SKU, one of it, to the same street:
+  // without something of its own, a confirmation page showing a *previous* run's order would
+  // pass every comparison below. The email is that something — it is ours, not the dataset's.
+  const shopperEmail = `e2e-shopper+${Date.now().toString(36)}${Math.random()
+    .toString(36)
+    .slice(2, 8)}@example.com`;
+  let enteredAddress = false;
+
   let chosen = { handle: '', sku: '' };
   let reviewed: CapturedOrder = { lines: [], totalMinor: 0, currency: '' };
 
@@ -305,7 +324,13 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
 
   await test.step('checkout: what the customer agrees to', async () => {
     await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
-    const visited = await advanceToReview(page);
+    const visited = await advanceToReview(page, shopperEmail);
+    enteredAddress = visited.includes('address');
+    // A real cart starts without an address, so against the core this run typed its own. (The
+    // mock's example cart already carries one and opens at the payment step.)
+    if (AGAINST_CORE) {
+      expect(enteredAddress, 'against the core the journey fills in the address step').toBe(true);
+    }
 
     await expect(page).toHaveURL(/\/en-GB\/checkout\/review$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Review your order' })).toBeVisible();
@@ -336,6 +361,15 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
       orderNumber,
     );
     expect(orderId, 'the confirmation carries the order id').not.toBe('');
+
+    // **This run's order, not an earlier one's.** The confirmation names the email the order was
+    // placed with, and only this run has ever typed this one.
+    if (enteredAddress) {
+      await expect(
+        confirmation,
+        'the confirmation is for the order placed with the email this run entered',
+      ).toContainText(shopperEmail);
+    }
     expect(new URL(page.url()).pathname.endsWith(`/orders/${orderId}`)).toBe(true);
 
     // The same lines, the same quantities, the same money as on the review page.
@@ -351,6 +385,14 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
     const bought = `${chosen.sku} (${chosen.handle}), order ${orderNumber}, on ${BACKEND}`;
     test.info().annotations.push({ type: 'order placed', description: bought });
     console.info(`[e2e] journey bought ${bought}`);
+  });
+
+  await test.step('afterwards: the cart that was ordered is gone', async () => {
+    // The second tie to this run, and the only one the mock can show: placing the order consumed
+    // the cart. A journey that landed on some other order's page would still have its cart.
+    await page.goto('/en-GB/cart');
+    await expect(page.getByRole('heading', { name: 'Your cart is empty' })).toBeVisible();
+    await expect(page.getByTestId('order-line')).toHaveCount(0);
   });
 });
 
@@ -404,6 +446,8 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
     'mock-only run: Prism returns the same example for every sort and category, so an order or a ' +
       'filtered set cannot be observed. Run against the core: E2E_STORE_API_URL=http://localhost:9000',
   );
+
+  test.setTimeout(LISTING_TIMEOUT);
 
   await page.goto('/en-GB/products');
   const all = await readCards(page);
@@ -471,8 +515,14 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
       `everything listed under "${target!.category}" belongs to it`,
     ).toEqual([]);
 
-    // And the filter removed what does not belong, where the full listing had any such product.
+    // And the filter removed what does not belong. There has to *be* something that does not
+    // belong: if every listed product sits inside the chosen category, "everything shown is a
+    // member" holds for a filter that does nothing at all.
     const strangers = all.filter((card) => !family.includes(card.category));
+    expect(
+      strangers.length,
+      `observing a filter needs a listed product outside "${target!.category}" — seed the store`,
+    ).toBeGreaterThan(0);
     for (const stranger of strangers) {
       expect(filtered.map((card) => card.handle)).not.toContain(stranger.handle);
     }

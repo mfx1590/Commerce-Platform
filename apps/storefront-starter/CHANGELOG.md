@@ -1,5 +1,54 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.5 — 2026-10-02
+
+Issue #298. No contract change. **Go-live blocker for sign-in behind the ingress.**
+
+- **Redirects go to this site's configured origin, not to the request's.** In a route handler
+  `request.nextUrl.origin` is the pod's own address — `localhost:3100` whatever `Host` says — so
+  behind the ingress sign-out gave Keycloak `http://localhost:3100/` as the return address, the
+  sign-in callback sent authenticated customers to `https://localhost:3100/…`, and every
+  `/r/{code}` referral link landed on localhost. All three now build their target with
+  `urlOnThisSite()` (`src/lib/site-origin.ts`) from `SITE_URL`, read at request time, never from
+  `Host` or `X-Forwarded-Host`, and still through both layers of the safe-path rule.
+- **`SITE_URL` fails closed, as an allow-list.** `siteUrl()` no longer answers
+  `http://localhost:3100` on a server that was not told its origin: it throws `SiteUrlError`.
+  The default remains only under `NODE_ENV=development`, `NODE_ENV=test` and during `next build`;
+  `staging`, an empty or missing `NODE_ENV` and anything misspelt throw too. It returns the
+  origin, never the raw value, so a `SITE_URL` with a path cannot make `siteUrl()` and
+  `siteOrigin()` disagree. A `SITE_URL` that is not an absolute
+  http(s) URL is refused everywhere. **Deployments must set `SITE_URL`** (the Helm values for dev
+  and staging already do); `pnpm start` by hand needs it too.
+- The OIDC callback URI uses the same definition (`siteUrl()`), where it had its own copy of the
+  fallback that ignored a brand's fixed origin.
+- The referral route compares the `Referer` against the configured origin, so a click from the
+  shop's own pages is no longer recorded as an external referrer.
+- A unit test per route handler (`test/route-origin.test.ts`), called as behind the ingress: the
+  request's origin, a hostile forwarded host and the public origin are three different strings.
+
+From the review of #316 (tests and docs; no behaviour change):
+
+- **A mock e2e run can no longer talk to the core by accident.** A shell that exported
+  `STORE_API_URL` overrode the mock: the core-only tests skipped "because Prism" while the
+  journey spent real seed stock. `scripts/e2e-env.mjs` drops the variable unless
+  `E2E_STORE_API_URL` names the core, as `scripts/perf.mjs` already did.
+- **The journey ties the confirmation to its own run.** Every run bought the same SKU, one of
+  it, to the same address, so a redirect to an earlier run's order would have passed. Against
+  the core the run enters an email only it uses and the confirmation must name it; on both
+  backends the cart must be empty afterwards.
+- **The category test fails when nothing is outside the category**, where "everything shown
+  belongs" would hold for a filter that does nothing.
+- **The journey and the listing test set their own test timeout**; under Playwright's 30 s
+  default the 30 s server-action deadline could never be used in full.
+- Docs: the `data-*` hooks ship in production builds, and four of them are not text on the page
+  (`data-order-id`, `data-category`, `data-availability`, `data-purchasable`); 0.12.4 said the
+  order _number_ matches the URL — it is the order _id_.
+- **The e2e server reports ready only once it is warm** (`scripts/e2e-server.mjs`). Playwright
+  waited on the app's URL and started its workers on a cold server seconds after `next build`;
+  on a laptop the first tests then timed out on 10 s documents and chunks while CI passed. The
+  script now answers a separate readiness URL only after a page and a static chunk have each
+  answered under a second twice in a row.
+
 ## 0.12.4 — 2026-10-02
 
 Issues #304 and #306. No contract change. Tests and test hooks only — no behaviour change.
@@ -7,8 +56,8 @@ Issues #304 and #306. No contract change. Tests and test hooks only — no behav
 - **The journey asserts the order it placed.** `e2e/checkout.spec.ts` stopped at the
   confirmation's heading, which wrong lines, a wrong total or someone else's order would pass.
   It now captures lines, quantities and total (minor units) at the review step and requires the
-  confirmation to show the same ones under an order number that is on the page and matches the
-  URL. Mutation-checked: a confirmation showing one unit too many fails it.
+  confirmation to show the same ones under an order number that is on the page, for the order
+  whose **id** is in the URL. Mutation-checked: a confirmation showing one unit too many fails it.
 - **The product is chosen by reported stock.** Against the core every run places a real order
   and nothing cancels it, so "the first product" was drained run by run. The journey takes the
   first listed product the storefront reports as purchasable, and fails with
