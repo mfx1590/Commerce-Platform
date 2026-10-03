@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.9** (main `9617832`; Store API 0.5.1 + addMyAddress defaults, 400 on updateMe/listMyOrders) · Branch: `storefront/phase2` (= main, nothing to push); **the worktree sits on the local-only `storefront/hold-312`, which has the newest copy of this file** · Status: Phase 2 docket done — **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316), #298 (#320) and #293 (#322) merged; #312 written and run on `storefront/hold-312`, waits for core PR C**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branch: `storefront/phase2` = #312 work + origin/main `2a0f828` merged (core PR C #325 = `5997584` is in), **not pushed** (`storefront/hold-312` is now stale, superseded) · Status: **#312 code-only checks green after the merge (typecheck, 496 unit tests); waiting for "the machine is YOURS" for gates + one core run, then push on the manager's confirm. #326 next, its own PR.**
 
 ## Identity (does not change)
 
@@ -255,7 +255,15 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   only. Every run: output to a file, started detached, polled with a bounded loop; no step waits
   on a pipe or on a server's lifetime. Ask before a perf gate.**
 
-- **#312 — CLIENT CHANGE WRITTEN, NOTHING RUN. Local-only branch `storefront/hold-312` on top of
+- **#312 — 2026-10-03, manager: core PR C (#325) merged as `5997584`.** `storefront/phase2` was
+  fast-forwarded to `storefront/hold-312` and merged with origin/main `2a0f828` (clean);
+  `pnpm install --frozen-lockfile`, typecheck (starter + ui) and 496 unit tests pass — nothing broke
+  against Store API 0.5.2. Package CLAUDE.md's token allow-list updated to the four calls. **Machine
+  NOT mine (window 10 measuring): no e2e / core / Lighthouse / docker until "the machine is YOURS".
+  Then: gates, one core run (expect a linked order; with a stale session, the fallback line), PR body
+  "Closes #312" (no closing keyword in commits), push only on the manager's confirm, merge main first.**
+  History below (the "nothing run" title is from before the first run):
+- **#312 — CLIENT CHANGE WRITTEN. Local-only branch `storefront/hold-312` on top of
   `storefront/phase2` (= PR #322's head). Its PR waits for the core's #303 PR C (window 1; core
   merges first — coordinate with the manager) and goes up after #322 merges.** Store API 0.5.1:
   `createCart` and `completeCart` take an OPTIONAL customer token; a token that is sent but invalid
@@ -346,6 +354,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 -->
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+
+- [ ] **#326 (REQUEST from window 10), its own PR after #312:** `test/starter-defaults.test.ts`
+      imports `@/brand/*` at top level, so a clone whose `tokens.ts` uses `next/font/local` fails to
+      collect the file before `runIf` is consulted. Fix: dynamic `await import(...)` inside each `it`
+      of the gated block. Brand A then drops its sync exclusion.
 
 - [ ] **Parked nits from the review of #309 (manager: "not now"):** the build marker describes the
       build on disk, not the running process; an out-of-range `/sitemap/N.xml` answers 200 empty

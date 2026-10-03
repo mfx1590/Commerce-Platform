@@ -35,7 +35,8 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
 - Talks only to the Store API (`@platform/contracts/store`), in Phase 1 against `pnpm mock` (:4010)
 - Sends `X-Publishable-Key` on every request (the API resolves store and sales channel from it and
   refuses requests without it). `Idempotency-Key` on `POST …/complete`; the customer's bearer token
-  only on `/store/customers/*` and `/store/orders/{id}`.
+  only on `/store/customers/*`, `GET /store/orders/{id}`, `POST /store/carts` and
+  `POST /store/carts/{id}/complete` (Store API 0.5.1+; a refused token falls back to guest once).
 - Route groups: (shop), (checkout), (account) (window 13), (content) (window 6)
 
 ## Layout
@@ -62,6 +63,6 @@ window 3 (storefront). (content) and src/lib/cms are window 6; (account) is wind
 - No secrets in code. No PII in logs. Every DB access through `@platform/db` tenant client.
 - No business logic here: pricing, stock, tax and promotions come from the core (ADR 0004).
 - Card data never touches the app — hosted fields only (window 7 in Phase 2).
-- Customer tokens live in an httpOnly cookie and go only to `/store/customers/*` and `/store/orders/{id}`.
+- Customer tokens live in an httpOnly cookie and go only to the four allow-listed calls above.
 - `start` must honour `$PORT` and `GET /health` must answer 200 (image contract, infra/README.md).
 - Update README.md and CHANGELOG.md with every change.
