@@ -510,7 +510,7 @@ describe('addresses', () => {
     (
       await owner.query<{ id: string; is_default_shipping: boolean; is_default_billing: boolean }>(
         `SELECT id, is_default_shipping, is_default_billing FROM customer_address
-         WHERE customer_id = $1 ORDER BY created_at, id`,
+         WHERE customer_id = $1 ORDER BY id`,
         [customerId],
       )
     ).rows;
@@ -588,10 +588,13 @@ describe('addresses', () => {
       is_default_billing: false,
     });
     expect(gift).toMatchObject({ is_default_shipping: true, is_default_billing: false });
-    expect(await addressRows(me.id)).toEqual([
-      { id: first.id, is_default_shipping: false, is_default_billing: true },
-      { id: gift.id, is_default_shipping: true, is_default_billing: false },
-    ]);
+    // compared by id, not by creation time: nothing here depends on the database clock
+    expect(await addressRows(me.id)).toEqual(
+      [
+        { id: first.id, is_default_shipping: false, is_default_billing: true },
+        { id: gift.id, is_default_shipping: true, is_default_billing: false },
+      ].sort((x, y) => (x.id < y.id ? -1 : 1)),
+    );
     const listed = await listCustomerAddresses(a, scopeA, grace);
     expect(listed.map((x) => x.id)).toEqual([gift.id, first.id]);
   });

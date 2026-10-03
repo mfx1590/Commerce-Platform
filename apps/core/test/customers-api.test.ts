@@ -440,6 +440,16 @@ describe('orders of the signed-in customer: an email is an identity only when th
       veraLinkedOrder,
       vera.body.id,
     ]);
+    // "Newest first" is a sort by placed_at (the database's now()). The three orders are placed a few hundred
+    // milliseconds apart, and the Postgres container's clock is not guaranteed to be monotonic across requests
+    // (seen once: the later order carried the earlier timestamp) — so the test sets the times it then sorts by.
+    for (const [id, placedAt] of [
+      [veraGuestOrder, '2026-09-01T10:00:00Z'],
+      [janeGuestOrder, '2026-09-01T10:01:00Z'],
+      [veraLinkedOrder, '2026-09-01T10:02:00Z'],
+    ]) {
+      await owner.query(`UPDATE "order" SET placed_at = $2 WHERE id = $1`, [id, placedAt]);
+    }
   }, 120_000);
 
   it('listMyOrders: verified email → guest orders with that email plus the linked ones, newest first, paginated', async () => {
@@ -576,6 +586,15 @@ describe('GET and POST /store/customers/me/addresses', () => {
     expect(gift.status).toBe(201);
     expect(gift.body).toMatchObject({ is_default_shipping: true, is_default_billing: false });
 
+    // "then oldest first" sorts by created_at: pinned here, not left to the database container's clock
+    await owner.query(`UPDATE customer_address SET created_at = $2 WHERE id = $1`, [
+      first.body.id,
+      '2026-09-01T10:00:00Z',
+    ]);
+    await owner.query(`UPDATE customer_address SET created_at = $2 WHERE id = $1`, [
+      second.body.id,
+      '2026-09-01T10:01:00Z',
+    ]);
     const list = await as('ursula', 'get', '/store/customers/me/addresses');
     expect(list.status).toBe(200);
     spec.assertItems('CustomerAddress', list.body);
