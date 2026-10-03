@@ -2,6 +2,7 @@ import { StoreApiClient } from './client';
 import { storeApiConfigFromEnv } from './config';
 
 export { StoreApiClient, allowsCustomerToken, buildUrl } from './client';
+export type { RequestOptions } from './client';
 export type { RequestOptions, StoreApiConfig } from './client';
 export { StoreApiError, isNotFound, isStoreApiError } from './errors';
 export { DEFAULT_STORE_API_URL, storeApiConfigFromEnv } from './config';

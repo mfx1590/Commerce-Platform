@@ -1,5 +1,27 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.7 — 2026-10-03
+
+Issue #312 (Store API 0.5.1, CONTRACT CHANGE #310). **Needs the core's #303 PR C to be live**; against
+an older core the token on these two calls is a 401, which this change turns into a guest call.
+
+- **The customer token goes on `createCart` and `completeCart` when a customer is signed in.** The
+  cart, and the order placed from it, are linked to the customer at the core, so the order shows
+  in their history without an email match. A guest cart completed after signing in is linked at
+  completion. `allowsCustomerToken` now takes the method: exactly `POST /store/carts` and
+  `POST /store/carts/{id}/complete` are added, by method and exact path; every other cart
+  operation still refuses the token.
+- **A refused token is a stale session, not a lost sale.** On a 401 `asCustomerOrGuest`
+  (`src/lib/customer-link.ts`) drops the session and makes the call once more as a guest — once,
+  never in a loop. The same idempotency key covers both completion attempts: a 401 placed nothing.
+- **A 409 `conflict` at completion as the customer is the link conflict** (cart linked to another
+  customer; nothing placed) and is shown as a recoverable error with the two ways out, by
+  `mapCompletionError`. As a guest, `conflict` keeps its meaning.
+- `refreshTokens` and `tokenEndpoint` take the provider half of the OIDC config, so a token refresh
+  can never depend on `SITE_URL` (#298 follow-up).
+- Tests: the allow-list by method, the token on both calls and on neither as a guest, the 401
+  retry and its single-shot rule, the 409 mapping in both modes.
+
 ## 0.12.6 — 2026-10-03
 
 Issue #293. No contract change. Uses window 6's `routedDocuments`, `campaignIsLive` and

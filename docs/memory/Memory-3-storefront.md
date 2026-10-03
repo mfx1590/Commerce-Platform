@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR six, in review; then #312**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR #322 (BLOCK on records only, fixed and pushed, awaiting the queue); #312 written on `storefront/hold-312`, unrun, waits for core PR C**
 
 ## Identity (does not change)
 
@@ -245,27 +245,33 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   only. Every run: output to a file, started detached, polled with a bounded loop; no step waits
   on a pipe or on a server's lifetime. Ask before a perf gate.**
 
-- **#312 — READ, NOT STARTED. After #298; waits for the core's side (#303 PR C, window 1; core
-  merges first, coordinate with the manager).** Store API 0.5.1: `createCart` and `completeCart`
-  take an OPTIONAL customer token; a token that is sent but invalid is a 401, never ignored; a
-  cart linked to another customer is a 409 `conflict` at completion.
-  - Where it lands: `src/lib/store-api/client.ts` `allowsCustomerToken` (today only
-    `/store/customers*` and `/store/orders/{id}`) must admit exactly `POST /store/carts` and
-    `POST /store/carts/{id}/complete` — by method and path, not by prefix, so no other cart
-    operation can ever carry it; `src/lib/cart.ts` / `src/lib/actions.ts` for the two calls;
-    `mapCheckoutError` for the 409.
-  - 401 on either call: drop the session and retry once as a guest — never loop. There is no
-    silent refresh in this app (`refreshTokens` is unused; cookies cannot be written during a
-    render, but both calls happen in server actions, where they can).
-  - **Where it meets #298:** #298 makes `oidcConfigFromEnv` throw when a production server has
-    no `SITE_URL`, and adds `oidcProviderFromEnv` for what does not depend on the site's origin.
-    Anything #312 does with the identity provider (a refresh, if one is ever added) must use the
-    provider half, so a missing origin cannot break a cart. Otherwise the two do not touch the
-    same files: #298 is `brand/config.ts`, `lib/site-origin.ts`, the three route handlers and
-    `oidc.ts`; #312 is the store-api client, cart and actions.
-  - Constraints from the issue: no token in logs, URLs or client-component props; a cart created
-    as a guest and completed after sign-in must still work; tests for signed-in create and
-    complete (token sent), guest (none), the 401 and the 409 paths.
+- **#312 — CLIENT CHANGE WRITTEN, NOTHING RUN. Local-only branch `storefront/hold-312` on top of
+  `storefront/phase2` (= PR #322's head). Its PR waits for the core's #303 PR C (window 1; core
+  merges first — coordinate with the manager) and goes up after #322 merges.** Store API 0.5.1:
+  `createCart` and `completeCart` take an OPTIONAL customer token; a token that is sent but invalid
+  is a 401, never ignored; a cart linked to another customer is a 409 `conflict` at completion.
+  - `allowsCustomerToken(path, method = 'GET')`: `/store/customers*`, `GET /store/orders/{id}`,
+    plus exactly `POST /store/carts` and `POST /store/carts/{id}/complete` (`isCartCompletePath`,
+    five segments). `RequestOptions` is now exported from the store-api index.
+  - `src/lib/customer-link.ts` `asCustomerOrGuest(call, deps?)` → `{ result, mode }`: token from
+    `getAccessToken()`; on a `StoreApiError` with status 401 it `clearSession()`s, warns one line
+    without the token, and calls once more as a guest; a second 401 propagates; other errors
+    propagate untouched. Used by `getOrCreateCart` (cart.ts) and `placeOrderAction` (actions.ts;
+    the same idempotency key on both attempts).
+  - `mapCompletionError(error, mode)` in checkout.ts: `conflict` as the customer → the link-conflict
+    message (sign out and place as a guest, or start a new cart); otherwise `mapCheckoutError`.
+  - OIDC: `refreshTokens`, `postToken` take `OidcProvider`; `tokenEndpoint` takes `Pick<…,'issuer'>`.
+  - Tests written: `customer-link.test.ts` (6), additions to `store-api.test.ts` (allow-list by
+    method, token on both calls, none as a guest, refused on `updateCart`) and `checkout.test.ts`
+    (`mapCompletionError`). README (client, accounts, cart sections), CHANGELOG 0.12.7.
+  **Owed when the machine is mine:** prettier, lint, typecheck (the `mode` variable in
+  `placeOrderAction`, the `OidcProvider` narrowing and the `RequestOptions` re-export are the
+  likely compile nits), unit tests; full mock e2e (Prism accepts and ignores the header); a core
+  run only once PR C is live — before that the core answers 401 to the token and the journey would
+  exercise the guest fallback, which is worth one run too (one unit of stock each). Not covered
+  by a test: the 401-then-guest path end to end, and the 409 at completion against a real core.
+  Constraints from the issue: no token in logs, URLs or client-component props (none of the three
+  touched files is a client component); a guest cart completed after sign-in must still work.
 
 - **#293 — PR #322 (first head `b716d64`). Review 2026-10-03: code correct, BLOCK on records only;
   the docs-only push that fixed this file and the binding test's docstring is the current head.**

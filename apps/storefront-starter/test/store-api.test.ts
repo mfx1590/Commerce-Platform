@@ -128,7 +128,55 @@ describe('customer token handling', () => {
     expect(allowsCustomerToken('/store')).toBe(false);
     expect(allowsCustomerToken('/store/products')).toBe(false);
     expect(allowsCustomerToken('/store/carts/cart-1')).toBe(false);
+    // A GET of the completion path is not an operation at all; only the POST takes a token.
     expect(allowsCustomerToken('/store/carts/cart-1/complete')).toBe(false);
+  });
+
+  it('allows the token on exactly the two cart operations whose contract takes one (0.5.1, #310)', () => {
+    expect(allowsCustomerToken('/store/carts', 'POST')).toBe(true);
+    expect(allowsCustomerToken('/store/carts/cart-1/complete', 'POST')).toBe(true);
+
+    // By method and exact path, never by prefix: no other cart operation takes a token.
+    expect(allowsCustomerToken('/store/carts', 'GET')).toBe(false);
+    expect(allowsCustomerToken('/store/carts/cart-1', 'GET')).toBe(false);
+    expect(allowsCustomerToken('/store/carts/cart-1', 'PATCH')).toBe(false);
+    expect(allowsCustomerToken('/store/carts/cart-1/line-items', 'POST')).toBe(false);
+    expect(allowsCustomerToken('/store/carts/cart-1/payment-session', 'POST')).toBe(false);
+    expect(allowsCustomerToken('/store/carts//complete', 'POST')).toBe(false);
+  });
+
+  it('attaches the bearer token on createCart and completeCart when given one', async () => {
+    const { impl, calls } = stubFetch({ id: 'cart-1' });
+    const client = new StoreApiClient({ ...CONFIG, fetchImpl: impl });
+
+    await client.createCart({ currency: 'EUR', locale: 'en-GB' }, { token: 'jwt-abc' });
+    await client.completeCart('cart-1', 'idem-1', { token: 'jwt-abc' });
+
+    expect(calls.map((call) => new Headers(call.init.headers).get('authorization'))).toEqual([
+      'Bearer jwt-abc',
+      'Bearer jwt-abc',
+    ]);
+  });
+
+  it('sends no authorization header on createCart and completeCart as a guest', async () => {
+    const { impl, calls } = stubFetch({ id: 'cart-1' });
+    const client = new StoreApiClient({ ...CONFIG, fetchImpl: impl });
+
+    await client.createCart({ currency: 'EUR', locale: 'en-GB' });
+    await client.completeCart('cart-1', 'idem-1');
+
+    for (const call of calls)
+      expect(new Headers(call.init.headers).has('authorization')).toBe(false);
+  });
+
+  it('still refuses the token on every other cart operation', async () => {
+    const { impl, calls } = stubFetch({ id: 'cart-1' });
+    const client = new StoreApiClient({ ...CONFIG, fetchImpl: impl });
+
+    await expect(
+      client.updateCart('cart-1', { email: 'a@example.com' }, { token: 'jwt-abc' }),
+    ).rejects.toThrow(/Refusing to send a customer token/);
+    expect(calls).toHaveLength(0);
   });
 
   it('attaches the bearer token on an allowed path', async () => {

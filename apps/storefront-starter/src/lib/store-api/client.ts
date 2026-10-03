@@ -24,7 +24,7 @@ interface NextFetchOptions {
 }
 
 export interface RequestOptions {
-  /** Keycloak customers-realm token. Only sent on customer-scoped paths (see `allowsCustomerToken`). */
+  /** Keycloak customers-realm token. Only sent where the contract takes one (see `allowsCustomerToken`). */
   token?: string | undefined;
   /** Generated once per checkout attempt and reused on retry (task 1.4). */
   idempotencyKey?: string | undefined;
@@ -36,11 +36,31 @@ export interface RequestOptions {
 }
 
 /**
- * Paths that may carry the customer's bearer token. Everything else is store-scoped and is
- * authorised by the publishable key alone, so a token must never travel with it.
+ * Requests that may carry the customer's bearer token — exactly the operations whose contract
+ * takes one. Everything else is store-scoped and is authorised by the publishable key alone, so a
+ * token must never travel with it.
+ *
+ * - `/store/customers*` and `GET /store/orders/{id}`: the customer's own data.
+ * - `POST /store/carts` and `POST /store/carts/{id}/complete` (Store API 0.5.1, #310): an optional
+ *   token links the cart, and the order placed from it, to the customer. **By method and exact
+ *   path**, not by prefix: no other cart operation takes a token, and a token sent where the
+ *   contract does not take one is a 401, never ignored.
  */
-export function allowsCustomerToken(path: string): boolean {
-  return path === '/store/customers' || path.startsWith('/store/customers/') || isOrderPath(path);
+export function allowsCustomerToken(path: string, method = 'GET'): boolean {
+  if (path === '/store/customers' || path.startsWith('/store/customers/')) return true;
+  if (isOrderPath(path)) return true;
+  return method.toUpperCase() === 'POST' && (path === '/store/carts' || isCartCompletePath(path));
+}
+
+function isCartCompletePath(path: string): boolean {
+  const segments = path.split('/');
+  return (
+    segments.length === 5 &&
+    segments[1] === 'store' &&
+    segments[2] === 'carts' &&
+    segments[3] !== '' &&
+    segments[4] === 'complete'
+  );
 }
 
 function isOrderPath(path: string): boolean {
@@ -89,7 +109,7 @@ export class StoreApiClient {
     if (body !== undefined) headers.set('content-type', 'application/json');
     if (options?.idempotencyKey) headers.set(HEADERS.idempotencyKey, options.idempotencyKey);
     if (options?.token) {
-      if (!allowsCustomerToken(path)) {
+      if (!allowsCustomerToken(path, method)) {
         throw new Error(`Refusing to send a customer token to ${path}`);
       }
       headers.set('authorization', `Bearer ${options.token}`);

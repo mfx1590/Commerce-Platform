@@ -158,6 +158,26 @@ function detailString(details: Record<string, unknown>, key: string): string | u
  * Turn a Store API failure into something the checkout can act on. The contract's `code` is the
  * contract; the message is only ever a fallback for display.
  */
+/**
+ * `mapCheckoutError` for the completion call, which knows one more thing: whether the order was
+ * being placed **as the signed-in customer**. The contract (Store API 0.5.1, #310) reserves 409
+ * `conflict` at completion for a cart that is already linked to *another* customer than the
+ * token's — nothing was placed, nothing authorised. That is recoverable and must be said: sign out
+ * and place it as a guest, or start a new cart. As a guest, `conflict` keeps its usual meaning.
+ */
+export function mapCompletionError(error: unknown, mode: 'customer' | 'guest'): CheckoutError {
+  const mapped = mapCheckoutError(error);
+  if (mode === 'customer' && mapped.code === 'conflict') {
+    return {
+      code: 'conflict',
+      message:
+        'This cart was started by a different customer account, so it cannot be placed from yours. ' +
+        'Sign out to place it as a guest, or start a new cart.',
+    };
+  }
+  return mapped;
+}
+
 export function mapCheckoutError(error: unknown): CheckoutError {
   if (!isStoreApiError(error)) {
     return { code: 'internal', message: 'Something went wrong. Please try again.' };
