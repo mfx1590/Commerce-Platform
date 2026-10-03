@@ -14,6 +14,15 @@ import { expect, test, type Page } from '@playwright/test';
  * they are required**: the workflow boots Keycloak, so an unreachable one is a real failure, and a
  * silent skip there would quietly stop covering sign-in altogether. `E2E_REQUIRE_KEYCLOAK=1` forces
  * the same strictness anywhere.
+ *
+ * **Which backend answers what (#306).** Sign-in, the return URL, the session cookie and
+ * sign-out are real against either backend: they are Keycloak and this app. The customer's
+ * profile and the order list are not — the core mounts no `/store/customers*` and no order list
+ * (#303), so even in a run against the core those two requests are answered by Prism through
+ * `CORE_STORE_API_FALLBACK`, with the contract's examples. The test that reads them is therefore
+ * labelled mock-only and does not run against the core, where it would pass identically whether
+ * or not the core works. Its core-backed replacement waits for #303, and will read an order
+ * placed during the run rather than naming one.
  */
 
 /**
@@ -28,6 +37,7 @@ const REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
 const CUSTOMER = { username: 'jane@example.com', password: 'jane' };
 
 const REQUIRE_KEYCLOAK = process.env.E2E_REQUIRE_KEYCLOAK === '1' || Boolean(process.env.CI);
+const AGAINST_CORE = process.env.E2E_STORE_API_URL !== undefined;
 
 let keycloakReachable = false;
 
@@ -78,17 +88,41 @@ test('an unauthenticated visitor is sent to sign-in and back to the page they as
   await expect(page.getByRole('heading', { level: 1, name: 'Order history' })).toBeVisible();
 });
 
-test('order history lists the seeded order with its price', async ({ page }) => {
+test('a signed-in customer reaches the account home and the order history', async ({ page }) => {
+  // Ours and Keycloak's, so real against either backend: the session, the two routes, the copy.
   await page.goto('/en-GB/account');
   await signIn(page);
 
   await expect(page).toHaveURL(/\/en-GB\/account$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Order history' }).click();
+  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Order history' })).toBeVisible();
+});
+
+test('mock-only: the profile and the order history render the contract examples', async ({
+  page,
+}) => {
+  test.skip(
+    AGAINST_CORE,
+    'mock-only: the core serves neither /store/customers* nor an order list (#303); through ' +
+      'CORE_STORE_API_FALLBACK both are answered by Prism, so this would pass whether or not the ' +
+      'core works. The core-backed version waits for #303.',
+  );
+
+  await page.goto('/en-GB/account');
+  await signIn(page);
+  await expect(page).toHaveURL(/\/en-GB\/account$/);
+
+  // The two values below are **Prism's examples**, not ours and not the seed's: the example
+  // customer of `GET /store/customers/me` and the example order of the order list. Naming a
+  // dataset value is exactly what this suite otherwise refuses to do; it is allowed here only
+  // because the test says what it is — proof that the two pages render what the API returned.
   await expect(page.getByText('jane@example.com')).toBeVisible();
 
   await page.getByRole('link', { name: 'Order history' }).click();
   await expect(page).toHaveURL(/\/en-GB\/account\/orders$/);
-
   await expect(page.getByRole('link', { name: /Order #1000/ })).toBeVisible();
   await expect(page.getByTestId('price-value').first()).toBeVisible();
 });

@@ -73,42 +73,33 @@ for (const route of ROUTES) {
 }
 
 /**
- * The tags are present, but on most routes they are in `<body>` rather than `<head>` — diagnosed on
- * **#274** (metadata that suspends on data is flushed after the shell). It is the starter's to fix.
+ * Metadata is in `<head>` on brand A's routes, in the bytes the server sends (#274, fixed by #299).
  *
- * This test pins the current, wrong state per route so the fix announces itself instead of landing
- * silently: when #274 is fixed these routes move to `<head>` and this goes red, which is the signal
- * to delete it and assert the correct placement everywhere.
+ * This replaces the pin that held the old, wrong state (tags flushed after `</head>`) — it went red
+ * on the re-sync that brought `htmlLimitedBots` in, as designed. The starter's synced
+ * `e2e/seo-head.spec.ts` holds the general rule across user agents on the starter's routes; this
+ * adds brand A's own content routes, which only exist with brand A's dataset and are where hreflang
+ * had neither accepted mechanism before #322.
  *
- * It matters beyond a Lighthouse point: Google ignores hreflang outside `<head>`, and the content
- * routes are also absent from the sitemap (#293), so on those routes the locale annotation is
- * currently in neither accepted mechanism.
+ * Served bytes, not the DOM: React hoists streamed tags into `<head>` during hydration, so a DOM
+ * check passes whether or not a crawler would see them.
  */
-test('metadata placement is still the #274 state — delete this when that lands', async ({
+test('metadata is in <head> on every brand A route, content routes included', async ({
   request,
 }) => {
-  /**
-   * Measured on the **served bytes**, not the hydrated DOM — and that distinction is the point.
-   *
-   * The first version of this test asked the DOM (`closest('head')`) and was itself flaky: it failed
-   * one run in five claiming the tags had "moved to <head>". They had not. The server is completely
-   * deterministic — 60 of 60 requests across three routes put the description after `</head>` — but
-   * React sometimes hoists the tags into `<head>` during hydration, so what the DOM reports depends
-   * on when it is sampled.
-   *
-   * That is almost certainly the same race behind the Lighthouse `meta-description` flake on #274:
-   * not request-to-request variance, but whether the audit samples before or after hydration. A
-   * crawler reading the raw HTML never sees the hoist at all, which is why the server-side position
-   * is the one that matters and the one asserted here.
-   */
   const placement = async (path: string) => {
-    const body = await (await request.get(path)).text();
+    // Lower-cased: React writes `hrefLang=`, and HTML attribute names are case-insensitive.
+    const body = (await (await request.get(path)).text()).toLowerCase();
     const headEnd = body.indexOf('</head>');
     const at = (needle: string) => {
       const i = body.indexOf(needle);
       return i === -1 ? 'absent' : i < headEnd ? 'head' : 'body';
     };
-    return { description: at('name="description"'), canonical: at('rel="canonical"') };
+    return {
+      description: at('name="description"'),
+      canonical: at('rel="canonical"'),
+      hreflang: at('hreflang="de-de"'),
+    };
   };
 
   for (const path of [
@@ -116,10 +107,13 @@ test('metadata placement is still the #274 state — delete this when that lands
     '/en-GB/products',
     '/en-GB/products/classic-tee',
     '/de-DE/products',
+    // Same gate as the route test above: without a seeded dataset these answer 404.
+    ...(process.env.CMS_DATASET ? ['/en-GB/pages/about', '/de-DE/legal/imprint'] : []),
   ]) {
-    expect(await placement(path), `${path} moved to <head> — #274 may be fixed`).toEqual({
-      description: 'body',
-      canonical: 'body',
+    expect(await placement(path), path).toEqual({
+      description: 'head',
+      canonical: 'head',
+      hreflang: 'head',
     });
   }
 });

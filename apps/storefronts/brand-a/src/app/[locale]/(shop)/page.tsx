@@ -1,6 +1,7 @@
 import { Badge, buttonVariants, Card, CardContent, CardHeader, CardTitle } from '@platform/ui';
 import { getTranslations } from 'next-intl/server';
 import { JsonLd } from '@/components/json-ld';
+import { StoreFacts } from '@/components/store-facts';
 import { HOME_SLUG, HomeContent } from '@/lib/cms/components';
 import { getContent } from '@/lib/cms/content';
 import { Link } from '@/i18n/navigation';
@@ -57,34 +58,24 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
         <h2 id="store-facts" className="mb-4 text-xl font-semibold">
           {t('thisStore')}
         </h2>
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Fact label={t('code')} value={store.code} />
-          <Fact label={t('shipsTo')} value={store.default_country} />
-          <Fact
-            label={t('currencies')}
-            value={store.currencies.join(', ')}
-            hint={t('default', { value: store.default_currency })}
-          />
-          <Fact
-            label={t('locales')}
-            value={store.locales.join(', ')}
-            hint={t('default', { value: store.default_locale })}
-          />
-        </dl>
+        <StoreFacts
+          facts={[
+            { label: t('code'), value: store.code },
+            { label: t('shipsTo'), value: store.default_country },
+            {
+              label: t('currencies'),
+              value: store.currencies.join(', '),
+              hint: t('default', { value: store.default_currency }),
+            },
+            {
+              label: t('locales'),
+              value: store.locales.join(', '),
+              hint: t('default', { value: store.default_locale }),
+            },
+          ]}
+        />
       </section>
     </div>
-  );
-}
-
-function Fact({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <dt className="text-sm text-muted-foreground">{label}</dt>
-        <dd className="mt-1 text-lg font-medium">{value}</dd>
-        {hint === undefined ? null : <dd className="text-sm text-muted-foreground">{hint}</dd>}
-      </CardContent>
-    </Card>
   );
 }
 

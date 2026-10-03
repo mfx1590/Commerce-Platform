@@ -76,6 +76,9 @@ function readerFor(locale: string): CmsReader {
       byType('legal')
         .filter((d) => d.locale === locale)
         .map((d) => d.slug.current),
+    // The sitemap's read; this file renders pages, so it is never called here. The inventory it
+    // yields from this dataset is asserted in brand-i18n-seo.test.ts.
+    routedDocuments: async () => [],
   };
 }
 

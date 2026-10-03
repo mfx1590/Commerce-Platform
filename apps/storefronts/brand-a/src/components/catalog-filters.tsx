@@ -115,6 +115,7 @@ function CategoryLink({
     <Link
       href={`/categories/${category.handle}`}
       aria-current={active ? 'page' : undefined}
+      data-category={category.handle}
       className={cn('hover:underline', active && 'font-medium underline')}
     >
       {category.name}

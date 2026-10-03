@@ -1,3 +1,4 @@
+import { minorUnitDigits } from '@platform/ui';
 import { brandConfig, siteUrl } from '@/brand/config';
 import { locales } from '@/i18n/routing';
 import type { Product, Variant } from './store-api';
@@ -81,9 +82,16 @@ export function availabilityOf(variant: Variant | undefined): string {
   return 'https://schema.org/OutOfStock';
 }
 
-/** Minor units are the contract's money representation; schema.org wants a decimal string. */
+/**
+ * Minor units are the contract's money representation; schema.org wants a decimal string.
+ *
+ * The exponent comes from the kit's `minorUnitDigits` — the function `Price` divides by — so the
+ * price a crawler reads cannot disagree with the one on the page. A hand-kept list of zero-decimal
+ * currencies (it was JPY and KRW) prices every other one a hundred times too low, and has no answer
+ * for the three-decimal ones.
+ */
 export function priceString(amountMinor: number, currency: string): string {
-  const digits = currency === 'JPY' || currency === 'KRW' ? 0 : 2;
+  const digits = minorUnitDigits(currency);
   return (amountMinor / 10 ** digits).toFixed(digits);
 }
 
@@ -200,6 +208,55 @@ export const SITEMAP_PAGE_SIZE = 5000;
 
 export function sitemapPageCount(entryCount: number): number {
   return Math.max(1, Math.ceil(entryCount / SITEMAP_PAGE_SIZE));
+}
+
+/** A locale-less path the sitemap advertises. */
+export interface SitemapPath {
+  /** e.g. `/products/alpine-backpack`; `''` is the home page. */
+  path: string;
+  lastModified?: Date | undefined;
+  /**
+   * The locales this path exists in. Absent means every locale — true of the catalogue, which the
+   * Store API serves in all of them. A CMS document is published per locale, so it names its own.
+   */
+  locales?: readonly string[] | undefined;
+}
+
+export interface SitemapUrl {
+  url: string;
+  lastModified?: Date;
+  alternates: { languages: Record<string, string> };
+}
+
+/**
+ * Every URL the sitemap serves, in order: one per locale a path exists in, each carrying `hreflang`
+ * alternates for exactly those locales.
+ *
+ * This is the **only** place paths become URLs, and both the sitemap pages and the index count its
+ * output. While every path existed in every locale the count was `paths x locales` and was written
+ * out twice; with per-locale documents that product over-counts, and an index built on it advertises
+ * a page that is empty. An alternate is listed only where the document exists, because an `hreflang`
+ * pointing at a 404 is worse than none. Locales this build does not route are ignored.
+ */
+export function sitemapUrls(
+  paths: readonly SitemapPath[],
+  allLocales: readonly string[] = locales,
+  env?: Record<string, string | undefined>,
+): SitemapUrl[] {
+  return paths.flatMap((entry) => {
+    const own = entry.locales;
+    const available =
+      own === undefined ? allLocales : allLocales.filter((locale) => own.includes(locale));
+    const languages = Object.fromEntries(
+      available.map((locale) => [locale, absoluteUrl(localizedPath(locale, entry.path), env)]),
+    );
+
+    return available.map((locale) => ({
+      url: languages[locale]!,
+      ...(entry.lastModified === undefined ? {} : { lastModified: entry.lastModified }),
+      alternates: { languages },
+    }));
+  });
 }
 
 /** The page size the Store API allows (`limit` maximum is 100), used when walking the catalogue. */
