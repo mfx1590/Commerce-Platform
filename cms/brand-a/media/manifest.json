@@ -1,0 +1,272 @@
+{
+  "brand": "brand-a",
+  "source": "commerce-platform-media/brand-a/manifest.json (outside the repo), generated 2026-10-03",
+  "generator": "Higgsfield, model gpt_image_2_5 (premium = quality high; 4k heroes, 2k products); videos kling3_0 pro",
+  "licence": "generated under the owner's Higgsfield subscription; synthetic products; no identifiable people (figures are seen from behind)",
+  "delivery": "Cloudinary: https://res.cloudinary.com/<cloud>/<image|video>/upload/<publicId>",
+  "slots": [
+    {
+      "slot": "about-cutting-table",
+      "kind": "image",
+      "publicId": "brand-a/about-cutting-table",
+      "source": "premium-4k/about-cutting-table-3x2.png",
+      "bytes": 12736656,
+      "sha256": "e7ea515ee963817c6684eedfa1c38f933dc6fee9ef881357ffc9fb737a74e086",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A roll of undyed cloth on a worn cutting table, with shears, a tape measure and tailor's chalk",
+        "de-DE": "Eine Rolle ungefärbter Stoff auf einem abgenutzten Zuschneidetisch, mit Schere, Maßband und Schneiderkreide"
+      }
+    },
+    {
+      "slot": "about-loom-hands",
+      "kind": "image",
+      "publicId": "brand-a/about-loom-hands",
+      "source": "premium-4k/about-loom-hands-3x2.png",
+      "bytes": 11442059,
+      "sha256": "e16fcc9fb6d8cb51cef33fa9fcd5f03e2f154a765dd5ec98876aed2a8f8c116e",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "Hands at a wooden loom, drawing a thread through the warp above the woven cloth",
+        "de-DE": "Hände an einem Holzwebstuhl ziehen einen Faden durch die Kette über dem gewebten Stoff"
+      }
+    },
+    {
+      "slot": "campaign-autumn-02",
+      "kind": "image",
+      "publicId": "brand-a/campaign-autumn-02",
+      "source": "premium-4k/campaign-autumn-02-3x2.png",
+      "bytes": 10273969,
+      "sha256": "df6219279fb5d9e19ac2c618ea8f0d79b229950a2d0584a6490ef9257a6fecf2",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "Hands in a chunky knit sweater holding a stoneware cup, a misty landscape behind",
+        "de-DE": "Hände in einem grob gestrickten Pullover halten einen Steinzeugbecher, dahinter eine neblige Landschaft"
+      }
+    },
+    {
+      "slot": "campaign-autumn-03",
+      "kind": "image",
+      "publicId": "brand-a/campaign-autumn-03",
+      "source": "premium-4k/campaign-autumn-03-3x4.png",
+      "bytes": 13699362,
+      "sha256": "be22240129abad12f08e1a4ea8d0c37970c9620a625329bcd789fff3b144d324",
+      "width": 2480,
+      "height": 3312,
+      "aspect": "3:4",
+      "alt": {
+        "en-GB": "A person in a long camel coat walking away down a leaf-covered avenue",
+        "de-DE": "Eine Person im langen kamelfarbenen Mantel geht eine laubbedeckte Allee entlang"
+      }
+    },
+    {
+      "slot": "campaign-autumn-hero",
+      "kind": "image",
+      "publicId": "brand-a/campaign-autumn-hero",
+      "source": "premium-4k/campaign-autumn-hero-3x2.png",
+      "bytes": 11392612,
+      "sha256": "de21fa3a97655cf2298dc63ded92a12f050b0faf8343464c20dbf38cfd03ca59",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A cream cable-knit cardigan and a rust wool scarf over a wooden chair, autumn leaves on the floorboards",
+        "de-DE": "Eine cremefarbene Zopfstrickjacke und ein rostfarbener Wollschal über einem Holzstuhl, Herbstlaub auf den Dielen"
+      }
+    },
+    {
+      "slot": "campaign-autumn-hero-loop-8s",
+      "kind": "video",
+      "publicId": "brand-a/campaign-autumn-hero-loop-8s",
+      "source": "video/campaign-autumn-hero-loop-8s.mp4",
+      "bytes": 11221767,
+      "sha256": "0c8280dd06c5126ea209707c78017f0d18ad36aadd5297803d65ccf3e2a6f851",
+      "poster": "campaign-autumn-hero"
+    },
+    {
+      "slot": "campaign-spring-02",
+      "kind": "image",
+      "publicId": "brand-a/campaign-spring-02",
+      "source": "premium-4k/campaign-spring-02-3x2.png",
+      "bytes": 11062792,
+      "sha256": "a21318eedd49e04f75f3294eba753fd6c917e66c473d5ff9ad7218ac42d410ed",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2"
+    },
+    {
+      "slot": "campaign-spring-03",
+      "kind": "image",
+      "publicId": "brand-a/campaign-spring-03",
+      "source": "premium-4k/campaign-spring-03-3x4.png",
+      "bytes": 11561324,
+      "sha256": "583a37fefdd8148cd0c56a23dcfc4df6691af52c6512532d2cd0d41e2ff77d30",
+      "width": 2480,
+      "height": 3312,
+      "aspect": "3:4"
+    },
+    {
+      "slot": "campaign-spring-hero",
+      "kind": "image",
+      "publicId": "brand-a/campaign-spring-hero",
+      "source": "premium-4k/campaign-spring-hero-3x2.png",
+      "bytes": 11011926,
+      "sha256": "cecfbbe158c62ac616c48a76a984d0544731561c4036d8fe91185937424db283",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2"
+    },
+    {
+      "slot": "campaign-summer-02",
+      "kind": "image",
+      "publicId": "brand-a/campaign-summer-02",
+      "source": "premium-4k/campaign-summer-02-3x2.png",
+      "bytes": 13300861,
+      "sha256": "94d8feadad4c63fe0d1996e940aeb1c1e24aced84cb9c62be8a581f7bfa20e32",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2"
+    },
+    {
+      "slot": "campaign-summer-03",
+      "kind": "image",
+      "publicId": "brand-a/campaign-summer-03",
+      "source": "premium-4k/campaign-summer-03-3x4.png",
+      "bytes": 14109381,
+      "sha256": "e62c0ce25b1348bceae8a00289d06066e155b6b8402a3183310ac664048f6ba3",
+      "width": 2480,
+      "height": 3312,
+      "aspect": "3:4"
+    },
+    {
+      "slot": "campaign-summer-hero",
+      "kind": "image",
+      "publicId": "brand-a/campaign-summer-hero",
+      "source": "premium-4k/campaign-summer-hero-3x2.png",
+      "bytes": 15313499,
+      "sha256": "08df3c640320d9008180071739843e17cd44dced1a141aa44ca460e24c78ea30",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2"
+    },
+    {
+      "slot": "campaign-winter-02",
+      "kind": "image",
+      "publicId": "brand-a/campaign-winter-02",
+      "source": "premium-4k/campaign-winter-02-3x2.png",
+      "bytes": 10989290,
+      "sha256": "87d85670119a1c7655bff8c9f3602d4ee45170c4fa742b3552fb656fee8e6165",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2"
+    },
+    {
+      "slot": "campaign-winter-03",
+      "kind": "image",
+      "publicId": "brand-a/campaign-winter-03",
+      "source": "premium-4k/campaign-winter-03-3x4.png",
+      "bytes": 10626542,
+      "sha256": "b6e3e3eb1da75eb98439a7f68a7eb78115e25cf4331022def2d3f588f8704e72",
+      "width": 2480,
+      "height": 3312,
+      "aspect": "3:4"
+    },
+    {
+      "slot": "campaign-winter-hero",
+      "kind": "image",
+      "publicId": "brand-a/campaign-winter-hero",
+      "source": "premium-4k/campaign-winter-hero-3x2.png",
+      "bytes": 11096364,
+      "sha256": "10949b271a1b366b2a45cc24276cb292797ecebeeca80e5ef5eb4709d6f3c83d",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2"
+    },
+    {
+      "slot": "cloth-weave-macro",
+      "kind": "image",
+      "publicId": "brand-a/cloth-weave-macro",
+      "source": "premium-4k/cloth-weave-macro-3x2.png",
+      "bytes": 14477803,
+      "sha256": "3c0c32c86307945f175c1df76cd3a6c36c995483b5420272d16bc7c051c52983",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "Close-up of undyed twill, the diagonal ribs of the weave catching the light",
+        "de-DE": "Nahaufnahme von ungefärbtem Köper, die diagonalen Grate der Bindung im Streiflicht"
+      }
+    },
+    {
+      "slot": "home-hero-01",
+      "kind": "image",
+      "publicId": "brand-a/home-hero-01",
+      "source": "premium-4k/home-hero-01-3x2.png",
+      "bytes": 13740405,
+      "sha256": "a2293309fc8f4300e6b92da62ce29651585b4493f172c80c2cff110a222312cf",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A charcoal overshirt and an ecru T-shirt, folded on a linen-covered table by a window",
+        "de-DE": "Ein anthrazitfarbenes Overshirt und ein naturweißes T-Shirt, gefaltet auf einem leinenbezogenen Tisch am Fenster"
+      }
+    },
+    {
+      "slot": "home-hero-02",
+      "kind": "image",
+      "publicId": "brand-a/home-hero-02",
+      "source": "premium-4k/home-hero-02-3x2.png",
+      "bytes": 13852330,
+      "sha256": "3341c1835243fed422e35c95ededd0e329cefee7567af26d93d571a736b0aa75",
+      "width": 3504,
+      "height": 2336,
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A natural linen shirt on a wooden hanger against a sunlit plaster wall",
+        "de-DE": "Ein Hemd aus naturfarbenem Leinen auf einem Holzbügel vor einer sonnenbeschienenen Putzwand"
+      }
+    },
+    {
+      "slot": "home-hero-03",
+      "kind": "image",
+      "publicId": "brand-a/home-hero-03",
+      "source": "premium-4k/home-hero-03-3x4.png",
+      "bytes": 12019440,
+      "sha256": "a342e2a5c43f46ef7712b6f212ae27f87645f1a2200b1859174c14b899f0f96d",
+      "width": 2480,
+      "height": 3312,
+      "aspect": "3:4"
+    },
+    {
+      "slot": "home-hero-shirt-loop-8s",
+      "kind": "video",
+      "publicId": "brand-a/home-hero-shirt-loop-8s",
+      "source": "video/home-hero-shirt-loop-8s.mp4",
+      "bytes": 11129756,
+      "sha256": "54e8fae18b89b36e6f3cae961e0fdc553d5479998c85d558b0c404ebf2a56041",
+      "poster": "home-hero-02"
+    },
+    {
+      "slot": "og-default",
+      "kind": "image",
+      "publicId": "brand-a/og-default",
+      "source": "premium-4k/og-default-16x9.png",
+      "bytes": 16497060,
+      "sha256": "04d078baddcd0daa21ebe46cd65668631e1d084451fb8877de5ecabff5b8968f",
+      "width": 3840,
+      "height": 2160,
+      "aspect": "16:9",
+      "alt": {
+        "en-GB": "A charcoal overshirt and an ecru T-shirt, folded on undyed linen",
+        "de-DE": "Ein anthrazitfarbenes Overshirt und ein naturweißes T-Shirt, gefaltet auf ungefärbtem Leinen"
+      }
+    }
+  ]
+}

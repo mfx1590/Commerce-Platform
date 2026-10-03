@@ -32,6 +32,7 @@ import {
   validateDocument,
   schemaTypes,
 } from '@platform/cms';
+import { cloudNameFrom, resolveMedia } from './resolve-media.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const contentDir = path.resolve(here, '..', 'content');
@@ -58,7 +59,25 @@ function readContent() {
     .flatMap((file) => JSON.parse(readFileSync(path.join(contentDir, file), 'utf8')));
 }
 
-const documents = readContent();
+// Images are authored as media slots and become Cloudinary URLs here (resolve-media.mjs). Only the
+// cloud name is read — never the Cloudinary API key or secret.
+const manifest = JSON.parse(
+  readFileSync(path.resolve(here, '..', 'media', 'manifest.json'), 'utf8'),
+);
+const cloudName = cloudNameFrom(process.env);
+const media = resolveMedia(readContent(), manifest, { cloudName });
+if (media.errors.length > 0) {
+  for (const error of media.errors) console.error(`media: ${error}`);
+  console.error(`\n${media.errors.length} media error(s); nothing was sent.`);
+  process.exit(1);
+}
+if (media.dropped > 0) {
+  console.warn(
+    `media: no Cloudinary cloud name (CLOUDINARY_CLOUD_NAME_BRAND_A or CLOUDINARY_CLOUD_NAME); ` +
+      `${media.dropped} optional image(s) left out.`,
+  );
+}
+const documents = media.documents;
 
 // Validate before sending, never after. A schema violation that reaches the dataset is visible to
 // editors in the Studio and has to be fixed by hand there; caught here it is a one-line edit.

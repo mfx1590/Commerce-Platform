@@ -4,7 +4,10 @@
     "_type": "campaignLanding",
     "locale": "en-GB",
     "title": "The autumn cloth",
-    "slug": { "_type": "slug", "current": "autumn-cloth" },
+    "slug": {
+      "_type": "slug",
+      "current": "autumn-cloth"
+    },
     "campaignId": "autumn-2026-cloth",
     "startsAt": "2026-09-01T00:00:00.000Z",
     "endsAt": "2026-12-01T00:00:00.000Z",
@@ -22,7 +25,11 @@
           "href": "/products",
           "variant": "primary"
         }
-      ]
+      ],
+      "image": {
+        "_type": "image",
+        "mediaSlot": "campaign-autumn-hero"
+      }
     },
     "blocks": [
       {
@@ -33,7 +40,13 @@
             "_type": "block",
             "_key": "c-why-h",
             "style": "h2",
-            "children": [{ "_type": "span", "_key": "c-why-h-s", "text": "Why a whole run" }]
+            "children": [
+              {
+                "_type": "span",
+                "_key": "c-why-h-s",
+                "text": "Why a whole run"
+              }
+            ]
           },
           {
             "_type": "block",
@@ -48,6 +61,24 @@
             ]
           }
         ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-campaign-autumn-02",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "campaign-autumn-02"
+        },
+        "width": "wide"
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-campaign-autumn-03",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "campaign-autumn-03"
+        },
+        "width": "content"
       },
       {
         "_type": "productStory",
@@ -87,7 +118,10 @@
     "_type": "campaignLanding",
     "locale": "de-DE",
     "title": "Der Herbststoff",
-    "slug": { "_type": "slug", "current": "autumn-cloth" },
+    "slug": {
+      "_type": "slug",
+      "current": "autumn-cloth"
+    },
     "campaignId": "autumn-2026-cloth",
     "startsAt": "2026-09-01T00:00:00.000Z",
     "endsAt": "2026-12-01T00:00:00.000Z",
@@ -105,7 +139,11 @@
           "href": "/products",
           "variant": "primary"
         }
-      ]
+      ],
+      "image": {
+        "_type": "image",
+        "mediaSlot": "campaign-autumn-hero"
+      }
     },
     "blocks": [
       {
@@ -117,7 +155,11 @@
             "_key": "c-why-h",
             "style": "h2",
             "children": [
-              { "_type": "span", "_key": "c-why-h-s", "text": "Warum die ganze Produktion" }
+              {
+                "_type": "span",
+                "_key": "c-why-h-s",
+                "text": "Warum die ganze Produktion"
+              }
             ]
           },
           {
@@ -133,6 +175,24 @@
             ]
           }
         ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-campaign-autumn-02",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "campaign-autumn-02"
+        },
+        "width": "wide"
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-campaign-autumn-03",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "campaign-autumn-03"
+        },
+        "width": "content"
       },
       {
         "_type": "productStory",
