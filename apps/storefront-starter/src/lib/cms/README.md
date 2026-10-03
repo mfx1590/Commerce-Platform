@@ -162,8 +162,21 @@ redirecting. `GET /api/cms/preview/exit` clears the cookie; it is **deliberately
 exit only de-escalates, and requiring the secret would put it in the banner link on every previewed
 page (rationale in `handlers.ts`).
 
+**Both redirects land on this site as configured, never on the request's origin (#319).** In a
+route handler behind the ingress the request's own URL is the pod's address — `localhost:3100`
+whatever `Host` or `X-Forwarded-Host` says — so entering and leaving preview used to send the editor
+to localhost on every deployment. The destination is now `urlOnThisSite(path, '/')`
+(`src/lib/site-origin.ts`, #298): `SITE_URL` read at request time, the same two safe-path layers
+applied to the path. It is never taken from `Host` / `X-Forwarded-Host` (attacker-supplied text —
+that would turn a broken redirect into an open one). A production server without `SITE_URL`
+**fails closed**: the handler throws `SiteUrlError` (a 500), sets no cookie and redirects nowhere;
+under `next dev` and in tests the default `http://localhost:3100` still applies.
+`test/cms-preview-origin.test.ts` calls each handler as the server sees it behind the ingress — pod
+origin, hostile forwarded host, public origin — and asserts the full `Location`.
+
 Preview needs both `SANITY_PREVIEW_SECRET` and `SANITY_READ_TOKEN`; the route answers 503 without
-them and 401 on a wrong secret. In the Studio, configure the preview URL as
+them and 401 on a wrong secret. A production deployment also needs `SITE_URL`, like the rest of the
+storefront. In the Studio, configure the preview URL as
 `https://<storefront>/api/cms/preview?secret=…&redirect=/<locale>/pages/<slug>`.
 
 ## Revalidate on publish
