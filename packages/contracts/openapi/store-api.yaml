@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.1
+  version: 0.5.2
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -675,6 +675,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { code: conflict, message: This email already has an account, details: {} }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
   /store/customers/me/addresses:
     get:
@@ -723,6 +724,11 @@ paths:
     post:
       tags: [customers]
       operationId: addMyAddress
+      description: |
+        The first address a customer adds becomes the default for shipping and billing; later ones are
+        neither unless the body says so. `is_default_shipping` / `is_default_billing` set that flag on the
+        new address and clear it on the customer's others, in one transaction. At most 50 addresses per
+        customer (the 51st is a 400). No operation changes or deletes an address yet.
       security:
         - publishableKey: []
           customerToken: []
@@ -730,7 +736,13 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/Address' }
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Address'
+                - type: object
+                  properties:
+                    is_default_shipping: { type: boolean, default: false }
+                    is_default_billing: { type: boolean, default: false }
       responses:
         '201':
           description: Created
@@ -811,6 +823,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { code: conflict, message: This email already has an account, details: {} }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
 components:
   securitySchemes:

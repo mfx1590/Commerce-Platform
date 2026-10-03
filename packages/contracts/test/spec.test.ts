@@ -75,6 +75,26 @@ describe('store-api.yaml', () => {
     expect(complete.body).toMatch(/previous_unit_price_minor/);
   });
 
+  it('0.5.2 (#303 PR B): address default flags on addMyAddress, 400 on updateMe and listMyOrders', () => {
+    const body = (id: string) => ops.find((o) => o.id === id)!.body;
+    // the flags extend the shared Address in the request only — the shared schema stays as carts use it
+    expect(body('addMyAddress')).toMatch(/allOf:\n\s+- \$ref: '#\/components\/schemas\/Address'/);
+    expect(body('addMyAddress')).toMatch(
+      /is_default_shipping: \{ type: boolean, default: false \}/,
+    );
+    expect(body('addMyAddress')).toMatch(/is_default_billing: \{ type: boolean, default: false \}/);
+    const address = text.slice(
+      text.indexOf('\n    Address:\n'),
+      text.indexOf('\n    ', text.indexOf('\n    Address:\n') + 1),
+    );
+    expect(address).not.toMatch(/is_default/);
+    for (const id of ['updateMe', 'listMyOrders']) {
+      expect(body(id), `${id} 400`).toContain(`'400':`);
+    }
+    // listMyAddresses takes no query and no body: no 400, on purpose
+    expect(body('listMyAddresses')).not.toContain(`'400':`);
+  });
+
   it('0.5.1 (#303, #310): customer self-service statuses and the optional customer token on cart create/complete', () => {
     const body = (id: string) => ops.find((o) => o.id === id)!.body;
     // registerCustomer: 201 created, 200 the row existed, 400 body email differs from the token's, 409 collision
@@ -135,7 +155,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.1/);
+    expect(text).toMatch(/version: 0\.5\.2/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
