@@ -134,6 +134,17 @@ Product images: the seed's thumbnails are `https://picsum.photos/seed/…`, so t
 `next.config.mjs` `remotePatterns`, scoped to `/seed/**`. Without it the PLP cannot render against
 the core at all — `next/image` refuses an unlisted hostname.
 
+**No e2e request leaves the machine for an image (#327).** `scripts/e2e-server.mjs` builds and
+starts the app with `E2E_LOCAL_IMAGES=1`: `ProductImage` then sends every remote image (picsum,
+and the CDN hosts too) to `/e2e-placeholder.svg`, served by the app itself. `images.unoptimized`
+would not have been enough — it only moves the fetch from the optimiser to the browser. The flag is
+inlined at build time; a build made with it **refuses to start** unless the runtime `SITE_URL` is a
+loopback origin (`src/instrumentation.ts`), so it can never serve customers. `NODE_ENV` could not
+draw that line: the e2e server is `next build` + `next start`, which is `production` too. The
+e2e server also deletes `.next/cache/fetch-cache` before every build, so a run never renders stock
+cached by the previous one. Readiness in the specs is `<html data-hydrated="true">`
+(`HydrationMarker`, waited on by `hydrated()` in `e2e/support/journey.ts`), not network idle.
+
 ## The Store API client
 
 `src/lib/store-api/` is the **only** place that knows the base URL, the publishable key and the

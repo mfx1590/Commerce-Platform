@@ -1,5 +1,24 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.9 — 2026-10-04
+
+Issue #327 (REQUEST from window 10; manager decision on the issue). No contract change.
+
+- **e2e images stay on the machine.** Under `E2E_LOCAL_IMAGES=1` — set by `scripts/e2e-server.mjs`
+  (`e2eServerEnv`) for the build and the server — `ProductImage` resolves every remote `src` to
+  `/e2e-placeholder.svg` (new `public/` file) through `localPlaceholderLoader`
+  (`src/lib/e2e-images.ts`). Production behaviour is unchanged: without the flag the loaders are
+  the same as before.
+- **The flag is refused in production.** `src/instrumentation.ts` exits the server at start when the
+  build carries the flag and the runtime `SITE_URL` is missing or not loopback.
+- **A clean data cache per e2e build.** `e2e-server.mjs` deletes `.next/cache/fetch-cache` before
+  `next build`; a core run had rendered a product as in stock from the previous run's cache.
+- **No `networkidle` in the specs.** `settleOn` and `clickWhenReady` wait for the control and for
+  `<html data-hydrated="true">`, set by the new `HydrationMarker` in the root layout.
+- Tests: `test/e2e-images.test.ts` (flag parsing, the loader, `ProductImage` with and without the
+  flag — red when the flag branch is removed —, the loopback rule, the boot refusal) and the env
+  helper's flag.
+
 ## 0.12.8 — 2026-10-04
 
 Issue #326 (REQUEST from window 10). No contract change. Test-only.

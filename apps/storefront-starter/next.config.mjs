@@ -19,6 +19,14 @@ const frameHosts = Object.values(EMBED_HOSTS)
   .map((host) => `https://${host}`)
   .join(' ');
 
+/**
+ * End-to-end builds only (#327): `scripts/e2e-server.mjs` sets it for `next build`, and it is
+ * inlined below so `ProductImage` (a client component) can send remote images to a local
+ * placeholder. A build made with it refuses to start outside a loopback origin
+ * (`src/instrumentation.ts`). Exactly `1` or nothing.
+ */
+const localImages = process.env.E2E_LOCAL_IMAGES === '1' ? '1' : '';
+
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
@@ -34,7 +42,7 @@ const config = {
   htmlLimitedBots: /.*/,
   // Build-time constant on purpose: the embed host list is code (window 6's), not environment, so
   // it is fixed here and handed to the middleware, which builds the rest of the policy at runtime.
-  env: { CSP_FRAME_HOSTS: frameHosts },
+  env: { CSP_FRAME_HOSTS: frameHosts, E2E_LOCAL_IMAGES: localImages },
   // The kit ships as TypeScript-compiled ESM; Next must transpile it like app code.
   transpilePackages: ['@platform/ui'],
   images: {
