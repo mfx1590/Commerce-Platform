@@ -2,8 +2,10 @@
 
 ## 0.12.7 — 2026-10-03
 
-Issue #312 (Store API 0.5.1, CONTRACT CHANGE #310). **Needs the core's #303 PR C to be live**; against
-an older core the token on these two calls is a 401, which this change turns into a guest call.
+Issue #312 (Store API 0.5.1, CONTRACT CHANGE #310). **Needs the core's #303 PR C (#325) to be live**
+for the order to be linked; a core before PR C ignores the token on these two calls and answers 201,
+so the order is placed as a guest. A 401 for a refused token comes only from a core with PR C, and
+this change turns it into one guest call.
 
 - **The customer token goes on `createCart` and `completeCart` when a customer is signed in.** The
   cart, and the order placed from it, are linked to the customer at the core, so the order shows
