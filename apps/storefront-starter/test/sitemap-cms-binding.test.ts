@@ -6,9 +6,11 @@ import type * as StoreApi from '@/lib/store-api';
  * How the sitemap binds to the CMS when nobody hands it a source (#293) — the wiring the fakes in
  * `sitemap-content.test.ts` go around.
  *
- * Three states, and the middle one is today's: window 6's reader does not have `routedDocuments`
- * yet (#300). The sitemap must list the catalogue unchanged until it does, and pick the content up
- * the moment it does. And it must never ask for a preview reader: a sitemap is cached and public.
+ * Two states. With a CMS configured, the sitemap builds a **published** reader for the store with
+ * `createReader` and calls window 6's `routedDocuments` on it as a method (#300, on main since
+ * #317) — never `getCms()`, which reads the preview cookie: a sitemap is cached and public, and
+ * must neither become dynamic on a cookie nor list a draft. With no CMS configured it lists the
+ * catalogue only, without reading the store or building a reader at all.
  */
 
 const createReader = vi.fn();
