@@ -9,6 +9,7 @@ import {
   readTouch,
 } from '@/lib/attribution';
 import { contentSecurityPolicy } from '@/lib/csp';
+import { siteOrigin } from '@/lib/site-origin';
 
 /**
  * Puts every page under a locale prefix, remembers the choice in a cookie, and captures marketing
@@ -61,7 +62,11 @@ export default function middleware(request: NextRequest) {
   const touch = readTouch(request.nextUrl.searchParams, {
     referrer: request.headers.get('referer'),
     path: request.nextUrl.pathname,
-    siteOrigin: request.nextUrl.origin,
+    // The **configured** origin (#298). The request's own is the pod's behind the ingress
+    // (`localhost:3100`), so a `Referer` on the public origin — every click from one of our own
+    // pages to another — looked like somebody else's site: measured, each in-shop navigation wrote
+    // an attribution cookie naming the shop itself as the referrer, overwriting the last touch.
+    siteOrigin: siteOrigin(),
   });
   if (touch === null) return response;
 
