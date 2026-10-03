@@ -146,7 +146,7 @@ describe('structural guards', () => {
     const calls: string[] = [];
     for (const f of files.filter((x) => !x.rel.endsWith('.test.ts'))) {
       for (const m of f.text.matchAll(
-        /(?<!function )\b(mountStoreRoutes|mountCustomerRoutes|getOrderRouteWith|createCartRouteWith|completeCartRouteWith)\(([^()]*)\)/g,
+        /(?<!function )\b(mountStoreRoutes|mountCustomerRoutes|getOrderRouteWith|customerGateWith)\(([^()]*)\)/g,
       )) {
         calls.push(`${f.rel}: ${m[1]}(${m[2]!.replace(/\s+/g, ' ').trim()})`);
       }
@@ -154,10 +154,7 @@ describe('structural guards', () => {
     expect(calls.sort()).toEqual([
       // `…()` = the default verifier; inside mountStoreRoutes `customerVerifier` is
       // customerTokenVerifierFor(…)'s result
-      'http/store-routes.ts: completeCartRouteWith()',
-      'http/store-routes.ts: completeCartRouteWith(customerVerifier)',
-      'http/store-routes.ts: createCartRouteWith()',
-      'http/store-routes.ts: createCartRouteWith(customerVerifier)',
+      'http/store-routes.ts: customerGateWith(customerVerifier)',
       'http/store-routes.ts: getOrderRouteWith()',
       'http/store-routes.ts: getOrderRouteWith(customerVerifier)',
       'http/store-routes.ts: mountCustomerRoutes(app, customerVerifier)',
@@ -170,8 +167,7 @@ describe('structural guards', () => {
     for (const name of [
       'mountCustomerRoutes',
       'getOrderRouteWith',
-      'createCartRouteWith',
-      'completeCartRouteWith',
+      'customerGateWith',
       'optionalCustomerId',
       'requireCustomer',
     ]) {

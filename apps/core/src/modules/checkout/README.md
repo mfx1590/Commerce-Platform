@@ -110,24 +110,34 @@ The contract allows only 200 or 404, so an order id can never be confirmed by pr
 
 `createCart` and `completeCart` may carry a customer token; no other cart operation looks at the header.
 
-| Request                                 | Cart before                 | Result                                                                 |
-| --------------------------------------- | --------------------------- | ---------------------------------------------------------------------- |
-| `createCart`, no `Authorization` header | —                           | guest cart                                                             |
-| `createCart`, valid token               | —                           | `cart.customer_id` = the token's customer (resolve-or-provision)       |
-| either, a token that does not verify    | any                         | 401, nothing written — a sent token is never ignored                   |
-| `completeCart`, no header               | guest or linked             | placed with the cart's link, unchanged                                 |
-| `completeCart`, valid token             | guest                       | cart and order linked to the customer inside the placement transaction |
-| `completeCart`, valid token             | linked to the same customer | placed                                                                 |
-| `completeCart`, valid token             | linked to another customer  | 409 `conflict`, nothing placed, nothing authorised                     |
-| `completeCart` replay (same key)        | completed                   | the stored order; no link changes                                      |
+| Request                                                                                    | Cart before                 | Result                                                                 |
+| ------------------------------------------------------------------------------------------ | --------------------------- | ---------------------------------------------------------------------- |
+| `createCart`, no `Authorization` header                                                    | —                           | guest cart                                                             |
+| `createCart`, valid token                                                                  | —                           | `cart.customer_id` = the token's customer (resolve-or-provision)       |
+| either, a token that does not verify                                                       | any                         | 401, nothing written — a sent token is never ignored                   |
+| `completeCart`, no header                                                                  | guest or linked             | placed with the cart's link, unchanged                                 |
+| `completeCart`, valid token                                                                | guest                       | cart and order linked to the customer inside the placement transaction |
+| `completeCart`, valid token                                                                | linked to the same customer | placed                                                                 |
+| `completeCart`, valid token                                                                | linked to another customer  | 409 `conflict`, nothing placed, nothing authorised                     |
+| `completeCart` replay (same key), no header or the order's own customer                    | completed                   | the stored order; no link changes                                      |
+| `completeCart` replay (same key), ANOTHER customer's token — or any token on a guest order | completed                   | 409 `conflict`; the body carries nothing of the order                  |
 
 - The route verifies the token exactly like `/store/customers/me` (src/http/customer-routes.ts
-  `optionalCustomerId`) — before the body, the path and the `Idempotency-Key` — and hands `customerId` to
-  `completeCart`. A disabled or erased customer is a 401; an email collision that cannot be adopted is the
+  `optionalCustomerId`) in a gate mounted AHEAD of the JSON body parser (`customerGateWith`,
+  src/http/store-routes.ts) — before the body is parsed, before the path and the `Idempotency-Key`: a bad token
+  with malformed or oversized JSON is a 401, never a 400 / 413 — and hands `customerId` to `completeCart`. The
+  handlers fail closed: reached without the gate, a sent token is a 401, never ignored. A disabled or erased customer is a 401; an email collision that cannot be adopted is the
   customer routes' 409.
-- The link happens under the cart lock, before anything is priced, reserved or authorised. From that point the
-  cart is priced as the customer's: a customer-group price that differs from what the guest cart showed is a 409
-  `price_changed` (the cart is re-priced, the same key retries), never a silent placement.
+- The link happens under the cart lock, before anything is priced, reserved or authorised (`linkCustomer`). From
+  that point the cart is priced as the customer's: a customer-group price (or a group-restricted promotion) that
+  differs from what the guest cart showed is a 409 `price_changed`, never a silent placement. The placement
+  transaction rolls back — and with it the link — so the **recovery transaction applies the link again, under
+  the same conflict rule, before it re-prices**: what it persists are the customer's prices and the cart stays
+  theirs, and the retry with the same key completes. (Without that the recovery persisted guest prices and the
+  retry met the same difference forever — #325 review; `test/cart-pricing.test.ts` holds it.)
+- A replay is answered only to the principal the order belongs to: with a token, the stored order's
+  `customer_id` must be that customer, otherwise 409 `conflict` with nothing of the order in the body. Without
+  a token the cart id and the key are the capability, as on every other cart operation.
 - The order's email stays the cart's checkout email. `order.placed` carries `customer_id`; the audit and event
   actor is the customer.
 - Named gaps: a linked cart is still readable by anyone holding the cart id (cart ids are the capability today —

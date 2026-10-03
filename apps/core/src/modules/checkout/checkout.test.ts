@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   addLineItem,
   createCart,
@@ -612,16 +612,40 @@ describe('customer link at placement (#310)', () => {
     const theirs = await readyCart();
     await owner.query(`UPDATE cart SET customer_id = $2 WHERE id = $1`, [theirs.id, other]);
     const before = await counts();
-    await expect(
-      completeCart(a, {
-        cartId: theirs.id,
-        idempotencyKey: `key-link-${theirs.id}`,
-        actor: { ...actor, id: mine },
-        customerId: mine,
-      }),
-    ).rejects.toMatchObject({ code: 'conflict', status: 409, details: {} });
+    // the provider is watched: a guard moved behind `authorize` would fail here even if everything rolled back
+    const authorize = vi.spyOn(manualPaymentProvider, 'authorize');
+    try {
+      await expect(
+        completeCart(a, {
+          cartId: theirs.id,
+          idempotencyKey: `key-link-${theirs.id}`,
+          actor: { ...actor, id: mine },
+          customerId: mine,
+        }),
+      ).rejects.toMatchObject({ code: 'conflict', status: 409, details: {} });
+      expect(authorize).not.toHaveBeenCalled();
+    } finally {
+      authorize.mockRestore();
+    }
     expect(await counts()).toEqual(before);
     expect(await linkOf(theirs.id)).toBe(other);
+
+    // a replay is answered only to the customer the order was placed for (#325 review)
+    await expect(
+      completeCart(a, {
+        cartId: guestCart.id,
+        idempotencyKey: `key-link-${guestCart.id}`,
+        actor: { ...actor, id: other },
+        customerId: other,
+      }),
+    ).rejects.toMatchObject({ code: 'conflict', status: 409, details: {} });
+    const replayed = await completeCart(a, {
+      cartId: guestCart.id,
+      idempotencyKey: `key-link-${guestCart.id}`,
+      actor: { ...actor, id: mine },
+      customerId: mine,
+    });
+    expect(replayed).toMatchObject({ replayed: true, order: { id: placed.order.id } });
 
     // without a customer the cart's own link decides, unchanged
     const kept = await completeCart(a, {

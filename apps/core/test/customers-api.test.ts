@@ -13,16 +13,21 @@ import { createOrganizationClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  completeCartRoute,
+  coreErrorHandler,
+  createCartRoute,
   CUSTOMER_STORE_PATHS,
   customerTokenVerifierFor,
   DevTokenVerifier,
   keycloakCustomerTokenVerifier,
   mountStoreRoutes,
   REAL_STORE_PATHS,
+  storeContextMiddleware,
   type CustomerTokenVerifier,
 } from '../src/http';
 import { mountCustomerRoutes } from '../src/http/customer-routes';
-import { getOrderRouteWith } from '../src/http/store-routes';
+import { customerGateWith, getOrderRouteWith } from '../src/http/store-routes';
+import { paymentProvider } from '../src/modules/checkout';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -731,11 +736,105 @@ describe('placement-time customer link (Store API 0.5.1, #310): createCart and c
     expect(event.rows[0]!.headers.actor).toEqual({ type: 'customer', id: jane });
     expect(JSON.stringify(event.rows[0])).not.toContain('@example.test');
 
-    // a replay with the same key answers the stored order — also for another customer's token, and changes no link
-    const replay = await completeOn(app, cartId, 'vera');
-    expect(replay.status).toBe(201);
-    expect(replay.body.id).toBe(placed.body.id);
+    // A replay with the same key answers the stored order to the customer it was placed for …
+    const mine = await completeOn(app, cartId, 'jane');
+    expect(mine.status).toBe(201);
+    expect(mine.body.id).toBe(placed.body.id);
+    // … and never to ANOTHER customer's token: 409, and the body carries nothing of the order (#325 review)
+    for (const other of ['vera', 'rita']) {
+      const refused = await completeOn(app, cartId, other);
+      expect(refused.status).toBe(409);
+      spec.assertSchema('Error', refused.body);
+      expect(refused.body).toEqual({
+        code: 'conflict',
+        message: 'This cart belongs to another customer',
+        details: {},
+      });
+      const text = JSON.stringify(refused.body);
+      expect(text).not.toContain(placed.body.id);
+      expect(text).not.toContain(String(placed.body.display_id));
+      expect(text).not.toContain('@example.test');
+    }
+    // without a token the cart id + key are the capability, as on every other cart operation (accepted gap)
+    const anonymous = await completeOn(app, cartId);
+    expect(anonymous.status).toBe(201);
+    expect(anonymous.body.id).toBe(placed.body.id);
+    // nothing of that changed the link, and nothing was placed twice
     expect((await orderRow(placed.body.id)).customer_id).toBe(jane);
+    const orders = await owner.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM "order" WHERE cart_id = $1`,
+      [cartId],
+    );
+    expect(orders.rows[0]!.n).toBe('1');
+  });
+
+  it("a replay WITH a token on a GUEST order is a 409 too: a token never opens an order that is not that customer's", async () => {
+    const cartId = await readyCartOn(app, 'guest.replay@example.test');
+    const placed = await completeOn(app, cartId);
+    expect(placed.status).toBe(201);
+    expect((await orderRow(placed.body.id)).customer_id).toBeNull();
+    const withToken = await completeOn(app, cartId, 'jane');
+    expect(withToken.status).toBe(409);
+    expect(JSON.stringify(withToken.body)).not.toContain(placed.body.id);
+    expect((await orderRow(placed.body.id)).customer_id).toBeNull();
+    expect((await completeOn(app, cartId)).body.id).toBe(placed.body.id);
+  });
+
+  it('the token is judged BEFORE the JSON body parser: a bad token with malformed or oversized JSON is a 401, not a 400 / 413', async () => {
+    const cartId = await readyCartOn(app, 'parser.order@example.test');
+    const malformed = '{"currency": ';
+    const oversized = JSON.stringify({ metadata: { blob: 'x'.repeat(300 * 1024) } });
+    const post = (path: string, token: string | null, payload: string) => {
+      const req = request(app)
+        .post(path)
+        .set('X-Publishable-Key', KEY_A)
+        .set('Content-Type', 'application/json')
+        .set('Idempotency-Key', `idem-parser-${cartId}`);
+      return (token ? req.set('Authorization', `Bearer ${token}`) : req).send(payload);
+    };
+    for (const path of ['/store/carts', `/store/carts/${cartId}/complete`]) {
+      for (const payload of [malformed, oversized]) {
+        const bad = await post(path, 'not-a-token', payload);
+        expect(bad.status).toBe(401);
+        spec.assertSchema('Error', bad.body);
+        expect(bad.body.code).toBe('unauthorized');
+      }
+      // with a valid token, or with none, the body rules apply as before
+      expect((await post(path, 'jane', malformed)).status).toBe(400);
+      expect((await post(path, null, malformed)).status).toBe(400);
+      expect((await post(path, null, oversized)).status).toBe(413);
+    }
+    expect(await cartRow(cartId)).toEqual({ customer_id: null, status: 'active' });
+  });
+
+  it('fail closed: the cart handlers mounted WITHOUT the gate never treat a sent token as absent', async () => {
+    const bare = express();
+    bare.use('/store', storeContextMiddleware);
+    bare.post('/store/carts', createCartRoute);
+    bare.post('/store/carts/:cartId/complete', completeCartRoute);
+    bare.use(coreErrorHandler);
+    const cartId = await readyCartOn(app, 'bare@example.test');
+    for (const token of ['jane', 'not-a-token']) {
+      const created = await request(bare)
+        .post('/store/carts')
+        .set('X-Publishable-Key', KEY_A)
+        .set('Authorization', `Bearer ${token}`);
+      expect(created.status).toBe(401);
+      expect((await completeOn(bare, cartId, token)).status).toBe(401);
+    }
+    // without a header they are the guest operations they always were
+    expect((await request(bare).post('/store/carts').set('X-Publishable-Key', KEY_A)).status).toBe(
+      201,
+    );
+    // and the gate itself refuses a verifier override in production, like every other door
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() => customerGateWith(fakeVerifier)).toThrow(/never accepted in production/);
+      expect(() => customerGateWith()).not.toThrow();
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 
   it('a cart linked to ANOTHER customer → 409 conflict: nothing placed, nothing authorised, the cart stays theirs and can still be completed by them', async () => {
@@ -743,22 +842,30 @@ describe('placement-time customer link (Store API 0.5.1, #310): createCart and c
     const cartId = await readyCartOn(app, 'rita.checkout@example.test', 'rita');
     const before = { orders: await count('"order"'), payments: await count('payment') };
 
-    const refused = await completeOn(app, cartId, 'vera');
-    expect(refused.status).toBe(409);
-    spec.assertSchema('Error', refused.body);
-    expect(refused.body).toEqual({
-      code: 'conflict',
-      message: 'This cart belongs to another customer',
-      details: {},
-    });
-    expect(await count('"order"')).toBe(before.orders);
-    expect(await count('payment')).toBe(before.payments);
-    expect(await cartRow(cartId)).toEqual({ customer_id: rita, status: 'active' });
+    // the provider itself is watched: a guard moved behind `authorize` would fail here even if it rolled back
+    const authorize = vi.spyOn(paymentProvider('manual'), 'authorize');
+    try {
+      const refused = await completeOn(app, cartId, 'vera');
+      expect(refused.status).toBe(409);
+      spec.assertSchema('Error', refused.body);
+      expect(refused.body).toEqual({
+        code: 'conflict',
+        message: 'This cart belongs to another customer',
+        details: {},
+      });
+      expect(authorize).not.toHaveBeenCalled();
+      expect(await count('"order"')).toBe(before.orders);
+      expect(await count('payment')).toBe(before.payments);
+      expect(await cartRow(cartId)).toEqual({ customer_id: rita, status: 'active' });
 
-    // same Idempotency-Key, the right customer: the refusal left nothing behind
-    const placed = await completeOn(app, cartId, 'rita');
-    expect(placed.status).toBe(201);
-    expect((await orderRow(placed.body.id)).customer_id).toBe(rita);
+      // same Idempotency-Key, the right customer: the refusal left nothing behind
+      const placed = await completeOn(app, cartId, 'rita');
+      expect(placed.status).toBe(201);
+      expect(authorize).toHaveBeenCalledTimes(1);
+      expect((await orderRow(placed.body.id)).customer_id).toBe(rita);
+    } finally {
+      authorize.mockRestore();
+    }
   });
 
   it('the other cart operations ignore the header, as the contract says: a bad token on GET / PATCH / line items changes nothing', async () => {

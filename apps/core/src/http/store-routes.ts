@@ -8,7 +8,7 @@
 // as the contract `Error`. Mounted by src/server.ts (mountCoreMiddleware) AHEAD of Medusa: Medusa registers its
 // own routes at these paths and its publishable-key gate on /store, so a Medusa file route could not be guaranteed
 // to win — ours answer first. Everything else on the Store API falls through to the fallback proxy / Medusa.
-import express, { type RequestHandler } from 'express';
+import express, { type Request, type RequestHandler, type Response } from 'express';
 import type { StoreComponents } from '@platform/contracts';
 import {
   addLineItem,
@@ -39,7 +39,7 @@ import {
   optionalCustomerId,
   type CustomerTokenVerifier,
 } from './customer-routes';
-import { handle } from './errors';
+import { coreErrorHandler, handle } from './errors';
 import { loadSpec } from './openapi';
 import { intParam, one, uuidParam } from './query';
 import { validateRecoveryToken } from '../modules/marketing';
@@ -156,24 +156,52 @@ const cartScope = (t: StoreContext) => ({
   salesChannelId: t.salesChannelId,
 });
 
+const CUSTOMER_GATE = 'customerGate';
+
 /**
- * `POST /store/carts`. With a valid customer token the cart is created for that customer (#310); without an
- * `Authorization` header it is a guest cart. A token that is sent but does not verify is a 401 — checked before
- * the body, so an unauthenticated caller learns nothing about the body rules.
+ * The gate of the two cart operations that may carry a customer token (`createCart`, `completeCart` — #310).
+ * Mounted AHEAD of the JSON body parser, so the token is judged before a single byte of the body is parsed: a
+ * token that is sent but does not verify is a 401 — never a 400 for malformed JSON, never a 413 for a large
+ * body, never ignored. No `Authorization` header = a guest. What it decided travels in `res.locals`.
  */
-export const createCartRouteWith = (override?: CustomerTokenVerifier): RequestHandler => {
+export const customerGateWith = (override?: CustomerTokenVerifier): RequestHandler => {
   const verifier = customerTokenVerifierFor(override);
-  return handle(async (req, res) => {
-    const t = requireTenant(req);
-    const customerId = await optionalCustomerId(req, t, verifier);
-    // createCart's body is optional: no body (or an empty one) means all defaults.
-    const raw = req.body === undefined || req.body === '' ? {} : req.body;
-    const input = body<CreateCartInput>('createCart', raw);
-    res.status(201).json(await createCart(t.client, { ...cartScope(t), customerId }, input));
-  });
+  return (req, res, next) => {
+    Promise.resolve()
+      .then(async () => {
+        const customerId = await optionalCustomerId(req, requireTenant(req), verifier);
+        res.locals[CUSTOMER_GATE] = { customerId };
+        next();
+      })
+      .catch((err) => coreErrorHandler(err, req, res, next));
+  };
 };
 
-export const createCartRoute: RequestHandler = createCartRouteWith();
+/**
+ * What the gate decided for this request. Fail closed: a handler reached WITHOUT the gate (mounted on its own)
+ * never treats a token that was sent as if it were absent.
+ */
+function gatedCustomerId(req: Request, res: Response): string | null {
+  const gate = res.locals[CUSTOMER_GATE] as { customerId: string | null } | undefined;
+  if (gate) return gate.customerId;
+  if (req.headers.authorization !== undefined) {
+    throw new AppError('unauthorized', 'customer token was not verified');
+  }
+  return null;
+}
+
+/**
+ * `POST /store/carts`. With a valid customer token the cart is created for that customer (#310); without an
+ * `Authorization` header it is a guest cart. The token is judged by `customerGateWith`, ahead of the body.
+ */
+export const createCartRoute: RequestHandler = handle(async (req, res) => {
+  const t = requireTenant(req);
+  const customerId = gatedCustomerId(req, res);
+  // createCart's body is optional: no body (or an empty one) means all defaults.
+  const raw = req.body === undefined || req.body === '' ? {} : req.body;
+  const input = body<CreateCartInput>('createCart', raw);
+  res.status(201).json(await createCart(t.client, { ...cartScope(t), customerId }, input));
+});
 
 export const getCartRoute: RequestHandler = handle(async (req, res) => {
   const t = requireTenant(req);
@@ -245,34 +273,29 @@ const IDEMPOTENCY_HEADER = 'idempotency-key';
 /**
  * `POST /store/carts/{cartId}/complete`. With a valid customer token the order is placed FOR that customer
  * (#310): a guest cart is linked inside the placement transaction, a cart of another customer is a 409. The
- * token is checked first — before the path, the Idempotency-Key and anything about the cart. Without an
- * `Authorization` header the cart's own link decides (a guest cart places a guest order).
+ * token is judged by `customerGateWith` — before the body, the path, the Idempotency-Key and anything about the
+ * cart. Without an `Authorization` header the cart's own link decides (a guest cart places a guest order).
  */
-export const completeCartRouteWith = (override?: CustomerTokenVerifier): RequestHandler => {
-  const verifier = customerTokenVerifierFor(override);
-  return handle(async (req, res) => {
-    const t = requireTenant(req);
-    const customerId = await optionalCustomerId(req, t, verifier);
-    const cartId = uuidParam(req.params, 'cartId');
-    const raw = req.headers[IDEMPOTENCY_HEADER];
-    const idempotencyKey = (Array.isArray(raw) ? raw[0] : raw)?.trim();
-    if (!idempotencyKey || idempotencyKey.length < 8) {
-      throw validationError('Idempotency-Key header is required', {
-        'Idempotency-Key': 'required, at least 8 characters',
-      });
-    }
-    const { order } = await completeCart(t.client, {
-      cartId,
-      idempotencyKey,
-      // the customer acts on their own order: the audit and event actor carry their id
-      actor: customerId ? { ...t.actor, id: customerId } : t.actor,
-      customerId,
+export const completeCartRoute: RequestHandler = handle(async (req, res) => {
+  const t = requireTenant(req);
+  const customerId = gatedCustomerId(req, res);
+  const cartId = uuidParam(req.params, 'cartId');
+  const raw = req.headers[IDEMPOTENCY_HEADER];
+  const idempotencyKey = (Array.isArray(raw) ? raw[0] : raw)?.trim();
+  if (!idempotencyKey || idempotencyKey.length < 8) {
+    throw validationError('Idempotency-Key header is required', {
+      'Idempotency-Key': 'required, at least 8 characters',
     });
-    res.status(201).json(order);
+  }
+  const { order } = await completeCart(t.client, {
+    cartId,
+    idempotencyKey,
+    // the customer acts on their own order: the audit and event actor carry their id
+    actor: customerId ? { ...t.actor, id: customerId } : t.actor,
+    customerId,
   });
-};
-
-export const completeCartRoute: RequestHandler = completeCartRouteWith();
+  res.status(201).json(order);
+});
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -357,8 +380,12 @@ export function mountStoreRoutes(
   app.get('/store/products/:handle', getProductRoute);
   // JSON bodies for the cart mutations. Mounted on /store only here, after the read routes: the fallback proxy
   // (mounted later) re-serialises `req.body` when the stream was consumed, so proxied requests are unaffected.
+  // The customer gate of createCart / completeCart sits AHEAD of the body parser: token first, then the body.
+  const customerGate = customerGateWith(customerVerifier);
+  app.post('/store/carts', customerGate);
+  app.post('/store/carts/:cartId/complete', customerGate);
   app.use('/store/carts', express.json({ limit: '256kb' }));
-  app.post('/store/carts', createCartRouteWith(customerVerifier));
+  app.post('/store/carts', createCartRoute);
   app.get('/store/carts/:cartId', getCartRoute);
   app.post('/store/cart-recovery/:token', recoverCartRoute);
   app.patch('/store/carts/:cartId', updateCartRoute);
@@ -367,7 +394,7 @@ export function mountStoreRoutes(
   app.delete('/store/carts/:cartId/line-items/:lineItemId', removeLineItemRoute);
   app.get('/store/carts/:cartId/shipping-options', listShippingOptionsRoute);
   app.post('/store/carts/:cartId/payment-session', createPaymentSessionRoute);
-  app.post('/store/carts/:cartId/complete', completeCartRouteWith(customerVerifier));
+  app.post('/store/carts/:cartId/complete', completeCartRoute);
   app.get('/store/orders/:orderId', getOrderRouteWith(customerVerifier));
   // Customer self-service (#303): POST /store/customers, GET /store/customers/me, GET …/me/orders.
   mountCustomerRoutes(app, customerVerifier);

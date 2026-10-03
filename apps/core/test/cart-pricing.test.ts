@@ -4,7 +4,7 @@
 // cart is re-priced, nothing is placed; the retry places at the price the customer has now seen.
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   addLineItem,
   createCart,
@@ -16,7 +16,7 @@ import {
   updateCart,
   updateLineItem,
 } from '../src/modules/cart';
-import { completeCart, createPaymentSession } from '../src/modules/checkout';
+import { completeCart, createPaymentSession, paymentProvider } from '../src/modules/checkout';
 import { registerTaxProvider } from '../src/modules/tax';
 import { priceListResolver } from '../src/wiring';
 
@@ -250,6 +250,146 @@ describe('placement never charges a price the customer did not see (409 price_ch
     await expect(
       updateLineItem(a, cart.id, priced.items[0]!.id, { quantity: 2 }),
     ).rejects.toMatchObject({ code: 'validation_error' });
+  });
+});
+
+describe('customer link at placement meets a customer-group price (#310, #325 review)', () => {
+  it("a guest cart completed FOR a customer with a group price → 409 price_changed with the customer's price, the cart is theirs and re-priced; the retry with the same key places at that price", async () => {
+    const v = freshVariant();
+    const group = await owner.query<{ id: string }>(
+      `INSERT INTO customer_group (organization_id, store_id, code, name) VALUES ($1, $2, 'wholesale', 'Wholesale') RETURNING id`,
+      [ORG, A],
+    );
+    const list = await priceList('wholesale-list', 'override', { groupId: group.rows[0]!.id });
+    await priceRow(list, v.id, v.price - 300);
+    const customer = (
+      await owner.query<{ id: string }>(
+        `INSERT INTO customer (organization_id, store_id, keycloak_subject, email, customer_group_id, status)
+         VALUES ($1, $2, 'kc-sub-wholesale', 'wholesale.buyer@example.com', $3, 'registered') RETURNING id`,
+        [ORG, A, group.rows[0]!.id],
+      )
+    ).rows[0]!.id;
+
+    // a GUEST cart: priced from the default list
+    const cart = await createCart(a, scopeA);
+    const priced = await addLineItem(a, cart.id, { variant_id: v.id, quantity: 2 });
+    expect(priced.items[0]!.unit_price.amount_minor).toBe(v.price);
+    await updateCart(a, cart.id, {
+      email: 'wholesale.checkout@example.com',
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: standardOptionId,
+    });
+    await createPaymentSession(a, cart.id, { provider: 'manual' });
+    const guestTotal = (await getCart(a, cart.id)).totals.total.amount_minor;
+
+    const authorize = vi.spyOn(paymentProvider('manual'), 'authorize');
+    const key = `key-group-${cart.id}`;
+    const attempt = () =>
+      completeCart(a, {
+        cartId: cart.id,
+        idempotencyKey: key,
+        actor: { ...actor, id: customer },
+        customerId: customer,
+      });
+    try {
+      const refused = await attempt().then(
+        () => null,
+        (e: unknown) => e as { code: string; status: number; details: Record<string, unknown> },
+      );
+      expect(refused).toMatchObject({
+        code: 'price_changed',
+        status: 409,
+        details: {
+          currency: 'EUR',
+          items: [
+            {
+              line_item_id: priced.items[0]!.id,
+              variant_id: v.id,
+              previous_unit_price_minor: v.price,
+              unit_price_minor: v.price - 300,
+            },
+          ],
+        },
+      });
+      // previous and current differ: what the guest cart showed vs what the customer pays
+      const total = refused!.details.total_minor as { previous: number; current: number };
+      expect(total.previous).toBe(guestTotal);
+      expect(total.current).toBeLessThan(total.previous);
+      // nothing placed, nothing authorised
+      expect(authorize).not.toHaveBeenCalled();
+      const placed = await owner.query<{ orders: string }>(
+        `SELECT count(*)::text AS orders FROM "order" WHERE cart_id = $1`,
+        [cart.id],
+      );
+      expect(placed.rows[0]!.orders).toBe('0');
+      // the cart is the customer's now and shows THEIR price — that is what makes the retry terminate
+      const linked = await owner.query<{ customer_id: string | null }>(
+        `SELECT customer_id FROM cart WHERE id = $1`,
+        [cart.id],
+      );
+      expect(linked.rows[0]!.customer_id).toBe(customer);
+      const after = await getCart(a, cart.id);
+      expect(after.status).toBe('active');
+      expect(after.items[0]!.unit_price.amount_minor).toBe(v.price - 300);
+      expect(after.totals.total.amount_minor).toBe(total.current);
+
+      // the retry: same key, same customer → placed at the price the customer has now seen
+      const { order, replayed } = await attempt();
+      expect(replayed).toBe(false);
+      expect(authorize).toHaveBeenCalledTimes(1);
+      expect(order.items[0]!.unit_price.amount_minor).toBe(v.price - 300);
+      expect(order.totals.total.amount_minor).toBe(total.current);
+      const stored = await owner.query<{ customer_id: string | null }>(
+        `SELECT customer_id FROM "order" WHERE id = $1`,
+        [order.id],
+      );
+      expect(stored.rows[0]!.customer_id).toBe(customer);
+    } finally {
+      authorize.mockRestore();
+    }
+  });
+
+  it('the recovery applies the same conflict rule: a cart of ANOTHER customer is a 409 conflict, never re-priced for the caller', async () => {
+    const v = freshVariant();
+    const [owning, calling] = (
+      await owner.query<{ id: string }>(
+        `INSERT INTO customer (organization_id, store_id, keycloak_subject, email, status)
+         VALUES ($1, $2, 'kc-sub-owning', 'owning@example.com', 'registered'),
+                ($1, $2, 'kc-sub-calling', 'calling@example.com', 'registered') RETURNING id`,
+        [ORG, A],
+      )
+    ).rows.map((r) => r.id) as [string, string];
+    const cart = await createCart(a, { ...scopeA, customerId: owning });
+    await addLineItem(a, cart.id, { variant_id: v.id, quantity: 1 });
+    await updateCart(a, cart.id, {
+      email: 'owning.checkout@example.com',
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: standardOptionId,
+    });
+    await createPaymentSession(a, cart.id, { provider: 'manual' });
+    const before = await getCart(a, cart.id);
+    const authorize = vi.spyOn(paymentProvider('manual'), 'authorize');
+    try {
+      await expect(
+        completeCart(a, {
+          cartId: cart.id,
+          idempotencyKey: `key-other-${cart.id}`,
+          actor: { ...actor, id: calling },
+          customerId: calling,
+        }),
+      ).rejects.toMatchObject({ code: 'conflict', status: 409, details: {} });
+      expect(authorize).not.toHaveBeenCalled();
+    } finally {
+      authorize.mockRestore();
+    }
+    expect(await getCart(a, cart.id)).toEqual(before);
+    const linked = await owner.query<{ customer_id: string | null }>(
+      `SELECT customer_id FROM cart WHERE id = $1`,
+      [cart.id],
+    );
+    expect(linked.rows[0]!.customer_id).toBe(owning);
   });
 });
 
