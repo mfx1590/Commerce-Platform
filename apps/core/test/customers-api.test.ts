@@ -649,6 +649,35 @@ describe('the core answers these paths itself', () => {
         expect(res.body.mock).toBeUndefined();
       }
       expect(seen).toEqual([]);
+      // an operation the contract does not define under /store/customers is a 404 from the core — with or
+      // without a bearer, and the mock never sees it (no 405, no new error code)
+      const undefinedOperations: Array<['put' | 'delete' | 'get' | 'patch' | 'post', string]> = [
+        ['put', '/store/customers/me'],
+        ['delete', '/store/customers/me'],
+        ['put', '/store/customers'],
+        ['delete', '/store/customers/me/addresses'],
+        ['patch', '/store/customers/me/orders'],
+        ['get', '/store/customers'],
+        ['get', '/store/customers/me/unknown'],
+        ['delete', '/store/customers/me/addresses/00000000-0000-4000-8000-000000000001'],
+        ['post', '/store/customers/someone-else'],
+      ];
+      for (const [method, path] of undefinedOperations) {
+        for (const bearer of ['Bearer jane', 'Bearer not-a-token', null]) {
+          const req = request(proxied)[method](path).set('X-Publishable-Key', KEY_A);
+          const res = await (bearer ? req.set('Authorization', bearer) : req);
+          expect(res.status).toBe(404);
+          spec.assertSchema('Error', res.body);
+          expect(res.body).toEqual({
+            code: 'not_found',
+            message: `${method.toUpperCase()} ${path} is not implemented`,
+            details: {},
+          });
+        }
+      }
+      // still behind the publishable key
+      expect((await request(proxied).put('/store/customers/me')).status).toBe(401);
+      expect(seen).toEqual([]);
       // the proxy itself still works for a Store path the core does not answer
       const other = await call('get', '/store/wishlist');
       expect(other.body).toEqual({ mock: true });

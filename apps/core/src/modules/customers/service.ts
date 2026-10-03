@@ -418,7 +418,8 @@ export async function listCustomerAddresses(
 /**
  * `POST /store/customers/me/addresses` (201). The default flags: the customer's first address is the default
  * for shipping and billing, a later one is neither — unless the body says `is_default_shipping` /
- * `is_default_billing` (contracts 0.4.9): `true` moves that default to the new row. Decided under a lock on
+ * `is_default_billing` (contracts 0.4.9): `true` moves that default to the new row; `false` on the first address
+ * is ignored (the first is always the default for both). Decided under a lock on
  * the customer row and applied as clear-then-set in the same transaction: `customer_address` has no unique
  * index on the flags, so two concurrent adds would otherwise both end up as the default. At most ADDRESS_LIMIT
  * addresses per customer (400 beyond). One audit row for the address (ids and flags only — never a line, a city
@@ -464,9 +465,11 @@ export async function addCustomerAddress(
     if (count >= ADDRESS_LIMIT) {
       throw validationError('too many addresses', { addresses: `at most ${ADDRESS_LIMIT}` });
     }
+    // The first address is always the default for both — an explicit `false` is ignored on it, so a customer
+    // with addresses always has a default (ruling on the #324 review). Later ones: only when the body asks.
     const first = count === 0;
-    const defaultShipping = input.is_default_shipping ?? first;
-    const defaultBilling = input.is_default_billing ?? first;
+    const defaultShipping = first || input.is_default_shipping === true;
+    const defaultBilling = first || input.is_default_billing === true;
     if (defaultShipping) {
       await tx.query(
         'UPDATE customer_address SET is_default_shipping = false WHERE customer_id = $1 AND is_default_shipping',

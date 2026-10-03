@@ -572,22 +572,24 @@ describe('addresses', () => {
     ]);
   });
 
-  it('explicit flags (contracts 0.4.9): true moves that default to the new row and clears it elsewhere; false keeps a first address from becoming one', async () => {
+  it('explicit flags (contracts 0.4.9): true moves that default to the new row and clears it elsewhere; an explicit false is ignored on the FIRST address', async () => {
     const grace = who('grace');
     const me = await resolveCustomer(a, scopeA, grace);
     const first = await addCustomerAddress(a, scopeA, grace, {
       ...home,
       is_default_billing: false,
     });
-    expect(first).toMatchObject({ is_default_shipping: true, is_default_billing: false });
+    // the first address is always the default for both: a customer with addresses always has one
+    expect(first).toMatchObject({ is_default_shipping: true, is_default_billing: true });
     const gift = await addCustomerAddress(a, scopeA, grace, {
       ...home,
       line1: 'Gift street 3',
       is_default_shipping: true,
+      is_default_billing: false,
     });
     expect(gift).toMatchObject({ is_default_shipping: true, is_default_billing: false });
     expect(await addressRows(me.id)).toEqual([
-      { id: first.id, is_default_shipping: false, is_default_billing: false },
+      { id: first.id, is_default_shipping: false, is_default_billing: true },
       { id: gift.id, is_default_shipping: true, is_default_billing: false },
     ]);
     const listed = await listCustomerAddresses(a, scopeA, grace);

@@ -19,7 +19,7 @@ import {
   type RegisterCustomerInput,
 } from '../modules/customers';
 import { listStoreOrders } from '../modules/orders';
-import { handle } from './errors';
+import { handle, routeNotImplemented } from './errors';
 import { loadSpec } from './openapi';
 import { pageParams } from './query';
 import { requireTenant, type StoreContext } from './tenant';
@@ -171,4 +171,8 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   app.get('/store/customers/me/orders', listMyOrdersRoute);
   app.get('/store/customers/me/addresses', listMyAddressesRoute);
   app.post('/store/customers/me/addresses', json, addMyAddressRoute);
+  // Terminal: every operation of this prefix is answered above, so whatever is left — an unknown path, or
+  // PUT / DELETE / … on a known one — is a 404 here. It must never fall through to the Store API fallback proxy
+  // (non-production), which would forward the customer's bearer token to the mock.
+  app.use('/store/customers', routeNotImplemented);
 }

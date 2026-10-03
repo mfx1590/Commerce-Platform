@@ -65,7 +65,8 @@ are `updateCustomer`, `listCustomerAddresses` and `addCustomerAddress` (part B).
 - **Default address.** The customer's FIRST address is the default for shipping and billing; a later one is
   neither — unless the body says so: `is_default_shipping` / `is_default_billing` (optional booleans, contracts
   0.4.9; the core accepts the field names already) — `true` makes the new row the default and clears the flag
-  on the customer's other rows, `false` keeps a first address from becoming one. Decided under a lock on the
+  on the customer's other rows; an explicit `false` is ignored on the first address (the first is ALWAYS the
+  default for both, so a customer with addresses always has one). Decided under a lock on the
   customer row (`FOR NO KEY UPDATE`) and applied as clear-then-set in the same transaction, because
   `customer_address` has no unique index on the flags. Window 17's segments read `country` from the default
   shipping address, so it moves only when the customer asks.
