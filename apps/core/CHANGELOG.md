@@ -2,6 +2,19 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-03 · the customer on carts and orders — review fixes (#325)
+
+- **Replay never answers another principal's order.** A replay with a customer token whose customer is not the
+  stored order's is a 409 `conflict` and returns nothing of the order (it answered the order before).
+- **No livelock on a price change at the link.** The recovery transaction after a 409 `price_changed` applies
+  the customer link (same conflict rule) before it re-prices, so the persisted prices are the customer's and the
+  retry with the same key completes. Before, the rollback undid the link, the recovery persisted guest prices,
+  and the retry met the same difference forever. Test with a customer-group price list, shown red first.
+- **Token before the body parser.** The customer token of `createCart` / `completeCart` is judged by a gate
+  mounted ahead of the JSON parser: a bad token with malformed or oversized JSON is a 401, not a 400 / 413. The
+  cart handlers fail closed when reached without the gate.
+- The "nothing authorised" tests watch the payment provider itself.
+
 ### 2026-10-03 · customer self-service, part C — the customer on carts and orders (#303, #310)
 
 - `createCart` and `completeCart` honour a customer token (Store API 0.5.1). No `Authorization` header = a
@@ -12,7 +25,8 @@
   inside the placement transaction (after the cart lock, before pricing, reservation and authorisation): the
   order and `order.placed` carry `customer_id`, so a signed-in customer finds the order under
   `GET /store/customers/me/orders` without a verified email. A cart of another customer is a 409 `conflict`,
-  nothing placed. A replay answers the stored order and changes no link.
+  nothing placed. A replay answers the stored order to its own customer (or to a request without a token) and
+  changes no link; another customer's token on a replay is a 409 with nothing of the order.
 - The first address is ALWAYS the default for shipping and billing — an explicit `false` is ignored on it.
 - An undefined operation under `/store/customers` (unknown path, or PUT / DELETE on a known one) is a terminal
   404 `not_found` ("… is not implemented"), with or without a bearer; it never reaches the fallback proxy.
