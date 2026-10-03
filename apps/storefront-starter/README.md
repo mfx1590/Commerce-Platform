@@ -519,9 +519,9 @@ window 6 in #300): noIndex documents and the `home` page are filtered there, the
 returned and applied here at render time, so an expired campaign leaves the sitemap at the next
 revalidation rather than staying until the cached list is refreshed. The reader is built with
 `createReader`, never `getCms()` — that one reads the preview cookie, and a sitemap is cached and
-public. **Until #300 lands the reader has no such method**: the sitemap detects that and lists the
-catalogue exactly as before, and a CMS that is unconfigured, unreachable or failing costs the
-content entries and nothing else.
+public. The schedule rule is the reader's own `campaignIsLive`, the same one `campaign/[slug]`
+applies before it renders; a missing schedule side is an absent key, never `null`. A CMS that is
+unconfigured, unreachable or failing costs the content entries and nothing else.
 
 **Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
 agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,

@@ -1,5 +1,12 @@
 import { locales } from '@/i18n/routing';
-import { cmsConfigFromEnv, createReader, isCmsConfigured } from '@/lib/cms';
+import {
+  campaignIsLive,
+  cmsConfigFromEnv,
+  createReader,
+  isCmsConfigured,
+  type CmsReader,
+  type RoutedDocument,
+} from '@/lib/cms';
 import { CATALOG_PAGE_SIZE, catalogPageCount, type SitemapPath } from './seo';
 import { getStoreOrNull } from './store';
 import { cacheTags, storeApi } from './store-api';
@@ -86,23 +93,14 @@ export const STATIC_PATHS: string[] = ['', '/products'];
 // ── CMS content ──────────────────────────────────────────────────────────────────────────────────
 
 /**
- * One routed, indexable CMS document — the shape requested from the cms module's public reader in
- * #300. Documents with `seo.noIndex` and the `home` page (it is mounted on `/`) are filtered there,
- * at the source; the schedule is returned rather than applied, because the list is cached and
- * "live now" has to be decided when the sitemap is rendered.
+ * The one read the sitemap needs from the CMS: window 6's `routedDocuments` (#300, on main since
+ * #317). Documents with `seo.noIndex` and the `home` page (it is mounted on `/`) are filtered at
+ * the source; the schedule is returned rather than applied, because the list is cached and "live
+ * now" has to be decided when the sitemap is rendered. A missing schedule side is an **absent**
+ * key, never `null`. Narrowed to the one method so the tests can hand in a fake.
  */
-export interface RoutedDocument {
-  type: 'page' | 'legal' | 'campaignLanding';
-  slug: string;
-  /** Campaign landings only; absent means unbounded on that side. */
-  startsAt?: string | undefined;
-  endsAt?: string | undefined;
-}
-
-/** The one read the sitemap needs from the CMS. `CmsReader` satisfies it once #300 lands. */
-export interface ContentSource {
-  routedDocuments(locale: string): Promise<RoutedDocument[]>;
-}
+export type ContentSource = Pick<CmsReader, 'routedDocuments'>;
+export type { RoutedDocument };
 
 /** Where each document type is routed — the three `(content)` route folders. */
 const CONTENT_ROUTES: Record<RoutedDocument['type'], string> = {
@@ -114,26 +112,6 @@ const CONTENT_TYPES = Object.keys(CONTENT_ROUTES) as RoutedDocument['type'][];
 
 /** A slug is one path segment. Anything else would be advertised as a URL that does not route. */
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
-
-/**
- * Whether a campaign is live at `now`: the rule `campaign/[slug]` applies before it renders, so the
- * sitemap never advertises a landing that answers 404. Unparseable dates fail closed.
- *
- * A copy, on purpose and for now: the original (`campaignIsLive`) lives in window 6's module and is
- * not exported from its index, and this module imports nothing deeper than that index. #300 asks
- * for the export; when it lands, this function goes and the import replaces it.
- */
-function scheduleIsLive(document: RoutedDocument, now: number): boolean {
-  if (document.startsAt !== undefined) {
-    const startsAt = Date.parse(document.startsAt);
-    if (Number.isNaN(startsAt) || now < startsAt) return false;
-  }
-  if (document.endsAt !== undefined) {
-    const endsAt = Date.parse(document.endsAt);
-    if (Number.isNaN(endsAt) || now > endsAt) return false;
-  }
-  return true;
-}
 
 function isRoutable(document: RoutedDocument): boolean {
   return (
@@ -173,7 +151,9 @@ export async function contentEntries(
     for (const { locale, documents } of perLocale) {
       for (const document of documents) {
         if (document.type !== type || !isRoutable(document)) continue;
-        if (type === 'campaignLanding' && !scheduleIsLive(document, now)) continue;
+        // The same rule `campaign/[slug]` applies before it renders, so the sitemap never
+        // advertises a landing that answers 404. Unparseable dates fail closed there too.
+        if (type === 'campaignLanding' && !campaignIsLive(document, now)) continue;
         const path = `${CONTENT_ROUTES[type]}/${document.slug}`;
         const existing = localesByPath.get(path);
         if (existing === undefined) localesByPath.set(path, [locale]);
@@ -195,22 +175,13 @@ const NO_CONTENT: ContentSource = { routedDocuments: async () => [] };
  * Built here with `createReader` rather than taken from `getCms()`: that one reads the preview
  * cookie, which would make a cached sitemap dynamic and could put a draft in it. No CMS configured
  * means no content and no `GET /store` either — a CI build has neither.
- *
- * `routedDocuments` is feature-detected until #300 lands in window 6's reader: before it does the
- * sitemap lists the catalogue exactly as it did, and the day it does the content appears without a
- * change here. Then this becomes a plain, compile-checked call.
  */
 async function cmsContentSource(): Promise<ContentSource> {
   const config = cmsConfigFromEnv();
   if (!isCmsConfigured(config)) return NO_CONTENT;
 
   const store = await getStoreOrNull();
-  const reader = createReader({ config, storeCode: store?.code ?? null });
-  // Read by name, not by type: `CmsReader` does not declare the method until #300 lands.
-  const routedDocuments: unknown = Reflect.get(reader, 'routedDocuments');
-  if (typeof routedDocuments !== 'function') return NO_CONTENT;
-  const read = routedDocuments as ContentSource['routedDocuments'];
-  return { routedDocuments: (locale) => read.call(reader, locale) };
+  return createReader({ config, storeCode: store?.code ?? null });
 }
 
 export interface SitemapPathOptions {

@@ -1,5 +1,24 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.6 — 2026-10-03
+
+Issue #293. No contract change. Uses window 6's `routedDocuments`, `campaignIsLive` and
+`RoutedDocument` from `@/lib/cms` (#300, on main since #317).
+
+- **The sitemap lists CMS content.** Published `page` and `legal` documents and live
+  `campaignLanding`s appear under `/pages`, `/legal` and `/campaign`, each in the locales it is
+  published in and with `hreflang` alternates for exactly those locales. noIndex documents and
+  the `home` page are filtered by the reader; a campaign outside its schedule, or with a schedule
+  that cannot be parsed, is left out here by the reader's own `campaignIsLive`. A CMS failure
+  costs the content entries only. The reader is built with `createReader`, never `getCms()`,
+  which reads the preview cookie.
+- **One expansion from paths to URLs.** `sitemapUrls()` replaces the `paths × locales` arithmetic
+  that was written out in both `sitemap.ts` and the index route. With documents that are not in
+  every locale that product over-counts, and the index would advertise an empty page at the
+  boundary; both now count the same list. Both routes stay `force-dynamic` (#302).
+- **Brands:** `STATIC_PATHS` is unchanged, so a test pinning it stays green; what changes on
+  re-sync is that content routes appear in the served sitemap.
+
 ## 0.12.5 — 2026-10-02
 
 Issue #298. No contract change. **Go-live blocker for sign-in behind the ingress.**

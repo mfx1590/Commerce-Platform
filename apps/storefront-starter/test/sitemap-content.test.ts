@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as StoreApi from '@/lib/store-api';
-import type { ContentSource, RoutedDocument } from '@/lib/sitemap-data';
+import type { RoutedDocument } from '@/lib/cms';
+import type { ContentSource } from '@/lib/sitemap-data';
 
 /**
  * The CMS half of the sitemap (#293): published pages, legal pages and live campaign landings.
  *
- * The reader is a fake of the signature requested from window 6 in #300 — `routedDocuments(locale)`
- * returns type, slug and schedule, already without noIndex documents and without `home`. What is
+ * The reader is a fake of window 6's `routedDocuments(locale)` (#300, on main since #317): it
+ * returns type, slug and schedule, already without noIndex documents and without `home`, and a
+ * missing schedule side is an absent key, never `null`. What is
  * asserted here is what this module adds on top: which route a document lives under, which locales
  * it exists in, whether a campaign is live *now*, and that a CMS failure costs the content entries
  * and nothing else.

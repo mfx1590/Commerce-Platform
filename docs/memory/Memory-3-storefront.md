@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `0b084fd`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309) and #304/#306 (#316) merged; #298 is PR #320, marked READY on 2026-10-03 (code verdict MERGE); after it merges: #293 as PR six (unblocked by #317), then #312**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR six, prepared on this branch and NOT YET RUN OR PUSHED — run it when the manager frees the machine; then #312**
 
 ## Identity (does not change)
 
@@ -219,105 +219,31 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       kept running and the next run overlapped it. The manager tops the seed up before
       Integration 2.
 
+- [x] **#298 Redirects use the configured site origin; `SITE_URL` fails closed** — commits
+      `59e3505`, `205d347`, `42ca120`, `0e79a3c` and the memory commits between; **PR #320 merged**
+      (merge commit `79b491c`, 2026-10-03) after one draft round. `siteUrl()` is the one definition
+      (returns the origin; the localhost default only for `NODE_ENV=development`/`test` and the
+      build phase, everything else throws `SiteUrlError`); `src/lib/site-origin.ts`
+      (`siteOrigin`, `urlOnThisSite` with both safe-path layers) is used by sign-out, the callback,
+      `/r/{code}` and the middleware's attribution; sign-out never fails (no return address, one
+      log line). Measured: 15/15 redirect rows on the public origin whatever the headers; no
+      attribution cookie for in-shop navigation; route tests 18 red → 20 green. The six riders
+      from #316's review, plus the **warm-readiness gate** in `scripts/e2e-server.mjs` (Playwright
+      waits on `:<PORT+1000>/`, served only after a page and a chunk answered under 1 s twice) —
+      the local `page.goto` timeouts were a cold server under start-up load, settled by CI
+      (65/2, 44.1 s), not by the branch. Go-live: production Helm values must set `SITE_URL`
+      (#297). Seed stock 2026-10-03: one unit (alpine-backpack 2 → 1, order 1081).
+
 ## In progress
 
-- **Docket (manager, 2026-10-02), each its own small PR, one at a time, in this order: #298 (PR
-  five, with six riders from the review of #316) → #312 (waits for the core's #303 PR C; core
-  merges first). #293 slots in whenever #300 lands.** Standing rules: plan-paste anything over
-  ~20 calls. Push each PR only after the previous merges and the manager confirms no queue is
-  running. No `docker exec`. No closing keyword in a commit message unless that commit finishes
-  the issue. Never attempt stack recovery from this window. **One window measures at a time:
-  until the manager says the machine is mine, git and file work only — no builds (not even the
-  workspace packages), tests, e2e, Lighthouse or servers. Every command bounded; never start a
-  server in a command that waits for it. Ask before a perf gate.**
-
-- **#298 — PR #320, MARKED READY on 2026-10-03 (pushed with main `0b084fd` merged; SHA in the next
-  commit). Code verdict from the static review: MERGE. Go-live blocker (Integration 2 checklist).**
-  **The slow-page question is settled, by CI and not by me:** CI ran the draft's 67 tests on 2
-  workers — 65 passed, 2 skipped, 44.1 s, no retries (main's runs 34–46 s). The stalled requests
-  were static chunks that bypass every changed line. It was local start-up: Playwright waited on
-  `/`, resolved on the response headers of `/en-GB` seconds after `next build` exited, and the
-  workers hit a cold server on a busy machine. The alternating branch/control runs were skipped on
-  the manager's instruction.
-  **Done on 2026-10-03, all bounded, servers detached and polled:**
-  1. **Warm-readiness gate** in `scripts/e2e-server.mjs`: Playwright now waits on
-     `http://127.0.0.1:<PORT+1000>/` (`E2E_READY_PORT`), which the script serves only after a page
-     (`/en-GB`) and a static chunk (discovered from the page) have each answered under 1 s twice
-     in a row (120 s deadline, then the server start fails loudly). A server already on the port
-     is reused but held to the same bar. Not longer timeouts. Seen: `warm-up 1: page failed,
-     chunk failed`, `2: page 576 ms, chunk 7 ms`, `3: page 28 ms, chunk 3 ms`, ready.
-  2. **Fail-closed as an allow-list**: the local default only for `NODE_ENV=development`, `test`,
-     or the build phase; `staging`, empty, unset and misspelt throw. `siteUrl()` returns
-     `url.origin`, never the raw value. Tests for staging / empty / unset / wrong case; the auth
-     test that expected `oidcConfigFromEnv({})` to default to localhost now expects a throw.
-  3. Static gates on the merged tree (main `900059c`, with window 6's `routedDocuments`): lint,
-     typecheck, 451 unit tests, format — pass. One full mock e2e through the gate, no
-     `STORE_API_URL` in the shell: **65 passed, 2 skipped, 1.0 min**; first browser tests 4–9 s.
-  4. **The one core run of the checkout spec: 7 passed** (riders 3 and 4 seen working against the
-     core); the journey bought `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack), order 1081; stock
-     **2 → 1**. One unit, as approved. Core started from this worktree, detached, stopped after.
-  **Parked nits from this review (manager: not now):** an empty `E2E_STORE_API_URL` gives a mock
-  server while the spec thinks it is the core; rider 2 is bypassed by `reuseExistingServer` or an
-  app-level `.env.local`; no route-level test for sign-in's `redirect_uri`; `data-handle` /
-  `data-currency` are also not page text. **For #312:** `refreshTokens` and `tokenEndpoint` take the
-  full `OidcConfig` — narrow them to the provider half so a token refresh never needs `SITE_URL`.
-  Ruling (manager): fix ALL of them under #298, one helper, a unit test per route handler; origin
-  from `SITE_URL` read at request time, NEVER from `Host` / `X-Forwarded-Host`; fail closed when
-  `SITE_URL` is unset outside local development; every redirect still passes the safe-path rule;
-  measure the attribution reader and fix it in the same PR if it is the same cause. Sign-out
-  with no `SITE_URL`: keep my choice (clear the session, end the Keycloak session, no return
-  address) and log **one error line without PII** — a sign-out must never fail.
-  **Riders required in this PR (review of #316), all written 2026-10-02 without running:**
-  1. This file: the stale #304 lines are gone (the block moved to Done, with what really ran).
-  2. `scripts/e2e-env.mjs` (`e2eServerEnv`, used by `e2e-server.mjs`): a shell-exported
-     `STORE_API_URL` is dropped unless `E2E_STORE_API_URL` names the core. It could not be done
-     in `playwright.config.ts` itself: Playwright merges `webServer.env` over `process.env`, so
-     a key cannot be removed there. `test/e2e-server-env.test.ts`.
-  3. The journey ties the confirmation to its own run: a per-run email typed at the address step
-     (against the core that step must be visited) and required on the confirmation; and the cart
-     must be empty afterwards (both backends; `placeOrderAction` calls `clearCart()`).
-  4. The category test fails when no listed product is outside the chosen category.
-  5. `test.setTimeout`: 180 s for the journey, 120 s for the listing test.
-  6. Docs: the hooks ship in production builds; four of them are not text on the page; 0.12.4
-     said the order number matches the URL — it is the order id. **The PR body must say which
-     results are local and that CI covers only the mock.**
-  **State on 2026-10-02 ~16:45, machine granted, NOTHING PUSHED:** (a) done — REQUEST **#319** filed
-  for window 6 (preview / preview-exit always redirect to `localhost:3100`; `Host` and
-  `X-Forwarded-Host` cannot steer it, only the scheme follows `X-Forwarded-Proto`: broken, not an
-  open redirect). (c) done — route tests 18 failed / 2 passed on the old handlers, 20 passed on
-  the new. (d) done — `next build` with no `SITE_URL` exits 0; `next start` without it: pages,
-  sitemap, `/r/`, callback 500, `/health` 200, sign-out 303 with no return address and one log
-  line. (e) done — the middleware had the same cause (an in-shop navigation wrote an attribution
-  cookie naming the shop as referrer); fixed with `siteOrigin()` and tested. (f) done — fifteen
-  rows on `https://shop.public.example` whatever the headers. Lint, typecheck, 429 unit tests,
-  format: pass.
-  **OPEN, blocks the push: the full e2e on the mock failed on this branch** — `page.goto`
-  timeouts in the first seconds of a Playwright-started run (8, 9 and 6 failures in three runs),
-  one Playwright-started run passed (13/13), every run against a server I started by hand passed
-  (10 s), and one control run on `storefront/phase2` passed (65/65). Ruled out by measurement:
-  rider 2 falling back to the core (the server gets `MOCK_API_URL`, lists the mock's product, no
-  connection error in its log); the environment Playwright hands the server (dumped: identical
-  to a manual start); a slow server (`/en-GB` 0.04 s warm, `/health` under 0.1 s during a run).
-  The trace of a hung test shows the server taking 10 s for the document and up to 10 s to first
-  byte on static chunks while the machine was at ~90% CPU right after the build. **Not yet
-  attributed: this branch or load at start-up. One control run is not evidence.** Next step is
-  the manager's call: alternating bounded runs, branch and control, several each.
-  **Method, from the manager: every long run writes to a file, starts detached, and is polled
-  with a bounded loop; no step may wait on a pipe.**
-  - What was measured (2026-10-02, `next start`, `SITE_URL=https://shop.public.example`): in a
-    route handler `request.nextUrl.origin` is `localhost:3100` whatever `Host` /
-    `X-Forwarded-Host` say (only the scheme follows `X-Forwarded-Proto`). Sign-out sent
-    `post_logout_redirect_uri=http(s)://localhost:3100/`; `/auth/callback` (two failure paths)
-    and `/r/{code}` redirected to `https://localhost:3100/…`. `/auth/sign-in`, the middleware's
-    locale redirect and the pages' redirects were fine (relative, or built from `SITE_URL`).
-  - Written: `siteUrl()` in `src/brand/config.ts` is the one definition and fails closed
-    (`SiteUrlError`; default only when `NODE_ENV !== 'production'` or `NEXT_PHASE ===
-    'phase-production-build'`; a non-http(s) value is refused). `src/lib/site-origin.ts`:
-    `siteOrigin()`, `urlOnThisSite(path, fallbackPath)` (both safe-path layers). Sign-out (takes
-    no request; unconfigured → still signs out, no return address), callback (resolves the origin
-    before touching the session), `/r/` (target and `siteOrigin` for the referrer comparison).
-    `oidcConfigFromEnv` uses `siteUrl()`; `oidcProviderFromEnv` is the part without the origin.
-    Tests: `test/site-origin.test.ts`, `test/route-origin.test.ts`. README, CHANGELOG 0.12.5.
+- **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
+  #303 PR C; the `refreshTokens` / `tokenEndpoint` narrowing to the provider half rides with it).**
+  Standing rules: plan-paste anything over ~20 calls. Push only after the previous PR merges and
+  the manager confirms no queue is running. No `docker exec`. No closing keyword in a commit
+  message unless that commit finishes the issue. Never attempt stack recovery from this window.
+  **One window measures at a time: until the manager says the machine is mine, git and file work
+  only. Every run: output to a file, started detached, polled with a bounded loop; no step waits
+  on a pipe or on a server's lifetime. Ask before a perf gate.**
 
 - **#312 — READ, NOT STARTED. After #298; waits for the core's side (#303 PR C, window 1; core
   merges first, coordinate with the manager).** Store API 0.5.1: `createCart` and `completeCart`
@@ -341,24 +267,20 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     as a guest and completed after sign-in must still work; tests for signed-in create and
     complete (token sent), guest (none), the 401 and the 409 paths.
 
-- **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY. UNBLOCKED on 2026-10-02: window 6's reader method
-  landed (#300, PR #317, `d46a273`) and is on main: `routedDocuments`, `campaignIsLive` and
-  `RoutedDocument` are exported from `@/lib/cms`. **PR six, right after #320 merges:** merge main,
-  cherry-pick `2587ec9` from `storefront/hold-293` (expect conflicts in CHANGELOG, the package
-  version, `sitemap.ts` and `sitemap.xml/route.ts` — **keep #302's `force-dynamic` exports**), swap
-  the local `scheduleIsLive` for the exported `campaignIsLive`, the `Reflect.get` detection for a
-  typed call (delete the "before #300" test), the local `RoutedDocument` type for window 6's
-  (absent keys for a missing schedule side, never `null`), then the gates and a core/mock run.** The commit is `2587ec9` on the **local-only** branch
-  `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
-  do not merge the branch; expect conflicts in CHANGELOG, the package version, `sitemap.ts` and
-  `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that, the manager
-  said so too). Never push the branch. It is the only local-only branch left. When #300 has
-  merged: merge main, bring the commit over, **swap the local `scheduleIsLive` copy for the
-  exported `campaignIsLive`, replace the `Reflect.get` method detection with a plain typed call
-  (and delete the "before #300" test), use window 6's `RoutedDocument` type**, re-run the gates.
-  **Window 6 (2026-10-02): its reader returns ABSENT keys for a missing schedule side, never
-  `null`.** The fakes in `sitemap-content.test.ts` already omit the key; when swapping to window
-  6's `RoutedDocument` type, keep `startsAt?` / `endsAt?` optional and do not add a `null` case.
+- **#293 — PR SIX, PREPARED ON `storefront/phase2` ON 2026-10-03 (code only; window 1 had the
+  machine). NOT RUN, NOT PUSHED.** The parked commit `2587ec9` was cherry-picked onto main
+  `79b491c` (conflicts in CHANGELOG, package.json 0.12.6, README, this file; `sitemap.ts` and
+  `sitemap.xml/route.ts` kept #302's `force-dynamic`), then: the local `scheduleIsLive` and
+  `RoutedDocument` and the `Reflect.get` detection are gone — `campaignIsLive`, `RoutedDocument` and
+  `CmsReader` come from `@/lib/cms` (window 6's #300, on main since #317); `ContentSource` is
+  `Pick<CmsReader, 'routedDocuments'>`; the "before #300" binding test is deleted; the binding
+  test's mock of `@/lib/cms` passes `campaignIsLive` through from the real module.
+  **Owed when the machine is mine:** rebuild the workspace packages; prettier, lint, typecheck,
+  unit tests (the three `sitemap-*` files especially); full mock e2e through the gate (no
+  `STORE_API_URL` in the shell); a production build against the mock to see `/sitemap.xml` and
+  `/sitemap/0.xml` unchanged while no CMS is configured (there is still no Sanity dataset anywhere,
+  so **content appearing in a served sitemap stays unverified** — say so in the PR body, unticked);
+  then push and open PR six (body may close #293). Brand A's `STATIC_PATHS` pin stays green.
   What is in it: `seo.ts` `sitemapUrls()` (the one expansion from paths to URLs; both sitemap
   routes count it); `sitemap-data.ts` `contentEntries()` over a narrow `ContentSource`, default
   source built with `createReader`, never `getCms()` (preview cookie); tests

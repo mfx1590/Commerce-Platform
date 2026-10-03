@@ -14,7 +14,9 @@ const createReader = vi.fn();
 const isCmsConfigured = vi.fn();
 const getStoreOrNull = vi.fn();
 
-vi.mock('@/lib/cms', () => ({
+vi.mock('@/lib/cms', async (importOriginal) => ({
+  // The schedule rule is window 6's and is used as is.
+  campaignIsLive: (await importOriginal<typeof import('@/lib/cms')>()).campaignIsLive,
   cmsConfigFromEnv: () => ({ projectId: 'project-under-test' }),
   isCmsConfigured: (...args: unknown[]) => isCmsConfigured(...args),
   createReader: (...args: unknown[]) => createReader(...args),
@@ -70,15 +72,6 @@ describe('the sitemap and the CMS reader', () => {
     const options = createReader.mock.calls[0]![0] as Record<string, unknown>;
     expect(options['storeCode']).toBe('brand-a');
     expect(options['preview']).toBeUndefined();
-  });
-
-  it('lists the catalogue unchanged while the reader has no routedDocuments (before #300)', async () => {
-    createReader.mockReturnValue({ pageSlugs: async () => ['about'], legalSlugs: async () => [] });
-
-    await expect(sitemapPaths({ locales: LOCALES })).resolves.toEqual([
-      { path: '' },
-      { path: '/products' },
-    ]);
   });
 
   it('does not read the store, or build a reader, when no CMS is configured', async () => {
