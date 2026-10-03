@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-03 · Contracts: contracts-v0.4.9 · Branch: `brands/phase2` · Status: **ACTIVE** — re-sync on main 4c4aa80 done and green locally; runtime steps (SEO measure, flake check) await the manager.
+Last updated: 2026-10-03 · Contracts: contracts-v0.4.9 · Branch: `brands/phase2` · Status: **WAITING** — re-sync PR #328 open (Refs #142); SEO measured and flake check taken; do not push until the manager confirms the merge.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,6 +17,16 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **Re-sync PR #328** (open, Refs #142) — commits **466213e** (re-sync from the starter at main
+  4c4aa80; the four preserved files rebuilt from the starter; `SITE_URL` no longer defaulted;
+  #274 placement pin and `STATIC_PATHS` pin replaced by real assertions), **697af36** (preserved-file
+  drift report: `scripts/preserved-drift.mjs`, `scripts/starter-preserved.json`, 5 tests; REQUEST
+  #326), **a67972f** (SEO measured; placement check case-insensitive; content routes gated on
+  `CMS_DATASET`). Measured on main d335979: **SEO 1.00 worst-of-three** on home/PLP/PDP/de-DE PLP
+  (12/12 runs 1.00), hreflang in `<head>` 280/280 raw-byte checks, sitemap 422 URLs with alternates.
+  **Flake check FAILED: 84/3, 87/0, 82/5** (22 skipped each) — picsum through the optimiser +
+  `networkidle`, REQUEST #327 (decided: window 3 serves a local placeholder and drops networkidle).
+  gitleaks flagged a blob id in starter-preserved.json — false positive, allow-listed on main 2a0f828.
 - **#143 · 2.5 e2e browse → buy** — PR #301 (de3e9ef), verdict MERGE, queued behind window 3.
   `journey.spec.ts`: PLP sort (asserts real ordering), category filter (page handles ⊆ API's
   category handles), PDP variants, and a placed order tied to the cart — quantity from the cart's
@@ -58,46 +68,27 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — re-sync PR (one small PR, brands/phase2)
-- DONE locally: sync, preserved-file rebuild (next.config/brand config/playwright/lighthouserc),
-  pins replaced, typecheck + 634 unit tests + eslint + ownership green.
-- DONE: manager's rider — preserved-file drift report (scripts/preserved-drift.mjs,
-  scripts/starter-preserved.json, 5 tests); REQUEST #326 filed (starter-defaults imports).
-- Manager answers 2026-10-03: #143 order history is its OWN later PR after #325 merges; imagery
-  is its OWN PR after this one (manifest cms/brand-a/media/manifest.json, premium folders only,
-  owner holds Cloudinary creds — must work with keys absent; product matrix is the manager's).
-- MEASURED 2026-10-03 (main d335979): SEO 1.00 on all 12 Lighthouse runs (4 URLs × 3, worst 1.00),
-  hreflang in <head> raw bytes 280/280, sitemap 422 URLs with alternates. Content routes NOT
-  runtime-measured: SANITY_PROJECT_ID empty locally → 404 (asserted from dataset in unit test).
-- FLAKE CHECK FAILED: passes 84/3, 87/0, 82/5 (22 skipped each). Root cause: since the sync,
-  next.config allows picsum → /_next/image fetches the internet; specs wait on networkidle; the
-  optimizer request never completed in the failing PDP trace. REQUEST #327 (window 3). So PR uses
-  "Refs #142", not Closes. Brand a11y.spec.ts has the same networkidle pattern — align after #327.
-- Machine recipe gotcha: start brand with .env sourced too, or CMS is unconfigured; gh can hang —
-  GH_PROMPT_DISABLED=1 + timeout, kill gh.exe if stuck.
-- NEXT: #143 order-history journey test after #325 on main (own PR); then imagery PR (plan approved).
+## In progress — waiting on #328's merge (do NOT push brands/phase2 until the manager confirms)
+- **#143 order history**: written locally on branch **brands/local-143** (ef95792), design accepted.
+  Reaches the history through the core's verified-email read-time match, not the placement link
+  (REQUEST #312 open). Not yet run — needs a machine slot ("the machine is YOURS").
+- **Imagery wiring**: plan approved; start locally, unpushed (see RESUME HERE step 4).
 
 ## RESUME HERE (the exact sequence, in order)
 
-1. **Re-sync from the starter**, on its own small PR.
-   `pnpm --filter @platform/storefront-brand-a sync`, then `node scripts/sync-from-starter.mjs --check`.
-   Expect `test/slots.test.ts` to still be PRESERVEd while #278 is open, and `package.json` to be
-   MERGEd (identity survives; see merge-package-json.mjs).
-2. **`e2e/routes.spec.ts`'s placement pin goes RED, by design.** #299 made the starter serve
-   metadata in `<head>` for every user agent. That red is the signal, not a regression: delete the
-   pin and assert the correct placement instead.
-3. **Re-measure SEO** and close **#142's two criteria** (SEO ≥ 95, hreflang effective). Hand-measure
-   and quote — the CI perf gate is still vacuous for brand storefronts (**#283**).
-   Needs `ROBOTS_ALLOW_INDEXING=1` or SEO caps around 0.58.
-   Also check **#293** (sitemap content routes): if it landed, delete the `STATIC_PATHS` pin in
-   `test/brand-i18n-seo.test.ts` and assert the real inventory.
-4. **Re-take the full-suite flake check.** It was [~] only because the starter's `checkout.spec.ts`
-   flaked (`:134` cart, `:182` sort) — both fixed by #304. With those gone it should be three clean
-   passes. Ask for a quiet machine first; bounded runs only.
-5. **#143's remaining criterion**: order history against the core, blocked on **#303**
-   (the core mounts no `/store/customers*`). `account.spec.ts`'s identity + `Order #1000` are
-   mock-only until then (**#306**).
-6. **2.6 (#144)** — launch checklist for brand A.
+1. ~~Re-sync~~, ~~placement pin~~, ~~SEO re-measure~~, ~~flake check~~ — all DONE in #328 (see Done).
+   #142 stays open: SEO and hreflang hold; the flake criterion waits on #327.
+2. **#143 order history** (brands/local-143, ef95792). When the manager says the machine is yours:
+   one green run, one run with a wrong order id to see it go red, stop everything, report. Open
+   its PR only after #328 is confirmed merged; note **two units of stock per run** in the body.
+3. **After #327 reaches brand A by sync**: align `a11y.spec.ts:88/:139`, `journey.spec.ts:199/:331/:453`
+   and `visual.spec.ts:39` (drop networkidle), take three clean passes, close #142 in that PR.
+4. **Imagery wiring** (own PR, local first): `cms/brand-a/media/manifest.json` (premium folders only;
+   standard-1k is a fallback) → `cloudinaryUrl` in content docs, missing-slot test, DESIGN.md imagery
+   section incl. reduced motion for the hero loops, upload script the owner runs; must work with the
+   Cloudinary keys absent. The product matrix is the manager's (packages/db seeds).
+5. **2.6 (#144)** — launch checklist for brand A.
+6. Nit for a later PR: CHANGELOG says main 4c4aa80, the #328 body says d335979 — reconcile.
 
 ### Machine recipe that works (verified 2026-10-02)
 ```
@@ -199,6 +190,9 @@ manager's OK.
   lands #212; brands opts in at 2.5 (#143) after that.
 
 ## Gotchas
+- Kafka for this project is Redpanda on **19092** (healthy); 9092 is not ours.
+- Machine recipe: start brand A with `.env` sourced too, or the CMS is unconfigured. `gh` can
+  hang: `GH_PROMPT_DISABLED=1` + `timeout`, kill gh.exe if stuck.
 - **PRESERVED files never receive starter fixes.** The 2026-10-03 re-sync found next.config.mjs,
   src/brand/config.ts, playwright.config.ts and lighthouserc.json all behind (missing #274's
   htmlLimitedBots, #320's fail-closed siteUrl, the e2e readiness server). Diff every preserved
