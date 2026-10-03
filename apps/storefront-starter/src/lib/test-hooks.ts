@@ -13,7 +13,14 @@ import type { LineItem, ProductSummary, Totals } from './store-api';
  * drift, and a test that reads `data-quantity` on one page and finds `data-qty` on the next fails
  * for a reason that has nothing to do with the order.
  *
- * Nothing here is secret or new: every value is already rendered on the same element as text.
+ * **These attributes ship in production builds** — they are plain markup, not stripped by any
+ * build step, and every visitor's browser receives them. So nothing may go into one that the
+ * page would not otherwise disclose. Most are already on the same element as text (SKU,
+ * quantity, the amounts, the order number). Four are not, and are public for other reasons:
+ * `data-order-id` is the id in the confirmation page's own URL; `data-category` is the handle in
+ * the category link next to it; `data-availability` and `data-purchasable` restate what the
+ * add-to-cart button and the stock note already show. None is a secret; all are, now, a
+ * promise to whoever scrapes the page, which is a reason not to add more casually.
  */
 
 type OrderLine = Pick<LineItem, 'sku' | 'quantity' | 'total'>;
