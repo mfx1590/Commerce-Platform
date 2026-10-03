@@ -5,10 +5,15 @@ import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@p
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  ADDRESS_LIMIT,
+  addCustomerAddress,
   customerEmailHash,
   findCustomerForSubject,
+  listCustomerAddresses,
   registerCustomer,
   resolveCustomer,
+  updateCustomer,
+  type AddressInput,
   type CustomerIdentity,
   type CustomerScope,
 } from './index';
@@ -430,6 +435,233 @@ describe('email collision: the token email is already on a row of this store', (
   });
 });
 
+describe('updateCustomer (updateMe)', () => {
+  it('names, phone and consent: one customer.updated naming the columns; an empty string clears; a no-op writes nothing; blank-only values count as cleared', async () => {
+    const hedy = who('hedy');
+    const first = await updateCustomer(a, scopeA, hedy, {
+      first_name: 'Hedy',
+      phone: ' +31 6 1234 ',
+    });
+    // created by this very call: the one customer.created carries the values, nothing more
+    expect(first).toMatchObject({ first_name: 'Hedy', last_name: null, phone: '+31 6 1234' });
+    expect((await events(first.id)).map((e) => e.topic)).toEqual(['customer.created']);
+
+    const second = await updateCustomer(a, scopeA, hedy, {
+      last_name: 'Lamarr',
+      phone: '',
+      marketing_consent: true,
+    });
+    expect(second).toMatchObject({
+      id: first.id,
+      first_name: 'Hedy',
+      last_name: 'Lamarr',
+      phone: null,
+      marketing_consent: true,
+    });
+    const after = await events(first.id);
+    expect(after.map((e) => e.topic)).toEqual(['customer.created', 'customer.updated']);
+    expect(after[1]!.payload).toMatchObject({
+      changed_fields: ['last_name', 'phone', 'marketing_consent'],
+      marketing_consent: true,
+    });
+    expect((await audits(first.id)).map((x) => x.action)).toEqual([
+      'customer.create',
+      'customer.update',
+    ]);
+
+    const before = await totals();
+    expect(await updateCustomer(a, scopeA, hedy, { last_name: ' Lamarr ', phone: '   ' })).toEqual(
+      second,
+    );
+    expect(await updateCustomer(a, scopeA, hedy, {})).toEqual(second);
+    expect(await totals()).toEqual(before);
+  });
+
+  it('refuses an over-long value with a 400 naming the field, nothing written', async () => {
+    const before = await totals();
+    await expect(
+      updateCustomer(a, scopeA, who('hedy'), { first_name: 'x'.repeat(201) }),
+    ).rejects.toMatchObject({
+      code: 'validation_error',
+      details: { first_name: 'at most 200 characters' },
+    });
+    expect(await totals()).toEqual(before);
+  });
+
+  it('a disabled customer cannot update anything (401), and nothing is written', async () => {
+    const before = await totals();
+    await expect(
+      updateCustomer(a, scopeA, who('disabled'), { first_name: 'Nope' }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(await totals()).toEqual(before);
+  });
+});
+
+describe('addresses', () => {
+  const home: AddressInput = {
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    line1: 'Keizersgracht 1',
+    city: 'Amsterdam',
+    postal_code: '1015 CJ',
+    country: 'NL',
+  };
+  const addressRows = async (customerId: string) =>
+    (
+      await owner.query<{ id: string; is_default_shipping: boolean; is_default_billing: boolean }>(
+        `SELECT id, is_default_shipping, is_default_billing FROM customer_address
+         WHERE customer_id = $1 ORDER BY created_at, id`,
+        [customerId],
+      )
+    ).rows;
+
+  it('the first address is the default for shipping and billing; a later one is neither; the list puts the default shipping first', async () => {
+    const ada = await resolveCustomer(a, scopeA, who('ada'));
+    const e0 = (await events(ada.id)).length;
+    const first = await addCustomerAddress(a, scopeA, who('ada'), {
+      ...home,
+      company: '  ',
+      line2: ' Floor 2 ',
+      phone: '',
+    });
+    expect(first).toEqual({
+      id: first.id,
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      company: null,
+      line1: 'Keizersgracht 1',
+      line2: 'Floor 2',
+      city: 'Amsterdam',
+      region: null,
+      postal_code: '1015 CJ',
+      country: 'NL',
+      phone: null,
+      is_default_shipping: true,
+      is_default_billing: true,
+    });
+    const second = await addCustomerAddress(a, scopeA, who('ada'), {
+      ...home,
+      line1: 'Prinsengracht 2',
+    });
+    expect(second).toMatchObject({ is_default_shipping: false, is_default_billing: false });
+
+    const listed = await listCustomerAddresses(a, scopeA, who('ada'));
+    expect(listed.map((x) => x.id)).toEqual([first.id, second.id]);
+
+    const after = await events(ada.id);
+    expect(after.slice(e0).map((e) => [e.topic, e.payload.changed_fields])).toEqual([
+      ['customer.updated', ['addresses']],
+      ['customer.updated', ['addresses']],
+    ]);
+    const addressAudits = await owner.query<{ action: string; entity_id: string; after: unknown }>(
+      `SELECT action, entity_id, after FROM audit_log WHERE entity_type = 'customer_address' AND entity_id = ANY($1)
+       ORDER BY created_at, id`,
+      [[first.id, second.id]],
+    );
+    expect(addressAudits.rows).toEqual([
+      {
+        action: 'customer_address.create',
+        entity_id: first.id,
+        after: { customer_id: ada.id, is_default_shipping: true, is_default_billing: true },
+      },
+      {
+        action: 'customer_address.create',
+        entity_id: second.id,
+        after: { customer_id: ada.id, is_default_shipping: false, is_default_billing: false },
+      },
+    ]);
+  });
+
+  it('explicit flags (contracts 0.4.9): true moves that default to the new row and clears it elsewhere; false keeps a first address from becoming one', async () => {
+    const grace = who('grace');
+    const me = await resolveCustomer(a, scopeA, grace);
+    const first = await addCustomerAddress(a, scopeA, grace, {
+      ...home,
+      is_default_billing: false,
+    });
+    expect(first).toMatchObject({ is_default_shipping: true, is_default_billing: false });
+    const gift = await addCustomerAddress(a, scopeA, grace, {
+      ...home,
+      line1: 'Gift street 3',
+      is_default_shipping: true,
+    });
+    expect(gift).toMatchObject({ is_default_shipping: true, is_default_billing: false });
+    expect(await addressRows(me.id)).toEqual([
+      { id: first.id, is_default_shipping: false, is_default_billing: false },
+      { id: gift.id, is_default_shipping: true, is_default_billing: false },
+    ]);
+    const listed = await listCustomerAddresses(a, scopeA, grace);
+    expect(listed.map((x) => x.id)).toEqual([gift.id, first.id]);
+  });
+
+  it('two concurrent first addresses: exactly one default shipping and one default billing', async () => {
+    const linus = who('linus');
+    const me = await resolveCustomer(a, scopeA, linus);
+    const settled = await Promise.allSettled(
+      Array.from({ length: 6 }, (_, i) =>
+        addCustomerAddress(a, scopeA, linus, { ...home, line1: `Street ${i}` }),
+      ),
+    );
+    expect(settled.map((s) => s.status)).toEqual(Array(6).fill('fulfilled'));
+    const rows = await addressRows(me.id);
+    expect(rows).toHaveLength(6);
+    expect(rows.filter((r) => r.is_default_shipping)).toHaveLength(1);
+    expect(rows.filter((r) => r.is_default_billing)).toHaveLength(1);
+  });
+
+  it('validation: blank required fields and a bad country are a 400 naming the field; nothing written', async () => {
+    const before = await totals();
+    await expect(
+      addCustomerAddress(a, scopeA, who('ada'), {
+        ...home,
+        first_name: '  ',
+        line1: '',
+        country: 'Netherlands',
+        is_default_shipping: 'yes' as unknown as boolean,
+      }),
+    ).rejects.toMatchObject({
+      code: 'validation_error',
+      details: {
+        first_name: 'required',
+        line1: 'required',
+        country: 'ISO 3166-1 alpha-2',
+        is_default_shipping: 'boolean',
+      },
+    });
+    expect(await totals()).toEqual(before);
+  });
+
+  it(`at most ${ADDRESS_LIMIT} addresses per customer: the next one is a 400, the list stays unpaginated and complete`, async () => {
+    const margaret = who('margaret');
+    const me = await resolveCustomer(a, scopeA, margaret);
+    for (let i = 0; i < ADDRESS_LIMIT; i += 1) {
+      await addCustomerAddress(a, scopeA, margaret, { ...home, line1: `Street ${i}` });
+    }
+    await expect(
+      addCustomerAddress(a, scopeA, margaret, { ...home, line1: 'One too many' }),
+    ).rejects.toMatchObject({
+      code: 'validation_error',
+      details: { addresses: `at most ${ADDRESS_LIMIT}` },
+    });
+    expect(await addressRows(me.id)).toHaveLength(ADDRESS_LIMIT);
+    expect(await listCustomerAddresses(a, scopeA, margaret)).toHaveLength(ADDRESS_LIMIT);
+  });
+
+  it('customers never cross stores: the same subject in store B has no addresses there', async () => {
+    expect(await listCustomerAddresses(b, scopeB, who('ada'))).toEqual([]);
+    expect((await listCustomerAddresses(a, scopeA, who('ada'))).length).toBeGreaterThan(0);
+  });
+
+  it('a disabled customer cannot add or list addresses (401)', async () => {
+    await expect(listCustomerAddresses(a, scopeA, who('disabled'))).rejects.toMatchObject({
+      code: 'unauthorized',
+    });
+    await expect(addCustomerAddress(a, scopeA, who('disabled'), home)).rejects.toMatchObject({
+      code: 'unauthorized',
+    });
+  });
+});
+
 describe('no personal data leaves the row', () => {
   it('no event, no audit row and no log line carries an email, a name or a subject', async () => {
     const logged: string[] = [];
@@ -450,16 +682,50 @@ describe('no personal data leaves the row', () => {
           email: 'other.person@example.test',
         }),
       ).rejects.toMatchObject({ code: 'validation_error' });
+      await updateCustomer(a, scopeA, who('private.person', { subject: 'sub-private' }), {
+        phone: '+31 6 9999 9999',
+      });
+      await addCustomerAddress(a, scopeA, who('private.person', { subject: 'sub-private' }), {
+        first_name: 'Privatename',
+        last_name: 'Familyname',
+        line1: 'Secretstreet 9',
+        city: 'Hiddentown',
+        postal_code: '9999 ZZ',
+        country: 'NL',
+        phone: '+31 6 8888 8888',
+      });
+      await expect(
+        addCustomerAddress(a, scopeA, who('private.person', { subject: 'sub-private' }), {
+          first_name: 'Privatename',
+          last_name: 'Familyname',
+          line1: '',
+          city: 'Hiddentown',
+          postal_code: '9999 ZZ',
+          country: 'NL',
+        }),
+      ).rejects.toMatchObject({ code: 'validation_error' });
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
     const out = await owner.query<{ doc: string }>(
       `SELECT (payload::text || headers::text) AS doc FROM outbox WHERE aggregate_type = 'customer'
        UNION ALL
-       SELECT (coalesce(before::text, '') || coalesce(after::text, '')) FROM audit_log WHERE entity_type = 'customer'`,
+       SELECT (coalesce(before::text, '') || coalesce(after::text, '')) FROM audit_log
+       WHERE entity_type IN ('customer', 'customer_address')`,
     );
     const all = [...out.rows.map((r) => r.doc), ...logged].join('\n').toLowerCase();
-    for (const secret of ['@example.test', 'privatename', 'familyname', 'sub-private', 'sub-ada']) {
+    for (const secret of [
+      '@example.test',
+      'privatename',
+      'familyname',
+      'sub-private',
+      'sub-ada',
+      'secretstreet',
+      'hiddentown',
+      '9999 zz',
+      '6 9999',
+      '6 8888',
+    ]) {
       expect(all).not.toContain(secret);
     }
   });

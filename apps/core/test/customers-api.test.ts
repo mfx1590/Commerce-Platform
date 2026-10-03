@@ -160,11 +160,22 @@ afterAll(async () => {
 });
 
 describe('authentication: publishable key AND a customer token for this store', () => {
-  const routes: Array<['get' | 'post', string]> = [
+  const routes: Array<['get' | 'post' | 'patch', string]> = [
     ['post', '/store/customers'],
     ['get', '/store/customers/me'],
+    ['patch', '/store/customers/me'],
     ['get', '/store/customers/me/orders'],
+    ['get', '/store/customers/me/addresses'],
+    ['post', '/store/customers/me/addresses'],
   ];
+  const bodyFor = (method: string, path: string) =>
+    method === 'get'
+      ? undefined
+      : path.endsWith('/addresses')
+        ? address
+        : method === 'patch'
+          ? { first_name: 'Jane' }
+          : { email: 'jane@example.test' };
 
   it("no key → 401 before anything else; no token, an unknown token, another store's token → 401, and nothing is created", async () => {
     const before = await customerCount();
@@ -172,9 +183,7 @@ describe('authentication: publishable key AND a customer token for this store', 
       const noKey = await request(app)[method](path).set('Authorization', 'Bearer jane');
       expect(noKey.status).toBe(401);
       for (const token of [null, 'nobody', 'bob']) {
-        const res = await as(token, method, path).send(
-          method === 'post' ? { email: 'jane@example.test' } : undefined,
-        );
+        const res = await as(token, method, path).send(bodyFor(method, path));
         expect(res.status).toBe(401);
         spec.assertSchema('Error', res.body);
         expect(res.body.code).toBe('unauthorized');
@@ -249,7 +258,7 @@ describe('authentication: publishable key AND a customer token for this store', 
     const before = await customerCount();
     for (const [method, path] of routes) {
       const res = await as('blocked', method, path).send(
-        method === 'post' ? { email: 'blocked@example.test' } : undefined,
+        path === '/store/customers' ? { email: 'blocked@example.test' } : bodyFor(method, path),
       );
       expect(res.status).toBe(401);
       spec.assertSchema('Error', res.body);
@@ -340,6 +349,9 @@ describe('GET /store/customers/me and POST /store/customers', () => {
       await as('mallory', 'get', '/store/customers/me'),
       await as('mallory', 'get', '/store/customers/me/orders'),
       await as('mallory', 'post', '/store/customers').send({ email: 'guest.buyer@example.test' }),
+      await as('mallory', 'patch', '/store/customers/me').send({ first_name: 'Mallory' }),
+      await as('mallory', 'get', '/store/customers/me/addresses'),
+      await as('mallory', 'post', '/store/customers/me/addresses').send(address),
     ]) {
       expect(res.status).toBe(409);
       spec.assertSchema('Error', res.body);
@@ -437,6 +449,118 @@ describe('orders of the signed-in customer: an email is an identity only when th
   });
 });
 
+describe('PATCH /store/customers/me', () => {
+  it('200 with the updated customer; an empty string clears the phone; 400 on a wrong type or a non-object body', async () => {
+    const updated = await as('ursula', 'patch', '/store/customers/me').send({
+      last_name: 'K. Le Guin',
+      phone: '+31 6 1111 1111',
+      marketing_consent: true,
+    });
+    expect(updated.status).toBe(200);
+    spec.assertSchema('Customer', updated.body);
+    expect(updated.body).toMatchObject({
+      first_name: 'Ursula',
+      last_name: 'K. Le Guin',
+      phone: '+31 6 1111 1111',
+      marketing_consent: true,
+    });
+    const cleared = await as('ursula', 'patch', '/store/customers/me').send({ phone: '' });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.phone).toBeNull();
+    expect((await as('ursula', 'get', '/store/customers/me')).body).toEqual(cleared.body);
+
+    // Store API 0.5.1 documents no 400 on updateMe; 0.4.9 adds it — the core answers it already.
+    for (const body of [{ phone: 5 }, { marketing_consent: 'yes' }, [], 'text']) {
+      const bad = await as('ursula', 'patch', '/store/customers/me')
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify(body));
+      expect(bad.status).toBe(400);
+      spec.assertSchema('Error', bad.body);
+      expect(bad.body.code).toBe('validation_error');
+    }
+    // a customer created by the PATCH itself (first contact): 200, not 201 — updateMe has no 201
+    PERSONAS.newcomer = {
+      subject: 'sub-newcomer',
+      storeCode: 'brand-a',
+      email: 'newcomer@example.test',
+    };
+    const fresh = await as('newcomer', 'patch', '/store/customers/me').send({ first_name: 'New' });
+    expect(fresh.status).toBe(200);
+    expect(fresh.body).toMatchObject({ email: 'newcomer@example.test', first_name: 'New' });
+  });
+});
+
+describe('GET and POST /store/customers/me/addresses', () => {
+  it('201 CustomerAddress; the first one is the default; the list is default shipping first; blanks and a bad country are a 400 naming the field', async () => {
+    const first = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      first_name: 'Ursula',
+      last_name: 'Le Guin',
+      company: null,
+      line2: null,
+      region: null,
+      phone: null,
+    });
+    expect(first.status).toBe(201);
+    spec.assertSchema('CustomerAddress', first.body);
+    expect(first.body).toMatchObject({
+      first_name: 'Ursula',
+      country: 'NL',
+      is_default_shipping: true,
+      is_default_billing: true,
+    });
+    const second = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      line1: 'Prinsengracht 2',
+    });
+    expect(second.status).toBe(201);
+    expect(second.body).toMatchObject({ is_default_shipping: false, is_default_billing: false });
+    // contracts 0.4.9: the body may ask for a default; the 0.5.1 spec has no additionalProperties: false
+    const gift = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      line1: 'Gift street 3',
+      is_default_shipping: true,
+    });
+    expect(gift.status).toBe(201);
+    expect(gift.body).toMatchObject({ is_default_shipping: true, is_default_billing: false });
+
+    const list = await as('ursula', 'get', '/store/customers/me/addresses');
+    expect(list.status).toBe(200);
+    spec.assertItems('CustomerAddress', list.body);
+    expect(list.body.items.map((x: { id: string }) => x.id)).toEqual([
+      gift.body.id,
+      first.body.id,
+      second.body.id,
+    ]);
+    expect(list.body.items[1]).toMatchObject({
+      is_default_shipping: false,
+      is_default_billing: true,
+    });
+
+    const bad = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      city: '   ',
+      country: 'nl',
+    });
+    expect(bad.status).toBe(400);
+    spec.assertSchema('Error', bad.body);
+    expect(bad.body.code).toBe('validation_error');
+    const missing = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      first_name: 'Ursula',
+    });
+    expect(missing.status).toBe(400);
+    expect((await as('ursula', 'get', '/store/customers/me/addresses')).body.items).toHaveLength(3);
+  });
+
+  it('a signed-in customer with no row yet gets one from the address call too (no 404 anywhere)', async () => {
+    PERSONAS.mover = { subject: 'sub-mover', storeCode: 'brand-a', email: 'mover@example.test' };
+    const list = await as('mover', 'get', '/store/customers/me/addresses');
+    expect(list.status).toBe(200);
+    expect(list.body).toEqual({ items: [] });
+    expect((await as('mover', 'get', '/store/customers/me')).status).toBe(200);
+  });
+});
+
 describe('nothing personal is logged', () => {
   it('no log line carries an email, a token or a name across every customer route, errors included', async () => {
     const logged: string[] = [];
@@ -455,11 +579,28 @@ describe('nothing personal is logged', () => {
       await as('mallory', 'get', '/store/customers/me');
       await as('nobody', 'get', '/store/customers/me');
       await as('vera', 'get', '/store/customers/me/orders');
+      await as('jane', 'patch', '/store/customers/me').send({ phone: '+31 6 7777 7777' });
+      await as('jane', 'post', '/store/customers/me/addresses').send({
+        ...address,
+        line1: 'Secretstreet 9',
+        city: 'Hiddentown',
+      });
+      await as('jane', 'post', '/store/customers/me/addresses').send({ ...address, city: '' });
+      await as('jane', 'get', '/store/customers/me/addresses');
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
     const all = logged.join('\n').toLowerCase();
-    for (const secret of ['@example.test', 'janet', 'bearer', 'sub-jane', 'mallory']) {
+    for (const secret of [
+      '@example.test',
+      'janet',
+      'bearer',
+      'sub-jane',
+      'mallory',
+      'secretstreet',
+      'hiddentown',
+      '6 7777',
+    ]) {
       expect(all).not.toContain(secret);
     }
   });
@@ -471,7 +612,10 @@ describe('the core answers these paths itself', () => {
     expect([...CUSTOMER_STORE_PATHS]).toEqual([
       'POST /store/customers',
       'GET /store/customers/me',
+      'PATCH /store/customers/me',
       'GET /store/customers/me/orders',
+      'GET /store/customers/me/addresses',
+      'POST /store/customers/me/addresses',
     ]);
 
     const seen: string[] = [];
@@ -487,23 +631,28 @@ describe('the core answers these paths itself', () => {
         customerTokenVerifier: fakeVerifier,
         storeApiFallbackUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}`,
       });
-      const call = (method: 'get' | 'post', path: string) =>
+      const call = (method: 'get' | 'post' | 'patch', path: string) =>
         request(proxied)
           [method](path)
           .set('X-Publishable-Key', KEY_A)
           .set('Authorization', 'Bearer jane');
-      const me = await call('get', '/store/customers/me');
-      expect(me.status).toBe(200);
-      expect(me.body.mock).toBeUndefined();
-      expect((await call('get', '/store/customers/me/orders')).body.mock).toBeUndefined();
-      expect(
-        (await call('post', '/store/customers').send({ email: 'jane@example.test' })).body.mock,
-      ).toBeUndefined();
+      // every customer path is answered here — the bearer token never reaches the mock
+      for (const res of [
+        await call('get', '/store/customers/me'),
+        await call('patch', '/store/customers/me').send({ first_name: 'Jane' }),
+        await call('get', '/store/customers/me/orders'),
+        await call('get', '/store/customers/me/addresses'),
+        await call('post', '/store/customers/me/addresses').send(address),
+        await call('post', '/store/customers').send({ email: 'jane@example.test' }),
+      ]) {
+        expect(res.status).toBeLessThan(300);
+        expect(res.body.mock).toBeUndefined();
+      }
       expect(seen).toEqual([]);
-      // a customer path the core does not answer yet (addresses: PR B) still goes to the mock
-      const addresses = await call('get', '/store/customers/me/addresses');
-      expect(addresses.body).toEqual({ mock: true });
-      expect(seen).toEqual(['GET /store/customers/me/addresses']);
+      // the proxy itself still works for a Store path the core does not answer
+      const other = await call('get', '/store/wishlist');
+      expect(other.body).toEqual({ mock: true });
+      expect(seen).toEqual(['GET /store/wishlist']);
     } finally {
       await new Promise<void>((r) => mock.close(() => r()));
     }
@@ -754,6 +903,25 @@ describe.runIf(live)('live: real customers-realm tokens through the real verifie
     expect(orders.status).toBe(200);
     expect(orders.body).toMatchObject({ total: 0, items: [] });
     expect((await call(token, `/store/orders/${orderId}`)).status).toBe(404);
+
+    // the self-service routes of part B with a real token
+    const renamed = await request(real)
+      .patch('/store/customers/me')
+      .set('X-Publishable-Key', KEY_A)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ first_name: 'Fresh', last_name: 'Shopper' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body).toMatchObject({ first_name: 'Fresh', last_name: 'Shopper' });
+    const added = await request(real)
+      .post('/store/customers/me/addresses')
+      .set('X-Publishable-Key', KEY_A)
+      .set('Authorization', `Bearer ${token}`)
+      .send(address);
+    expect(added.status).toBe(201);
+    spec.assertSchema('CustomerAddress', added.body);
+    expect(added.body).toMatchObject({ is_default_shipping: true, is_default_billing: true });
+    const mine = await call(token, '/store/customers/me/addresses');
+    expect(mine.body.items.map((x: { id: string }) => x.id)).toEqual([added.body.id]);
     // the guest rule is unchanged: order id + checkout email opens it, token or not
     const byEmail = await call(
       token,
