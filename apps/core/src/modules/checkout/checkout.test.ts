@@ -564,6 +564,79 @@ describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
   });
 });
 
+describe('customer link at placement (#310)', () => {
+  it("links a guest cart to the given customer inside the placement; another customer's cart is a 409 that leaves no order, payment or event behind", async () => {
+    const [mine, other] = (
+      await owner.query<{ id: string }>(
+        `INSERT INTO customer (organization_id, store_id, keycloak_subject, email, status)
+         VALUES ($1, $2, 'kc-sub-link-mine', 'link.mine@example.com', 'registered'),
+                ($1, $2, 'kc-sub-link-other', 'link.other@example.com', 'registered') RETURNING id`,
+        [ORG, A],
+      )
+    ).rows.map((r) => r.id) as [string, string];
+    const counts = async () =>
+      (
+        await owner.query<{ orders: string; payments: string; events: string }>(
+          `SELECT (SELECT count(*) FROM "order")::text AS orders,
+                  (SELECT count(*) FROM payment)::text AS payments,
+                  (SELECT count(*) FROM outbox)::text AS events`,
+        )
+      ).rows[0]!;
+    const linkOf = async (cartId: string) =>
+      (
+        await owner.query<{ customer_id: string | null }>(
+          `SELECT customer_id FROM cart WHERE id = $1`,
+          [cartId],
+        )
+      ).rows[0]!.customer_id;
+
+    // a guest cart, completed for a customer
+    const guestCart = await readyCart();
+    const placed = await completeCart(a, {
+      cartId: guestCart.id,
+      idempotencyKey: `key-link-${guestCart.id}`,
+      actor: { ...actor, id: mine },
+      customerId: mine,
+    });
+    expect(await linkOf(guestCart.id)).toBe(mine);
+    const order = await owner.query<{ customer_id: string | null; email: string }>(
+      `SELECT customer_id, email FROM "order" WHERE id = $1`,
+      [placed.order.id],
+    );
+    expect(order.rows[0]).toEqual({ customer_id: mine, email: guestCart.email });
+    expect((await getStoreOrder(a, placed.order.id, { customerId: mine })).id).toBe(
+      placed.order.id,
+    );
+
+    // a cart of another customer
+    const theirs = await readyCart();
+    await owner.query(`UPDATE cart SET customer_id = $2 WHERE id = $1`, [theirs.id, other]);
+    const before = await counts();
+    await expect(
+      completeCart(a, {
+        cartId: theirs.id,
+        idempotencyKey: `key-link-${theirs.id}`,
+        actor: { ...actor, id: mine },
+        customerId: mine,
+      }),
+    ).rejects.toMatchObject({ code: 'conflict', status: 409, details: {} });
+    expect(await counts()).toEqual(before);
+    expect(await linkOf(theirs.id)).toBe(other);
+
+    // without a customer the cart's own link decides, unchanged
+    const kept = await completeCart(a, {
+      cartId: theirs.id,
+      idempotencyKey: `key-link-${theirs.id}`,
+      actor,
+    });
+    const keptOrder = await owner.query<{ customer_id: string | null }>(
+      `SELECT customer_id FROM "order" WHERE id = $1`,
+      [kept.order.id],
+    );
+    expect(keptOrder.rows[0]!.customer_id).toBe(other);
+  });
+});
+
 describe("tax: the calculator's per-line amounts and prices_include_tax (#221)", () => {
   const lineRows = (orderId: string) =>
     owner.query<{

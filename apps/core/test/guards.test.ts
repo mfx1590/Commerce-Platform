@@ -146,15 +146,19 @@ describe('structural guards', () => {
     const calls: string[] = [];
     for (const f of files.filter((x) => !x.rel.endsWith('.test.ts'))) {
       for (const m of f.text.matchAll(
-        /(?<!function )\b(mountStoreRoutes|mountCustomerRoutes|getOrderRouteWith)\(([^()]*)\)/g,
+        /(?<!function )\b(mountStoreRoutes|mountCustomerRoutes|getOrderRouteWith|createCartRouteWith|completeCartRouteWith)\(([^()]*)\)/g,
       )) {
         calls.push(`${f.rel}: ${m[1]}(${m[2]!.replace(/\s+/g, ' ').trim()})`);
       }
     }
     expect(calls.sort()).toEqual([
-      // the default verifier
+      // `…()` = the default verifier; inside mountStoreRoutes `customerVerifier` is
+      // customerTokenVerifierFor(…)'s result
+      'http/store-routes.ts: completeCartRouteWith()',
+      'http/store-routes.ts: completeCartRouteWith(customerVerifier)',
+      'http/store-routes.ts: createCartRouteWith()',
+      'http/store-routes.ts: createCartRouteWith(customerVerifier)',
       'http/store-routes.ts: getOrderRouteWith()',
-      // inside mountStoreRoutes: `customerVerifier` is customerTokenVerifierFor(…)'s result
       'http/store-routes.ts: getOrderRouteWith(customerVerifier)',
       'http/store-routes.ts: mountCustomerRoutes(app, customerVerifier)',
       // inside mountCoreMiddleware: `customerTokenVerifier` is customerTokenVerifierFor(opts.…)'s result
@@ -163,7 +167,14 @@ describe('structural guards', () => {
     // the factories are not part of the HTTP layer's public index
     const index = files.find((f) => f.rel === 'http/index.ts')!.text;
     const exported = index.replace(/^\s*\/\/.*$/gm, '');
-    for (const name of ['mountCustomerRoutes', 'getOrderRouteWith', 'requireCustomer']) {
+    for (const name of [
+      'mountCustomerRoutes',
+      'getOrderRouteWith',
+      'createCartRouteWith',
+      'completeCartRouteWith',
+      'optionalCustomerId',
+      'requireCustomer',
+    ]) {
       expect(exported).not.toContain(name);
     }
     // and each of them resolves its verifier through the production-refusing function

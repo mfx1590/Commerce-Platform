@@ -84,6 +84,22 @@ const scopeOf = (t: StoreContext): CustomerScope => ({
   requestId: t.requestId,
 });
 
+/**
+ * For the two cart operations that MAY carry a customer token (`createCart`, `completeCart` — Store API 0.5.1,
+ * #310): no `Authorization` header → null (a guest, as before). A header that IS sent must verify exactly like
+ * on `/store/customers/me` — invalid, expired, malformed or another store's token is a 401, never ignored —
+ * and the customer is resolved or provisioned the same way (disabled / erased → 401, collision → 409).
+ */
+export async function optionalCustomerId(
+  req: Request,
+  t: StoreContext,
+  verifier: CustomerTokenVerifier,
+): Promise<string | null> {
+  if (req.headers.authorization === undefined) return null;
+  const identity = await requireCustomer(req, t, verifier);
+  return (await resolveCustomer(t.client, scopeOf(t), identity)).id;
+}
+
 /** The Store API paths this file answers (they join `REAL_STORE_PATHS`). */
 export const CUSTOMER_STORE_PATHS = [
   'POST /store/customers',

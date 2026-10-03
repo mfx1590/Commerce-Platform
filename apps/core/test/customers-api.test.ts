@@ -110,7 +110,59 @@ const address = {
   country: 'NL',
 };
 
-/** Places a guest order in brand-a with the given checkout email (the Store API has no customer on carts yet). */
+/**
+ * A brand-a cart ready for completion (one line, email, addresses, shipping option, payment session), built on
+ * the given app. `token` = the customer token sent with `createCart` (Store API 0.5.1); none = a guest cart.
+ */
+async function readyCartOn(
+  target: express.Express,
+  email: string,
+  token: string | null = null,
+): Promise<string> {
+  const guest = (method: 'get' | 'post' | 'patch', path: string) =>
+    request(target)[method](path).set('X-Publishable-Key', KEY_A);
+  const create = guest('post', '/store/carts');
+  const created = await (token ? create.set('Authorization', `Bearer ${token}`) : create).send({});
+  expect(created.status).toBe(201);
+  const cart = created.body;
+  const list = await guest('get', '/store/products?limit=3&sort=price_asc');
+  let variant: { id: string } | undefined;
+  for (const item of list.body.items as Array<{ handle: string }>) {
+    const product = await guest('get', `/store/products/${item.handle}`);
+    variant = product.body.variants.find((v: { in_stock: boolean }) => v.in_stock);
+    if (variant) break;
+  }
+  if (!variant) throw new Error('the seed has no variant in stock');
+  await guest('post', `/store/carts/${cart.id}/line-items`).send({
+    variant_id: variant.id,
+    quantity: 1,
+  });
+  const options = await guest('get', `/store/carts/${cart.id}/shipping-options`);
+  await guest('patch', `/store/carts/${cart.id}`).send({
+    email,
+    shipping_address: address,
+    billing_address: address,
+    shipping_option_id: options.body.items[0].id,
+  });
+  await guest('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+  return cart.id as string;
+}
+
+/** `POST …/complete` on the given app, with or without a customer token. */
+const completeOn = (
+  target: express.Express,
+  cartId: string,
+  token: string | null = null,
+  key = `idem-customers-${cartId}`,
+) => {
+  const req = request(target)
+    .post(`/store/carts/${cartId}/complete`)
+    .set('X-Publishable-Key', KEY_A)
+    .set('Idempotency-Key', key);
+  return (token ? req.set('Authorization', `Bearer ${token}`) : req).send();
+};
+
+/** Places a guest order in brand-a with the given checkout email (no customer token anywhere). */
 async function placeGuestOrder(email: string): Promise<string> {
   const cart = (await guest('post', '/store/carts').send({})).body;
   const list = await guest('get', '/store/products?limit=3&sort=price_asc');
@@ -561,6 +613,147 @@ describe('GET and POST /store/customers/me/addresses', () => {
   });
 });
 
+describe('placement-time customer link (Store API 0.5.1, #310): createCart and completeCart may carry a customer token', () => {
+  const cartRow = async (id: string) =>
+    (
+      await owner.query<{ customer_id: string | null; status: string }>(
+        `SELECT customer_id, status FROM cart WHERE id = $1`,
+        [id],
+      )
+    ).rows[0]!;
+  const orderRow = async (id: string) =>
+    (
+      await owner.query<{ customer_id: string | null; email: string }>(
+        `SELECT customer_id, email FROM "order" WHERE id = $1`,
+        [id],
+      )
+    ).rows[0]!;
+  const count = async (table: 'cart' | '"order"' | 'payment') =>
+    Number(
+      (await owner.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`)).rows[0]!.n,
+    );
+  const idOf = async (token: string) =>
+    (await as(token, 'get', '/store/customers/me')).body.id as string;
+
+  it("a token that is SENT must verify: invalid, another store's, a disabled customer's → 401 on both operations, before the body and the Idempotency-Key; nothing is created or placed", async () => {
+    const cartId = await readyCartOn(app, 'someone@example.test');
+    const before = { carts: await count('cart'), orders: await count('"order"') };
+    for (const token of ['not-a-token', 'bob', 'blocked']) {
+      // window 3 measured 201 here before this change
+      const created = await as(token, 'post', '/store/carts').send({});
+      expect(created.status).toBe(401);
+      spec.assertSchema('Error', created.body);
+      expect(created.body.code).toBe('unauthorized');
+      // the token is judged before the body rules …
+      expect((await as(token, 'post', '/store/carts').send({ currency: 'nope' })).status).toBe(401);
+      // … and before the Idempotency-Key and the cart id
+      const noKey = await as(token, 'post', `/store/carts/${cartId}/complete`).send();
+      expect(noKey.status).toBe(401);
+      expect((await as(token, 'post', '/store/carts/not-a-uuid/complete').send()).status).toBe(401);
+      expect((await completeOn(app, cartId, token)).status).toBe(401);
+    }
+    expect(await count('cart')).toBe(before.carts);
+    expect(await count('"order"')).toBe(before.orders);
+    expect(await cartRow(cartId)).toEqual({ customer_id: null, status: 'active' });
+    // an email collision that cannot be adopted is the customer routes' 409 here too
+    expect((await as('mallory', 'post', '/store/carts').send({})).status).toBe(409);
+    // without an Authorization header nothing changed: a guest cart, a guest order
+    const guestOrder = await completeOn(app, cartId);
+    expect(guestOrder.status).toBe(201);
+    expect((await orderRow(guestOrder.body.id)).customer_id).toBeNull();
+  });
+
+  it("createCart with a token links the cart; completing it WITHOUT a token keeps the cart's link", async () => {
+    const jane = await idOf('jane');
+    const cartId = await readyCartOn(app, 'someone.else@example.test', 'jane');
+    expect(await cartRow(cartId)).toEqual({ customer_id: jane, status: 'active' });
+    // the Cart body does not expose the customer
+    const read = await guest('get', `/store/carts/${cartId}`);
+    spec.assertSchema('Cart', read.body);
+    expect(JSON.stringify(read.body)).not.toContain(jane);
+
+    const placed = await completeOn(app, cartId);
+    expect(placed.status).toBe(201);
+    spec.assertSchema('Order', placed.body);
+    expect(await orderRow(placed.body.id)).toEqual({
+      customer_id: jane,
+      email: 'someone.else@example.test', // the order keeps the checkout email
+    });
+  });
+
+  it("completeCart with a token links a GUEST cart in the placement: the order is the customer's without any email match — the gap this closes", async () => {
+    const jane = await idOf('jane'); // jane's token email is NOT verified
+    const listed = async () =>
+      (await as('jane', 'get', '/store/customers/me/orders')).body.items.map(
+        (o: { id: string }) => o.id,
+      ) as string[];
+    const cartId = await readyCartOn(app, 'gift.for.a.friend@example.test');
+    expect((await cartRow(cartId)).customer_id).toBeNull();
+
+    const placed = await completeOn(app, cartId, 'jane');
+    expect(placed.status).toBe(201);
+    spec.assertSchema('Order', placed.body);
+    expect(await cartRow(cartId)).toEqual({ customer_id: jane, status: 'completed' });
+    expect(await orderRow(placed.body.id)).toEqual({
+      customer_id: jane,
+      email: 'gift.for.a.friend@example.test',
+    });
+    expect(await listed()).toContain(placed.body.id);
+    expect((await as('jane', 'get', `/store/orders/${placed.body.id}`)).status).toBe(200);
+
+    // order.placed carries the customer id and the actor is the customer — and still no email
+    const event = await owner.query<{
+      payload: Record<string, unknown>;
+      headers: { actor: unknown };
+    }>(`SELECT payload, headers FROM outbox WHERE topic = 'order.placed' AND aggregate_id = $1`, [
+      placed.body.id,
+    ]);
+    expect(event.rows[0]!.payload.customer_id).toBe(jane);
+    expect(event.rows[0]!.headers.actor).toEqual({ type: 'customer', id: jane });
+    expect(JSON.stringify(event.rows[0])).not.toContain('@example.test');
+
+    // a replay with the same key answers the stored order — also for another customer's token, and changes no link
+    const replay = await completeOn(app, cartId, 'vera');
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(placed.body.id);
+    expect((await orderRow(placed.body.id)).customer_id).toBe(jane);
+  });
+
+  it('a cart linked to ANOTHER customer → 409 conflict: nothing placed, nothing authorised, the cart stays theirs and can still be completed by them', async () => {
+    const rita = await idOf('rita');
+    const cartId = await readyCartOn(app, 'rita.checkout@example.test', 'rita');
+    const before = { orders: await count('"order"'), payments: await count('payment') };
+
+    const refused = await completeOn(app, cartId, 'vera');
+    expect(refused.status).toBe(409);
+    spec.assertSchema('Error', refused.body);
+    expect(refused.body).toEqual({
+      code: 'conflict',
+      message: 'This cart belongs to another customer',
+      details: {},
+    });
+    expect(await count('"order"')).toBe(before.orders);
+    expect(await count('payment')).toBe(before.payments);
+    expect(await cartRow(cartId)).toEqual({ customer_id: rita, status: 'active' });
+
+    // same Idempotency-Key, the right customer: the refusal left nothing behind
+    const placed = await completeOn(app, cartId, 'rita');
+    expect(placed.status).toBe(201);
+    expect((await orderRow(placed.body.id)).customer_id).toBe(rita);
+  });
+
+  it('the other cart operations ignore the header, as the contract says: a bad token on GET / PATCH / line items changes nothing', async () => {
+    const cartId = await readyCartOn(app, 'plain@example.test');
+    const read = await as('not-a-token', 'get', `/store/carts/${cartId}`);
+    expect(read.status).toBe(200);
+    const patched = await as('not-a-token', 'patch', `/store/carts/${cartId}`).send({
+      email: 'plain.two@example.test',
+    });
+    expect(patched.status).toBe(200);
+    expect((await cartRow(cartId)).customer_id).toBeNull();
+  });
+});
+
 describe('nothing personal is logged', () => {
   it('no log line carries an email, a token or a name across every customer route, errors included', async () => {
     const logged: string[] = [];
@@ -732,8 +925,19 @@ describe('the verifier seam is code-only and never reaches production', () => {
         .set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(401);
       spec.assertSchema('Error', res.body);
+      // window 3's measurement: POST /store/carts with a bearer that is not a token answered 201
+      const cart = await request(real)
+        .post('/store/carts')
+        .set('X-Publishable-Key', KEY_A)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+      expect(cart.status).toBe(401);
+      spec.assertSchema('Error', cart.body);
     }
     expect(await customerCount()).toBe(before);
+    // and without the header it is the guest cart it always was
+    const guestCart = await request(real).post('/store/carts').set('X-Publishable-Key', KEY_A);
+    expect(guestCart.status).toBe(201);
   });
 });
 
@@ -957,5 +1161,17 @@ describe.runIf(live)('live: real customers-realm tokens through the real verifie
       `/store/orders/${orderId}?email=${encodeURIComponent(email)}`,
     );
     expect(byEmail.status).toBe(200);
+
+    // part C with a real token: an order placed WITH the token is the customer's — listed and opened by the
+    // token alone, although the email is not verified and the checkout email is someone else's
+    const linkedCart = await readyCartOn(real, 'a.friend@example.com', token);
+    const placed = await completeOn(real, linkedCart, token);
+    expect(placed.status).toBe(201);
+    const after = await call(token, '/store/customers/me/orders');
+    expect(after.body).toMatchObject({ total: 1 });
+    expect(after.body.items[0].id).toBe(placed.body.id);
+    expect((await call(token, `/store/orders/${placed.body.id}`)).status).toBe(200);
+    // and the seeded customer's valid token does not open it
+    expect((await call(seedToken, `/store/orders/${placed.body.id}`)).status).toBe(404);
   });
 });

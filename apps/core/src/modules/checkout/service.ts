@@ -278,6 +278,24 @@ async function placeOrder(
 
     // ---- lock + preconditions ----
     const locked = await lockActiveCart(tx, cartId); // 409 cart_completed carries the order id
+
+    // ---- customer link (#310) ---- Under the cart lock, before anything is priced, reserved or authorised. The
+    // customer comes from a verified token (the route resolved it); the cart row decides whether it may place.
+    if (input.customerId) {
+      if (locked.customer_id && locked.customer_id !== input.customerId) {
+        // Nothing about the other customer in the answer. The throw rolls the transaction back: nothing placed.
+        throw new AppError('conflict', 'This cart belongs to another customer', {});
+      }
+      if (!locked.customer_id) {
+        await tx.query(`UPDATE cart SET customer_id = $2, updated_at = now() WHERE id = $1`, [
+          cartId,
+          input.customerId,
+        ]);
+        // From here on the cart IS the customer's: prices are judged for them (a customer-group price that
+        // differs from what the guest cart showed is a 409 price_changed below, never a silent placement).
+        locked.customer_id = input.customerId;
+      }
+    }
     let lines = await loadLines(tx, cartId);
     const missing: Record<string, string> = {};
     if (lines.length === 0) missing.items = 'cart is empty';
