@@ -331,6 +331,12 @@ export interface paths {
         };
         get: operations["listMyAddresses"];
         put?: never;
+        /**
+         * @description The first address a customer adds becomes the default for shipping and billing; later ones are
+         *     neither unless the body says so. `is_default_shipping` / `is_default_billing` set that flag on the
+         *     new address and clear it on the customer's others, in one transaction. At most 50 addresses per
+         *     customer (the 51st is a 400). No operation changes or deletes an address yet.
+         */
         post: operations["addMyAddress"];
         delete?: never;
         options?: never;
@@ -1415,6 +1421,7 @@ export interface operations {
                     "application/json": components["schemas"]["Customer"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
             409: {
@@ -1503,7 +1510,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["Address"];
+                "application/json": components["schemas"]["Address"] & {
+                    /** @default false */
+                    is_default_shipping?: boolean;
+                    /** @default false */
+                    is_default_billing?: boolean;
+                };
             };
         };
         responses: {
@@ -1597,6 +1609,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
             409: {
