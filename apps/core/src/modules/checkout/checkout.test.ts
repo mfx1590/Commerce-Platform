@@ -491,7 +491,7 @@ describe('idempotency is per store (RLS on payment rows)', () => {
 });
 
 describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
-  it('guest email trimmed + case-insensitive; customer by id or by matching email; otherwise 404', async () => {
+  it('guest email trimmed + case-insensitive; customer by id, or by the VERIFIED token email on a guest order; otherwise 404', async () => {
     const cart = await readyCart();
     const { order } = await completeCart(a, {
       cartId: cart.id,
@@ -520,9 +520,26 @@ describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
        VALUES ($1, $2, 'kc-sub-other', 'other@example.com', 'registered') RETURNING id`,
       [ORG, A],
     );
-    expect((await getStoreOrder(a, order.id, { customerId: sameEmail.rows[0]!.id })).id).toBe(
-      order.id,
-    );
+    // #303: the customer row's email is not an identity. Only the token's email, and only when the token says
+    // it is verified, opens a guest order — the route passes it as `verifiedEmail`.
+    await expect(
+      getStoreOrder(a, order.id, { customerId: sameEmail.rows[0]!.id }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(
+      (
+        await getStoreOrder(a, order.id, {
+          customerId: sameEmail.rows[0]!.id,
+          verifiedEmail: ` ${cart.email.toUpperCase()} `,
+        })
+      ).id,
+    ).toBe(order.id);
+    expect((await getStoreOrder(a, order.id, { verifiedEmail: cart.email })).id).toBe(order.id);
+    await expect(
+      getStoreOrder(a, order.id, {
+        customerId: sameEmail.rows[0]!.id,
+        verifiedEmail: 'other@example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' });
     await expect(
       getStoreOrder(a, order.id, { customerId: otherCustomer.rows[0]!.id }),
     ).rejects.toMatchObject({
@@ -536,6 +553,14 @@ describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
     expect((await getStoreOrder(a, order.id, { customerId: otherCustomer.rows[0]!.id })).id).toBe(
       order.id,
     );
+    // … and once it is linked, a verified email alone no longer opens it for anyone else
+    await expect(
+      getStoreOrder(a, order.id, {
+        customerId: sameEmail.rows[0]!.id,
+        verifiedEmail: cart.email,
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect((await getStoreOrder(a, order.id, { email: cart.email })).id).toBe(order.id);
   });
 });
 
