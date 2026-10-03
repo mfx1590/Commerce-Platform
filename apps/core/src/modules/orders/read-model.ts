@@ -19,6 +19,7 @@ import type {
   OrderRow,
   Page,
   StoreOrder,
+  StoreOrderSummary,
 } from './types';
 
 export const ORDER_COLS = `id, organization_id, store_id, display_id::text, sales_channel_id, cart_id, customer_id, email,
@@ -178,9 +179,23 @@ export async function renderStoreOrder(tx: Queryable, orderId: string): Promise<
   };
 }
 
+const normalizedEmail = (email: string | null | undefined): string | null =>
+  email?.trim().toLowerCase() || null;
+
+/**
+ * What a signed-in customer may see, as SQL over the alias `o` with `$customer` / `$verified` placeholders:
+ * orders placed FOR the customer (`customer_id`), and — only when the token says the email is verified — guest
+ * orders (no `customer_id`) placed with that email. An unverified email is not an identity (#303): the customers
+ * realm has open registration, so matching on it would hand anyone the orders of an address they typed.
+ */
+const customerOrderPredicate = (customer: string, verified: string) =>
+  `((${customer}::uuid IS NOT NULL AND o.customer_id = ${customer})
+    OR (${verified}::text IS NOT NULL AND o.customer_id IS NULL AND lower(o.email) = ${verified}))`;
+
 /**
  * `GET /store/orders/{orderId}` (contract: only 200 or 404). `access.customerId` is a `customer.id` of the store
- * (resolved by the route from a verified customers-realm token); `access.email` the guest's `?email=`, compared
+ * (resolved by the route from a verified customers-realm token) and `access.verifiedEmail` that token's email
+ * when — and only when — the token carries `email_verified`; `access.email` is the guest's `?email=`, compared
  * trimmed and case-insensitively. No credentials, a mismatch, another store's order → the same 404.
  */
 export async function getStoreOrder(
@@ -188,38 +203,65 @@ export async function getStoreOrder(
   orderId: string,
   access: OrderAccess,
 ): Promise<StoreOrder> {
-  const email = access.email?.trim().toLowerCase() || null;
+  const email = normalizedEmail(access.email);
   const customerId = access.customerId ?? null;
-  if (!email && !customerId) throw notFound('order', orderId);
+  const verifiedEmail = normalizedEmail(access.verifiedEmail);
+  if (!email && !customerId && !verifiedEmail) throw notFound('order', orderId);
   return client.transaction(async (tx) => {
     const r = await tx.query<{ id: string }>(
       `SELECT o.id FROM "order" o
        WHERE o.id = $1
          AND (
            ($2::text IS NOT NULL AND lower(o.email) = $2)
-           OR ($3::uuid IS NOT NULL AND (
-                 o.customer_id = $3
-                 OR lower(o.email) = (SELECT lower(c.email) FROM customer c WHERE c.id = $3)
-               ))
+           OR ${customerOrderPredicate('$3', '$4')}
          )`,
-      [orderId, email, customerId],
+      [orderId, email, customerId, verifiedEmail],
     );
     if (!r.rows[0]) throw notFound('order', orderId);
     return renderStoreOrder(tx, orderId);
   });
 }
 
-/** `customer.id` for a verified customers-realm subject in this store, or null (the route treats null as no access). */
-export async function customerIdForSubject(
+/**
+ * `GET /store/customers/me/orders`: the signed-in customer's orders in this store, newest first. Same access rule
+ * as `getStoreOrder`'s token arm (`customerOrderPredicate`); `metadata` without the core's internal keys.
+ */
+export async function listStoreOrders(
   client: ScopedClient,
   storeId: string,
-  subject: string,
-): Promise<string | null> {
-  const r = await client.query<{ id: string }>(
-    `SELECT id FROM customer WHERE store_id = $1 AND keycloak_subject = $2 AND status <> 'erased'`,
-    [storeId, subject],
-  );
-  return r.rows[0]?.id ?? null;
+  access: { customerId: string; verifiedEmail?: string | null | undefined },
+  q: { page?: number | undefined; limit?: number | undefined } = {},
+): Promise<Page<StoreOrderSummary>> {
+  const page = Math.max(1, q.page ?? 1);
+  const limit = Math.min(100, Math.max(1, q.limit ?? 20));
+  const where = `o.store_id = $1 AND ${customerOrderPredicate('$2', '$3')}`;
+  const params = [storeId, access.customerId, normalizedEmail(access.verifiedEmail)];
+  return client.transaction(async (tx) => {
+    const total = await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM "order" o WHERE ${where}`,
+      params,
+    );
+    const rows = await tx.query<OrderRow>(
+      `SELECT ${ORDER_COLS_O} FROM "order" o WHERE ${where}
+       ORDER BY o.placed_at DESC, o.display_id DESC LIMIT $4 OFFSET $5`,
+      [...params, limit, (page - 1) * limit],
+    );
+    return {
+      page,
+      limit,
+      total: Number(total.rows[0]?.n ?? 0),
+      items: rows.rows.map((o) => ({
+        id: o.id,
+        display_id: Number(o.display_id),
+        status: o.status,
+        payment_status: o.payment_status,
+        fulfillment_status: o.fulfillment_status,
+        total: money(o.total_minor, o.currency),
+        placed_at: o.placed_at.toISOString(),
+        metadata: stripInternalMetadata(o.metadata),
+      })),
+    };
+  });
 }
 
 // ---- Admin API ----

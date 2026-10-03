@@ -129,43 +129,45 @@ const PRODUCT_COLS =
 const VARIANT_COLS =
   'id, product_id, sku, barcode, title, options, manage_inventory, allow_backorder, weight_g, dimensions_mm, hs_code, origin_country, position';
 
-/** Loads products with options, variants (prices, inventory) and media in five batched queries. */
+/**
+ * Loads products with options, variants (prices, inventory) and media in five batched queries — one after the
+ * other. `tx` is ONE connection: Postgres runs a connection's statements strictly in sequence, so issuing them
+ * together gains nothing; pg only queued them (with a deprecation notice) and refuses it from pg 9 on.
+ */
 export async function loadAggregates(
   tx: Queryable,
   products: ProductRow[],
 ): Promise<ProductAggregate[]> {
   if (products.length === 0) return [];
   const ids = products.map((p) => p.id);
-  const [options, variants, media] = await Promise.all([
-    tx.query<OptionRow>(
-      `SELECT id, product_id, name, "values", position FROM product_option WHERE product_id = ANY($1) ORDER BY position, name`,
-      [ids],
-    ),
-    tx.query<VariantRow>(
-      `SELECT ${VARIANT_COLS} FROM product_variant WHERE product_id = ANY($1) ORDER BY position, sku`,
-      [ids],
-    ),
-    tx.query<MediaRow>(
-      `SELECT id, product_id, variant_id, url, alt, position FROM product_media WHERE product_id = ANY($1) ORDER BY position, id`,
-      [ids],
-    ),
-  ]);
+  const options = await tx.query<OptionRow>(
+    `SELECT id, product_id, name, "values", position FROM product_option WHERE product_id = ANY($1) ORDER BY position, name`,
+    [ids],
+  );
+  const variants = await tx.query<VariantRow>(
+    `SELECT ${VARIANT_COLS} FROM product_variant WHERE product_id = ANY($1) ORDER BY position, sku`,
+    [ids],
+  );
+  const media = await tx.query<MediaRow>(
+    `SELECT id, product_id, variant_id, url, alt, position FROM product_media WHERE product_id = ANY($1) ORDER BY position, id`,
+    [ids],
+  );
   const variantIds = variants.rows.map((v) => v.id);
-  const [prices, inventory] = variantIds.length
-    ? await Promise.all([
-        tx.query<PriceRow>(
-          `SELECT p.variant_id, p.price_list_id, p.currency, p.amount_minor::text, p.compare_at_minor::text, p.min_quantity
-           FROM price p WHERE p.variant_id = ANY($1) ORDER BY p.currency, p.min_quantity`,
-          [variantIds],
-        ),
-        tx.query<InventoryRow>(
-          `SELECT il.variant_id, il.warehouse_id, il.on_hand, il.reserved, il.available
-           FROM inventory_level il JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
-           WHERE il.variant_id = ANY($1) ORDER BY w.priority`,
-          [variantIds],
-        ),
-      ])
-    : [{ rows: [] as PriceRow[] }, { rows: [] as InventoryRow[] }];
+  const prices = variantIds.length
+    ? await tx.query<PriceRow>(
+        `SELECT p.variant_id, p.price_list_id, p.currency, p.amount_minor::text, p.compare_at_minor::text, p.min_quantity
+         FROM price p WHERE p.variant_id = ANY($1) ORDER BY p.currency, p.min_quantity`,
+        [variantIds],
+      )
+    : { rows: [] as PriceRow[] };
+  const inventory = variantIds.length
+    ? await tx.query<InventoryRow>(
+        `SELECT il.variant_id, il.warehouse_id, il.on_hand, il.reserved, il.available
+         FROM inventory_level il JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
+         WHERE il.variant_id = ANY($1) ORDER BY w.priority`,
+        [variantIds],
+      )
+    : { rows: [] as InventoryRow[] };
 
   const by = <T extends { product_id: string }>(rows: T[]) => {
     const m = new Map<string, T[]>();

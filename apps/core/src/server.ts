@@ -15,6 +15,7 @@ import {
   aliasPublishableKeyHeader,
   coreErrorHandler,
   adminRouter,
+  customerTokenVerifierFor,
   composeStaffTokenVerifier,
   contractsVersionHeader,
   DEV_TOKENS_FLAG,
@@ -30,6 +31,7 @@ import {
   STORE_API_FALLBACK_ENV,
   storeApiFallbackProxy,
   storeContextMiddleware,
+  type CustomerTokenVerifier,
   type StaffTokenVerifier,
 } from './http';
 import { formatReport, verifyBootstrap } from './bootstrap';
@@ -67,6 +69,12 @@ export interface CoreMiddlewareOptions {
    * chains. createServer() passes `moduleWebhookRouters()`; the default is NONE, same rule as `moduleRouters`.
    */
   webhookRouters?: express.Router[];
+  /**
+   * Test seam for the customers-realm token verifier (src/http/customer-routes.ts). Code only: no environment
+   * variable or configuration reaches it, createServer() never passes it, and it is refused in production.
+   * Default: `@platform/auth-sdk`'s `verifyCustomerToken`.
+   */
+  customerTokenVerifier?: CustomerTokenVerifier;
 }
 
 /** The staff auth src/server.ts runs: real Keycloak tokens by default, `dev:` tokens only with CORE_DEV_TOKENS=1. */
@@ -146,6 +154,8 @@ export function mountCoreMiddleware(
       `${STORE_API_FALLBACK_FLAG} / ${STORE_API_FALLBACK_ENV} must not be set in production`,
     );
   }
+  // Refused in production before anything is mounted (code-only test seam, src/http/customer-routes.ts).
+  const customerTokenVerifier = customerTokenVerifierFor(opts.customerTokenVerifier);
   const fga = opts.fga ?? createOpenFgaClient();
 
   app.use(requestIdMiddleware);
@@ -163,7 +173,7 @@ export function mountCoreMiddleware(
   // The Store API routes window 1 owns (contracts store-api.yaml: GET /store, /store/categories,
   // /store/products, /store/products/{handle}) answer here, ahead of Medusa's own routes of the same paths and
   // of its publishable-key gate — our tenant middleware is the contract's key check.
-  mountStoreRoutes(app);
+  mountStoreRoutes(app, customerTokenVerifier);
   // Integration 1 (non-production): every other /store/* request goes verbatim to the Prism mock instead of
   // Medusa. Without the variable it falls through to Medusa as before.
   if (opts.storeApiFallbackUrl) {

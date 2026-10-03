@@ -20,6 +20,14 @@ import {
   updateVariant,
 } from './index';
 
+// pg emits this notice (once per process) when a query is issued on a connection that already has one running
+// and one waiting — i.e. when code fires several queries at once on ONE transaction client. pg 9 turns it into
+// an error. Collected from the first statement of this file on; asserted by the last test.
+const pgQueueNotices: string[] = [];
+process.on('warning', (warning) => {
+  if (/already executing a query/.test(warning.message)) pgQueueNotices.push(warning.message);
+});
+
 const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
 const B = SEED_IDS.stores.brandB;
@@ -426,5 +434,17 @@ describe('media public functions (#179 part 1, task 2.6)', () => {
     await expect(
       addMedia(b, A, productId, { url: 'https://x/y.jpg' }, actor),
     ).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+// Last in the file on purpose: every read above has run by now.
+describe('one statement at a time on a transaction client', () => {
+  it('no catalog read fires queries concurrently on one connection (pg queue notice, an error from pg 9 on)', async () => {
+    const list = await listStoreProducts(a, A, 'EUR', { limit: 3 });
+    await getStoreProduct(a, A, 'EUR', list.items[0]!.handle);
+    await listProducts(a, A, { limit: 3 });
+    // process warnings are delivered on a later tick
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(pgQueueNotices).toEqual([]);
   });
 });
