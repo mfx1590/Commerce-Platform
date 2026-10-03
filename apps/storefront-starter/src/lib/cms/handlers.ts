@@ -1,4 +1,4 @@
-import { isSameOrigin } from '@/lib/safe-path';
+import { urlOnThisSite } from '@/lib/site-origin';
 import type { CmsConfig } from './config';
 import {
   PREVIEW_COOKIE,
@@ -27,12 +27,15 @@ export interface PreviewDeps {
   dataset: string | null;
   secure: boolean;
   now?: () => number;
+  /** Where `SITE_URL` is read from — `process.env` unless a test says otherwise. */
+  env?: Record<string, string | undefined> | undefined;
 }
 
 /**
  * `GET /api/cms/preview?secret=<SANITY_PREVIEW_SECRET>&redirect=/en-GB/pages/about`
  * Sets the preview cookie and redirects. 503 without a preview secret or read token (there is
- * nothing to preview with), 401 on a wrong secret, and only same-site redirect targets.
+ * nothing to preview with), 401 on a wrong secret, and only same-site redirect targets — on the
+ * configured site (#319), see `redirect()`.
  */
 export function handlePreview(request: Request, deps: PreviewDeps): Response {
   const { config } = deps;
@@ -49,7 +52,7 @@ export function handlePreview(request: Request, deps: PreviewDeps): Response {
     deps.dataset,
     now + PREVIEW_MAX_AGE_SECONDS * 1000,
   );
-  return redirect(url, safeRedirectPath(url.searchParams.get('redirect')), {
+  return redirect(url.searchParams.get('redirect'), deps.env, {
     'set-cookie': serializeCookie(PREVIEW_COOKIE, token, {
       maxAge: PREVIEW_MAX_AGE_SECONDS,
       secure: deps.secure,
@@ -67,21 +70,34 @@ export function handlePreview(request: Request, deps: PreviewDeps): Response {
  * browser history and access logs. The redirect target is the part that must be defended, and it
  * is: `safeRedirectPath` plus the resolved-origin assertion in `redirect()` below.
  */
-export function handlePreviewExit(request: Request, deps: Pick<PreviewDeps, 'secure'>): Response {
+export function handlePreviewExit(
+  request: Request,
+  deps: Pick<PreviewDeps, 'secure' | 'env'>,
+): Response {
   const url = new URL(request.url);
-  return redirect(url, safeRedirectPath(url.searchParams.get('redirect')), {
+  return redirect(url.searchParams.get('redirect'), deps.env, {
     'set-cookie': serializeCookie(PREVIEW_COOKIE, '', { maxAge: 0, secure: deps.secure }),
   });
 }
 
 /**
- * Second layer after `safeRedirectPath` (#273/#277): assert what the browser will actually
- * resolve. Even if the string rule is ever reasoned around again, a destination off this origin
- * collapses to the home page — the cookie header still applies either way.
+ * The destination is a path of ours on **this site as configured** — never on the request's own
+ * origin (#319). In a route handler behind the ingress that origin is the pod's address,
+ * `localhost:3100` whatever `Host` or `X-Forwarded-Host` says; a redirect built on it left the
+ * site, and one built on those headers would be an open redirect. `urlOnThisSite` reads `SITE_URL`
+ * at request time and throws `SiteUrlError` when a production server has none — the handler fails
+ * closed rather than guess, and sets no cookie.
+ *
+ * The path keeps both layers of the safe-path rule (#273/#277): `safeRedirectPath`'s string rule
+ * first, then `urlOnThisSite` asserts what the browser will actually resolve, so a destination off
+ * this origin collapses to the home page — the cookie header applies either way.
  */
-function redirect(base: URL, path: string, headers: Record<string, string>): Response {
-  let destination = new URL(path, base.origin);
-  if (!isSameOrigin(destination, base.origin)) destination = new URL('/', base.origin);
+function redirect(
+  requested: string | null,
+  env: Record<string, string | undefined> | undefined,
+  headers: Record<string, string>,
+): Response {
+  const destination = urlOnThisSite(safeRedirectPath(requested), '/', env);
   return new Response(null, {
     status: 307,
     headers: { location: destination.toString(), ...headers },
