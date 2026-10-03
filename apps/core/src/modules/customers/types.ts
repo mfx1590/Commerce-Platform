@@ -17,7 +17,8 @@ export interface CustomerPatch {
  * Body of `addMyAddress`: the contract's `Address`, plus the two optional default flags of contracts 0.4.9
  * (built against the field names before the spec carries them). Absent flags: the customer's FIRST address is
  * the default for shipping and billing, later ones are neither. `true` makes the new row the default and
- * clears the flag on the customer's other rows; `false` leaves the new row without it.
+ * clears the flag on the customer's other rows; `false` leaves a LATER row without it and is ignored on the first
+ * (the first address is always the default for both).
  */
 export interface AddressInput {
   first_name: string;

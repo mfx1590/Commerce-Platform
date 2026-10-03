@@ -23,6 +23,12 @@ Also exported for the checkout module (window 1, same tables, same transaction):
 mutation on a cart whose `status` is not `active` → 409 `cart_completed` (`details: { cart_id, status, order_id }`).
 Reads keep working on completed carts (the storefront's confirmation page).
 
+## Customer on a cart (#310)
+
+`createCart(client, { …, customerId? }, input)`: the store-level customer of a verified customer token sent with
+`POST /store/carts` (the route resolves it); absent = a guest cart. The `Cart` body never exposes it. A guest
+cart can still become a customer's at placement — see the checkout README "Customer link at placement".
+
 ## Totals
 
 Every mutation locks the cart row (`SELECT … FOR UPDATE`), applies the change and calls `recalculate()` in the same

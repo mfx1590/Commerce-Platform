@@ -7,8 +7,9 @@ registry, catalog, pricing, checkout, orders, inventory, fulfillment, customers,
 tax, fraud, shipping, search, promotions. Phase 1 (window 1): registry + catalog, Store/Admin API routes for them.
 Phase 2 (window 1): cart (2.1, done), checkout/placement (2.2, done), orders (2.3, done), inventory (2.4, done), returns (2.5, done),
 `cart.abandoned` job + lifecycle replay (2.6, done) — **Phase 2 core complete**. Customer self-service (#303, window 1):
-every `/store/customers*` operation of Store API 0.5.1 is real (parts A and B); the fallback proxy covers no
-customer path any more.
+every `/store/customers*` operation of the Store API is real, an undefined operation under that prefix is a
+terminal 404 (never the fallback proxy), and `createCart` / `completeCart` honour a customer token (#310): the
+order is placed for the signed-in customer.
 
 ## Owner
 
