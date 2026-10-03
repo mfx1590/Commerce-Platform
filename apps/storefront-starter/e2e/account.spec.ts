@@ -1,4 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
+import {
+  BACKEND,
+  CHECKOUT_STEP,
+  JOURNEY_TIMEOUT,
+  NAVIGATION_TIMEOUT,
+  SERVER_ACTION_TIMEOUT,
+  advanceToReview,
+  captureOrder,
+  clickWhenReady,
+  openPurchasableProduct,
+} from './support/journey';
 
 /**
  * Account area against the Keycloak **customers** realm.
@@ -35,6 +46,8 @@ test.describe.configure({ mode: 'serial' });
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
 const REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
 const CUSTOMER = { username: 'jane@example.com', password: 'jane' };
+/** The app's session cookie (`src/lib/auth/session.ts`); its value is URL-encoded JSON. */
+const SESSION_COOKIE = 'customer_session';
 
 const REQUIRE_KEYCLOAK = process.env.E2E_REQUIRE_KEYCLOAK === '1' || Boolean(process.env.CI);
 const AGAINST_CORE = process.env.E2E_STORE_API_URL !== undefined;
@@ -138,3 +151,97 @@ test('signing out drops the session', async ({ page }) => {
   await page.goto('/en-GB/account');
   await expect(page).toHaveURL(new RegExp(`^${KEYCLOAK_URL}/realms/${REALM}/`));
 });
+
+/**
+ * #312. Signed in, the storefront sends the customer token on cart create and complete (Store API
+ * 0.5.1). Two outcomes are correct and this test accepts both; the server log says which happened:
+ *
+ * - a core that implements 0.5.1 links the cart and the order to the customer;
+ * - a core that refuses the token (a stale or invalid session; only a core with #303 PR C checks it —
+ *   one before PR C ignored it and answered 201) answers 401, and the storefront drops the stale
+ *   session and completes the purchase **as a guest**, once
+ *   (`[storefront] the Store API refused the customer token on a cart call; …`).
+ *
+ * What must never happen is the third thing: a signed-in customer who cannot buy. Against the mock
+ * the token is accepted and ignored, so only the first shape is exercised there.
+ */
+test('a signed-in customer can buy — linked when the core takes the token, as a guest when it refuses it', async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+
+  await page.goto('/en-GB/account');
+  await signIn(page);
+  await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+
+  await buy(page, 'signed-in journey');
+});
+
+/**
+ * #312, the other shape, produced on purpose: the session cookie still says "signed in" but its
+ * access token is one the core will not accept — what a customer has after Keycloak revoked or
+ * rotated their session. The core answers 401 on cart create, the storefront drops the session
+ * and makes that call once more as a guest, and the purchase completes. Proven here by the result
+ * (an order, and no session cookie afterwards); the server log carries the fallback line.
+ *
+ * Core-only: Prism accepts any bearer token, so on the mock the stale token is used as if it were
+ * good, nothing is dropped, and this would fail for a reason that says nothing about the app.
+ */
+test('a stale session still buys — the token is refused, the session dropped, the order placed as a guest', async ({
+  page,
+  context,
+}) => {
+  test.skip(
+    !AGAINST_CORE,
+    'core-only: the mock accepts any customer token, so it never refuses one',
+  );
+  test.setTimeout(JOURNEY_TIMEOUT);
+
+  await page.goto('/en-GB/account');
+  await signIn(page);
+  await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+
+  // Keep the cookie's shape and lifetime; replace only the token the core is asked to verify.
+  const session = (await context.cookies()).find((cookie) => cookie.name === SESSION_COOKIE);
+  expect(session, 'signing in sets the session cookie').toBeDefined();
+  const value = JSON.parse(decodeURIComponent(session!.value)) as Record<string, unknown>;
+  expect(typeof value.accessToken).toBe('string');
+  await context.addCookies([
+    { ...session!, value: encodeURIComponent(JSON.stringify({ ...value, accessToken: 'stale' })) },
+  ]);
+
+  await buy(page, 'stale-session journey');
+
+  const after = (await context.cookies()).find((cookie) => cookie.name === SESSION_COOKIE);
+  expect(after, 'the refused session is dropped, not kept and refused again').toBeUndefined();
+});
+
+/** The journey's own steps, with whatever session cookie the context carries along for the ride. */
+async function buy(page: Page, label: string): Promise<void> {
+  const chosen = await openPurchasableProduct(page);
+  await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
+  await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
+  const cart = await captureOrder(page, 'the cart');
+  expect(cart.lines.map((line) => line.sku)).toContain(chosen.sku);
+
+  await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
+  await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
+  const shopperEmail = `e2e-customer+${Date.now().toString(36)}@example.com`;
+  await advanceToReview(page, shopperEmail);
+  const reviewed = await captureOrder(page, 'the review step');
+
+  await clickWhenReady(page, page.getByRole('button', { name: 'Place order' }));
+  await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
+
+  const placed = await captureOrder(page, 'the confirmation');
+  expect(placed.lines, 'the order has the lines that were reviewed').toEqual(reviewed.lines);
+  expect(placed.totalMinor).toBe(reviewed.totalMinor);
+
+  const orderNumber = await page
+    .getByTestId('order-confirmation')
+    .getAttribute('data-order-number');
+  console.info(
+    `[e2e] ${label} bought ${chosen.sku} (${chosen.handle}), order ${orderNumber}, on ${BACKEND}`,
+  );
+}

@@ -1,5 +1,40 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.7 — 2026-10-03
+
+Issue #312 (Store API 0.5.1, CONTRACT CHANGE #310). **Needs the core's #303 PR C (#325) to be live**
+for the order to be linked; a core before PR C ignores the token on these two calls and answers 201,
+so the order is placed as a guest. A 401 for a refused token comes only from a core with PR C, and
+this change turns it into one guest call.
+
+- **The customer token goes on `createCart` and `completeCart` when a customer is signed in.** The
+  cart, and the order placed from it, are linked to the customer at the core, so the order shows
+  in their history without an email match. A guest cart completed after signing in is linked at
+  completion. `allowsCustomerToken` now takes the method: exactly `POST /store/carts` and
+  `POST /store/carts/{id}/complete` are added, by method and exact path; every other cart
+  operation still refuses the token.
+- **A refused token is a stale session, not a lost sale.** On a 401 `asCustomerOrGuest`
+  (`src/lib/customer-link.ts`) drops the session and makes the call once more as a guest — once,
+  never in a loop. The same idempotency key covers both completion attempts: a 401 placed nothing.
+- **A 409 `conflict` at completion on the customer attempt, with empty `details`, is the link
+  conflict** (cart linked to another customer, or a replay by another customer; nothing placed)
+  and is shown as a recoverable error with the two ways out, by `mapCompletionError`. The core's
+  other completion conflicts (a promotion's last use, `details.promotion_id`; a key reused on
+  another cart, `details['Idempotency-Key']`) keep the generic text, and so does any `conflict`
+  as a guest. `placeOrderAction` learns which attempt threw from `asCustomerOrGuest`'s
+  `onAttempt` — it used to pass `'guest'` for an error thrown by the customer attempt, so the
+  link message was unreachable (review of #329).
+- `refreshTokens` and `tokenEndpoint` take the provider half of the OIDC config, so a token refresh
+  can never depend on `SITE_URL` (#298 follow-up).
+- Tests: the allow-list by method, the token on both calls and on neither as a guest, the 401
+  retry and its single-shot rule, the 409 mapping in both modes and for the other conflicts, and
+  `test/place-order-action.test.ts`, which drives `placeOrderAction` itself through a 409 on the
+  customer attempt (red against the old wiring).
+- e2e (`account.spec.ts`): a signed-in purchase (either backend), and a core-only **stale-session
+  purchase** — the session cookie's access token is replaced with one the core refuses; the order
+  is placed as a guest and the session cookie is gone afterwards. The journey's steps are shared
+  from `e2e/support/journey.ts` with `checkout.spec.ts`.
+
 ## 0.12.6 — 2026-10-03
 
 Issue #293. No contract change. Uses window 6's `routedDocuments`, `campaignIsLive` and

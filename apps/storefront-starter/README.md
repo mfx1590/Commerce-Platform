@@ -153,8 +153,10 @@ const products = await storeApi().listProducts(
   so a contract change surfaces as a compile error at every call site.
 - Failures become a `StoreApiError` carrying the contract's machine-readable `code`
   (`out_of_stock`, `payment_failed`, …), the HTTP status and `X-Request-Id`.
-- The customer's bearer token is only ever attached to `/store/customers/*` and `/store/orders/{id}`;
-  passing one to any other path throws rather than leaking it (`allowsCustomerToken`).
+- The customer's bearer token is only ever attached where the contract takes one: `/store/customers/*`,
+  `GET /store/orders/{id}`, and — since Store API 0.5.1 — `POST /store/carts` and
+  `POST /store/carts/{id}/complete`, by method and exact path. Passing one anywhere else throws
+  rather than leaking it (`allowsCustomerToken`).
 - The client is server-only. It throws if it is constructed in the browser, which keeps the key out
   of the client bundle.
 
@@ -258,6 +260,22 @@ component in the catalog.
 The cart lives in the API. The browser carries only its id, in an httpOnly cookie, so nothing about
 price, stock or totals is client-controlled. Every mutation is a **server action** in
 `src/lib/actions.ts` using the typed client — the browser never calls the Store API itself.
+
+**A signed-in customer's cart and order are theirs (#312, Store API 0.5.1).** `createCart` and
+`completeCart` carry the customer token when there is a session, so the cart — and the order placed
+from it — are linked to the customer at the core and appear in their history without relying on an
+email match. A cart begun as a guest and completed after signing in is linked at completion. The
+contract never ignores a token it is sent: a token that is invalid, expired or another store's is a 401. For the customer that is a stale session, not a lost sale, so `asCustomerOrGuest`
+(`src/lib/customer-link.ts`) drops the session and makes the call **once more** as a guest — once,
+never in a loop; a second 401 is the publishable key's problem and surfaces as such. A 409
+`conflict` at completion **on the customer attempt** (a token was sent and not refused) with
+**empty `details`** means the cart is already linked to _another_ customer: nothing was placed, and
+the review step says so and offers the two ways out (sign out and place it as a guest, or start a
+new cart). The core's other completion conflicts — a promotion's last use, an `Idempotency-Key`
+reused on another cart — carry details and keep the generic message. `asCustomerOrGuest` reports
+each attempt's mode through `onAttempt`, so a thrown error is read against the attempt that threw
+it. No other cart operation ever carries the token. Nothing about the
+token is logged.
 
 Steps are `/checkout/address` → `shipping` → `payment` → `review`; `/checkout` redirects to whichever
 the cart still needs. The order is enforced server-side in `requireCheckoutStep`, not by hiding
@@ -421,8 +439,9 @@ the tokens go into an httpOnly cookie — no page, component or script ever sees
   freshly signed-in customer to somebody else's page.
 - An expired access token sends the customer through sign-in again rather than refreshing during a
   render — cookies cannot be written while rendering, and Keycloak's SSO session makes it invisible.
-- The customer token reaches only `/store/customers/*` and `/store/orders/{id}`; the API client
-  throws if anything tries to send it elsewhere.
+- The customer token reaches `/store/customers/*`, `/store/orders/{id}`, and the two cart operations
+  that link a cart to its customer (see "Cart and checkout"); the API client throws if anything
+  tries to send it elsewhere.
 
 Window 13 takes this folder over in Phase 3, so it is deliberately the smallest correct thing rather
 than a session framework. Known limits, both fine for Phase 1: the session lives in the cookie, so it

@@ -7,6 +7,7 @@ import {
   parseAttribution,
   type CartMetadata,
 } from './attribution';
+import { asCustomerOrGuest } from './customer-link';
 import { getCurrency } from './i18n';
 import { getStoreOrNull } from './store';
 import { isNotFound, storeApi, type Body, type Cart } from './store-api';
@@ -111,7 +112,11 @@ export async function getOrCreateCart(): Promise<Cart> {
     ...(store === null ? {} : { country: store.default_country }),
     ...(metadata === undefined ? {} : { metadata }),
   };
-  const cart = await storeApi().createCart(body);
+  // As the signed-in customer when there is one (Store API 0.5.1, #312): the cart is linked to
+  // them at creation. A refused token drops the session and creates a guest cart instead.
+  const { result: cart } = await asCustomerOrGuest((options) =>
+    storeApi().createCart(body, options),
+  );
 
   (await cookies()).set(CART_COOKIE, cart.id, {
     ...COOKIE_OPTIONS,

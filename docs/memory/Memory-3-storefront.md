@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR six, in review; then #312**
+Last updated: 2026-10-03 (night) · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branch: **`storefront/phase2` = PR #329 (#312), worktree here.** #312 commits: `add9600` (token on cart create/complete), `f1debc1` (signed-in purchase e2e), `cb6655c` (package notes), `336846b` (0.12.7 changelog: pre-PR-C core answered 201), `1ad810e` (stale-session e2e + core run), **`0bfac3f` (review fix: 409 mode wiring + empty-details link conflict + action-level test)**; main merged at `e594fc6` and `1de6211`. **Review of #329 = BLOCK (two items), both fixed in `0bfac3f` + this memory commit; pushed once, CI result reported to the manager; no further pushes until the manager says.** Local holds: `storefront/hold-327` (`08b3240`, #327 code, unverified, on `e594fc6`), `storefront/hold-326` (`bdc92e0`). Order after #329 merges: #327 → #326. **Machine NOT mine** (window 10, #143). Parked review nits ("not now"): the customer is not told the session was dropped; a customer-linked cart completed after the fallback stays linked while the storefront reports guest.
 
 ## Identity (does not change)
 
@@ -234,6 +234,16 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       (65/2, 44.1 s), not by the branch. Go-live: production Helm values must set `SITE_URL`
       (#297). Seed stock 2026-10-03: one unit (alpine-backpack 2 → 1, order 1081).
 
+- [x] **#293 The sitemap lists CMS pages, legal pages and live campaigns per locale** — commits
+      `910ad1e`, `6c294b2` and the records fix `80a760e`; **PR #322 merged** (merge commit `9617832`,
+      2026-10-03) after one BLOCK on records only. `contentEntries()` reads window 6's
+      `routedDocuments` per locale through a reader built with `createReader` (never `getCms()`);
+      `campaignIsLive` gates campaigns per request; `sitemapUrls()` is the one expansion from paths
+      to URLs and both `force-dynamic` routes count it. **Unverified: content in a SERVED sitemap**
+      — no Sanity dataset exists anywhere; brand A sees it first on re-sync. Parked nits: "leaves at
+      the next revalidation" should say on the next request; README blank line / section; the
+      empty-in-empty-out test; the `SLUG` regex drops a slug with a dot.
+
 ## In progress
 
 - **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
@@ -245,55 +255,76 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   only. Every run: output to a file, started detached, polled with a bounded loop; no step waits
   on a pipe or on a server's lifetime. Ask before a perf gate.**
 
-- **#312 — READ, NOT STARTED. After #298; waits for the core's side (#303 PR C, window 1; core
-  merges first, coordinate with the manager).** Store API 0.5.1: `createCart` and `completeCart`
-  take an OPTIONAL customer token; a token that is sent but invalid is a 401, never ignored; a
-  cart linked to another customer is a 409 `conflict` at completion.
-  - Where it lands: `src/lib/store-api/client.ts` `allowsCustomerToken` (today only
-    `/store/customers*` and `/store/orders/{id}`) must admit exactly `POST /store/carts` and
-    `POST /store/carts/{id}/complete` — by method and path, not by prefix, so no other cart
-    operation can ever carry it; `src/lib/cart.ts` / `src/lib/actions.ts` for the two calls;
-    `mapCheckoutError` for the 409.
-  - 401 on either call: drop the session and retry once as a guest — never loop. There is no
-    silent refresh in this app (`refreshTokens` is unused; cookies cannot be written during a
-    render, but both calls happen in server actions, where they can).
-  - **Where it meets #298:** #298 makes `oidcConfigFromEnv` throw when a production server has
-    no `SITE_URL`, and adds `oidcProviderFromEnv` for what does not depend on the site's origin.
-    Anything #312 does with the identity provider (a refresh, if one is ever added) must use the
-    provider half, so a missing origin cannot break a cart. Otherwise the two do not touch the
-    same files: #298 is `brand/config.ts`, `lib/site-origin.ts`, the three route handlers and
-    `oidc.ts`; #312 is the store-api client, cart and actions.
-  - Constraints from the issue: no token in logs, URLs or client-component props; a cart created
-    as a guest and completed after sign-in must still work; tests for signed-in create and
-    complete (token sent), guest (none), the 401 and the 409 paths.
-
-- **#293 — PR #322 (first head `b716d64`). Review 2026-10-03: code correct, BLOCK on records only;
-  the docs-only push that fixed this file and the binding test's docstring is the current head.**
-  The parked commit `2587ec9` was cherry-picked onto main `79b491c` (conflicts in CHANGELOG,
-  package.json 0.12.6, README, this file; both sitemap routes kept #302's `force-dynamic`), then
-  the local `scheduleIsLive`, `RoutedDocument` and the `Reflect.get` detection were replaced by
-  `campaignIsLive`, `RoutedDocument` and `CmsReader` from `@/lib/cms` (window 6's #300, on main since
-  #317); `ContentSource` is `Pick<CmsReader, 'routedDocuments'>`; the "before #300" test is gone.
-  **Run on 2026-10-03 with the machine granted:** lint (one fix: an inline `import()` type is
-  forbidden by the lint rule — use a type import), typecheck, 473 unit tests, format; full mock e2e
-  through the readiness gate 65 passed / 2 skipped; production build against the mock with no CMS
-  configured: `/sitemap.xml` one page, `/sitemap/0.xml` the same 12 URLs / 24 alternates as
-  before, no content routes. **Still unverified, named in the PR body: content appearing in a
-  served sitemap** — no Sanity dataset exists anywhere; brand A sees it first on re-sync.
-  **What is true at this head:** window 6's reader exists (`routedDocuments`, `campaignIsLive`,
-  `RoutedDocument` on main since #317) and the sitemap lists its content — `contentEntries()` in
-  `sitemap-data.ts` reads it once per locale through a reader built with `createReader`, never
-  `getCms()` (preview cookie); `sitemapUrls()` in `seo.ts` is the one expansion from paths to URLs
-  and both routes count it; both routes are `force-dynamic` (#302). Tests: `sitemap-content`,
-  `sitemap-urls`, `sitemap-cms-binding`. **The one unverified part is content appearing in a
-  SERVED sitemap, because no Sanity dataset exists anywhere**: every local and CI run has an
-  unconfigured CMS, so the served sitemap is the catalogue only (12 URLs / 24 alternates against
-  the mock) and the behaviour with documents is proven by unit tests against fakes of the reader.
-  Brand A, which has the dataset, sees it first on re-sync. Review of #322: code correct, BLOCK
-  on records only (this file and the binding test's docstring still described the pre-#300 world).
-  Parked nits: README says an expired campaign leaves "at the next revalidation" — it leaves on
-  the next request; README:508–509 lacks a blank line and sits in the e2e section; the
-  empty-in-empty-out test adds nothing; the `SLUG` regex drops a slug with a dot.
+- **#312 / PR #329 — review BLOCK (manager, 2026-10-03 night), fixed in `0bfac3f`:** (1)
+  `placeOrderAction` set `mode` only after `asCustomerOrGuest` resolved, so a 409 thrown by the
+  customer attempt was mapped as `'guest'` and the link message was unreachable. Now
+  `asCustomerOrGuest` takes `onAttempt(mode)` (called before each attempt) and the action records
+  it. And `mapCompletionError` gives the link message only for a `conflict` with **empty
+  `details`** — the core's `anotherCustomers()`; promotion last use (`details.promotion_id`) and
+  key reuse across carts (`details['Idempotency-Key']`) keep the generic text. A
+  `details.reason` in the contract would be cleaner — offer as a CONTRACT CHANGE if asked.
+  `test/place-order-action.test.ts` (5) drives the action with network, cookies and session mocked;
+  red against the old wiring and against dropping the details rule. Unit 503, typecheck, lint,
+  format pass. (2) Memory line 4 made true with the shas. Code-only; no e2e re-run (machine not mine).
+- **#312 — 2026-10-03, manager: core PR C (#325) merged as `5997584`.** `storefront/phase2` was
+  fast-forwarded to `storefront/hold-312` and merged with origin/main `2a0f828` (clean);
+  `pnpm install --frozen-lockfile`, typecheck (starter + ui) and 496 unit tests pass — nothing broke
+  against Store API 0.5.2. Package CLAUDE.md's token allow-list updated to the four calls.
+  **Machine granted later on 2026-10-03; run, all detached and bounded:** lint, format, typecheck,
+  496 unit — pass. 0.12.7 changelog corrected (pre-PR-C core ignored the token, 201). New core-only
+  e2e: **stale-session purchase** (cookie's accessToken replaced with `stale`; asserts order placed
+  and the session cookie gone); the journey moved into a `buy()` helper in account.spec.ts. Mock
+  e2e full: 66 passed / 2 skipped, then on the final tree 66 / 3 skipped. Probe: core with PR C
+  answers `POST /store/carts` + `Bearer stale` with **401**. **Core run (account spec):** first
+  attempt 1 failed — PDP served **stale cached stock** for alpine-backpack (0 on the core) from
+  `.next/cache/fetch-cache` kept from the earlier core run; the app said "That item just sold out",
+  correct. Cleared the fetch cache, second run **5 passed / 1 skipped**: signed-in journey bought
+  `BRANDA-0101-ONE-SIZE-OLI` (alpine-beanie), **order 1088, linked** (`public.order.customer_id`
+  set, read-only query); stale-session journey, same SKU, **order 1089, guest**, and the server log
+  carried the fallback line exactly once. Seed used: 2 units of alpine-beanie (15 → 13). Own core
+  started and stopped; :9000/:3100 free.
+  History below (the "nothing run" title is from before the first run):
+- **#312 — CLIENT CHANGE WRITTEN. Local-only branch `storefront/hold-312` on top of
+  `storefront/phase2` (= PR #322's head). Its PR waits for the core's #303 PR C (window 1; core
+  merges first — coordinate with the manager) and goes up after #322 merges.** Store API 0.5.1:
+  `createCart` and `completeCart` take an OPTIONAL customer token; a token that is sent but invalid
+  is a 401, never ignored; a cart linked to another customer is a 409 `conflict` at completion.
+  - `allowsCustomerToken(path, method = 'GET')`: `/store/customers*`, `GET /store/orders/{id}`,
+    plus exactly `POST /store/carts` and `POST /store/carts/{id}/complete` (`isCartCompletePath`,
+    five segments). `RequestOptions` is now exported from the store-api index.
+  - `src/lib/customer-link.ts` `asCustomerOrGuest(call, deps?)` → `{ result, mode }`: token from
+    `getAccessToken()`; on a `StoreApiError` with status 401 it `clearSession()`s, warns one line
+    without the token, and calls once more as a guest; a second 401 propagates; other errors
+    propagate untouched. Used by `getOrCreateCart` (cart.ts) and `placeOrderAction` (actions.ts;
+    the same idempotency key on both attempts).
+  - `mapCompletionError(error, mode)` in checkout.ts: `conflict` as the customer → the link-conflict
+    message (sign out and place as a guest, or start a new cart); otherwise `mapCheckoutError`.
+  - OIDC: `refreshTokens`, `postToken` take `OidcProvider`; `tokenEndpoint` takes `Pick<…,'issuer'>`.
+  - Tests written: `customer-link.test.ts` (6), additions to `store-api.test.ts` (allow-list by
+    method, token on both calls, none as a guest, refused on `updateCart`) and `checkout.test.ts`
+    (`mapCompletionError`). README (client, accounts, cart sections), CHANGELOG 0.12.7.
+  **Run on 2026-10-03 (machine granted), all bounded and detached:** lint, typecheck, 496 unit
+  tests, format — pass (one fix: `RequestOptions` was already re-exported from the store-api
+  index). The journey helpers moved to `e2e/support/journey.ts`, shared by `checkout.spec.ts` and
+  `account.spec.ts`, which gained **a signed-in purchase**: sign in, then the journey; accepts both
+  correct outcomes (linked, or guest after a 401) and names the one that must never happen — a
+  signed-in customer who cannot buy. Full mock e2e through the gate: **first run 9 failed** (all
+  `page.goto` / `browserContext.clearCookies` timeouts in the first seconds, with the machine at
+  91–100% CPU through the build phase — browser-side calls, not the server; the gate had reported
+  warm), **second run 66 passed / 2 skipped**. **Core run (account spec only, one unit):** 4
+  passed / 1 skipped; the signed-in purchase bought `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack),
+  order 1082, stock **1 → 0, now out**. **The guest fallback was NOT exercised:** the core at
+  contracts 0.4.8 (before PR C) *ignores* the token — measured directly, `POST /store/carts` with
+  `Authorization: Bearer not-a-token` answers 201, same as with no token — so the storefront sent the
+  token, the core placed a guest order, and no `refused the customer token` line appeared. The
+  401 path is covered by the unit tests only until a core that implements 0.5.1 is available;
+  the one ready-made way to see it live is a core with PR C and a deliberately stale session.
+  **Next for #312:** hold on `storefront/hold-312` until the manager says core PR C is on main;
+  then rebase onto `storefront/phase2`, re-run the gates, one core run (expect the linked order
+  and, with a stale session, the fallback line), push, open the PR (body may close #312).
+  alpine-backpack is at 0: the journey moves on to the next listed product by itself.
+  Constraints from the issue: no token in logs, URLs or client-component props (none of the three
+  touched files is a client component); a guest cart completed after sign-in must still work.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
@@ -344,6 +375,41 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 -->
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+
+- [ ] **#327 (REQUEST from window 10, manager decision on the issue) — CODE WRITTEN, committed
+      `08b3240` on the local-only `storefront/hold-327` (on top of PR #329's head `e594fc6`),
+      CHANGELOG/version 0.12.8. NOT pushed, NOT run against anything.**
+      - `src/lib/e2e-images.ts`: `E2E_LOCAL_IMAGES` (exactly `1`, inlined via next.config `env`);
+        `ProductImage` sends every remote `src` (picsum and the CDNs) to `/e2e-placeholder.svg?w=`
+        (`public/`). `e2eServerEnv` sets the flag for build and server.
+      - Refused in production: `src/instrumentation.ts` → `instrumentation-node.ts` exits at start
+        when the build has the flag and runtime `SITE_URL` is missing / not loopback. NODE_ENV
+        cannot be the line (the e2e server is `next build` + `next start`).
+      - `e2e-server.mjs` deletes `.next/cache/fetch-cache` before each build (the stale-stock hit).
+      - `networkidle` gone: `hydrated(page)` waits for `<html data-hydrated="true">` set by
+        `HydrationMarker` (root layout effect; the app has no Suspense/loading.tsx, so one root
+        commit hydrates the page). Used by `settleOn` and `clickWhenReady` (journey.ts).
+      - Run without the machine: typecheck, eslint, **508 unit** pass; the `ProductImage` test is red
+        with the flag branch removed.
+      **Unverified until the machine is mine:** (1) `next build` + `next start` with the flag — that
+      `register()` really runs at `next start` and exits on a public SITE_URL (try `SITE_URL=https://x.example`),
+      and no Edge-runtime warning; (2) a run's network log has no picsum / cloudinary / unsplash
+      request (Playwright `page.on('request')` or the trace); (3) acceptance: **three consecutive
+      full passes, 0 failures, against the core**; full mock e2e too. Then merge main, PR
+      "Closes #327" on the manager's confirm. Brand A inherits by sync (`public/` is new — tell
+      window 10); window 10 aligns its own specs.
+
+- [ ] **#326 (REQUEST from window 10), its own PR after #312:** `test/starter-defaults.test.ts`
+      imports `@/brand/*` at top level, so a clone whose `tokens.ts` uses `next/font/local` fails to
+      collect the file before `runIf` is consulted. Fix: dynamic `await import(...)` inside each `it`
+      of the gated block. Brand A then drops its sync exclusion. **Written and committed as
+      `bdc92e0` on the local-only `storefront/hold-326` (off origin/main `2a0f828`; CHANGELOG
+      0.12.8, version 0.12.8). Verified: passes in the starter; fails when a token override is added;
+      skips (2 skipped) with a clone name and a `tokens.ts` that throws at import. Typecheck green.
+      After #312 merges: move onto `storefront/phase2`, merge main (CHANGELOG/version will conflict
+      with 0.12.7 — keep both entries, 0.12.8 on top), gates, PR "Closes #326".**
+      **Accepted as built by the manager. Renumber: #327 now takes 0.12.8 and lands first, so #326
+      becomes 0.12.9 (on top) when it is moved — keep every entry.** Order: #312 → #327 → #326.
 
 - [ ] **Parked nits from the review of #309 (manager: "not now"):** the build marker describes the
       build on disk, not the running process; an out-of-range `/sitemap/N.xml` answers 200 empty
@@ -618,6 +684,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **The e2e build keeps `.next/cache/fetch-cache` between runs**, so a core run can render stock
+  cached by an earlier core run (CATALOG_REVALIDATE): the PDP said purchasable, the core said 0,
+  add-to-cart answered "That item just sold out". `rm -rf apps/storefront-starter/.next/cache/fetch-cache`
+  before a core run that follows another one. Candidate for #327's e2e-flag work.
 
 - **An interrupted or rejected command may still be running.** On 2026-10-02 the owner stopped
   one of my steps; the five-pass e2e loop I had launched carried on in the background, and the
