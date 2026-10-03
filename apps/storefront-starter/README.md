@@ -56,7 +56,40 @@ E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-start
 
 `E2E_STORE_API_URL` is what switches Playwright over; unset, the suite runs against Prism alone, so
 a laptop with no stack still gets a full green run. Prism starts either way, because the core's
-fallback proxies the account journeys' `/store/customers*` to it.
+fallback proxies the account journeys' `/store/customers*` to it. The core has to accept the
+app's key: export `STORE_PUBLISHABLE_KEY` (the repo-root `.env` has the seeded one) in the shell
+that runs the suite.
+
+**A run against the core costs one unit of seed stock.** The journey places a real order; the
+core reserves stock for it and releases it only on cancel, and nothing in this suite cancels —
+that would need the Admin API and a staff token, which a storefront test has no business holding.
+So the budget is finite and shared by every suite using the same publishable key. The journey
+does not buy "the first product": it opens the listed products in turn and takes the first one
+the storefront itself reports as purchasable (`data-purchasable` on the add-to-cart form), so one
+product running out moves the cost to the next instead of ending the suite. When none of the
+first twelve can be bought it fails with **`Seed stock exhausted — reseed`** and the list of what
+it tried, rather than with a timeout on a disabled button. The remedy is the one the message
+names: reseed the store. On the shared development stack that is the manager's call, not a window's.
+
+**What each backend proves.** The mock is stateless and answers with the contract's examples, so
+against it the suite proves the pages render what the API returned, consistently — not that
+anything was really placed, sorted or filtered:
+
+| Check                                                         | Prism mock                           | Core                          |
+| ------------------------------------------------------------- | ------------------------------------ | ----------------------------- |
+| Confirmation shows the reviewed lines, total and an order no. | examples that agree with each other  | a real cart and a real order  |
+| Product chosen by reported stock                              | the example is always in stock       | real stock                    |
+| Sort reorders, a category narrows                             | **skipped, with the reason**         | real; **fails** under 2 items |
+| Unknown product handle is a 404                               | skipped (every handle "exists")      | real                          |
+| Sign-in, return URL, session, sign-out                        | real (Keycloak)                      | real (Keycloak)               |
+| Profile and order history contents                            | the examples, labelled **mock-only** | not run — waits for #303      |
+
+Prism returns the same example whatever `sort` or `category` it is sent, so more examples in the
+contract would not make the sort/filter test real against it; that is why it skips rather than
+passes. The journey reads what it compares from `data-*` hooks (`src/lib/test-hooks.ts`): lines,
+quantities and totals in minor units on cart, review and confirmation, the order number on the
+confirmation, handle, price and category on a listing card. Every value is already on the page
+as text; the hooks only spare the test from parsing `19,99 €`.
 
 **The suite is data-independent** (2.1). It used to encode the mock — the fixture's product name and
 handle, its price, its SKU, Jane's street, and the assumption that a cart already carries an address

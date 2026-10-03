@@ -25,6 +25,37 @@ fallback. The problem is reported with one `console.warn` — once per process f
 configuration, once per failed request otherwise — carrying the status and Sanity's request id,
 never a token or the response body.
 
+### Listing what is routed: `routedDocuments(locale)` (for the sitemap)
+
+```ts
+import { campaignIsLive, cmsConfigFromEnv, createReader, type RoutedDocument } from '@/lib/cms';
+
+const reader = createReader({ config: cmsConfigFromEnv(), storeCode }); // not getCms(): no cookie
+const documents: RoutedDocument[] = await reader.routedDocuments(locale);
+const listed = documents.filter((d) => d.type !== 'campaignLanding' || campaignIsLive(d));
+```
+
+Every published `page`, `legal` and `campaignLanding` of the locale as `{ type, slug }`, campaign
+landings with their `startsAt` / `endsAt` when set (a missing side is absent, never `null`).
+
+- **Filtered in the query** (`queries.ts`): no document without a slug, and not the `page` with
+  slug `home` (`HOME_SLUG`) — it is mounted on `/`, so `/pages/home` would be a duplicate.
+- **`seo.noIndex: true` is left out by the reader, not by the query.** The query returns the flag
+  (`coalesce(seo.noIndex, false)` — most documents have no `seo` object at all, and they are
+  listed); the reader first keeps the newest row per `(type, slug)`, the document the by-slug read
+  renders, and then applies that document's flag. Filtering in the query would let an older
+  indexable twin be listed in place of a newer noIndex document. Two documents on one
+  `(type, locale, slug)` should not exist — the Studio refuses them — but if they do, the list
+  describes the one that renders: its `noIndex`, its schedule. The flag is never returned.
+- **The schedule is returned, not applied.** The list is cached (tags + `CMS_REVALIDATE_SECONDS`),
+  so "live now" is the caller's question at request time — `campaignIsLive` — otherwise an ended
+  campaign would stay listed until the next revalidation.
+- **Build the reader yourself**, as above. `createReader` and `campaignIsLive` load nothing from
+  `next/headers` (a test walks the import graph), so a cached sitemap neither turns dynamic nor
+  lists a draft. `getCms()` reads the preview cookie; do not use it for this.
+- `[]` when there is nothing, when the CMS is unconfigured or the store unknown, and when the read
+  fails (one warning, like every other read).
+
 ## Content routes
 
 | Route                      | Document                    | Empty CMS                              |
@@ -114,6 +145,9 @@ type, or everything:
 | `cms:navigation:en-GB:main` | navigation (key) is published |
 | `cms:footer:en-GB:default`  | the footer is published       |
 
+`routedDocuments` is a list across three types, so it carries `cms`, `cms:page`, `cms:legal` and
+`cms:campaignLanding`: publishing any page, legal document or campaign landing drops it.
+
 ## Preview mode
 
 `GET /api/cms/preview?secret=<SANITY_PREVIEW_SECRET>&redirect=/en-GB/pages/about` sets the
@@ -192,3 +226,8 @@ pnpm --filter @platform/storefront-starter test   # cms-client, cms-reader, cms-
 `test/cms-render.ts` resolves a server-component tree (async components included) into plain data
 without a DOM, which is what the rendering assertions — one `<h1>`, no skipped heading levels, alt
 text on every image, `aria-label` on the nav, `rel` on external links — run against.
+
+`test/cms-routed-documents.test.ts` does not can the answer: its fake Sanity evaluates the reader's
+real GROQ against a small dataset with `groq-js`, so each filter is tested where it lives. The
+storefront has no dependency on `groq-js`; the test reaches the copy the Studio ships
+(`@platform/cms` → `sanity` → `groq-js`) and fails, rather than skips, if it cannot.
