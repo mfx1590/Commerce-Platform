@@ -98,7 +98,15 @@ export function VariantPicker({ product, locale }: { product: Product; locale: s
 
       <AvailabilityNote stock={stock} />
 
-      <form action={formAction} className="flex flex-col gap-2">
+      {/* What the journey test reads to choose a product it can actually buy (#304). */}
+      <form
+        action={formAction}
+        className="flex flex-col gap-2"
+        data-testid="add-to-cart"
+        data-availability={stock.state}
+        data-purchasable={isPurchasable(variant) ? 'true' : 'false'}
+        data-sku={variant?.sku ?? ''}
+      >
         <input type="hidden" name="variant_id" value={variant?.id ?? ''} />
         <input type="hidden" name="quantity" value="1" />
         <AddToCartButton disabled={!isPurchasable(variant)} />

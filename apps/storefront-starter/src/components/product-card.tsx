@@ -3,6 +3,7 @@ import { useTranslations } from 'next-intl';
 import { ProductImage } from '@/components/product-image';
 import { Link } from '@/i18n/navigation';
 import type { ProductSummary } from '@/lib/store-api';
+import { productCardHooks } from '@/lib/test-hooks';
 
 /** Grid sizes, so the browser downloads one image per breakpoint instead of the largest. */
 const CARD_SIZES = '(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw';
@@ -21,7 +22,7 @@ export function ProductCard({ product, locale, priority = false }: ProductCardPr
     product.compare_at_price.amount_minor > product.price.amount_minor;
 
   return (
-    <article className="group flex flex-col gap-3">
+    <article className="group flex flex-col gap-3" {...productCardHooks(product)}>
       <Link
         href={`/products/${product.handle}`}
         className="relative block aspect-square overflow-hidden rounded-lg bg-muted"

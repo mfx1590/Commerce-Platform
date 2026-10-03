@@ -33,14 +33,69 @@ export const brandConfig: BrandConfig = {
   description: 'Shop the full range.',
 };
 
+/** The site's public origin was needed and nothing says what it is — or what it says is not a URL. */
+export class SiteUrlError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SiteUrlError';
+  }
+}
+
+/** What `siteUrl()` answers on a developer's machine when nothing is configured. */
+export const LOCAL_DEVELOPMENT_SITE_URL = 'http://localhost:3100';
+
 /**
- * The canonical origin. `SITE_URL` wins over the built-in default so one image can serve staging and
- * production; a brand that knows its origin at build time sets `siteUrl` above.
+ * This site's public origin — **the one definition of it**, for metadata, canonicals, the sitemap,
+ * the OIDC redirect URIs and every redirect a route handler issues (see `src/lib/site-origin.ts`).
+ *
+ * It is configuration, read when it is needed: `SITE_URL`, set per environment on one promoted
+ * image, or `siteUrl` above for a brand whose origin is fixed. It is **never taken from the
+ * request**. `Host` and `X-Forwarded-Host` are whatever the client or a misconfigured proxy says
+ * they are, and behind the ingress a route handler's own `request.nextUrl.origin` is the pod's
+ * internal address (`http://localhost:3100`) whatever the customer typed — which is how sign-out,
+ * the sign-in callback and every referral link came to redirect customers to localhost (#298).
+ *
+ * **Fails closed.** A deployment that does not say where it lives must not guess: the old default
+ * of `http://localhost:3100` put that origin into sitemaps, canonicals and redirects of anything
+ * started without `SITE_URL`. The default now applies only where it is true —
+ *
+ * - outside production mode (`next dev`, unit tests), and
+ * - while `next build` runs, which has no environment of its own; nothing a build renders may keep
+ *   the origin anyway, and `e2e/runtime-origin.spec.ts` holds that —
+ *
+ * and everywhere else an unset `SITE_URL` throws `SiteUrlError`. That is an **allow-list**, not
+ * "anything but production": a pod started with `NODE_ENV=staging`, `test` or nothing at all would
+ * otherwise answer `localhost` again — the original defect, from a misspelt variable. Starting a
+ * production build by hand therefore needs `SITE_URL` (the e2e and perf scripts set it).
+ *
+ * Returns the **origin** (`https://shop.example.com`), never the raw value: a `SITE_URL` with a path
+ * would otherwise make `siteUrl()` and `siteOrigin()` disagree about where the site is.
  *
  * Trailing slashes are stripped, because every caller joins a path onto this and `//products` is a
  * different URL to a crawler.
  */
 export function siteUrl(env: Record<string, string | undefined> = process.env): string {
-  const raw = brandConfig.siteUrl ?? env.SITE_URL ?? 'http://localhost:3100';
-  return raw.replace(/\/+$/, '');
+  const configured = (brandConfig.siteUrl ?? env.SITE_URL ?? '').trim();
+  if (configured !== '') return parseSiteUrl(configured);
+
+  const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+  if (local || env.NEXT_PHASE === 'phase-production-build') return LOCAL_DEVELOPMENT_SITE_URL;
+  throw new SiteUrlError(
+    'SITE_URL is not set. A production server must be told its public origin ' +
+      '(for example SITE_URL=https://shop.example.com): it is used for canonical URLs, the ' +
+      'sitemap, the OIDC redirect URIs and every redirect, and it is never read from the request.',
+  );
+}
+
+function parseSiteUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new SiteUrlError(`SITE_URL must be an absolute URL, got "${value}".`);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new SiteUrlError(`SITE_URL must be an http(s) URL, got "${value}".`);
+  }
+  return url.origin;
 }

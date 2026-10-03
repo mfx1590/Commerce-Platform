@@ -68,7 +68,9 @@ Rules the module enforces:
 - `store.created` v1 — on `createStore`.
 - `store.updated` v1 — on `updateStore` and on default locale/currency changes; `changed_fields` lists the `Store`
   fields that differ, `currencies` / `locales` included when the enabled set really changed (compared as sets,
-  so a repeat of the same set emits nothing). Also on `revokeApiKey` (`['api_keys']`) and on a primary move
+  so a repeat of the same set emits nothing). Also on every other registry mutation — audit alone is not enough: `addDomain` (`['domains']`), `addLocale` /
+  `addCurrency` without a new default (`['locales']` / `['currencies']`; nothing when it was already enabled),
+  `createSalesChannel` (`['sales_channels']`), `createApiKey` (`['api_keys']`), `revokeApiKey` (`['api_keys']`) and on a primary move
   by `updateDomain` (`['domains']`): the payload names the area only — never key material, never a hostname —
   and an idempotent repeat emits nothing.
 

@@ -24,7 +24,7 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | Variable                   | Default                      | Meaning                                                                                                                                |
 | -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `PORT`                     | `3100`                       | `start` honours `$PORT` (image contract, REQUEST #68) and defaults to 3100 rather than Next's 3000, which collides with the admin app. |
-| `SITE_URL`                 | `http://localhost:3100`      | Absolute URLs: canonical links and the OIDC redirect URI.                                                                              |
+| `SITE_URL`                 | `http://localhost:3100`      | **Required on every deployment.** This site's public origin: canonicals, sitemap, OIDC redirect URIs, every redirect. See below.       |
 | `STORE_API_URL`            | `http://localhost:9000`      | The core's Store API — the default since 2.1. Wins over `MOCK_API_URL`.                                                                |
 | `MOCK_API_URL`             | —                            | Prism mock. Set it to run against contract examples instead of the core (Playwright does).                                             |
 | `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                                                                               |
@@ -34,6 +34,20 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | `ROBOTS_ALLOW_INDEXING`    | —                            | `1` on the **production** deployment only; anything else serves `Disallow: /`.                                                         |
 
 `GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
+
+**`SITE_URL` is the only source of this site's origin, and a production server without it fails
+closed (#298).** The default in the table is an **allow-list**: `NODE_ENV=development`,
+`NODE_ENV=test`, and while `next build` runs — nowhere else. A server started with `SITE_URL`
+unset under `NODE_ENV=production`, `staging`, anything misspelt, or no `NODE_ENV` at all throws
+`SiteUrlError` on the first page, sitemap or redirect that needs an absolute URL, instead
+of advertising `http://localhost:3100`; so `pnpm start` by hand needs `SITE_URL=…` (the e2e and
+perf scripts set it). The origin is **never taken from the request**: behind the ingress a route
+handler's own `request.nextUrl.origin` is the pod's address (`localhost:3100`, whatever the
+`Host` header says), and `Host` / `X-Forwarded-Host` are text the client chose — a redirect
+built on either is wrong or an open redirect. Route handlers that redirect go through
+`src/lib/site-origin.ts` (`urlOnThisSite`), which also applies both layers of the safe-path rule.
+The one exception to throwing is sign-out: with no origin configured it still clears the session
+and ends the Keycloak session, only without a return address.
 
 ## Running against the core
 
@@ -56,7 +70,52 @@ E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-start
 
 `E2E_STORE_API_URL` is what switches Playwright over; unset, the suite runs against Prism alone, so
 a laptop with no stack still gets a full green run. Prism starts either way, because the core's
-fallback proxies the account journeys' `/store/customers*` to it.
+fallback proxies the account journeys' `/store/customers*` to it. The core has to accept the
+app's key: export `STORE_PUBLISHABLE_KEY` (the repo-root `.env` has the seeded one) in the shell
+that runs the suite.
+
+**A run against the core costs one unit of seed stock.** The journey places a real order; the
+core reserves stock for it and releases it only on cancel, and nothing in this suite cancels —
+that would need the Admin API and a staff token, which a storefront test has no business holding.
+So the budget is finite and shared by every suite using the same publishable key. The journey
+does not buy "the first product": it opens the listed products in turn and takes the first one
+the storefront itself reports as purchasable (`data-purchasable` on the add-to-cart form), so one
+product running out moves the cost to the next instead of ending the suite. When none of the
+first twelve can be bought it fails with **`Seed stock exhausted — reseed`** and the list of what
+it tried, rather than with a timeout on a disabled button. The remedy is the one the message
+names: reseed the store. On the shared development stack that is the manager's call, not a window's.
+
+**What each backend proves.** The mock is stateless and answers with the contract's examples, so
+against it the suite proves the pages render what the API returned, consistently — not that
+anything was really placed, sorted or filtered:
+
+| Check                                                         | Prism mock                           | Core                          |
+| ------------------------------------------------------------- | ------------------------------------ | ----------------------------- |
+| Confirmation shows the reviewed lines, total and an order no. | examples that agree with each other  | a real cart and a real order  |
+| Product chosen by reported stock                              | the example is always in stock       | real stock                    |
+| Sort reorders, a category narrows                             | **skipped, with the reason**         | real; **fails** under 2 items |
+| Unknown product handle is a 404                               | skipped (every handle "exists")      | real                          |
+| Sign-in, return URL, session, sign-out                        | real (Keycloak)                      | real (Keycloak)               |
+| Profile and order history contents                            | the examples, labelled **mock-only** | not run — waits for #303      |
+
+Prism returns the same example whatever `sort` or `category` it is sent, so more examples in the
+contract would not make the sort/filter test real against it; that is why it skips rather than
+passes. The journey reads what it compares from `data-*` hooks (`src/lib/test-hooks.ts`): lines,
+quantities and totals in minor units on cart, review and confirmation, the order number on the
+confirmation, handle, price and category on a listing card. **The hooks ship in production
+builds** — they are ordinary attributes, and every visitor receives them. Most restate text that is
+on the same element (SKU, quantity, amounts, order number) and only spare the test from parsing
+`19,99 €`; `data-order-id`, `data-category`, `data-availability` and `data-purchasable` are not
+text on the page, and are public anyway: the order id is in the page's URL, the category handle
+in the link beside it, and the other two say what the buy button already shows.
+
+**A core run and a mock run cannot be confused by the shell.** The e2e server's backend comes
+from `E2E_STORE_API_URL` alone (`scripts/e2e-env.mjs`): a `STORE_API_URL` exported in the shell
+is dropped for a mock run. Before that, a shell carrying the `.env.example` value made a "mock"
+run talk to the core — the core-only tests skipped with the mock's reason while the journey spent
+real stock. The journey also ties the confirmation to its own run: against the core it enters an
+email only that run uses and requires the confirmation to name it, and on both backends the cart
+must be empty afterwards.
 
 **The suite is data-independent** (2.1). It used to encode the mock — the fixture's product name and
 handle, its price, its SKU, Jane's street, and the assumption that a cart already carries an address
@@ -427,6 +486,16 @@ whatever `robots.txt` does (the first version of the spec had exactly that hole)
 test built and started the app with the same environment, where the two values are the same
 string.
 
+**The e2e server reports ready only once it is warm.** Playwright used to wait on the app's own URL
+and start its workers the moment the response headers arrived — seconds after `next build`, while
+the machine was still busy with the build's aftermath and the server had served nothing. On a
+laptop the first documents then took 10 s, static chunks 10 s to first byte, and the first tests
+of a run timed out, while CI passed the same code every time. `scripts/e2e-server.mjs` now answers
+Playwright's readiness URL (`http://127.0.0.1:<port + 1000>/`, `E2E_READY_PORT` to override) only
+after a page **and** a static chunk have each answered in under a second twice in a row — not
+longer timeouts, which would have hidden the cold start instead of waiting it out. A server
+already on the port is reused as before, but held to the same bar.
+
 **That spec refuses to pass vacuously.** Locally Playwright reuses a server that is already
 running on the port, and one you built with `pnpm build` has the same origin at build time and
 at run time — nothing in the spec could fail against it. `e2e-server.mjs` therefore leaves a
@@ -437,6 +506,22 @@ scripts/e2e-server.mjs …`); when `CI` is set they **fail** instead, because CI
 server and getting there means the setup is broken. To run it for real on a laptop, stop the
 server on :3100 and let Playwright start it. The rules are in `e2e/support/build-origin.ts`
 and unit-tested in `test/e2e-build-origin.test.ts`.
+**CMS content is in the sitemap, per locale (#293).** Published `page` and `legal` documents and
+live `campaignLanding`s are listed under `/pages`, `/legal` and `/campaign`, between the static
+routes and the catalogue. A CMS document exists only in the locales it was published in, so each
+entry carries its own locale list: it gets one URL per such locale and `hreflang` alternates for
+exactly those — an alternate pointing at a 404 is worse than none. That is also why the page count
+is no longer `paths × locales`: `sitemapUrls()` in `src/lib/seo.ts` is the one place paths become
+URLs, and the sitemap pages and the index both count its output.
+
+The documents come from the cms module's public reader, `routedDocuments(locale)` (requested from
+window 6 in #300): noIndex documents and the `home` page are filtered there, the schedule is
+returned and applied here at render time, so an expired campaign leaves the sitemap at the next
+revalidation rather than staying until the cached list is refreshed. The reader is built with
+`createReader`, never `getCms()` — that one reads the preview cookie, and a sitemap is cached and
+public. The schedule rule is the reader's own `campaignIsLive`, the same one `campaign/[slug]`
+applies before it renders; a missing schedule side is an absent key, never `null`. A CMS that is
+unconfigured, unreachable or failing costs the content entries and nothing else.
 
 **Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
 agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,

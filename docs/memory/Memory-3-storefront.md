@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 · Contracts: contracts-v0.4.7 (main `d0da986`) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (PR #299) and #286/#278 (PR #305) merged; #302 in PR three; next #304 (+#306) → #298; #293 parked until #300 lands**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR six, in review; then #312**
 
 ## Identity (does not change)
 
@@ -184,110 +184,116 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       corrected. **Performance, accessibility, LCP and CLS stay on LHCI's default (best run)** —
       manager's ruling 2026-10-02; `ci.yml`'s wording is routed to window 5.
 
+- [x] **#302 Sitemap origin baked at build** — commits `6beef05`, `5cc8854`, `9a0cc3a`, `990cbaf`;
+      **PR #309 merged** (merge commit `2f7ff9e`, 2026-10-02) after one BLOCK. Both sitemap routes
+      are `force-dynamic` (upstream reads stay cached, ~5 ms per request); `robots.txt` and the
+      pages' canonicals were measured and were never affected. `scripts/e2e-server.mjs` builds with
+      `SITE_URL=https://build-time.invalid` and starts with the runtime one, and leaves
+      `.next/e2e-build.json`; `e2e/runtime-origin.spec.ts` asserts presence, then **equality with
+      the expected runtime origin**, then absence of the build host, for sitemap `<loc>`s and
+      alternates, the robots `Sitemap:` line and canonicals — and skips with a reason (fails on CI)
+      against a build that was not made that way. The e2e server runs with
+      `ROBOTS_ALLOW_INDEXING=1`. The BLOCK: my first robots test could not fail (no origin in a
+      bare `Disallow: /`) and nothing compared against the expected origin.
+
+- [x] **#304 + #306 The journey asserts the order it placed; honest sort, filter and account
+      tests** — commits `1166715`, `f1d1782`, `3f6695a`, `0d0510f`, `f88269a`; **PR #316 merged**
+      (merge commit `c50c61e`, 2026-10-02). Hooks in `src/lib/test-hooks.ts` (money in minor units)
+      on listing cards, the add-to-cart form, cart/review/confirmation lines, totals, confirmation
+      header. `checkout.spec.ts`: product chosen by `data-purchasable` (first of up to 12; fails
+      with `Seed stock exhausted — reseed`); lines and total captured at review and required on the
+      confirmation, with an order number on the page and the order **id** in the URL; sort/filter
+      on results, core-only (skips with the reason on the mock, fails under two products or one
+      price); `clickWhenReady` and explicit deadlines for window 10's two flakes. `account.spec.ts`:
+      the Prism-only assertions are in a test labelled mock-only.
+      **What was actually run, and when:** the final tree (contracts 0.4.8) — lint, typecheck, 383
+      unit tests, format, bundle budget; full e2e on the mock 65 passed / 2 skipped; checkout +
+      account on the core 10 passed / 1 skipped; five consecutive bounded passes each of the
+      journey and the sort test on the core, all green. **The four mutation checks** (confirmation
+      quantity +1; no stock; `sort` not sent; `category` not sent) **ran before the rebase onto
+      contracts 0.4.8 and before the flake fix, and were not repeated.** The perf gate was not run
+      locally (manager: CI's run is enough).
+      **Seed stock used on 2026-10-02: nine units of `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack),
+      11 → 2** — plus one unit earlier the same day for the first core run of the spec. Six of the
+      nine were agreed; three (orders 1073–1075) were wasted when an interrupted five-pass command
+      kept running and the next run overlapped it. The manager tops the seed up before
+      Integration 2.
+
+- [x] **#298 Redirects use the configured site origin; `SITE_URL` fails closed** — commits
+      `59e3505`, `205d347`, `42ca120`, `0e79a3c` and the memory commits between; **PR #320 merged**
+      (merge commit `79b491c`, 2026-10-03) after one draft round. `siteUrl()` is the one definition
+      (returns the origin; the localhost default only for `NODE_ENV=development`/`test` and the
+      build phase, everything else throws `SiteUrlError`); `src/lib/site-origin.ts`
+      (`siteOrigin`, `urlOnThisSite` with both safe-path layers) is used by sign-out, the callback,
+      `/r/{code}` and the middleware's attribution; sign-out never fails (no return address, one
+      log line). Measured: 15/15 redirect rows on the public origin whatever the headers; no
+      attribution cookie for in-shop navigation; route tests 18 red → 20 green. The six riders
+      from #316's review, plus the **warm-readiness gate** in `scripts/e2e-server.mjs` (Playwright
+      waits on `:<PORT+1000>/`, served only after a page and a chunk answered under 1 s twice) —
+      the local `page.goto` timeouts were a cold server under start-up load, settled by CI
+      (65/2, 44.1 s), not by the branch. Go-live: production Helm values must set `SITE_URL`
+      (#297). Seed stock 2026-10-03: one unit (alpine-backpack 2 → 1, order 1081).
+
 ## In progress
 
-- **Docket (manager, 2026-10-02), each its own small PR, in this order: #302 (PR three, open) →
-  #304 with #306 folded in → #298 (sign-out derives the post-logout URI from the request
-  origin vs `SITE_URL` — an unverified lead, establish it first). #293 slots in whenever #300
-  lands.** Standing rules: plan-paste anything over ~20 calls. One PR at a time; push each only
-  after the previous merges and the manager confirms no queue is running. No `docker exec`. No
-  closing keyword in a commit message unless that commit finishes the issue. Never attempt stack
-  recovery from this window. **One window measures at a time on this machine (manager,
-  2026-10-02): before a perf gate, a Lighthouse run or a flake check, ask the manager and wait
-  to be told the machine is quiet** — my builds and Lighthouse runs degraded window 10's browser
-  suite on 2026-10-02.
+- **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
+  #303 PR C; the `refreshTokens` / `tokenEndpoint` narrowing to the provider half rides with it).**
+  Standing rules: plan-paste anything over ~20 calls. Push only after the previous PR merges and
+  the manager confirms no queue is running. No `docker exec`. No closing keyword in a commit
+  message unless that commit finishes the issue. Never attempt stack recovery from this window.
+  **One window measures at a time: until the manager says the machine is mine, git and file work
+  only. Every run: output to a file, started detached, polled with a bounded loop; no step waits
+  on a pipe or on a server's lifetime. Ask before a perf gate.**
 
-- **#302 — PR THREE OPEN (pushed 2026-10-02; number and SHAs in the next commit). Waiting for
-  review.** Gates on the final tree: 379 unit tests, lint, typecheck, format, full e2e (63 passed,
-  1 skipped, the origin spec running for real), `perf` PASS. **When #293 comes over later, keep
-  the `force-dynamic` exports on both sitemap routes** (manager).
-  - **Review of #309: BLOCK, two test gaps; the fix itself was verified right.** (1) the robots
-    test could not fail: without `ROBOTS_ALLOW_INDEXING=1` robots.txt is `Disallow: /` with no
-    origin in it, so `not.toContain(build host)` passed whatever robots did — and README, PR body,
-    CHANGELOG and this file all claimed that coverage. (2) nothing compared the served origin with
-    the expected runtime one. Fixed: `playwright.config.ts` sets `ROBOTS_ALLOW_INDEXING: '1'` and
-    `SITE_URL: RUNTIME_SITE_URL` for the e2e server; the spec asserts presence first (a
-    `Sitemap:` line), then equality with the expected runtime origin for every sitemap `<loc>`
-    and alternate, the robots `Sitemap:` line and the canonical of home, listing and one product
-    (computed through the app's `siteUrl()`), then absence of the build host.
-    **Run on 2026-10-02 once the machine was free:** lint, typecheck, 379 unit tests, format; the
-    origin spec with `robots.ts` stripped of `force-dynamic` (the 2.2 behaviour) → robots test RED,
-    `Expected: "http://localhost:3100/sitemap.xml"` / `Received:
-    "https://build-time.invalid/sitemap.xml"`, the other three green; restored → full e2e 64
-    passed, 1 skipped. Pushed after merging main `d0da986`.
-    Parked nits from that review: the marker checks the build on disk, not the running process;
-    an out-of-range `/sitemap/N.xml` answers 200 empty after a full walk; a cold cache can be hit
-    by several requests at once; the 10k-product cap truncates silently. "`SITE_URL` unset falls
-    back to localhost" folds into #298's fail-closed rule.
-  - Measured first (build with the default origin, start with `SITE_URL=https://runtime.example`,
-    count each origin per route, three passes): only `/sitemap.xml` (1) and `/sitemap/0.xml` (36)
-    served the build origin, both cache HIT; `robots.txt` and every page (home, PLP, PDP,
-    category, cart, checkout redirect, content 404) already served the runtime one. So the issue's
-    "check robots and the canonical/alternate helpers" comes back clean.
-  - Fix: both sitemap routes `force-dynamic`, no `revalidate`; upstream reads stay cached
-    (~5 ms per request measured). After: 0 build-origin occurrences anywhere, and no file under
-    `.next/server/app` contains the build origin.
-  - `scripts/e2e-server.mjs` builds with `SITE_URL=https://build-time.invalid` and starts without
-    it; `playwright.config.ts` uses it, so **every** e2e run is now built somewhere it does not
-    run. `e2e/runtime-origin.spec.ts`: red on the old routes (1 failed: `the sitemap index names
-    the build origin`; robots and pages passed), green after. `test/sitemap-dynamic.test.ts` pins
-    both routes (2 failed before, green after). Full e2e: 63 passed, 1 skipped.
-  - Manager's addition (2026-10-02): the spec must not pass vacuously against a reused, ordinarily
-    built server. `e2e-server.mjs` writes `.next/e2e-build.json` (build id + build origin);
-    `e2e/support/build-origin.ts` decides: matching marker — run; otherwise skip with the reason
-    locally, **fail when `CI` is set**. Unit-tested (`test/e2e-build-origin.test.ts`, 8 cases incl.
-    a stale marker after an ordinary rebuild). Seen live: ordinary build + running server gives
-    3 skipped with `runtime-origin would pass vacuously: the build was not made by
-    scripts/e2e-server.mjs`. **The CI=fail branch was exercised only in the unit test** — with
-    `CI` set Playwright refuses to reuse the Docker mock on :4010, so it cannot be run here.
+- **#312 — READ, NOT STARTED. After #298; waits for the core's side (#303 PR C, window 1; core
+  merges first, coordinate with the manager).** Store API 0.5.1: `createCart` and `completeCart`
+  take an OPTIONAL customer token; a token that is sent but invalid is a 401, never ignored; a
+  cart linked to another customer is a 409 `conflict` at completion.
+  - Where it lands: `src/lib/store-api/client.ts` `allowsCustomerToken` (today only
+    `/store/customers*` and `/store/orders/{id}`) must admit exactly `POST /store/carts` and
+    `POST /store/carts/{id}/complete` — by method and path, not by prefix, so no other cart
+    operation can ever carry it; `src/lib/cart.ts` / `src/lib/actions.ts` for the two calls;
+    `mapCheckoutError` for the 409.
+  - 401 on either call: drop the session and retry once as a guest — never loop. There is no
+    silent refresh in this app (`refreshTokens` is unused; cookies cannot be written during a
+    render, but both calls happen in server actions, where they can).
+  - **Where it meets #298:** #298 makes `oidcConfigFromEnv` throw when a production server has
+    no `SITE_URL`, and adds `oidcProviderFromEnv` for what does not depend on the site's origin.
+    Anything #312 does with the identity provider (a refresh, if one is ever added) must use the
+    provider half, so a missing origin cannot break a cart. Otherwise the two do not touch the
+    same files: #298 is `brand/config.ts`, `lib/site-origin.ts`, the three route handlers and
+    `oidc.ts`; #312 is the store-api client, cart and actions.
+  - Constraints from the issue: no token in logs, URLs or client-component props; a cart created
+    as a guest and completed after sign-in must still work; tests for signed-in create and
+    complete (token sent), guest (none), the 401 and the 409 paths.
 
-- **#304 (+ #306 folded in) — PLAN APPROVED (manager, 2026-10-02); build once #302 is in review.
-  Nothing built yet.** Findings from the read on 2026-10-02:
-  - The confirmation page renders `order.display_id`, each line and its total, but nothing on
-    cart, review or confirmation has a test hook (the only `data-testid` in the app is the kit's
-    `price-value`), so the spec cannot read a line, a quantity or a total today.
-  - The Prism mock answers `GET /store/products` with the **same single product** whatever the
-    `sort` or `category` (checked: plain, `price_asc`, `price_desc`, `category=tops`). So against
-    the mock no assertion on result order or on a filtered set can fail — an order check is
-    vacuous with one row. It can only be real against the core (`E2E_STORE_API_URL`).
-  - The mock is stateless, so stock is drained **only** in runs against the core: one order per
-    run on the first listed product's first purchasable variant, never cancelled.
-  Plan:
-  1. Test hooks on my `(checkout)` pages: cart lines (name, quantity, line total, cart total in
-     minor units as `data-*`), review, confirmation (order number, lines, total).
-  2. Journey: capture the cart at runtime (lines, quantities, total in minor units), then assert
-     the confirmation shows a non-empty order number and the **same** lines and total. Mutation
-     check: a wrong quantity or total on the confirmation must turn it red.
-  3. Stock (decision A below).
-  4. Sort and filter (decision B below): assert the rendered order (prices non-decreasing for
-     `price_asc`, non-increasing for `price_desc`) and, for a category, that every card belongs to
-     it and the count changed; the active control carries `aria-current`.
-  5. README (the stock budget, what each backend can and cannot prove), CHANGELOG, memory, gates.
-  **Rulings:** (hooks) yes, on cart, review and confirmation; assert order number, lines and total
-  against the cart captured at runtime. (stock) choose the product by reported stock; document
-  that a core run consumes one unit; when nothing has enough stock, fail with a clear
-  "seed stock exhausted — reseed" message, not a timeout; **no Admin API or staff token in the
-  storefront's e2e**. (sort/filter) real only against the core, where it FAILS (not skips) with
-  fewer than two products; against the mock it skips visibly with the reason; **no contract
-  change** — Prism returns its example whatever the query. (#306, `account.spec.ts`)
-  assertions on values only Prism can produce (the mock customer, Order #1000) are labelled
-  mock-only or removed; the core-backed version waits for #303.
-
-- **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY; ITS PR WAITS FOR #300 (accepted as written;
-  window 6 builds it on its next wake).** The commit is `2587ec9` on the **local-only** branch
-  `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
-  do not merge the branch; expect conflicts in CHANGELOG, the package version, `sitemap.ts` and
-  `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that, the manager
-  said so too). Never push the branch. It is the only local-only branch left. When #300 has
-  merged: merge main, bring the commit over, **swap the local `scheduleIsLive` copy for the
-  exported `campaignIsLive`, replace the `Reflect.get` method detection with a plain typed call
-  (and delete the "before #300" test), use window 6's `RoutedDocument` type**, re-run the gates.
-  What is in it: `seo.ts` `sitemapUrls()` (the one expansion from paths to URLs; both sitemap
-  routes count it); `sitemap-data.ts` `contentEntries()` over a narrow `ContentSource`, default
-  source built with `createReader`, never `getCms()` (preview cookie); tests
-  `sitemap-content`, `sitemap-urls`, `sitemap-cms-binding`. Verified on a production build:
-  the served sitemap is unchanged while the reader has no `routedDocuments`. **Not verified:
-  content appearing in a served sitemap** — needs #300 and a dataset.
+- **#293 — PR #322 (first head `b716d64`). Review 2026-10-03: code correct, BLOCK on records only;
+  the docs-only push that fixed this file and the binding test's docstring is the current head.**
+  The parked commit `2587ec9` was cherry-picked onto main `79b491c` (conflicts in CHANGELOG,
+  package.json 0.12.6, README, this file; both sitemap routes kept #302's `force-dynamic`), then
+  the local `scheduleIsLive`, `RoutedDocument` and the `Reflect.get` detection were replaced by
+  `campaignIsLive`, `RoutedDocument` and `CmsReader` from `@/lib/cms` (window 6's #300, on main since
+  #317); `ContentSource` is `Pick<CmsReader, 'routedDocuments'>`; the "before #300" test is gone.
+  **Run on 2026-10-03 with the machine granted:** lint (one fix: an inline `import()` type is
+  forbidden by the lint rule — use a type import), typecheck, 473 unit tests, format; full mock e2e
+  through the readiness gate 65 passed / 2 skipped; production build against the mock with no CMS
+  configured: `/sitemap.xml` one page, `/sitemap/0.xml` the same 12 URLs / 24 alternates as
+  before, no content routes. **Still unverified, named in the PR body: content appearing in a
+  served sitemap** — no Sanity dataset exists anywhere; brand A sees it first on re-sync.
+  **What is true at this head:** window 6's reader exists (`routedDocuments`, `campaignIsLive`,
+  `RoutedDocument` on main since #317) and the sitemap lists its content — `contentEntries()` in
+  `sitemap-data.ts` reads it once per locale through a reader built with `createReader`, never
+  `getCms()` (preview cookie); `sitemapUrls()` in `seo.ts` is the one expansion from paths to URLs
+  and both routes count it; both routes are `force-dynamic` (#302). Tests: `sitemap-content`,
+  `sitemap-urls`, `sitemap-cms-binding`. **The one unverified part is content appearing in a
+  SERVED sitemap, because no Sanity dataset exists anywhere**: every local and CI run has an
+  unconfigured CMS, so the served sitemap is the catalogue only (12 URLs / 24 alternates against
+  the mock) and the behaviour with documents is proven by unit tests against fakes of the reader.
+  Brand A, which has the dataset, sees it first on re-sync. Review of #322: code correct, BLOCK
+  on records only (this file and the binding test's docstring still described the pre-#300 world).
+  Parked nits: README says an expired campaign leaves "at the next revalidation" — it leaves on
+  the next request; README:508–509 lacks a blank line and sits in the e2e section; the
+  empty-in-empty-out test adds nothing; the `SLUG` regex drops a slug with a dot.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
@@ -339,6 +345,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
+- [ ] **Parked nits from the review of #309 (manager: "not now"):** the build marker describes the
+      build on disk, not the running process; an out-of-range `/sitemap/N.xml` answers 200 empty
+      after a full catalogue walk; a cold cache can be walked by several requests at once; the
+      10k-product cap truncates silently; CHANGELOG indentation in the 0.12.3 entry (fixed in
+      passing).
 - [ ] **Review nit from #254, still deferred by the manager ("not now"):**
       `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice. (The other one — the layout
       comment citing a `test/seo-head.test.ts` that did not exist — is fixed in the #274 commit.)
@@ -608,6 +619,29 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- **An interrupted or rejected command may still be running.** On 2026-10-02 the owner stopped
+  one of my steps; the five-pass e2e loop I had launched carried on in the background, and the
+  next run overlapped it: `:3100` already held, `chrome-error://`, `Cannot find module
+  .next/server/middleware-manifest.json`, and three real orders nobody asked for. **Before any
+  run after an interruption: list the processes started from this worktree (PowerShell
+  `Get-CimInstance Win32_Process`, filter the command line on `wt-storefront`) and check `:3100`
+  is free.** A leftover `passes` log is not evidence either way.
+- **Never start a server in a command that waits for it.** Starting the core with the Bash tool's
+  background mode looked like a 24-minute hang to the manager, because the step never returned.
+  Start it detached, return, then poll `/health` in a separate, bounded loop (60 s). Every e2e
+  invocation gets a hard `timeout` as well as Playwright's `--global-timeout`.
+- **The core can fail to boot with `Cannot find module 'zod'`, from Medusa's own code**
+  (`@medusajs/medusa/dist/api/admin/property-labels/validators.js`). Medusa has no `zod` linked
+  beside it and resolves it only through pnpm's hoisted `node_modules/.pnpm/node_modules/zod`;
+  this worktree's install had no such entry (the main checkout did). `pnpm install
+  --frozen-lockfile --force` recreated it — and took 15 m 41 s, during which nothing else can run.
+  Not an `apps/core` import; reported to the manager for routing. Check
+  `ls node_modules/.pnpm/node_modules/zod` before planning a core run.
+- **Another window's core may not be there.** The core on `:9000` belongs to whoever started it.
+  When the other windows stop, a core run needs my own: `CORE_STORE_API_FALLBACK=1
+  CORE_STORE_API_FALLBACK_URL=http://127.0.0.1:4010 pnpm --filter @platform/core dev`, detached,
+  and stopped afterwards.
+
 - **A "does not contain X" assertion needs a "does contain the thing that would carry X" in
   front of it.** My robots.txt origin test passed on a file with no origin in it at all
   (`Disallow: /`), and the sitemap test compared the index with its own pages, which agree just
@@ -617,6 +651,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 - **One window measures at a time.** While another window is taking timed runs: file edits and
   git only — no builds, tests, e2e, Lighthouse or servers — until the manager says the machine is
   free.
+- **An e2e run against the core needs `STORE_PUBLISHABLE_KEY` in the shell**, not only
+  `E2E_STORE_API_URL`: the app's built-in default key is the mock's, and the core answers 401 to
+  it. The seeded key is in the repo-root `.env` (which Next does not read). Export it; never print
+  it.
+- **Prism answers `GET /store/products` with the same example for every `sort` and `category`**,
+  and its cart, review and order examples agree with each other. So against the mock a journey
+  can prove rendering and consistency, never ordering, filtering or that an order was placed. A
+  test that cannot fail against a backend must skip there with the reason, not pass.
 
 - **`next build` still prints the prerender marker for `/sitemap/[__metadata_id__]` after
   `force-dynamic`.** `generateSitemaps` lists the ids like `generateStaticParams`, so the route

@@ -58,6 +58,22 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
 - `verifyCustomerToken(header, expectedStoreCode)` / `createCustomerTokenVerifier(opts)` — customers-realm
   JWKS plus the store binding: a token stamped for another brand is 401 `store_mismatch`, a missing claim 401
   `no_store_code`.
+- `jwksUri` on either verifier's options is a test-only override: the constructor throws when it is set and
+  `NODE_ENV === 'production'`. In production the keys always come from the issuer's own
+  `…/protocol/openid-connect/certs`.
+- **Email is identity only when `emailVerified`.** `CustomerClaims.emailVerified` is `true` ONLY when the
+  token's `email_verified` claim is the boolean `true`; absent, `null`, the string `"true"` or anything else
+  is `false`. The customers realm allows self-registration, so anyone can hold a token whose `email` is an
+  address they do not own — never match a customer to existing data (guest orders, another account) by
+  `claims.email` unless `claims.emailVerified === true`. `subject` is the only unconditional identity.
+- **Email change (#314, measured 2026-10-02 on Keycloak 26.0).** In our customers realm a customer cannot
+  change their address: email is the username (`registrationEmailAsUsername: true`) and usernames are not
+  editable (`editUsernameAllowed: false`), so the account API reports `email` as read-only, answers 204 to a
+  profile update carrying a new address and ignores it; the next token still carries the original address
+  with `email_verified: true`. The other safe behaviour — the address moves and Keycloak resets
+  `email_verified` to `false` — was **not observed** and cannot be reached with this configuration. If
+  either realm setting changes, that reset must be measured before anything relies on it. Only the
+  account-console request was measured; an address changed by staff through the admin API was not.
 
 ### Checks and scope (OpenFGA)
 

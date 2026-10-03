@@ -9,7 +9,7 @@ export interface StaffTokenVerifierOptions {
   realm?: string;
   /** Expected `aud` claim (the audience mapper in infra/keycloak). Default `core-api`. */
   audience?: string;
-  /** Override the JWKS URL (tests). */
+  /** Override the JWKS URL (tests only — the constructor throws when `NODE_ENV === 'production'`). */
   jwksUri?: string;
 }
 
@@ -45,6 +45,11 @@ export function createStaffTokenVerifier(opts: StaffTokenVerifierOptions = {}): 
   const realm = opts.realm ?? process.env.KEYCLOAK_REALM_STAFF ?? 'staff';
   const audience = opts.audience ?? 'core-api';
   const issuer = `${keycloakUrl}/realms/${realm}`;
+  // The override exists for tests. In production the signing keys come from the issuer's own JWKS and
+  // nowhere else — whoever serves the JWKS decides which tokens are valid (#314).
+  if (opts.jwksUri !== undefined && process.env.NODE_ENV === 'production') {
+    throw new Error('jwksUri must not be set when NODE_ENV=production');
+  }
   const jwks = createRemoteJWKSet(
     new URL(opts.jwksUri ?? `${issuer}/protocol/openid-connect/certs`),
     {

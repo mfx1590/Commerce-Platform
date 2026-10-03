@@ -1,5 +1,4 @@
-import { locales } from '@/i18n/routing';
-import { absoluteUrl, sitemapPageCount } from '@/lib/seo';
+import { absoluteUrl, sitemapPageCount, sitemapUrls } from '@/lib/seo';
 import { sitemapPaths } from '@/lib/sitemap-data';
 
 /**
@@ -9,8 +8,8 @@ import { sitemapPaths } from '@/lib/sitemap-data';
  * an index for them, so `robots.txt` would be advertising a URL that 404s. The sitemap protocol has
  * an index file for exactly this case: one well-known entry point listing every page.
  *
- * The page count comes from the same `sitemapPaths()` the pages use, so the index can never
- * advertise a page that does not exist.
+ * The page count comes from the same `sitemapUrls(sitemapPaths())` the pages slice, so the index
+ * can never advertise a page that does not exist — or one that exists and is empty.
  */
 
 /**
@@ -24,8 +23,7 @@ import { sitemapPaths } from '@/lib/sitemap-data';
 export const dynamic = 'force-dynamic';
 
 export async function GET(): Promise<Response> {
-  const paths = await sitemapPaths();
-  const pages = sitemapPageCount(paths.length * locales.length);
+  const pages = sitemapPageCount(sitemapUrls(await sitemapPaths()).length);
 
   const entries = Array.from(
     { length: pages },
