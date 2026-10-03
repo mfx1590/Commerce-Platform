@@ -75,6 +75,12 @@ are `updateCustomer`, `listCustomerAddresses` and `addCustomerAddress` (part B).
 - **Recorded deviation on #303:** `updateMe` answers 400 on a wrong type or a non-object body, and
   `listMyOrders` on an invalid `page` / `limit`; Store API 0.5.1 documents neither 400 — contracts 0.4.9 adds
   both. `listMyAddresses` has no 400 (no query, no body).
+- **Undefined operations are a 404.** Every operation of `/store/customers` is answered here, so an unknown
+  path or a method the contract does not give a path (`PUT /store/customers/me`) is 404 `not_found`
+  ("… is not implemented") from a terminal handler — with or without a bearer, never the fallback proxy. No
+  405, no new error code.
+- **The customer on carts and orders (#310):** `createCart` and `completeCart` accept the same token and
+  resolve-or-provision the customer the same way; see the checkout README "Customer link at placement".
 
 ## Known gaps
 
@@ -84,7 +90,9 @@ are `updateCustomer`, `listCustomerAddresses` and `addCustomerAddress` (part B).
   Order reads are not affected: they match on the token's verified email, never on the row's.
 - **No operation changes or deletes an address** (Store API 0.5.1 / 0.4.9): the default moves only when a new
   address is added with a default flag. A `PATCH` / `DELETE …/addresses/{id}` is a new operation, not a status;
-  it is not planned for part C.
+  it is not part of #303.
+- **A linked cart is readable by anyone holding the cart id** (cart ids are the capability today; Phase 3), and
+  older guest orders are not back-filled: the read-time match on a verified token email covers them.
 
 ## Events and audit
 

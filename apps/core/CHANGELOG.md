@@ -2,6 +2,24 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-03 · customer self-service, part C — the customer on carts and orders (#303, #310)
+
+- `createCart` and `completeCart` honour a customer token (Store API 0.5.1). No `Authorization` header = a
+  guest, as before. A header that is sent is verified like on `/store/customers/me`, before the body and the
+  `Idempotency-Key`: it is a 401 when it does not verify — **never ignored** (`POST /store/carts` with a bearer
+  that is not a token answered 201 until now).
+- `createCart` with a token creates the cart for the customer. `completeCart` with a token links a guest cart
+  inside the placement transaction (after the cart lock, before pricing, reservation and authorisation): the
+  order and `order.placed` carry `customer_id`, so a signed-in customer finds the order under
+  `GET /store/customers/me/orders` without a verified email. A cart of another customer is a 409 `conflict`,
+  nothing placed. A replay answers the stored order and changes no link.
+- The first address is ALWAYS the default for shipping and billing — an explicit `false` is ignored on it.
+- An undefined operation under `/store/customers` (unknown path, or PUT / DELETE on a known one) is a terminal
+  404 `not_found` ("… is not implemented"), with or without a bearer; it never reaches the fallback proxy.
+- Recorded deviation: `createCart` can answer 409 `conflict` on an email collision (0.5.2 documents 400 / 401).
+- Named gaps: a linked cart is readable by anyone holding the cart id (Phase 3); older guest orders are covered
+  only by the read-time verified-email match.
+
 ### 2026-10-03 · customer self-service, part B (#303)
 
 - `PATCH /store/customers/me` (`updateCustomer`: names, phone, consent; an empty string clears a column; one

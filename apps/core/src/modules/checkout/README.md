@@ -10,7 +10,7 @@ module: `GET /store/carts/{cartId}/shipping-options`, `POST …/payment-session`
 | ----------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `listShippingOptions(client, cartId)`                                                     | `GET /store/carts/{cartId}/shipping-options` | the cart module's `ShippingRateProvider.list()` for the cart's destination, currency and channel; 404 for an invisible cart                                      |
 | `createPaymentSession(client, cartId, { provider })`                                      | `POST /store/carts/{cartId}/payment-session` | provider must be registered (400 otherwise); the session is stored on `cart.payment_session` as the contract `PaymentSession` (ids and amounts, never card data) |
-| `completeCart(client, { cartId, idempotencyKey, actor })`                                 | `POST /store/carts/{cartId}/complete` → 201  | placement, see below; returns `{ order, replayed }`                                                                                                              |
+| `completeCart(client, { cartId, idempotencyKey, actor, customerId? })`                    | `POST /store/carts/{cartId}/complete` → 201  | placement, see below; returns `{ order, replayed }`                                                                                                              |
 | `getStoreOrder(client, orderId, { customerId?, email?, verifiedEmail? })` (orders module) | `GET /store/orders/{orderId}`                | access rule below; 200 or 404, nothing else                                                                                                                      |
 | `setPaymentProvider(provider)` / `paymentProvider(name)`                                  | —                                            | provider registry, see below                                                                                                                                     |
 | `renderOrder(tx, orderId)`                                                                | —                                            | contract `Order` for an id (moves to the orders module in 2.3)                                                                                                   |
@@ -104,8 +104,36 @@ The contract allows only 200 or 404, so an order id can never be confirmed by pr
 - Nothing in this path logs the email or the query string (tested: the console output of an order lookup
   contains neither).
 
-`order.customer_id` at placement is `cart.customer_id` (nothing sets it yet: the placement-time link is #310 /
-#303 part C); guest carts place guest orders. The storefront's client never sends the customer token to cart paths.
+`order.customer_id` at placement is `cart.customer_id`; guest carts place guest orders.
+
+## Customer link at placement (Store API 0.5.1, #310)
+
+`createCart` and `completeCart` may carry a customer token; no other cart operation looks at the header.
+
+| Request                                 | Cart before                 | Result                                                                 |
+| --------------------------------------- | --------------------------- | ---------------------------------------------------------------------- |
+| `createCart`, no `Authorization` header | —                           | guest cart                                                             |
+| `createCart`, valid token               | —                           | `cart.customer_id` = the token's customer (resolve-or-provision)       |
+| either, a token that does not verify    | any                         | 401, nothing written — a sent token is never ignored                   |
+| `completeCart`, no header               | guest or linked             | placed with the cart's link, unchanged                                 |
+| `completeCart`, valid token             | guest                       | cart and order linked to the customer inside the placement transaction |
+| `completeCart`, valid token             | linked to the same customer | placed                                                                 |
+| `completeCart`, valid token             | linked to another customer  | 409 `conflict`, nothing placed, nothing authorised                     |
+| `completeCart` replay (same key)        | completed                   | the stored order; no link changes                                      |
+
+- The route verifies the token exactly like `/store/customers/me` (src/http/customer-routes.ts
+  `optionalCustomerId`) — before the body, the path and the `Idempotency-Key` — and hands `customerId` to
+  `completeCart`. A disabled or erased customer is a 401; an email collision that cannot be adopted is the
+  customer routes' 409.
+- The link happens under the cart lock, before anything is priced, reserved or authorised. From that point the
+  cart is priced as the customer's: a customer-group price that differs from what the guest cart showed is a 409
+  `price_changed` (the cart is re-priced, the same key retries), never a silent placement.
+- The order's email stays the cart's checkout email. `order.placed` carries `customer_id`; the audit and event
+  actor is the customer.
+- Named gaps: a linked cart is still readable by anyone holding the cart id (cart ids are the capability today —
+  Phase 3); older guest orders are not back-filled — the read-time match on a verified token email covers them.
+- Recorded deviation: `createCart` can answer **409** `conflict` (the token's email is on a customer row that
+  cannot be adopted) — Store API 0.5.2 documents 400 and 401 there.
 
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
