@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2`; **the worktree sits on the local-only `storefront/hold-312`, which has the newest copy of this file** · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR #322 (BLOCK on records only, fixed and pushed, awaiting the queue); #312 written on `storefront/hold-312`, unrun, waits for core PR C**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.9** (main `9617832`; Store API 0.5.1 + addMyAddress defaults, 400 on updateMe/listMyOrders) · Branch: `storefront/phase2` (= main, nothing to push); **the worktree sits on the local-only `storefront/hold-312`, which has the newest copy of this file** · Status: Phase 2 docket done — **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316), #298 (#320) and #293 (#322) merged; #312 written and run on `storefront/hold-312`, waits for core PR C**
 
 ## Identity (does not change)
 
@@ -234,6 +234,16 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       (65/2, 44.1 s), not by the branch. Go-live: production Helm values must set `SITE_URL`
       (#297). Seed stock 2026-10-03: one unit (alpine-backpack 2 → 1, order 1081).
 
+- [x] **#293 The sitemap lists CMS pages, legal pages and live campaigns per locale** — commits
+      `910ad1e`, `6c294b2` and the records fix `80a760e`; **PR #322 merged** (merge commit `9617832`,
+      2026-10-03) after one BLOCK on records only. `contentEntries()` reads window 6's
+      `routedDocuments` per locale through a reader built with `createReader` (never `getCms()`);
+      `campaignIsLive` gates campaigns per request; `sitemapUrls()` is the one expansion from paths
+      to URLs and both `force-dynamic` routes count it. **Unverified: content in a SERVED sitemap**
+      — no Sanity dataset exists anywhere; brand A sees it first on re-sync. Parked nits: "leaves at
+      the next revalidation" should say on the next request; README blank line / section; the
+      empty-in-empty-out test; the `SLUG` regex drops a slug with a dot.
+
 ## In progress
 
 - **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
@@ -286,34 +296,6 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   alpine-backpack is at 0: the journey moves on to the next listed product by itself.
   Constraints from the issue: no token in logs, URLs or client-component props (none of the three
   touched files is a client component); a guest cart completed after sign-in must still work.
-
-- **#293 — PR #322 (first head `b716d64`). Review 2026-10-03: code correct, BLOCK on records only;
-  the docs-only push that fixed this file and the binding test's docstring is the current head.**
-  The parked commit `2587ec9` was cherry-picked onto main `79b491c` (conflicts in CHANGELOG,
-  package.json 0.12.6, README, this file; both sitemap routes kept #302's `force-dynamic`), then
-  the local `scheduleIsLive`, `RoutedDocument` and the `Reflect.get` detection were replaced by
-  `campaignIsLive`, `RoutedDocument` and `CmsReader` from `@/lib/cms` (window 6's #300, on main since
-  #317); `ContentSource` is `Pick<CmsReader, 'routedDocuments'>`; the "before #300" test is gone.
-  **Run on 2026-10-03 with the machine granted:** lint (one fix: an inline `import()` type is
-  forbidden by the lint rule — use a type import), typecheck, 473 unit tests, format; full mock e2e
-  through the readiness gate 65 passed / 2 skipped; production build against the mock with no CMS
-  configured: `/sitemap.xml` one page, `/sitemap/0.xml` the same 12 URLs / 24 alternates as
-  before, no content routes. **Still unverified, named in the PR body: content appearing in a
-  served sitemap** — no Sanity dataset exists anywhere; brand A sees it first on re-sync.
-  **What is true at this head:** window 6's reader exists (`routedDocuments`, `campaignIsLive`,
-  `RoutedDocument` on main since #317) and the sitemap lists its content — `contentEntries()` in
-  `sitemap-data.ts` reads it once per locale through a reader built with `createReader`, never
-  `getCms()` (preview cookie); `sitemapUrls()` in `seo.ts` is the one expansion from paths to URLs
-  and both routes count it; both routes are `force-dynamic` (#302). Tests: `sitemap-content`,
-  `sitemap-urls`, `sitemap-cms-binding`. **The one unverified part is content appearing in a
-  SERVED sitemap, because no Sanity dataset exists anywhere**: every local and CI run has an
-  unconfigured CMS, so the served sitemap is the catalogue only (12 URLs / 24 alternates against
-  the mock) and the behaviour with documents is proven by unit tests against fakes of the reader.
-  Brand A, which has the dataset, sees it first on re-sync. Review of #322: code correct, BLOCK
-  on records only (this file and the binding test's docstring still described the pre-#300 world).
-  Parked nits: README says an expired campaign leaves "at the next revalidation" — it leaves on
-  the next request; README:508–509 lacks a blank line and sits in the e2e section; the
-  empty-in-empty-out test adds nothing; the `SLUG` regex drops a slug with a dot.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
