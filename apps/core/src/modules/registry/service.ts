@@ -429,8 +429,10 @@ export async function updateStore(
 }
 
 /**
- * `store.updated` for a change to something the store owns besides its own row (keys, domains): the payload
- * names the area in `changed_fields` and carries no key material and no hostname.
+ * `store.updated` for a change to something the store owns besides its own row (domains, sales channels, API
+ * keys, a locale or currency added on its own): the payload names the area in `changed_fields` and carries no
+ * key material, no hostname and no other value. Every registry mutation writes the outbox in its transaction —
+ * audit alone is not enough (manager ruling, #308 review).
  */
 function storeUpdatedEvent(
   store: StoreRow,
@@ -494,7 +496,7 @@ export async function addDomain(
   const organizationId = organizationOf(client);
 
   return client.transaction(async (tx) => {
-    await loadStore(tx, storeId);
+    const store = await loadStore(tx, storeId);
     const existing = await tx.query<{ n: string }>(
       'SELECT count(*)::text AS n FROM store_domain WHERE store_id = $1',
       [storeId],
@@ -524,6 +526,7 @@ export async function addDomain(
       entityId: domain.id,
       after: domain,
     });
+    await withEvents(tx, [await storeUpdatedEvent(store, organizationId, actor, ['domains'])]);
     return domain;
   });
 }
@@ -610,7 +613,10 @@ export async function listCurrencies(
   return r.rows;
 }
 
-/** Adds a locale; `isDefault` also changes `store.default_locale` (and emits `store.updated`). */
+/**
+ * Adds a locale; `isDefault` also changes `store.default_locale`. Emits `store.updated` either way (`['locales']`
+ * for a plain addition; nothing when the locale was already enabled).
+ */
 export async function addLocale(
   client: ScopedClient,
   storeId: string,
@@ -644,12 +650,21 @@ export async function addLocale(
         entityId: storeId,
         after: { locale },
       });
+      // A locale that was already enabled changes nothing: no event.
+      if (!(store.locales ?? []).includes(locale)) {
+        await withEvents(tx, [
+          await storeUpdatedEvent(store, store.organization_id, actor, ['locales']),
+        ]);
+      }
     });
   }
   return listLocales(client, storeId);
 }
 
-/** Adds a currency; `isDefault` also changes `store.default_currency` (and emits `store.updated`). */
+/**
+ * Adds a currency; `isDefault` also changes `store.default_currency`. Emits `store.updated` either way
+ * (`['currencies']` for a plain addition; nothing when the currency was already enabled).
+ */
 export async function addCurrency(
   client: ScopedClient,
   storeId: string,
@@ -682,6 +697,12 @@ export async function addCurrency(
         entityId: storeId,
         after: { currency },
       });
+      // A currency that was already enabled changes nothing: no event.
+      if (!(store.currencies ?? []).includes(currency)) {
+        await withEvents(tx, [
+          await storeUpdatedEvent(store, store.organization_id, actor, ['currencies']),
+        ]);
+      }
     });
   }
   return listCurrencies(client, storeId);
@@ -733,7 +754,7 @@ export async function createSalesChannel(
   const organizationId = organizationOf(client);
 
   return client.transaction(async (tx) => {
-    await loadStore(tx, storeId);
+    const store = await loadStore(tx, storeId);
     const r = await tx
       .query<ChannelRow>(
         `INSERT INTO sales_channel (organization_id, store_id, code, name, type) VALUES ($1, $2, $3, $4, $5)
@@ -751,6 +772,9 @@ export async function createSalesChannel(
       entityId: channel.id,
       after: channel,
     });
+    await withEvents(tx, [
+      await storeUpdatedEvent(store, organizationId, actor, ['sales_channels']),
+    ]);
     return channel;
   });
 }
@@ -845,6 +869,7 @@ export async function createApiKey(
       entityId: key.id,
       after: key, // never the plain key or its hash
     });
+    await withEvents(tx, [await storeUpdatedEvent(store, organizationId, actor, ['api_keys'])]);
     return { ...key, key: plain };
   });
 }

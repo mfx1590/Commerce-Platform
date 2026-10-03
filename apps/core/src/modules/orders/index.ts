@@ -34,10 +34,10 @@ export {
 export { cancelLine, decreaseLineQuantity } from './edits';
 export type { OrderEdit } from './edits';
 export {
-  customerIdForSubject,
   getAdminOrder,
   getStoreOrder,
   listAdminOrders,
+  listStoreOrders,
   loadOrder,
   loadOrderLines,
   renderAdminOrder,
@@ -69,6 +69,7 @@ export type {
   PaymentStatus,
   StatusField,
   StoreOrder,
+  StoreOrderSummary,
   TransitionChange,
   TransitionHooks,
 } from './types';

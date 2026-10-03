@@ -2,6 +2,66 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-02 · customer self-service, part A — review fixes (#318)
+
+- The JSON body parser is mounted on `POST /store/customers` only (it was on the whole `/store/customers`
+  prefix, so a GET with a malformed body answered 400).
+- Every function that accepts a customer token verifier (`mountStoreRoutes`, `mountCustomerRoutes`,
+  `getOrderRouteWith`) refuses a non-default one in production itself; the two route factories and
+  `requireCustomer` left `src/http/index.ts`. A guard lists the exact call sites in non-test source.
+- Test for an accepted rule that had none: rows whose email differs only by letter case → 409, nothing adopted.
+- Recorded deviation: `GET /store/customers/me/orders` answers 400 on an invalid `page` / `limit` (house rule
+  for an invalid query, not clamped); Store API 0.5.1 does not document it yet.
+
+### 2026-10-02 · catalog: one statement at a time on a transaction client
+
+- `loadAggregates` (catalog, since Phase 1) issued three and then two queries at once on ONE transaction
+  connection (`Promise.all` over `tx.query`). A connection runs its statements in sequence anyway, so nothing
+  was gained; pg queued them and printed "Calling client.query() when the client is already executing a query"
+  — an error from pg 9 on. Now five sequential awaits; same queries, same results. Every product read that
+  loads variants went through it (Store and Admin product lists and details).
+- Tests: the catalog suite fails on that pg notice; a guard refuses `Promise.all` / `allSettled` / `race` over
+  `tx.query` anywhere in non-test source. It was the only such place in `apps/core/src`.
+
+### 2026-10-02 · customer self-service, part A (#303)
+
+- New module `src/modules/customers` (window 1 by ruling): the store-level customer of a signed-in shopper is
+  resolved from the verified customers-realm token and **created on first use** — no `getMe` 404, no "register
+  first". Store from the publishable key, subject and email from the token only.
+- Routes (`src/http/customer-routes.ts`, in `REAL_STORE_PATHS`): `POST /store/customers` (201 when this call
+  created the row, 200 when it existed; a body email that is not the token's → 400), `GET /store/customers/me`,
+  `GET /store/customers/me/orders`. 401 without a valid token for this store, for a disabled or erased customer,
+  and for a token without an email that has no row yet. 409 `conflict` when the token's email is on a row that
+  cannot be adopted; a **verified** email adopts a row without a subject (a guest who signs in keeps one row).
+- Events `customer.created` / `customer.updated` and one audit row per change, in the same transaction; ids,
+  `email_hash`, status, consent and column names only.
+- **An email is an identity only when the token says it is verified.** `getStoreOrder`'s token arm no longer
+  matches on the customer row's email: it opens orders linked to the customer, and guest orders with the
+  token's email only when `email_verified` is true (`OrderAccess.verifiedEmail`). An order linked to a customer
+  is not opened by anyone else's verified email. The guest `?email=` rule is unchanged. New
+  `listStoreOrders` (orders module) under the same rule. The claim is auth-sdk's `CustomerClaims.emailVerified`
+  (#307), consumed only as `=== true`.
+- `customerIdForSubject` left the orders module; the route uses `findCustomerForSubject` (customers module),
+  and a disabled or erased customer's token opens no order.
+- Test seam for the customers-realm verifier: `mountCoreMiddleware(app, verifier, { customerTokenVerifier })` /
+  `mountStoreRoutes(app, verifier)` — code only, no environment variable, never passed by `createServer()`,
+  refused when `NODE_ENV` is `production`.
+- Known gaps, named in the module README: `PATCH /store/customers/me` and `…/me/addresses` stay on the
+  fallback proxy until part B — outside production, with the fallback on, those two still forward the customer's
+  bearer token to the Prism mock; and the row's email goes stale when the customer changes it at Keycloak (no
+  email-change sync before Phase 3, window 13).
+- Malformed JSON on `/store/customers` is a 400 before the token check (the body parser runs first); every
+  other body rule is checked after the token.
+- Built against contracts 0.4.8 (Store API 0.5.1: `registerCustomer` 200 / 400 / 409, 409 on the `/me`
+  operations).
+
+### 2026-10-02 · registry outbox completeness (#308 review ruling)
+
+- Every registry mutation writes `store.updated` in its transaction; these five wrote an audit row only:
+  `addDomain` (`['domains']`), `addLocale` / `addCurrency` without a new default (`['locales']` /
+  `['currencies']`; nothing when the value was already enabled), `createSalesChannel` (`['sales_channels']`),
+  `createApiKey` (`['api_keys']`). The payload names the area only — never a hostname, never key material.
+
 ### 2026-10-02 · registry settings, admin 404, contracts version header (#279, #265, #284; contracts-v0.4.7)
 
 - **`X-Contracts-Version`** (#284): `CONTRACTS_VERSION` from `@platform/contracts` on `GET /health` (body still
