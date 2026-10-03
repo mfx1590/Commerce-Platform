@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-02 (end of day) · Contracts: **contracts-v0.4.8** (main `900059c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309) and #304/#306 (#316) merged; #298 is PR five, a DRAFT — its full e2e has not passed locally and the cause is not attributed; START TOMORROW WITH THE "Tomorrow, first" LIST under #298; then #312; #293 is unblocked (#300 landed as #317, `d46a273`)**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `0b084fd`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309) and #304/#306 (#316) merged; #298 is PR #320, marked READY on 2026-10-03 (code verdict MERGE); after it merges: #293 as PR six (unblocked by #317), then #312**
 
 ## Identity (does not change)
 
@@ -231,28 +231,36 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   workspace packages), tests, e2e, Lighthouse or servers. Every command bounded; never start a
   server in a command that waits for it. Ask before a perf gate.**
 
-- **#298 — PR FIVE IS OPEN AS A DRAFT (pushed 2026-10-02; number and SHAs in the next commit).
-  NOT READY: the full e2e against the mock has not passed locally on this branch, the cause is
-  not attributed, and the one core run for riders 3 and 4 has not been made. Go-live blocker
-  (Integration 2 checklist). CI's e2e job on the push is the independent datapoint (Linux, no
-  laptop start-up load) — read it first thing.**
-  **Tomorrow, first (the manager gives me the machine first). Every run: output to a file,
-  started detached, polled with a bounded loop; no step waits on a pipe.**
-  1. Read CI's e2e result for the draft PR.
-  2. Alternate bounded, detached full-suite runs of this branch and of the control (`main`),
-     three or four each, sampling machine and server CPU at the moment the tests start.
-  3. Check whether the e2e server reports ready **before** the first page and a static chunk
-     answer quickly. If tests start on a cold, busy server, the fix is a **warm-readiness gate
-     in `scripts/e2e-server.mjs`** (or the URL Playwright waits on), **not longer timeouts**.
-  4. Measurement only, change no system setting: on this machine a fresh build's files are
-     scanned by the antivirus while the first requests arrive — sample its process's CPU
-     during a stall.
-  5. Then the one core run of the checkout spec (riders 3 and 4; one unit of seed stock,
-     approved; name the product and its stock before and after in the PR body). Start the core
-     detached, poll `/health` bounded, stop it afterwards.
-  6. This branch was not typechecked or tested after merging main `900059c`, which brought
-     window 6's `routedDocuments` into `src/lib/cms/**` — rebuild the workspace packages and
-     run lint, typecheck and the unit tests before anything else is concluded.
+- **#298 — PR #320, MARKED READY on 2026-10-03 (pushed with main `0b084fd` merged; SHA in the next
+  commit). Code verdict from the static review: MERGE. Go-live blocker (Integration 2 checklist).**
+  **The slow-page question is settled, by CI and not by me:** CI ran the draft's 67 tests on 2
+  workers — 65 passed, 2 skipped, 44.1 s, no retries (main's runs 34–46 s). The stalled requests
+  were static chunks that bypass every changed line. It was local start-up: Playwright waited on
+  `/`, resolved on the response headers of `/en-GB` seconds after `next build` exited, and the
+  workers hit a cold server on a busy machine. The alternating branch/control runs were skipped on
+  the manager's instruction.
+  **Done on 2026-10-03, all bounded, servers detached and polled:**
+  1. **Warm-readiness gate** in `scripts/e2e-server.mjs`: Playwright now waits on
+     `http://127.0.0.1:<PORT+1000>/` (`E2E_READY_PORT`), which the script serves only after a page
+     (`/en-GB`) and a static chunk (discovered from the page) have each answered under 1 s twice
+     in a row (120 s deadline, then the server start fails loudly). A server already on the port
+     is reused but held to the same bar. Not longer timeouts. Seen: `warm-up 1: page failed,
+     chunk failed`, `2: page 576 ms, chunk 7 ms`, `3: page 28 ms, chunk 3 ms`, ready.
+  2. **Fail-closed as an allow-list**: the local default only for `NODE_ENV=development`, `test`,
+     or the build phase; `staging`, empty, unset and misspelt throw. `siteUrl()` returns
+     `url.origin`, never the raw value. Tests for staging / empty / unset / wrong case; the auth
+     test that expected `oidcConfigFromEnv({})` to default to localhost now expects a throw.
+  3. Static gates on the merged tree (main `900059c`, with window 6's `routedDocuments`): lint,
+     typecheck, 451 unit tests, format — pass. One full mock e2e through the gate, no
+     `STORE_API_URL` in the shell: **65 passed, 2 skipped, 1.0 min**; first browser tests 4–9 s.
+  4. **The one core run of the checkout spec: 7 passed** (riders 3 and 4 seen working against the
+     core); the journey bought `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack), order 1081; stock
+     **2 → 1**. One unit, as approved. Core started from this worktree, detached, stopped after.
+  **Parked nits from this review (manager: not now):** an empty `E2E_STORE_API_URL` gives a mock
+  server while the spec thinks it is the core; rider 2 is bypassed by `reuseExistingServer` or an
+  app-level `.env.local`; no route-level test for sign-in's `redirect_uri`; `data-handle` /
+  `data-currency` are also not page text. **For #312:** `refreshTokens` and `tokenEndpoint` take the
+  full `OidcConfig` — narrow them to the provider half so a token refresh never needs `SITE_URL`.
   Ruling (manager): fix ALL of them under #298, one helper, a unit test per route handler; origin
   from `SITE_URL` read at request time, NEVER from `Host` / `X-Forwarded-Host`; fail closed when
   `SITE_URL` is unset outside local development; every redirect still passes the safe-path rule;
@@ -334,7 +342,13 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     complete (token sent), guest (none), the 401 and the 409 paths.
 
 - **#293 — BUILT AGAINST A FAKE, PARKED LOCALLY. UNBLOCKED on 2026-10-02: window 6's reader method
-  landed (#300, PR #317, `d46a273`) and is on main. It goes up after #298, one PR at a time.** The commit is `2587ec9` on the **local-only** branch
+  landed (#300, PR #317, `d46a273`) and is on main: `routedDocuments`, `campaignIsLive` and
+  `RoutedDocument` are exported from `@/lib/cms`. **PR six, right after #320 merges:** merge main,
+  cherry-pick `2587ec9` from `storefront/hold-293` (expect conflicts in CHANGELOG, the package
+  version, `sitemap.ts` and `sitemap.xml/route.ts` — **keep #302's `force-dynamic` exports**), swap
+  the local `scheduleIsLive` for the exported `campaignIsLive`, the `Reflect.get` detection for a
+  typed call (delete the "before #300" test), the local `RoutedDocument` type for window 6's
+  (absent keys for a missing schedule side, never `null`), then the gates and a core/mock run.** The commit is `2587ec9` on the **local-only** branch
   `storefront/hold-293` (its parent there is a stale copy of PR two — cherry-pick the one commit,
   do not merge the branch; expect conflicts in CHANGELOG, the package version, `sitemap.ts` and
   `sitemap.xml/route.ts`, which #302 has since made `force-dynamic` — keep that, the manager

@@ -15,6 +15,14 @@ import { RUNTIME_SITE_URL } from './e2e/support/build-origin';
  * `E2E_CHANNEL` overrides both ways.
  */
 const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3100';
+/**
+ * Where `scripts/e2e-server.mjs` says the app is ready — which it does only once a page and a static
+ * chunk have each answered quickly twice in a row. Waiting on the app's own URL started the workers
+ * on a cold server seconds after `next build`, and the first tests timed out on this laptop while
+ * CI, with no start-up load, passed (#298 review). Keep in step with `readyPort` in the script.
+ */
+const READY_PORT = process.env.E2E_READY_PORT ?? String(Number(new URL(APP_URL).port) + 1000);
+const READY_URL = `http://127.0.0.1:${READY_PORT}/`;
 const MOCK_URL = process.env.MOCK_API_URL ?? 'http://localhost:4010';
 /**
  * Against the real core (task 2.1): `E2E_STORE_API_URL=http://localhost:9000 pnpm e2e`.
@@ -57,7 +65,7 @@ export default defineConfig({
       // Builds with one `SITE_URL` and starts with another, so a value captured by `next build`
       // shows up as the wrong origin in a spec instead of in production (#302).
       command: 'node scripts/e2e-server.mjs',
-      url: APP_URL,
+      url: READY_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
       // The server honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.

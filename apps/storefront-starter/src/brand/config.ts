@@ -63,8 +63,13 @@ export const LOCAL_DEVELOPMENT_SITE_URL = 'http://localhost:3100';
  * - while `next build` runs, which has no environment of its own; nothing a build renders may keep
  *   the origin anyway, and `e2e/runtime-origin.spec.ts` holds that —
  *
- * and everywhere else an unset `SITE_URL` throws `SiteUrlError`. Starting a production build by
- * hand therefore needs `SITE_URL` (the e2e and perf scripts set it).
+ * and everywhere else an unset `SITE_URL` throws `SiteUrlError`. That is an **allow-list**, not
+ * "anything but production": a pod started with `NODE_ENV=staging`, `test` or nothing at all would
+ * otherwise answer `localhost` again — the original defect, from a misspelt variable. Starting a
+ * production build by hand therefore needs `SITE_URL` (the e2e and perf scripts set it).
+ *
+ * Returns the **origin** (`https://shop.example.com`), never the raw value: a `SITE_URL` with a path
+ * would otherwise make `siteUrl()` and `siteOrigin()` disagree about where the site is.
  *
  * Trailing slashes are stripped, because every caller joins a path onto this and `//products` is a
  * different URL to a crawler.
@@ -73,9 +78,8 @@ export function siteUrl(env: Record<string, string | undefined> = process.env): 
   const configured = (brandConfig.siteUrl ?? env.SITE_URL ?? '').trim();
   if (configured !== '') return parseSiteUrl(configured);
 
-  if (env.NODE_ENV !== 'production' || env.NEXT_PHASE === 'phase-production-build') {
-    return LOCAL_DEVELOPMENT_SITE_URL;
-  }
+  const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+  if (local || env.NEXT_PHASE === 'phase-production-build') return LOCAL_DEVELOPMENT_SITE_URL;
   throw new SiteUrlError(
     'SITE_URL is not set. A production server must be told its public origin ' +
       '(for example SITE_URL=https://shop.example.com): it is used for canonical URLs, the ' +
@@ -93,5 +97,5 @@ function parseSiteUrl(value: string): string {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new SiteUrlError(`SITE_URL must be an http(s) URL, got "${value}".`);
   }
-  return value.replace(/\/+$/, '');
+  return url.origin;
 }

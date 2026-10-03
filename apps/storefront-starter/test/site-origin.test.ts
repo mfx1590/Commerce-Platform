@@ -12,11 +12,15 @@ import { siteOrigin, urlOnThisSite } from '@/lib/site-origin';
 const PRODUCTION = { NODE_ENV: 'production', NEXT_PHASE: 'phase-production-server' };
 
 describe('siteUrl', () => {
-  it('is SITE_URL, without a trailing slash', () => {
+  it('is the ORIGIN of SITE_URL: no trailing slash, no path', () => {
     expect(siteUrl({ ...PRODUCTION, SITE_URL: 'https://shop.example.com' })).toBe(
       'https://shop.example.com',
     );
     expect(siteUrl({ ...PRODUCTION, SITE_URL: 'https://shop.example.com//' })).toBe(
+      'https://shop.example.com',
+    );
+    // A value with a path would otherwise make siteUrl() and siteOrigin() disagree.
+    expect(siteUrl({ ...PRODUCTION, SITE_URL: 'https://shop.example.com/shop/' })).toBe(
       'https://shop.example.com',
     );
   });
@@ -24,9 +28,19 @@ describe('siteUrl', () => {
   it.each([
     ['next dev', { NODE_ENV: 'development' }],
     ['a unit test', { NODE_ENV: 'test' }],
-    ['no NODE_ENV at all', {}],
   ])('falls back to the local origin in %s', (_name, env) => {
     expect(siteUrl(env)).toBe(LOCAL_DEVELOPMENT_SITE_URL);
+  });
+
+  // An allow-list, not "anything but production": these are how the original defect would come
+  // back from a misspelt or missing variable on a pod.
+  it.each([
+    ['NODE_ENV=staging', { NODE_ENV: 'staging' }],
+    ['NODE_ENV empty', { NODE_ENV: '' }],
+    ['no NODE_ENV at all', {}],
+    ['NODE_ENV=Production (wrong case)', { NODE_ENV: 'Production' }],
+  ])('does not fall back with %s: it throws', (_name, env) => {
+    expect(() => siteUrl(env)).toThrow(SiteUrlError);
   });
 
   it('falls back while next build runs: a build has no environment of its own', () => {

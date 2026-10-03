@@ -11,9 +11,12 @@ Issue #298. No contract change. **Go-live blocker for sign-in behind the ingress
   `/r/{code}` referral link landed on localhost. All three now build their target with
   `urlOnThisSite()` (`src/lib/site-origin.ts`) from `SITE_URL`, read at request time, never from
   `Host` or `X-Forwarded-Host`, and still through both layers of the safe-path rule.
-- **`SITE_URL` fails closed.** `siteUrl()` no longer answers `http://localhost:3100` on a
-  production server that was not told its origin: it throws `SiteUrlError`. The default remains
-  under `next dev`, in tests and during `next build`. A `SITE_URL` that is not an absolute
+- **`SITE_URL` fails closed, as an allow-list.** `siteUrl()` no longer answers
+  `http://localhost:3100` on a server that was not told its origin: it throws `SiteUrlError`.
+  The default remains only under `NODE_ENV=development`, `NODE_ENV=test` and during `next build`;
+  `staging`, an empty or missing `NODE_ENV` and anything misspelt throw too. It returns the
+  origin, never the raw value, so a `SITE_URL` with a path cannot make `siteUrl()` and
+  `siteOrigin()` disagree. A `SITE_URL` that is not an absolute
   http(s) URL is refused everywhere. **Deployments must set `SITE_URL`** (the Helm values for dev
   and staging already do); `pnpm start` by hand needs it too.
 - The OIDC callback URI uses the same definition (`siteUrl()`), where it had its own copy of the
@@ -40,6 +43,11 @@ From the review of #316 (tests and docs; no behaviour change):
 - Docs: the `data-*` hooks ship in production builds, and four of them are not text on the page
   (`data-order-id`, `data-category`, `data-availability`, `data-purchasable`); 0.12.4 said the
   order _number_ matches the URL — it is the order _id_.
+- **The e2e server reports ready only once it is warm** (`scripts/e2e-server.mjs`). Playwright
+  waited on the app's URL and started its workers on a cold server seconds after `next build`;
+  on a laptop the first tests then timed out on 10 s documents and chunks while CI passed. The
+  script now answers a separate readiness URL only after a page and a static chunk have each
+  answered under a second twice in a row.
 
 ## 0.12.4 — 2026-10-02
 

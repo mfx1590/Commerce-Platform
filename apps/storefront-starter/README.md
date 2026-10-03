@@ -36,9 +36,10 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 `GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
 
 **`SITE_URL` is the only source of this site's origin, and a production server without it fails
-closed (#298).** The default in the table applies under `next dev`, in unit tests and while
-`next build` runs — nowhere else. A server started in production mode with `SITE_URL` unset
-throws `SiteUrlError` on the first page, sitemap or redirect that needs an absolute URL, instead
+closed (#298).** The default in the table is an **allow-list**: `NODE_ENV=development`,
+`NODE_ENV=test`, and while `next build` runs — nowhere else. A server started with `SITE_URL`
+unset under `NODE_ENV=production`, `staging`, anything misspelt, or no `NODE_ENV` at all throws
+`SiteUrlError` on the first page, sitemap or redirect that needs an absolute URL, instead
 of advertising `http://localhost:3100`; so `pnpm start` by hand needs `SITE_URL=…` (the e2e and
 perf scripts set it). The origin is **never taken from the request**: behind the ingress a route
 handler's own `request.nextUrl.origin` is the pod's address (`localhost:3100`, whatever the
@@ -484,6 +485,16 @@ whatever `robots.txt` does (the first version of the spec had exactly that hole)
 — had shipped three times (the CSP, `robots.txt`, the sitemap) and was invisible each time: every
 test built and started the app with the same environment, where the two values are the same
 string.
+
+**The e2e server reports ready only once it is warm.** Playwright used to wait on the app's own URL
+and start its workers the moment the response headers arrived — seconds after `next build`, while
+the machine was still busy with the build's aftermath and the server had served nothing. On a
+laptop the first documents then took 10 s, static chunks 10 s to first byte, and the first tests
+of a run timed out, while CI passed the same code every time. `scripts/e2e-server.mjs` now answers
+Playwright's readiness URL (`http://127.0.0.1:<port + 1000>/`, `E2E_READY_PORT` to override) only
+after a page **and** a static chunk have each answered in under a second twice in a row — not
+longer timeouts, which would have hidden the cold start instead of waiting it out. A server
+already on the port is reused as before, but held to the same bar.
 
 **That spec refuses to pass vacuously.** Locally Playwright reuses a server that is already
 running on the port, and one you built with `pnpm build` has the same origin at build time and
