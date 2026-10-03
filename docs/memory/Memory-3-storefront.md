@@ -264,12 +264,26 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   - Tests written: `customer-link.test.ts` (6), additions to `store-api.test.ts` (allow-list by
     method, token on both calls, none as a guest, refused on `updateCart`) and `checkout.test.ts`
     (`mapCompletionError`). README (client, accounts, cart sections), CHANGELOG 0.12.7.
-  **Owed when the machine is mine:** prettier, lint, typecheck (the `mode` variable in
-  `placeOrderAction`, the `OidcProvider` narrowing and the `RequestOptions` re-export are the
-  likely compile nits), unit tests; full mock e2e (Prism accepts and ignores the header); a core
-  run only once PR C is live — before that the core answers 401 to the token and the journey would
-  exercise the guest fallback, which is worth one run too (one unit of stock each). Not covered
-  by a test: the 401-then-guest path end to end, and the 409 at completion against a real core.
+  **Run on 2026-10-03 (machine granted), all bounded and detached:** lint, typecheck, 496 unit
+  tests, format — pass (one fix: `RequestOptions` was already re-exported from the store-api
+  index). The journey helpers moved to `e2e/support/journey.ts`, shared by `checkout.spec.ts` and
+  `account.spec.ts`, which gained **a signed-in purchase**: sign in, then the journey; accepts both
+  correct outcomes (linked, or guest after a 401) and names the one that must never happen — a
+  signed-in customer who cannot buy. Full mock e2e through the gate: **first run 9 failed** (all
+  `page.goto` / `browserContext.clearCookies` timeouts in the first seconds, with the machine at
+  91–100% CPU through the build phase — browser-side calls, not the server; the gate had reported
+  warm), **second run 66 passed / 2 skipped**. **Core run (account spec only, one unit):** 4
+  passed / 1 skipped; the signed-in purchase bought `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack),
+  order 1082, stock **1 → 0, now out**. **The guest fallback was NOT exercised:** the core at
+  contracts 0.4.8 (before PR C) *ignores* the token — measured directly, `POST /store/carts` with
+  `Authorization: Bearer not-a-token` answers 201, same as with no token — so the storefront sent the
+  token, the core placed a guest order, and no `refused the customer token` line appeared. The
+  401 path is covered by the unit tests only until a core that implements 0.5.1 is available;
+  the one ready-made way to see it live is a core with PR C and a deliberately stale session.
+  **Next for #312:** hold on `storefront/hold-312` until the manager says core PR C is on main;
+  then rebase onto `storefront/phase2`, re-run the gates, one core run (expect the linked order
+  and, with a stale session, the fallback line), push, open the PR (body may close #312).
+  alpine-backpack is at 0: the journey moves on to the next listed product by itself.
   Constraints from the issue: no token in logs, URLs or client-component props (none of the three
   touched files is a client component); a guest cart completed after sign-in must still work.
 

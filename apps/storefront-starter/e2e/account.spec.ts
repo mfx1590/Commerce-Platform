@@ -1,4 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
+import {
+  BACKEND,
+  CHECKOUT_STEP,
+  JOURNEY_TIMEOUT,
+  NAVIGATION_TIMEOUT,
+  SERVER_ACTION_TIMEOUT,
+  advanceToReview,
+  captureOrder,
+  clickWhenReady,
+  openPurchasableProduct,
+} from './support/journey';
 
 /**
  * Account area against the Keycloak **customers** realm.
@@ -137,4 +148,54 @@ test('signing out drops the session', async ({ page }) => {
   // Back on the storefront, and the account area asks for sign-in again.
   await page.goto('/en-GB/account');
   await expect(page).toHaveURL(new RegExp(`^${KEYCLOAK_URL}/realms/${REALM}/`));
+});
+
+/**
+ * #312. Signed in, the storefront sends the customer token on cart create and complete (Store API
+ * 0.5.1). Two outcomes are correct and this test accepts both; the server log says which happened:
+ *
+ * - a core that implements 0.5.1 links the cart and the order to the customer;
+ * - a core that does not yet (before #303 PR C), or any backend that refuses the token, answers 401,
+ *   and the storefront drops the stale session and completes the purchase **as a guest**, once
+ *   (`[storefront] the Store API refused the customer token on a cart call; …`).
+ *
+ * What must never happen is the third thing: a signed-in customer who cannot buy. Against the mock
+ * the token is accepted and ignored, so only the first shape is exercised there.
+ */
+test('a signed-in customer can buy — linked when the core takes the token, as a guest when it refuses it', async ({
+  page,
+}) => {
+  test.setTimeout(JOURNEY_TIMEOUT);
+
+  await page.goto('/en-GB/account');
+  await signIn(page);
+  await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
+
+  // The journey's own steps, with the session cookie along for the ride.
+  const chosen = await openPurchasableProduct(page);
+  await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
+  await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
+  const cart = await captureOrder(page, 'the cart');
+  expect(cart.lines.map((line) => line.sku)).toContain(chosen.sku);
+
+  await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
+  await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
+  const shopperEmail = `e2e-customer+${Date.now().toString(36)}@example.com`;
+  await advanceToReview(page, shopperEmail);
+  const reviewed = await captureOrder(page, 'the review step');
+
+  await clickWhenReady(page, page.getByRole('button', { name: 'Place order' }));
+  await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
+
+  const placed = await captureOrder(page, 'the confirmation');
+  expect(placed.lines, 'the order has the lines that were reviewed').toEqual(reviewed.lines);
+  expect(placed.totalMinor).toBe(reviewed.totalMinor);
+
+  const orderNumber = await page
+    .getByTestId('order-confirmation')
+    .getAttribute('data-order-number');
+  console.info(
+    `[e2e] signed-in journey bought ${chosen.sku} (${chosen.handle}), order ${orderNumber}, on ${BACKEND}`,
+  );
 });
