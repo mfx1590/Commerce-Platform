@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branch: `storefront/phase2` = #312 work + origin/main `2a0f828` merged (core PR C #325 = `5997584` is in), **not pushed** (`storefront/hold-312` is now stale, superseded) · Status: **#312 code-only checks green after the merge (typecheck, 496 unit tests); waiting for "the machine is YOURS" for gates + one core run, then push on the manager's confirm. #326 next, its own PR.**
+Last updated: 2026-10-03 (end of day) · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branches: `storefront/phase2` = **PR #329 (#312), pushed at `e594fc6`, CI green, manager's static review running — do NOT push phase2 until the manager confirms the merge**; **the worktree sits on the local-only `storefront/hold-327` (on top of `e594fc6`), which has the newest copy of this file**; `storefront/hold-326` (`bdc92e0`, off old main) waits. Order: #312 → #327 → #326, one PR each, every push on the manager's confirm. **Machine NOT mine** (window 10, #143).
 
 ## Identity (does not change)
 
@@ -365,6 +365,29 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
+- [ ] **#327 (REQUEST from window 10, manager decision on the issue) — CODE WRITTEN, committed
+      `08b3240` on the local-only `storefront/hold-327` (on top of PR #329's head `e594fc6`),
+      CHANGELOG/version 0.12.8. NOT pushed, NOT run against anything.**
+      - `src/lib/e2e-images.ts`: `E2E_LOCAL_IMAGES` (exactly `1`, inlined via next.config `env`);
+        `ProductImage` sends every remote `src` (picsum and the CDNs) to `/e2e-placeholder.svg?w=`
+        (`public/`). `e2eServerEnv` sets the flag for build and server.
+      - Refused in production: `src/instrumentation.ts` → `instrumentation-node.ts` exits at start
+        when the build has the flag and runtime `SITE_URL` is missing / not loopback. NODE_ENV
+        cannot be the line (the e2e server is `next build` + `next start`).
+      - `e2e-server.mjs` deletes `.next/cache/fetch-cache` before each build (the stale-stock hit).
+      - `networkidle` gone: `hydrated(page)` waits for `<html data-hydrated="true">` set by
+        `HydrationMarker` (root layout effect; the app has no Suspense/loading.tsx, so one root
+        commit hydrates the page). Used by `settleOn` and `clickWhenReady` (journey.ts).
+      - Run without the machine: typecheck, eslint, **508 unit** pass; the `ProductImage` test is red
+        with the flag branch removed.
+      **Unverified until the machine is mine:** (1) `next build` + `next start` with the flag — that
+      `register()` really runs at `next start` and exits on a public SITE_URL (try `SITE_URL=https://x.example`),
+      and no Edge-runtime warning; (2) a run's network log has no picsum / cloudinary / unsplash
+      request (Playwright `page.on('request')` or the trace); (3) acceptance: **three consecutive
+      full passes, 0 failures, against the core**; full mock e2e too. Then merge main, PR
+      "Closes #327" on the manager's confirm. Brand A inherits by sync (`public/` is new — tell
+      window 10); window 10 aligns its own specs.
+
 - [ ] **#326 (REQUEST from window 10), its own PR after #312:** `test/starter-defaults.test.ts`
       imports `@/brand/*` at top level, so a clone whose `tokens.ts` uses `next/font/local` fails to
       collect the file before `runIf` is consulted. Fix: dynamic `await import(...)` inside each `it`
@@ -374,6 +397,8 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       skips (2 skipped) with a clone name and a `tokens.ts` that throws at import. Typecheck green.
       After #312 merges: move onto `storefront/phase2`, merge main (CHANGELOG/version will conflict
       with 0.12.7 — keep both entries, 0.12.8 on top), gates, PR "Closes #326".**
+      **Accepted as built by the manager. Renumber: #327 now takes 0.12.8 and lands first, so #326
+      becomes 0.12.9 (on top) when it is moved — keep every entry.** Order: #312 → #327 → #326.
 
 - [ ] **Parked nits from the review of #309 (manager: "not now"):** the build marker describes the
       build on disk, not the running process; an out-of-range `/sitemap/N.xml` answers 200 empty

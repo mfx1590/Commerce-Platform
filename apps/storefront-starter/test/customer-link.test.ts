@@ -90,6 +90,43 @@ describe('asCustomerOrGuest', () => {
     expect(clearSession).not.toHaveBeenCalled();
   });
 
+  it('says which attempt is being made, so a caller can read an error the attempt threw', async () => {
+    const thrown = harness('jwt-abc');
+    const thrownModes: string[] = [];
+    await expect(
+      asCustomerOrGuest(
+        async () => {
+          throw conflict();
+        },
+        { ...thrown.deps, onAttempt: (mode) => thrownModes.push(mode) },
+      ),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect(thrownModes).toEqual(['customer']);
+
+    const refused = harness('jwt-abc');
+    const refusedModes: string[] = [];
+    let first = true;
+    await asCustomerOrGuest(
+      async () => {
+        if (first) {
+          first = false;
+          throw unauthorized();
+        }
+        return 'ok';
+      },
+      { ...refused.deps, onAttempt: (mode) => refusedModes.push(mode) },
+    );
+    expect(refusedModes).toEqual(['customer', 'guest']);
+
+    const guest = harness(null);
+    const guestModes: string[] = [];
+    await asCustomerOrGuest(async () => 'ok', {
+      ...guest.deps,
+      onAttempt: (mode) => guestModes.push(mode),
+    });
+    expect(guestModes).toEqual(['guest']);
+  });
+
   it('logs nothing that could identify the customer', async () => {
     const { warn, deps } = harness('jwt-secret-value');
 

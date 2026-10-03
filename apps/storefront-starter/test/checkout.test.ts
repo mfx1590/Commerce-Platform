@@ -257,6 +257,24 @@ describe('mapCompletionError', () => {
     expect(mapped.step).toBeUndefined();
   });
 
+  it('keeps the generic text for the core’s other completion conflicts, even as the customer', () => {
+    const promotion = new StoreApiError(409, {
+      code: 'conflict',
+      message: 'promotion usage limit reached',
+      details: { promotion_id: 'promo_spring' },
+    } as never);
+    const keyReuse = new StoreApiError(409, {
+      code: 'conflict',
+      message: 'Idempotency-Key was already used for another cart',
+      details: { 'Idempotency-Key': 'reuse across carts' },
+    } as never);
+    for (const error of [promotion, keyReuse]) {
+      const mapped = mapCompletionError(error, 'customer');
+      expect(mapped).toEqual(mapCheckoutError(error));
+      expect(mapped.message).not.toMatch(/different customer account/);
+    }
+  });
+
   it('leaves a 409 conflict as a guest with its usual meaning', () => {
     expect(mapCompletionError(conflict(), 'guest')).toEqual(mapCheckoutError(conflict()));
   });

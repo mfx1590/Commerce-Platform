@@ -173,7 +173,8 @@ export async function placeOrderAction(
   if (!cart) return { error: 'Your cart has expired. Please start again.' };
 
   let orderId: string;
-  // Which the completion ended up being; decides what a 409 at completion means (below).
+  // Which attempt the completion is on — set before each attempt, so a 409 thrown by the customer
+  // attempt is read as the customer's (#329 review). Decides what a 409 at completion means.
   let mode: CartCallMode = 'guest';
   try {
     // Refresh the attribution before placing the order, so the *last* touch reflects the campaign
@@ -194,10 +195,14 @@ export async function placeOrderAction(
     // places an order that shows in the customer's history. A refused token drops the session
     // and completes as a guest, once. The same idempotency key covers both attempts: a 401
     // placed nothing.
-    const completion = await asCustomerOrGuest((options) =>
-      storeApi().completeCart(cart.id, idempotencyKey, options),
+    const completion = await asCustomerOrGuest(
+      (options) => storeApi().completeCart(cart.id, idempotencyKey, options),
+      {
+        onAttempt: (attempt) => {
+          mode = attempt;
+        },
+      },
     );
-    mode = completion.mode;
     orderId = completion.result.id;
 
     if (cart.email !== null) {

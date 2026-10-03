@@ -27,6 +27,12 @@ export interface CustomerLinkDeps {
   getAccessToken?: () => Promise<string | null>;
   clearSession?: () => Promise<void>;
   warn?: (message: string) => void;
+  /**
+   * Told the mode of each attempt **before** it is made. The returned `mode` exists only when the
+   * call succeeds; a caller that has to read a thrown error — a 409 at completion means something
+   * else when a token was sent (#329 review) — learns from this which attempt threw.
+   */
+  onAttempt?: (mode: CartCallMode) => void;
 }
 
 export async function asCustomerOrGuest<T>(
@@ -34,9 +40,13 @@ export async function asCustomerOrGuest<T>(
   deps: CustomerLinkDeps = {},
 ): Promise<{ result: T; mode: CartCallMode }> {
   const token = await (deps.getAccessToken ?? getAccessToken)();
-  if (token === null) return { result: await call(undefined), mode: 'guest' };
+  if (token === null) {
+    deps.onAttempt?.('guest');
+    return { result: await call(undefined), mode: 'guest' };
+  }
 
   try {
+    deps.onAttempt?.('customer');
     return { result: await call({ token }), mode: 'customer' };
   } catch (error) {
     if (!(isStoreApiError(error) && error.status === 401)) throw error;
@@ -44,6 +54,7 @@ export async function asCustomerOrGuest<T>(
       '[storefront] the Store API refused the customer token on a cart call; the session is dropped and the call is made as a guest',
     );
     await (deps.clearSession ?? clearSession)();
+    deps.onAttempt?.('guest');
     return { result: await call(undefined), mode: 'guest' };
   }
 }

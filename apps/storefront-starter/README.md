@@ -268,9 +268,13 @@ email match. A cart begun as a guest and completed after signing in is linked at
 contract never ignores a token it is sent: a token that is invalid, expired or another store's is a 401. For the customer that is a stale session, not a lost sale, so `asCustomerOrGuest`
 (`src/lib/customer-link.ts`) drops the session and makes the call **once more** as a guest — once,
 never in a loop; a second 401 is the publishable key's problem and surfaces as such. A 409
-`conflict` at completion as the customer means the cart is already linked to _another_ customer:
-nothing was placed, and the review step says so and offers the two ways out (sign out and place it
-as a guest, or start a new cart). No other cart operation ever carries the token. Nothing about the
+`conflict` at completion **on the customer attempt** (a token was sent and not refused) with
+**empty `details`** means the cart is already linked to _another_ customer: nothing was placed, and
+the review step says so and offers the two ways out (sign out and place it as a guest, or start a
+new cart). The core's other completion conflicts — a promotion's last use, an `Idempotency-Key`
+reused on another cart — carry details and keep the generic message. `asCustomerOrGuest` reports
+each attempt's mode through `onAttempt`, so a thrown error is read against the attempt that threw
+it. No other cart operation ever carries the token. Nothing about the
 token is logged.
 
 Steps are `/checkout/address` → `shipping` → `payment` → `review`; `/checkout` redirects to whichever
