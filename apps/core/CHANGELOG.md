@@ -2,6 +2,23 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-03 · customer self-service, part B (#303)
+
+- `PATCH /store/customers/me` (`updateCustomer`: names, phone, consent; an empty string clears a column; one
+  `customer.updated` naming the columns, nothing when nothing changes), `GET /store/customers/me/addresses`
+  (default shipping first, then oldest) and `POST /store/customers/me/addresses` (201). All three resolve-or-
+  provision first, exactly as part A. The three paths join `REAL_STORE_PATHS`: **no `/store/customers*` path
+  reaches the fallback proxy any more** — the known gap of part A (the bearer token forwarded to Prism outside
+  production) is closed.
+- Default address: the first address is the default for shipping and billing, later ones are neither, unless
+  the body carries `is_default_shipping` / `is_default_billing` (contracts 0.4.9, field names accepted now):
+  `true` moves that default to the new row. Decided under a lock on the customer row and applied as
+  clear-then-set in one transaction (no unique index on the flags). At most 50 addresses per customer (400).
+- Free text is trimmed, blank required address fields are a 400 naming the field, over 200 characters is a 400.
+- Audit `customer_address.create` (ids and flags only) + `customer.updated` `['addresses']` per added address.
+- Recorded deviation: `updateMe` answers 400 on a wrong type (0.5.1 documents none; 0.4.9 adds it with the
+  `listMyOrders` 400). `listMyAddresses` needs no 400.
+
 ### 2026-10-02 · customer self-service, part A — review fixes (#318)
 
 - The JSON body parser is mounted on `POST /store/customers` only (it was on the whole `/store/customers`
