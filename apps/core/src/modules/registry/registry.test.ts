@@ -220,11 +220,13 @@ describe('registry: domains, locales, currencies', () => {
     expect(locales.filter((l) => l.is_default).map((l) => l.locale)).toEqual(['en-GB']);
 
     const last = await hq.query<{ payload: { changed_fields: string[] } }>(
-      `SELECT payload FROM outbox WHERE aggregate_id = $1 AND topic = 'store.updated' ORDER BY seq DESC LIMIT 1`,
+      `SELECT payload FROM outbox WHERE aggregate_id = $1 AND topic = 'store.updated' ORDER BY seq DESC LIMIT 2`,
       [store.id],
     );
     // USD became the default AND joined the enabled set (#279: the sets are part of the store now).
-    expect(last.rows[0]!.payload.changed_fields).toEqual(['currencies', 'default_currency']);
+    expect(last.rows[1]!.payload.changed_fields).toEqual(['currencies', 'default_currency']);
+    // A plain addition writes the outbox too (every registry state change does).
+    expect(last.rows[0]!.payload.changed_fields).toEqual(['locales']);
   });
 });
 
@@ -647,6 +649,106 @@ describe('registry settings under concurrency (#308 review)', () => {
     ]);
     expect(await rows('store_currency', store.id)).toEqual(['CHF', 'EUR*', 'GBP', 'JPY']);
     expect(await rows('store_locale', store.id)).toEqual(['de-DE', 'en-GB*', 'fr-FR', 'nl-NL']);
+  });
+});
+
+// Manager ruling on the #308 review: a state change in apps/core writes the outbox in the same transaction —
+// an audit row alone is not enough. These five used to write audit only.
+describe('registry: every mutation writes store.updated (outbox completeness)', () => {
+  it('addDomain, addLocale, addCurrency, createSalesChannel, createApiKey each emit one event naming the area — no hostname, no key material; a no-op emits nothing', async () => {
+    const store = await createStore(
+      hq,
+      {
+        legal_entity_id: LE,
+        code: 'outbox-complete',
+        name: 'Outbox complete',
+        default_currency: 'EUR',
+        default_locale: 'en-GB',
+        default_country: 'NL',
+      },
+      actor,
+    );
+    const updates = async () =>
+      (
+        await hq.query<{ payload: Record<string, unknown> }>(
+          `SELECT payload FROM outbox WHERE aggregate_id = $1 AND topic = 'store.updated' ORDER BY seq`,
+          [store.id],
+        )
+      ).rows.map((r) => r.payload);
+
+    const first = await addDomain(
+      hq,
+      store.id,
+      { hostname: 'shop.outbox-complete.example' },
+      actor,
+    );
+    await addDomain(
+      hq,
+      store.id,
+      { hostname: 'www.outbox-complete.example', is_primary: true },
+      actor,
+    );
+    await addLocale(hq, store.id, 'fr-FR', {}, actor);
+    await addLocale(hq, store.id, 'fr-FR', {}, actor); // already enabled: nothing changes, nothing emitted
+    await addCurrency(hq, store.id, 'CHF', {}, actor);
+    await addCurrency(hq, store.id, 'EUR', {}, actor); // the default is already in the set
+    const channel = await createSalesChannel(
+      hq,
+      store.id,
+      { code: 'web', name: 'Web', type: 'web' },
+      actor,
+    );
+    const key = await createApiKey(
+      hq,
+      store.id,
+      { name: 'storefront', type: 'publishable', sales_channel_id: channel.id },
+      actor,
+    );
+
+    const emitted = await updates();
+    expect(emitted.map((p) => p.changed_fields)).toEqual([
+      ['domains'],
+      ['domains'],
+      ['locales'],
+      ['currencies'],
+      ['sales_channels'],
+      ['api_keys'],
+    ]);
+    for (const payload of emitted) {
+      expect(Object.keys(payload).sort()).toEqual(['changed_fields', 'code', 'status', 'store_id']);
+      expect(payload).toMatchObject({ store_id: store.id, code: 'outbox-complete' });
+    }
+    const all = JSON.stringify(emitted);
+    expect(all).not.toContain(first.hostname);
+    expect(all).not.toContain('www.outbox-complete.example');
+    expect(all).not.toContain(key.key);
+    expect(all).not.toContain(key.key_prefix);
+  });
+
+  it('a refused mutation emits nothing (the event is in the same transaction)', async () => {
+    const store = (await listStores(hq, { limit: 100 })).items.find(
+      (s) => s.code === 'outbox-complete',
+    )!;
+    const count = async () =>
+      Number(
+        (
+          await hq.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM outbox WHERE aggregate_id = $1`,
+            [store.id],
+          )
+        ).rows[0]!.n,
+      );
+    const before = await count();
+    await expect(
+      addDomain(hq, store.id, { hostname: 'shop.outbox-complete.example' }, actor),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    await expect(
+      createSalesChannel(hq, store.id, { code: 'web', name: 'Web again', type: 'web' }, actor),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    await expect(
+      createApiKey(hq, store.id, { name: 'x', type: 'secret', sales_channel_id: LE }, actor),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(await count()).toBe(before);
   });
 });
 
