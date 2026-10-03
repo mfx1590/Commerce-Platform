@@ -23,6 +23,10 @@ this change turns it into one guest call.
   can never depend on `SITE_URL` (#298 follow-up).
 - Tests: the allow-list by method, the token on both calls and on neither as a guest, the 401
   retry and its single-shot rule, the 409 mapping in both modes.
+- e2e (`account.spec.ts`): a signed-in purchase (either backend), and a core-only **stale-session
+  purchase** — the session cookie's access token is replaced with one the core refuses; the order
+  is placed as a guest and the session cookie is gone afterwards. The journey's steps are shared
+  from `e2e/support/journey.ts` with `checkout.spec.ts`.
 
 ## 0.12.6 — 2026-10-03
 

@@ -258,10 +258,20 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 - **#312 — 2026-10-03, manager: core PR C (#325) merged as `5997584`.** `storefront/phase2` was
   fast-forwarded to `storefront/hold-312` and merged with origin/main `2a0f828` (clean);
   `pnpm install --frozen-lockfile`, typecheck (starter + ui) and 496 unit tests pass — nothing broke
-  against Store API 0.5.2. Package CLAUDE.md's token allow-list updated to the four calls. **Machine
-  NOT mine (window 10 measuring): no e2e / core / Lighthouse / docker until "the machine is YOURS".
-  Then: gates, one core run (expect a linked order; with a stale session, the fallback line), PR body
-  "Closes #312" (no closing keyword in commits), push only on the manager's confirm, merge main first.**
+  against Store API 0.5.2. Package CLAUDE.md's token allow-list updated to the four calls.
+  **Machine granted later on 2026-10-03; run, all detached and bounded:** lint, format, typecheck,
+  496 unit — pass. 0.12.7 changelog corrected (pre-PR-C core ignored the token, 201). New core-only
+  e2e: **stale-session purchase** (cookie's accessToken replaced with `stale`; asserts order placed
+  and the session cookie gone); the journey moved into a `buy()` helper in account.spec.ts. Mock
+  e2e full: 66 passed / 2 skipped, then on the final tree 66 / 3 skipped. Probe: core with PR C
+  answers `POST /store/carts` + `Bearer stale` with **401**. **Core run (account spec):** first
+  attempt 1 failed — PDP served **stale cached stock** for alpine-backpack (0 on the core) from
+  `.next/cache/fetch-cache` kept from the earlier core run; the app said "That item just sold out",
+  correct. Cleared the fetch cache, second run **5 passed / 1 skipped**: signed-in journey bought
+  `BRANDA-0101-ONE-SIZE-OLI` (alpine-beanie), **order 1088, linked** (`public.order.customer_id`
+  set, read-only query); stale-session journey, same SKU, **order 1089, guest**, and the server log
+  carried the fallback line exactly once. Seed used: 2 units of alpine-beanie (15 → 13). Own core
+  started and stopped; :9000/:3100 free.
   History below (the "nothing run" title is from before the first run):
 - **#312 — CLIENT CHANGE WRITTEN. Local-only branch `storefront/hold-312` on top of
   `storefront/phase2` (= PR #322's head). Its PR waits for the core's #303 PR C (window 1; core
@@ -638,6 +648,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **The e2e build keeps `.next/cache/fetch-cache` between runs**, so a core run can render stock
+  cached by an earlier core run (CATALOG_REVALIDATE): the PDP said purchasable, the core said 0,
+  add-to-cart answered "That item just sold out". `rm -rf apps/storefront-starter/.next/cache/fetch-cache`
+  before a core run that follows another one. Candidate for #327's e2e-flag work.
 
 - **An interrupted or rejected command may still be running.** On 2026-10-02 the owner stopped
   one of my steps; the five-pass e2e loop I had launched carried on in the background, and the
