@@ -1,5 +1,5 @@
-// Store API customer self-service (#303): POST /store/customers, GET /store/customers/me,
-// GET /store/customers/me/orders. Publishable key (tenant context) AND a customers-realm bearer token, verified
+// Store API customer self-service (#303): POST /store/customers, GET/PATCH /store/customers/me,
+// GET /store/customers/me/orders, GET/POST /store/customers/me/addresses. Publishable key (tenant context) AND a customers-realm bearer token, verified
 // against the store code of the key — a token for another brand, an expired or a malformed one is a 401. The
 // store comes from the key; the subject and the email come from the token, never from the request.
 // Nothing here logs: no email, no token, no body.
@@ -7,14 +7,19 @@ import express, { type Request, type RequestHandler } from 'express';
 import { verifyCustomerToken, type CustomerClaims } from '@platform/auth-sdk';
 import { fromApiError, validationError } from '../lib/errors';
 import {
+  addCustomerAddress,
+  listCustomerAddresses,
   registerCustomer,
   resolveCustomer,
+  updateCustomer,
+  type AddressInput,
   type CustomerIdentity,
+  type CustomerPatch,
   type CustomerScope,
   type RegisterCustomerInput,
 } from '../modules/customers';
 import { listStoreOrders } from '../modules/orders';
-import { handle } from './errors';
+import { handle, routeNotImplemented } from './errors';
 import { loadSpec } from './openapi';
 import { pageParams } from './query';
 import { requireTenant, type StoreContext } from './tenant';
@@ -79,11 +84,30 @@ const scopeOf = (t: StoreContext): CustomerScope => ({
   requestId: t.requestId,
 });
 
+/**
+ * For the two cart operations that MAY carry a customer token (`createCart`, `completeCart` — Store API 0.5.1,
+ * #310): no `Authorization` header → null (a guest, as before). A header that IS sent must verify exactly like
+ * on `/store/customers/me` — invalid, expired, malformed or another store's token is a 401, never ignored —
+ * and the customer is resolved or provisioned the same way (disabled / erased → 401, collision → 409).
+ */
+export async function optionalCustomerId(
+  req: Request,
+  t: StoreContext,
+  verifier: CustomerTokenVerifier,
+): Promise<string | null> {
+  if (req.headers.authorization === undefined) return null;
+  const identity = await requireCustomer(req, t, verifier);
+  return (await resolveCustomer(t.client, scopeOf(t), identity)).id;
+}
+
 /** The Store API paths this file answers (they join `REAL_STORE_PATHS`). */
 export const CUSTOMER_STORE_PATHS = [
   'POST /store/customers',
   'GET /store/customers/me',
+  'PATCH /store/customers/me',
   'GET /store/customers/me/orders',
+  'GET /store/customers/me/addresses',
+  'POST /store/customers/me/addresses',
 ] as const;
 
 /**
@@ -131,10 +155,40 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
     );
   });
 
-  // The JSON body parser sits on the ONE route that reads a body. Mounted on the prefix it would also parse —
-  // and answer 400 for — a malformed body sent along with a GET, and it would consume the stream of the
-  // customer paths that still go to the fallback proxy.
-  app.post('/store/customers', express.json({ limit: '64kb' }), registerRoute);
+  const updateMeRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    loadSpec('store-api.yaml').validateBody('updateMe', req.body);
+    res.json(await updateCustomer(t.client, scopeOf(t), identity, req.body as CustomerPatch));
+  });
+
+  const listMyAddressesRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    res.json({ items: await listCustomerAddresses(t.client, scopeOf(t), identity) });
+  });
+
+  const addMyAddressRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    // Store API 0.5.1 `Address`; the optional default flags of 0.4.9 are checked by the module.
+    loadSpec('store-api.yaml').validateBody('addMyAddress', req.body);
+    res
+      .status(201)
+      .json(await addCustomerAddress(t.client, scopeOf(t), identity, req.body as AddressInput));
+  });
+
+  // The JSON body parser sits on the routes that read a body, never on the prefix: mounted there it would also
+  // parse — and answer 400 for — a malformed body sent along with a GET.
+  const json = express.json({ limit: '64kb' });
+  app.post('/store/customers', json, registerRoute);
   app.get('/store/customers/me', getMeRoute);
+  app.patch('/store/customers/me', json, updateMeRoute);
   app.get('/store/customers/me/orders', listMyOrdersRoute);
+  app.get('/store/customers/me/addresses', listMyAddressesRoute);
+  app.post('/store/customers/me/addresses', json, addMyAddressRoute);
+  // Terminal: every operation of this prefix is answered above, so whatever is left — an unknown path, or
+  // PUT / DELETE / … on a known one — is a 404 here. It must never fall through to the Store API fallback proxy
+  // (non-production), which would forward the customer's bearer token to the mock.
+  app.use('/store/customers', routeNotImplemented);
 }

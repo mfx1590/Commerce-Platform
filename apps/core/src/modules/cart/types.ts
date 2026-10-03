@@ -16,6 +16,11 @@ export interface CartStoreContext {
   storeId: string;
   /** Sales channel of the publishable key; falls back to the store's active `web` channel. */
   salesChannelId: string | null;
+  /**
+   * The store-level customer of a VERIFIED customer token sent with `createCart` (Store API 0.5.1, #310); the
+   * route resolves it. Absent / null = a guest cart.
+   */
+  customerId?: string | null | undefined;
 }
 
 export interface CreateCartInput {

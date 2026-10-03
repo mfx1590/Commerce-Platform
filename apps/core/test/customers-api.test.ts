@@ -13,16 +13,21 @@ import { createOrganizationClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  completeCartRoute,
+  coreErrorHandler,
+  createCartRoute,
   CUSTOMER_STORE_PATHS,
   customerTokenVerifierFor,
   DevTokenVerifier,
   keycloakCustomerTokenVerifier,
   mountStoreRoutes,
   REAL_STORE_PATHS,
+  storeContextMiddleware,
   type CustomerTokenVerifier,
 } from '../src/http';
 import { mountCustomerRoutes } from '../src/http/customer-routes';
-import { getOrderRouteWith } from '../src/http/store-routes';
+import { customerGateWith, getOrderRouteWith } from '../src/http/store-routes';
+import { paymentProvider } from '../src/modules/checkout';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -110,7 +115,59 @@ const address = {
   country: 'NL',
 };
 
-/** Places a guest order in brand-a with the given checkout email (the Store API has no customer on carts yet). */
+/**
+ * A brand-a cart ready for completion (one line, email, addresses, shipping option, payment session), built on
+ * the given app. `token` = the customer token sent with `createCart` (Store API 0.5.1); none = a guest cart.
+ */
+async function readyCartOn(
+  target: express.Express,
+  email: string,
+  token: string | null = null,
+): Promise<string> {
+  const guest = (method: 'get' | 'post' | 'patch', path: string) =>
+    request(target)[method](path).set('X-Publishable-Key', KEY_A);
+  const create = guest('post', '/store/carts');
+  const created = await (token ? create.set('Authorization', `Bearer ${token}`) : create).send({});
+  expect(created.status).toBe(201);
+  const cart = created.body;
+  const list = await guest('get', '/store/products?limit=3&sort=price_asc');
+  let variant: { id: string } | undefined;
+  for (const item of list.body.items as Array<{ handle: string }>) {
+    const product = await guest('get', `/store/products/${item.handle}`);
+    variant = product.body.variants.find((v: { in_stock: boolean }) => v.in_stock);
+    if (variant) break;
+  }
+  if (!variant) throw new Error('the seed has no variant in stock');
+  await guest('post', `/store/carts/${cart.id}/line-items`).send({
+    variant_id: variant.id,
+    quantity: 1,
+  });
+  const options = await guest('get', `/store/carts/${cart.id}/shipping-options`);
+  await guest('patch', `/store/carts/${cart.id}`).send({
+    email,
+    shipping_address: address,
+    billing_address: address,
+    shipping_option_id: options.body.items[0].id,
+  });
+  await guest('post', `/store/carts/${cart.id}/payment-session`).send({ provider: 'manual' });
+  return cart.id as string;
+}
+
+/** `POST …/complete` on the given app, with or without a customer token. */
+const completeOn = (
+  target: express.Express,
+  cartId: string,
+  token: string | null = null,
+  key = `idem-customers-${cartId}`,
+) => {
+  const req = request(target)
+    .post(`/store/carts/${cartId}/complete`)
+    .set('X-Publishable-Key', KEY_A)
+    .set('Idempotency-Key', key);
+  return (token ? req.set('Authorization', `Bearer ${token}`) : req).send();
+};
+
+/** Places a guest order in brand-a with the given checkout email (no customer token anywhere). */
 async function placeGuestOrder(email: string): Promise<string> {
   const cart = (await guest('post', '/store/carts').send({})).body;
   const list = await guest('get', '/store/products?limit=3&sort=price_asc');
@@ -160,11 +217,22 @@ afterAll(async () => {
 });
 
 describe('authentication: publishable key AND a customer token for this store', () => {
-  const routes: Array<['get' | 'post', string]> = [
+  const routes: Array<['get' | 'post' | 'patch', string]> = [
     ['post', '/store/customers'],
     ['get', '/store/customers/me'],
+    ['patch', '/store/customers/me'],
     ['get', '/store/customers/me/orders'],
+    ['get', '/store/customers/me/addresses'],
+    ['post', '/store/customers/me/addresses'],
   ];
+  const bodyFor = (method: string, path: string) =>
+    method === 'get'
+      ? undefined
+      : path.endsWith('/addresses')
+        ? address
+        : method === 'patch'
+          ? { first_name: 'Jane' }
+          : { email: 'jane@example.test' };
 
   it("no key → 401 before anything else; no token, an unknown token, another store's token → 401, and nothing is created", async () => {
     const before = await customerCount();
@@ -172,9 +240,7 @@ describe('authentication: publishable key AND a customer token for this store', 
       const noKey = await request(app)[method](path).set('Authorization', 'Bearer jane');
       expect(noKey.status).toBe(401);
       for (const token of [null, 'nobody', 'bob']) {
-        const res = await as(token, method, path).send(
-          method === 'post' ? { email: 'jane@example.test' } : undefined,
-        );
+        const res = await as(token, method, path).send(bodyFor(method, path));
         expect(res.status).toBe(401);
         spec.assertSchema('Error', res.body);
         expect(res.body.code).toBe('unauthorized');
@@ -249,7 +315,7 @@ describe('authentication: publishable key AND a customer token for this store', 
     const before = await customerCount();
     for (const [method, path] of routes) {
       const res = await as('blocked', method, path).send(
-        method === 'post' ? { email: 'blocked@example.test' } : undefined,
+        path === '/store/customers' ? { email: 'blocked@example.test' } : bodyFor(method, path),
       );
       expect(res.status).toBe(401);
       spec.assertSchema('Error', res.body);
@@ -340,6 +406,9 @@ describe('GET /store/customers/me and POST /store/customers', () => {
       await as('mallory', 'get', '/store/customers/me'),
       await as('mallory', 'get', '/store/customers/me/orders'),
       await as('mallory', 'post', '/store/customers').send({ email: 'guest.buyer@example.test' }),
+      await as('mallory', 'patch', '/store/customers/me').send({ first_name: 'Mallory' }),
+      await as('mallory', 'get', '/store/customers/me/addresses'),
+      await as('mallory', 'post', '/store/customers/me/addresses').send(address),
     ]) {
       expect(res.status).toBe(409);
       spec.assertSchema('Error', res.body);
@@ -376,6 +445,16 @@ describe('orders of the signed-in customer: an email is an identity only when th
       veraLinkedOrder,
       vera.body.id,
     ]);
+    // "Newest first" is a sort by placed_at (the database's now()). The three orders are placed a few hundred
+    // milliseconds apart, and the Postgres container's clock is not guaranteed to be monotonic across requests
+    // (seen once: the later order carried the earlier timestamp) — so the test sets the times it then sorts by.
+    for (const [id, placedAt] of [
+      [veraGuestOrder, '2026-09-01T10:00:00Z'],
+      [janeGuestOrder, '2026-09-01T10:01:00Z'],
+      [veraLinkedOrder, '2026-09-01T10:02:00Z'],
+    ]) {
+      await owner.query(`UPDATE "order" SET placed_at = $2 WHERE id = $1`, [id, placedAt]);
+    }
   }, 120_000);
 
   it('listMyOrders: verified email → guest orders with that email plus the linked ones, newest first, paginated', async () => {
@@ -437,6 +516,370 @@ describe('orders of the signed-in customer: an email is an identity only when th
   });
 });
 
+describe('PATCH /store/customers/me', () => {
+  it('200 with the updated customer; an empty string clears the phone; 400 on a wrong type or a non-object body', async () => {
+    const updated = await as('ursula', 'patch', '/store/customers/me').send({
+      last_name: 'K. Le Guin',
+      phone: '+31 6 1111 1111',
+      marketing_consent: true,
+    });
+    expect(updated.status).toBe(200);
+    spec.assertSchema('Customer', updated.body);
+    expect(updated.body).toMatchObject({
+      first_name: 'Ursula',
+      last_name: 'K. Le Guin',
+      phone: '+31 6 1111 1111',
+      marketing_consent: true,
+    });
+    const cleared = await as('ursula', 'patch', '/store/customers/me').send({ phone: '' });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.phone).toBeNull();
+    expect((await as('ursula', 'get', '/store/customers/me')).body).toEqual(cleared.body);
+
+    // Store API 0.5.1 documents no 400 on updateMe; 0.4.9 adds it — the core answers it already.
+    for (const body of [{ phone: 5 }, { marketing_consent: 'yes' }, [], 'text']) {
+      const bad = await as('ursula', 'patch', '/store/customers/me')
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify(body));
+      expect(bad.status).toBe(400);
+      spec.assertSchema('Error', bad.body);
+      expect(bad.body.code).toBe('validation_error');
+    }
+    // a customer created by the PATCH itself (first contact): 200, not 201 — updateMe has no 201
+    PERSONAS.newcomer = {
+      subject: 'sub-newcomer',
+      storeCode: 'brand-a',
+      email: 'newcomer@example.test',
+    };
+    const fresh = await as('newcomer', 'patch', '/store/customers/me').send({ first_name: 'New' });
+    expect(fresh.status).toBe(200);
+    expect(fresh.body).toMatchObject({ email: 'newcomer@example.test', first_name: 'New' });
+  });
+});
+
+describe('GET and POST /store/customers/me/addresses', () => {
+  it('201 CustomerAddress; the first one is the default; the list is default shipping first; blanks and a bad country are a 400 naming the field', async () => {
+    const first = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      first_name: 'Ursula',
+      last_name: 'Le Guin',
+      company: null,
+      line2: null,
+      region: null,
+      phone: null,
+    });
+    expect(first.status).toBe(201);
+    spec.assertSchema('CustomerAddress', first.body);
+    expect(first.body).toMatchObject({
+      first_name: 'Ursula',
+      country: 'NL',
+      is_default_shipping: true,
+      is_default_billing: true,
+    });
+    const second = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      line1: 'Prinsengracht 2',
+    });
+    expect(second.status).toBe(201);
+    expect(second.body).toMatchObject({ is_default_shipping: false, is_default_billing: false });
+    // contracts 0.4.9: the body may ask for a default; the 0.5.1 spec has no additionalProperties: false
+    const gift = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      line1: 'Gift street 3',
+      is_default_shipping: true,
+    });
+    expect(gift.status).toBe(201);
+    expect(gift.body).toMatchObject({ is_default_shipping: true, is_default_billing: false });
+
+    // "then oldest first" sorts by created_at: pinned here, not left to the database container's clock
+    await owner.query(`UPDATE customer_address SET created_at = $2 WHERE id = $1`, [
+      first.body.id,
+      '2026-09-01T10:00:00Z',
+    ]);
+    await owner.query(`UPDATE customer_address SET created_at = $2 WHERE id = $1`, [
+      second.body.id,
+      '2026-09-01T10:01:00Z',
+    ]);
+    const list = await as('ursula', 'get', '/store/customers/me/addresses');
+    expect(list.status).toBe(200);
+    spec.assertItems('CustomerAddress', list.body);
+    expect(list.body.items.map((x: { id: string }) => x.id)).toEqual([
+      gift.body.id,
+      first.body.id,
+      second.body.id,
+    ]);
+    expect(list.body.items[1]).toMatchObject({
+      is_default_shipping: false,
+      is_default_billing: true,
+    });
+
+    const bad = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      city: '   ',
+      country: 'nl',
+    });
+    expect(bad.status).toBe(400);
+    spec.assertSchema('Error', bad.body);
+    expect(bad.body.code).toBe('validation_error');
+    const missing = await as('ursula', 'post', '/store/customers/me/addresses').send({
+      first_name: 'Ursula',
+    });
+    expect(missing.status).toBe(400);
+    expect((await as('ursula', 'get', '/store/customers/me/addresses')).body.items).toHaveLength(3);
+  });
+
+  it('a signed-in customer with no row yet gets one from the address call too (no 404 anywhere)', async () => {
+    PERSONAS.mover = { subject: 'sub-mover', storeCode: 'brand-a', email: 'mover@example.test' };
+    const list = await as('mover', 'get', '/store/customers/me/addresses');
+    expect(list.status).toBe(200);
+    expect(list.body).toEqual({ items: [] });
+    expect((await as('mover', 'get', '/store/customers/me')).status).toBe(200);
+  });
+});
+
+describe('placement-time customer link (Store API 0.5.1, #310): createCart and completeCart may carry a customer token', () => {
+  const cartRow = async (id: string) =>
+    (
+      await owner.query<{ customer_id: string | null; status: string }>(
+        `SELECT customer_id, status FROM cart WHERE id = $1`,
+        [id],
+      )
+    ).rows[0]!;
+  const orderRow = async (id: string) =>
+    (
+      await owner.query<{ customer_id: string | null; email: string }>(
+        `SELECT customer_id, email FROM "order" WHERE id = $1`,
+        [id],
+      )
+    ).rows[0]!;
+  const count = async (table: 'cart' | '"order"' | 'payment') =>
+    Number(
+      (await owner.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`)).rows[0]!.n,
+    );
+  const idOf = async (token: string) =>
+    (await as(token, 'get', '/store/customers/me')).body.id as string;
+
+  it("a token that is SENT must verify: invalid, another store's, a disabled customer's → 401 on both operations, before the body and the Idempotency-Key; nothing is created or placed", async () => {
+    const cartId = await readyCartOn(app, 'someone@example.test');
+    const before = { carts: await count('cart'), orders: await count('"order"') };
+    for (const token of ['not-a-token', 'bob', 'blocked']) {
+      // window 3 measured 201 here before this change
+      const created = await as(token, 'post', '/store/carts').send({});
+      expect(created.status).toBe(401);
+      spec.assertSchema('Error', created.body);
+      expect(created.body.code).toBe('unauthorized');
+      // the token is judged before the body rules …
+      expect((await as(token, 'post', '/store/carts').send({ currency: 'nope' })).status).toBe(401);
+      // … and before the Idempotency-Key and the cart id
+      const noKey = await as(token, 'post', `/store/carts/${cartId}/complete`).send();
+      expect(noKey.status).toBe(401);
+      expect((await as(token, 'post', '/store/carts/not-a-uuid/complete').send()).status).toBe(401);
+      expect((await completeOn(app, cartId, token)).status).toBe(401);
+    }
+    expect(await count('cart')).toBe(before.carts);
+    expect(await count('"order"')).toBe(before.orders);
+    expect(await cartRow(cartId)).toEqual({ customer_id: null, status: 'active' });
+    // an email collision that cannot be adopted is the customer routes' 409 here too
+    expect((await as('mallory', 'post', '/store/carts').send({})).status).toBe(409);
+    // without an Authorization header nothing changed: a guest cart, a guest order
+    const guestOrder = await completeOn(app, cartId);
+    expect(guestOrder.status).toBe(201);
+    expect((await orderRow(guestOrder.body.id)).customer_id).toBeNull();
+  });
+
+  it("createCart with a token links the cart; completing it WITHOUT a token keeps the cart's link", async () => {
+    const jane = await idOf('jane');
+    const cartId = await readyCartOn(app, 'someone.else@example.test', 'jane');
+    expect(await cartRow(cartId)).toEqual({ customer_id: jane, status: 'active' });
+    // the Cart body does not expose the customer
+    const read = await guest('get', `/store/carts/${cartId}`);
+    spec.assertSchema('Cart', read.body);
+    expect(JSON.stringify(read.body)).not.toContain(jane);
+
+    const placed = await completeOn(app, cartId);
+    expect(placed.status).toBe(201);
+    spec.assertSchema('Order', placed.body);
+    expect(await orderRow(placed.body.id)).toEqual({
+      customer_id: jane,
+      email: 'someone.else@example.test', // the order keeps the checkout email
+    });
+  });
+
+  it("completeCart with a token links a GUEST cart in the placement: the order is the customer's without any email match — the gap this closes", async () => {
+    const jane = await idOf('jane'); // jane's token email is NOT verified
+    const listed = async () =>
+      (await as('jane', 'get', '/store/customers/me/orders')).body.items.map(
+        (o: { id: string }) => o.id,
+      ) as string[];
+    const cartId = await readyCartOn(app, 'gift.for.a.friend@example.test');
+    expect((await cartRow(cartId)).customer_id).toBeNull();
+
+    const placed = await completeOn(app, cartId, 'jane');
+    expect(placed.status).toBe(201);
+    spec.assertSchema('Order', placed.body);
+    expect(await cartRow(cartId)).toEqual({ customer_id: jane, status: 'completed' });
+    expect(await orderRow(placed.body.id)).toEqual({
+      customer_id: jane,
+      email: 'gift.for.a.friend@example.test',
+    });
+    expect(await listed()).toContain(placed.body.id);
+    expect((await as('jane', 'get', `/store/orders/${placed.body.id}`)).status).toBe(200);
+
+    // order.placed carries the customer id and the actor is the customer — and still no email
+    const event = await owner.query<{
+      payload: Record<string, unknown>;
+      headers: { actor: unknown };
+    }>(`SELECT payload, headers FROM outbox WHERE topic = 'order.placed' AND aggregate_id = $1`, [
+      placed.body.id,
+    ]);
+    expect(event.rows[0]!.payload.customer_id).toBe(jane);
+    expect(event.rows[0]!.headers.actor).toEqual({ type: 'customer', id: jane });
+    expect(JSON.stringify(event.rows[0])).not.toContain('@example.test');
+
+    // A replay with the same key answers the stored order to the customer it was placed for …
+    const mine = await completeOn(app, cartId, 'jane');
+    expect(mine.status).toBe(201);
+    expect(mine.body.id).toBe(placed.body.id);
+    // … and never to ANOTHER customer's token: 409, and the body carries nothing of the order (#325 review)
+    for (const other of ['vera', 'rita']) {
+      const refused = await completeOn(app, cartId, other);
+      expect(refused.status).toBe(409);
+      spec.assertSchema('Error', refused.body);
+      expect(refused.body).toEqual({
+        code: 'conflict',
+        message: 'This cart belongs to another customer',
+        details: {},
+      });
+      const text = JSON.stringify(refused.body);
+      expect(text).not.toContain(placed.body.id);
+      expect(text).not.toContain(String(placed.body.display_id));
+      expect(text).not.toContain('@example.test');
+    }
+    // without a token the cart id + key are the capability, as on every other cart operation (accepted gap)
+    const anonymous = await completeOn(app, cartId);
+    expect(anonymous.status).toBe(201);
+    expect(anonymous.body.id).toBe(placed.body.id);
+    // nothing of that changed the link, and nothing was placed twice
+    expect((await orderRow(placed.body.id)).customer_id).toBe(jane);
+    const orders = await owner.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM "order" WHERE cart_id = $1`,
+      [cartId],
+    );
+    expect(orders.rows[0]!.n).toBe('1');
+  });
+
+  it("a replay WITH a token on a GUEST order is a 409 too: a token never opens an order that is not that customer's", async () => {
+    const cartId = await readyCartOn(app, 'guest.replay@example.test');
+    const placed = await completeOn(app, cartId);
+    expect(placed.status).toBe(201);
+    expect((await orderRow(placed.body.id)).customer_id).toBeNull();
+    const withToken = await completeOn(app, cartId, 'jane');
+    expect(withToken.status).toBe(409);
+    expect(JSON.stringify(withToken.body)).not.toContain(placed.body.id);
+    expect((await orderRow(placed.body.id)).customer_id).toBeNull();
+    expect((await completeOn(app, cartId)).body.id).toBe(placed.body.id);
+  });
+
+  it('the token is judged BEFORE the JSON body parser: a bad token with malformed or oversized JSON is a 401, not a 400 / 413', async () => {
+    const cartId = await readyCartOn(app, 'parser.order@example.test');
+    const malformed = '{"currency": ';
+    const oversized = JSON.stringify({ metadata: { blob: 'x'.repeat(300 * 1024) } });
+    const post = (path: string, token: string | null, payload: string) => {
+      const req = request(app)
+        .post(path)
+        .set('X-Publishable-Key', KEY_A)
+        .set('Content-Type', 'application/json')
+        .set('Idempotency-Key', `idem-parser-${cartId}`);
+      return (token ? req.set('Authorization', `Bearer ${token}`) : req).send(payload);
+    };
+    for (const path of ['/store/carts', `/store/carts/${cartId}/complete`]) {
+      for (const payload of [malformed, oversized]) {
+        const bad = await post(path, 'not-a-token', payload);
+        expect(bad.status).toBe(401);
+        spec.assertSchema('Error', bad.body);
+        expect(bad.body.code).toBe('unauthorized');
+      }
+      // with a valid token, or with none, the body rules apply as before
+      expect((await post(path, 'jane', malformed)).status).toBe(400);
+      expect((await post(path, null, malformed)).status).toBe(400);
+      expect((await post(path, null, oversized)).status).toBe(413);
+    }
+    expect(await cartRow(cartId)).toEqual({ customer_id: null, status: 'active' });
+  });
+
+  it('fail closed: the cart handlers mounted WITHOUT the gate never treat a sent token as absent', async () => {
+    const bare = express();
+    bare.use('/store', storeContextMiddleware);
+    bare.post('/store/carts', createCartRoute);
+    bare.post('/store/carts/:cartId/complete', completeCartRoute);
+    bare.use(coreErrorHandler);
+    const cartId = await readyCartOn(app, 'bare@example.test');
+    for (const token of ['jane', 'not-a-token']) {
+      const created = await request(bare)
+        .post('/store/carts')
+        .set('X-Publishable-Key', KEY_A)
+        .set('Authorization', `Bearer ${token}`);
+      expect(created.status).toBe(401);
+      expect((await completeOn(bare, cartId, token)).status).toBe(401);
+    }
+    // without a header they are the guest operations they always were
+    expect((await request(bare).post('/store/carts').set('X-Publishable-Key', KEY_A)).status).toBe(
+      201,
+    );
+    // and the gate itself refuses a verifier override in production, like every other door
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() => customerGateWith(fakeVerifier)).toThrow(/never accepted in production/);
+      expect(() => customerGateWith()).not.toThrow();
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  it('a cart linked to ANOTHER customer → 409 conflict: nothing placed, nothing authorised, the cart stays theirs and can still be completed by them', async () => {
+    const rita = await idOf('rita');
+    const cartId = await readyCartOn(app, 'rita.checkout@example.test', 'rita');
+    const before = { orders: await count('"order"'), payments: await count('payment') };
+
+    // the provider itself is watched: a guard moved behind `authorize` would fail here even if it rolled back
+    const authorize = vi.spyOn(paymentProvider('manual'), 'authorize');
+    try {
+      const refused = await completeOn(app, cartId, 'vera');
+      expect(refused.status).toBe(409);
+      spec.assertSchema('Error', refused.body);
+      expect(refused.body).toEqual({
+        code: 'conflict',
+        message: 'This cart belongs to another customer',
+        details: {},
+      });
+      expect(authorize).not.toHaveBeenCalled();
+      expect(await count('"order"')).toBe(before.orders);
+      expect(await count('payment')).toBe(before.payments);
+      expect(await cartRow(cartId)).toEqual({ customer_id: rita, status: 'active' });
+
+      // same Idempotency-Key, the right customer: the refusal left nothing behind
+      const placed = await completeOn(app, cartId, 'rita');
+      expect(placed.status).toBe(201);
+      expect(authorize).toHaveBeenCalledTimes(1);
+      expect((await orderRow(placed.body.id)).customer_id).toBe(rita);
+    } finally {
+      authorize.mockRestore();
+    }
+  });
+
+  it('the other cart operations ignore the header, as the contract says: a bad token on GET / PATCH / line items changes nothing', async () => {
+    const cartId = await readyCartOn(app, 'plain@example.test');
+    const read = await as('not-a-token', 'get', `/store/carts/${cartId}`);
+    expect(read.status).toBe(200);
+    const patched = await as('not-a-token', 'patch', `/store/carts/${cartId}`).send({
+      email: 'plain.two@example.test',
+    });
+    expect(patched.status).toBe(200);
+    expect((await cartRow(cartId)).customer_id).toBeNull();
+  });
+});
+
 describe('nothing personal is logged', () => {
   it('no log line carries an email, a token or a name across every customer route, errors included', async () => {
     const logged: string[] = [];
@@ -455,11 +898,28 @@ describe('nothing personal is logged', () => {
       await as('mallory', 'get', '/store/customers/me');
       await as('nobody', 'get', '/store/customers/me');
       await as('vera', 'get', '/store/customers/me/orders');
+      await as('jane', 'patch', '/store/customers/me').send({ phone: '+31 6 7777 7777' });
+      await as('jane', 'post', '/store/customers/me/addresses').send({
+        ...address,
+        line1: 'Secretstreet 9',
+        city: 'Hiddentown',
+      });
+      await as('jane', 'post', '/store/customers/me/addresses').send({ ...address, city: '' });
+      await as('jane', 'get', '/store/customers/me/addresses');
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
     const all = logged.join('\n').toLowerCase();
-    for (const secret of ['@example.test', 'janet', 'bearer', 'sub-jane', 'mallory']) {
+    for (const secret of [
+      '@example.test',
+      'janet',
+      'bearer',
+      'sub-jane',
+      'mallory',
+      'secretstreet',
+      'hiddentown',
+      '6 7777',
+    ]) {
       expect(all).not.toContain(secret);
     }
   });
@@ -471,7 +931,10 @@ describe('the core answers these paths itself', () => {
     expect([...CUSTOMER_STORE_PATHS]).toEqual([
       'POST /store/customers',
       'GET /store/customers/me',
+      'PATCH /store/customers/me',
       'GET /store/customers/me/orders',
+      'GET /store/customers/me/addresses',
+      'POST /store/customers/me/addresses',
     ]);
 
     const seen: string[] = [];
@@ -487,23 +950,57 @@ describe('the core answers these paths itself', () => {
         customerTokenVerifier: fakeVerifier,
         storeApiFallbackUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}`,
       });
-      const call = (method: 'get' | 'post', path: string) =>
+      const call = (method: 'get' | 'post' | 'patch', path: string) =>
         request(proxied)
           [method](path)
           .set('X-Publishable-Key', KEY_A)
           .set('Authorization', 'Bearer jane');
-      const me = await call('get', '/store/customers/me');
-      expect(me.status).toBe(200);
-      expect(me.body.mock).toBeUndefined();
-      expect((await call('get', '/store/customers/me/orders')).body.mock).toBeUndefined();
-      expect(
-        (await call('post', '/store/customers').send({ email: 'jane@example.test' })).body.mock,
-      ).toBeUndefined();
+      // every customer path is answered here — the bearer token never reaches the mock
+      for (const res of [
+        await call('get', '/store/customers/me'),
+        await call('patch', '/store/customers/me').send({ first_name: 'Jane' }),
+        await call('get', '/store/customers/me/orders'),
+        await call('get', '/store/customers/me/addresses'),
+        await call('post', '/store/customers/me/addresses').send(address),
+        await call('post', '/store/customers').send({ email: 'jane@example.test' }),
+      ]) {
+        expect(res.status).toBeLessThan(300);
+        expect(res.body.mock).toBeUndefined();
+      }
       expect(seen).toEqual([]);
-      // a customer path the core does not answer yet (addresses: PR B) still goes to the mock
-      const addresses = await call('get', '/store/customers/me/addresses');
-      expect(addresses.body).toEqual({ mock: true });
-      expect(seen).toEqual(['GET /store/customers/me/addresses']);
+      // an operation the contract does not define under /store/customers is a 404 from the core — with or
+      // without a bearer, and the mock never sees it (no 405, no new error code)
+      const undefinedOperations: Array<['put' | 'delete' | 'get' | 'patch' | 'post', string]> = [
+        ['put', '/store/customers/me'],
+        ['delete', '/store/customers/me'],
+        ['put', '/store/customers'],
+        ['delete', '/store/customers/me/addresses'],
+        ['patch', '/store/customers/me/orders'],
+        ['get', '/store/customers'],
+        ['get', '/store/customers/me/unknown'],
+        ['delete', '/store/customers/me/addresses/00000000-0000-4000-8000-000000000001'],
+        ['post', '/store/customers/someone-else'],
+      ];
+      for (const [method, path] of undefinedOperations) {
+        for (const bearer of ['Bearer jane', 'Bearer not-a-token', null]) {
+          const req = request(proxied)[method](path).set('X-Publishable-Key', KEY_A);
+          const res = await (bearer ? req.set('Authorization', bearer) : req);
+          expect(res.status).toBe(404);
+          spec.assertSchema('Error', res.body);
+          expect(res.body).toEqual({
+            code: 'not_found',
+            message: `${method.toUpperCase()} ${path} is not implemented`,
+            details: {},
+          });
+        }
+      }
+      // still behind the publishable key
+      expect((await request(proxied).put('/store/customers/me')).status).toBe(401);
+      expect(seen).toEqual([]);
+      // the proxy itself still works for a Store path the core does not answer
+      const other = await call('get', '/store/wishlist');
+      expect(other.body).toEqual({ mock: true });
+      expect(seen).toEqual(['GET /store/wishlist']);
     } finally {
       await new Promise<void>((r) => mock.close(() => r()));
     }
@@ -554,8 +1051,19 @@ describe('the verifier seam is code-only and never reaches production', () => {
         .set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(401);
       spec.assertSchema('Error', res.body);
+      // window 3's measurement: POST /store/carts with a bearer that is not a token answered 201
+      const cart = await request(real)
+        .post('/store/carts')
+        .set('X-Publishable-Key', KEY_A)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+      expect(cart.status).toBe(401);
+      spec.assertSchema('Error', cart.body);
     }
     expect(await customerCount()).toBe(before);
+    // and without the header it is the guest cart it always was
+    const guestCart = await request(real).post('/store/carts').set('X-Publishable-Key', KEY_A);
+    expect(guestCart.status).toBe(201);
   });
 });
 
@@ -754,11 +1262,42 @@ describe.runIf(live)('live: real customers-realm tokens through the real verifie
     expect(orders.status).toBe(200);
     expect(orders.body).toMatchObject({ total: 0, items: [] });
     expect((await call(token, `/store/orders/${orderId}`)).status).toBe(404);
+
+    // the self-service routes of part B with a real token
+    const renamed = await request(real)
+      .patch('/store/customers/me')
+      .set('X-Publishable-Key', KEY_A)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ first_name: 'Fresh', last_name: 'Shopper' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body).toMatchObject({ first_name: 'Fresh', last_name: 'Shopper' });
+    const added = await request(real)
+      .post('/store/customers/me/addresses')
+      .set('X-Publishable-Key', KEY_A)
+      .set('Authorization', `Bearer ${token}`)
+      .send(address);
+    expect(added.status).toBe(201);
+    spec.assertSchema('CustomerAddress', added.body);
+    expect(added.body).toMatchObject({ is_default_shipping: true, is_default_billing: true });
+    const mine = await call(token, '/store/customers/me/addresses');
+    expect(mine.body.items.map((x: { id: string }) => x.id)).toEqual([added.body.id]);
     // the guest rule is unchanged: order id + checkout email opens it, token or not
     const byEmail = await call(
       token,
       `/store/orders/${orderId}?email=${encodeURIComponent(email)}`,
     );
     expect(byEmail.status).toBe(200);
+
+    // part C with a real token: an order placed WITH the token is the customer's — listed and opened by the
+    // token alone, although the email is not verified and the checkout email is someone else's
+    const linkedCart = await readyCartOn(real, 'a.friend@example.com', token);
+    const placed = await completeOn(real, linkedCart, token);
+    expect(placed.status).toBe(201);
+    const after = await call(token, '/store/customers/me/orders');
+    expect(after.body).toMatchObject({ total: 1 });
+    expect(after.body.items[0].id).toBe(placed.body.id);
+    expect((await call(token, `/store/orders/${placed.body.id}`)).status).toBe(200);
+    // and the seeded customer's valid token does not open it
+    expect((await call(seedToken, `/store/orders/${placed.body.id}`)).status).toBe(404);
   });
 });
