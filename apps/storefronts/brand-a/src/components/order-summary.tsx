@@ -1,6 +1,7 @@
 import { Price } from '@platform/ui';
 import { useTranslations } from 'next-intl';
 import type { Totals } from '@/lib/store-api';
+import { totalsHooks } from '@/lib/test-hooks';
 
 /** The money table shown in the cart, at review, and on the confirmation page. */
 export function TotalsTable({ totals, locale }: { totals: Totals; locale: string }) {
@@ -13,7 +14,7 @@ export function TotalsTable({ totals, locale }: { totals: Totals; locale: string
   ];
 
   return (
-    <dl className="flex flex-col gap-2 text-sm">
+    <dl className="flex flex-col gap-2 text-sm" {...totalsHooks(totals)}>
       {rows.map(([key, money]) => (
         <div key={key} className="flex justify-between gap-4">
           <dt className="text-muted-foreground">{t(key)}</dt>

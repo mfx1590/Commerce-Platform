@@ -4,7 +4,7 @@ import { Blocks } from './blocks';
 import { Hero } from './hero';
 
 /** The CMS `page` that fills the home page's slots. */
-export const HOME_SLUG = 'home';
+export { HOME_SLUG } from '../queries';
 
 /**
  * Hero and blocks for the home page, from the `page` document with slug `home` in the locale.

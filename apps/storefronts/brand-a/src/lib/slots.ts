@@ -34,8 +34,13 @@ export interface LayoutSlots {
   Footer: ServerComponent<{ store: Store | null }>;
 }
 
-/** Skips keys explicitly set to `undefined`, so a partial override never blanks a default. */
-function mergeSlots<T extends object>(defaults: T, overrides: Partial<T>): T {
+/**
+ * Skips keys explicitly set to `undefined`, so a partial override never blanks a default.
+ *
+ * Exported for the tests: the rule is asserted with fixture overrides rather than against this
+ * app's own `src/brand/**`, whose contents differ in every app generated from the starter (#278).
+ */
+export function mergeSlots<T extends object>(defaults: T, overrides: Partial<T>): T {
   const merged = { ...defaults };
   for (const [name, value] of Object.entries(overrides)) {
     if (value !== undefined) Object.assign(merged, { [name]: value });
