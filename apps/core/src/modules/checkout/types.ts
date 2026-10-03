@@ -35,6 +35,12 @@ export interface CompleteCartInput {
   /** Contract header `Idempotency-Key` (min 8 chars, validated by the route). */
   idempotencyKey: string;
   actor: Actor;
+  /**
+   * The store-level customer of a VERIFIED customer token sent with `completeCart` (Store API 0.5.1, #310); the
+   * route resolves it. A guest cart is linked to it inside the placement transaction; a cart already linked to
+   * another customer is a 409 `conflict` and nothing is placed. Absent / null: the cart's own link, unchanged.
+   */
+  customerId?: string | null | undefined;
   /** Test seams: run inside the placement transaction after the given step (a throw must roll everything back). */
   hooks?: {
     afterEvents?: ((tx: Queryable) => Promise<void>) | undefined;

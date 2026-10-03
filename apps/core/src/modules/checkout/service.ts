@@ -189,6 +189,11 @@ export async function completeCart(
     const before = error.quoted;
     const after = await client.transaction(async (tx) => {
       const cart = await lockActiveCart(tx, input.cartId);
+      // The rollback above also undid the customer link of the placement attempt. Without it this transaction
+      // would persist GUEST prices, and the retry — which links again and judges the customer's prices — would
+      // meet the same difference forever. So the link is applied (and kept) here, under the same conflict rule:
+      // the persisted prices are the customer's, and the retry with the same key completes (#325 review).
+      await linkCustomer(tx, cart, input.customerId);
       await repriceLines(tx, cart, { at: error.at });
       await recalculate(tx, cart, { at: error.at });
       return quotedAmounts(await loadCart(tx, input.cartId, false));
@@ -210,6 +215,31 @@ export async function completeCart(
         : {}),
       total_minor: { previous: before.total, current: after.total },
     });
+  }
+}
+
+/** The one answer for "this is not your cart / order": nothing about the other customer, nothing about the order. */
+const anotherCustomers = () =>
+  new AppError('conflict', 'This cart belongs to another customer', {});
+
+/**
+ * #310, under the cart lock: `customerId` (from a verified token; the route resolved it) may place this cart — a
+ * guest cart becomes theirs, their own cart stays theirs, a cart of ANOTHER customer is a 409 `conflict`. No
+ * customer given: the cart's own link decides, unchanged. From here on `cart` is priced as the customer's.
+ */
+async function linkCustomer(
+  tx: Queryable,
+  cart: CartRow,
+  customerId: string | null | undefined,
+): Promise<void> {
+  if (!customerId) return;
+  if (cart.customer_id && cart.customer_id !== customerId) throw anotherCustomers();
+  if (!cart.customer_id) {
+    await tx.query(`UPDATE cart SET customer_id = $2, updated_at = now() WHERE id = $1`, [
+      cart.id,
+      customerId,
+    ]);
+    cart.customer_id = customerId;
   }
 }
 
@@ -262,8 +292,13 @@ async function placeOrder(
     );
     if (!cartStore.rows[0]) throw notFound('cart', cartId);
     const storedKey = `${cartStore.rows[0].store_id}:${idempotencyKey}`;
-    const replay = await tx.query<{ order_id: string; cart_id: string | null }>(
-      `SELECT p.order_id, o.cart_id FROM payment p JOIN "order" o ON o.id = p.order_id WHERE p.idempotency_key = $1`,
+    const replay = await tx.query<{
+      order_id: string;
+      cart_id: string | null;
+      customer_id: string | null;
+    }>(
+      `SELECT p.order_id, o.cart_id, o.customer_id
+       FROM payment p JOIN "order" o ON o.id = p.order_id WHERE p.idempotency_key = $1`,
       [storedKey],
     );
     const prior = replay.rows[0];
@@ -273,11 +308,22 @@ async function placeOrder(
           'Idempotency-Key': 'reuse across carts',
         });
       }
+      // A replay WITH a customer token answers the stored order only to the customer it was placed for. Any
+      // other customer — and any customer on a guest order — gets the 409 and nothing of the order (#325
+      // review). Without a token the cart id + key are the capability, as for every other cart operation.
+      if (input.customerId && prior.customer_id !== input.customerId) throw anotherCustomers();
       return { order: await renderStoreOrder(tx, prior.order_id), replayed: true };
     }
 
     // ---- lock + preconditions ----
     const locked = await lockActiveCart(tx, cartId); // 409 cart_completed carries the order id
+
+    // ---- customer link (#310) ---- Under the cart lock, before anything is priced, reserved or authorised. The
+    // customer comes from a verified token (the route resolved it); the cart row decides whether it may place.
+    // A refusal throws: the transaction rolls back, nothing is placed. From here on the cart IS the customer's:
+    // prices are judged for them. A customer-group price that differs from what the guest cart showed is a 409
+    // price_changed below — and the recovery in completeCart() keeps the link, so the retry completes.
+    await linkCustomer(tx, locked, input.customerId);
     let lines = await loadLines(tx, cartId);
     const missing: Record<string, string> = {};
     if (lines.length === 0) missing.items = 'cart is empty';
