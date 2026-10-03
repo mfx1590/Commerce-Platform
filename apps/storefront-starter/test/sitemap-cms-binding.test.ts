@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as Cms from '@/lib/cms';
 import type * as StoreApi from '@/lib/store-api';
 
 /**
@@ -16,7 +17,7 @@ const getStoreOrNull = vi.fn();
 
 vi.mock('@/lib/cms', async (importOriginal) => ({
   // The schedule rule is window 6's and is used as is.
-  campaignIsLive: (await importOriginal<typeof import('@/lib/cms')>()).campaignIsLive,
+  campaignIsLive: (await importOriginal<typeof Cms>()).campaignIsLive,
   cmsConfigFromEnv: () => ({ projectId: 'project-under-test' }),
   isCmsConfigured: (...args: unknown[]) => isCmsConfigured(...args),
   createReader: (...args: unknown[]) => createReader(...args),

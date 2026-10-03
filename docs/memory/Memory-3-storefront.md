@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR six, prepared on this branch and NOT YET RUN OR PUSHED — run it when the manager frees the machine; then #312**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR six, in review; then #312**
 
 ## Identity (does not change)
 
@@ -267,20 +267,18 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     as a guest and completed after sign-in must still work; tests for signed-in create and
     complete (token sent), guest (none), the 401 and the 409 paths.
 
-- **#293 — PR SIX, PREPARED ON `storefront/phase2` ON 2026-10-03 (code only; window 1 had the
-  machine). NOT RUN, NOT PUSHED.** The parked commit `2587ec9` was cherry-picked onto main
-  `79b491c` (conflicts in CHANGELOG, package.json 0.12.6, README, this file; `sitemap.ts` and
-  `sitemap.xml/route.ts` kept #302's `force-dynamic`), then: the local `scheduleIsLive` and
-  `RoutedDocument` and the `Reflect.get` detection are gone — `campaignIsLive`, `RoutedDocument` and
-  `CmsReader` come from `@/lib/cms` (window 6's #300, on main since #317); `ContentSource` is
-  `Pick<CmsReader, 'routedDocuments'>`; the "before #300" binding test is deleted; the binding
-  test's mock of `@/lib/cms` passes `campaignIsLive` through from the real module.
-  **Owed when the machine is mine:** rebuild the workspace packages; prettier, lint, typecheck,
-  unit tests (the three `sitemap-*` files especially); full mock e2e through the gate (no
-  `STORE_API_URL` in the shell); a production build against the mock to see `/sitemap.xml` and
-  `/sitemap/0.xml` unchanged while no CMS is configured (there is still no Sanity dataset anywhere,
-  so **content appearing in a served sitemap stays unverified** — say so in the PR body, unticked);
-  then push and open PR six (body may close #293). Brand A's `STATIC_PATHS` pin stays green.
+- **#293 — PR SIX OPEN (pushed 2026-10-03; number and SHA in the next commit). Waiting for review.**
+  The parked commit `2587ec9` was cherry-picked onto main `79b491c` (conflicts in CHANGELOG,
+  package.json 0.12.6, README, this file; both sitemap routes kept #302's `force-dynamic`), then
+  the local `scheduleIsLive`, `RoutedDocument` and the `Reflect.get` detection were replaced by
+  `campaignIsLive`, `RoutedDocument` and `CmsReader` from `@/lib/cms` (window 6's #300, on main since
+  #317); `ContentSource` is `Pick<CmsReader, 'routedDocuments'>`; the "before #300" test is gone.
+  **Run on 2026-10-03 with the machine granted:** lint (one fix: an inline `import()` type is
+  forbidden by the lint rule — use a type import), typecheck, 473 unit tests, format; full mock e2e
+  through the readiness gate 65 passed / 2 skipped; production build against the mock with no CMS
+  configured: `/sitemap.xml` one page, `/sitemap/0.xml` the same 12 URLs / 24 alternates as
+  before, no content routes. **Still unverified, named in the PR body: content appearing in a
+  served sitemap** — no Sanity dataset exists anywhere; brand A sees it first on re-sync.
   What is in it: `seo.ts` `sitemapUrls()` (the one expansion from paths to URLs; both sitemap
   routes count it); `sitemap-data.ts` `contentEntries()` over a narrow `ContentSource`, default
   source built with `createReader`, never `getCms()` (preview cookie); tests
