@@ -147,14 +147,19 @@ terms,returns}` and `/campaign/autumn-cloth`, each in both locales. Those conten
 - the sitemap, from the real module: every static path once per locale, each carrying the full
   language map; plus the paging boundary.
 
-**Two things are not yet true, and are named rather than hidden:**
+**Measured 2026-10-03** (production build on :3101 against the core, `SITE_URL` and
+`ROBOTS_ALLOW_INDEXING=1` set, Lighthouse 12.6 mobile, three runs per URL):
 
-- **Lighthouse SEO is 0.92, not the ≥ 95 #142 asks for.** The sole failing audit is
-  `meta-description`, blocked on **#274**: metadata is emitted into `<body>` rather than `<head>` on
-  the home, PDP and content routes. Diagnosed in detail on that issue; it is the starter's to fix.
-- **hreflang is not yet effective on the content routes.** It is in `<body>` (ignored by Google, per
-  #274) _and_ those routes are absent from the sitemap (**#293**), so both accepted mechanisms miss
-  them at once. `/`, `/products` and the catalogue are fine — the sitemap carries their alternates.
+- **SEO 1.00 on every run**: worst of three is 1.00 on `/en-GB`, `/en-GB/products`,
+  `/en-GB/products/classic-tee` and `/de-DE/products`, with no failing SEO audit. Performance
+  0.85–0.97, accessibility 1.00. (#274 fixed by #299; was 0.92.)
+- **hreflang is in `<head>` in the served bytes**: description, canonical and the
+  `en-GB`/`de-DE`/`x-default` alternates, on 7 routes × 4 user agents (desktop Chrome, Lighthouse
+  mobile, Googlebot, none) × 2 requests each, so 280 checks with 0 failures. The sitemap carries
+  alternates on all 422 URLs, all on the configured origin.
+- **Content routes were not measured at runtime**: no Sanity project is configured locally, so they
+  404 (and the e2e skips them without `CMS_DATASET`). Their sitemap inventory is asserted from brand
+  A's real dataset in `test/brand-i18n-seo.test.ts`.
 
 ## Which backend answers what
 

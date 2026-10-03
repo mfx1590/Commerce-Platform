@@ -66,12 +66,16 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - Manager answers 2026-10-03: #143 order history is its OWN later PR after #325 merges; imagery
   is its OWN PR after this one (manifest cms/brand-a/media/manifest.json, premium folders only,
   owner holds Cloudinary creds — must work with keys absent; product matrix is the manager's).
-- WAITING for the machine (window 1 running PR C suites). Then SEO first, then 3 bounded flake
-  passes in the same slot, detached to a file. PR body may close #142 only if both hold worst-of-3.
-- NEXT (needs the manager): (a) hand-measure SEO on :3101 with ROBOTS_ALLOW_INDEXING=1 + SITE_URL
-  against the core, quote numbers, close #142's two criteria in this PR if they hold;
-  (b) ask for a quiet slot, then three bounded full e2e passes; (c) answer #143 order history;
-  (d) plan-paste the brand-A imagery plan (media outside repo, Cloudinary, manifest only).
+- MEASURED 2026-10-03 (main d335979): SEO 1.00 on all 12 Lighthouse runs (4 URLs × 3, worst 1.00),
+  hreflang in <head> raw bytes 280/280, sitemap 422 URLs with alternates. Content routes NOT
+  runtime-measured: SANITY_PROJECT_ID empty locally → 404 (asserted from dataset in unit test).
+- FLAKE CHECK FAILED: passes 84/3, 87/0, 82/5 (22 skipped each). Root cause: since the sync,
+  next.config allows picsum → /_next/image fetches the internet; specs wait on networkidle; the
+  optimizer request never completed in the failing PDP trace. REQUEST #327 (window 3). So PR uses
+  "Refs #142", not Closes. Brand a11y.spec.ts has the same networkidle pattern — align after #327.
+- Machine recipe gotcha: start brand with .env sourced too, or CMS is unconfigured; gh can hang —
+  GH_PROMPT_DISABLED=1 + timeout, kill gh.exe if stuck.
+- NEXT: #143 order-history journey test after #325 on main (own PR); then imagery PR (plan approved).
 
 ## RESUME HERE (the exact sequence, in order)
 

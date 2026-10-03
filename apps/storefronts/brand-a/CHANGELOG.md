@@ -24,6 +24,10 @@
 - Sync lists: `test/slots.test.ts` is no longer preserved (#278 resolved upstream);
   `test/starter-defaults.test.ts` is excluded (starter-only, and its imports evaluate brand fonts;
   REQUEST #326 asks window 3 to move them inside the `runIf` block).
+- **SEO re-measured**: 1.00 on all 12 Lighthouse runs (worst of three per URL), hreflang in
+  `<head>` in the raw bytes on 280/280 checks. Details in the README.
+- `e2e/routes.spec.ts` placement check is case-insensitive (React writes `hrefLang=`), and its
+  content routes follow the same `CMS_DATASET` gate as the route test.
 - **Preserved-file drift is now reported.** Each sync records the starter's git blob id per
   preserved file in `scripts/starter-preserved.json`; the sync and `sync --check` list every
   preserved file whose starter counterpart changed since. Report only — it never fails a suite.
