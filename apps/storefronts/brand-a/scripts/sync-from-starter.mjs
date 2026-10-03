@@ -28,12 +28,18 @@
  * brand added from one the starter deleted. `scripts/starter-manifest.json` is that record: the
  * starter's own package.json as of the last sync, written at the end of every run and committed. It
  * is generated — never edit it by hand.
+ *
+ * PRESERVED files never receive starter fixes, so `scripts/starter-preserved.json` records the
+ * starter's blob id for each one at every sync, and both the sync and `--check` list the preserved
+ * files whose starter counterpart has changed since — those need porting by hand. See
+ * preserved-drift.mjs.
  */
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mergePackageJson } from './merge-package-json.mjs';
+import { blobIds, preservedDrift } from './preserved-drift.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(here, '..');
@@ -79,6 +85,28 @@ const manifestPath = path.join(appDir, 'scripts', 'starter-manifest.json');
 const previousStarter = existsSync(manifestPath) ? readJson(manifestPath) : undefined;
 const starterPackage = readJson(path.join(starterDir, 'package.json'));
 
+/** The starter's blob id per preserved path as of the last sync, and today. */
+const preservedRecordPath = path.join(appDir, 'scripts', 'starter-preserved.json');
+const previousPreserved = existsSync(preservedRecordPath)
+  ? readJson(preservedRecordPath)
+  : undefined;
+const currentPreserved = blobIds(
+  execFileSync('git', ['-C', starterDir, 'ls-files', '-s'], { encoding: 'utf8' }),
+  (file) => isPreserved(file) && !EXCLUDE.has(file),
+);
+const preservedReport = () => {
+  if (previousPreserved === undefined) {
+    return ['No record of the preserved files yet; this sync writes one.'];
+  }
+  const drift = preservedDrift(previousPreserved, currentPreserved);
+  if (drift.length === 0) return [];
+  return [
+    `${drift.length} PRESERVED file(s) changed in the starter since the last sync — the sync does not`,
+    'take them; diff each against the starter and port the fix by hand:',
+    ...drift.map((entry) => `  ${entry}`),
+  ];
+};
+
 /**
  * `--check`: is the committed manifest still an accurate record of the starter?
  *
@@ -89,6 +117,13 @@ const starterPackage = readJson(path.join(starterDir, 'package.json'));
  * demand, by the person syncing, and nowhere else.
  */
 if (checkOnly) {
+  // Reported first and never decides the exit code: the person checking wants to see it, and it
+  // stays true after the sync until someone ports the change.
+  const preservedLines = preservedReport();
+  if (preservedLines.length > 0) {
+    console.log(['sync-from-starter --check:', ...preservedLines].join('\n'));
+  }
+
   if (previousStarter === undefined) {
     console.log('sync-from-starter --check: no manifest yet; the next sync will write one.');
     process.exit(0);
@@ -150,9 +185,12 @@ for (const file of tracked) {
 
 // Last, and only after a successful run: next time, this is what "the starter used to have" means.
 writeJson(manifestPath, starterPackage);
+const preservedLines = preservedReport();
+writeJson(preservedRecordPath, currentPreserved);
 
 console.log(
   `sync-from-starter: ${copied} copied, ${merged} merged, ${preserved} preserved, ` +
     `${EXCLUDE.size} excluded (from ${tracked.length} tracked starter files)` +
     `${previousStarter === undefined ? '; no previous manifest, nothing treated as deleted' : ''}`,
 );
+if (preservedLines.length > 0) console.log(preservedLines.join('\n'));

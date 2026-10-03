@@ -55,7 +55,7 @@ Everything else is byte-identical to `apps/storefront-starter` at the commit of 
 | `playwright.config.ts`                            | `APP_URL` :3101 and `SITE_URL` from it; mock `cwd` one level deeper; platform-keyed snapshots |
 | `lighthouserc.json`                               | none today — matches `scripts/perf.mjs`'s `127.0.0.1:3100` (the gate is vacuous, #283)        |
 | `src/brand/config.ts`                             | `name` and `description` only; the rest tracks the starter (fail-closed `siteUrl()`)          |
-| `test/starter-defaults.test.ts`                   | **excluded** — starter-only; its imports would evaluate brand fonts under vitest              |
+| `test/starter-defaults.test.ts`                   | **excluded** — starter-only; its imports evaluate brand fonts under vitest (REQUEST #326)     |
 | `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
 | `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                        |
 | `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                |
@@ -278,7 +278,10 @@ What the PRESERVE list costs, worth checking after any sync: **preserved files d
 starter fixes.** The 2026-10-03 re-sync found `next.config.mjs` (no `htmlLimitedBots`, no CSP frame
 hosts, no security headers), `src/brand/config.ts` (no fail-closed `siteUrl()`),
 `playwright.config.ts` (no warm-readiness server) and `lighthouserc.json` (no pessimistic SEO) all
-behind. Diff each preserved file against the starter on every sync.
+behind. So every sync records the starter's blob id per preserved file in
+`scripts/starter-preserved.json`, and both the sync and `--check` list each preserved file whose
+starter counterpart changed since (`~` changed, `+` new, `-` gone). It reports and never fails:
+port the change by hand, then the next sync clears the line.
 
 ## Test
 

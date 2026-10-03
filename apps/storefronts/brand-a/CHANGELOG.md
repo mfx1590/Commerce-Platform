@@ -22,7 +22,12 @@
   A's authored dataset fed through the synced `contentEntries`: 2 pages, 4 legal pages and the live
   campaign, each in both locales; the campaign drops out after `endsAt`.
 - Sync lists: `test/slots.test.ts` is no longer preserved (#278 resolved upstream);
-  `test/starter-defaults.test.ts` is excluded (starter-only, and its imports evaluate brand fonts).
+  `test/starter-defaults.test.ts` is excluded (starter-only, and its imports evaluate brand fonts;
+  REQUEST #326 asks window 3 to move them inside the `runIf` block).
+- **Preserved-file drift is now reported.** Each sync records the starter's git blob id per
+  preserved file in `scripts/starter-preserved.json`; the sync and `sync --check` list every
+  preserved file whose starter counterpart changed since. Report only — it never fails a suite.
+  `scripts/preserved-drift.mjs` + 5 tests.
 
 ## 0.6.0 — 2026-10-02 · task 2.5 (#143, partial — see below)
 

@@ -61,6 +61,13 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 ## In progress — re-sync PR (one small PR, brands/phase2)
 - DONE locally: sync, preserved-file rebuild (next.config/brand config/playwright/lighthouserc),
   pins replaced, typecheck + 634 unit tests + eslint + ownership green.
+- DONE: manager's rider — preserved-file drift report (scripts/preserved-drift.mjs,
+  scripts/starter-preserved.json, 5 tests); REQUEST #326 filed (starter-defaults imports).
+- Manager answers 2026-10-03: #143 order history is its OWN later PR after #325 merges; imagery
+  is its OWN PR after this one (manifest cms/brand-a/media/manifest.json, premium folders only,
+  owner holds Cloudinary creds — must work with keys absent; product matrix is the manager's).
+- WAITING for the machine (window 1 running PR C suites). Then SEO first, then 3 bounded flake
+  passes in the same slot, detached to a file. PR body may close #142 only if both hold worst-of-3.
 - NEXT (needs the manager): (a) hand-measure SEO on :3101 with ROBOTS_ALLOW_INDEXING=1 + SITE_URL
   against the core, quote numbers, close #142's two criteria in this PR if they hold;
   (b) ask for a quiet slot, then three bounded full e2e passes; (c) answer #143 order history;
