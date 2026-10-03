@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 (end of day) · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branches: `storefront/phase2` = **PR #329 (#312), pushed at `e594fc6`, CI green, manager's static review running — do NOT push phase2 until the manager confirms the merge**; **the worktree sits on the local-only `storefront/hold-327` (on top of `e594fc6`), which has the newest copy of this file**; `storefront/hold-326` (`bdc92e0`, off old main) waits. Order: #312 → #327 → #326, one PR each, every push on the manager's confirm. **Machine NOT mine** (window 10, #143).
+Last updated: 2026-10-03 (night) · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branch: **`storefront/phase2` = PR #329 (#312), worktree here.** #312 commits: `add9600` (token on cart create/complete), `f1debc1` (signed-in purchase e2e), `cb6655c` (package notes), `336846b` (0.12.7 changelog: pre-PR-C core answered 201), `1ad810e` (stale-session e2e + core run), **`0bfac3f` (review fix: 409 mode wiring + empty-details link conflict + action-level test)**; main merged at `e594fc6` and `1de6211`. **Review of #329 = BLOCK (two items), both fixed in `0bfac3f` + this memory commit; pushed once, CI result reported to the manager; no further pushes until the manager says.** Local holds: `storefront/hold-327` (`08b3240`, #327 code, unverified, on `e594fc6`), `storefront/hold-326` (`bdc92e0`). Order after #329 merges: #327 → #326. **Machine NOT mine** (window 10, #143). Parked review nits ("not now"): the customer is not told the session was dropped; a customer-linked cart completed after the fallback stays linked while the storefront reports guest.
 
 ## Identity (does not change)
 
@@ -255,6 +255,17 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   only. Every run: output to a file, started detached, polled with a bounded loop; no step waits
   on a pipe or on a server's lifetime. Ask before a perf gate.**
 
+- **#312 / PR #329 — review BLOCK (manager, 2026-10-03 night), fixed in `0bfac3f`:** (1)
+  `placeOrderAction` set `mode` only after `asCustomerOrGuest` resolved, so a 409 thrown by the
+  customer attempt was mapped as `'guest'` and the link message was unreachable. Now
+  `asCustomerOrGuest` takes `onAttempt(mode)` (called before each attempt) and the action records
+  it. And `mapCompletionError` gives the link message only for a `conflict` with **empty
+  `details`** — the core's `anotherCustomers()`; promotion last use (`details.promotion_id`) and
+  key reuse across carts (`details['Idempotency-Key']`) keep the generic text. A
+  `details.reason` in the contract would be cleaner — offer as a CONTRACT CHANGE if asked.
+  `test/place-order-action.test.ts` (5) drives the action with network, cookies and session mocked;
+  red against the old wiring and against dropping the details rule. Unit 503, typecheck, lint,
+  format pass. (2) Memory line 4 made true with the shas. Code-only; no e2e re-run (machine not mine).
 - **#312 — 2026-10-03, manager: core PR C (#325) merged as `5997584`.** `storefront/phase2` was
   fast-forwarded to `storefront/hold-312` and merged with origin/main `2a0f828` (clean);
   `pnpm install --frozen-lockfile`, typecheck (starter + ui) and 496 unit tests pass — nothing broke
