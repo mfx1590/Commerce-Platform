@@ -26,9 +26,16 @@ Brand A defaults (each overridable in the environment):
 | Variable                | Brand A default                       | Set in                                    |
 | ----------------------- | ------------------------------------- | ----------------------------------------- |
 | `PORT`                  | `3101`                                | `scripts/start.mjs` (dev: `package.json`) |
-| `SITE_URL`              | `http://localhost:3101`               | `next.config.mjs`                         |
+| `SITE_URL`              | **none — required** in production     | every run sets it (see below)             |
 | `STORE_PUBLISHABLE_KEY` | `pk_brand-a_dev_00000000000000000000` | `next.config.mjs`                         |
 | `KEYCLOAK_CLIENT_ID`    | `storefront-brand-a`                  | starter default (no change)               |
+
+**`SITE_URL` has no default, on purpose.** Since #320 every redirect, canonical, sitemap URL and
+OIDC redirect URI is built on it, never on the request, and `siteUrl()` fails closed: a production
+server started without it answers **500**. A default here would have answered `localhost:3101` from
+a real deployment — the #298 defect. `next dev` and unit tests fall back to the starter's
+`http://localhost:3100`, so set `SITE_URL=http://localhost:3101` for dev too if you sign in.
+`playwright.config.ts` sets it for the e2e server; `scripts/perf.mjs` sets it to its own origin.
 
 The publishable key is brand A's seeded dev key (`SEED_IDS.publishableKeys.brandA` in
 `packages/db`; hashed in the database, public by design). The Store API resolves store `brand-a`
@@ -38,25 +45,25 @@ and its sales channel from it. `GET /health` answers 200 for the container HEALT
 
 Everything else is byte-identical to `apps/storefront-starter` at the commit of the last sync.
 
-| File                                              | Why                                                                                          |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`      |
-| `test/slots.test.ts`                              | **temporary** — drops assertions that this brand overrides nothing (REQUEST #278)            |
-| `playwright.config.ts`                            | platform-keyed `snapshotPathTemplate` for visual baselines                                   |
-| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                   |
-| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                            |
-| `scripts/start.mjs`                               | default port 3101                                                                            |
-| `next.config.mjs`                                 | brand env defaults (`SITE_URL`, `STORE_PUBLISHABLE_KEY`) via `??=`                           |
-| `playwright.config.ts`                            | `APP_URL` default :3101; mock webServer `cwd` one level deeper                               |
-| `lighthouserc.json`                               | audit URLs on :3101                                                                          |
-| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                              |
-| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                       |
-| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                               |
-| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                         |
-| `scripts/starter-manifest.json`                   | new — **generated**: the starter's package.json at the last sync                             |
-| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                             |
-| `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here       |
-| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2) |
+| File                                              | Why                                                                                           |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`       |
+| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                    |
+| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                             |
+| `scripts/start.mjs`                               | default port 3101                                                                             |
+| `next.config.mjs`                                 | `STORE_PUBLISHABLE_KEY` default via `??=` (deliberately not `SITE_URL`)                       |
+| `playwright.config.ts`                            | `APP_URL` :3101 and `SITE_URL` from it; mock `cwd` one level deeper; platform-keyed snapshots |
+| `lighthouserc.json`                               | none today — matches `scripts/perf.mjs`'s `127.0.0.1:3100` (the gate is vacuous, #283)        |
+| `src/brand/config.ts`                             | `name` and `description` only; the rest tracks the starter (fail-closed `siteUrl()`)          |
+| `test/starter-defaults.test.ts`                   | **excluded** — starter-only; its imports would evaluate brand fonts under vitest              |
+| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
+| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                        |
+| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                |
+| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                          |
+| `scripts/starter-manifest.json`                   | new — **generated**: the starter's package.json at the last sync                              |
+| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                              |
+| `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here        |
+| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)  |
 
 ## Theme
 
@@ -267,11 +274,11 @@ Two rules follow, and they decide what "identity survives" actually means:
   task. A re-sync on an already-merged app writes a byte-identical file; `test/sync-merge.test.ts`
   asserts that, and both halves of the contract.
 
-One thing the PRESERVE list still costs, worth checking after any sync:
-
-- **`test/slots.test.ts` is preserved while REQUEST #278 is open.** Drop it from `PRESERVE`,
-  re-sync, and delete the deviation comment once window 3 has moved the starter-only assertions
-  out of the shared test.
+What the PRESERVE list costs, worth checking after any sync: **preserved files do not receive
+starter fixes.** The 2026-10-03 re-sync found `next.config.mjs` (no `htmlLimitedBots`, no CSP frame
+hosts, no security headers), `src/brand/config.ts` (no fail-closed `siteUrl()`),
+`playwright.config.ts` (no warm-readiness server) and `lighthouserc.json` (no pessimistic SEO) all
+behind. Diff each preserved file against the starter on every sync.
 
 ## Test
 

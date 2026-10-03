@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-02 · Contracts: contracts-v0.4.6 · Branch: `brands/phase2` · Status: **PARKED** — 2.5 PR #301 (de3e9ef) verified MERGE, queued behind window 3. Waiting for the starter to be ready (#304 + #298), then one re-sync.
+Last updated: 2026-10-03 · Contracts: contracts-v0.4.9 · Branch: `brands/phase2` · Status: **ACTIVE** — re-sync on main 4c4aa80 done and green locally; runtime steps (SEO measure, flake check) await the manager.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -58,11 +58,13 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — NOTHING. Parked by the manager.
-
-**Do not start the re-sync until the manager wakes you.** It is deliberately done ONCE, after
-window 3's **#304** (the starter's checkout + account specs, including my two flake notes) and
-**#298** (redirect origins) have landed — not twice.
+## In progress — re-sync PR (one small PR, brands/phase2)
+- DONE locally: sync, preserved-file rebuild (next.config/brand config/playwright/lighthouserc),
+  pins replaced, typecheck + 634 unit tests + eslint + ownership green.
+- NEXT (needs the manager): (a) hand-measure SEO on :3101 with ROBOTS_ALLOW_INDEXING=1 + SITE_URL
+  against the core, quote numbers, close #142's two criteria in this PR if they hold;
+  (b) ask for a quiet slot, then three bounded full e2e passes; (c) answer #143 order history;
+  (d) plan-paste the brand-A imagery plan (media outside repo, Cloudinary, manifest only).
 
 ## RESUME HERE (the exact sequence, in order)
 
@@ -185,7 +187,13 @@ manager's OK.
 - CI brand-storefront journeys stay opt-in (`E2E_INCLUDE_BRAND_STOREFRONTS=1`) until window 2
   lands #212; brands opts in at 2.5 (#143) after that.
 
-## Gotchas learned
+## Gotchas
+- **PRESERVED files never receive starter fixes.** The 2026-10-03 re-sync found next.config.mjs,
+  src/brand/config.ts, playwright.config.ts and lighthouserc.json all behind (missing #274's
+  htmlLimitedBots, #320's fail-closed siteUrl, the e2e readiness server). Diff every preserved
+  file against the starter on every sync.
+- `e2e/support/build-origin.ts` (starter) defaults SITE_URL to :3100; brand playwright config
+  sets `process.env.SITE_URL` from APP_URL before workers start. learned
 - **"Against the real stack" is a per-route claim, not a mode.** With `CORE_STORE_API_FALLBACK=1`
   the core proxies what it does not mount. Browse + cart reach the core; `/store/customers/me` and
   the `/store/orders` LIST are Prism (#303). This false claim survived three review rounds in three

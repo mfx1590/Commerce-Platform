@@ -5,6 +5,7 @@ import { Link } from '@/i18n/navigation';
 import { PlaceOrderForm } from '@/components/checkout-forms';
 import { CheckoutSteps } from '@/components/checkout-steps';
 import { AddressCard, TotalsTable } from '@/components/order-summary';
+import { orderLineHooks } from '@/lib/test-hooks';
 import { requireCheckoutStep } from '@/lib/checkout-page';
 import { stepPath } from '@/lib/checkout';
 
@@ -27,7 +28,7 @@ export default async function ReviewStepPage() {
 
       <ul className="flex flex-col divide-y divide-border">
         {cart.items.map((item) => (
-          <li key={item.id} className="flex justify-between gap-4 py-3">
+          <li key={item.id} className="flex justify-between gap-4 py-3" {...orderLineHooks(item)}>
             <span>
               <span className="font-medium">{item.title}</span>{' '}
               <span className="text-muted-foreground">

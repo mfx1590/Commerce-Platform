@@ -1,5 +1,29 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-03 · re-sync from the starter at main 4c4aa80
+
+- **Re-sync**: 176 copied, 1 merged, 10 preserved, 5 excluded. Brings #299, #305, #309, #316,
+  #317, #320, #321, #322 (metadata in `<head>`, store facts, per-request sitemap, routed CMS
+  documents in the sitemap, redirects and preview redirects from `SITE_URL`, fail-closed origin,
+  warm-readiness e2e server).
+- **Preserved files had drifted and silently missed starter fixes**, so each was rebuilt from the
+  starter with only brand values kept: `next.config.mjs` (gains `htmlLimitedBots`, CSP frame
+  hosts, security headers, the picsum seed host), `src/brand/config.ts` (fail-closed `siteUrl()`),
+  `playwright.config.ts` (`scripts/e2e-server.mjs` with build-vs-runtime `SITE_URL` and the
+  readiness port) and `lighthouserc.json` (pessimistic SEO at 0.95).
+- **`SITE_URL` is no longer defaulted** in `next.config.mjs`: a default would defeat #320's fail
+  closed and answer `localhost:3101` from a real deployment. A production brand A without it now
+  answers 500; the e2e config derives it from `APP_URL` (the starter's support file defaults to
+  :3100, which would have sent sign-in and sign-out redirects to the wrong port).
+- `e2e/routes.spec.ts`: the #274 placement pin went red as designed and is replaced by an
+  assertion that description, canonical and hreflang are in `<head>` on brand A's routes,
+  **content routes included**.
+- `test/brand-i18n-seo.test.ts`: the `STATIC_PATHS` pin is replaced by the real inventory — brand
+  A's authored dataset fed through the synced `contentEntries`: 2 pages, 4 legal pages and the live
+  campaign, each in both locales; the campaign drops out after `endsAt`.
+- Sync lists: `test/slots.test.ts` is no longer preserved (#278 resolved upstream);
+  `test/starter-defaults.test.ts` is excluded (starter-only, and its imports evaluate brand fonts).
+
 ## 0.6.0 — 2026-10-02 · task 2.5 (#143, partial — see below)
 
 - **`e2e/journey.spec.ts`** — browse → buy against the **core**, covering what the inherited

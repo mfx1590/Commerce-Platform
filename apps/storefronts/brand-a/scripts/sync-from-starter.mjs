@@ -11,8 +11,10 @@
  *   node scripts/sync-from-starter.mjs --check   # report drift, write nothing, exit 1 if stale
  *
  * EXCLUDED (never copied): the starter's Dockerfile (every Dockerfile is window 5's path — the
- * brand image arrives via a REQUEST issue), and its README/CHANGELOG/CLAUDE.md (this app has its
- * own).
+ * brand image arrives via a REQUEST issue), its README/CHANGELOG/CLAUDE.md (this app has its
+ * own), and test/starter-defaults.test.ts — it asserts the starter ships no brand, so it only runs
+ * where the package is the starter, but its static imports still evaluate `src/brand/tokens.ts`,
+ * whose `next/font/local` call cannot run under vitest. Starter-only by definition.
  *
  * PRESERVED (copied only when missing, never overwritten): the brand-identity files listed in the
  * README's "diff against the starter" section — next.config.mjs, scripts/start.mjs,
@@ -37,7 +39,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(here, '..');
 const starterDir = path.resolve(appDir, '..', '..', 'storefront-starter');
 
-const EXCLUDE = new Set(['Dockerfile', 'CLAUDE.md', 'README.md', 'CHANGELOG.md']);
+const EXCLUDE = new Set([
+  'Dockerfile',
+  'CLAUDE.md',
+  'README.md',
+  'CHANGELOG.md',
+  'test/starter-defaults.test.ts',
+]);
 /** Merged rather than copied or preserved — see merge-package-json.mjs. */
 const MERGE = new Set(['package.json']);
 
@@ -49,10 +57,6 @@ const PRESERVE = new Set([
   // Path-depth fixes: this app sits one directory deeper than the starter.
   'tsconfig.json',
   'tailwind.config.ts',
-  // TEMPORARY, while REQUEST #278 is open: the starter's copy asserts this brand's own override
-  // files are empty, which is false by construction in a clone. Drop this line and re-sync once
-  // window 3 has moved those starter-only assertions out.
-  'test/slots.test.ts',
 ]);
 const isPreserved = (file) => PRESERVE.has(file) || file.startsWith('src/brand/');
 

@@ -1,4 +1,5 @@
 import { Badge, Price, buttonVariants } from '@platform/ui';
+import { orderConfirmationHooks, orderLineHooks } from '@/lib/test-hooks';
 import type { Metadata } from 'next';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { cookies } from 'next/headers';
@@ -59,7 +60,7 @@ export default async function OrderConfirmationPage({
 
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-col items-start gap-2">
+      <header className="flex flex-col items-start gap-2" {...orderConfirmationHooks(order)}>
         <Badge variant="success">{t('badge')}</Badge>
         <h1 className="text-3xl font-bold">{t('title')}</h1>
         <p className="text-muted-foreground">
@@ -69,7 +70,7 @@ export default async function OrderConfirmationPage({
 
       <ul className="flex flex-col divide-y divide-border">
         {order.items.map((item) => (
-          <li key={item.id} className="flex justify-between gap-4 py-3">
+          <li key={item.id} className="flex justify-between gap-4 py-3" {...orderLineHooks(item)}>
             <span>
               <span className="font-medium">{item.title}</span>{' '}
               <span className="text-muted-foreground">

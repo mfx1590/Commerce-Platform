@@ -426,32 +426,78 @@ describe('the sitemap', () => {
   });
 
   /**
-   * #142 asks for the sitemap to be *verified*, and verifying it found a real omission that is not
-   * brand A's to fix.
-   *
-   * `STATIC_PATHS` in `src/lib/sitemap-data.ts` is `['', '/products']`. Categories and products are
-   * walked from the API, but the `(content)` routes are not advertised at all — so brand A's ten
-   * authored documents per locale (about, cloth, four legal pages, the campaign landing) are
-   * invisible to the sitemap. That file is the starter's, so it is a REQUEST rather than an edit.
-   *
-   * This test pins the current, wrong state deliberately — but be precise about when it fires. It
-   * reads *this app's synced copy* of `sitemap-data.ts`, not the starter's. Editing the starter
-   * leaves this suite green (verified); the pin goes red on the **re-sync that brings the fix in**,
-   * which is the right moment — that is when whoever is syncing should delete it and assert the
-   * real inventory. It is deliberately not a tripwire on window 3's own branch.
+   * #142 asks for the sitemap to be *verified*. Verifying it found the content routes missing
+   * (#293); since #322 the starter advertises them from the CMS's `routedDocuments` read. This feeds
+   * that read brand A's **real authored dataset** — rows shaped exactly as the GROQ projection in
+   * `src/lib/cms/queries.ts` answers them — through the synced `contentEntries`, and pins the
+   * inventory: every page but `home` (it is `/`), the four EU legal pages and the live campaign,
+   * each in both locales.
    */
-  it('does NOT yet advertise the content routes — pinned until the starter adds them', async () => {
-    const { STATIC_PATHS } = await import('@/lib/sitemap-data');
-    expect(STATIC_PATHS).toEqual(['', '/products']);
+  const CONTENT_DIR = new URL('../../../../cms/brand-a/content/', import.meta.url);
+  const routedRows = (locale: string) =>
+    readdirSync(CONTENT_DIR)
+      .filter((f) => f.endsWith('.json'))
+      .flatMap(
+        (f) =>
+          JSON.parse(readFileSync(new URL(f, CONTENT_DIR), 'utf8')) as {
+            _type: string;
+            locale?: string;
+            slug?: { current: string };
+            seo?: { noIndex?: boolean };
+            startsAt?: string;
+            endsAt?: string;
+          }[],
+      )
+      .filter(
+        (d) =>
+          ['page', 'legal', 'campaignLanding'].includes(d._type) &&
+          d.locale === locale &&
+          d.slug !== undefined &&
+          d.seo?.noIndex !== true &&
+          !(d._type === 'page' && d.slug.current === 'home'),
+      )
+      .map((d) => ({
+        type: d._type as 'page' | 'legal' | 'campaignLanding',
+        slug: d.slug!.current,
+        ...(d.startsAt === undefined ? {} : { startsAt: d.startsAt }),
+        ...(d.endsAt === undefined ? {} : { endsAt: d.endsAt }),
+      }));
 
+  const source = { routedDocuments: async (locale: string) => routedRows(locale) };
+  const DURING_CAMPAIGN = Date.parse('2026-10-15T00:00:00Z');
+  const AFTER_CAMPAIGN = Date.parse('2026-12-02T00:00:00Z');
+
+  it('advertises every authored content route, in both locales', async () => {
+    const { contentEntries } = await import('@/lib/sitemap-data');
+    const entries = await contentEntries(source, locales, DURING_CAMPAIGN);
+    expect(entries).toEqual(
+      [
+        '/pages/about',
+        '/pages/cloth',
+        '/legal/imprint',
+        '/legal/privacy',
+        '/legal/returns',
+        '/legal/terms',
+        '/campaign/autumn-cloth',
+      ].map((path) => ({ path, locales: ['en-GB', 'de-DE'] })),
+    );
+    // Every content route the app mounts is covered by the inventory, and nothing else is.
     const contentRoutes = ROUTES.filter(
       (r) => r.startsWith('/pages/') || r.startsWith('/legal/') || r.startsWith('/campaign/'),
     );
     expect(contentRoutes.length).toBeGreaterThan(0);
     for (const route of contentRoutes) {
-      expect(STATIC_PATHS, `${route} unexpectedly advertised — update this test`).not.toContain(
-        route,
-      );
+      expect(
+        entries.map((e) => e.path),
+        `${route} not advertised`,
+      ).toContain(route);
     }
+  });
+
+  it('drops the campaign once it has ended, as the route itself 404s it', async () => {
+    const { contentEntries } = await import('@/lib/sitemap-data');
+    const paths = (await contentEntries(source, locales, AFTER_CAMPAIGN)).map((e) => e.path);
+    expect(paths).not.toContain('/campaign/autumn-cloth');
+    expect(paths).toContain('/pages/about');
   });
 });

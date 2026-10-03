@@ -165,6 +165,19 @@ describe('priceString', () => {
 
   it('handles zero-decimal currencies', () => {
     expect(priceString(1999, 'JPY')).toBe('1999');
+    expect(priceString(1999, 'KRW')).toBe('1999');
+    // Not only the two everybody remembers: a hard-coded pair priced these a hundred times too low.
+    expect(priceString(250000, 'VND')).toBe('250000');
+    expect(priceString(4990, 'CLP')).toBe('4990');
+  });
+
+  it('handles three-decimal currencies', () => {
+    expect(priceString(1999, 'KWD')).toBe('1.999');
+    expect(priceString(12500, 'BHD')).toBe('12.500');
+  });
+
+  it('falls back to two decimals for a code the runtime does not know', () => {
+    expect(priceString(1999, 'not-a-currency')).toBe('19.99');
   });
 });
 
