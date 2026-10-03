@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2` (the worktree is on it) · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR #322 (BLOCK on records only, fixed and pushed, awaiting the queue); #312 written on `storefront/hold-312`, unrun, waits for core PR C**
+Last updated: 2026-10-03 · Contracts: **contracts-v0.4.8** (main `79b491c`; Store API 0.5.1) · Branch: `storefront/phase2`; **the worktree sits on the local-only `storefront/hold-312`, which has the newest copy of this file** · Status: 2.1–2.4 merged; **#274 (#299), #286/#278 (#305), #302 (#309), #304/#306 (#316) and #298 (#320) merged; #293 is PR #322 (BLOCK on records only, fixed and pushed, awaiting the queue); #312 written on `storefront/hold-312`, unrun, waits for core PR C**
 
 ## Identity (does not change)
 
