@@ -506,6 +506,22 @@ scripts/e2e-server.mjs …`); when `CI` is set they **fail** instead, because CI
 server and getting there means the setup is broken. To run it for real on a laptop, stop the
 server on :3100 and let Playwright start it. The rules are in `e2e/support/build-origin.ts`
 and unit-tested in `test/e2e-build-origin.test.ts`.
+**CMS content is in the sitemap, per locale (#293).** Published `page` and `legal` documents and
+live `campaignLanding`s are listed under `/pages`, `/legal` and `/campaign`, between the static
+routes and the catalogue. A CMS document exists only in the locales it was published in, so each
+entry carries its own locale list: it gets one URL per such locale and `hreflang` alternates for
+exactly those — an alternate pointing at a 404 is worse than none. That is also why the page count
+is no longer `paths × locales`: `sitemapUrls()` in `src/lib/seo.ts` is the one place paths become
+URLs, and the sitemap pages and the index both count its output.
+
+The documents come from the cms module's public reader, `routedDocuments(locale)` (requested from
+window 6 in #300): noIndex documents and the `home` page are filtered there, the schedule is
+returned and applied here at render time, so an expired campaign leaves the sitemap at the next
+revalidation rather than staying until the cached list is refreshed. The reader is built with
+`createReader`, never `getCms()` — that one reads the preview cookie, and a sitemap is cached and
+public. The schedule rule is the reader's own `campaignIsLive`, the same one `campaign/[slug]`
+applies before it renders; a missing schedule side is an absent key, never `null`. A CMS that is
+unconfigured, unreachable or failing costs the content entries and nothing else.
 
 **Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
 agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,

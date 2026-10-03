@@ -93,3 +93,12 @@
   response. No schema change: neither `Cart` nor `Order` exposes `customer_id`.
 - `CONTRACTS_VERSION = '0.4.8'`; types regenerated. Producers: window 1 (#303 PR A/B/C). Consumers: window 3 (the storefront sends the
   customer token on cart create/complete when signed in), window 4 (settings cards may rely on the sets), brands by re-sync.
+
+## 0.4.9 — 2026-10-03 (#303 PR B; contracts-v0.4.9)
+
+- Store API 0.5.2 (22 operations, unchanged): `addMyAddress` takes optional `is_default_shipping` / `is_default_billing` (the first
+  address is the default for both; a flag moves the default to the new address inside the core's locked transaction; the shared
+  `Address` schema is untouched because carts use it); `updateMe` and `listMyOrders` document `400` (wrong body type / invalid
+  page or limit — the deviations recorded on #303 end here). `listMyAddresses` documents no 400 on purpose: no query, no body.
+- Admin API unchanged. `CONTRACTS_VERSION = '0.4.9'`; types regenerated. Producer: window 1 (#303 PR B). Consumers: window 3
+  (#312 later), brands by re-sync.
