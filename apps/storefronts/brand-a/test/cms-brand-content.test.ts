@@ -2,6 +2,7 @@ import { schemaTypes, validateDocument } from '@platform/cms';
 import type { CmsDocument, LegalDocument, PageDocument } from '@platform/cms';
 import { readFileSync, readdirSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveMedia } from '../../../../cms/brand-a/scripts/resolve-media.mjs';
 import { render, text } from './cms-render';
 import CampaignPage from '@/app/[locale]/(content)/campaign/[slug]/page';
 import LegalPage from '@/app/[locale]/(content)/legal/[slug]/page';
@@ -39,11 +40,21 @@ vi.mock('@/lib/cms/content', async (importOriginal) => ({
 
 const CONTENT_DIR = new URL('../../../../cms/brand-a/content/', import.meta.url);
 
-/** Every authored document, exactly as the seed script reads them. */
-const documents: CmsDocument[] = readdirSync(CONTENT_DIR)
-  .filter((f) => f.endsWith('.json'))
-  .sort()
-  .flatMap((f) => JSON.parse(readFileSync(new URL(f, CONTENT_DIR), 'utf8')) as CmsDocument[]);
+const MEDIA_MANIFEST = new URL('../../../../cms/brand-a/media/manifest.json', import.meta.url);
+
+/**
+ * Every authored document, exactly as the seed script sends them once a Cloudinary cloud name is
+ * set: images are authored as media slots and resolved at seed time (`resolve-media.mjs`), so the
+ * raw files are not what reaches the dataset. The slot rules themselves are in brand-media.test.ts.
+ */
+const documents: CmsDocument[] = resolveMedia(
+  readdirSync(CONTENT_DIR)
+    .filter((f) => f.endsWith('.json'))
+    .sort()
+    .flatMap((f) => JSON.parse(readFileSync(new URL(f, CONTENT_DIR), 'utf8')) as object[]),
+  JSON.parse(readFileSync(MEDIA_MANIFEST, 'utf8')) as { slots: object[] },
+  { cloudName: 'test-cloud' },
+).documents as CmsDocument[];
 
 const LOCALES = ['en-GB', 'de-DE'] as const;
 /** The EU set issue #141 names. */

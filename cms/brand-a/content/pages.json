@@ -4,11 +4,18 @@
     "_type": "page",
     "locale": "en-GB",
     "title": "Who we are",
-    "slug": { "_type": "slug", "current": "about" },
+    "slug": {
+      "_type": "slug",
+      "current": "about"
+    },
     "hero": {
       "_type": "hero",
       "headline": "Who we are",
-      "subheadline": "Four people, one warehouse, two collections a year."
+      "subheadline": "Four people, one warehouse, two collections a year.",
+      "image": {
+        "_type": "image",
+        "mediaSlot": "about-cutting-table"
+      }
     },
     "blocks": [
       {
@@ -31,7 +38,13 @@
             "_type": "block",
             "_key": "a-h2",
             "style": "h2",
-            "children": [{ "_type": "span", "_key": "a-h2-s", "text": "How we work" }]
+            "children": [
+              {
+                "_type": "span",
+                "_key": "a-h2-s",
+                "text": "How we work"
+              }
+            ]
           },
           {
             "_type": "block",
@@ -46,6 +59,15 @@
             ]
           }
         ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-about-loom-hands",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "about-loom-hands"
+        },
+        "width": "content"
       }
     ],
     "seo": {
@@ -57,11 +79,18 @@
     "_type": "page",
     "locale": "de-DE",
     "title": "Wer wir sind",
-    "slug": { "_type": "slug", "current": "about" },
+    "slug": {
+      "_type": "slug",
+      "current": "about"
+    },
     "hero": {
       "_type": "hero",
       "headline": "Wer wir sind",
-      "subheadline": "Vier Menschen, ein Lager, zwei Kollektionen im Jahr."
+      "subheadline": "Vier Menschen, ein Lager, zwei Kollektionen im Jahr.",
+      "image": {
+        "_type": "image",
+        "mediaSlot": "about-cutting-table"
+      }
     },
     "blocks": [
       {
@@ -84,7 +113,13 @@
             "_type": "block",
             "_key": "a-h2",
             "style": "h2",
-            "children": [{ "_type": "span", "_key": "a-h2-s", "text": "Wie wir arbeiten" }]
+            "children": [
+              {
+                "_type": "span",
+                "_key": "a-h2-s",
+                "text": "Wie wir arbeiten"
+              }
+            ]
           },
           {
             "_type": "block",
@@ -99,6 +134,15 @@
             ]
           }
         ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-about-loom-hands",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "about-loom-hands"
+        },
+        "width": "content"
       }
     ],
     "seo": {
@@ -110,11 +154,18 @@
     "_type": "page",
     "locale": "en-GB",
     "title": "How we choose cloth",
-    "slug": { "_type": "slug", "current": "cloth" },
+    "slug": {
+      "_type": "slug",
+      "current": "cloth"
+    },
     "hero": {
       "_type": "hero",
       "headline": "How we choose cloth",
-      "subheadline": "Three questions, asked in the same order every time."
+      "subheadline": "Three questions, asked in the same order every time.",
+      "image": {
+        "_type": "image",
+        "mediaSlot": "cloth-weave-macro"
+      }
     },
     "blocks": [
       {
@@ -157,11 +208,18 @@
     "_type": "page",
     "locale": "de-DE",
     "title": "Wie wir Stoffe auswählen",
-    "slug": { "_type": "slug", "current": "cloth" },
+    "slug": {
+      "_type": "slug",
+      "current": "cloth"
+    },
     "hero": {
       "_type": "hero",
       "headline": "Wie wir Stoffe auswählen",
-      "subheadline": "Drei Fragen, jedes Mal in derselben Reihenfolge."
+      "subheadline": "Drei Fragen, jedes Mal in derselben Reihenfolge.",
+      "image": {
+        "_type": "image",
+        "mediaSlot": "cloth-weave-macro"
+      }
     },
     "blocks": [
       {

@@ -4,7 +4,10 @@
     "_type": "page",
     "locale": "en-GB",
     "title": "Fieldnote",
-    "slug": { "_type": "slug", "current": "home" },
+    "slug": {
+      "_type": "slug",
+      "current": "home"
+    },
     "hero": {
       "_type": "hero",
       "eyebrow": "Autumn 2026",
@@ -26,7 +29,11 @@
           "href": "/pages/cloth",
           "variant": "secondary"
         }
-      ]
+      ],
+      "image": {
+        "_type": "image",
+        "mediaSlot": "home-hero-01"
+      }
     },
     "blocks": [
       {
@@ -38,7 +45,11 @@
             "_key": "intro-h",
             "style": "h2",
             "children": [
-              { "_type": "span", "_key": "intro-h-span", "text": "Fewer, better, slower" }
+              {
+                "_type": "span",
+                "_key": "intro-h-span",
+                "text": "Fewer, better, slower"
+              }
             ]
           },
           {
@@ -66,6 +77,15 @@
             ]
           }
         ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-home-hero-02",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "home-hero-02"
+        },
+        "width": "wide"
       },
       {
         "_type": "productStory",
@@ -97,7 +117,11 @@
     ],
     "seo": {
       "metaTitle": "Fieldnote — considered apparel, made in small runs",
-      "metaDescription": "A small range of clothes made in short runs from named cloth, shipped across the EU with free thirty-day returns."
+      "metaDescription": "A small range of clothes made in short runs from named cloth, shipped across the EU with free thirty-day returns.",
+      "ogImage": {
+        "_type": "image",
+        "mediaSlot": "og-default"
+      }
     }
   },
   {
@@ -105,7 +129,10 @@
     "_type": "page",
     "locale": "de-DE",
     "title": "Fieldnote",
-    "slug": { "_type": "slug", "current": "home" },
+    "slug": {
+      "_type": "slug",
+      "current": "home"
+    },
     "hero": {
       "_type": "hero",
       "eyebrow": "Herbst 2026",
@@ -127,7 +154,11 @@
           "href": "/pages/cloth",
           "variant": "secondary"
         }
-      ]
+      ],
+      "image": {
+        "_type": "image",
+        "mediaSlot": "home-hero-01"
+      }
     },
     "blocks": [
       {
@@ -139,7 +170,11 @@
             "_key": "intro-h",
             "style": "h2",
             "children": [
-              { "_type": "span", "_key": "intro-h-span", "text": "Weniger, besser, langsamer" }
+              {
+                "_type": "span",
+                "_key": "intro-h-span",
+                "text": "Weniger, besser, langsamer"
+              }
             ]
           },
           {
@@ -167,6 +202,15 @@
             ]
           }
         ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-home-hero-02",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "home-hero-02"
+        },
+        "width": "wide"
       },
       {
         "_type": "productStory",
@@ -198,7 +242,11 @@
     ],
     "seo": {
       "metaTitle": "Fieldnote — durchdachte Kleidung in kleinen Serien",
-      "metaDescription": "Eine kleine Kollektion aus benannten Stoffen, in kurzen Serien gefertigt, EU-weit versandt mit dreißig Tagen kostenloser Rückgabe."
+      "metaDescription": "Eine kleine Kollektion aus benannten Stoffen, in kurzen Serien gefertigt, EU-weit versandt mit dreißig Tagen kostenloser Rückgabe.",
+      "ogImage": {
+        "_type": "image",
+        "mediaSlot": "og-default"
+      }
     }
   }
 ]
