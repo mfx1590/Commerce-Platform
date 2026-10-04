@@ -3,7 +3,8 @@
 import { cookies } from 'next/headers';
 import { redirectLocalized } from './navigate';
 import { clearCart, getCart, getOrCreateCart, refreshCartAttribution } from './cart';
-import { mapCheckoutError, parseAddressForm, stepPath } from './checkout';
+import { mapCheckoutError, mapCompletionError, parseAddressForm, stepPath } from './checkout';
+import { asCustomerOrGuest, type CartCallMode } from './customer-link';
 import { checkoutIdempotencyKey, clearIdempotencyKey } from './idempotency';
 import { storeApi } from './store-api';
 
@@ -172,6 +173,9 @@ export async function placeOrderAction(
   if (!cart) return { error: 'Your cart has expired. Please start again.' };
 
   let orderId: string;
+  // Which attempt the completion is on — set before each attempt, so a 409 thrown by the customer
+  // attempt is read as the customer's (#329 review). Decides what a 409 at completion means.
+  let mode: CartCallMode = 'guest';
   try {
     // Refresh the attribution before placing the order, so the *last* touch reflects the campaign
     // that actually closed the sale rather than the one that created the cart, which may be days
@@ -186,8 +190,20 @@ export async function placeOrderAction(
     }
     // Generated once for this cart and reused on every retry, so a timeout cannot double-charge.
     const idempotencyKey = await checkoutIdempotencyKey(cart.id);
-    const order = await storeApi().completeCart(cart.id, idempotencyKey);
-    orderId = order.id;
+    // As the signed-in customer when there is one (Store API 0.5.1, #312): a guest cart is linked
+    // to the customer inside the placement transaction, so a cart begun before signing in still
+    // places an order that shows in the customer's history. A refused token drops the session
+    // and completes as a guest, once. The same idempotency key covers both attempts: a 401
+    // placed nothing.
+    const completion = await asCustomerOrGuest(
+      (options) => storeApi().completeCart(cart.id, idempotencyKey, options),
+      {
+        onAttempt: (attempt) => {
+          mode = attempt;
+        },
+      },
+    );
+    orderId = completion.result.id;
 
     if (cart.email !== null) {
       (await cookies()).set(ORDER_EMAIL_COOKIE, cart.email, {
@@ -201,7 +217,7 @@ export async function placeOrderAction(
     await clearCart();
     await clearIdempotencyKey();
   } catch (error) {
-    const mapped = mapCheckoutError(error);
+    const mapped = mapCompletionError(error, mode);
     // The cart was already completed: send the customer to the order rather than to an error.
     if (mapped.orderId !== undefined) {
       await clearCart();

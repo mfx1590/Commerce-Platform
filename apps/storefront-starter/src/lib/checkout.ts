@@ -158,6 +158,39 @@ function detailString(details: Record<string, unknown>, key: string): string | u
  * Turn a Store API failure into something the checkout can act on. The contract's `code` is the
  * contract; the message is only ever a fallback for display.
  */
+/**
+ * `mapCheckoutError` for the completion call, which knows one more thing: whether the order was
+ * being placed **as the signed-in customer**. The contract (Store API 0.5.1, #310) reserves 409
+ * `conflict` at completion for a cart that is already linked to *another* customer than the
+ * token's — nothing was placed, nothing authorised. That is recoverable and must be said: sign out
+ * and place it as a guest, or start a new cart. As a guest, `conflict` keeps its usual meaning.
+ *
+ * **Not every 409 at completion is that one** (#329 review). The core also answers `conflict` for
+ * a promotion's last use lost to a race (`details.promotion_id`) and for an `Idempotency-Key`
+ * already used on another cart (`details['Idempotency-Key']`) — with a token or without. The
+ * contract gives the link conflict no code of its own; what sets it apart is that its `details`
+ * are **empty** (apps/core checkout service, `anotherCustomers`). So only an empty-details
+ * `conflict`, on the customer attempt, gets the link message; anything carrying details keeps the
+ * generic text. A `details.reason` in the contract would make this explicit — not asked for yet.
+ */
+export function mapCompletionError(error: unknown, mode: 'customer' | 'guest'): CheckoutError {
+  const mapped = mapCheckoutError(error);
+  if (mode === 'customer' && mapped.code === 'conflict' && isLinkConflict(error)) {
+    return {
+      code: 'conflict',
+      message:
+        'This cart was started by a different customer account, so it cannot be placed from yours. ' +
+        'Sign out to place it as a guest, or start a new cart.',
+    };
+  }
+  return mapped;
+}
+
+/** The link conflict carries no details; the core's other completion conflicts all do. */
+function isLinkConflict(error: unknown): boolean {
+  return isStoreApiError(error) && Object.keys(error.details).length === 0;
+}
+
 export function mapCheckoutError(error: unknown): CheckoutError {
   if (!isStoreApiError(error)) {
     return { code: 'internal', message: 'Something went wrong. Please try again.' };
