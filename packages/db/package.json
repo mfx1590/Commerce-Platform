@@ -27,6 +27,7 @@
     "test": "vitest run",
     "migrate": "tsc -p tsconfig.json && node dist/cli.js migrate",
     "seed": "tsc -p tsconfig.json && node dist/cli.js seed",
+    "top-up-stock": "tsc -p tsconfig.json && node dist/cli.js top-up-stock",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {

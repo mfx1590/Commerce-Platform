@@ -307,6 +307,60 @@ async function bulk(
   }
 }
 
+export interface TopUpOptions {
+  /** Every seeded level is brought back to at least this many AVAILABLE units (default 25). */
+  floor?: number;
+  log?: (msg: string) => void;
+}
+
+/**
+ * Local development only: test journeys place real orders against the shared seed, and a placed
+ * order holds its units (`reserved`) for good, so popular variants run out (alpine-backpack and
+ * alpine-beanie reached 0 on 2026-10-04). Re-running `seed` cannot help — its inserts are
+ * `ON CONFLICT DO NOTHING`. This raises `on_hand` on every level of the seeded stores whose
+ * `available` is below the floor, and writes the difference to the append-only `stock_movement`
+ * ledger in the same transaction, so the projection and the ledger still agree. Reservations are
+ * left alone: the orders that hold them are real rows.
+ */
+export async function topUpStock(
+  pool: Pool,
+  opts: TopUpOptions = {},
+): Promise<{ levels: number; units: number }> {
+  const floor = opts.floor ?? 25;
+  if (!Number.isInteger(floor) || floor < 1 || floor > 1000) {
+    throw new Error(
+      `top-up floor must be an integer between 1 and 1000, got ${String(opts.floor)}`,
+    );
+  }
+  const log = opts.log ?? ((m: string) => console.info(`seed: ${m}`));
+  const hq = createOrganizationClient(pool, { organizationId: SEED_IDS.organization });
+  return hq.transaction(async (tx) => {
+    const r = await tx.query<{ levels: string; units: string | null }>(
+      `WITH low AS (
+         SELECT id, organization_id, store_id, variant_id, warehouse_id, $1::int - available AS delta
+         FROM inventory_level
+         WHERE store_id = ANY($2::uuid[]) AND available < $1::int
+         FOR UPDATE
+       ), raised AS (
+         UPDATE inventory_level il SET on_hand = il.on_hand + low.delta, updated_at = now()
+         FROM low WHERE il.id = low.id
+         RETURNING low.organization_id, low.store_id, low.variant_id, low.warehouse_id, low.delta
+       ), ledger AS (
+         INSERT INTO stock_movement (organization_id, store_id, variant_id, warehouse_id, delta, reason, note)
+         SELECT organization_id, store_id, variant_id, warehouse_id, delta, 'adjustment', 'seed top-up (local development)'
+         FROM raised
+         RETURNING delta
+       )
+       SELECT count(*) AS levels, sum(delta) AS units FROM ledger`,
+      [floor, Object.values(SEED_IDS.stores)],
+    );
+    const levels = Number(r.rows[0]?.levels ?? 0);
+    const units = Number(r.rows[0]?.units ?? 0);
+    log(`top-up: ${levels} inventory levels raised to ${floor} available (+${units} units)`);
+    return { levels, units };
+  });
+}
+
 export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
   const productsPerStore = opts.productsPerStore ?? 200;
   const log = opts.log ?? ((m: string) => console.info(`seed: ${m}`));
