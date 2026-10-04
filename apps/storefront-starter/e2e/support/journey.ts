@@ -97,7 +97,21 @@ export async function advanceToReview(page: Page, email: string): Promise<string
     // Wait for the step to actually *change*. Waiting on `CHECKOUT_STEP` alone matches the URL we
     // are already on, so the loop would come round and click the same button again — by which time
     // the form has disabled it for the submit that is already in flight, and the click hangs.
-    await page.waitForURL((url) => !url.pathname.endsWith(`/${step}`));
+    // Bounded, and loud when it runs out: a submit the server answered with an error leaves the URL
+    // where it is, and an unbounded wait turned that into a silent 180 s test timeout (#327).
+    await page
+      .waitForURL((url) => !url.pathname.endsWith(`/${step}`), { timeout: SERVER_ACTION_TIMEOUT })
+      .catch(async (error: unknown) => {
+        const shown = (await page.getByRole('alert').allTextContents())
+          .map((text) => text.trim())
+          .filter((text) => text !== '');
+        throw new Error(
+          `Checkout stayed on "${step}" after submitting it — ${
+            shown.length > 0 ? `the page says: ${shown.join(' | ')}` : 'no error on the page'
+          }`,
+          { cause: error },
+        );
+      });
   }
 
   throw new Error(`Checkout did not reach the review step; visited ${visited.join(' → ')}`);
