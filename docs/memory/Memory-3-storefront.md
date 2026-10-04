@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-03 (night) · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branch: **`storefront/phase2` = PR #329 (#312), worktree here.** #312 commits: `add9600` (token on cart create/complete), `f1debc1` (signed-in purchase e2e), `cb6655c` (package notes), `336846b` (0.12.7 changelog: pre-PR-C core answered 201), `1ad810e` (stale-session e2e + core run), **`0bfac3f` (review fix: 409 mode wiring + empty-details link conflict + action-level test)**; main merged at `e594fc6` and `1de6211`. **Review of #329 = BLOCK (two items), both fixed in `0bfac3f` + this memory commit; pushed once, CI result reported to the manager; no further pushes until the manager says.** Local holds: `storefront/hold-327` (`08b3240`, #327 code, unverified, on `e594fc6`), `storefront/hold-326` (`bdc92e0`). Order after #329 merges: #327 → #326. **Machine NOT mine** (window 10, #143). Parked review nits ("not now"): the customer is not told the session was dropped; a customer-linked cart completed after the fallback stays linked while the storefront reports guest.
+Last updated: 2026-10-04 · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branch: **`storefront/phase2` = #326's PR, worktree here** (main `7ca6fee` = PR #329 merged, fast-forwarded; install + `pnpm --filter "./packages/*" build` done) · **#312 DONE: PR #329 merged as `7ca6fee`** (commits `add9600`, `f1debc1`, `cb6655c`, `336846b`, `1ad810e`, `0bfac3f` review fix). **#326:** `bdc92e0` cherry-picked as `3d25ced`, CHANGELOG/version **0.12.8** above 0.12.7; lint, format, typecheck, 503 unit pass; pushed once, PR "Closes #326", then stop pushing. **#327** waits on the local `storefront/hold-327` (`08b3240` + memory `8ce0111`, on `e594fc6`): bring onto phase2 only after the manager confirms #326 merged; it becomes **0.12.9**; needs three full core passes, so it waits for "the machine is YOURS". **Machine NOT mine** (window 10). Parked: review nits (session-dropped notice; linked cart after fallback reported as guest); `details.reason` for the link conflict — a later contracts change, manager's call.
 
 ## Identity (does not change)
 
@@ -378,7 +378,8 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 - [ ] **#327 (REQUEST from window 10, manager decision on the issue) — CODE WRITTEN, committed
       `08b3240` on the local-only `storefront/hold-327` (on top of PR #329's head `e594fc6`),
-      CHANGELOG/version 0.12.8. NOT pushed, NOT run against anything.**
+      CHANGELOG/version 0.12.8 there — **renumber to 0.12.9 when moved (#326 took 0.12.8 on 2026-10-04)**.
+      NOT pushed, NOT run against anything. Order changed 2026-10-04: #326 first, then this.**
       - `src/lib/e2e-images.ts`: `E2E_LOCAL_IMAGES` (exactly `1`, inlined via next.config `env`);
         `ProductImage` sends every remote `src` (picsum and the CDNs) to `/e2e-placeholder.svg?w=`
         (`public/`). `e2eServerEnv` sets the flag for build and server.
@@ -399,7 +400,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       "Closes #327" on the manager's confirm. Brand A inherits by sync (`public/` is new — tell
       window 10); window 10 aligns its own specs.
 
-- [ ] **#326 (REQUEST from window 10), its own PR after #312:** `test/starter-defaults.test.ts`
+- [ ] **#326 (REQUEST from window 10) — IN PR:** `test/starter-defaults.test.ts`
       imports `@/brand/*` at top level, so a clone whose `tokens.ts` uses `next/font/local` fails to
       collect the file before `runIf` is consulted. Fix: dynamic `await import(...)` inside each `it`
       of the gated block. Brand A then drops its sync exclusion. **Written and committed as
@@ -408,8 +409,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       skips (2 skipped) with a clone name and a `tokens.ts` that throws at import. Typecheck green.
       After #312 merges: move onto `storefront/phase2`, merge main (CHANGELOG/version will conflict
       with 0.12.7 — keep both entries, 0.12.8 on top), gates, PR "Closes #326".**
-      **Accepted as built by the manager. Renumber: #327 now takes 0.12.8 and lands first, so #326
-      becomes 0.12.9 (on top) when it is moved — keep every entry.** Order: #312 → #327 → #326.
+      **2026-10-04 (order changed by the manager: #326 before #327): cherry-picked onto
+      `storefront/phase2` as `3d25ced`, 0.12.8 above 0.12.7; lint, format, typecheck, 503 unit pass;
+      PR "Closes #326". `storefront/hold-326` can go once it merges.**
 
 - [ ] **Parked nits from the review of #309 (manager: "not now"):** the build marker describes the
       build on disk, not the running process; an out-of-range `/sitemap/N.xml` answers 200 empty
