@@ -1,5 +1,15 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.8 — 2026-10-04
+
+Issue #326 (REQUEST from window 10). No contract change. Test-only.
+
+- **`test/starter-defaults.test.ts` no longer evaluates a clone's `src/brand/**`.** The brand
+  modules are imported inside the `runIf`-gated tests instead of at the top of the file, so a brand
+  whose `tokens.ts` calls `next/font/local` at module scope collects the file and skips it rather
+  than failing collection. In the starter both assertions still run, and adding an override still
+  turns them red. Brand apps can drop their sync exclusion for this file.
+
 ## 0.12.7 — 2026-10-03
 
 Issue #312 (Store API 0.5.1, CONTRACT CHANGE #310). **Needs the core's #303 PR C (#325) to be live**

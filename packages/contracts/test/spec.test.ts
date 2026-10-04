@@ -79,10 +79,15 @@ describe('store-api.yaml', () => {
     const body = (id: string) => ops.find((o) => o.id === id)!.body;
     // the flags extend the shared Address in the request only — the shared schema stays as carts use it
     expect(body('addMyAddress')).toMatch(/allOf:\n\s+- \$ref: '#\/components\/schemas\/Address'/);
-    expect(body('addMyAddress')).toMatch(
-      /is_default_shipping: \{ type: boolean, default: false \}/,
+    expect(body('addMyAddress')).toMatch(/is_default_shipping:\n\s+type: boolean/);
+    expect(body('addMyAddress')).toMatch(/is_default_billing:\n\s+type: boolean/);
+    // 0.5.3: no schema default — absent on the first address means default, so `default: false` was untrue
+    expect(body('addMyAddress')).not.toMatch(
+      /is_default_(shipping|billing)[^\n]*\n?[^\n]*default: false/,
     );
-    expect(body('addMyAddress')).toMatch(/is_default_billing: \{ type: boolean, default: false \}/);
+    // 0.5.3: createCart documents the 409 of a token whose email belongs to another account
+    expect(body('createCart')).toContain(`'409':`);
+    expect(body('createCart')).toMatch(/Without a token\s+this operation never answers 409/);
     const address = text.slice(
       text.indexOf('\n    Address:\n'),
       text.indexOf('\n    ', text.indexOf('\n    Address:\n') + 1),
@@ -155,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.2/);
+    expect(text).toMatch(/version: 0\.5\.3/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
