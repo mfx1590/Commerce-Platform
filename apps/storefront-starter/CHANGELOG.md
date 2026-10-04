@@ -26,6 +26,10 @@ Issue #327 (REQUEST from window 10; manager decision on the issue). No contract 
   `NAVIGATION_TIMEOUT`, until the browser is back on the storefront with the page loaded; the
   "Order history" navigations take the same deadline; the sort-control test takes
   `LISTING_TIMEOUT` like its sibling. The first three core passes failed 1 each on exactly these.
+- **At most 4 Playwright workers locally** (`playwright.config.ts`; `E2E_WORKERS` overrides, CI
+  keeps Playwright's default). Eleven workers on one Next server saturated it: with the deadlines
+  above the next core pass still failed 9 (`page.goto` timeouts in the first wave). With 4 the
+  same suite passed 69/0, and faster.
 
 ## 0.12.8 — 2026-10-04
 
