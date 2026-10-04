@@ -167,21 +167,22 @@ Running against the core does **not** mean every request reaches it. With
 `CORE_STORE_API_FALLBACK=1`, routes the core does not mount are proxied to Prism, so a green run can
 still be exercising the mock. Measured on this stack:
 
-| Request                                                             | Answered by                                                                     |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `/store`, `/store/products*`, `/store/carts*`, `/store/orders/{id}` | **the core** (a cart is a real UUID, not a contract example)                    |
-| `/store/customers/me`, the `/store/orders` **list**                 | **Prism**, via the fallback — the core mounts no `/store/customers*` (**#303**) |
-| sign-in redirect, return URL, session cookie, sign-out              | **the real Keycloak**                                                           |
+| Request                                                             | Answered by                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `/store`, `/store/products*`, `/store/carts*`, `/store/orders/{id}` | **the core** (a cart is a real UUID, not a contract example) |
+| `/store/customers/me`, `/store/customers/me/orders`                 | **the core**, since #325 (closed #303)                       |
+| sign-in redirect, return URL, session cookie, sign-out              | **the real Keycloak**                                        |
 
-So `e2e/journey.spec.ts` exercises the core and deliberately stays out of the account area. In
-`account.spec.ts` the Keycloak half is real; the customer identity and the order list are Prism, and
-the order-history assertions there are **mock-only** until #303 (REQUEST #306).
+So `e2e/journey.spec.ts` exercises the core, **order history included**: its last test signs in, buys
+and finds that order in the customer's history. `account.spec.ts` keeps the Keycloak half; its
+`Order #1000` test is labelled mock-only and skips against the core.
 
 ## Stock budget
 
-The buy test **places a real order and consumes one unit per run**, against a seed shared with every
+The two buy tests (browse → buy, and order history) **each place a real order and consume one unit
+per run**, against a seed shared with every
 other suite on the same publishable key. It buys from the deepest-stocked variant in the catalogue,
-chosen by property at runtime, so no single product is drained. Budget: **one unit per full-suite
+chosen by property at runtime, so no single product is drained. Budget: **two units per full-suite
 run**; a day of heavy iteration is tens of units against variants seeded with 17–44 each.
 
 ## End-to-end against the core
@@ -189,11 +190,19 @@ run**; a day of heavy iteration is tens of units against variants seeded with 17
 `e2e/journey.spec.ts` covers what the inherited `checkout.spec.ts` does not: **PDP variant
 selection**, and the cart→checkout hand-off, against the core.
 
+**Order history against the core** (`journey.spec.ts`, "order history"): sign in as the realm's
+verified customer, buy one unit, then find **that order id** in `/account/orders` at the confirmation's
+total, and open it from there. Brand A does not have #312 yet (it arrives with the next sync), so the
+order is placed as a **guest order** and reaches the history through the core's verified-email match,
+not through the placement-time link. Needs Keycloak as well as the core.
+
 `account.spec.ts` covers the **Keycloak** half — the sign-in redirect, the return URL, the session
-cookie and sign-out — which is genuinely real. Its customer identity and order-history assertions
-are **not**: `/store/customers/me` and the `/store/orders` list are answered by Prism through the
-fallback (see the table above), so they are mock-only until **#303**, and **#306** asks window 3 to
-mark them as such. Order history against the core is unverified.
+cookie and sign-out.
+
+**After every merge of main, rebuild the workspace packages before starting the core**
+(`pnpm --filter @platform/auth-sdk build`, and contracts, db, events, cms, ui). A stale
+`packages/auth-sdk/dist` read `email_verified` as absent, so every token looked unverified and order
+history came back empty. That looks like a product bug and is not one.
 
 ```bash
 # the shared stack must be up (Postgres 5433, Redis 6381, Keycloak 8180, OpenFGA 8081)

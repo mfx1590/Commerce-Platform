@@ -1,5 +1,16 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — #143 order history against the core
+
+- `e2e/journey.spec.ts` "order history": sign in as the realm's verified customer, buy one unit through
+  the UI, and assert the core-served history lists **that order id** at the confirmation's total, then
+  open it from there. It reaches the history through the core's verified-email match: brand A does not
+  have #312 yet, so the order is a guest order. Two units of stock per full-suite run now.
+- Proven 2026-10-04 against the core: green (1 passed), and red with a wrong order id ("not in the
+  history", 0 of 1).
+- README: the backend table now shows `/store/customers*` on the core (#325), and order history is
+  documented as real. Added a gotcha: rebuild the workspace packages after merging main.
+
 ## Unreleased — 2026-10-03 · re-sync from the starter at main 4c4aa80
 
 - **Re-sync**: 176 copied, 1 merged, 10 preserved, 5 excluded. Brings #299, #305, #309, #316,

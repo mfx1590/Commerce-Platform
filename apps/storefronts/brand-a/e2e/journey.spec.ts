@@ -14,18 +14,18 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
  * `/store/carts*` (a real UUID, not a contract example) and `/store/orders/{id}`. Those are the
  * requests this file depends on.
  *
- * The core does **not** mount `/store/customers*` or the `/store/orders` list — they fall through to
- * Prism via `CORE_STORE_API_FALLBACK` (filed as **#303**). So this file deliberately does not touch
- * the account area: tying a placed order to order history has to wait for that route to exist.
- * `account.spec.ts` covers the parts that are genuinely real — the Keycloak redirect, the return
- * URL, the session cookie and sign-out.
+ * Since #325 (closes #303) the core also mounts `/store/customers*`, so **order history is real
+ * too**: the last test signs in, buys, and finds that exact order in the customer's history. It
+ * needs Keycloak as well as the core. How the order reaches the history is stated there, because it
+ * is not the link one might assume. `account.spec.ts` keeps the Keycloak redirect, the return URL,
+ * the session cookie and sign-out.
  *
  * ## Stock
  *
- * Every run of the buy test **places a real order and consumes one unit**, and the seed is shared
+ * Each of the two buy tests **places a real order and consumes one unit**, and the seed is shared
  * with every other suite on the same publishable key. So the product is chosen by property — the
  * variant with the most stock in the catalogue — rather than by handle, and the run budget is
- * documented in the README. One unit per full-suite run.
+ * documented in the README. Two units per full-suite run.
  *
  * ## Running it
  *
@@ -39,6 +39,11 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 
 const CORE_URL = process.env.E2E_STORE_API_URL;
 const REQUIRE_CORE = process.env.E2E_REQUIRE_CORE === '1' || Boolean(process.env.CI);
+const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
+const KEYCLOAK_REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
+const REQUIRE_KEYCLOAK = process.env.E2E_REQUIRE_KEYCLOAK === '1' || Boolean(process.env.CI);
+/** The realm's seeded customer; `emailVerified: true` in infra/keycloak/customers-realm.json. */
+const CUSTOMER = { username: 'jane@example.com', password: 'jane' };
 const PUBLISHABLE_KEY = process.env.STORE_PUBLISHABLE_KEY ?? 'pk_brand-a_dev_00000000000000000000';
 
 let coreReachable = false;
@@ -416,6 +421,101 @@ test.describe('buy', () => {
 });
 
 /**
+ * Order history against the core (#143's last criterion).
+ *
+ * **How the order gets there.** The starter sends the customer token on cart create and completion
+ * since #329 (REQUEST #312), but **brand A does not yet**: that code arrives with the next sync. Until
+ * then brand A places a *guest* order carrying the customer's email. The core's `listMyOrders` also
+ * returns guest orders whose email matches a **verified** token email (#325,
+ * `apps/core/src/modules/customers/README.md`), and the realm's seeded customer is verified. So this
+ * proves the history read against the core, for the order just placed. It does not prove the
+ * placement-time link. After the sync, this test should keep passing unchanged, now through the
+ * link.
+ *
+ * **Why it cannot pass against Prism.** The id asserted is the one in this run's confirmation URL,
+ * minted by the core moments earlier. Prism's history is the contract example (`Order #1000`), and
+ * no fixture value is asserted here.
+ */
+test.describe('order history', () => {
+  let keycloakReachable = false;
+
+  test.beforeAll(async ({ request }) => {
+    try {
+      const response = await request.get(
+        `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration`,
+        { timeout: 5_000 },
+      );
+      keycloakReachable = response.ok();
+    } catch {
+      keycloakReachable = false;
+    }
+  });
+
+  test.beforeEach(() => {
+    if (REQUIRE_KEYCLOAK) {
+      expect(keycloakReachable, `Keycloak is not reachable at ${KEYCLOAK_URL}`).toBe(true);
+      return;
+    }
+    test.skip(!keycloakReachable, `needs Keycloak at ${KEYCLOAK_URL}`);
+  });
+
+  test('a signed-in customer finds the order they just placed in their history', async ({
+    page,
+    request,
+  }) => {
+    const { deepestStocked: product, bestQty } = await surveyCatalogue(request);
+    expect(
+      product,
+      `no product in the first 20 has ${MIN_STOCK}+ units (deepest is ${bestQty}); the shared seed needs topping up`,
+    ).not.toBeNull();
+
+    // Sign in first, on Keycloak's own page, so the whole purchase happens inside the session.
+    await page.goto('/en-GB/account');
+    await expect(page).toHaveURL(new RegExp(`^${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/`));
+    await page.locator('#username').fill(CUSTOMER.username);
+    await page.locator('#password').fill(CUSTOMER.password);
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await expect(page).toHaveURL(/\/en-GB\/account$/, { timeout: 30_000 });
+
+    await page.goto(`/en-GB/products/${product!.handle}`);
+    const addToCart = page.getByRole('button', { name: /add to cart/i });
+    await expect(addToCart).toBeEnabled();
+    await page.waitForLoadState('networkidle');
+    await addToCart.click();
+    await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: 30_000 });
+    await page
+      .getByRole('link', { name: /checkout/i })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/checkout\//, { timeout: 30_000 });
+    await completeCheckout(page, CUSTOMER.username);
+
+    await expect(page).toHaveURL(/\/orders\/[\w-]+$/, { timeout: 30_000 });
+    const orderId = new URL(page.url()).pathname.split('/').pop() ?? '';
+    expect(orderId.length, 'no order id in the confirmation URL').toBeGreaterThan(0);
+    await expect(page.getByTestId(PRICE).last()).toBeVisible();
+    const orderTotalMinor = minor((await page.getByTestId(PRICE).last().textContent()) ?? '');
+
+    // The history the core reads for this session's token: THIS order, by id, at this total. The
+    // page asks for the newest 20, so an order placed moments ago is on it.
+    await page.goto('/en-GB/account/orders');
+    await expect(page.getByRole('heading', { level: 1, name: 'Order history' })).toBeVisible();
+    const row = page
+      .getByRole('listitem')
+      .filter({ has: page.locator(`a[href$="/orders/${orderId}"]`) });
+    await expect(row, `order ${orderId} is not in the history`).toHaveCount(1);
+    expect(
+      minor((await row.getByTestId(PRICE).textContent()) ?? ''),
+      'the history shows a different total for the order',
+    ).toBe(orderTotalMinor);
+
+    // The history's link opens that same order.
+    await row.getByRole('link').first().click();
+    await expect(page).toHaveURL(new RegExp(`/orders/${orderId}$`), { timeout: 30_000 });
+  });
+});
+
+/**
  * Drive whatever checkout step is on screen until the order is placed.
  *
  * Step-specific, like the starter's `advanceToReview`, because a generic "click the enabled
@@ -437,7 +537,7 @@ const STEP_BUTTON: Record<string, RegExp> = {
   review: /Place order/i,
 };
 
-async function completeCheckout(page: Page): Promise<string[]> {
+async function completeCheckout(page: Page, email?: string): Promise<string[]> {
   const visited: string[] = [];
 
   for (let guard = 0; guard < 6; guard += 1) {
@@ -452,7 +552,7 @@ async function completeCheckout(page: Page): Promise<string[]> {
     await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
     await page.waitForLoadState('networkidle');
 
-    if (step === 'address') await fillAddress(page);
+    if (step === 'address') await fillAddress(page, email);
     await page
       .getByRole('button', { name: STEP_BUTTON[step] as RegExp })
       .first()
@@ -464,9 +564,9 @@ async function completeCheckout(page: Page): Promise<string[]> {
 }
 
 /** The address step's inputs are named, so fill them by name rather than by guessed label text. */
-async function fillAddress(page: Page): Promise<void> {
+async function fillAddress(page: Page, email = 'word-buyer@example.test'): Promise<void> {
   const fields: Record<string, string> = {
-    email: 'word-buyer@example.test',
+    email,
     first_name: 'Word',
     last_name: 'Buyer',
     line1: 'Keizersgracht 1',
