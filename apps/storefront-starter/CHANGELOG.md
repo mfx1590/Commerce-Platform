@@ -21,6 +21,11 @@ Issue #327 (REQUEST from window 10; manager decision on the issue). No contract 
 - e2e: `e2e/local-images.spec.ts` — the listing and a product page show images, every one is the
   placeholder, and no request the browser made went to a host other than the app (nor through the
   optimiser to a remote URL). Runs on the mock and on the core.
+- **Deadlines for the first wave of a full core run.** With 11 workers on one server a listing took
+  17.7 s and a sign-in round trip more than 5 s (0.1 s alone). `signIn()` now waits, with
+  `NAVIGATION_TIMEOUT`, until the browser is back on the storefront with the page loaded; the
+  "Order history" navigations take the same deadline; the sort-control test takes
+  `LISTING_TIMEOUT` like its sibling. The first three core passes failed 1 each on exactly these.
 
 ## 0.12.8 — 2026-10-04
 

@@ -199,6 +199,10 @@ test('an unknown product handle is a 404 against the core', async ({ page }) => 
 // ── Sorting and filtering ────────────────────────────────────────────────────────────────────────
 
 test('the sort control puts its choice in the URL and marks it current', async ({ page }) => {
+  // Two navigations against the server, like its sibling below: the default 30 s cannot hold both
+  // in the first wave of a full parallel run (17.7 s for the listing, ~10 s for the sorted render on
+  // 2026-10-04, against 0.1 s alone) — #327.
+  test.setTimeout(LISTING_TIMEOUT);
   // What can be checked against either backend: the control itself. Whether the *results* follow
   // is the next test's business.
   await page.goto('/en-GB/products');
