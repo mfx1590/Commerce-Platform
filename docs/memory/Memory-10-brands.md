@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-04 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` · Status: **imagery PR open** — #333 merged (96aeb19); #143 stays open until #327 reaches brand A and three clean passes.
+Last updated: 2026-10-04 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` · Status: **WAITING for #334** (window 3's #327 fix), then re-sync + spec alignment + three passes. #335 merged (013da4a).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -68,29 +68,28 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — imagery PR open on brands/phase2 (stop pushing; the manager reviews)
-- **Brand A imagery** — cherry-picked as 211199f onto brands/phase2 (main 96aeb19). Code only: unit
-  tests, typecheck, lint; no core, e2e or machine. Slots are resolved at seed time
-  (cms/brand-a/scripts/resolve-media.mjs). The manifest has 21 slots (19 premium stills + 2 hero loops),
-  with 18 image placements across both locales. upload-media.mjs is the owner's to run.
-  brand-media.test.ts (15 tests), DESIGN.md §7. The hero loops wait on #330 (Phase 3); brand A ships
-  image-only. The standard-1k copies of about-loom-hands and cloth-weave-macro are different images
-  from the premium ones; 18 of 19 stills exceed Cloudinary's free-plan 10 MB limit.
-- **#143** — merged as #333 (96aeb19), Refs only. It closes after #327 reaches brand A and three
-  clean passes.
+## In progress — local commit, unpushed, carried into the next push
+- Manager's review carry-overs from #335 (local commit on brands/phase2, after main 013da4a):
+  `resolve-media.mjs` validates the cloud name (^[a-z0-9_-]+$; an invalid one THROWS rather than counting
+  as absent, so a typo cannot silently seed the images out); `seed-content.mjs` and
+  `upload-media.mjs` exit 1 on it. `upload-media.mjs` uses the same validated lookup and hashes the
+  very buffer it uploads. +1 test (16 in brand-media.test.ts). Memory made true in three places.
+- **#143**: merged as #333 (96aeb19), Refs only. **#335 imagery**: merged as 013da4a.
 
 ## RESUME HERE (the exact sequence, in order)
 
 1. ~~Re-sync~~, ~~placement pin~~, ~~SEO re-measure~~, ~~flake check~~ — all DONE in #328 (see Done).
    #142 stays open: SEO and hreflang hold; the flake criterion waits on #327.
-2. ~~#143 order-history run~~ — done; the PR is open as Refs #143. Next: the manager's review.
-3. **After #327 reaches brand A by sync**: align `a11y.spec.ts:88/:139`, `journey.spec.ts:199/:331/:453`
-   plus the order-history test's own networkidle wait, and `visual.spec.ts:39` (drop networkidle).
-   **Carry window 3's worker cap** in brand A's playwright.config.ts: 4 local workers, overridable with
-   `E2E_WORKERS`. 11 workers saturated one Next server (listings took 17.7 s), so part of the 84/3 and
-   82/5 flake may be load, not only picsum. Then take three clean passes and close #142 and #143 in
-   that PR.
-4. ~~Imagery wiring~~ — PR open (see In progress).
+2. ~~#143 order-history test~~ — merged as #333 (96aeb19). #143 stays open for the three clean passes.
+3. **When the manager confirms #334 merged**: re-sync brand A from the starter. That brings #312 (the
+   customer token), #326 (drop the `test/starter-defaults.test.ts` EXCLUDE) and #327 (local placeholder
+   images, hydration readiness, the 4-worker cap). Then align brand A's own specs: `a11y.spec.ts:88/:139`,
+   `journey.spec.ts:199/:331/:453` plus the order-history test's own networkidle wait, and
+   `visual.spec.ts:39` (no networkidle). Carry the worker cap in brand A's playwright.config.ts: 4 local,
+   `E2E_WORKERS` overrides. 11 workers saturated one Next server, so part of the 84/3 and 82/5 flake may
+   be load, not only picsum. **Wait for the manager's seed-stock top-up and "the machine is YOURS"**, then
+   take three clean full passes against the core. That PR closes #142 and #143 if every criterion holds.
+4. ~~Imagery wiring~~ — merged as #335 (013da4a).
 5. **2.6 (#144)** — launch checklist for brand A.
 6. Nit for a later PR: CHANGELOG says main 4c4aa80, the #328 body says d335979 — reconcile.
 
@@ -163,9 +162,10 @@ manager's OK.
 - [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a — MERGED (#198)
 - [x] **#140 · 2.2** Theme and layout overrides from the brand design — MERGED (8c49bd4)
 - [x] **#141 · 2.3** CMS content for brand A — MERGED (1a44b04)
-- [~] **#142 · 2.4** SEO and i18n for brand A — MERGED (db8aa80) but **REOPENED**: SEO >=95 and
-      effective hreflang remain unmet, blocked on #274/#293
-- [ ] **#143 · 2.5** End-to-end suite browse → buy → account for brand A
+- [~] **#142 · 2.4** SEO and i18n for brand A — SEO 1.00 and hreflang hold (#328, 444ee6b); open only
+      for the flake-free criterion (after #334 reaches brand A)
+- [~] **#143 · 2.5** End-to-end suite browse → buy → account for brand A — order history merged as
+      #333 (96aeb19); open until three clean full passes (after #334 reaches brand A)
 - [ ] **#144 · 2.6** Launch checklist for brand A
 
 ## Decisions made (with reasons)
@@ -187,11 +187,10 @@ manager's OK.
   theirs to maintain. The README/CLAUDE.md wording saying it is "absent" is stale (carried nit).
 
 ## Blocked / waiting
-- **REQUEST #278** (window 3): the starter's `test/slots.test.ts` asserts the brand's own override
-  files are empty — false by construction in a clone. Until it lands, that file deviates and is on
-  the clone's PRESERVE list; drop it and re-sync afterwards.
-- CI brand-storefront journeys stay opt-in (`E2E_INCLUDE_BRAND_STOREFRONTS=1`) until window 2
-  lands #212; brands opts in at 2.5 (#143) after that.
+- **#334** (window 3's #327 fix) in the merge queue; then the re-sync (RESUME HERE step 3).
+- The manager's seed-stock top-up and "the machine is YOURS" before the three full passes.
+- ~~REQUEST #278~~ resolved upstream; `slots.test.ts` is no longer preserved (#328).
+- ~~#212~~ MERGED (871f086). Brand e2e in CI remains REQUEST #295 (window 5).
 
 ## Gotchas
 - **After every merge of main, rebuild the workspace packages before starting a core**

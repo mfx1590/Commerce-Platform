@@ -33,11 +33,27 @@ export const ALLOWED_ASPECTS = {
   ogImage: ['16:9'],
 };
 
-/** The cloud name, or `undefined`. Reads exactly these two variables and nothing else. */
+/**
+ * The cloud name, or `undefined` when neither variable is set. Throws when one is set but is not a
+ * valid cloud name. Reads exactly these two variables and nothing else.
+ */
 export function cloudNameFrom(env) {
   const value = env.CLOUDINARY_CLOUD_NAME_BRAND_A || env.CLOUDINARY_CLOUD_NAME;
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  const name = value.trim();
+  // A cloud name becomes a URL path segment. Anything else is a typo or an injected path, and it fails
+  // loudly: treating it as "absent" would silently seed every image out of the content.
+  if (!CLOUD_NAME.test(name)) {
+    throw new Error(
+      `Cloudinary cloud name ${JSON.stringify(name)} is not valid (expected ${CLOUD_NAME}); ` +
+        'check CLOUDINARY_CLOUD_NAME_BRAND_A / CLOUDINARY_CLOUD_NAME',
+    );
+  }
+  return name;
 }
+
+/** What a Cloudinary cloud name may contain. */
+export const CLOUD_NAME = /^[a-z0-9_-]+$/;
 
 export function deliveryUrl(cloudName, slot) {
   const type = slot.kind === 'video' ? 'video' : 'image';

@@ -5,7 +5,7 @@
 - `cms/brand-a/media/manifest.json` covers the 19 premium stills and 2 hero loops: source path, bytes, sha256, aspect, Cloudinary public id, and alt text in en-GB and de-DE for each placed slot. No binaries are in the repo.
 - Content refers to images by **slot**. `cms/brand-a/scripts/resolve-media.mjs` resolves slots at seed time using `CLOUDINARY_CLOUD_NAME_BRAND_A` or `CLOUDINARY_CLOUD_NAME`. With neither set, optional images are left out with one warning; a required image is an error. Placed: the heroes on home, about, cloth and the autumn campaign, four image blocks and the home Open Graph image (18 per seed across both locales).
 - `cms/brand-a/scripts/upload-media.mjs` is for the owner: it verifies sha256, signs uploads, and with no credentials only prints the plan.
-- `test/brand-media.test.ts` (15 tests). `test/cms-brand-content.test.ts` now validates the resolved documents, which are what the seed sends.
+- `test/brand-media.test.ts` (16 tests; the 16th, cloud-name validation, from the #335 review). `test/cms-brand-content.test.ts` now validates the resolved documents, which are what the seed sends.
 - `DESIGN.md` §7 Imagery: treatment, proportions by placement, alt-text rules, and the reduced-motion and pause rules for the hero loops. The loops wait on REQUEST #330, an optional video field on the CMS hero.
 
 ## Unreleased — #143 order history against the core

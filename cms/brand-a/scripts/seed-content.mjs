@@ -64,8 +64,14 @@ function readContent() {
 const manifest = JSON.parse(
   readFileSync(path.resolve(here, '..', 'media', 'manifest.json'), 'utf8'),
 );
-const cloudName = cloudNameFrom(process.env);
-const media = resolveMedia(readContent(), manifest, { cloudName });
+let cloudName;
+try {
+  cloudName = cloudNameFrom(process.env);
+} catch (error) {
+  console.error(`media: ${error.message}; nothing was sent.`);
+  process.exit(1);
+}
+const media = resolveMedia(readContent(), manifest, cloudName === undefined ? {} : { cloudName });
 if (media.errors.length > 0) {
   for (const error of media.errors) console.error(`media: ${error}`);
   console.error(`\n${media.errors.length} media error(s); nothing was sent.`);
