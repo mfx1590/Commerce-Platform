@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-04 · Contracts: **contracts-v0.4.9** (Store API 0.5.2) · Branch: **`storefront/phase2` = #326's PR, worktree here** (main `7ca6fee` = PR #329 merged, fast-forwarded; install + `pnpm --filter "./packages/*" build` done) · **#312 DONE: PR #329 merged as `7ca6fee`** (commits `add9600`, `f1debc1`, `cb6655c`, `336846b`, `1ad810e`, `0bfac3f` review fix). **#326:** `bdc92e0` cherry-picked as `3d25ced`, CHANGELOG/version **0.12.8** above 0.12.7; lint, format, typecheck, 503 unit pass; pushed once, PR "Closes #326", then stop pushing. **#327** waits on the local `storefront/hold-327` (`08b3240` + memory `8ce0111`, on `e594fc6`): bring onto phase2 only after the manager confirms #326 merged; it becomes **0.12.9**; needs three full core passes, so it waits for "the machine is YOURS". **Machine NOT mine** (window 10). Parked: review nits (session-dropped notice; linked cart after fallback reported as guest); `details.reason` for the link conflict — a later contracts change, manager's call.
+Last updated: 2026-10-04 · Contracts: **contracts-v0.4.9** (Store API 0.5.2; **PR 332 = contracts 0.4.10 / Store API 0.5.3 in the queue** — createCart documents 409, addMyAddress flags lose `default: false`; no behaviour change, nothing here changes) · Branch: **`storefront/phase2`, worktree here, NOT pushed** · Done: **#312 (PR #329, `7ca6fee`)**, **#326 (PR #331, `a6d6b84`; `3d25ced`, 0.12.8)**. **#327 on phase2 (local): `2f083bf` (the code, cherry-picked from hold-327 `08b3240`, as 0.12.9) + `a767a9d` (`e2e/local-images.spec.ts`).** Lint, format, typecheck, 515 unit pass. **Main NOT merged on purpose** — the manager says when 332 has merged; then merge main once, `pnpm install --frozen-lockfile`, `pnpm --filter "./packages/*" build`. **Machine NOT mine** (window 10, #143). On "the machine is YOURS": three consecutive full passes against the core, 0 failures, each from a clean fetch cache (e2e-server deletes it before every build); PR body = the three counts + how the run is kept off picsum; "Closes #327"; **hold the push until the manager confirms**. `storefront/hold-326` and `storefront/hold-327` can be deleted (both carried over). Parked: review nits of #329; `details.reason` (later contracts change).
 
 ## Identity (does not change)
 
@@ -376,6 +376,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
+- [ ] **#327 — 2026-10-04: on `storefront/phase2` as `2f083bf` (0.12.9) + `a767a9d` (spec
+      `e2e/local-images.spec.ts`: images present, all the placeholder, no non-local request, nothing
+      proxied — not yet run). Plan when the machine is mine: preflight (processes, :3100/:9000), own
+      core detached + /health poll, STORE_PUBLISHABLE_KEY + E2E_STORE_API_URL=http://127.0.0.1:9000,
+      then three sequential full `playwright test` runs, each a fresh e2e-server build (so a clean
+      fetch cache), each logged to its own file with a hard timeout; stop the core after. First check
+      a flagged build refuses `SITE_URL=https://x.example` (instrumentation exit). Seed: each full
+      core pass buys ~4 units (checkout journey + 2 account purchases + …) — check stock first.**
 - [ ] **#327 (REQUEST from window 10, manager decision on the issue) — CODE WRITTEN, committed
       `08b3240` on the local-only `storefront/hold-327` (on top of PR #329's head `e594fc6`),
       CHANGELOG/version 0.12.8 there — **renumber to 0.12.9 when moved (#326 took 0.12.8 on 2026-10-04)**.
