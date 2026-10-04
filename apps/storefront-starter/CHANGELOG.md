@@ -18,6 +18,9 @@ Issue #327 (REQUEST from window 10; manager decision on the issue). No contract 
 - Tests: `test/e2e-images.test.ts` (flag parsing, the loader, `ProductImage` with and without the
   flag — red when the flag branch is removed —, the loopback rule, the boot refusal) and the env
   helper's flag.
+- e2e: `e2e/local-images.spec.ts` — the listing and a product page show images, every one is the
+  placeholder, and no request the browser made went to a host other than the app (nor through the
+  optimiser to a remote URL). Runs on the mock and on the core.
 
 ## 0.12.8 — 2026-10-04
 
