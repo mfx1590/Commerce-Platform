@@ -39,9 +39,24 @@ This is deliberately not `@platform/cms`'s own `seed` script, which pushes windo
 fixtures. It reuses that package's _pure_ exported helpers (`readSeedEnv`, `missingCredentials`,
 `mutateUrl`) rather than reimplementing credential handling.
 
+## Media
+
+Images are not URLs in this content. Each one names a **slot** in `media/manifest.json`. The manifest lists the 19 premium stills and the 2 hero loops: their source path in the owner's media folder, which is outside the repo, plus bytes, sha256, aspect, Cloudinary public id and alt text per locale. `scripts/resolve-media.mjs` turns slots into Cloudinary delivery URLs **at seed time**.
+
+```jsonc
+{ "_type": "image", "mediaSlot": "home-hero-01" }                          // optional
+{ "_type": "image", "mediaSlot": "og-default", "mediaRequired": true }     // required
+```
+
+- **Cloud name:** `CLOUDINARY_CLOUD_NAME_BRAND_A`, else `CLOUDINARY_CLOUD_NAME`. The seed reads only that, never the API key or secret.
+- **No cloud name** (today: the owner has not created the Cloudinary account): optional images are left out, and an `imageBlock` goes with its image, with **one** warning line giving the count. A `mediaRequired` image is an error.
+- **Always errors:** a slot not in the manifest, a video placed as an image, a placed slot without alt text for the document's locale, and proportions that do not fit the placement (hero 3:2, image block 3:2 or 3:4, Open Graph 16:9).
+- **Uploading** is the owner's: `node cms/brand-a/scripts/upload-media.mjs --from <media dir> [--yes]`. It checks every file's sha256 against the manifest before sending anything, uses `overwrite=false`, and without credentials or `--yes` it only prints the plan. Note that most 4K stills are over Cloudinary's 10 MB free-plan image limit; the script warns.
+- **Not here:** the product matrix and detail shots (the catalogue seed in `packages/db`, the manager's), and the vertical social stills and videos (marketing, not the site). The hero loops cannot be placed until the CMS hero has a video field (REQUEST #330). How imagery looks and where it goes is in `apps/storefronts/brand-a/src/brand/DESIGN.md` §7.
+
 ## Tests
 
-`apps/storefronts/brand-a/test/cms-brand-content.test.ts` reads these files, validates each one, and
+`apps/storefronts/brand-a/test/cms-brand-content.test.ts` reads these files, resolves their media slots with a placeholder cloud name (what the seed sends), validates each one, and
 renders them through the real route components — no Sanity credentials required, because `CmsReader`
 is an interface. Exactly what it renders:
 
@@ -56,6 +71,8 @@ It also asserts locale parity, deterministic ids, that no German document is a c
 twin, that every **navigation and footer** link resolves to an authored document or a real app route
 (hero and block CTAs are not yet covered — parked), and that no route falls back to its empty state.
 An expired campaign is asserted to 404 rather than render.
+
+`test/brand-media.test.ts` holds the media rules: the manifest's scope and integrity, every referenced slot present with alt text in both locales, the content passing validation both resolved and with images left out, and each refusal above.
 
 ## ⚠️ The legal documents are not lawyer-reviewed
 

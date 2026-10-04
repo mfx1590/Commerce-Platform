@@ -275,3 +275,61 @@ file describes how brand A looks, not what it sells.
   PDP and missed a real AA failure in components that render on neither.
 - **Visual baselines for home / PLP / PDP** (`e2e/visual.spec.ts`), keyed by platform and opt-in via
   `E2E_VISUAL=1`, so the look has to change on purpose.
+
+---
+
+## 7. Imagery
+
+**Source and delivery.** 19 stills and 2 hero loops, generated for brand A and listed in
+`cms/brand-a/media/manifest.json` with size, sha256, aspect and alt text. The binaries are never in
+the repo: the owner uploads them to Cloudinary (`cms/brand-a/scripts/upload-media.mjs`), and pages
+receive them through the shared Cloudinary loader, which picks width, format and quality per request.
+Content refers to an image by **slot** (`"mediaSlot": "home-hero-01"`), and the slot becomes a
+delivery URL at seed time. Until a cloud name exists, the seed leaves the images out, so brand A
+renders text-only rather than broken.
+
+**What the pictures look like, and why.** Undyed and natural cloth, worn wood, plaster walls, and low
+warm daylight from one side. The colours sit inside §2's palette: Paper, Stone and Ink, with rust and
+camel as the only warm accents. No filters, no overlays, no text set into an image. Text over a
+photograph cannot be contrast-measured the way §2 measures everything else, so headlines sit beside
+images, never on them.
+
+**Proportions by placement.** The seed refuses a slot placed where its aspect does not fit
+(`ALLOWED_ASPECTS` in `resolve-media.mjs`):
+
+| Placement                | Aspect                                 | Used for                                       |
+| ------------------------ | -------------------------------------- | ---------------------------------------------- |
+| Hero                     | 3:2                                    | home, about, cloth, the autumn campaign        |
+| Image block, full width  | 3:2                                    | home (the linen shirt), autumn campaign        |
+| Image block, text column | 3:2 or 3:4                             | about (the loom), autumn campaign (the avenue) |
+| Open Graph               | 16:9 (Cloudinary crops it to 1200×630) | the home page's share image                    |
+
+Reserved, not yet placed: `home-hero-03` and the spring, summer and winter campaign sets. A slot
+gets alt text in both locales when it is placed, and a test fails any placed slot without it.
+
+**Alt text.** It says what is in the picture: the garment, the cloth, the setting. It never says
+"image of", and never repeats the headline next to it. It is written in the manifest per locale
+(en-GB and de-DE), at most 160 characters, and the seed copies it into each document. When an image
+is purely decorative, the fix is not to place it, rather than to leave its alt text empty.
+
+**The hero loops — motion is opt-in, and always stoppable.** `home-hero-shirt-loop-8s` and
+`campaign-autumn-hero-loop-8s` are 8-second silent loops. Each has a still as its poster: `home-hero-02`
+and `campaign-autumn-hero` respectively. The poster pairing is assumed from the slot names and still
+has to be checked against the first frame.
+
+- Under `prefers-reduced-motion: reduce` the loop is **not loaded at all**: the poster still is the
+  hero. Pausing a video that has already downloaded is not enough.
+- Otherwise it plays muted, inline and looped, without audio and without controls chrome, but with
+  a visible **pause** button. An 8-second loop runs longer than WCAG 2.2.2's 5-second limit for
+  automatic motion, so a pause control is required, not optional.
+- The video is decorative (`aria-hidden`). The poster's alt text is what the hero says to a screen
+  reader.
+- The poster is the LCP element and loads with high priority. The video starts only after it, so
+  the loop never costs the §6 LCP budget.
+
+The loops are not on the site yet. The CMS hero has no video field, and adding one is window 6's
+(schema) and window 3's (rendering): REQUEST #330.
+
+**Product images are not here.** The 36-image product matrix and the detail shots belong to the
+catalogue seed (`packages/db`). They reach brand A through the Store API like any other product
+media.

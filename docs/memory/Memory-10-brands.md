@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-04 · Contracts: contracts-v0.4.9 · Branch: `brands/phase2` · Status: **#143 PR open** (Refs #143) — #328 merged (444ee6b); imagery local at 3a34b71 until #143 merges.
+Last updated: 2026-10-04 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` · Status: **imagery PR open** — #333 merged (96aeb19); #143 stays open until #327 reaches brand A and three clean passes.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -68,29 +68,29 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — #143 PR open on brands/phase2 (stop pushing; the manager reviews next session)
-- **#143 order history** — cherry-picked as 3dc32d7 onto brands/phase2 (main 7ca6fee). Proven 2026-10-04
-  against the core: **green** (1 passed, 1.6 m) and **red with a wrong order id** ("not in the history",
-  0 of 1). The order is a guest order found by verified email: brand A does not have #312 yet; it arrives
-  with the next sync. The first attempt (2026-10-03) was red only because packages/auth-sdk/dist was
-  stale (built 10-02 12:19, before 944d217), not because of Keycloak. Refs #143: the suite is not yet
-  flake-free over 3 runs (#327).
-- **Imagery wiring**: built LOCALLY on branch **brands/local-imagery** (3a34b71), unpushed until #143
-  merges. #330 (hero video) accepted for Phase 3, so brand A ships image-only. Notes: the standard-1k
-  copies of about-loom-hands and cloth-weave-macro are DIFFERENT images from the premium ones; 18 of 19
-  stills exceed Cloudinary's free-plan 10 MB limit.
+## In progress — imagery PR open on brands/phase2 (stop pushing; the manager reviews)
+- **Brand A imagery** — cherry-picked as 211199f onto brands/phase2 (main 96aeb19). Code only: unit
+  tests, typecheck, lint; no core, e2e or machine. Slots are resolved at seed time
+  (cms/brand-a/scripts/resolve-media.mjs). The manifest has 21 slots (19 premium stills + 2 hero loops),
+  with 18 image placements across both locales. upload-media.mjs is the owner's to run.
+  brand-media.test.ts (15 tests), DESIGN.md §7. The hero loops wait on #330 (Phase 3); brand A ships
+  image-only. The standard-1k copies of about-loom-hands and cloth-weave-macro are different images
+  from the premium ones; 18 of 19 stills exceed Cloudinary's free-plan 10 MB limit.
+- **#143** — merged as #333 (96aeb19), Refs only. It closes after #327 reaches brand A and three
+  clean passes.
 
 ## RESUME HERE (the exact sequence, in order)
 
 1. ~~Re-sync~~, ~~placement pin~~, ~~SEO re-measure~~, ~~flake check~~ — all DONE in #328 (see Done).
    #142 stays open: SEO and hreflang hold; the flake criterion waits on #327.
 2. ~~#143 order-history run~~ — done; the PR is open as Refs #143. Next: the manager's review.
-3. **After #327 reaches brand A by sync**: align `a11y.spec.ts:88/:139`, `journey.spec.ts:199/:331/:453` plus the order-history test's own networkidle wait
-   and `visual.spec.ts:39` (drop networkidle), take three clean passes, close #142 in that PR.
-4. **Imagery wiring** (own PR, local first): `cms/brand-a/media/manifest.json` (premium folders only;
-   standard-1k is a fallback) → `cloudinaryUrl` in content docs, missing-slot test, DESIGN.md imagery
-   section incl. reduced motion for the hero loops, upload script the owner runs; must work with the
-   Cloudinary keys absent. The product matrix is the manager's (packages/db seeds).
+3. **After #327 reaches brand A by sync**: align `a11y.spec.ts:88/:139`, `journey.spec.ts:199/:331/:453`
+   plus the order-history test's own networkidle wait, and `visual.spec.ts:39` (drop networkidle).
+   **Carry window 3's worker cap** in brand A's playwright.config.ts: 4 local workers, overridable with
+   `E2E_WORKERS`. 11 workers saturated one Next server (listings took 17.7 s), so part of the 84/3 and
+   82/5 flake may be load, not only picsum. Then take three clean passes and close #142 and #143 in
+   that PR.
+4. ~~Imagery wiring~~ — PR open (see In progress).
 5. **2.6 (#144)** — launch checklist for brand A.
 6. Nit for a later PR: CHANGELOG says main 4c4aa80, the #328 body says d335979 — reconcile.
 
