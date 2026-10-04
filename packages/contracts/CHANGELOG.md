@@ -102,3 +102,12 @@
   page or limit — the deviations recorded on #303 end here). `listMyAddresses` documents no 400 on purpose: no query, no body.
 - Admin API unchanged. `CONTRACTS_VERSION = '0.4.9'`; types regenerated. Producer: window 1 (#303 PR B). Consumers: window 3
   (#312 later), brands by re-sync.
+
+## 0.4.10 — 2026-10-04 (#303 PR C follow-up; contracts-v0.4.10)
+
+- Store API 0.5.3 (22 operations, unchanged): `createCart` documents `409` `conflict` — only with a customer token, when the
+  token's email already belongs to another account in the store; no cart is created (the deviation recorded on #325 ends here).
+  `addMyAddress`: `is_default_shipping` / `is_default_billing` lose `default: false` — it contradicted "absent on the first
+  address = default"; the rule is now in the property descriptions. No behaviour change, no new field.
+- Admin API unchanged. `CONTRACTS_VERSION = '0.4.10'`; types regenerated. Producer: window 1 (already merged, #325).
+  Consumers: window 3 (nothing to change: the storefront maps `conflict` already), brands by re-sync.

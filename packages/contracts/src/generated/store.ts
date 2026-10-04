@@ -929,6 +929,22 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /** @description Only with a customer token: the token's customer cannot be resolved because its email already belongs to another account in this store (`conflict`). No cart was created. Without a token this operation never answers 409. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getCart: {
@@ -1511,9 +1527,9 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["Address"] & {
-                    /** @default false */
+                    /** @description No schema default on purpose: absent on the customer's first address means default, absent on a later one means not default. */
                     is_default_shipping?: boolean;
-                    /** @default false */
+                    /** @description Same rule as `is_default_shipping`. */
                     is_default_billing?: boolean;
                 };
             };

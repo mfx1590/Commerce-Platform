@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.2
+  version: 0.5.3
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -234,6 +234,15 @@ paths:
                 empty: { $ref: '#/components/examples/CartEmpty' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            Only with a customer token: the token's customer cannot be resolved because its email already
+            belongs to another account in this store (`conflict`). No cart was created. Without a token
+            this operation never answers 409.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
 
   /store/carts/{cartId}:
     parameters:
@@ -741,8 +750,14 @@ paths:
                 - $ref: '#/components/schemas/Address'
                 - type: object
                   properties:
-                    is_default_shipping: { type: boolean, default: false }
-                    is_default_billing: { type: boolean, default: false }
+                    is_default_shipping:
+                      type: boolean
+                      description: >-
+                        No schema default on purpose: absent on the customer's first address means default,
+                        absent on a later one means not default.
+                    is_default_billing:
+                      type: boolean
+                      description: Same rule as `is_default_shipping`.
       responses:
         '201':
           description: Created
