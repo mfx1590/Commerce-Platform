@@ -1,5 +1,36 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.9 — 2026-10-04
+
+Issue #327 (REQUEST from window 10; manager decision on the issue). No contract change.
+
+- **e2e images stay on the machine.** Under `E2E_LOCAL_IMAGES=1` — set by `scripts/e2e-server.mjs`
+  (`e2eServerEnv`) for the build and the server — `ProductImage` resolves every remote `src` to
+  `/e2e-placeholder.svg` (new `public/` file) through `localPlaceholderLoader`
+  (`src/lib/e2e-images.ts`). Production behaviour is unchanged: without the flag the loaders are
+  the same as before.
+- **The flag is refused in production.** `src/instrumentation.ts` exits the server at start when the
+  build carries the flag and the runtime `SITE_URL` is missing or not loopback.
+- **A clean data cache per e2e build.** `e2e-server.mjs` deletes `.next/cache/fetch-cache` before
+  `next build`; a core run had rendered a product as in stock from the previous run's cache.
+- **No `networkidle` in the specs.** `settleOn` and `clickWhenReady` wait for the control and for
+  `<html data-hydrated="true">`, set by the new `HydrationMarker` in the root layout.
+- Tests: `test/e2e-images.test.ts` (flag parsing, the loader, `ProductImage` with and without the
+  flag — red when the flag branch is removed —, the loopback rule, the boot refusal) and the env
+  helper's flag.
+- e2e: `e2e/local-images.spec.ts` — the listing and a product page show images, every one is the
+  placeholder, and no request the browser made went to a host other than the app (nor through the
+  optimiser to a remote URL). Runs on the mock and on the core.
+- **Deadlines for the first wave of a full core run.** With 11 workers on one server a listing took
+  17.7 s and a sign-in round trip more than 5 s (0.1 s alone). `signIn()` now waits, with
+  `NAVIGATION_TIMEOUT`, until the browser is back on the storefront with the page loaded; the
+  "Order history" navigations take the same deadline; the sort-control test takes
+  `LISTING_TIMEOUT` like its sibling. The first three core passes failed 1 each on exactly these.
+- **At most 4 Playwright workers locally** (`playwright.config.ts`; `E2E_WORKERS` overrides, CI
+  keeps Playwright's default). Eleven workers on one Next server saturated it: with the deadlines
+  above the next core pass still failed 9 (`page.goto` timeouts in the first wave). With 4 the
+  same suite passed 69/0, and faster.
+
 ## 0.12.8 — 2026-10-04
 
 Issue #326 (REQUEST from window 10). No contract change. Test-only.

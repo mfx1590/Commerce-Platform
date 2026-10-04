@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { brandConfig, siteUrl } from '@/brand/config';
+import { HydrationMarker } from '@/components/hydration-marker';
 import { brandTokens } from '@/brand/tokens';
 import { routing } from '@/i18n/routing';
 import { assertStoreOffersLocale } from '@/lib/i18n';
@@ -111,6 +112,7 @@ export default async function LocaleLayout({
         className="min-h-screen bg-background text-foreground antialiased"
       >
         <NextIntlClientProvider messages={clientMessages}>{children}</NextIntlClientProvider>
+        <HydrationMarker />
       </ThemeProvider>
     </html>
   );

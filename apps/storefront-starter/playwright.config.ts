@@ -36,9 +36,22 @@ const STORE_API_URL = process.env.E2E_STORE_API_URL;
 const CHANNEL = process.env.E2E_CHANNEL ?? (process.env.CI ? undefined : 'chrome');
 const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 
+// Every worker drives ONE Next server — a single Node event loop — and each listing view fires
+// ~25 Link prefetch renders. Playwright's default (half the cores: 11 on the 22-thread dev
+// machine) saturated it: in a full core run a listing took 17.7 s and a sign-in round trip over
+// 15 s (0.1 s alone), and three passes failed 1, 1 and 9 tests on deadlines. With 4 workers the
+// same suite passed 69/0 and finished faster (1.2 min against 1.6–2.3) — #327. CI keeps
+// Playwright's default (its runners have few cores); `E2E_WORKERS` overrides either.
+const WORKERS: number | undefined = process.env.E2E_WORKERS
+  ? Number(process.env.E2E_WORKERS)
+  : process.env.CI
+    ? undefined
+    : 4;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
+  ...(WORKERS === undefined ? {} : { workers: WORKERS }),
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],

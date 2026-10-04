@@ -22,8 +22,8 @@ export const CHECKOUT_STEPS_MAX = 5;
  *
  * Waiting for it before acting is not decoration: the step forms use `useActionState`, so React
  * replaces the server-rendered form at hydration and a button clicked in that window detaches
- * mid-click ("element was detached from the DOM"). Waiting for the heading and for the page to go
- * quiet lets hydration finish first.
+ * mid-click ("element was detached from the DOM"). Waiting for the heading and for the page to
+ * report itself hydrated (`hydrated`) lets hydration finish first.
  */
 export const STEP_HEADING: Record<string, string> = {
   address: 'Where should it go?',
@@ -36,7 +36,19 @@ export async function settleOn(page: Page, step: string): Promise<void> {
   if (heading === undefined) throw new Error(`No heading known for checkout step "${step}"`);
 
   await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-  await page.waitForLoadState('networkidle');
+  await hydrated(page);
+}
+
+/**
+ * React has hydrated the page, so a control's handlers are attached (#327). Set by
+ * `src/components/hydration-marker.tsx`. Replaces `waitForLoadState('networkidle')`, which waited
+ * on every request in flight — a remote image that never finished included — and failed the step
+ * for it.
+ */
+export async function hydrated(page: Page): Promise<void> {
+  await expect(page.locator('html[data-hydrated="true"]')).toBeAttached({
+    timeout: NAVIGATION_TIMEOUT,
+  });
 }
 
 /** Fill the address step. The values are ours, not the dataset's, so they are safe to assert on. */
@@ -85,7 +97,21 @@ export async function advanceToReview(page: Page, email: string): Promise<string
     // Wait for the step to actually *change*. Waiting on `CHECKOUT_STEP` alone matches the URL we
     // are already on, so the loop would come round and click the same button again — by which time
     // the form has disabled it for the submit that is already in flight, and the click hangs.
-    await page.waitForURL((url) => !url.pathname.endsWith(`/${step}`));
+    // Bounded, and loud when it runs out: a submit the server answered with an error leaves the URL
+    // where it is, and an unbounded wait turned that into a silent 180 s test timeout (#327).
+    await page
+      .waitForURL((url) => !url.pathname.endsWith(`/${step}`), { timeout: SERVER_ACTION_TIMEOUT })
+      .catch(async (error: unknown) => {
+        const shown = (await page.getByRole('alert').allTextContents())
+          .map((text) => text.trim())
+          .filter((text) => text !== '');
+        throw new Error(
+          `Checkout stayed on "${step}" after submitting it — ${
+            shown.length > 0 ? `the page says: ${shown.join(' | ')}` : 'no error on the page'
+          }`,
+          { cause: error },
+        );
+      });
   }
 
   throw new Error(`Checkout did not reach the review step; visited ${visited.join(' → ')}`);
@@ -118,13 +144,13 @@ export const LISTING_TIMEOUT = 120_000;
  *
  * The other half of the same flake: a click dispatched before hydration has attached the handler is
  * swallowed — the sort link was clicked, the URL never changed, and the test waited out its deadline
- * on a page that was fine (one run in four on a quiet machine). Visible, enabled and the network
- * quiet is the same settling `settleOn` does for the checkout steps.
+ * on a page that was fine (one run in four on a quiet machine). Visible, enabled and the page
+ * hydrated is the same settling `settleOn` does for the checkout steps.
  */
 export async function clickWhenReady(page: Page, control: Locator): Promise<void> {
   await expect(control).toBeVisible();
   await expect(control).toBeEnabled();
-  await page.waitForLoadState('networkidle');
+  await hydrated(page);
   await control.click();
 }
 
