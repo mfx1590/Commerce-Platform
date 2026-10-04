@@ -85,7 +85,7 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 1. ~~Re-sync~~, ~~placement pin~~, ~~SEO re-measure~~, ~~flake check~~ — all DONE in #328 (see Done).
    #142 stays open: SEO and hreflang hold; the flake criterion waits on #327.
 2. ~~#143 order-history run~~ — done; the PR is open as Refs #143. Next: the manager's review.
-3. **After #327 reaches brand A by sync**: align `a11y.spec.ts:88/:139`, `journey.spec.ts:199/:331/:453`
+3. **After #327 reaches brand A by sync**: align `a11y.spec.ts:88/:139`, `journey.spec.ts:199/:331/:453` plus the order-history test's own networkidle wait
    and `visual.spec.ts:39` (drop networkidle), take three clean passes, close #142 in that PR.
 4. **Imagery wiring** (own PR, local first): `cms/brand-a/media/manifest.json` (premium folders only;
    standard-1k is a fallback) → `cloudinaryUrl` in content docs, missing-slot test, DESIGN.md imagery

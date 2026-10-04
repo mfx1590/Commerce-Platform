@@ -423,13 +423,14 @@ test.describe('buy', () => {
 /**
  * Order history against the core (#143's last criterion).
  *
- * **How the order gets there.** The starter does not yet send the customer token on cart create or
- * completion (REQUEST #312), so the order is placed as a *guest* order carrying the customer's
- * email. The core's `listMyOrders` also returns guest orders whose email matches a **verified**
- * token email (#325, `apps/core/src/modules/customers/README.md`), and the realm's seeded customer is
- * verified. So this proves the history read against the core, for the order just placed. It does not
- * prove the placement-time link, which needs #312. When that lands, this test should keep passing
- * unchanged, now through the link.
+ * **How the order gets there.** The starter sends the customer token on cart create and completion
+ * since #329 (REQUEST #312), but **brand A does not yet**: that code arrives with the next sync. Until
+ * then brand A places a *guest* order carrying the customer's email. The core's `listMyOrders` also
+ * returns guest orders whose email matches a **verified** token email (#325,
+ * `apps/core/src/modules/customers/README.md`), and the realm's seeded customer is verified. So this
+ * proves the history read against the core, for the order just placed. It does not prove the
+ * placement-time link. After the sync, this test should keep passing unchanged, now through the
+ * link.
  *
  * **Why it cannot pass against Prism.** The id asserted is the one in this run's confirmation URL,
  * minted by the core moments earlier. Prism's history is the contract example (`Order #1000`), and
