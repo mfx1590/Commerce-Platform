@@ -4,6 +4,13 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 2
 
+### Added (REQUEST #285 — admin e2e against the real core, advisory)
+
+- CI job `admin-e2e-core`: the compose auth stack, `fga:seed` (ids exported to the job, `.env` removed), the core
+  kept running through `boot-smoke.sh`'s keep mode with no dev tokens, then `E2E_API=core pnpm --filter
+@platform/admin e2e` on :3200. Seeded realm test users only, no new secrets. Advisory (not in branch protection)
+  until it has a week of green runs; the Prism variant in `auth-e2e` stays required.
+
 ### Changed (REQUEST #295 + #297 item 1 — brand A's browse → buy in CI against the core)
 
 - `infra/ci/boot-smoke.sh`: `CORE_SMOKE_KEEP=1` leaves the booted core running (own session via `setsid`, pid and

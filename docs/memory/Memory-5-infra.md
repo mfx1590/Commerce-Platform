@@ -115,10 +115,19 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   Proof the core was used: brand A's journey.spec `REQUIRE_CORE` under CI FAILS (not skips) without a core.
   Skip reasons are not printed by the `github` reporter — the 22 are not itemised from logs.
 
+- **#285 — BUILT locally, committed on `infra/phase2-admin-core` (from `84d27d5`), NOT pushed.** Push only
+  after the manager confirms #339 merged (then: onto `infra/phase2`, merge main, DRAFT). Job `admin-e2e-core`
+  in ci.yml (`e2e` group): compose auth stack → `fga:seed` (ids to $GITHUB_ENV, `.env` removed) → kept core
+  (no CORE_DEV_TOKENS; staff tokens need OpenFGA) → `E2E_API=core CORE_URL=http://127.0.0.1:9000 PORT=3200
+  ADMIN_APP_URL=http://localhost:3200 pnpm --filter @platform/admin e2e` → stop core → stack down. Advisory
+  (recommend: advisory for a week, as the manager's default). Seeded realm users only. Evidence rule: three
+  consecutive green runs of the new job with counts in the body; local reference run (admin README, 2026-09-28):
+  core 22 passed + 1 skipped (no refundable order). Nightly/workflow_dispatch from the issue NOT added — a
+  ci.yml schedule would run the whole pipeline; say so in the PR, offer a separate workflow if wanted.
+
 ## Next — the docket, in order
 
-1. **#285** — admin-e2e-core job variant; the Prism job stays required.
-2. **#297 rest** — core live tests into the live job; deployed Keycloak from the customers realm export minus
+1. **#297 rest** — core live tests into the live job; deployed Keycloak from the customers realm export minus
    test-cli/jane/localhost URIs, verifyEmail true, no first-broker-login auto-link; production SITE_URL in Helm.
 
 Rules this docket: no e2e/builds/docker on the laptop (another window measures); evidence is CI on a DRAFT PR;
