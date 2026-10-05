@@ -44,6 +44,17 @@ describe('probeApiMode: /health tells the core from Prism', () => {
     expect(await probeApiMode(CORE, answer(404))).toEqual({ mode: 'mock', contractsVersion: null });
   });
 
+  it('a core answering 500 on /health is not the mock → unreachable', async () => {
+    expect(await probeApiMode(CORE, answer(500))).toEqual({
+      mode: 'unreachable',
+      contractsVersion: null,
+    });
+    expect(await probeApiMode(CORE, answer(503))).toEqual({
+      mode: 'unreachable',
+      contractsVersion: null,
+    });
+  });
+
   it('nothing listening (or a timeout) → unreachable, not a throw', async () => {
     const down = vi.fn(async () => {
       throw new TypeError('fetch failed');
@@ -195,6 +206,13 @@ describe('not implemented vs session ended vs missing record (core only)', () =>
     expect(routeLabel('get', `/admin/stores/${STORE}/orders/${STORE}?page=2`)).toBe(
       'GET /admin/stores/{id}/orders/{id}',
     );
+  });
+
+  it('labels fold numeric ids too, but not digits inside a segment', () => {
+    expect(routeLabel('post', '/admin/pick-lists/42/lines/7')).toBe(
+      'POST /admin/pick-lists/{id}/lines/{id}',
+    );
+    expect(routeLabel('get', '/admin/reports/v2/sales')).toBe('GET /admin/reports/v2/sales');
   });
 });
 

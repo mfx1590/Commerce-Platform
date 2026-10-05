@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-26 · Contracts: contracts-v0.4.6 (Admin API 0.4.6) · Branch: `admin/phase2` · Status: Phase 2 — 2.1–2.3 merged, 2.4 = #276 (MERGE, queued), 2.5 part one built locally, 2.5b waits on #279, 2.6 next
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: Phase 2 — 2.1–2.6 merged except 2.5b = PR #338 (Closes #117 after the 2026-10-05 core run)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,27 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.5b — issue #117 revoke / primary / enabled sets** · 2026-10-05 · one commit after merging
+  main 6f5019f, **PR #338** (dfc4943) + run-record commit · body switched to **Closes #117** after
+  the core run (manager gave the machine and OK'd exactly one more push).
+  - General: `currencies`/`locales` via `CodeListField` (+ `codeListError`), `storeSettingsSchema`
+    `.extend` with `enabledSet` (unique), action sends `withDefault(set, default)`. Read-only shows
+    both. `forStoreSettings` now 8 keys.
+  - Domains: `MakePrimaryButton` (`updateDomain {is_primary:true}`, owner hq), never sends false.
+  - Keys: `RevokeKeyButton` asks first; `lastLiveKeyId` → no button, row says why; 409
+    `last_live_key` → `LAST_LIVE_KEY_MESSAGE` (lives in `src/lib/settings`, not the 'use server' file).
+  - **Server-side guard** `src/lib/settings/guard.ts` `refuseUnlessPermitted(op, storeId)` in every
+    registry action (createStore/updateStore/updateStoreSettings/addDomain/setPrimaryDomain/
+    createSalesChannel/createApiKey/revokeApiKey); table `REGISTRY_PERMISSIONS` pinned against the
+    yaml in `test/settings.test.tsx`. Path ids uuid-checked before the API.
+  - #287 nits done (probe non-404 → unreachable; numeric ids fold; README :9100 vs :9000).
+  - Tests: unit 584/584 (`settings-actions` 12 new, settings 36), contract 74/74 (settings 15),
+    mock e2e 21 + 2 core-only skipped (against the shared docker Prism :4011, which served 0.4.8).
+  - **Real core run 2026-10-05** (core :9000 from this branch, app :3000, Keycloak, fga:seed): sets
+    saved + restored, run key created + revoked, brand-b last-live note + direct 409, owner primary
+    move + back, store-staff refused by the replayed server action and by the core (403). Left
+    behind: domain `core-run-muuydbgx.brand-a.local` (non-primary) and revoked key `core run 2.5b
+    muuydbgx`. Driven by a throwaway Playwright spec (deleted); screenshots `docs/settings/2-5b-*`.
 - **2.6 — issue #118 Real-API hardening** · 2026-09-28 · local commit (sha in the PR)
   - `src/lib/api/api-mode.ts`: `/health` probe (core 200 / Prism 404 / unreachable), 60 s cache,
     1.5 s timeout, `X-Contracts-Version` read; `versionVerdict` → chip or warning, never a block.
@@ -390,21 +411,22 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   commit sha arrives from the manager. Head `6a0bc0f`.
 - **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
   after 2.5 merges; window 1 gets the registry work bundled with #265. Then 2.5b closes #117.
-- **2.6 (#118) — built and verified, committed locally, NOT pushed** (one branch, one open PR:
-  #282 is still in review). After the #282 verdict + merge confirm: merge main, rerun gates, push
-  (carries the memory commit too), open the 2.6 PR — **"Refs #118"** while #284/#285 are open
-  (#118's own criteria are met; the manager decides whether it closes).
-- #282 (2.5 part one) shows MERGED on GitHub (main `820ba48`, merge round 30); main merged
-  locally on top of 2.6, gates green again. Holding the push for the manager's explicit confirm.
-- After that: 2.5b when #279 lands as 0.4.7 (closes #117) → then Phase 2 done.
+- **2.6 = PR #287 (Refs #118), in review** (2026-09-28, head `4f4da3c`; closing refs `[]`).
+  #282 merged as 4a033d7. Window 1's bundle (#265, #279 registry, #284 header) lands as one wake.
+- **#287 fixed** (2026-09-28): body reworded, closing refs `[]` over 30 s; manager queues it
+  directly. **2.5b nits from the #287 review:** `probeApiMode` treats a core 500 on `/health` as
+  mock (match 404 specifically; anything else non-2xx = unreachable); `routeLabel` folds uuids
+  but not numeric ids; one word in the README on :9100 (this run) vs :9000 (the default).
+- **2.5b = PR #338, Closes #117** (2026-10-05) — core run done, waiting for checks and the
+  reviewer. Then Phase 2 done.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
 - [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
-- [ ] **#117 · 2.5** Store settings — part one = PR #282 (Refs #117); 2.5b after #279 (0.4.7) closes it
-- [x] **#118 · 2.6** Real-API hardening and e2e against the core — built, PR after #282 merges
+- [x] **#117 · 2.5** Store settings — part one merged (#282); 2.5b = PR #338 (Closes #117), core run done
+- [x] **#118 · 2.6** Real-API hardening and e2e against the core — PR #287 (Refs #118)
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
 The four nits recorded on #205 were never written down anywhere (manager confirmed the handoff
@@ -600,6 +622,18 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Owner signs in with password + TOTP** (dev secret `owner-dev-totp-secret-20260905`, RFC 6238
+  over the raw string; see packages/auth-sdk/test/keycloak-realms.test.ts). `test-cli` password
+  grant gives real tokens (aud core-api) for every user without TOTP — handy for direct core checks.
+- **Proving a server action refuses server-side:** capture the `Next-Action` POST from the
+  permitted user's Save (Playwright `page.on('request')`) and replay it with the lower user's
+  session via `page.request.post` — the RSC response carries the refusal.
+- **A 'use server' file may export only async functions** — a message constant there breaks
+  `next build`; keep constants in `src/lib/**`.
+- **`import.meta.url` is not a file URL under Vitest's jsdom** — `fileURLToPath` throws; resolve
+  repo files from `process.cwd()` (apps/admin).
+- **Prism's `/admin/me` is a store_admin** — owner-only actions are refused by the server-side
+  guard in contract tests; exercise those operations through the wrappers.
 - **`packages/contracts/dist` can be stale in a worktree** (built 2026-09-24 at 0.4.5 while `src`
   said 0.4.6): the app and typecheck import the built `dist`, not `src`. The 2.6 banner exposed it
   ("this app speaks 0.4.5"). After a contracts bump on main: `pnpm --filter @platform/contracts
@@ -607,8 +641,11 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
 - **Core-mode e2e data is shared and grows:** every run adds stamped products, promotions and keys
   to the local DB; locators over lists need `.first()` (the key list had 4 `pk_brand…` rows).
 - **GitHub reads a closing keyword anywhere in a PR body** — "2.5b, which closes #117" linked
-  #117 to #282 despite the "Refs #117" title. For a partial PR, never put close/fix/resolve next
-  to the issue number, and check `gh pr view N --json closingIssuesReferences` after opening.
+  #117 to #282 despite the "Refs #117" title — and it happened AGAIN on #287 ("2.5b … closes
+  #117"). For a partial PR, never put close/fix/resolve anywhere near an issue number; before
+  `gh pr create`, grep the body for close/fix/resolve within 40 characters of a `#`. **An immediate
+  `closingIssuesReferences` check is not proof:** GitHub parses the body asynchronously — #287
+  read `[]` right after creation and `[117]` later. Check again after ~30 s, every time.
 - **Contract-suite Prism ports are shared across windows' suites in one vitest run:** 4211 states,
   4212 catalog, 4213 orders, 4214 customers, 4215 promotions, 4216 marketing (window 17), 4217
   settings. A new suite takes the next free port — grep `test-contract` first (EADDRINUSE otherwise).

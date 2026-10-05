@@ -2,9 +2,10 @@
  * Store settings (#117): who may do what, what reaches the client, and which status changes ask
  * first. Pure, so the role fixtures can be asserted in a table.
  *
- * Every flag mirrors one operation's `x-permission` in Admin API 0.4.6. UI gating is a
- * convenience — the Admin API re-checks each mutation, and a refusal renders as `ActionRefusal` —
- * but a form that will certainly be refused is not offered; the relation it needs is named instead.
+ * Every flag mirrors one operation's `x-permission` in Admin API 0.4.8 (`REGISTRY_PERMISSIONS`).
+ * The same table gates the server actions before they call the API (`./guard.ts`), and the Admin
+ * API re-checks each mutation again; UI gating is only the convenience on top. A form that will
+ * certainly be refused is not offered; the relation it needs is named instead.
  */
 
 import type { AdminComponents } from '../api/admin-client';
@@ -14,38 +15,86 @@ import { expandOrganizationRelations, expandStoreRelations, type Relation } from
 
 type Store = AdminComponents['Store'];
 type SalesChannel = AdminComponents['SalesChannel'];
+type ApiKey = AdminComponents['ApiKey'];
+
+/**
+ * The registry mutations and the `x-permission` each one carries in `admin-api.yaml`. One table,
+ * read by the page (what to offer) and by the server actions (what to refuse before the API).
+ * `test/settings.test.tsx` pins every row against the spec file itself.
+ */
+export const REGISTRY_PERMISSIONS = {
+  createStore: { relation: 'owner', object: 'organization' },
+  updateStore: { relation: 'store_admin', object: 'store' },
+  addDomain: { relation: 'owner', object: 'organization' },
+  updateDomain: { relation: 'owner', object: 'organization' },
+  createSalesChannel: { relation: 'store_admin', object: 'store' },
+  createApiKey: { relation: 'store_admin', object: 'store' },
+  revokeApiKey: { relation: 'store_admin', object: 'store' },
+} as const satisfies Record<string, { relation: Relation; object: 'organization' | 'store' }>;
+
+export type RegistryOperation = keyof typeof REGISTRY_PERMISSIONS;
+
+/** The object an operation's `x-permission` names, as the Admin API writes it in a 403. */
+export function permissionObject(operation: RegistryOperation, storeId: string): string {
+  return REGISTRY_PERMISSIONS[operation].object === 'organization'
+    ? 'organization:hq'
+    : `store:${storeId}`;
+}
+
+/** Whether the principal holds the relation `operation` requires (implied relations included). */
+export function mayPerform(
+  principal: Principal,
+  operation: RegistryOperation,
+  storeId: string,
+): boolean {
+  const { relation, object } = REGISTRY_PERMISSIONS[operation];
+  const organizationRelations = principal.organization_relations as Relation[];
+  const held =
+    object === 'organization'
+      ? expandOrganizationRelations(organizationRelations)
+      : expandStoreRelations(
+          (findStore(principal, storeId)?.relations ?? []) as Relation[],
+          organizationRelations,
+        );
+  return held.has(relation);
+}
 
 export interface SettingsPermissions {
-  /** `updateStore` — store_admin on the store. */
+  /** `updateStore` — store_admin on the store (name, status, defaults, enabled sets). */
   canEditStore: boolean;
   /** `addDomain` — owner on organization:hq (not store_admin). */
   canAddDomain: boolean;
+  /** `updateDomain` (move the primary flag) — owner on organization:hq. */
+  canMovePrimary: boolean;
   /** `createSalesChannel` — store_admin on the store. */
   canCreateChannel: boolean;
-  /** `listApiKeys`, `createApiKey` — store_admin on the store. Below it, not even the list. */
+  /** `listApiKeys`, `createApiKey`, `revokeApiKey` — store_admin. Below it, not even the list. */
   canManageKeys: boolean;
 }
 
 export function settingsPermissions(principal: Principal, storeId: string): SettingsPermissions {
-  const organization = expandOrganizationRelations(principal.organization_relations as Relation[]);
-  const onStore = expandStoreRelations(
-    (findStore(principal, storeId)?.relations ?? []) as Relation[],
-    principal.organization_relations as Relation[],
-  );
-  const admin = onStore.has('store_admin');
+  const may = (operation: RegistryOperation) => mayPerform(principal, operation, storeId);
   return {
-    canEditStore: admin,
-    canAddDomain: organization.has('owner'),
-    canCreateChannel: admin,
-    canManageKeys: admin,
+    canEditStore: may('updateStore'),
+    canAddDomain: may('addDomain'),
+    canMovePrimary: may('updateDomain'),
+    canCreateChannel: may('createSalesChannel'),
+    canManageKeys: may('createApiKey') && may('revokeApiKey'),
   };
 }
 
-/** The General form's starting values — six scalars, never the store record. */
+/** The General form's starting values — six scalars and the two enabled sets, never the record. */
 export type StoreSettingsDefaults = ClientSafe<
   Pick<
     Store,
-    'name' | 'status' | 'default_currency' | 'default_locale' | 'default_country' | 'timezone'
+    | 'name'
+    | 'status'
+    | 'default_currency'
+    | 'default_locale'
+    | 'default_country'
+    | 'timezone'
+    | 'currencies'
+    | 'locales'
   >
 >;
 
@@ -57,7 +106,32 @@ export function forStoreSettings(store: Store): StoreSettingsDefaults {
     'default_locale',
     'default_country',
     'timezone',
+    'currencies',
+    'locales',
   ]);
+}
+
+/**
+ * An enabled set as `updateStore` should receive it: trimmed, each entry once, the default first.
+ * The core keeps the default whatever is sent; sending it too keeps the form and the stored set
+ * from disagreeing about what was saved.
+ */
+export function withDefault(set: readonly string[], fallback: string): string[] {
+  const entries = set.map((entry) => entry.trim()).filter((entry) => entry !== '');
+  return [...new Set([fallback, ...entries])];
+}
+
+/** What the screen says when the core refuses to revoke the last live publishable key. */
+export const LAST_LIVE_KEY_MESSAGE =
+  "This is the store's last live publishable key — the storefront would lose its only credential. Create another publishable key first, then revoke this one.";
+
+/**
+ * The key `revokeApiKey` refuses with 409 `last_live_key`: the store's only publishable key with
+ * `revoked_at: null`. Null when there are two or more (or none) — any of them may go.
+ */
+export function lastLiveKeyId(keys: readonly ApiKey[]): string | null {
+  const live = keys.filter((key) => key.type === 'publishable' && key.revoked_at === null);
+  return live.length === 1 ? (live[0]?.id ?? null) : null;
 }
 
 /** A sales channel as the API key form's select needs it. */
