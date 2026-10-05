@@ -562,27 +562,40 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 `.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
 belongs to the main window.
 
-| job              | runs when   | what it does                                                                                                                                                                                                     |
-| ---------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                                                                                             |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ` / `perf`                                                                                                                    |
-| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                                                    |
-| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                                                   |
-| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                                                                                               |
-| `perf`           | `perf`      | window 3's storefront performance gate: build the storefront's workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter @platform/storefront-starter perf` (bundle budget + Lighthouse, exit 1 if either is over) |
-| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                                         |
-| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every `apps/*` Playwright journey (brand storefronts opt-in, below)                             |
-| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                                                                                                  |
-| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                                       |
-| `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                                           |
+| job              | runs when   | what it does                                                                                                                                                                                 |
+| ---------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                                                                         |
+| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ` / `perf`                                                                                                |
+| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                                |
+| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                               |
+| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                                                                           |
+| `perf-app`       | `perf`      | one entry per storefront in `perf_apps`: build its workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter <storefront> perf` (its own bundle budget + Lighthouse, exit 1 if either is over) |
+| `perf`           | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                             |
+| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                     |
+| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every `apps/*` Playwright journey (brand storefronts opt-in, below)         |
+| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                                                                              |
+| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                   |
+| `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                       |
 
-**`perf` is a gate, not a report** (#257). `scripts/perf.mjs` runs the bundle budget and Lighthouse CI
-(median of three) and exits non-zero if either is exceeded; nothing in the job is `continue-on-error`, and on
-failure the `.lighthouseci` reports are uploaded as the `lighthouse-reports` artifact. It fires on
-`apps/storefront-starter/**`, the packages the storefront builds from (`packages/ui`, `packages/contracts`,
-`cms/`) and the workspace root files — not on every `code` change, because ~5 minutes of `next build` plus
-six Lighthouse runs buys nothing on a core-only PR. A new workspace dependency of the storefront belongs in
-the pattern in `infra/ci/changes.sh`.
+**`perf` is a gate, not a report** (#257, #283). For each storefront it measures, `scripts/perf.mjs` runs that
+storefront's own bundle budget and Lighthouse CI against its own `lighthouserc.json`, and exits non-zero if either is
+exceeded; nothing is `continue-on-error`, and on failure the `.lighthouseci` reports are uploaded as
+`lighthouse-reports-<storefront>`.
+
+- **Which storefronts.** `infra/ci/changes.sh` emits `perf_apps`: every directory under `apps/storefront-starter`
+  or `apps/storefronts/*` whose `package.json` has a `perf` script. A change inside one storefront measures that
+  one; a change to what they all build from (`packages/ui`, `packages/contracts`, `cms/`, the workspace root
+  files, `ci.yml`) measures all of them; a core-only or docs-only PR measures none. A brand scaffold without a
+  `perf` script is named in the classifier's log. Before #283 only the starter was ever measured, so brand A's
+  whole theme change (#280) passed in four seconds.
+- **Three runs, not a median.** Each URL is audited three times, and LHCI's default aggregation for an
+  assertion is `optimistic` — the best of the three. An assertion with `aggregationMethod: pessimistic` takes the
+  worst (both storefronts' SEO does).
+- **What is not covered.** Only the URLs in each `lighthouserc.json` (the PLP and a PDP today). The starter's
+  home page has no Lighthouse run and no axe check in CI; brand A's e2e has an axe spec, the starter's does not.
+- **The required check is the aggregator.** Branch protection enforces `storefront performance budget (bundle +
+Lighthouse)`, which is the `perf` job, not the matrix: matrix checks are named per entry and would never
+  report under the required name.
 
 **`images` is narrower on a PR than `code` is.** A source change under `apps/**` or `packages/**` no longer
 rebuilds the six images: only a `Dockerfile`, `.dockerignore`, `infra/docker/**`, `infra/ci/**` or a

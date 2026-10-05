@@ -8,8 +8,9 @@
 #   CHANGES_ALL=1 infra/ci/changes.sh     # everything runs (pushes to main)
 #   CHANGED_FILES=$'a\nb' infra/ci/changes.sh   # test mode, no git needed
 #
-# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…`, `helm=…`, `observ=…`, `perf=…` to stdout, and
-# to $GITHUB_OUTPUT.
+# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…`, `helm=…`, `observ=…`, `perf=…` and `perf_apps=…`
+# to stdout, and to $GITHUB_OUTPUT. `perf_apps` is a JSON array of storefront directories for the
+# perf job's matrix; `STOREFRONTS=$'a\nb'` overrides the directory scan (test mode).
 #
 # Groups:
 #   code       lint, typecheck, format, unit tests, contract tests
@@ -24,22 +25,54 @@
 #   observ     the observability stack: compose profile, collector/Prometheus config, dashboards
 #   e2e        the live auth suites and the Playwright journeys — anything `code` covers, plus the
 #              realms and authorization model those suites run against
-#   perf       the storefront performance budget (bundle + Lighthouse, ~5 min): the storefront, the
-#              workspace packages it builds from, and the root files every package resolves through.
-#              Narrower than `code` so a core-only PR does not pay for a storefront build (#257).
+#   perf       the storefront performance budget (bundle + Lighthouse, ~5 min per storefront), run
+#              once per storefront in `perf_apps`. A storefront is every directory under
+#              apps/storefront-starter or apps/storefronts/* whose package.json has a `perf` script.
+#              A change inside one storefront measures that storefront; a change to what they all build
+#              from (packages/ui, packages/contracts, cms/, the root files) measures all of them.
+#              Narrower than `code` so a core-only PR does not pay for a storefront build (#257); per
+#              storefront so a brand's theme is measured with its own budgets, not the starter's (#283).
 set -euo pipefail
 
 emit() {
-  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\nperf_apps=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" >> "$GITHUB_OUTPUT"
+    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\nperf_apps=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" >> "$GITHUB_OUTPUT"
   fi
+}
+
+# Every storefront the perf job can measure: the starter and each brand, if it has a `perf` script.
+# A brand scaffold without one is reported rather than silently left unmeasured.
+storefronts() {
+  if [ -n "${STOREFRONTS+x}" ]; then
+    printf '%s\n' "$STOREFRONTS" | sed '/^$/d'
+    return
+  fi
+  local root dir
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  for dir in "$root"/apps/storefront-starter "$root"/apps/storefronts/*; do
+    [ -f "$dir/package.json" ] || continue
+    if grep -q '"perf":' "$dir/package.json"; then
+      printf '%s\n' "${dir#"$root"/}"
+    else
+      echo "changes: ${dir#"$root"/} has no perf script — the perf job cannot measure it" >&2
+    fi
+  done
+}
+
+# The storefronts given on stdin, as a JSON array of strings.
+json_array() {
+  local out='' item
+  while IFS= read -r item; do
+    [ -n "$item" ] && out="$out${out:+,}\"$item\""
+  done
+  printf '[%s]' "$out"
 }
 
 # A push to main is never a partial build.
 if [ -n "${CHANGES_ALL:-}" ]; then
   echo 'changes: CHANGES_ALL set — every group runs' >&2
-  emit true true true true true true true
+  emit true true true true true true true "$(storefronts | json_array)"
   exit 0
 fi
 
@@ -93,13 +126,21 @@ if match '^(infra/helm/|infra/argocd/)' || match "$CI_SCRIPTS" || match '^\.gith
 # The compose file is shared: it defines both the dev stack and the observability profile.
 if match '^(infra/observability/|infra/docker/docker-compose\.yml$)' || match "$CI_SCRIPTS" ||
   match '^\.github/workflows/ci\.yml$'; then observ=true; fi
-# The storefront's workspace dependencies are @platform/ui, @platform/contracts and @platform/cms
-# (cms/). A new one in apps/storefront-starter/package.json belongs in this pattern too.
-if match '^(apps/storefront-starter/|packages/(ui|contracts)/|cms/)' || match "$ROOT_FILES"; then perf=true; fi
+# The storefronts' shared workspace dependencies are @platform/ui, @platform/contracts and @platform/cms
+# (cms/). A new one in any storefront's package.json belongs in this pattern too.
+if match '^(packages/(ui|contracts)/|cms/)' || match "$ROOT_FILES"; then
+  perf_apps="$(storefronts)"
+else
+  perf_apps="$(storefronts | while IFS= read -r dir; do
+    if match "^$dir/"; then printf '%s\n' "$dir"; fi
+  done)"
+fi
+if [ -n "$perf_apps" ]; then perf=true; fi
+perf_apps="$(printf '%s\n' "$perf_apps" | json_array)"
 
 if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ] && [ "$e2e" = false ] &&
   [ "$helm" = false ] && [ "$observ" = false ] && [ "$perf" = false ]; then
   echo 'changes: documentation-only change — the heavy jobs will no-op' >&2
 fi
 
-emit "$code" "$images" "$terraform" "$e2e" "$helm" "$observ" "$perf"
+emit "$code" "$images" "$terraform" "$e2e" "$helm" "$observ" "$perf" "$perf_apps"
