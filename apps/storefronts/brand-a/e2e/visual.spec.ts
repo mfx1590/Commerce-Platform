@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { hydrated } from './support/journey';
 
 /**
  * Visual regression snapshots for home / PLP / PDP — issue #140.
@@ -36,7 +37,10 @@ const PAGES = [
 for (const page_ of PAGES) {
   test(`${page_.name} matches its visual baseline`, async ({ page }) => {
     await page.goto(page_.path);
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
+    // A snapshot needs every image painted. Hydration does not wait for them; asking the
+    // images themselves does, without waiting on unrelated requests as the old network-idle wait did (#327).
+    await page.waitForFunction(() => Array.from(document.images).every((img) => img.complete));
 
     // The web fonts are the point of the theme: a snapshot taken mid-swap records the fallback face
     // and then differs on every later run for no real reason.

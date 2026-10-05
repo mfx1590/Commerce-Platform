@@ -31,6 +31,11 @@ describe('e2eServerEnv', () => {
     expect(env.STORE_API_URL).toBe('http://127.0.0.1:9000');
   });
 
+  it('turns on local images for every run, mock or core (#327)', () => {
+    expect(e2eServerEnv({}).E2E_LOCAL_IMAGES).toBe('1');
+    expect(e2eServerEnv({ E2E_STORE_API_URL: CORE }).E2E_LOCAL_IMAGES).toBe('1');
+  });
+
   it('does not touch the environment it was given', () => {
     const shell = { STORE_API_URL: CORE };
     e2eServerEnv(shell);
