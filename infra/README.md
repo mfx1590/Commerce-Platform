@@ -588,8 +588,11 @@ belongs to the main window.
 
 **`perf` is a gate, not a report** (#257, #283). For each storefront it measures, `scripts/perf.mjs` runs that
 storefront's own bundle budget and Lighthouse CI against its own `lighthouserc.json`, and exits non-zero if either is
-exceeded; nothing is `continue-on-error`, and on failure the `.lighthouseci` reports are uploaded as
-`lighthouse-reports-<storefront>`.
+exceeded; nothing is `continue-on-error`. Pass or fail, `infra/ci/lighthouse-summary.mjs` then prints every run's
+value, the runner's CPU benchmark per run and the value each assertion compared, with its margin, to the log and
+the job summary, and the `.lighthouseci` reports are uploaded as `lighthouse-reports-<storefront>` (30 days).
+Lighthouse CI itself prints a metric only when it fails, so before this a green leg said nothing about how close
+it was (Refs #348).
 
 - **Which storefronts.** `infra/ci/changes.sh` emits `perf_apps`: every directory under `apps/storefront-starter`
   or `apps/storefronts/*` whose `package.json` has a `perf` script. A change inside one storefront measures that

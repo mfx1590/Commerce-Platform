@@ -77,6 +77,8 @@ jobs:
       # Node's built-in runner, no install: the live-suite guard used by `auth-e2e`.
       - name: self-test the live-suite guard
         run: node --test infra/ci/require-live-tests.test.mjs
+      - name: self-test the Lighthouse summary
+        run: node --test infra/ci/lighthouse-summary.test.mjs
       - id: filter
         run: |
           if [ "${{ github.event_name }}" != 'pull_request' ]; then
@@ -246,11 +248,21 @@ jobs:
           # audit and caps SEO at 0.69. perf.mjs also sets it now; this stays as a belt.
           ROBOTS_ALLOW_INDEXING: '1'
         run: pnpm --filter '${{ steps.app.outputs.package }}' perf
-      - name: Lighthouse reports on failure
-        if: failure()
+      # LHCI prints a metric only when its assertion FAILS, so a green leg said nothing about how close it
+      # was — brand A's listing-page LCP turned out to sit on its budget (~1 failure in 20, Refs #348). This
+      # prints, pass or fail, every run's value, the CPU benchmark per run, and the value each assertion
+      # actually compared (`optimistic`, the default, = the best of the three runs), into the log and the
+      # job summary. A witness, never a gate: it always exits 0; the step above is the gate.
+      - name: Lighthouse, as measured (every run, the compared value, the margin)
+        if: always() && steps.app.outputs.package != ''
+        run: node infra/ci/lighthouse-summary.mjs '${{ matrix.app }}'
+      # On success as well as failure (Refs #348): the measurement trend needs the passing runs too.
+      - name: Lighthouse reports
+        if: always() && steps.app.outputs.package != ''
         uses: actions/upload-artifact@v4
         with:
           name: lighthouse-reports-${{ steps.app.outputs.id }}
+          retention-days: 30
           path: ${{ matrix.app }}/.lighthouseci
           # upload-artifact@v4 skips dot-directories by default; without this the reports are dropped.
           include-hidden-files: true
