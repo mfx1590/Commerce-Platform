@@ -14,9 +14,14 @@ SUT="$HERE/changes.sh"
 
 fail=0
 
+# A fixed storefront list, so the cases below do not change meaning whenever a brand is added.
+# One case at the bottom runs the real directory scan.
+export STOREFRONTS=$'apps/storefront-starter\napps/storefronts/brand-a'
+
+# The seven group flags; `perf_apps` has its own check below.
 check() {
   local name="$1" files="$2" want="$3" got
-  got="$(CHANGED_FILES="$files" bash "$SUT" 2>/dev/null | tr '\n' ' ')"
+  got="$(CHANGED_FILES="$files" bash "$SUT" 2>/dev/null | grep -v '^perf_apps=' | tr '\n' ' ')"
   got="${got% }"
   if [ "$got" = "$want" ]; then
     printf 'ok   %-34s %s\n' "$name" "$got"
@@ -80,10 +85,47 @@ check 'storefront source'   'apps/storefront-starter/src/app/page.tsx'          
 check 'the ui package'      'packages/ui/src/button.tsx'                         "$STOREFRONT"
 check 'the contracts'       'packages/contracts/openapi/store.yaml'              "$STOREFRONT"
 check 'the cms'             'cms/src/index.ts'                                   "$STOREFRONT"
+# A brand storefront is a storefront: #280 changed brand A's whole theme and the gate never ran (#283).
+check 'brand storefront source' 'apps/storefronts/brand-a/src/brand/tokens.ts'   "$STOREFRONT"
+check 'a brand font binary'     'apps/storefronts/brand-a/src/brand/fonts/x.woff2' "$STOREFRONT"
 check 'the compose file'    'infra/docker/docker-compose.yml'                    'code=false images=true terraform=false e2e=true helm=false observ=true perf=false'
 
+# Which storefronts the perf job measures: the one that changed, or all of them when what they all
+# build from changed. A brand must be measured with its own budgets, not the starter's (#283).
+check_apps() {
+  local name="$1" files="$2" want="$3" got
+  got="$(CHANGED_FILES="$files" bash "$SUT" 2>/dev/null | sed -n 's/^perf_apps=//p')"
+  if [ "$got" = "$want" ]; then
+    printf 'ok   %-34s perf_apps=%s\n' "$name" "$got"
+  else
+    printf 'FAIL %-34s want [%s] got [%s]\n' "$name" "$want" "$got"
+    fail=1
+  fi
+}
+BOTH='["apps/storefront-starter","apps/storefronts/brand-a"]'
+check_apps 'apps: brand only'          'apps/storefronts/brand-a/src/brand/tokens.ts'   '["apps/storefronts/brand-a"]'
+check_apps 'apps: starter only'        'apps/storefront-starter/src/app/page.tsx'       '["apps/storefront-starter"]'
+check_apps 'apps: both storefronts'    $'apps/storefront-starter/a.ts\napps/storefronts/brand-a/b.ts' "$BOTH"
+check_apps 'apps: the ui package'      'packages/ui/src/button.tsx'                     "$BOTH"
+check_apps 'apps: the lockfile'        'pnpm-lock.yaml'                                 "$BOTH"
+check_apps 'apps: the workflow'        '.github/workflows/ci.yml'                       "$BOTH"
+check_apps 'apps: core only'           'apps/core/src/x.ts'                             '[]'
+check_apps 'apps: docs only'           'docs/x.md'                                      '[]'
+# A prefix of a storefront's name is not that storefront.
+check_apps 'apps: brand-ab is not brand-a' 'apps/storefronts/brand-ab/src/x.ts'         '[]'
+
+# The real directory scan: the starter and brand A both have a perf script on main.
+got="$(unset STOREFRONTS; CHANGED_FILES='packages/ui/x.ts' bash "$SUT" 2>/dev/null | sed -n 's/^perf_apps=//p')"
+case "$got" in
+  *'"apps/storefront-starter"'*'"apps/storefronts/brand-a"'*)
+    printf 'ok   %-34s perf_apps=%s\n' 'apps: real directory scan' "$got" ;;
+  *)
+    printf 'FAIL %-34s got [%s]\n' 'apps: real directory scan' "$got"
+    fail=1 ;;
+esac
+
 # CHANGES_ALL wins over everything: a push to main runs the lot.
-got="$(CHANGES_ALL=1 CHANGED_FILES='docs/x.md' bash "$SUT" 2>/dev/null | tr '\n' ' ')"
+got="$(CHANGES_ALL=1 CHANGED_FILES='docs/x.md' bash "$SUT" 2>/dev/null | grep -v '^perf_apps=' | tr '\n' ' ')"
 got="${got% }"
 if [ "$got" = 'code=true images=true terraform=true e2e=true helm=true observ=true perf=true' ]; then
   printf 'ok   %-34s %s\n' 'CHANGES_ALL overrides' "$got"
