@@ -89,13 +89,22 @@ if [ "$KEEP" = '1' ]; then
 fi
 
 app_pid=''
+app_group=0
 kept=0
 cleanup() {
   # A core handed over in keep mode belongs to `--stop` now.
   [ "$kept" = 1 ] && return
   if [ -n "$app_pid" ] && kill -0 "$app_pid" 2>/dev/null; then
-    kill "$app_pid" 2>/dev/null || true
+    # In keep mode the server was started under setsid, so pnpm leads its own process group and
+    # killing pnpm alone could leave the node server it spawned on :$PORT (#339 review). Signal the
+    # group; outside keep mode, the pid as before.
+    if [ "$app_group" = 1 ]; then
+      kill -TERM -- "-$app_pid" 2>/dev/null || kill "$app_pid" 2>/dev/null || true
+    else
+      kill "$app_pid" 2>/dev/null || true
+    fi
     wait "$app_pid" 2>/dev/null || true
+    [ "$app_group" = 1 ] && { kill -KILL -- "-$app_pid" 2>/dev/null || true; }
   fi
   # Leave the shared Postgres server as we found it. FORCE because the app may still hold a
   # connection for a moment after being killed.
@@ -124,6 +133,7 @@ echo "== starting the server on :$PORT (log: $LOG)"
 # session rather than this shell's process group.
 if [ "$KEEP" = '1' ] && command -v setsid >/dev/null 2>&1; then
   setsid pnpm --filter @platform/core start > "$LOG" 2>&1 < /dev/null &
+  app_group=1
 else
   pnpm --filter @platform/core start > "$LOG" 2>&1 &
 fi

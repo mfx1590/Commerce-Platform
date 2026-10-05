@@ -43,6 +43,10 @@ case_ 'a values-production.yaml'                               fail "$PROD_OK &&
 case_ 'a values-prd.yaml'                                      fail "$PROD_OK && mv storefront/values-prod.yaml storefront/values-prd.yaml"
 case_ 'staging: a seeded dev publishable key'                  fail "sed -i 's#^env:#env:\n  STORE_PUBLISHABLE_KEY: '\"'\"'pk_brand-a_dev_00000000000000000000'\"'\"'#' storefront/values-staging.yaml"
 case_ 'prod: a seeded dev publishable key'                     fail "$PROD_OK && sed -i 's#^env:#env:\n  STORE_PUBLISHABLE_KEY: '\"'\"'pk_brand-a_dev_00000000000000000000'\"'\"'#' storefront/values-prod.yaml"
+# The rule is a text match over every non-dev values file, so an appended line is enough to trip it.
+case_ 'another env (values-qa.yaml): a seeded dev key'         fail "cp storefront/values-staging.yaml storefront/values-qa.yaml && printf '  STORE_PUBLISHABLE_KEY: pk_brand-a_dev_00000000000000000000\n' >> storefront/values-qa.yaml"
+case_ 'staging: a dev key with an upper-case store code'       fail "printf '  STORE_PUBLISHABLE_KEY: pk_Brand-A_dev_00000000000000000000\n' >> storefront/values-staging.yaml"
+case_ 'staging: a dev key in another app'                      fail "printf '  STORE_PUBLISHABLE_KEY: pk_brand-b_dev_00000000000000000000\n' >> admin/values-staging.yaml"
 case_ 'staging: a dev key named only in a comment passes'      pass "printf '# was pk_brand-a_dev_00000000000000000000\n' >> storefront/values-staging.yaml"
 case_ 'dev: the seeded dev key is fine'                        pass "grep -q 'pk_brand-a_dev_' storefront/values-dev.yaml"
 

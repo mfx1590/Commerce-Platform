@@ -581,6 +581,7 @@ belongs to the main window.
 | `perf`           | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                                                   |
 | `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                                           |
 | `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; `apps/*` journeys on Prism, `apps/storefronts/*` on the kept core (below)                         |
+| `admin-e2e-core` | `e2e`       | **advisory** (#285): `fga:seed`, a kept core with real Keycloak tokens and OpenFGA (no dev tokens), then `apps/admin` journeys with `E2E_API=core` on :3200                                                        |
 | `helm`           | `helm`      | `infra/helm/check.sh` (lint, render every app/env, kubeconform, then `check-values.sh`); `check-values.test.sh`; `node --test infra/deploy/keycloak/derive-customers-realm.test.mjs` (the derived customers realm) |
 | `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                                         |
 | `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                                             |
@@ -722,6 +723,10 @@ Two things worth knowing about that list:
 - **`live auth + end-to-end` is required deliberately**, per the manager's note on [auth] 1.7. It is the only
   check that exercises the real realms and a real browser; the unit matrix covers the same behaviour but not
   the path through Keycloak.
+
+`admin e2e against the core (advisory)` is intentionally **not** required yet (#285): the Prism variant inside
+`live auth + end-to-end` stays the gate, and the core variant joins the list after a week of green runs, so a
+core regression is visible on every PR without blocking unrelated merges in the meantime.
 
 `preview deploy (placeholder)` is intentionally **not** required — it is a placeholder that will become the
 per-PR preview environment.

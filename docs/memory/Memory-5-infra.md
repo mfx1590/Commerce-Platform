@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-10-05 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: **Phase 2 infra docket** (manager, 2026-10-05): #283 → #295 (+ #297 item 1) → #285 → rest of #297, one PR each.
+Status: **Phase 2 infra docket** (2026-10-05): #283 ✅ (#336) · #295 ✅ (#339) · #297 ✅ (#344) · #285 = draft #341, waiting on window 4's PR 345.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,68 +108,38 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **URGENT — owner-TOTP collision on the REQUIRED `live auth + end-to-end` (manager, 2026-10-05).** #344's
-  reorder only moved it: PR 345's run 37293071865 (job 111707874414) — core live 40/40, then auth-sdk's hq-rbac
-  `scope.test.ts` "token for owner: invalid_grant" ×2 + a timeout, 126/129. When the core's previous-step code
-  is refused it spends the CURRENT code, which auth-sdk then needs. Fix on branch `infra/phase2-totp` (from
-  main `1e14f03`; second-branch exception approved again; #341 parked): `infra/ci/totp-barrier.sh wait` after
-  the core step sleeps until step S+2 (core codes <= S; sdk earliest S+1), `report` prints every owner grant
-  by step from Keycloak's event log (CI overlay `infra/ci/compose.keycloak-events.yml`, events at DEBUG).
-  Evidence: FIVE re-runs of the job with core/sdk grant timestamps per run. The real cure (a second
-  OTP-enrolled user or a shared owner-token fixture) is windows 1/2's — the manager files it.
-
-- **#285 — on `infra/phase2`, main `423f64b` merged, pushed as a DRAFT** (2026-10-05); needs three consecutive
-  green runs of the new job, counts in the body. Carries the #339 nit: keep-mode startup failure now kills the
-  process group, not just the pnpm pid.
-  Run 1 (job 111687783337) FAILED in setup: fga:seed imports @platform/contracts dist, unbuilt on a clean
-  runner → fixed by `turbo run build --filter='@platform/auth-sdk^...'` first. Goes in the PR body. Job `admin-e2e-core`
-  in ci.yml (`e2e` group): compose auth stack → `fga:seed` (ids to $GITHUB_ENV, `.env` removed) → kept core
-  (no CORE_DEV_TOKENS; staff tokens need OpenFGA) → `E2E_API=core CORE_URL=http://127.0.0.1:9000 PORT=3200
-  ADMIN_APP_URL=http://localhost:3200 pnpm --filter @platform/admin e2e` → stop core → stack down. Advisory
-  (recommend: advisory for a week, as the manager's default). Seeded realm users only. Evidence rule: three
-  consecutive green runs of the new job with counts in the body; local reference run (admin README, 2026-09-28):
-  core 22 passed + 1 skipped (no refundable order). Nightly/workflow_dispatch from the issue NOT added — a
-  ci.yml schedule would run the whole pipeline; say so in the PR, offer a separate workflow if wanted.
-
-- **#341 runs:** run 1 failed in setup (fga:seed needs contracts dist → fixed `d758bce`); run 2 (job
-  111688693287) reached the journeys: 20/3/0. Failures are spec-vs-fresh-core, not the job: two order specs
-  need existing orders (fresh seed has none → "No orders yet"); the customers spec expects "Not available on
-  this API yet" but the core answers a `not_found` 404 → "Customers was not found". Both written into the PR
-  body; reported to the manager for routing to window 4 (+1). No reruns until fixed.
-- **Order changed (manager, 2026-10-05):** #341 stays OPEN as a draft until window 4's spec fix is on main and
-  the admin job is green 3×; push to `infra/phase2` only to merge main when told. After PR A merges: bring
-  `infra/phase2` up to date with main and wait for the manager's word on re-runs.
-- **#297 PR A REBUILT on main** — branch `infra/phase2-realm` from `origin/main` `423f64b` + cherry-pick of
-  501885c without #341's commits (one-time exception to one-branch-per-window, approved by the manager).
-  The old local branch is kept as `infra/phase2-realm-on-341`. Was: built on `d758bce`.
-  **PR #344** (draft). First CI run (head `de59809`): helm red — `node --test <dir>` unsupported by the
-  runner's preinstalled Node (laptop Node 20.19 accepts it) → pass the file. Live red — core auth-live owner
-  grant `invalid_grant`: TOTP reuse; auth-sdk's keycloak-realms spends the current+next window codes, core's
-  helper tries prev/current/next → all spent. Fix attempt 1 (WRONG): core live step BEFORE auth-sdk's — order is not a separation; see the TOTP barrier entry. 39/40 live tests passed in that run. Core live
-  suites in auth-e2e + `infra/ci/require-live-tests.mjs` guard (6 tests); `infra/deploy/keycloak/derive-customers-realm.mjs`
-  + mutation test (16 tests); `infra/helm/check-values.sh` split out + `check-values.test.sh` (13 cases);
-  staging key → `staging/stores/brand-a/storefront`; classifier helm group += infra/deploy/ + customers realm
-  (57 ok). Brands B/C clients dropped from the derived realm (localhost-only). Dev export has
-  `trustEmail: true` on Google — derived sets false; worth telling window 2.
-- (superseded plan note) **#297 rest — PR A APPROVED (closes #297), build locally, push after #341 merges.** Generator + self-test
-  OUTSIDE infra/keycloak (window 2's row) — e.g. infra/deploy/keycloak/; read customers-realm.json only.
-  Mutation-test every rule in the PR body. Item 3: first option (key from ExternalSecret). PR B → issue #342
-  (not now). Earlier findings: Findings: NOTHING deploys Keycloak to
-  dev/staging (terraform only outputs KEYCLOAK_URL; no chart/app). Core live tests (`apps/core/test/auth-live`,
-  `customers-api` live block) self-gate on Keycloak+OpenFGA+DATABASE_URL reachability → silent skip risk.
-  Staging `storefront` (= starter image) carries `STORE_PUBLISHABLE_KEY: pk_brand-a_dev_…` (LAUNCH.md finding).
-  No prod values file exists; check.sh's SITE_URL rule already covers any storefront values file.
+- **#285 → draft PR #341 on `infra/phase2`** (advisory job `admin e2e against the core (advisory)`). OPEN and
+  unmerged until window 4's PR 345 (orders spec places its own order, refund skips with a reason, a 404 on a
+  collection read shows the not-available panel) is on main AND the job is green 3× in a row. Manager's rule:
+  the merge queue refuses any red check, advisory or not. Runs so far: run 1 (job 111687783337, head af6c9fa)
+  red in setup — fga:seed needs contracts dist, fixed `d758bce`; run 2 (job 111688693287, head d758bce)
+  20 passed / 3 failed / 0 — spec-vs-fresh-core (routed to window 4, no REQUEST from me).
+  Expected after 345 on a fresh seed: **22 passed, 1 skipped, 0 failed**.
+  2026-10-05: PR 345 merged (`6b129d9`). main `6b129d9` merged into `infra/phase2` with the #344 nits and
+  pushed once; now running the advisory job 3× (expected 22 passed / 1 skipped / 0 failed). If it is not
+  that: STOP and send the manager the failing spec + snapshot before any re-run. Last Phase 2 item.
 
 ## Next — the docket, in order
 
-1. **#297 rest** — core live tests into the live job; deployed Keycloak from the customers realm export minus
-   test-cli/jane/localhost URIs, verifyEmail true, no first-broker-login auto-link; production SITE_URL in Helm.
-
-Rules this docket: no e2e/builds/docker on the laptop (another window measures); evidence is CI on a DRAFT PR;
-`infra/gitleaks.toml` is in `[[allowlists]]` form since 2026-10-03 (manager's change).
+- Nothing after #285 in this docket. Follow-ups recorded on #342 (not now): one environment per derived
+  realm output; positive gate rules (https-only, no wildcard redirect, PKCE required, sslRequired); SMTP +
+  password policy; brand A's Helm values / ArgoCD app / ECR repo; window 2's live first-broker-login check.
 
 ## Done (earlier)
 
+- **Owner-TOTP collision on the required live job** — PR #347 **merged** as `7993482` (2026-10-05). #344's
+  reorder was wrong (order is not a separation: PR 345 run 37293071865, hq-rbac scope.test.ts invalid_grant,
+  126/129). `infra/ci/totp-barrier.sh wait` sleeps from the core step's end (step S) to the start of S+2;
+  `report` prints owner grants by step from Keycloak's event log (CI overlay `infra/ci/compose.keycloak-events.yml`).
+  5 consecutive green runs on `c190e28` (run 37294007283): core grants <= S, auth-sdk's in S+2 every time;
+  core 40/40, auth-sdk 129/129. Held on #343 and #345 too. Caveat: no core LOGIN_ERROR in those runs.
+  The real cure (second OTP user / shared owner-token fixture) is filed by the manager for windows 1/2.
+- **#297 (rest)** — PR #344 **merged** as `1e14f03` (2026-10-05), built on main as a one-time second branch
+  (`infra/phase2-realm`). Green head **`ecca795`** (run 37289318570): core live suites **40/40** (guard 10/10 and
+  3/3), derived realm 16/16 (12 mutations), check-values 13 cases, guard self-test 6/6. Run 1 (`de59809`) was red:
+  `node --test <dir>` on the runner's Node, and an owner-TOTP collision (auth-sdk spends current+next codes) →
+  core live step moved BEFORE auth-sdk's. Review nits fixed in the next #341 push: values comments name
+  check-values.sh; the `_dev_` key rule covers every non-dev values file, case-insensitive (+3 self-test cases).
 - **#295 + #297 item 1** — PR #339 **merged** as `423f64b`: brand A journeys in CI against a kept core,
   four green live runs (91/0/22 each), `perf_unmeasured`. #295 closed; #297 open for the rest.
 - **#283** — PR #336 **merged** as `978ebf4` (2026-10-05): perf gate per storefront (`perf_apps` matrix +
@@ -419,9 +389,20 @@ Standing debts (parked), whenever this window is next open:
 
 ## Gotchas learned
 
+- **Commit messages: never close/fix/resolve next to a `#number`** (GitHub closing keywords), unless the commit
+  really finishes that issue. #347's subject "fixes #344's wrong fix" was flagged — say "corrects" / "follow-up to".
 - **Ordering two suites is not a separation for single-use codes.** A helper that falls back to the current
   TOTP code spends exactly what the next suite needs. Separate by a step GAP computed from the clock
   (`infra/ci/totp-barrier.sh`), and get evidence from the server's own event log, not from one green run.
+- **The owner's dev TOTP is a shared, single-use resource inside one CI job.** Keycloak refuses a reused code.
+  auth-sdk's `keycloak-realms.test.ts` spends the current and next 30 s windows; core's `auth-live` helper tries
+  previous → current → next. Run core's live suites FIRST (they spend only the previous window). Any new suite
+  that signs `owner` in must be ordered with this in mind (#344).
+- **`node --test <directory>` is not portable.** Node 20.19 on the laptop accepts it; the runner's preinstalled
+  Node (jobs without setup-node, e.g. `helm`, `changes`) takes it as a module path. Always pass the test file.
+- **A fresh-seed CI database has no orders.** Specs written against a laptop's long-lived shared database can
+  assume rows that `pnpm db:seed` never creates (#341 run 2). Read the failure report's page snapshots
+  (`gh run download … -n <report>`; the `data/*.md` files are aria snapshots) before blaming the job.
 
 - **`PERF_PORT` is not honoured by Lighthouse.** `apps/storefront-starter/lighthouserc.json` hardcodes
   `127.0.0.1:3100`; `perf.mjs` starts `next start` on `PERF_PORT` but Lighthouse still audits :3100. Locally

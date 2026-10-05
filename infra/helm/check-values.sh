@@ -52,17 +52,21 @@ for values in "$VALUES"/*/values-*.yaml; do
 done
 
 # The seeded DEV publishable keys (pk_<store>_dev_…, packages/db seed) answer on every laptop's
-# database. A staging or production deployment must use its own store's key, from the secret store
-# (#297, brand A's LAUNCH.md): a dev key there means the environment serves whatever store the dev
-# seed says it is.
-for values in "$VALUES"/*/values-staging.yaml "$VALUES"/*/values-prod.yaml; do
-  [ -f "$values" ] || continue
-  if grep -Ev '^[[:space:]]*#' "$values" | grep -Eq 'pk_[a-z0-9-]+_dev_'; then
+# database. Every deployed environment except dev must use its own store's key, from the secret store
+# (#297, brand A's LAUNCH.md): a dev key there means the environment serves whatever store the dev seed
+# says it is. Applied to EVERY values file whose environment is not `dev` — not only files named
+# values-staging/values-prod, so a values-qa.yaml or values-preview.yaml is covered the day it appears —
+# and case-insensitively, so an upper-case store code is caught too (#344 review). Comments are ignored:
+# a file may say in prose which key it no longer carries.
+for values in "$VALUES"/*/values-*.yaml; do
+  env="$(basename "$values" .yaml)"
+  env="${env#values-}"
+  [ "$env" = dev ] && continue
+  if grep -Ev '^[[:space:]]*#' "$values" | grep -Eiq 'pk_[a-z0-9_-]+_dev_'; then
     echo "FAIL $values: carries a seeded dev publishable key — read STORE_PUBLISHABLE_KEY from <env>/stores/<store>/storefront"
     fail=1
   fi
 done
-
 
 if [ "$fail" -ne 0 ]; then
   echo "== values checks FAILED ($VALUES)"

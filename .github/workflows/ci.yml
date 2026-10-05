@@ -481,6 +481,96 @@ jobs:
         if: always() && needs.changes.outputs.e2e == 'true'
         run: docker compose -f infra/docker/docker-compose.yml down -v
 
+  # apps/admin's journeys against the REAL core (#285, admin task 2.6 / #118). The Prism variant in
+  # `auth-e2e` above stays the required one; this job is ADVISORY — not in branch protection's list —
+  # until it has a week of green runs, so a core regression shows here without blocking every merge.
+  #
+  # Real staff sign-in end to end: Keycloak's staff realm issues the token, the core verifies it
+  # (CORE_DEV_TOKENS is never set) and authorises through OpenFGA, so `fga:seed` must run — unlike the
+  # store journeys, staff tokens are refused with 503 without OPENFGA_STORE_ID. The journeys sign in as
+  # the realm's seeded test users only; no secret is added. Core-mode journeys write stamped rows into
+  # the kept core's own throwaway database, which the stop step drops.
+  admin-e2e-core:
+    name: admin e2e against the core (advisory)
+    runs-on: ubuntu-latest
+    needs: [changes]
+    env:
+      KEYCLOAK_URL: http://localhost:8180
+      OPENFGA_API_URL: http://localhost:8081
+      DATABASE_URL: postgres://platform:platform@localhost:5433/platform
+      DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5433/platform
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.e2e == 'true'
+      - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.e2e == 'true'
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.e2e == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.e2e == 'true'
+      - name: boot keycloak (staff realm), openfga, postgres and redis
+        if: needs.changes.outputs.e2e == 'true'
+        run: docker compose -f infra/docker/docker-compose.yml up -d postgres redis keycloak openfga
+      - name: the auth stack is really up
+        if: needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/wait-for-auth-stack.sh
+      # fga:seed records the ids in a repo-root .env (created from .env.example). They are moved into
+      # the job's environment and the .env removed, so nothing else the job starts reads the
+      # example's localhost defaults by accident — the same no-.env shape as `auth-e2e`.
+      # fga:seed runs auth-sdk's source through tsx, which imports @platform/contracts from its dist/:
+      # on a clean runner that does not exist yet (run 1 of #341 failed exactly there). `^...` builds
+      # auth-sdk's workspace dependencies, not auth-sdk itself.
+      - name: seed OpenFGA (model + staff tuples) and export its ids
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          pnpm exec turbo run build --filter='@platform/auth-sdk^...'
+          pnpm --filter @platform/auth-sdk fga:seed
+          grep -E '^OPENFGA_(STORE|MODEL)_ID=.+' .env >> "$GITHUB_ENV"
+          grep -cE '^OPENFGA_(STORE|MODEL)_ID=.+' .env | grep -qx 2 || { echo 'fga:seed wrote no ids'; exit 1; }
+          rm -f .env
+      - name: core boots for real with OpenFGA and stays up (no dev tokens)
+        if: needs.changes.outputs.e2e == 'true'
+        env:
+          CORE_SMOKE_KEEP: '1'
+        run: bash infra/ci/boot-smoke.sh
+      - name: build the admin app's workspace dependencies
+        if: needs.changes.outputs.e2e == 'true'
+        run: pnpm exec turbo run build --filter='@platform/admin^...'
+      - name: install the browser
+        if: needs.changes.outputs.e2e == 'true'
+        run: pnpm --filter @platform/admin exec playwright install --with-deps chromium
+      # :3200 because Keycloak's `admin-app` client registers it as a redirect URI (REQUEST #82), and
+      # ADMIN_APP_URL has to agree or the callback goes to the wrong origin. In core mode the config
+      # starts no Prism and points the app at CORE_URL.
+      - name: admin journeys against the core
+        if: needs.changes.outputs.e2e == 'true'
+        env:
+          E2E_API: core
+          CORE_URL: http://127.0.0.1:9000
+          PORT: '3200'
+          ADMIN_APP_URL: http://localhost:3200
+        run: pnpm --filter @platform/admin e2e
+      - name: keycloak and openfga logs on failure
+        if: failure() && needs.changes.outputs.e2e == 'true'
+        run: docker compose -f infra/docker/docker-compose.yml logs --tail=100 keycloak openfga
+      - uses: actions/upload-artifact@v4
+        if: failure() && needs.changes.outputs.e2e == 'true'
+        with:
+          name: playwright-report-admin-core
+          path: apps/admin/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
+      # Always exits 0: it cannot hide a failed journey or fail a green job.
+      - name: stop the kept core and drop its database
+        if: always() && needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/boot-smoke.sh --stop
+      - name: stop the stack
+        if: always() && needs.changes.outputs.e2e == 'true'
+        run: docker compose -f infra/docker/docker-compose.yml down -v
+
   helm:
     name: helm lint + template + kubeconform
     runs-on: ubuntu-latest
