@@ -88,6 +88,10 @@ which routes the core does not mount). **Core-mode journeys write into the share
 database**: everything they create is stamped with the run (product handles, promotion codes, key
 names), so reruns never collide, and nothing irreversible is confirmed on seeded data (the refund
 journey stops at the question and cancels; it skips when no seeded order has a refundable payment).
+Core mode creates what it reads (#285): the orders journey places its own guest order through
+the Store API (`e2e/core-order.ts`) and the refund journey skips with its reason (the seeded
+manual provider authorises only; capture is Stripe-only). Run 2026-10-05 (core :9000): 22 passed,
+1 skipped.
 Recorded run 2026-09-28 (core from this branch on :9100 for that run only — the default and the commands above use :9000): mock 21 passed + 2 core-only skipped;
 core 22 passed + 1 skipped (no refundable order). A CI variant is REQUEST #285 (window 5).
 
@@ -533,7 +537,7 @@ store-staff's session was refused by the server action (403 `requires store_admi
 the core never called), and the core itself answers 403 to store-staff's `updateStore` and
 `revokeApiKey`. Left behind (no operation removes them): the non-primary test domain
 `core-run-muuydbgx.brand-a.local` and the revoked run key `core run 2.5b muuydbgx`. No core defects.
-Screenshots `docs/settings/2-5b-*.png` (prefixes only, no key value).
+Screenshots `apps/admin/docs/settings/2-5b-*.png` (prefixes only, no key value).
 
 **Real core run** (2026-09-26; core from this branch on :9100, the built app on :3000 with
 `ADMIN_API_URL` pointing at it, real Keycloak sign-in, OpenFGA re-seeded). As **store-admin**: all

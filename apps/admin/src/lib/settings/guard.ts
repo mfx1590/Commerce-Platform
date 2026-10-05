@@ -15,11 +15,18 @@ import { mapServerError } from '../forms/server-errors';
 import { loadPrincipal } from '../principal';
 import { REGISTRY_PERMISSIONS, mayPerform, permissionObject, type RegistryOperation } from '.';
 
+const STORE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Null when the principal may perform `operation` on `storeId`; otherwise the refusal to return. */
 export async function refuseUnlessPermitted(
   operation: RegistryOperation,
   storeId: string,
 ): Promise<ActionResult<never> | null> {
+  // A store-scoped operation names its store in the path: anything but a uuid never reaches
+  // the principal check or the API (organization-scoped operations take no store id).
+  if (REGISTRY_PERMISSIONS[operation].object === 'store' && !STORE_ID.test(storeId)) {
+    return actionError({ fieldErrors: {}, formError: 'That store is not valid.' });
+  }
   const principal = await loadPrincipal();
   if (!principal.ok) {
     // No principal, no mutation. A 401 is the ended session's panel; anything else is a message.
