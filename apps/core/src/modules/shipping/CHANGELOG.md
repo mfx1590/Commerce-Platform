@@ -5,6 +5,12 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
+### 2026-10-05 · Deterministic outbox order in the database tests (#255)
+
+- Tests only: a shipment's outbox stream is read in `seq` order (the outbox identity, i.e. write order) instead of
+  `occurred_at, topic`. The skipped-scan test now asserts what the product guarantees — `shipment.shipped` before
+  `shipment.delivered` — rather than an alphabetical tiebreak that flipped when the two timestamps differed.
+
 ### 2026-09-19 · 2.5 Status machine widened, and the review fixes (#133, CONTRACT CHANGE #225)
 
 - `shipment.status` gains `picking` and `packed` (migration 0160, #225, contracts-v0.4.3). Cancel is legal from

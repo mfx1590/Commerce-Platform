@@ -108,6 +108,16 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **URGENT — owner-TOTP collision on the REQUIRED `live auth + end-to-end` (manager, 2026-10-05).** #344's
+  reorder only moved it: PR 345's run 37293071865 (job 111707874414) — core live 40/40, then auth-sdk's hq-rbac
+  `scope.test.ts` "token for owner: invalid_grant" ×2 + a timeout, 126/129. When the core's previous-step code
+  is refused it spends the CURRENT code, which auth-sdk then needs. Fix on branch `infra/phase2-totp` (from
+  main `1e14f03`; second-branch exception approved again; #341 parked): `infra/ci/totp-barrier.sh wait` after
+  the core step sleeps until step S+2 (core codes <= S; sdk earliest S+1), `report` prints every owner grant
+  by step from Keycloak's event log (CI overlay `infra/ci/compose.keycloak-events.yml`, events at DEBUG).
+  Evidence: FIVE re-runs of the job with core/sdk grant timestamps per run. The real cure (a second
+  OTP-enrolled user or a shared owner-token fixture) is windows 1/2's — the manager files it.
+
 - **#285 — on `infra/phase2`, main `423f64b` merged, pushed as a DRAFT** (2026-10-05); needs three consecutive
   green runs of the new job, counts in the body. Carries the #339 nit: keep-mode startup failure now kills the
   process group, not just the pnpm pid.
@@ -135,8 +145,7 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   **PR #344** (draft). First CI run (head `de59809`): helm red — `node --test <dir>` unsupported by the
   runner's preinstalled Node (laptop Node 20.19 accepts it) → pass the file. Live red — core auth-live owner
   grant `invalid_grant`: TOTP reuse; auth-sdk's keycloak-realms spends the current+next window codes, core's
-  helper tries prev/current/next → all spent. Fix: core live step runs BEFORE auth-sdk's (it spends only the
-  previous window). 39/40 live tests passed in that run. Core live
+  helper tries prev/current/next → all spent. Fix attempt 1 (WRONG): core live step BEFORE auth-sdk's — order is not a separation; see the TOTP barrier entry. 39/40 live tests passed in that run. Core live
   suites in auth-e2e + `infra/ci/require-live-tests.mjs` guard (6 tests); `infra/deploy/keycloak/derive-customers-realm.mjs`
   + mutation test (16 tests); `infra/helm/check-values.sh` split out + `check-values.test.sh` (13 cases);
   staging key → `staging/stores/brand-a/storefront`; classifier helm group += infra/deploy/ + customers realm
@@ -409,6 +418,10 @@ Standing debts (parked), whenever this window is next open:
   stop at `terraform validate` / `helm template` / runbooks. Never commit credentials.
 
 ## Gotchas learned
+
+- **Ordering two suites is not a separation for single-use codes.** A helper that falls back to the current
+  TOTP code spends exactly what the next suite needs. Separate by a step GAP computed from the clock
+  (`infra/ci/totp-barrier.sh`), and get evidence from the server's own event log, not from one green run.
 
 - **`PERF_PORT` is not honoured by Lighthouse.** `apps/storefront-starter/lighthouserc.json` hardcodes
   `127.0.0.1:3100`; `perf.mjs` starts `next start` on `PERF_PORT` but Lighthouse still audits :3100. Locally

@@ -5,6 +5,11 @@ the module's own history (linked from the PRs).
 
 ## Phase 2 — shipping/phase2 (contracts-v0.4.3)
 
+### 2026-10-05 · Deterministic outbox order in the database tests (#255)
+
+- Tests only: the lifecycle and fulfilment database tests read the outbox in `seq` order alone, not
+  `occurred_at, seq` (same root cause as shipping's #255 flake).
+
 ### 2026-09-19 · 2.5 Pick/pack lifecycle, events and admin operations (#133, CONTRACT CHANGE #225)
 
 - `lifecycle.ts` (new): `pickShipment`, `packShipment` and `listPickLists`. Pick and pack are real
