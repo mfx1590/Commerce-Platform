@@ -23,7 +23,8 @@
 #              budget. A push to main still builds everything, so a source change that breaks its
 #              own image is caught at merge rather than never.
 #   terraform  terraform fmt/validate, and the Kubernetes manifests that go with it
-#   helm       helm lint/template + kubeconform over the charts and the ArgoCD manifests
+#   helm       helm lint/template + kubeconform over the charts and the ArgoCD manifests, and the
+#              derived deployed customers realm (infra/deploy/, from infra/keycloak/customers-realm.json)
 #   observ     the observability stack: compose profile, collector/Prometheus config, dashboards
 #   e2e        the live auth suites and the Playwright journeys — anything `code` covers, plus the
 #              realms and authorization model those suites run against
@@ -124,7 +125,10 @@ if match '(^|/)Dockerfile$' || match '^\.dockerignore$' || match '^infra/docker/
 fi
 if match '^(infra/terraform/|infra/kubernetes/)' || match '^\.github/workflows/ci\.yml$'; then terraform=true; fi
 if [ "$code" = true ] || match '^(infra/keycloak/|infra/openfga/|infra/docker/)' || match "$CI_SCRIPTS"; then e2e=true; fi
-if match '^(infra/helm/|infra/argocd/)' || match "$CI_SCRIPTS" || match '^\.github/workflows/ci\.yml$'; then helm=true; fi
+# infra/deploy/ is what gets deployed alongside the charts (the derived customers realm, #297), and the
+# customers realm export is its input: a change to either must re-run the derivation's self-test.
+if match '^(infra/helm/|infra/argocd/|infra/deploy/)' || match '^infra/keycloak/customers-realm\.json$' ||
+  match "$CI_SCRIPTS" || match '^\.github/workflows/ci\.yml$'; then helm=true; fi
 # The compose file is shared: it defines both the dev stack and the observability profile.
 if match '^(infra/observability/|infra/docker/docker-compose\.yml$)' || match "$CI_SCRIPTS" ||
   match '^\.github/workflows/ci\.yml$'; then observ=true; fi
