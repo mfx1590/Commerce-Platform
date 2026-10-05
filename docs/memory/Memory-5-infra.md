@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-10-05 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: **Phase 2 infra docket** (manager, 2026-10-05): #283 → #295 (+ #297 item 1) → #285 → rest of #297, one PR each.
+Status: **Phase 2 infra docket** (2026-10-05): #283 ✅ (#336) · #295 ✅ (#339) · #297 ✅ (#344) · #285 = draft #341, waiting on window 4's PR 345.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,38 +108,31 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#285 — on `infra/phase2`, main `423f64b` merged, pushed as a DRAFT** (2026-10-05); needs three consecutive
-  green runs of the new job, counts in the body. Carries the #339 nit: keep-mode startup failure now kills the
-  process group, not just the pnpm pid.
-  Run 1 (job 111687783337) FAILED in setup: fga:seed imports @platform/contracts dist, unbuilt on a clean
-  runner → fixed by `turbo run build --filter='@platform/auth-sdk^...'` first. Goes in the PR body. Job `admin-e2e-core`
-  in ci.yml (`e2e` group): compose auth stack → `fga:seed` (ids to $GITHUB_ENV, `.env` removed) → kept core
-  (no CORE_DEV_TOKENS; staff tokens need OpenFGA) → `E2E_API=core CORE_URL=http://127.0.0.1:9000 PORT=3200
-  ADMIN_APP_URL=http://localhost:3200 pnpm --filter @platform/admin e2e` → stop core → stack down. Advisory
-  (recommend: advisory for a week, as the manager's default). Seeded realm users only. Evidence rule: three
-  consecutive green runs of the new job with counts in the body; local reference run (admin README, 2026-09-28):
-  core 22 passed + 1 skipped (no refundable order). Nightly/workflow_dispatch from the issue NOT added — a
-  ci.yml schedule would run the whole pipeline; say so in the PR, offer a separate workflow if wanted.
-
-- **#297 rest — PR A APPROVED (closes #297), build locally, push after #341 merges.** Generator + self-test
-  OUTSIDE infra/keycloak (window 2's row) — e.g. infra/deploy/keycloak/; read customers-realm.json only.
-  Mutation-test every rule in the PR body. Item 3: first option (key from ExternalSecret). PR B → issue #342
-  (not now). Earlier findings: Findings: NOTHING deploys Keycloak to
-  dev/staging (terraform only outputs KEYCLOAK_URL; no chart/app). Core live tests (`apps/core/test/auth-live`,
-  `customers-api` live block) self-gate on Keycloak+OpenFGA+DATABASE_URL reachability → silent skip risk.
-  Staging `storefront` (= starter image) carries `STORE_PUBLISHABLE_KEY: pk_brand-a_dev_…` (LAUNCH.md finding).
-  No prod values file exists; check.sh's SITE_URL rule already covers any storefront values file.
+- **#285 → draft PR #341 on `infra/phase2`** (advisory job `admin e2e against the core (advisory)`). OPEN and
+  unmerged until window 4's PR 345 (orders spec places its own order, refund skips with a reason, a 404 on a
+  collection read shows the not-available panel) is on main AND the job is green 3× in a row. Manager's rule:
+  the merge queue refuses any red check, advisory or not. Runs so far: run 1 (job 111687783337, head af6c9fa)
+  red in setup — fga:seed needs contracts dist, fixed `d758bce`; run 2 (job 111688693287, head d758bce)
+  20 passed / 3 failed / 0 — spec-vs-fresh-core (routed to window 4, no REQUEST from me).
+  Expected after 345 on a fresh seed: **22 passed, 1 skipped, 0 failed**.
+  Local (not pushed): main `1e14f03` merged into `infra/phase2` + the #344 review nits. WAIT for the manager's
+  word that 345 is on main → merge main again → push ONCE → re-run the advisory job until 3 consecutive green
+  → message the manager the counts. Then delete local `infra/phase2-realm` and `infra/phase2-realm-on-341`.
 
 ## Next — the docket, in order
 
-1. **#297 rest** — core live tests into the live job; deployed Keycloak from the customers realm export minus
-   test-cli/jane/localhost URIs, verifyEmail true, no first-broker-login auto-link; production SITE_URL in Helm.
-
-Rules this docket: no e2e/builds/docker on the laptop (another window measures); evidence is CI on a DRAFT PR;
-`infra/gitleaks.toml` is in `[[allowlists]]` form since 2026-10-03 (manager's change).
+- Nothing after #285 in this docket. Follow-ups recorded on #342 (not now): one environment per derived
+  realm output; positive gate rules (https-only, no wildcard redirect, PKCE required, sslRequired); SMTP +
+  password policy; brand A's Helm values / ArgoCD app / ECR repo; window 2's live first-broker-login check.
 
 ## Done (earlier)
 
+- **#297 (rest)** — PR #344 **merged** as `1e14f03` (2026-10-05), built on main as a one-time second branch
+  (`infra/phase2-realm`). Green head **`ecca795`** (run 37289318570): core live suites **40/40** (guard 10/10 and
+  3/3), derived realm 16/16 (12 mutations), check-values 13 cases, guard self-test 6/6. Run 1 (`de59809`) was red:
+  `node --test <dir>` on the runner's Node, and an owner-TOTP collision (auth-sdk spends current+next codes) →
+  core live step moved BEFORE auth-sdk's. Review nits fixed in the next #341 push: values comments name
+  check-values.sh; the `_dev_` key rule covers every non-dev values file, case-insensitive (+3 self-test cases).
 - **#295 + #297 item 1** — PR #339 **merged** as `423f64b`: brand A journeys in CI against a kept core,
   four green live runs (91/0/22 each), `perf_unmeasured`. #295 closed; #297 open for the rest.
 - **#283** — PR #336 **merged** as `978ebf4` (2026-10-05): perf gate per storefront (`perf_apps` matrix +
@@ -388,6 +381,16 @@ Standing debts (parked), whenever this window is next open:
   stop at `terraform validate` / `helm template` / runbooks. Never commit credentials.
 
 ## Gotchas learned
+
+- **The owner's dev TOTP is a shared, single-use resource inside one CI job.** Keycloak refuses a reused code.
+  auth-sdk's `keycloak-realms.test.ts` spends the current and next 30 s windows; core's `auth-live` helper tries
+  previous → current → next. Run core's live suites FIRST (they spend only the previous window). Any new suite
+  that signs `owner` in must be ordered with this in mind (#344).
+- **`node --test <directory>` is not portable.** Node 20.19 on the laptop accepts it; the runner's preinstalled
+  Node (jobs without setup-node, e.g. `helm`, `changes`) takes it as a module path. Always pass the test file.
+- **A fresh-seed CI database has no orders.** Specs written against a laptop's long-lived shared database can
+  assume rows that `pnpm db:seed` never creates (#341 run 2). Read the failure report's page snapshots
+  (`gh run download … -n <report>`; the `data/*.md` files are aria snapshots) before blaming the job.
 
 - **`PERF_PORT` is not honoured by Lighthouse.** `apps/storefront-starter/lighthouserc.json` hardcodes
   `127.0.0.1:3100`; `perf.mjs` starts `next start` on `PERF_PORT` but Lighthouse still audits :3100. Locally
