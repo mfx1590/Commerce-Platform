@@ -63,21 +63,22 @@ else
   browsers="$channel"
 fi
 
-# apps/* always. apps/storefronts/* (brand storefronts, window 10) only when asked:
+# apps/* always, and apps/storefronts/* (brand storefronts, window 10) by default since #295:
 #
-#   E2E_INCLUDE_BRAND_STOREFRONTS=1 bash infra/ci/run-e2e.sh
+#   E2E_INCLUDE_BRAND_STOREFRONTS=0 bash infra/ci/run-e2e.sh   # opt OUT, e.g. on a laptop
 #
-# Opt-in, default OFF, for now. A brand storefront is generated from the starter and inherits its
-# journeys, including the account journey that signs in through Keycloak — but each brand serves on its
-# own port (brand-a: 3101) and the realm only registers the starter's (3100) as a redirect URI for the
-# brand client, so the sign-in redirect lands nowhere and the journey fails for a reason that has
-# nothing to do with the brand (REQUEST #212, window 2). Running it by default would keep this job red on
-# every PR until that lands.
+# Brand journeys run against the REAL core, not the mock: browse -> buy places an order, and order
+# history signs in through Keycloak's customers realm (brand-a's :3101 callback is registered since
+# #212/#296). The core is the one infra/ci/boot-smoke.sh keeps running (CORE_SMOKE_KEEP=1) on
+# $E2E_BRAND_CORE_URL. The brand configs build the server's environment from E2E_STORE_API_URL —
+# not STORE_API_URL — so that is what is exported; exporting only STORE_API_URL would boot the app
+# against Prism and report a green "core" run that never touched the core (#295 comment).
 #
-# The flag is deliberately explicit rather than silently skipping: the job log says the brand journeys
-# were not run and how to run them, so the gap is visible instead of looking like "fewer tests exist".
-# When #212 lands, flip the default and delete this paragraph.
-include_brands="${E2E_INCLUDE_BRAND_STOREFRONTS:-0}"
+# On CI a core that does not answer /health is a failure, not a quiet fall-back to the mock: the
+# job exists to run these journeys against the core. Locally the brand suite falls back to Prism
+# alone and says so. The starter's journeys stay on Prism either way.
+include_brands="${E2E_INCLUDE_BRAND_STOREFRONTS:-1}"
+brand_core="${E2E_BRAND_CORE_URL:-http://127.0.0.1:9000}"
 globs=(apps/*/playwright.config.*)
 if [ "$include_brands" = '1' ]; then
   globs+=(apps/storefronts/*/playwright.config.*)
@@ -86,7 +87,7 @@ mapfile -t configs < <(ls -1 "${globs[@]}" 2>/dev/null | sort)
 
 skipped_brands="$(ls -1 apps/storefronts/*/playwright.config.* 2>/dev/null || true)"
 if [ "$include_brands" != '1' ] && [ -n "$skipped_brands" ]; then
-  echo '== brand storefront journeys NOT run (opt-in: E2E_INCLUDE_BRAND_STOREFRONTS=1; see REQUEST #212):'
+  echo '== brand storefront journeys NOT run (E2E_INCLUDE_BRAND_STOREFRONTS=0 was set):'
   printf '%s
 ' "$skipped_brands" | sed 's/^/   /'
 fi
@@ -133,6 +134,18 @@ for cfg in "${configs[@]}"; do
   if [ "$app" = 'admin' ]; then
     run_env=(PORT="$ADMIN_E2E_PORT" ADMIN_APP_URL="http://localhost:$ADMIN_E2E_PORT")
     echo "== $pkg (PORT=$ADMIN_E2E_PORT, ADMIN_APP_URL=http://localhost:$ADMIN_E2E_PORT)"
+  elif [ "$(basename "$(dirname "$dir")")" = 'storefronts' ]; then
+    if curl -fsS --max-time 5 "$brand_core/health" >/dev/null 2>&1; then
+      run_env=(E2E_STORE_API_URL="$brand_core")
+      echo "== $pkg against the core (E2E_STORE_API_URL=$brand_core)"
+    elif [ -n "${CI:-}" ]; then
+      echo "FAIL: $pkg runs against the core on CI, and $brand_core/health does not answer." >&2
+      echo '      Start it first: CORE_SMOKE_KEEP=1 bash infra/ci/boot-smoke.sh' >&2
+      fail=1
+      continue
+    else
+      echo "== $pkg against Prism only — no core answers on $brand_core (start one to test against it)"
+    fi
   else
     echo "== $pkg"
   fi

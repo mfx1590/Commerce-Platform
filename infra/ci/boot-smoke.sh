@@ -2,7 +2,17 @@
 # Boots apps/core for real against a freshly migrated and seeded database, and waits for
 # GET /health to answer 200.
 #
-#   bash infra/ci/boot-smoke.sh
+#   bash infra/ci/boot-smoke.sh                     # boot, check /health, stop, drop the database
+#   CORE_SMOKE_KEEP=1 bash infra/ci/boot-smoke.sh   # boot, check /health, and LEAVE IT RUNNING
+#   bash infra/ci/boot-smoke.sh --stop              # stop a kept core and drop its database
+#
+# Keep mode exists for the brand storefront journeys (#295): they run against a live core, and this
+# is the one place that knows how to make one. The kept server's pid, database and log path go to
+# $CORE_SMOKE_STATE; `--stop` reads them back. `--stop` always exits 0 — it runs in an `always()` step
+# and must never turn a red job green or a green job red; it only cleans up. With nothing kept it is a
+# no-op. A kept core also gets CORE_STORE_API_FALLBACK_URL (Prism on :4010, unless set): the core
+# answers the catalogue, carts and orders itself and proxies the rest of /store/* to the mock, which is
+# how the storefronts' core runs are set up locally.
 #
 # Why this exists: every other check in the pipeline reasons about the code without running the
 # server. `medusa build` succeeding says the TypeScript compiled; the unit tests say the modules
@@ -30,6 +40,8 @@ DB="${CORE_SMOKE_DB:-platform_boot_smoke}"
 PG_CONTAINER="${CORE_SMOKE_PG_CONTAINER:-commerce-platform-postgres-1}"
 PG_HOSTPORT="${CORE_SMOKE_PG_HOSTPORT:-localhost:5433}"
 LOG="${CORE_SMOKE_LOG:-$(mktemp -t core-boot-XXXXXX.log)}"
+KEEP="${CORE_SMOKE_KEEP:-0}"
+STATE="${CORE_SMOKE_STATE:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/core-boot-smoke.state}"
 
 # A throwaway database name reaches SQL unquoted below — refuse anything that is not a plain identifier.
 case "$DB" in
@@ -51,8 +63,36 @@ psql_admin() {
   docker exec "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U platform -d postgres -qc "$1"
 }
 
+if [ "${1:-}" = '--stop' ]; then
+  if [ ! -f "$STATE" ]; then
+    echo "== no kept core ($STATE absent) — nothing to stop"
+    exit 0
+  fi
+  # shellcheck disable=SC1090 -- written by this script below: KEPT_PID, KEPT_DB, KEPT_LOG
+  . "$STATE"
+  echo "== stopping the kept core (pid $KEPT_PID) and dropping $KEPT_DB"
+  # The whole process group: setsid made the kept pnpm a group leader, and killing pnpm alone can
+  # leave the node server it spawned holding :9000 and a database connection.
+  kill -TERM -- "-$KEPT_PID" 2>/dev/null || kill "$KEPT_PID" 2>/dev/null || true
+  for _ in $(seq 1 20); do kill -0 "$KEPT_PID" 2>/dev/null || break; sleep 0.5; done
+  kill -KILL -- "-$KEPT_PID" 2>/dev/null || kill -9 "$KEPT_PID" 2>/dev/null || true
+  echo '---- last 20 lines of the core log ----'
+  tail -20 "$KEPT_LOG" 2>/dev/null | sed 's/^/   /' || true
+  psql_admin "DROP DATABASE IF EXISTS $KEPT_DB WITH (FORCE)" >/dev/null 2>&1 ||
+    echo "   (could not drop $KEPT_DB — the Postgres container may already be gone)"
+  rm -f "$STATE"
+  exit 0
+fi
+
+if [ "$KEEP" = '1' ]; then
+  export CORE_STORE_API_FALLBACK_URL="${CORE_STORE_API_FALLBACK_URL:-http://127.0.0.1:4010}"
+fi
+
 app_pid=''
+kept=0
 cleanup() {
+  # A core handed over in keep mode belongs to `--stop` now.
+  [ "$kept" = 1 ] && return
   if [ -n "$app_pid" ] && kill -0 "$app_pid" 2>/dev/null; then
     kill "$app_pid" 2>/dev/null || true
     wait "$app_pid" 2>/dev/null || true
@@ -80,7 +120,13 @@ echo '== building @platform/core and its workspace dependencies'
 pnpm exec turbo run build --filter=@platform/core
 
 echo "== starting the server on :$PORT (log: $LOG)"
-pnpm --filter @platform/core start > "$LOG" 2>&1 &
+# setsid in keep mode: the server outlives this script (and, on CI, this step), so it gets its own
+# session rather than this shell's process group.
+if [ "$KEEP" = '1' ] && command -v setsid >/dev/null 2>&1; then
+  setsid pnpm --filter @platform/core start > "$LOG" 2>&1 < /dev/null &
+else
+  pnpm --filter @platform/core start > "$LOG" 2>&1 &
+fi
 app_pid=$!
 
 waited=0
@@ -103,3 +149,9 @@ done
 
 echo "== /health answered 200 after ${waited}s — Medusa's loaders, config, database and Redis are all live"
 tail -5 "$LOG" | sed 's/^/   /'
+
+if [ "$KEEP" = '1' ]; then
+  printf 'KEPT_PID=%s\nKEPT_DB=%s\nKEPT_LOG=%s\n' "$app_pid" "$DB" "$LOG" > "$STATE"
+  kept=1
+  echo "== kept running on :$PORT (database $DB, log $LOG); stop with: bash infra/ci/boot-smoke.sh --stop"
+fi
