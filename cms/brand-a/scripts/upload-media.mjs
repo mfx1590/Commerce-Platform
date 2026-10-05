@@ -22,6 +22,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cloudNameFrom } from './resolve-media.mjs';
+
+const sha256Of = (buffer) => createHash('sha256').update(buffer).digest('hex');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const manifest = JSON.parse(
@@ -39,7 +42,14 @@ if (from === undefined) {
 }
 
 const pick = (name) => process.env[`${name}_BRAND_A`] || process.env[name] || undefined;
-const cloudName = pick('CLOUDINARY_CLOUD_NAME');
+// The same lookup and validation as the seed: the cloud name ends up in the upload URL's path.
+let cloudName;
+try {
+  cloudName = cloudNameFrom(process.env);
+} catch (error) {
+  console.error(`${error.message}; nothing was sent.`);
+  process.exit(1);
+}
 const apiKey = pick('CLOUDINARY_API_KEY');
 const apiSecret = pick('CLOUDINARY_API_SECRET');
 
@@ -52,8 +62,7 @@ for (const slot of manifest.slots) {
     bad += 1;
     continue;
   }
-  const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
-  if (sha256 !== slot.sha256) {
+  if (sha256Of(readFileSync(file)) !== slot.sha256) {
     console.error(`changed  ${slot.slot}: ${slot.source} does not match the manifest's sha256`);
     bad += 1;
   }
@@ -104,12 +113,15 @@ for (const slot of manifest.slots) {
     .update(toSign + apiSecret)
     .digest('hex');
 
+  // Hash the very bytes that are sent. The pass above proves the folder was intact when the run
+  // started; a file swapped since then must not be published under the old slot.
+  const buffer = readFileSync(path.join(from, slot.source));
+  if (sha256Of(buffer) !== slot.sha256) {
+    console.error(`changed  ${slot.slot}: ${slot.source} changed during the run; stopped.`);
+    process.exit(1);
+  }
   const form = new globalThis.FormData();
-  form.append(
-    'file',
-    new globalThis.Blob([readFileSync(path.join(from, slot.source))]),
-    path.basename(slot.source),
-  );
+  form.append('file', new globalThis.Blob([buffer]), path.basename(slot.source));
   for (const [k, v] of Object.entries(signed)) form.append(k, v);
   form.append('api_key', apiKey);
   form.append('signature', signature);

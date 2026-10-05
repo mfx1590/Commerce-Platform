@@ -11,10 +11,9 @@
  *   node scripts/sync-from-starter.mjs --check   # report drift, write nothing, exit 1 if stale
  *
  * EXCLUDED (never copied): the starter's Dockerfile (every Dockerfile is window 5's path — the
- * brand image arrives via a REQUEST issue), its README/CHANGELOG/CLAUDE.md (this app has its
- * own), and test/starter-defaults.test.ts — it asserts the starter ships no brand, so it only runs
- * where the package is the starter, but its static imports still evaluate `src/brand/tokens.ts`,
- * whose `next/font/local` call cannot run under vitest. Starter-only by definition.
+ * brand image arrives via a REQUEST issue), and its README/CHANGELOG/CLAUDE.md (this app has its
+ * own). `test/starter-defaults.test.ts` was excluded until #326 moved its imports inside `runIf`;
+ * it is synced again and skips itself here.
  *
  * PRESERVED (copied only when missing, never overwritten): the brand-identity files listed in the
  * README's "diff against the starter" section — next.config.mjs, scripts/start.mjs,
@@ -45,13 +44,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(here, '..');
 const starterDir = path.resolve(appDir, '..', '..', 'storefront-starter');
 
-const EXCLUDE = new Set([
-  'Dockerfile',
-  'CLAUDE.md',
-  'README.md',
-  'CHANGELOG.md',
-  'test/starter-defaults.test.ts',
-]);
+const EXCLUDE = new Set(['Dockerfile', 'CLAUDE.md', 'README.md', 'CHANGELOG.md']);
 /** Merged rather than copied or preserved — see merge-package-json.mjs. */
 const MERGE = new Set(['package.json']);
 

@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+import { hydrated } from './support/journey';
 
 /**
  * Accessibility gate for brand A's theme — issue #140, "contrast checks pass (axe in the e2e suite)".
@@ -85,7 +86,7 @@ for (const page_ of [...PUBLIC_PAGES, ...CONTENT_PAGES]) {
     const response = await page.goto(page_.path);
     // A redirect or a 404 would make an empty scan pass, which is the failure mode this guards.
     expect(response?.status(), `${page_.path} should render`).toBeLessThan(400);
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
 
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_AA)
@@ -136,7 +137,7 @@ test('suppresses exactly two rules, for one inherited defect, tied to its issue'
  */
 test('colour-contrast passes on a page that renders muted surfaces', async ({ page }) => {
   await page.goto('/en-GB/products/classic-tee');
-  await page.waitForLoadState('networkidle');
+  await hydrated(page);
 
   const results = await new AxeBuilder({ page }).withRules(['color-contrast']).analyze();
   expect(results.violations).toEqual([]);

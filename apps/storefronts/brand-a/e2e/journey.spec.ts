@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { hydrated } from './support/journey';
 
 /**
  * Brand A's browse → buy journey, against the **core** (task 2.5, issue #143).
@@ -201,7 +202,7 @@ test.describe('PLP sorting and filtering have an observable effect', () => {
     // failed once that way, with the URL simply never changing.
     const sortLink = page.getByRole('link', { name: 'Price: low to high' });
     await expect(sortLink).toBeVisible();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     await sortLink.click();
     await expect(page).toHaveURL(/sort=price_asc/, { timeout: 15_000 });
     const ascending = await priceText();
@@ -333,7 +334,7 @@ test.describe('buy', () => {
     // click dispatched during hydration is swallowed and the navigation never happens.
     const addToCart = page.getByRole('button', { name: /add to cart/i });
     await expect(addToCart).toBeEnabled();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     await addToCart.click();
 
     // The app navigates to the cart itself; `page.goto` would race the pending server action.
@@ -423,14 +424,13 @@ test.describe('buy', () => {
 /**
  * Order history against the core (#143's last criterion).
  *
- * **How the order gets there.** The starter sends the customer token on cart create and completion
- * since #329 (REQUEST #312), but **brand A does not yet**: that code arrives with the next sync. Until
- * then brand A places a *guest* order carrying the customer's email. The core's `listMyOrders` also
- * returns guest orders whose email matches a **verified** token email (#325,
- * `apps/core/src/modules/customers/README.md`), and the realm's seeded customer is verified. So this
- * proves the history read against the core, for the order just placed. It does not prove the
- * placement-time link. After the sync, this test should keep passing unchanged, now through the
- * link.
+ * **How the order gets there.** Since the re-sync that brought #312 (`src/lib/customer-link.ts`),
+ * brand A sends the signed-in customer's token on cart create and completion, so the core links the
+ * cart and the order to the customer **at placement** (`order.customer_id`). The history lists it by
+ * that link. The core would also list a *guest* order whose email matches a verified token email,
+ * which is how this test passed before the sync. That path still exists, so a green run alone does
+ * not tell the two apart. The link was confirmed separately, by a read-only query of the placed
+ * order (recorded in the CHANGELOG and the PR).
  *
  * **Why it cannot pass against Prism.** The id asserted is the one in this run's confirmation URL,
  * minted by the core moments earlier. Prism's history is the contract example (`Order #1000`), and
@@ -480,7 +480,7 @@ test.describe('order history', () => {
     await page.goto(`/en-GB/products/${product!.handle}`);
     const addToCart = page.getByRole('button', { name: /add to cart/i });
     await expect(addToCart).toBeEnabled();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     await addToCart.click();
     await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: 30_000 });
     await page
@@ -550,7 +550,7 @@ async function completeCheckout(page: Page, email?: string): Promise<string[]> {
 
     // Hydration: wait for the step's own heading and for the page to go quiet before clicking.
     await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
 
     if (step === 'address') await fillAddress(page, email);
     await page
