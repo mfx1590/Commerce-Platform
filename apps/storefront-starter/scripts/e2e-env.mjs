@@ -8,6 +8,10 @@
  * core-only tests then skipped with the mock's reason, and the journey placed a real order — spent
  * real seed stock — while logging that it had bought "on the Prism mock" (review of #316).
  *
+ * It also turns on local images (`E2E_LOCAL_IMAGES=1`, #327): every remote product image becomes a
+ * placeholder served by the app, so a run never waits on picsum or a CDN. Both the build (which
+ * inlines it) and the server (which refuses it outside a loopback origin) get the same value.
+ *
  * `scripts/perf.mjs` has always deleted the variable for the same reason. This is the one place the
  * e2e server gets its environment from, so that both the build and the running server agree.
  *
@@ -15,7 +19,7 @@
  * @returns {Record<string, string | undefined>} a copy, safe to hand to the build and the server
  */
 export function e2eServerEnv(env) {
-  const serverEnv = { ...env };
+  const serverEnv = { ...env, E2E_LOCAL_IMAGES: '1' };
   const core = env.E2E_STORE_API_URL;
   if (core === undefined || core === '') {
     // A mock run: nothing the shell exports may point the app anywhere else.

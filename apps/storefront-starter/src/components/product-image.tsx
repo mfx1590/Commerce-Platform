@@ -2,6 +2,7 @@
 
 import { cloudinaryImageLoader, isCloudinaryUrl } from '@platform/ui/image-loader';
 import Image, { type ImageProps } from 'next/image';
+import { isRemoteImage, localImagesEnabled, localPlaceholderLoader } from '@/lib/e2e-images';
 
 /**
  * `next/image` with the image CDN as the loader hook (task 2.3; the loader itself is REQUEST #169).
@@ -19,10 +20,16 @@ import Image, { type ImageProps } from 'next/image';
  * a function cannot cross the server → client boundary. Choosing the loader here, on the client
  * side of that boundary, is the one seam that keeps both paths working.
  *
+ * - **An end-to-end build** (`E2E_LOCAL_IMAGES`, #327) sends every remote image to a local
+ *   placeholder instead, so no request leaves the machine. Checked first; refused in production.
+ *
  * Pages pass only serialisable props, exactly as they would to `next/image`.
  */
 export function ProductImage(props: ImageProps) {
   const src = typeof props.src === 'string' ? props.src : undefined;
+  if (src !== undefined && localImagesEnabled() && isRemoteImage(src)) {
+    return <Image {...props} loader={localPlaceholderLoader} />;
+  }
   return src !== undefined && isCloudinaryUrl(src) ? (
     <Image {...props} loader={cloudinaryImageLoader} />
   ) : (

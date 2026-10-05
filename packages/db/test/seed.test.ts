@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createOrganizationClient, createTenantClient, seed, SEED_IDS } from '../src/index.js';
+import {
+  createOrganizationClient,
+  createTenantClient,
+  seed,
+  SEED_IDS,
+  topUpStock,
+} from '../src/index.js';
 import { createTestDatabase, type TestDatabase } from '../src/testing.js';
 
 let db: TestDatabase;
@@ -49,6 +55,39 @@ describe('seed data', () => {
       'support',
     ]);
     expect((await hq.query('SELECT id FROM staff_user')).rowCount).toBe(7);
+  });
+
+  it('topUpStock raises every low level to the floor, writes the ledger, leaves reservations and is idempotent', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    // a variant that test journeys drained: everything on hand is reserved by placed orders
+    const drained = (
+      await db.owner.query<{ id: string }>(
+        `UPDATE inventory_level SET on_hand = 7, reserved = 7
+         WHERE id = (SELECT id FROM inventory_level ORDER BY id LIMIT 1) RETURNING id`,
+      )
+    ).rows[0]!.id;
+    const low = Number(
+      (await hq.query<{ n: string }>('SELECT count(*) n FROM inventory_level WHERE available < 25'))
+        .rows[0]!.n,
+    );
+    expect(low).toBeGreaterThan(0);
+
+    const first = await topUpStock(db.owner, { log: () => {} });
+    expect(first.levels).toBe(low);
+    const after = await hq.query<{ min: number; on_hand: number; reserved: number }>(
+      `SELECT (SELECT min(available) FROM inventory_level) AS min, on_hand, reserved
+       FROM inventory_level WHERE id = $1`,
+      [drained],
+    );
+    expect(after.rows[0]).toEqual({ min: 25, on_hand: 32, reserved: 7 });
+    const ledger = await hq.query<{ n: string; units: string }>(
+      `SELECT count(*) n, sum(delta) units FROM stock_movement WHERE note LIKE 'seed top-up%'`,
+    );
+    expect(Number(ledger.rows[0]!.n)).toBe(first.levels);
+    expect(Number(ledger.rows[0]!.units)).toBe(first.units);
+
+    expect(await topUpStock(db.owner, { log: () => {} })).toEqual({ levels: 0, units: 0 });
+    await expect(topUpStock(db.owner, { floor: 0, log: () => {} })).rejects.toThrow(/floor/);
   });
 
   it('seeds the requested number of published products per store, each with variants, prices and stock in both warehouses', async () => {

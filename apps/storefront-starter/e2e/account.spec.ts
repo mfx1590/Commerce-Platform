@@ -85,6 +85,12 @@ async function signIn(page: Page): Promise<void> {
   await page.locator('#username').fill(CUSTOMER.username);
   await page.locator('#password').fill(CUSTOMER.password);
   await page.getByRole('button', { name: /sign in/i }).click();
+  // Back on the storefront, page loaded. The round trip is Keycloak's POST, our callback (a token
+  // exchange with Keycloak) and the page itself — under the first wave of a parallel run that is far
+  // more than the default 5 s expect, which is how a full core pass failed here (#327).
+  await page.waitForURL((url) => !url.href.startsWith(KEYCLOAK_URL), {
+    timeout: NAVIGATION_TIMEOUT,
+  });
 }
 
 test('an unauthenticated visitor is sent to sign-in and back to the page they asked for', async ({
@@ -110,7 +116,7 @@ test('a signed-in customer reaches the account home and the order history', asyn
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Order history' }).click();
-  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/);
+  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/, { timeout: NAVIGATION_TIMEOUT });
   await expect(page.getByRole('heading', { level: 1, name: 'Order history' })).toBeVisible();
 });
 
@@ -135,7 +141,7 @@ test('mock-only: the profile and the order history render the contract examples'
   await expect(page.getByText('jane@example.com')).toBeVisible();
 
   await page.getByRole('link', { name: 'Order history' }).click();
-  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/);
+  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/, { timeout: NAVIGATION_TIMEOUT });
   await expect(page.getByRole('link', { name: /Order #1000/ })).toBeVisible();
   await expect(page.getByTestId('price-value').first()).toBeVisible();
 });
