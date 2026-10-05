@@ -108,15 +108,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#295 + #297 item 1 → draft PR #339** on `infra/phase2`. Three consecutive green runs of `live auth +
-  end-to-end` on head `9c75b26` (run 37281415177; jobs 111670191710, 111672927484, 111675190625): brand A
-  against the core **91/0/22** each time, starter 67/0/3, admin 21/0/2, no retries. Evidence table in the PR
-  body. Then merged main `d3715d9` (after #338) → new head; full CI re-runs on it. Manager marks it ready.
-  Proof the core was used: brand A's journey.spec `REQUIRE_CORE` under CI FAILS (not skips) without a core.
-  Skip reasons are not printed by the `github` reporter — the 22 are not itemised from logs.
-
-- **#285 — BUILT locally, committed on `infra/phase2-admin-core` (from `84d27d5`), NOT pushed.** Push only
-  after the manager confirms #339 merged (then: onto `infra/phase2`, merge main, DRAFT). Job `admin-e2e-core`
+- **#285 — on `infra/phase2`, main `423f64b` merged, pushed as a DRAFT** (2026-10-05); needs three consecutive
+  green runs of the new job, counts in the body. Carries the #339 nit: keep-mode startup failure now kills the
+  process group, not just the pnpm pid. Job `admin-e2e-core`
   in ci.yml (`e2e` group): compose auth stack → `fga:seed` (ids to $GITHUB_ENV, `.env` removed) → kept core
   (no CORE_DEV_TOKENS; staff tokens need OpenFGA) → `E2E_API=core CORE_URL=http://127.0.0.1:9000 PORT=3200
   ADMIN_APP_URL=http://localhost:3200 pnpm --filter @platform/admin e2e` → stop core → stack down. Advisory
@@ -135,6 +129,8 @@ Rules this docket: no e2e/builds/docker on the laptop (another window measures);
 
 ## Done (earlier)
 
+- **#295 + #297 item 1** — PR #339 **merged** as `423f64b`: brand A journeys in CI against a kept core,
+  four green live runs (91/0/22 each), `perf_unmeasured`. #295 closed; #297 open for the rest.
 - **#283** — PR #336 **merged** as `978ebf4` (2026-10-05): perf gate per storefront (`perf_apps` matrix +
   `perf` aggregator keeping the required name). Brand A measured in CI for the first time (139.6/144 kB).
 - **REQUEST #257** (window 3) — PR #272 **merged**, main `aa3b977` (commits `69fad5e` + `3432040`).
