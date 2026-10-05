@@ -1,0 +1,12 @@
+# CI-only overlay for infra/docker/docker-compose.yml: makes Keycloak log every login event, success
+# included, so infra/ci/totp-barrier.sh can show when each suite signed `owner` in (#344 follow-up).
+#
+#   docker compose -f infra/docker/docker-compose.yml -f infra/ci/compose.keycloak-events.yml up -d …
+#
+# The built-in jboss-logging event listener logs failures at WARN and successes at DEBUG; raising only the
+# org.keycloak.events category to DEBUG prints successes without making the rest of Keycloak verbose.
+# Not used on laptops: the shared local stack is started without this file.
+services:
+  keycloak:
+    environment:
+      KC_LOG_LEVEL: 'info,org.keycloak.events:debug'
