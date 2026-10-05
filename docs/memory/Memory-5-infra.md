@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-09-25 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: Phase 2 complete; **quiet** — #257 merged (PR #272, `aa3b977`). Reopened only by REQUEST issues.
+Last updated: 2026-10-05 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
+Status: **Phase 2 infra docket** (manager, 2026-10-05): #283 → #295 (+ #297 item 1) → #285 → rest of #297, one PR each.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,7 +108,27 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- Nothing. Window 5 is quiet until the manager reopens it.
+- **#283** — perf gate for every storefront. Branch `infra/phase2` (main `6f5019f` merged). `changes.sh` emits
+  `perf_apps` (JSON array: storefront dirs with a `perf` script; one storefront's change → that one; shared
+  packages/root files/ci.yml → all); `perf-app` matrix job; `perf` aggregator keeps the required check name
+  (fails unless `changes` succeeded and every entry passed). "median of three" corrected (LHCI default
+  `optimistic` = best of 3, verified in @lhci/utils assertions.js; SEO is `pessimistic`). Starter home page:
+  no Lighthouse/axe in CI — documented, not mine to widen. Self-test 49 ok. Evidence = draft PR's CI.
+  Unexercised by this PR: the empty-matrix path (`perf=false`, job-level `if` skips before `fromJSON('[]')`),
+  because the PR touches ci.yml and so measures everything.
+
+## Next — the docket, in order
+
+1. **#295 + #297 item 1** — brand A browse → buy e2e in CI against the core (`E2E_INCLUDE_BRAND_STOREFRONTS=1`),
+   flip the opt-in note in `infra/ci/run-e2e.sh`; #334's conventions (E2E_LOCAL_IMAGES placeholders, clean fetch
+   cache per run, default CI workers). Depends on window 10's re-sync PR bringing #334 to brand A — say so in
+   the PR body. Separate branch (one open PR per branch).
+2. **#285** — admin-e2e-core job variant; the Prism job stays required.
+3. **#297 rest** — core live tests into the live job; deployed Keycloak from the customers realm export minus
+   test-cli/jane/localhost URIs, verifyEmail true, no first-broker-login auto-link; production SITE_URL in Helm.
+
+Rules this docket: no e2e/builds/docker on the laptop (another window measures); evidence is CI on a DRAFT PR;
+`infra/gitleaks.toml` is in `[[allowlists]]` form since 2026-10-03 (manager's change).
 
 ## Done (earlier)
 

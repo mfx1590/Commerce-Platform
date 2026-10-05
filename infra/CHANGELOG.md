@@ -4,6 +4,19 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 2
 
+### Changed (REQUEST #283 — the perf gate measures every storefront that changed)
+
+- `infra/ci/changes.sh` emits `perf_apps`, a JSON array of the storefronts to measure (each
+  `apps/storefront-starter` / `apps/storefronts/*` with a `perf` script). `apps/storefronts/**` now fires `perf`;
+  before, only the starter's path did, and brand A's theme change on #280 passed the gate without running it.
+  Self-test cases for brand-only, starter-only, both, shared-package, root-file and prefix (`brand-ab`) changes,
+  plus one against the real directory scan.
+- CI: the perf job is a matrix (`perf-app`) over `perf_apps`, each storefront with its own package, budgets and
+  `lighthouserc.json`, and its own `lighthouse-reports-<storefront>` artifact. The required check keeps its name
+  as an aggregator (`perf`) that fails unless the classifier succeeded and every entry passed.
+- Corrected "median of three": LHCI asserts on the best of three runs by default (`optimistic`), the worst for
+  `pessimistic` assertions. Noted that the starter's home page has no Lighthouse or axe check in CI.
+
 ### Added (REQUEST #257 — storefront SITE_URL, robots indexing guard, performance CI job)
 
 - **`SITE_URL` in the storefront's dev and staging values** (`https://shop.<env>.example.com`). Without it a
