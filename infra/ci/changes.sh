@@ -8,9 +8,11 @@
 #   CHANGES_ALL=1 infra/ci/changes.sh     # everything runs (pushes to main)
 #   CHANGED_FILES=$'a\nb' infra/ci/changes.sh   # test mode, no git needed
 #
-# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…`, `helm=…`, `observ=…`, `perf=…` and `perf_apps=…`
-# to stdout, and to $GITHUB_OUTPUT. `perf_apps` is a JSON array of storefront directories for the
-# perf job's matrix; `STOREFRONTS=$'a\nb'` overrides the directory scan (test mode).
+# Writes `code=…`, `images=…`, `terraform=…`, `e2e=…`, `helm=…`, `observ=…`, `perf=…`, `perf_apps=…` and
+# `perf_unmeasured=…` to stdout, and to $GITHUB_OUTPUT. `perf_apps` is a JSON array of storefront
+# directories for the perf job's matrix; `perf_unmeasured` is a JSON array of changed brand storefront
+# directories that have no `perf` script, which the perf check fails on rather than reporting a vacuous
+# pass (#336 review). `STOREFRONTS=$'a\nb'` overrides the directory scan (test mode).
 #
 # Groups:
 #   code       lint, typecheck, format, unit tests, contract tests
@@ -35,9 +37,9 @@
 set -euo pipefail
 
 emit() {
-  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\nperf_apps=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
+  printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\nperf_apps=%s\nperf_unmeasured=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\nperf_apps=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" >> "$GITHUB_OUTPUT"
+    printf 'code=%s\nimages=%s\nterraform=%s\ne2e=%s\nhelm=%s\nobserv=%s\nperf=%s\nperf_apps=%s\nperf_unmeasured=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" >> "$GITHUB_OUTPUT"
   fi
 }
 
@@ -72,7 +74,7 @@ json_array() {
 # A push to main is never a partial build.
 if [ -n "${CHANGES_ALL:-}" ]; then
   echo 'changes: CHANGES_ALL set — every group runs' >&2
-  emit true true true true true true true "$(storefronts | json_array)"
+  emit true true true true true true true "$(storefronts | json_array)" '[]'
   exit 0
 fi
 
@@ -136,11 +138,22 @@ else
   done)"
 fi
 if [ -n "$perf_apps" ]; then perf=true; fi
+# A changed brand storefront the perf job cannot measure (no `perf` script yet). Named here so the perf
+# check can fail on it: without this, a PR touching only that brand got "no storefront changed".
+measurable="$(storefronts)"
+perf_unmeasured="$(printf '%s\n' "$changed" | sed -n -E 's#^(apps/storefronts/[^/]+)/.*#\1#p' | sort -u |
+  while IFS= read -r dir; do
+    if ! printf '%s\n' "$measurable" | grep -qxF "$dir"; then printf '%s\n' "$dir"; fi
+  done)"
+if [ -n "$perf_unmeasured" ]; then
+  echo "changes: storefronts changed that the perf job cannot measure (no perf script): $perf_unmeasured" >&2
+fi
 perf_apps="$(printf '%s\n' "$perf_apps" | json_array)"
+perf_unmeasured="$(printf '%s\n' "$perf_unmeasured" | json_array)"
 
 if [ "$code" = false ] && [ "$images" = false ] && [ "$terraform" = false ] && [ "$e2e" = false ] &&
   [ "$helm" = false ] && [ "$observ" = false ] && [ "$perf" = false ]; then
   echo 'changes: documentation-only change — the heavy jobs will no-op' >&2
 fi
 
-emit "$code" "$images" "$terraform" "$e2e" "$helm" "$observ" "$perf" "$perf_apps"
+emit "$code" "$images" "$terraform" "$e2e" "$helm" "$observ" "$perf" "$perf_apps" "$perf_unmeasured"

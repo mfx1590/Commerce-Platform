@@ -65,6 +65,7 @@ jobs:
       observ: ${{ steps.filter.outputs.observ }}
       perf: ${{ steps.filter.outputs.perf }}
       perf_apps: ${{ steps.filter.outputs.perf_apps }}
+      perf_unmeasured: ${{ steps.filter.outputs.perf_unmeasured }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -255,7 +256,9 @@ jobs:
   # The required check. Its name is the one branch protection enforces, so it must keep this name and
   # must always report: a matrix job's checks are named per entry, and a skipped job reports a
   # conclusion protection treats differently from success. Green only when the classifier ran and
-  # every storefront it listed passed; green-and-says-so when no storefront changed.
+  # every storefront it listed passed; green-and-says-so when no storefront changed. RED when a brand
+  # storefront changed that has no `perf` script: that used to be the same green "no storefront
+  # changed", a vacuous pass for exactly the PR that most needed measuring (#336 review).
   perf:
     name: storefront performance budget (bundle + Lighthouse)
     if: always()
@@ -267,10 +270,16 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           PERF: ${{ needs.changes.outputs.perf }}
           APPS: ${{ needs.changes.outputs.perf_apps }}
+          UNMEASURED: ${{ needs.changes.outputs.perf_unmeasured }}
           RESULT: ${{ needs.perf-app.result }}
         run: |
           if [ "$CHANGES" != success ]; then
             echo "the change classifier did not succeed ($CHANGES) — refusing to report a pass"
+            exit 1
+          fi
+          if [ "$UNMEASURED" != '[]' ]; then
+            echo "::error::storefront changed with no perf script, so it cannot be measured: $UNMEASURED"
+            echo "Add scripts/perf.mjs, bundle-budget.json and lighthouserc.json (and a \"perf\" script) as brand A has."
             exit 1
           fi
           if [ "$PERF" != true ]; then
@@ -399,11 +408,20 @@ jobs:
       # scaffold fallback. None of them load Medusa's own runtime — its config, its plugin and module
       # loaders, its database and Redis connections. A failure there is a production outage that CI
       # otherwise reports as green. It found one on its first run (REQUEST #207).
-      - name: core boots for real (Medusa loaders, database, Redis)
+      #
+      # Kept running afterwards (CORE_SMOKE_KEEP=1, #295): the brand storefront journeys run against
+      # this core — browse -> buy places a real order on its own fresh database — and the stop step
+      # below drops it. The starter's journeys stay on Prism.
+      - name: core boots for real (Medusa loaders, database, Redis) and stays up for the brand journeys
         if: needs.changes.outputs.e2e == 'true'
+        env:
+          CORE_SMOKE_KEEP: '1'
         run: bash infra/ci/boot-smoke.sh
-      # Brand storefront journeys (apps/storefronts/*) are opt-in until REQUEST #212 — see run-e2e.sh.
-      - name: playwright journeys (apps/*; brand storefronts opt-in)
+      # apps/* against Prism; apps/storefronts/* against the kept core (on by default since #295; a
+      # brand that cannot reach the core fails here rather than quietly testing the mock). The job's
+      # `e2e` group already skips docs-only PRs, so the brand journeys run exactly when code, CI
+      # config, the realms or the compose stack change.
+      - name: playwright journeys (apps/* on Prism, brand storefronts on the core)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/run-e2e.sh
       - name: keycloak and openfga logs on failure
@@ -413,9 +431,16 @@ jobs:
         if: failure() && needs.changes.outputs.e2e == 'true'
         with:
           name: playwright-report
-          path: apps/*/playwright-report
+          path: |
+            apps/*/playwright-report
+            apps/storefronts/*/playwright-report
           retention-days: 7
           if-no-files-found: ignore
+      # Before the stack goes: dropping the kept core's database needs Postgres. Always exits 0, so it
+      # can neither hide a failed journey nor fail a green job.
+      - name: stop the kept core and drop its database
+        if: always() && needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/boot-smoke.sh --stop
       - name: stop the stack
         if: always() && needs.changes.outputs.e2e == 'true'
         run: docker compose -f infra/docker/docker-compose.yml down -v

@@ -421,13 +421,21 @@ other windows are using. Nothing else in CI loads Medusa's own runtime:
 test proves a container starts and answers a health endpoint served by the scaffold fallback. A plugin- or
 module-loader failure is a production outage that every other check reports as green — which is exactly what
 it found on its first run ([REQUEST #207](https://github.com/mfx1590/Commerce-Platform/issues/207)).
+In CI it runs with `CORE_SMOKE_KEEP=1` and leaves that core running for the brand journeys below;
+`bash infra/ci/boot-smoke.sh --stop` (an `always()` step, before the stack stops) kills it and drops its database,
+and always exits 0, so it can neither hide a failed journey nor fail a green job.
 
-**Brand storefront journeys are opt-in for now.** `infra/ci/run-e2e.sh` always runs `apps/*/playwright.config.*`
-and runs `apps/storefronts/*` only with `E2E_INCLUDE_BRAND_STOREFRONTS=1`. A brand inherits the starter's
-Keycloak sign-in journey, but the realm registers only the starter's port as a redirect URI for the brand
-client ([REQUEST #212](https://github.com/mfx1590/Commerce-Platform/issues/212)), so by default it would keep
-the job red for a reason unrelated to the brand. The log names every brand journey it skipped. Flip the default
-when #212 lands.
+**Brand storefront journeys run against the real core** (#295, since #212/#296 registered brand A's callback).
+`infra/ci/run-e2e.sh` runs `apps/*/playwright.config.*` against Prism as before, and `apps/storefronts/*` by
+default (`E2E_INCLUDE_BRAND_STOREFRONTS=0` opts out) with `E2E_STORE_API_URL` set to the kept core
+(`E2E_BRAND_CORE_URL`, default `http://127.0.0.1:9000`). `E2E_STORE_API_URL` and not `STORE_API_URL`: the brand
+configs build the server's environment from it, and exporting only `STORE_API_URL` would boot the app against
+Prism while reporting a "core" run. On CI a core that does not answer `/health` fails the brand journey rather
+than quietly testing the mock; locally the brand suite falls back to Prism and says so. The core gets
+`CORE_STORE_API_FALLBACK_URL` (Prism) for the `/store/*` routes it does not serve itself. Each run seeds a fresh
+database, so the two units the buy tests consume never drain anything shared. Not covered in CI: the CMS
+content routes (no `CMS_DATASET`), and the visual spec (opt-in `E2E_VISUAL=1`, Windows baselines only).
+OpenFGA ids are not seeded for the core: only staff tokens need them, and no store journey sends one.
 
 **A memory-only push to `main` runs nothing.** `paths-ignore` on the `push` trigger covers `docs/**` and
 `**/*.md`, so a Memory-main commit no longer starts the most expensive run there is (a push to main sets
@@ -572,7 +580,7 @@ belongs to the main window.
 | `perf-app`       | `perf`      | one entry per storefront in `perf_apps`: build its workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter <storefront> perf` (its own bundle budget + Lighthouse, exit 1 if either is over) |
 | `perf`           | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                             |
 | `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                     |
-| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; every `apps/*` Playwright journey (brand storefronts opt-in, below)         |
+| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; `apps/*` journeys on Prism, `apps/storefronts/*` on the kept core (below)   |
 | `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                                                                              |
 | `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                   |
 | `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                       |
