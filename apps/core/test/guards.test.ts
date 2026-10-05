@@ -63,9 +63,10 @@ describe('structural guards', () => {
     const offenders = files
       .filter((f) => f.rel.startsWith('modules/cart/') || f.rel.startsWith('modules/checkout/'))
       // `from '../promotions'`, a deep path (`../promotions/pricing`), a longer way round
-      // (`../../modules/promotions`), `import('…')` and `require('…')` — all of them
+      // (`../../modules/promotions`), `import('…')`, `require('…')` and a bare side-effect
+      // `import '../promotions/x'` — all of them
       .filter((f) =>
-        /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/.test(
+        /(?:from\s+|import\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/.test(
           f.text,
         ),
       )
@@ -86,15 +87,16 @@ describe('structural guards', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('the promotions-import pattern catches deep, roundabout, dynamic and require forms', () => {
+  it('the promotions-import pattern catches deep, roundabout, dynamic, require and bare side-effect forms', () => {
     const pattern =
-      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/;
+      /(?:from\s+|import\s+|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\/promotions(?:\/[^'"]*)?['"]/;
     for (const line of [
       "import { resolvePrices } from '../promotions';",
       "import { resolvePrices } from '../promotions/pricing';",
       "import { resolvePrices } from '../../modules/promotions';",
       "const m = await import('../promotions');",
       "const m = require('../promotions/index');",
+      "import '../promotions/register';",
     ]) {
       expect(pattern.test(line)).toBe(true);
     }
@@ -105,6 +107,102 @@ describe('structural guards', () => {
     ]) {
       expect(pattern.test(line)).toBe(false);
     }
+  });
+
+  it('createServer() mounts the terminal /admin 404 after our chain and before Medusa loads (#265)', () => {
+    const server = files.find((f) => f.rel === 'server.ts')!.text;
+    const body = server.slice(server.indexOf('export async function createServer'));
+    const chain = body.indexOf('mountCoreMiddleware(app');
+    const terminal = body.indexOf("app.use('/admin', adminNotFound)");
+    const medusa = body.indexOf('await loaders(');
+    expect(chain).toBeGreaterThan(-1);
+    expect(terminal).toBeGreaterThan(chain);
+    expect(medusa).toBeGreaterThan(terminal);
+  });
+
+  it('the customer token verifier seam is code-only: no environment switch, and createServer() never passes one (#303)', () => {
+    const server = files.find((f) => f.rel === 'server.ts')!.text;
+    const boot = server.slice(server.indexOf('export async function createServer'));
+    expect(boot).not.toContain('customerTokenVerifier');
+    // CreateServerOptions has no such field either: nothing a deployment configures can reach the seam
+    const options = server.slice(
+      server.indexOf('export interface CreateServerOptions'),
+      server.indexOf('export interface CoreMiddlewareOptions'),
+    );
+    expect(options).not.toContain('ustomerTokenVerifier');
+    const seam = files.find((f) => f.rel === 'http/customer-routes.ts')!.text;
+    const resolver = seam.slice(
+      seam.indexOf('export function customerTokenVerifierFor'),
+      seam.indexOf('export function identityOf'),
+    );
+    // the only thing it reads from the environment is NODE_ENV — to refuse
+    expect(resolver.match(/process\.env\.(\w+)/g)).toEqual(['process.env.NODE_ENV']);
+    expect(seam.replace(resolver, '')).not.toContain('process.env');
+  });
+
+  it('no non-test code hands a customer token verifier to a route factory, except the chain itself (#318 review)', () => {
+    // Every CALL of the three functions that accept a verifier, in non-test source. The list is exact: a new
+    // caller — or a new argument at an existing one — fails here and has to be justified in review.
+    const calls: string[] = [];
+    for (const f of files.filter((x) => !x.rel.endsWith('.test.ts'))) {
+      for (const m of f.text.matchAll(
+        /(?<!function )\b(mountStoreRoutes|mountCustomerRoutes|getOrderRouteWith|customerGateWith)\(([^()]*)\)/g,
+      )) {
+        calls.push(`${f.rel}: ${m[1]}(${m[2]!.replace(/\s+/g, ' ').trim()})`);
+      }
+    }
+    expect(calls.sort()).toEqual([
+      // `…()` = the default verifier; inside mountStoreRoutes `customerVerifier` is
+      // customerTokenVerifierFor(…)'s result
+      'http/store-routes.ts: customerGateWith(customerVerifier)',
+      'http/store-routes.ts: getOrderRouteWith()',
+      'http/store-routes.ts: getOrderRouteWith(customerVerifier)',
+      'http/store-routes.ts: mountCustomerRoutes(app, customerVerifier)',
+      // inside mountCoreMiddleware: `customerTokenVerifier` is customerTokenVerifierFor(opts.…)'s result
+      'server.ts: mountStoreRoutes(app, customerTokenVerifier)',
+    ]);
+    // the factories are not part of the HTTP layer's public index
+    const index = files.find((f) => f.rel === 'http/index.ts')!.text;
+    const exported = index.replace(/^\s*\/\/.*$/gm, '');
+    for (const name of [
+      'mountCustomerRoutes',
+      'getOrderRouteWith',
+      'customerGateWith',
+      'optionalCustomerId',
+      'requireCustomer',
+    ]) {
+      expect(exported).not.toContain(name);
+    }
+    // and each of them resolves its verifier through the production-refusing function
+    const seam = files.find((f) => f.rel === 'http/customer-routes.ts')!.text;
+    const storeRoutes = files.find((f) => f.rel === 'http/store-routes.ts')!.text;
+    expect(seam).toMatch(
+      /export function mountCustomerRoutes\([^)]*\): void \{\s*const verifier = customerTokenVerifierFor\(override\);/,
+    );
+    expect(storeRoutes).toMatch(
+      /export const getOrderRouteWith = \([^)]*\): RequestHandler => \{\s*(?:\/\/[^\n]*\s*)*const verifier = customerTokenVerifierFor\(override\);/,
+    );
+  });
+
+  it('no Promise.all / allSettled / race over queries of ONE transaction client (tx.query): a connection runs one statement at a time', () => {
+    // The argument of every Promise.all(…) / allSettled(…) / race(…) in non-test source, parentheses balanced.
+    const offenders: string[] = [];
+    for (const f of files.filter((x) => !x.rel.endsWith('.test.ts'))) {
+      for (const m of f.text.matchAll(/Promise\.(?:all|allSettled|race)\(/g)) {
+        let depth = 1;
+        const start = (m.index ?? 0) + m[0].length;
+        let i = start;
+        for (; i < f.text.length && depth > 0; i += 1) {
+          if (f.text[i] === '(') depth += 1;
+          else if (f.text[i] === ')') depth -= 1;
+        }
+        const argument = f.text.slice(start, i);
+        if (/\btx\.query\b/.test(argument)) {
+          offenders.push(`${f.rel}:${f.text.slice(0, start).split('\n').length}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it('modules import the outbox helper through its index only', () => {

@@ -3,7 +3,8 @@ import './types';
 
 export { aliasPublishableKeyHeader } from './publishable-key-alias';
 export { requestIdMiddleware, requestIdOf } from './request-id';
-export { coreErrorHandler, handle } from './errors';
+export { CONTRACTS_VERSION_HEADER, contractsVersionHeader } from './contracts-version';
+export { adminNotFound, coreErrorHandler, handle } from './errors';
 export {
   coreOrganizationId,
   requireTenant,
@@ -59,6 +60,14 @@ export {
   updateCartRoute,
   updateLineItemRoute,
 } from './store-routes';
+// Nothing that ACCEPTS a customer token verifier is exported here except through mountStoreRoutes: the route
+// factories (`mountCustomerRoutes`, `getOrderRouteWith`, `requireCustomer`) stay inside src/http.
+export {
+  CUSTOMER_STORE_PATHS,
+  customerTokenVerifierFor,
+  keycloakCustomerTokenVerifier,
+} from './customer-routes';
+export type { CustomerTokenVerifier } from './customer-routes';
 export { adminRouter } from './admin-routes';
 export { moduleAdminRouters, moduleWebhookRouters } from './module-routers';
 export { loadSpec, openApiDir } from './openapi';

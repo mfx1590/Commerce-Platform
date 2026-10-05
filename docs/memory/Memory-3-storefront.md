@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-09-24 · Contracts: contracts-v0.4.4 (Store API 0.3.1; the `currency` query is in use since 2.1) · Branch: `storefront/phase2` · Status: **Phase 2 complete for this window** — 2.1–2.3 merged, 2.4 in PR
+Last updated: 2026-10-04 · Contracts: **contracts-v0.4.10** (Store API 0.5.3; main `96aeb19` merged here as `6ed6443`, touched nothing in this package) · Branch: **`storefront/phase2` = #327 PR, pushed once, CI pending; no further pushes until the manager says** · Done: #312 (PR #329, `7ca6fee`), #326 (PR #331, `a6d6b84`). **#327:** `2f083bf` (code, 0.12.9), `a767a9d` (local-images spec), `bf13d89` (sign-in / sort deadlines), `736bf01` (≤ 4 Playwright workers locally, `E2E_WORKERS` overrides, CI unchanged), `cf886e4` (bounded step wait naming the page error) — all accepted by the manager. Three consecutive full core passes 69/0/1 ×3 (orders 1111–1119). After the merge: install, packages rebuilt, lint, format, typecheck, 515 unit pass. **Machine NOT mine.** Seed: alpine-beanie 0, alpine-bucket-hat ~21. Hold branches deleted. Parked: #329 review nits; `details.reason` (later contracts change).
 
 ## Identity (does not change)
 
@@ -159,7 +159,172 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       nits — see Decisions. 339 app tests (26 files) + 47 kit tests; lint, typecheck, format,
       `next build`, `perf`, and the new `/r/` e2e (3 specs) green.
 
+- [x] **#274 Page metadata in `<head>` for every user agent** — commits `e78a1a5` (priceString
+      nit), `dca3201` (the fix), `865ce22` (SEO budget 95); **PR #299 merged** (merge commit
+      `39e7321`, 2026-10-02). `htmlLimitedBots: /.*/` in `next.config.mjs`; the middleware gives a
+      request with no `User-Agent` a placeholder one, because Next never consults the pattern for
+      it. `e2e/seo-head.spec.ts` asserts byte offsets on raw responses; `test/seo-head.test.ts` pins
+      the pattern. Evidence, against the Docker mock on 127.0.0.1:4010: e2e 40/40 red on the old
+      config and 40 passed with the fix; Lighthouse SEO 100/92/92 → 100/100/100 on PLP and PDP,
+      performance 99–100 both ways; probe 60/60 rows in `<head>`, warm first byte 9–16 ms (before:
+      10–24 ms). The reviewer rebuilt the branch and reproduced all of it. **Named gap, still open:
+      a content route answering 200 was never probed** — no Sanity dataset exists anywhere.
+      JSON-LD stays in `<body>` on purpose. **The 95 gate shipped in this PR did not guard the fix**
+      — see the LHCI gotcha; corrected in the #286/#278 PR.
+
+- [x] **#286 + #278, with the rider from #299's review** — commits `09e5cac`, `33e48f3`; **PR #305
+      merged** (merge commit `cf25d16`, 2026-10-02). #286: `StoreFacts`
+      (`src/components/store-facts.tsx`), one padded `Card` per fact, `dl > div > dt/dd`;
+      `test/store-facts.test.ts` asserts the rendered structure. #278: `mergeSlots` exported and
+      tested with fixtures; starter-only assertions in `test/starter-defaults.test.ts` under
+      `describe.runIf(package name is the starter's)` — the reviewer saw it skip in a clone. Rider:
+      `categories:seo` uses `aggregationMethod: "pessimistic"` (the 95 gate from #299 passed the
+      broken build on its best run; now RED on the pre-#299 config, `found: 0.92, all values: 1,
+      0.92, 0.92`); empty `User-Agent` case in `e2e/seo-head.spec.ts`; "median of three" texts
+      corrected. **Performance, accessibility, LCP and CLS stay on LHCI's default (best run)** —
+      manager's ruling 2026-10-02; `ci.yml`'s wording is routed to window 5.
+
+- [x] **#302 Sitemap origin baked at build** — commits `6beef05`, `5cc8854`, `9a0cc3a`, `990cbaf`;
+      **PR #309 merged** (merge commit `2f7ff9e`, 2026-10-02) after one BLOCK. Both sitemap routes
+      are `force-dynamic` (upstream reads stay cached, ~5 ms per request); `robots.txt` and the
+      pages' canonicals were measured and were never affected. `scripts/e2e-server.mjs` builds with
+      `SITE_URL=https://build-time.invalid` and starts with the runtime one, and leaves
+      `.next/e2e-build.json`; `e2e/runtime-origin.spec.ts` asserts presence, then **equality with
+      the expected runtime origin**, then absence of the build host, for sitemap `<loc>`s and
+      alternates, the robots `Sitemap:` line and canonicals — and skips with a reason (fails on CI)
+      against a build that was not made that way. The e2e server runs with
+      `ROBOTS_ALLOW_INDEXING=1`. The BLOCK: my first robots test could not fail (no origin in a
+      bare `Disallow: /`) and nothing compared against the expected origin.
+
+- [x] **#304 + #306 The journey asserts the order it placed; honest sort, filter and account
+      tests** — commits `1166715`, `f1d1782`, `3f6695a`, `0d0510f`, `f88269a`; **PR #316 merged**
+      (merge commit `c50c61e`, 2026-10-02). Hooks in `src/lib/test-hooks.ts` (money in minor units)
+      on listing cards, the add-to-cart form, cart/review/confirmation lines, totals, confirmation
+      header. `checkout.spec.ts`: product chosen by `data-purchasable` (first of up to 12; fails
+      with `Seed stock exhausted — reseed`); lines and total captured at review and required on the
+      confirmation, with an order number on the page and the order **id** in the URL; sort/filter
+      on results, core-only (skips with the reason on the mock, fails under two products or one
+      price); `clickWhenReady` and explicit deadlines for window 10's two flakes. `account.spec.ts`:
+      the Prism-only assertions are in a test labelled mock-only.
+      **What was actually run, and when:** the final tree (contracts 0.4.8) — lint, typecheck, 383
+      unit tests, format, bundle budget; full e2e on the mock 65 passed / 2 skipped; checkout +
+      account on the core 10 passed / 1 skipped; five consecutive bounded passes each of the
+      journey and the sort test on the core, all green. **The four mutation checks** (confirmation
+      quantity +1; no stock; `sort` not sent; `category` not sent) **ran before the rebase onto
+      contracts 0.4.8 and before the flake fix, and were not repeated.** The perf gate was not run
+      locally (manager: CI's run is enough).
+      **Seed stock used on 2026-10-02: nine units of `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack),
+      11 → 2** — plus one unit earlier the same day for the first core run of the spec. Six of the
+      nine were agreed; three (orders 1073–1075) were wasted when an interrupted five-pass command
+      kept running and the next run overlapped it. The manager tops the seed up before
+      Integration 2.
+
+- [x] **#298 Redirects use the configured site origin; `SITE_URL` fails closed** — commits
+      `59e3505`, `205d347`, `42ca120`, `0e79a3c` and the memory commits between; **PR #320 merged**
+      (merge commit `79b491c`, 2026-10-03) after one draft round. `siteUrl()` is the one definition
+      (returns the origin; the localhost default only for `NODE_ENV=development`/`test` and the
+      build phase, everything else throws `SiteUrlError`); `src/lib/site-origin.ts`
+      (`siteOrigin`, `urlOnThisSite` with both safe-path layers) is used by sign-out, the callback,
+      `/r/{code}` and the middleware's attribution; sign-out never fails (no return address, one
+      log line). Measured: 15/15 redirect rows on the public origin whatever the headers; no
+      attribution cookie for in-shop navigation; route tests 18 red → 20 green. The six riders
+      from #316's review, plus the **warm-readiness gate** in `scripts/e2e-server.mjs` (Playwright
+      waits on `:<PORT+1000>/`, served only after a page and a chunk answered under 1 s twice) —
+      the local `page.goto` timeouts were a cold server under start-up load, settled by CI
+      (65/2, 44.1 s), not by the branch. Go-live: production Helm values must set `SITE_URL`
+      (#297). Seed stock 2026-10-03: one unit (alpine-backpack 2 → 1, order 1081).
+
+- [x] **#293 The sitemap lists CMS pages, legal pages and live campaigns per locale** — commits
+      `910ad1e`, `6c294b2` and the records fix `80a760e`; **PR #322 merged** (merge commit `9617832`,
+      2026-10-03) after one BLOCK on records only. `contentEntries()` reads window 6's
+      `routedDocuments` per locale through a reader built with `createReader` (never `getCms()`);
+      `campaignIsLive` gates campaigns per request; `sitemapUrls()` is the one expansion from paths
+      to URLs and both `force-dynamic` routes count it. **Unverified: content in a SERVED sitemap**
+      — no Sanity dataset exists anywhere; brand A sees it first on re-sync. Parked nits: "leaves at
+      the next revalidation" should say on the next request; README blank line / section; the
+      empty-in-empty-out test; the `SLUG` regex drops a slug with a dot.
+
 ## In progress
+
+- **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
+  #303 PR C; the `refreshTokens` / `tokenEndpoint` narrowing to the provider half rides with it).**
+  Standing rules: plan-paste anything over ~20 calls. Push only after the previous PR merges and
+  the manager confirms no queue is running. No `docker exec`. No closing keyword in a commit
+  message unless that commit finishes the issue. Never attempt stack recovery from this window.
+  **One window measures at a time: until the manager says the machine is mine, git and file work
+  only. Every run: output to a file, started detached, polled with a bounded loop; no step waits
+  on a pipe or on a server's lifetime. Ask before a perf gate.**
+
+- **#312 / PR #329 — review BLOCK (manager, 2026-10-03 night), fixed in `0bfac3f`:** (1)
+  `placeOrderAction` set `mode` only after `asCustomerOrGuest` resolved, so a 409 thrown by the
+  customer attempt was mapped as `'guest'` and the link message was unreachable. Now
+  `asCustomerOrGuest` takes `onAttempt(mode)` (called before each attempt) and the action records
+  it. And `mapCompletionError` gives the link message only for a `conflict` with **empty
+  `details`** — the core's `anotherCustomers()`; promotion last use (`details.promotion_id`) and
+  key reuse across carts (`details['Idempotency-Key']`) keep the generic text. A
+  `details.reason` in the contract would be cleaner — offer as a CONTRACT CHANGE if asked.
+  `test/place-order-action.test.ts` (5) drives the action with network, cookies and session mocked;
+  red against the old wiring and against dropping the details rule. Unit 503, typecheck, lint,
+  format pass. (2) Memory line 4 made true with the shas. Code-only; no e2e re-run (machine not mine).
+- **#312 — 2026-10-03, manager: core PR C (#325) merged as `5997584`.** `storefront/phase2` was
+  fast-forwarded to `storefront/hold-312` and merged with origin/main `2a0f828` (clean);
+  `pnpm install --frozen-lockfile`, typecheck (starter + ui) and 496 unit tests pass — nothing broke
+  against Store API 0.5.2. Package CLAUDE.md's token allow-list updated to the four calls.
+  **Machine granted later on 2026-10-03; run, all detached and bounded:** lint, format, typecheck,
+  496 unit — pass. 0.12.7 changelog corrected (pre-PR-C core ignored the token, 201). New core-only
+  e2e: **stale-session purchase** (cookie's accessToken replaced with `stale`; asserts order placed
+  and the session cookie gone); the journey moved into a `buy()` helper in account.spec.ts. Mock
+  e2e full: 66 passed / 2 skipped, then on the final tree 66 / 3 skipped. Probe: core with PR C
+  answers `POST /store/carts` + `Bearer stale` with **401**. **Core run (account spec):** first
+  attempt 1 failed — PDP served **stale cached stock** for alpine-backpack (0 on the core) from
+  `.next/cache/fetch-cache` kept from the earlier core run; the app said "That item just sold out",
+  correct. Cleared the fetch cache, second run **5 passed / 1 skipped**: signed-in journey bought
+  `BRANDA-0101-ONE-SIZE-OLI` (alpine-beanie), **order 1088, linked** (`public.order.customer_id`
+  set, read-only query); stale-session journey, same SKU, **order 1089, guest**, and the server log
+  carried the fallback line exactly once. Seed used: 2 units of alpine-beanie (15 → 13). Own core
+  started and stopped; :9000/:3100 free.
+  History below (the "nothing run" title is from before the first run):
+- **#312 — CLIENT CHANGE WRITTEN. Local-only branch `storefront/hold-312` on top of
+  `storefront/phase2` (= PR #322's head). Its PR waits for the core's #303 PR C (window 1; core
+  merges first — coordinate with the manager) and goes up after #322 merges.** Store API 0.5.1:
+  `createCart` and `completeCart` take an OPTIONAL customer token; a token that is sent but invalid
+  is a 401, never ignored; a cart linked to another customer is a 409 `conflict` at completion.
+  - `allowsCustomerToken(path, method = 'GET')`: `/store/customers*`, `GET /store/orders/{id}`,
+    plus exactly `POST /store/carts` and `POST /store/carts/{id}/complete` (`isCartCompletePath`,
+    five segments). `RequestOptions` is now exported from the store-api index.
+  - `src/lib/customer-link.ts` `asCustomerOrGuest(call, deps?)` → `{ result, mode }`: token from
+    `getAccessToken()`; on a `StoreApiError` with status 401 it `clearSession()`s, warns one line
+    without the token, and calls once more as a guest; a second 401 propagates; other errors
+    propagate untouched. Used by `getOrCreateCart` (cart.ts) and `placeOrderAction` (actions.ts;
+    the same idempotency key on both attempts).
+  - `mapCompletionError(error, mode)` in checkout.ts: `conflict` as the customer → the link-conflict
+    message (sign out and place as a guest, or start a new cart); otherwise `mapCheckoutError`.
+  - OIDC: `refreshTokens`, `postToken` take `OidcProvider`; `tokenEndpoint` takes `Pick<…,'issuer'>`.
+  - Tests written: `customer-link.test.ts` (6), additions to `store-api.test.ts` (allow-list by
+    method, token on both calls, none as a guest, refused on `updateCart`) and `checkout.test.ts`
+    (`mapCompletionError`). README (client, accounts, cart sections), CHANGELOG 0.12.7.
+  **Run on 2026-10-03 (machine granted), all bounded and detached:** lint, typecheck, 496 unit
+  tests, format — pass (one fix: `RequestOptions` was already re-exported from the store-api
+  index). The journey helpers moved to `e2e/support/journey.ts`, shared by `checkout.spec.ts` and
+  `account.spec.ts`, which gained **a signed-in purchase**: sign in, then the journey; accepts both
+  correct outcomes (linked, or guest after a 401) and names the one that must never happen — a
+  signed-in customer who cannot buy. Full mock e2e through the gate: **first run 9 failed** (all
+  `page.goto` / `browserContext.clearCookies` timeouts in the first seconds, with the machine at
+  91–100% CPU through the build phase — browser-side calls, not the server; the gate had reported
+  warm), **second run 66 passed / 2 skipped**. **Core run (account spec only, one unit):** 4
+  passed / 1 skipped; the signed-in purchase bought `BRANDA-0036-ONE-SIZE-WHI` (alpine-backpack),
+  order 1082, stock **1 → 0, now out**. **The guest fallback was NOT exercised:** the core at
+  contracts 0.4.8 (before PR C) *ignores* the token — measured directly, `POST /store/carts` with
+  `Authorization: Bearer not-a-token` answers 201, same as with no token — so the storefront sent the
+  token, the core placed a guest order, and no `refused the customer token` line appeared. The
+  401 path is covered by the unit tests only until a core that implements 0.5.1 is available;
+  the one ready-made way to see it live is a core with PR C and a deliberately stale session.
+  **Next for #312:** hold on `storefront/hold-312` until the manager says core PR C is on main;
+  then rebase onto `storefront/phase2`, re-run the gates, one core run (expect the linked order
+  and, with a stale session, the fallback line), push, open the PR (body may close #312).
+  alpine-backpack is at 0: the journey moves on to the next listed product by itself.
+  Constraints from the issue: no token in logs, URLs or client-component props (none of the three
+  touched files is a client component); a guest cart completed after sign-in must still work.
 
 - **2.1 (#109) is code-complete and in PR; one acceptance criterion could not be verified.**
   See Done below for what shipped. **The e2e run against the core did not happen: the core does not
@@ -211,10 +376,59 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **Review nits from #254, still deferred by the manager ("not now"):** (a) the comment in
-      `src/app/[locale]/layout.tsx` cites `test/seo-head.test.ts`, **which does not exist** — the
-      head-placement check was done by hand against the built HTML, so either write that test or
-      drop the reference; (b) `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice.
+- [ ] **#327 — 2026-10-04: on `storefront/phase2` as `2f083bf` (0.12.9) + `a767a9d` (spec
+      `e2e/local-images.spec.ts`: images present, all the placeholder, no non-local request, nothing
+      proxied — not yet run). Plan when the machine is mine: preflight (processes, :3100/:9000), own
+      core detached + /health poll, STORE_PUBLISHABLE_KEY + E2E_STORE_API_URL=http://127.0.0.1:9000,
+      then three sequential full `playwright test` runs, each a fresh e2e-server build (so a clean
+      fetch cache), each logged to its own file with a hard timeout; stop the core after. First check
+      a flagged build refuses `SITE_URL=https://x.example` (instrumentation exit). Seed: each full
+      core pass buys ~4 units (checkout journey + 2 account purchases + …) — check stock first.**
+- [ ] **#327 (REQUEST from window 10, manager decision on the issue) — CODE WRITTEN, committed
+      `08b3240` on the local-only `storefront/hold-327` (on top of PR #329's head `e594fc6`),
+      CHANGELOG/version 0.12.8 there — **renumber to 0.12.9 when moved (#326 took 0.12.8 on 2026-10-04)**.
+      NOT pushed, NOT run against anything. Order changed 2026-10-04: #326 first, then this.**
+      - `src/lib/e2e-images.ts`: `E2E_LOCAL_IMAGES` (exactly `1`, inlined via next.config `env`);
+        `ProductImage` sends every remote `src` (picsum and the CDNs) to `/e2e-placeholder.svg?w=`
+        (`public/`). `e2eServerEnv` sets the flag for build and server.
+      - Refused in production: `src/instrumentation.ts` → `instrumentation-node.ts` exits at start
+        when the build has the flag and runtime `SITE_URL` is missing / not loopback. NODE_ENV
+        cannot be the line (the e2e server is `next build` + `next start`).
+      - `e2e-server.mjs` deletes `.next/cache/fetch-cache` before each build (the stale-stock hit).
+      - `networkidle` gone: `hydrated(page)` waits for `<html data-hydrated="true">` set by
+        `HydrationMarker` (root layout effect; the app has no Suspense/loading.tsx, so one root
+        commit hydrates the page). Used by `settleOn` and `clickWhenReady` (journey.ts).
+      - Run without the machine: typecheck, eslint, **508 unit** pass; the `ProductImage` test is red
+        with the flag branch removed.
+      **Unverified until the machine is mine:** (1) `next build` + `next start` with the flag — that
+      `register()` really runs at `next start` and exits on a public SITE_URL (try `SITE_URL=https://x.example`),
+      and no Edge-runtime warning; (2) a run's network log has no picsum / cloudinary / unsplash
+      request (Playwright `page.on('request')` or the trace); (3) acceptance: **three consecutive
+      full passes, 0 failures, against the core**; full mock e2e too. Then merge main, PR
+      "Closes #327" on the manager's confirm. Brand A inherits by sync (`public/` is new — tell
+      window 10); window 10 aligns its own specs.
+
+- [ ] **#326 (REQUEST from window 10) — IN PR:** `test/starter-defaults.test.ts`
+      imports `@/brand/*` at top level, so a clone whose `tokens.ts` uses `next/font/local` fails to
+      collect the file before `runIf` is consulted. Fix: dynamic `await import(...)` inside each `it`
+      of the gated block. Brand A then drops its sync exclusion. **Written and committed as
+      `bdc92e0` on the local-only `storefront/hold-326` (off origin/main `2a0f828`; CHANGELOG
+      0.12.8, version 0.12.8). Verified: passes in the starter; fails when a token override is added;
+      skips (2 skipped) with a clone name and a `tokens.ts` that throws at import. Typecheck green.
+      After #312 merges: move onto `storefront/phase2`, merge main (CHANGELOG/version will conflict
+      with 0.12.7 — keep both entries, 0.12.8 on top), gates, PR "Closes #326".**
+      **2026-10-04 (order changed by the manager: #326 before #327): cherry-picked onto
+      `storefront/phase2` as `3d25ced`, 0.12.8 above 0.12.7; lint, format, typecheck, 503 unit pass;
+      PR "Closes #326". `storefront/hold-326` can go once it merges.**
+
+- [ ] **Parked nits from the review of #309 (manager: "not now"):** the build marker describes the
+      build on disk, not the running process; an out-of-range `/sitemap/N.xml` answers 200 empty
+      after a full catalogue walk; a cold cache can be walked by several requests at once; the
+      10k-product cap truncates silently; CHANGELOG indentation in the 0.12.3 entry (fixed in
+      passing).
+- [ ] **Review nit from #254, still deferred by the manager ("not now"):**
+      `apps/storefront-starter/.gitignore` lists `.lighthouseci/` twice. (The other one — the layout
+      comment citing a `test/seo-head.test.ts` that did not exist — is fixed in the #274 commit.)
 
 ## Decisions made (with reasons)
 
@@ -295,9 +509,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 - **The CSP imports `EMBED_HOSTS` from `@platform/cms` rather than copying the host list.** It is
   the same list window 6's Studio validates an editor's embed URL against, so a copy that drifts
   would either block an embed the Studio accepted or permit one it rejected.
-- **The Lighthouse SEO budget stays at 90, deliberately, and the README says why.** The score moves
-  between 92 and 100 on the same build (see In progress); a 95 gate would be flaky, and turning off
-  the `meta-description` audit to force a pass would hide a real signal.
+- **The Lighthouse SEO budget is 95 and is checked against the worst of three runs.** It was 90
+  from 2026-09-21 to 2026-10-01 because the score moved between 92 and 100 on one build; #274
+  found the cause (streamed metadata) and removed it. "Worst run" is not pedantry: the defect is
+  absent on run 1 and present on runs 2 and 3.
 
 - **A test may assert on our own copy; it may never assert on the dataset.** That is the line the
   Phase 1 e2e crossed, and it is why the suite could not run against the core: the fixture's product
@@ -479,6 +694,86 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **The e2e build keeps `.next/cache/fetch-cache` between runs**, so a core run can render stock
+  cached by an earlier core run (CATALOG_REVALIDATE): the PDP said purchasable, the core said 0,
+  add-to-cart answered "That item just sold out". `rm -rf apps/storefront-starter/.next/cache/fetch-cache`
+  before a core run that follows another one. Candidate for #327's e2e-flag work.
+
+- **An interrupted or rejected command may still be running.** On 2026-10-02 the owner stopped
+  one of my steps; the five-pass e2e loop I had launched carried on in the background, and the
+  next run overlapped it: `:3100` already held, `chrome-error://`, `Cannot find module
+  .next/server/middleware-manifest.json`, and three real orders nobody asked for. **Before any
+  run after an interruption: list the processes started from this worktree (PowerShell
+  `Get-CimInstance Win32_Process`, filter the command line on `wt-storefront`) and check `:3100`
+  is free.** A leftover `passes` log is not evidence either way.
+- **Never start a server in a command that waits for it.** Starting the core with the Bash tool's
+  background mode looked like a 24-minute hang to the manager, because the step never returned.
+  Start it detached, return, then poll `/health` in a separate, bounded loop (60 s). Every e2e
+  invocation gets a hard `timeout` as well as Playwright's `--global-timeout`.
+- **The core can fail to boot with `Cannot find module 'zod'`, from Medusa's own code**
+  (`@medusajs/medusa/dist/api/admin/property-labels/validators.js`). Medusa has no `zod` linked
+  beside it and resolves it only through pnpm's hoisted `node_modules/.pnpm/node_modules/zod`;
+  this worktree's install had no such entry (the main checkout did). `pnpm install
+  --frozen-lockfile --force` recreated it — and took 15 m 41 s, during which nothing else can run.
+  Not an `apps/core` import; reported to the manager for routing. Check
+  `ls node_modules/.pnpm/node_modules/zod` before planning a core run.
+- **Another window's core may not be there.** The core on `:9000` belongs to whoever started it.
+  When the other windows stop, a core run needs my own: `CORE_STORE_API_FALLBACK=1
+  CORE_STORE_API_FALLBACK_URL=http://127.0.0.1:4010 pnpm --filter @platform/core dev`, detached,
+  and stopped afterwards.
+
+- **A "does not contain X" assertion needs a "does contain the thing that would carry X" in
+  front of it.** My robots.txt origin test passed on a file with no origin in it at all
+  (`Disallow: /`), and the sitemap test compared the index with its own pages, which agree just
+  as well when both are wrong. Assert presence, then equality with a value computed in the test,
+  then absence — and run the test against the defect it is for. Second time the reviewer caught
+  a check of mine that could not fail (the first: the LHCI gate).
+- **One window measures at a time.** While another window is taking timed runs: file edits and
+  git only — no builds, tests, e2e, Lighthouse or servers — until the manager says the machine is
+  free.
+- **An e2e run against the core needs `STORE_PUBLISHABLE_KEY` in the shell**, not only
+  `E2E_STORE_API_URL`: the app's built-in default key is the mock's, and the core answers 401 to
+  it. The seeded key is in the repo-root `.env` (which Next does not read). Export it; never print
+  it.
+- **Prism answers `GET /store/products` with the same example for every `sort` and `category`**,
+  and its cart, review and order examples agree with each other. So against the mock a journey
+  can prove rendering and consistency, never ordering, filtering or that an order was placed. A
+  test that cannot fail against a backend must skip there with the reason, not pass.
+
+- **`next build` still prints the prerender marker for `/sitemap/[__metadata_id__]` after
+  `force-dynamic`.** `generateSitemaps` lists the ids like `generateStaticParams`, so the route
+  table shows `/sitemap/0.xml` under it. Nothing is prerendered: no `.body`/`.meta` file exists
+  under `.next/server/app` and `prerender-manifest.json` has no sitemap route. Check the
+  artefacts, not the table.
+
+- **LHCI checks an assertion against the BEST run unless told otherwise** (`aggregationMethod`
+  defaults to `optimistic`; `@lhci/utils/src/assertions.js`). "Median of three" was written in
+  three places here and was never true. Worse, I raised the SEO budget to 95 in #299 and called
+  it a guard: the broken build scores 100, 92, 92, and best-of-three passes it. **A gate is only
+  proven by running it against the defect and watching it fail** — I showed the e2e red and
+  never the gate. Caught by the reviewer of #299.
+- **An empty header value and a missing header are different requests** and Next treats both as
+  "no user agent". `node:http` sends `user-agent:` with an empty value when asked to; the spec
+  covers both.
+
+- **Next streams `generateMetadata` into `<body>` for any user agent outside `htmlLimitedBots`
+  (15.2+), and never consults the pattern for a request with no `User-Agent`.** The older entries
+  below that call head placement "timing-dependent" describe the symptom, not the cause: streamed
+  metadata is a race the first request to a route after boot can win, so a single curl or
+  Lighthouse's run 1 says HEAD and everything after says BODY. Probe with byte offsets, at least
+  twice, with a real browser user agent — and with none (`node:http`; `fetch` and Playwright's
+  client always send one).
+- **Git Bash rewrites an argument that starts with `/` into a Windows path** (`/en-GB` became
+  `C:/Program Files/Git/en-GB` inside a node script's argv). Prefix `MSYS_NO_PATHCONV=1` or do not
+  pass URL paths as arguments.
+- **After a reboot Windows can reserve TCP 3020–3419** (`netsh interface ipv4 show excludedportrange
+  protocol=tcp`), which covers :3100 and the brands' :3101–3103: `next start` dies with
+  `listen EACCES 0.0.0.0:3100`. It is a system setting — report it, do not fix it. A probe that
+  needs no fixed port can run on a spare one (`PORT=4100`); Playwright and `perf` take
+  `E2E_BASE_URL` / `PERF_PORT`.
+- **`pnpm mock` failing with `EADDRINUSE 0.0.0.0:4010` while nothing listens there** means the dead
+  Docker backend still holds the port. The mock that counts is the Docker one; do not start a second.
 
 - **URL parsing strips tab, newline and carriage return *before* parsing, so `/\t/evil.example`
   resolves to `https://evil.example`.** A path guard that checks only the leading characters cannot

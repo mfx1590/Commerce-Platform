@@ -1,3 +1,5 @@
+import { siteUrl } from '@/brand/config';
+import { isSafeInternalPath } from '@/lib/safe-path';
 import { createHash, randomBytes } from 'node:crypto';
 
 /**
@@ -18,17 +20,33 @@ export interface OidcConfig {
   scope: string;
 }
 
-export function oidcConfigFromEnv(
+/** The identity provider and this app's client in it — everything that does not depend on where the site lives. */
+export type OidcProvider = Pick<OidcConfig, 'issuer' | 'clientId'>;
+
+export function oidcProviderFromEnv(
   env: Record<string, string | undefined> = process.env,
-): OidcConfig {
+): OidcProvider {
   const keycloakUrl = env.KEYCLOAK_URL ?? 'http://localhost:8180';
   const realm = env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
-  const appUrl = env.SITE_URL ?? 'http://localhost:3100';
 
   return {
     issuer: `${keycloakUrl.replace(/\/+$/, '')}/realms/${realm}`,
     clientId: env.KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a',
-    redirectUri: `${appUrl.replace(/\/+$/, '')}/auth/callback`,
+  };
+}
+
+/**
+ * The callback is on **this site's configured origin** — `siteUrl()`, the same definition every
+ * other absolute URL uses, not a second copy of the `SITE_URL` fallback (there was one here, and it
+ * ignored a brand's fixed origin). Throws `SiteUrlError` when a production server has none: a
+ * sign-in cannot start without knowing where Keycloak should send the customer back to.
+ */
+export function oidcConfigFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): OidcConfig {
+  return {
+    ...oidcProviderFromEnv(env),
+    redirectUri: `${siteUrl(env)}/auth/callback`,
     scope: 'openid profile email',
   };
 }
@@ -41,7 +59,7 @@ export function tokenEndpoint(config: OidcConfig): string {
   return `${config.issuer}/protocol/openid-connect/token`;
 }
 
-export function endSessionEndpoint(config: OidcConfig): string {
+export function endSessionEndpoint(config: Pick<OidcConfig, 'issuer'>): string {
   return `${config.issuer}/protocol/openid-connect/logout`;
 }
 
@@ -91,11 +109,11 @@ export function buildAuthorizationUrl(
  * the request knows which one.
  */
 export function safeReturnTo(value: string | null | undefined, fallback = '/account'): string {
-  if (typeof value !== 'string' || value === '') return fallback;
-  // Reject anything that is not a plain path: absolute URLs, protocol-relative `//evil`, backslashes.
-  if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return fallback;
-  if (value.includes('\\')) return fallback;
-  return value;
+  // The rule lives in `isSafeInternalPath`, shared with the referral landing: absolute URLs,
+  // protocol-relative `//evil`, backslashes — and control characters, which URL parsing strips
+  // before parsing, so `/\t/evil.example` resolved to another origin and this guard did not see it.
+  // The callback route checks the resolved origin too.
+  return isSafeInternalPath(value) ? value : fallback;
 }
 
 // ── token exchange ───────────────────────────────────────────────────────────────────────────────

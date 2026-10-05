@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { RUNTIME_SITE_URL } from './e2e/support/build-origin';
 
 /**
  * End-to-end config for the storefront.
@@ -14,6 +15,14 @@ import { defineConfig, devices } from '@playwright/test';
  * `E2E_CHANNEL` overrides both ways.
  */
 const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3100';
+/**
+ * Where `scripts/e2e-server.mjs` says the app is ready — which it does only once a page and a static
+ * chunk have each answered quickly twice in a row. Waiting on the app's own URL started the workers
+ * on a cold server seconds after `next build`, and the first tests timed out on this laptop while
+ * CI, with no start-up load, passed (#298 review). Keep in step with `readyPort` in the script.
+ */
+const READY_PORT = process.env.E2E_READY_PORT ?? String(Number(new URL(APP_URL).port) + 1000);
+const READY_URL = `http://127.0.0.1:${READY_PORT}/`;
 const MOCK_URL = process.env.MOCK_API_URL ?? 'http://localhost:4010';
 /**
  * Against the real core (task 2.1): `E2E_STORE_API_URL=http://localhost:9000 pnpm e2e`.
@@ -27,9 +36,22 @@ const STORE_API_URL = process.env.E2E_STORE_API_URL;
 const CHANNEL = process.env.E2E_CHANNEL ?? (process.env.CI ? undefined : 'chrome');
 const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 
+// Every worker drives ONE Next server — a single Node event loop — and each listing view fires
+// ~25 Link prefetch renders. Playwright's default (half the cores: 11 on the 22-thread dev
+// machine) saturated it: in a full core run a listing took 17.7 s and a sign-in round trip over
+// 15 s (0.1 s alone), and three passes failed 1, 1 and 9 tests on deadlines. With 4 workers the
+// same suite passed 69/0 and finished faster (1.2 min against 1.6–2.3) — #327. CI keeps
+// Playwright's default (its runners have few cores); `E2E_WORKERS` overrides either.
+const WORKERS: number | undefined = process.env.E2E_WORKERS
+  ? Number(process.env.E2E_WORKERS)
+  : process.env.CI
+    ? undefined
+    : 4;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
+  ...(WORKERS === undefined ? {} : { workers: WORKERS }),
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list']],
@@ -53,14 +75,26 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'pnpm run build && pnpm run start',
-      url: APP_URL,
+      // Builds with one `SITE_URL` and starts with another, so a value captured by `next build`
+      // shows up as the wrong origin in a spec instead of in production (#302).
+      command: 'node scripts/e2e-server.mjs',
+      url: READY_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
-      // `start` honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
+      // The server honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
       env: {
         MOCK_API_URL: MOCK_URL,
         PORT: new URL(APP_URL).port,
+        // Said out loud rather than inherited: e2e/runtime-origin.spec.ts compares what is served
+        // against this value, and the build is made with a different one.
+        SITE_URL: RUNTIME_SITE_URL,
+        // The indexable configuration, as in `perf`. Without it `/robots.txt` is a bare
+        // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
+        // build origin is absent from it could not fail whatever robots.txt did (#309 review).
+        ROBOTS_ALLOW_INDEXING: '1',
+        // Set for a core run. For a mock run there is nothing to set here — and a `STORE_API_URL`
+        // exported by the shell would still reach the server, because Playwright merges this map
+        // over `process.env`. `scripts/e2e-env.mjs` removes it there, as `scripts/perf.mjs` does.
         ...(STORE_API_URL === undefined ? {} : { STORE_API_URL }),
       },
     },

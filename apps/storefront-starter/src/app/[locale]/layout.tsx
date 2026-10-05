@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { brandConfig, siteUrl } from '@/brand/config';
+import { HydrationMarker } from '@/components/hydration-marker';
 import { brandTokens } from '@/brand/tokens';
 import { routing } from '@/i18n/routing';
 import { assertStoreOffersLocale } from '@/lib/i18n';
@@ -37,13 +38,16 @@ export function generateStaticParams(): { locale: string }[] {
 /**
  * Root metadata is built from build configuration, never from `GET /store`.
  *
- * `params` is a promise in Next 15 so this still has to be `async`, but it now resolves immediately
- * instead of awaiting an API round trip. That is what decides whether the tags are in `<head>` of
- * the streamed HTML: metadata that suspends on data is emitted late, into `<body>`, where React
- * hoists it at hydration — the DOM ends up correct and every end-to-end assertion passes, while a
- * crawler reading the raw HTML sees no description at all. That cost the PLP its SEO score in task
- * 1.7, and `test/seo-head.test.ts` now asserts the rendered position rather than trusting this
- * comment. See `src/brand/config.ts`.
+ * `params` is a promise in Next 15 so this still has to be `async`, but it resolves immediately
+ * instead of awaiting an API round trip, so the first byte never waits on `GET /store` for a title.
+ * See `src/brand/config.ts`.
+ *
+ * This is **not** what puts the tags in `<head>` — an earlier version of this comment said it was,
+ * and cited a test that did not exist. Whether metadata lands before or after `</head>` is decided
+ * per request by `htmlLimitedBots` in next.config.mjs (and, for a request with no `User-Agent`, by
+ * the middleware): unless the user agent matches, Next streams the metadata and it is written into
+ * `<body>` however quickly it resolved (#274). `e2e/seo-head.spec.ts` asserts the position in the
+ * served bytes; `test/seo-head.test.ts` pins the pattern.
  */
 export async function generateMetadata({
   params,
@@ -108,6 +112,7 @@ export default async function LocaleLayout({
         className="min-h-screen bg-background text-foreground antialiased"
       >
         <NextIntlClientProvider messages={clientMessages}>{children}</NextIntlClientProvider>
+        <HydrationMarker />
       </ThemeProvider>
     </html>
   );

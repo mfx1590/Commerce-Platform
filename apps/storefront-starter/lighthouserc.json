@@ -28,7 +28,8 @@
         "categories:seo": [
           "error",
           {
-            "minScore": 0.9
+            "minScore": 0.95,
+            "aggregationMethod": "pessimistic"
           }
         ],
         "largest-contentful-paint": [

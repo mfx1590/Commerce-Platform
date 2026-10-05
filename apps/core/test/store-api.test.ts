@@ -896,3 +896,43 @@ describe('checkout routes (contract replay, task 2.2)', () => {
     expect(all).not.toContain('?');
   });
 });
+
+// Last in the file: it disables USD for brand-a.
+describe('a currency removed from the store (registry set replacement, #279)', () => {
+  it('an existing cart in that currency still reads; new carts and product reads refuse it', async () => {
+    const withKey = (method: 'post' | 'get', path: string) =>
+      request(app)[method](path).set('X-Publishable-Key', KEY_A);
+    const cart = (await withKey('post', '/store/carts').send({ currency: 'USD' })).body;
+    expect(cart.currency).toBe('USD');
+    const list = await asA('/store/products?currency=USD&limit=1');
+    const product = await asA(`/store/products/${list.body.items[0].handle}?currency=USD`);
+    const variant = product.body.variants.find((v: { in_stock: boolean }) => v.in_stock);
+    const added = await withKey('post', `/store/carts/${cart.id}/line-items`).send({
+      variant_id: variant.id,
+      quantity: 1,
+    });
+    expect(added.status).toBe(200);
+    expect(added.body.items[0].unit_price.currency).toBe('USD');
+
+    // The store admin replaces the enabled set: USD is not in it any more (not blocked, by decision).
+    const patched = await request(app)
+      .patch(`/admin/stores/${SEED_IDS.stores.brandA}`)
+      .set('Authorization', 'Bearer dev:seed-store-admin')
+      .send({ currencies: ['EUR'] });
+    expect(patched.status).toBe(200);
+    expect(patched.body.currencies).toEqual(['EUR']);
+    expect((await asA('/store')).body.currencies).toEqual(['EUR']);
+
+    const read = await withKey('get', `/store/carts/${cart.id}`);
+    expect(read.status).toBe(200);
+    spec.assertSchema('Cart', read.body);
+    expect(read.body.currency).toBe('USD');
+    expect(read.body.items).toHaveLength(1);
+    expect(read.body.totals).toEqual(added.body.totals);
+
+    const fresh = await withKey('post', '/store/carts').send({ currency: 'USD' });
+    expect(fresh.status).toBe(400);
+    expect(fresh.body.details).toEqual({ currency: 'one of EUR' });
+    expect((await asA('/store/products?currency=USD')).status).toBe(400);
+  });
+});

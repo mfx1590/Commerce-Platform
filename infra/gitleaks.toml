@@ -10,7 +10,7 @@
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Paths and strings that cannot be credentials"
 
 paths = [
@@ -58,3 +58,16 @@ regexes = [
   # 2026-09-08: the scan covers every branch's history, so one such literal reddens every PR at once.
   '''^(placement-key|refund-key|refund-fail|refund-unknown)-12345678$''',
 ]
+
+# Git blob ids recorded by a brand's `sync-from-starter` for its preserved files (window 10, PR #328):
+# `"src/brand/tokens.ts": "<40 hex>"` — the word "tokens" in a file NAME plus a SHA-1 trips
+# `generic-api-key`. Both conditions must hold (AND): only this one generated file, and only a secret
+# that is exactly 40 lowercase hex characters, so anything else secret-shaped in that file still
+# fails, and a 40-hex string anywhere else still fails. Added by the manager 2026-10-03: the
+# finding sits in pushed history (697af36), so the branch cannot clear it by editing the file.
+[[allowlists]]
+description = "starter blob ids in a brand's scripts/starter-preserved.json"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/storefronts/[^/]+/scripts/starter-preserved\.json$''']
+regexes = ['''^[0-9a-f]{40}$''']

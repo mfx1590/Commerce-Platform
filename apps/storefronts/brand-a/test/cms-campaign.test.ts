@@ -40,6 +40,7 @@ function reader(overrides: Partial<CmsReader> = {}): CmsReader {
     footer: async () => null,
     pageSlugs: async () => [],
     legalSlugs: async () => [],
+    routedDocuments: async () => [],
     ...overrides,
   };
 }
@@ -155,6 +156,7 @@ describe('safeHref (the renderer does not trust stored hrefs)', () => {
     for (const bad of [
       'javascript:alert(1)',
       'JavaScript:alert(1)',
+      '/\t/evil.example',
       '//evil.example',
       'http://x.example',
       'HTTP://x.example',

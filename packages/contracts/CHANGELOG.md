@@ -73,3 +73,41 @@
 ## 0.4.6 — 2026-09-24 (CONTRACT CHANGE #261, examples only; contracts-v0.4.6)
 
 - Examples for the five example-less operations (updateOrderLineItem, cancelOrderLineItem via `OrderDetail`; pickShipment / packShipment via new honest `ShipmentPicking` / `ShipmentPacked` named examples — the issue's cleaner option, a pick answer must not claim status pending; listPickLists inline). No schema, path or permission changes: Prism answered 500 for these because its schema-generated bodies fail its own validation. `CONTRACTS_VERSION = '0.4.6'`; types regenerated (no type changes expected).
+
+## 0.4.7 — 2026-09-28 (CONTRACT CHANGE #270 + #264 + #279; contracts-v0.4.7)
+
+- Store API 0.5.0 (22 operations): the typed review shape (#270) — `Review` (author is a display name provided or chosen AT REVIEW TIME, never derived from the account: the manager's PII constraint, in the schema comment), `ReviewSummary` (`average` null when count is 0, never 0), `ReviewPage`, optional `Product.review_summary` (omitted = no reviews feature, null/summary = has one), and read-only `GET /store/products/{handle}/reviews`. The storefront deletes its free-form `attributes.reviews` parser when a producer exists; until then the shape is authoritative for feeds and JSON-LD.
+- Admin API 0.4.7 (111 operations): #264 customers — `listCustomerAddresses` (`support`, extends the shared `Address`), `exportCustomer` (202, `store_admin`; bundle format is window 13's Phase 3 decision), `listCustomerGroups` (`viewer`); #279 registry — `revokeApiKey` (idempotent, 409 `last_live_key` on the store's last live publishable key), `PATCH /admin/stores/{storeId}/domains/{domainId}` (`owner`, moves the primary; clearing the current primary is 409), `Store.currencies`/`locales` in the response — OPTIONAL until window 1's registry bundle returns them (recorded deviation on #279; the bundle flips both to required) — with `StoreInput` replace-the-whole-set semantics.
+- `ERROR_CODES` += `last_live_key`. `CONTRACTS_VERSION = '0.4.7'`; types regenerated. Core-side registry work (set replacement, revoke, primary move) is window 1's, bundled with #265 and #284.
+
+## 0.4.8 — 2026-10-02 (#279 required flip + #303 customer self-service + CONTRACT CHANGE #310; contracts-v0.4.8)
+
+- Admin API 0.4.8 (111 operations, unchanged): `Store.currencies` and `Store.locales` are **required** — the recorded 0.4.7 deviation
+  (optional until the core returned them) ends with core #308; `revokeApiKey` documents `400` (malformed key id).
+- Store API 0.5.1 (22 operations, unchanged): `registerCustomer` documents `200` (the row already existed; names and consent applied),
+  `400` (body `email` differs from the token's — subject and email always come from the customer token) and `409` (`conflict`: the email
+  belongs to a row that cannot be adopted); the `/store/customers/me*` operations create the store-level row from the verified token on
+  first use and document `409` for the same collision (`addMyAddress` also gains the missing `401`); `createCart` and `completeCart`
+  accept an OPTIONAL customer token (#310): a valid token links the cart / the placed order to that customer, a token that is sent but
+  invalid is a `401` and never ignored, a cart linked to another customer is a `409` `conflict` at completion. New shared `Conflict`
+  response. No schema change: neither `Cart` nor `Order` exposes `customer_id`.
+- `CONTRACTS_VERSION = '0.4.8'`; types regenerated. Producers: window 1 (#303 PR A/B/C). Consumers: window 3 (the storefront sends the
+  customer token on cart create/complete when signed in), window 4 (settings cards may rely on the sets), brands by re-sync.
+
+## 0.4.9 — 2026-10-03 (#303 PR B; contracts-v0.4.9)
+
+- Store API 0.5.2 (22 operations, unchanged): `addMyAddress` takes optional `is_default_shipping` / `is_default_billing` (the first
+  address is the default for both; a flag moves the default to the new address inside the core's locked transaction; the shared
+  `Address` schema is untouched because carts use it); `updateMe` and `listMyOrders` document `400` (wrong body type / invalid
+  page or limit — the deviations recorded on #303 end here). `listMyAddresses` documents no 400 on purpose: no query, no body.
+- Admin API unchanged. `CONTRACTS_VERSION = '0.4.9'`; types regenerated. Producer: window 1 (#303 PR B). Consumers: window 3
+  (#312 later), brands by re-sync.
+
+## 0.4.10 — 2026-10-04 (#303 PR C follow-up; contracts-v0.4.10)
+
+- Store API 0.5.3 (22 operations, unchanged): `createCart` documents `409` `conflict` — only with a customer token, when the
+  token's email already belongs to another account in the store; no cart is created (the deviation recorded on #325 ends here).
+  `addMyAddress`: `is_default_shipping` / `is_default_billing` lose `default: false` — it contradicted "absent on the first
+  address = default"; the rule is now in the property descriptions. No behaviour change, no new field.
+- Admin API unchanged. `CONTRACTS_VERSION = '0.4.10'`; types regenerated. Producer: window 1 (already merged, #325).
+  Consumers: window 3 (nothing to change: the storefront maps `conflict` already), brands by re-sync.

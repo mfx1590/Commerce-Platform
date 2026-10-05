@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   addLineItem,
   createCart,
@@ -491,7 +491,7 @@ describe('idempotency is per store (RLS on payment rows)', () => {
 });
 
 describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
-  it('guest email trimmed + case-insensitive; customer by id or by matching email; otherwise 404', async () => {
+  it('guest email trimmed + case-insensitive; customer by id, or by the VERIFIED token email on a guest order; otherwise 404', async () => {
     const cart = await readyCart();
     const { order } = await completeCart(a, {
       cartId: cart.id,
@@ -520,9 +520,26 @@ describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
        VALUES ($1, $2, 'kc-sub-other', 'other@example.com', 'registered') RETURNING id`,
       [ORG, A],
     );
-    expect((await getStoreOrder(a, order.id, { customerId: sameEmail.rows[0]!.id })).id).toBe(
-      order.id,
-    );
+    // #303: the customer row's email is not an identity. Only the token's email, and only when the token says
+    // it is verified, opens a guest order — the route passes it as `verifiedEmail`.
+    await expect(
+      getStoreOrder(a, order.id, { customerId: sameEmail.rows[0]!.id }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(
+      (
+        await getStoreOrder(a, order.id, {
+          customerId: sameEmail.rows[0]!.id,
+          verifiedEmail: ` ${cart.email.toUpperCase()} `,
+        })
+      ).id,
+    ).toBe(order.id);
+    expect((await getStoreOrder(a, order.id, { verifiedEmail: cart.email })).id).toBe(order.id);
+    await expect(
+      getStoreOrder(a, order.id, {
+        customerId: sameEmail.rows[0]!.id,
+        verifiedEmail: 'other@example.com',
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' });
     await expect(
       getStoreOrder(a, order.id, { customerId: otherCustomer.rows[0]!.id }),
     ).rejects.toMatchObject({
@@ -536,6 +553,111 @@ describe('getStoreOrder access rule (200 or 404, nothing else)', () => {
     expect((await getStoreOrder(a, order.id, { customerId: otherCustomer.rows[0]!.id })).id).toBe(
       order.id,
     );
+    // … and once it is linked, a verified email alone no longer opens it for anyone else
+    await expect(
+      getStoreOrder(a, order.id, {
+        customerId: sameEmail.rows[0]!.id,
+        verifiedEmail: cart.email,
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect((await getStoreOrder(a, order.id, { email: cart.email })).id).toBe(order.id);
+  });
+});
+
+describe('customer link at placement (#310)', () => {
+  it("links a guest cart to the given customer inside the placement; another customer's cart is a 409 that leaves no order, payment or event behind", async () => {
+    const [mine, other] = (
+      await owner.query<{ id: string }>(
+        `INSERT INTO customer (organization_id, store_id, keycloak_subject, email, status)
+         VALUES ($1, $2, 'kc-sub-link-mine', 'link.mine@example.com', 'registered'),
+                ($1, $2, 'kc-sub-link-other', 'link.other@example.com', 'registered') RETURNING id`,
+        [ORG, A],
+      )
+    ).rows.map((r) => r.id) as [string, string];
+    const counts = async () =>
+      (
+        await owner.query<{ orders: string; payments: string; events: string }>(
+          `SELECT (SELECT count(*) FROM "order")::text AS orders,
+                  (SELECT count(*) FROM payment)::text AS payments,
+                  (SELECT count(*) FROM outbox)::text AS events`,
+        )
+      ).rows[0]!;
+    const linkOf = async (cartId: string) =>
+      (
+        await owner.query<{ customer_id: string | null }>(
+          `SELECT customer_id FROM cart WHERE id = $1`,
+          [cartId],
+        )
+      ).rows[0]!.customer_id;
+
+    // a guest cart, completed for a customer
+    const guestCart = await readyCart();
+    const placed = await completeCart(a, {
+      cartId: guestCart.id,
+      idempotencyKey: `key-link-${guestCart.id}`,
+      actor: { ...actor, id: mine },
+      customerId: mine,
+    });
+    expect(await linkOf(guestCart.id)).toBe(mine);
+    const order = await owner.query<{ customer_id: string | null; email: string }>(
+      `SELECT customer_id, email FROM "order" WHERE id = $1`,
+      [placed.order.id],
+    );
+    expect(order.rows[0]).toEqual({ customer_id: mine, email: guestCart.email });
+    expect((await getStoreOrder(a, placed.order.id, { customerId: mine })).id).toBe(
+      placed.order.id,
+    );
+
+    // a cart of another customer
+    const theirs = await readyCart();
+    await owner.query(`UPDATE cart SET customer_id = $2 WHERE id = $1`, [theirs.id, other]);
+    const before = await counts();
+    // the provider is watched: a guard moved behind `authorize` would fail here even if everything rolled back
+    const authorize = vi.spyOn(manualPaymentProvider, 'authorize');
+    try {
+      await expect(
+        completeCart(a, {
+          cartId: theirs.id,
+          idempotencyKey: `key-link-${theirs.id}`,
+          actor: { ...actor, id: mine },
+          customerId: mine,
+        }),
+      ).rejects.toMatchObject({ code: 'conflict', status: 409, details: {} });
+      expect(authorize).not.toHaveBeenCalled();
+    } finally {
+      authorize.mockRestore();
+    }
+    expect(await counts()).toEqual(before);
+    expect(await linkOf(theirs.id)).toBe(other);
+
+    // a replay is answered only to the customer the order was placed for (#325 review)
+    await expect(
+      completeCart(a, {
+        cartId: guestCart.id,
+        idempotencyKey: `key-link-${guestCart.id}`,
+        actor: { ...actor, id: other },
+        customerId: other,
+      }),
+    ).rejects.toMatchObject({ code: 'conflict', status: 409, details: {} });
+    const replayed = await completeCart(a, {
+      cartId: guestCart.id,
+      idempotencyKey: `key-link-${guestCart.id}`,
+      actor: { ...actor, id: mine },
+      customerId: mine,
+    });
+    expect(replayed).toMatchObject({ replayed: true, order: { id: placed.order.id } });
+
+    // without a customer the cart's own link decides, unchanged
+    const kept = await completeCart(a, {
+      cartId: theirs.id,
+      idempotencyKey: `key-link-${theirs.id}`,
+      actor,
+    });
+    const keptOrder = await owner.query<{ customer_id: string | null }>(
+      `SELECT customer_id FROM "order" WHERE id = $1`,
+      [kept.order.id],
+    );
+    expect(keptOrder.rows[0]!.customer_id).toBe(other);
   });
 });
 

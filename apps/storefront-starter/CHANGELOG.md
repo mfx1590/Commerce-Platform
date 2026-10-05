@@ -1,5 +1,263 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.9 — 2026-10-04
+
+Issue #327 (REQUEST from window 10; manager decision on the issue). No contract change.
+
+- **e2e images stay on the machine.** Under `E2E_LOCAL_IMAGES=1` — set by `scripts/e2e-server.mjs`
+  (`e2eServerEnv`) for the build and the server — `ProductImage` resolves every remote `src` to
+  `/e2e-placeholder.svg` (new `public/` file) through `localPlaceholderLoader`
+  (`src/lib/e2e-images.ts`). Production behaviour is unchanged: without the flag the loaders are
+  the same as before.
+- **The flag is refused in production.** `src/instrumentation.ts` exits the server at start when the
+  build carries the flag and the runtime `SITE_URL` is missing or not loopback.
+- **A clean data cache per e2e build.** `e2e-server.mjs` deletes `.next/cache/fetch-cache` before
+  `next build`; a core run had rendered a product as in stock from the previous run's cache.
+- **No `networkidle` in the specs.** `settleOn` and `clickWhenReady` wait for the control and for
+  `<html data-hydrated="true">`, set by the new `HydrationMarker` in the root layout.
+- Tests: `test/e2e-images.test.ts` (flag parsing, the loader, `ProductImage` with and without the
+  flag — red when the flag branch is removed —, the loopback rule, the boot refusal) and the env
+  helper's flag.
+- e2e: `e2e/local-images.spec.ts` — the listing and a product page show images, every one is the
+  placeholder, and no request the browser made went to a host other than the app (nor through the
+  optimiser to a remote URL). Runs on the mock and on the core.
+- **Deadlines for the first wave of a full core run.** With 11 workers on one server a listing took
+  17.7 s and a sign-in round trip more than 5 s (0.1 s alone). `signIn()` now waits, with
+  `NAVIGATION_TIMEOUT`, until the browser is back on the storefront with the page loaded; the
+  "Order history" navigations take the same deadline; the sort-control test takes
+  `LISTING_TIMEOUT` like its sibling. The first three core passes failed 1 each on exactly these.
+- **At most 4 Playwright workers locally** (`playwright.config.ts`; `E2E_WORKERS` overrides, CI
+  keeps Playwright's default). Eleven workers on one Next server saturated it: with the deadlines
+  above the next core pass still failed 9 (`page.goto` timeouts in the first wave). With 4 the
+  same suite passed 69/0, and faster.
+
+## 0.12.8 — 2026-10-04
+
+Issue #326 (REQUEST from window 10). No contract change. Test-only.
+
+- **`test/starter-defaults.test.ts` no longer evaluates a clone's `src/brand/**`.** The brand
+  modules are imported inside the `runIf`-gated tests instead of at the top of the file, so a brand
+  whose `tokens.ts` calls `next/font/local` at module scope collects the file and skips it rather
+  than failing collection. In the starter both assertions still run, and adding an override still
+  turns them red. Brand apps can drop their sync exclusion for this file.
+
+## 0.12.7 — 2026-10-03
+
+Issue #312 (Store API 0.5.1, CONTRACT CHANGE #310). **Needs the core's #303 PR C (#325) to be live**
+for the order to be linked; a core before PR C ignores the token on these two calls and answers 201,
+so the order is placed as a guest. A 401 for a refused token comes only from a core with PR C, and
+this change turns it into one guest call.
+
+- **The customer token goes on `createCart` and `completeCart` when a customer is signed in.** The
+  cart, and the order placed from it, are linked to the customer at the core, so the order shows
+  in their history without an email match. A guest cart completed after signing in is linked at
+  completion. `allowsCustomerToken` now takes the method: exactly `POST /store/carts` and
+  `POST /store/carts/{id}/complete` are added, by method and exact path; every other cart
+  operation still refuses the token.
+- **A refused token is a stale session, not a lost sale.** On a 401 `asCustomerOrGuest`
+  (`src/lib/customer-link.ts`) drops the session and makes the call once more as a guest — once,
+  never in a loop. The same idempotency key covers both completion attempts: a 401 placed nothing.
+- **A 409 `conflict` at completion on the customer attempt, with empty `details`, is the link
+  conflict** (cart linked to another customer, or a replay by another customer; nothing placed)
+  and is shown as a recoverable error with the two ways out, by `mapCompletionError`. The core's
+  other completion conflicts (a promotion's last use, `details.promotion_id`; a key reused on
+  another cart, `details['Idempotency-Key']`) keep the generic text, and so does any `conflict`
+  as a guest. `placeOrderAction` learns which attempt threw from `asCustomerOrGuest`'s
+  `onAttempt` — it used to pass `'guest'` for an error thrown by the customer attempt, so the
+  link message was unreachable (review of #329).
+- `refreshTokens` and `tokenEndpoint` take the provider half of the OIDC config, so a token refresh
+  can never depend on `SITE_URL` (#298 follow-up).
+- Tests: the allow-list by method, the token on both calls and on neither as a guest, the 401
+  retry and its single-shot rule, the 409 mapping in both modes and for the other conflicts, and
+  `test/place-order-action.test.ts`, which drives `placeOrderAction` itself through a 409 on the
+  customer attempt (red against the old wiring).
+- e2e (`account.spec.ts`): a signed-in purchase (either backend), and a core-only **stale-session
+  purchase** — the session cookie's access token is replaced with one the core refuses; the order
+  is placed as a guest and the session cookie is gone afterwards. The journey's steps are shared
+  from `e2e/support/journey.ts` with `checkout.spec.ts`.
+
+## 0.12.6 — 2026-10-03
+
+Issue #293. No contract change. Uses window 6's `routedDocuments`, `campaignIsLive` and
+`RoutedDocument` from `@/lib/cms` (#300, on main since #317).
+
+- **The sitemap lists CMS content.** Published `page` and `legal` documents and live
+  `campaignLanding`s appear under `/pages`, `/legal` and `/campaign`, each in the locales it is
+  published in and with `hreflang` alternates for exactly those locales. noIndex documents and
+  the `home` page are filtered by the reader; a campaign outside its schedule, or with a schedule
+  that cannot be parsed, is left out here by the reader's own `campaignIsLive`. A CMS failure
+  costs the content entries only. The reader is built with `createReader`, never `getCms()`,
+  which reads the preview cookie.
+- **One expansion from paths to URLs.** `sitemapUrls()` replaces the `paths × locales` arithmetic
+  that was written out in both `sitemap.ts` and the index route. With documents that are not in
+  every locale that product over-counts, and the index would advertise an empty page at the
+  boundary; both now count the same list. Both routes stay `force-dynamic` (#302).
+- **Brands:** `STATIC_PATHS` is unchanged, so a test pinning it stays green; what changes on
+  re-sync is that content routes appear in the served sitemap.
+
+## 0.12.5 — 2026-10-02
+
+Issue #298. No contract change. **Go-live blocker for sign-in behind the ingress.**
+
+- **Redirects go to this site's configured origin, not to the request's.** In a route handler
+  `request.nextUrl.origin` is the pod's own address — `localhost:3100` whatever `Host` says — so
+  behind the ingress sign-out gave Keycloak `http://localhost:3100/` as the return address, the
+  sign-in callback sent authenticated customers to `https://localhost:3100/…`, and every
+  `/r/{code}` referral link landed on localhost. All three now build their target with
+  `urlOnThisSite()` (`src/lib/site-origin.ts`) from `SITE_URL`, read at request time, never from
+  `Host` or `X-Forwarded-Host`, and still through both layers of the safe-path rule.
+- **`SITE_URL` fails closed, as an allow-list.** `siteUrl()` no longer answers
+  `http://localhost:3100` on a server that was not told its origin: it throws `SiteUrlError`.
+  The default remains only under `NODE_ENV=development`, `NODE_ENV=test` and during `next build`;
+  `staging`, an empty or missing `NODE_ENV` and anything misspelt throw too. It returns the
+  origin, never the raw value, so a `SITE_URL` with a path cannot make `siteUrl()` and
+  `siteOrigin()` disagree. A `SITE_URL` that is not an absolute
+  http(s) URL is refused everywhere. **Deployments must set `SITE_URL`** (the Helm values for dev
+  and staging already do); `pnpm start` by hand needs it too.
+- The OIDC callback URI uses the same definition (`siteUrl()`), where it had its own copy of the
+  fallback that ignored a brand's fixed origin.
+- The referral route compares the `Referer` against the configured origin, so a click from the
+  shop's own pages is no longer recorded as an external referrer.
+- A unit test per route handler (`test/route-origin.test.ts`), called as behind the ingress: the
+  request's origin, a hostile forwarded host and the public origin are three different strings.
+
+From the review of #316 (tests and docs; no behaviour change):
+
+- **A mock e2e run can no longer talk to the core by accident.** A shell that exported
+  `STORE_API_URL` overrode the mock: the core-only tests skipped "because Prism" while the
+  journey spent real seed stock. `scripts/e2e-env.mjs` drops the variable unless
+  `E2E_STORE_API_URL` names the core, as `scripts/perf.mjs` already did.
+- **The journey ties the confirmation to its own run.** Every run bought the same SKU, one of
+  it, to the same address, so a redirect to an earlier run's order would have passed. Against
+  the core the run enters an email only it uses and the confirmation must name it; on both
+  backends the cart must be empty afterwards.
+- **The category test fails when nothing is outside the category**, where "everything shown
+  belongs" would hold for a filter that does nothing.
+- **The journey and the listing test set their own test timeout**; under Playwright's 30 s
+  default the 30 s server-action deadline could never be used in full.
+- Docs: the `data-*` hooks ship in production builds, and four of them are not text on the page
+  (`data-order-id`, `data-category`, `data-availability`, `data-purchasable`); 0.12.4 said the
+  order _number_ matches the URL — it is the order _id_.
+- **The e2e server reports ready only once it is warm** (`scripts/e2e-server.mjs`). Playwright
+  waited on the app's URL and started its workers on a cold server seconds after `next build`;
+  on a laptop the first tests then timed out on 10 s documents and chunks while CI passed. The
+  script now answers a separate readiness URL only after a page and a static chunk have each
+  answered under a second twice in a row.
+
+## 0.12.4 — 2026-10-02
+
+Issues #304 and #306. No contract change. Tests and test hooks only — no behaviour change.
+
+- **The journey asserts the order it placed.** `e2e/checkout.spec.ts` stopped at the
+  confirmation's heading, which wrong lines, a wrong total or someone else's order would pass.
+  It now captures lines, quantities and total (minor units) at the review step and requires the
+  confirmation to show the same ones under an order number that is on the page, for the order
+  whose **id** is in the URL. Mutation-checked: a confirmation showing one unit too many fails it.
+- **The product is chosen by reported stock.** Against the core every run places a real order
+  and nothing cancels it, so "the first product" was drained run by run. The journey takes the
+  first listed product the storefront reports as purchasable, and fails with
+  `Seed stock exhausted — reseed` when none of the first twelve is. A core run costs one unit;
+  the README says so.
+- **Sort and filter are asserted on results, where that is possible.** Against the core: prices
+  non-decreasing, then non-increasing, the two orders differing; a category lists the product
+  it was taken from and nothing outside it. Fails with fewer than two products. Against the mock
+  it is skipped with the reason — Prism answers every query with the same example.
+  Mutation-checked against the core: dropping `sort` or `category` from the request fails it.
+- **`e2e/account.spec.ts` says which backend answers what** (#306). The profile and order-history
+  assertions (`jane@example.com`, `Order #1000`) are Prism's examples even in a core run, so they
+  moved to a test labelled mock-only that does not run against the core; sign-in, return URL,
+  session and sign-out stay as they were. The core-backed version waits for #303.
+- **Two flakes in the journey spec, same shape** (window 10's measurements on #304: the cart step
+  failed about one run in three, the sort click one in four, on a quiet machine). A click was
+  dispatched before the page could act on it, and the 5 s default of `toHaveURL` is too tight
+  for a server action that writes through to the core. Every click that starts a navigation now
+  goes through `clickWhenReady` (visible, enabled, network quiet), and the URL expectations have
+  explicit deadlines: 30 s after "Add to cart" and "Place order", 15 s after a link.
+- **Test hooks** (`src/lib/test-hooks.ts`): `data-*` attributes on listing cards, the add-to-cart
+  form, cart/review/confirmation lines, the totals table and the confirmation header.
+- **Brands:** all of it arrives by re-sync; a brand's own journey spec can read the same hooks.
+
+## 0.12.3 — 2026-10-02
+
+Issue #302. No contract change.
+
+- **The sitemap no longer serves the build machine's origin.** `/sitemap.xml` and
+  `/sitemap/<n>.xml` were prerendered by `next build` and revalidated hourly, so for the first
+  hour after a deploy every `<loc>` and `hreflang` alternate pointed at the origin the image was
+  built with (`http://localhost:3100`). Both routes are now `force-dynamic`; the upstream reads
+  stay cached, so a request is a ~5 ms render. `robots.txt` and the pages' canonical/alternate
+  links were checked and were not affected.
+- **The e2e server is built with one `SITE_URL` and started with another**
+  (`scripts/e2e-server.mjs`, used by `playwright.config.ts`), and `e2e/runtime-origin.spec.ts`
+  asserts that the sitemap's `<loc>`s and alternates, the `Sitemap:` line of `robots.txt` and the
+  pages' canonicals **equal the runtime origin**, and that the build origin is in none of them.
+  Red on the old sitemap routes, green now. `test/sitemap-dynamic.test.ts` pins both routes in
+  the unit run. The e2e server runs with `ROBOTS_ALLOW_INDEXING=1`: without it `robots.txt` has
+  no `Sitemap:` line and nothing about it could be asserted (review of #309 — the first version
+  of the spec only checked that the build origin was absent, which an origin-less file passes).
+- **The origin spec cannot pass vacuously.** Against a server that was already running and was
+  built the ordinary way it could not fail, so it now checks a marker `e2e-server.mjs` leaves
+  next to its build: no matching marker means skipped with a printed reason locally, and a
+  failure when `CI` is set.
+- **Brands:** picked up on re-sync (`src/app/sitemap*`, `scripts/e2e-server.mjs`,
+  `playwright.config.ts`). A brand that fixes its origin in `src/brand/config.ts` is unaffected.
+
+## 0.12.2 — 2026-10-01
+
+Issues #286 and #278, and three corrections from the review of #299. No contract change.
+
+- **The Lighthouse SEO budget is now checked against the worst of the three runs.** LHCI's default
+  aggregation is `optimistic` — the best run — so the 95 budget added in 0.12.1 did not guard the
+  metadata fix it was added for: the old build scores 100, 92, 92 and passed. `categories:seo` sets
+  `aggregationMethod: "pessimistic"`; against the pre-fix config the gate now fails (`found: 0.92,
+all values: 1, 0.92, 0.92`) and `test/perf-budget.test.ts` pins the setting. The other budgets
+  keep the default. **"Median of three" in `perf.mjs`, `CLAUDE.md`, the README and earlier entries
+  of this file was never what the gate did**; the first three are corrected.
+- **`e2e/seo-head.spec.ts` covers an empty `User-Agent` header** as well as a missing one. The
+  middleware already handled it; nothing tested it.
+- README: blocking metadata is also waited for on soft navigations, not only on first loads.
+
+- **Home page store facts are a valid description list** (#286). Each fact was a `Card` with a
+  `CardContent` inside it, so the markup was `dl > div > div > dt` — HTML allows one wrapper, not
+  two, and every term was detached from its list: axe `dlitem` and `definition-list`, both serious,
+  on the home page of every locale. The facts are now `StoreFacts` (`src/components/store-facts.tsx`),
+  one padded `Card` per fact, and `test/store-facts.test.ts` asserts the rendered structure.
+  Lighthouse never reported it because the home page is not among the URLs it audits.
+- **`test/slots.test.ts` no longer asserts what a brand's files contain** (#278). `test/**` is copied
+  into every brand app while `src/brand/**` is the brand's own, so "this app overrides nothing" was
+  false by construction in any clone. The slot mechanism is now tested with fixture overrides
+  (`mergeSlots` is exported for that) and against whatever the app overrides; the starter-only facts
+  moved to `test/starter-defaults.test.ts`, which runs only when the package name is the starter's.
+  **Brands:** a clone can drop its local copy of `slots.test.ts` and take both files from the sync —
+  no exclude-list entry is needed.
+
+## 0.12.1 — 2026-10-01
+
+Issue #274. No contract change.
+
+- **Page metadata is in `<head>` for every user agent.** Title, description, canonical, the
+  `hreflang` alternates and the og/twitter tags were written into `<body>` on every route for
+  browsers, Lighthouse and Googlebot: since Next 15.2 `generateMetadata` is streamed unless the user
+  agent matches `htmlLimitedBots`, and the default pattern covers little more than link-preview
+  bots. Google ignores `hreflang` outside `<head>`, so the locale annotations were invisible to it.
+  `next.config.mjs` now sets `htmlLimitedBots: /.*/`, and the middleware names a request that
+  arrives with no `User-Agent` header, which Next would otherwise always stream.
+- **`e2e/seo-head.spec.ts`** asserts the byte offset of each tag against `</head>` in the served
+  HTML — raw requests, twice per route, five user agents including none, both locales — and
+  `test/seo-head.test.ts` pins the pattern in the unit run. The root layout's comment cited that
+  unit test before it existed and attributed head placement to the wrong cause; both are corrected.
+- **Lighthouse SEO budget 90 → 95** (`lighthouserc.json`), ending the deviation from #110 recorded
+  on 2026-09-21. Measured against the mock, three runs per URL: SEO was 100, 92, 92 on both the
+  listing and the product page and is 100, 100, 100 on both; performance 100/99/99 and 99/99/99
+  before, 100/99/99 on both after; server response time 19–30 ms warm before, 17–25 ms after.
+- **Brands:** a brand app picks this up from `next.config.mjs` and `src/middleware.ts` on re-sync. A
+  test that pins the old placement (metadata after `</head>`) is expected to fail afterwards and
+  should be turned round to assert `<head>`.
+- **JSON-LD price for currencies that are not two-decimal.** `priceString` knew only JPY and KRW as
+  zero-decimal, so a VND or CLP offer was published a hundred times too low and a KWD or BHD one
+  ten times too high. It now uses the kit's `minorUnitDigits` — the same exponent `Price` divides
+  by — so the structured price cannot disagree with the one on the page.
+
 ## 0.12.0 — 2026-09-24
 
 Task [storefront] 2.4 (issue #112), contracts `contracts-v0.4.4` (Store API 0.3.1). Closes Phase 2

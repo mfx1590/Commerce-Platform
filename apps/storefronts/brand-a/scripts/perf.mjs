@@ -8,7 +8,10 @@
  *      mean nothing);
  *   2. the bundle budget (`scripts/bundle-budget.mjs` against `bundle-budget.json`);
  *   3. `next start`, then Lighthouse CI against `lighthouserc.json` (performance, accessibility,
- *      SEO, LCP, CLS), median of three runs;
+ *      SEO, LCP, CLS), three runs per URL. **Not a median:** LHCI's default aggregation is
+ *      `optimistic`, so each assertion is checked against the *best* of the three — except SEO,
+ *      which is set to `pessimistic` (the worst), because the defect it guards shows up on runs
+ *      2 and 3 and never on run 1;
  *   4. the server is stopped whatever happened.
  *
  * Both gates always run, so one failure does not hide the other, and the exit code is non-zero if
@@ -40,8 +43,22 @@ const LHCI_VERSION = '0.14.0';
  */
 const NEXT_BIN = createRequire(join(root, 'package.json')).resolve('next/dist/bin/next');
 
-/** The app's own environment for the measured build: always the mock, so runs are comparable. */
-const appEnv = { ...process.env, MOCK_API_URL, PORT, SITE_URL: process.env.SITE_URL ?? APP_URL };
+/**
+ * The app's own environment for the measured run: always the mock, so runs are comparable, and
+ * always **indexable**.
+ *
+ * `ROBOTS_ALLOW_INDEXING` matters more than it looks. Without it `/robots.txt` serves
+ * `Disallow: /` — correct for staging, and it takes Lighthouse's SEO category from ~95 to 58,
+ * because `is-crawlable` fails. The gate is meant to measure the configuration that goes to
+ * production, and a gate that fails on its own defaults teaches people to ignore it.
+ */
+const appEnv = {
+  ...process.env,
+  MOCK_API_URL,
+  PORT,
+  SITE_URL: process.env.SITE_URL ?? APP_URL,
+  ROBOTS_ALLOW_INDEXING: '1',
+};
 delete appEnv.STORE_API_URL;
 
 /**
@@ -125,7 +142,7 @@ async function main() {
       // An exact pin fetched with npx rather than a devDependency: @lhci/cli brings ~950 lockfile
       // lines of transitive dependencies, and a devDependency would put them in every install of
       // every window in the monorepo for the sake of one CI job.
-      lighthouse = run('Lighthouse CI (median of 3, mobile)', 'npx', [
+      lighthouse = run('Lighthouse CI (3 runs per URL, mobile)', 'npx', [
         '-y',
         `@lhci/cli@${LHCI_VERSION}`,
         'autorun',

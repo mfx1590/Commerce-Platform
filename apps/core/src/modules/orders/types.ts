@@ -11,6 +11,7 @@ export type AdminRefund = AdminComponents['schemas']['Refund'];
 export type AdminShipment = AdminComponents['schemas']['Shipment'];
 export type AdminReturn = AdminComponents['schemas']['Return'];
 export type StoreOrder = StoreComponents['schemas']['Order'];
+export type StoreOrderSummary = StoreComponents['schemas']['OrderSummary'];
 export type Address = StoreComponents['schemas']['Address'];
 export type Money = StoreComponents['schemas']['Money'];
 
@@ -67,8 +68,12 @@ export interface Page<T> {
 
 /** Who is asking for an order on the Store API: a verified customer of the store, a guest with the email, or nobody. */
 export interface OrderAccess {
+  /** `customer.id` of the verified token's customer in this store. */
   customerId?: string | null | undefined;
+  /** The guest's `?email=`. */
   email?: string | null | undefined;
+  /** The token's email — set ONLY when the token carries `email_verified: true` (#303). */
+  verifiedEmail?: string | null | undefined;
 }
 
 // ---- transition ----

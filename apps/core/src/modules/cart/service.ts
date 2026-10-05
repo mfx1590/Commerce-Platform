@@ -370,8 +370,9 @@ export async function createCart(
     }
     const salesChannelId = await resolveSalesChannel(tx, ctx);
     const r = await tx.query<{ id: string }>(
-      `INSERT INTO cart (organization_id, store_id, sales_channel_id, currency, locale, country, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id`,
+      `INSERT INTO cart (organization_id, store_id, sales_channel_id, currency, locale, country, metadata,
+         customer_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id`,
       [
         ctx.organizationId,
         ctx.storeId,
@@ -380,6 +381,7 @@ export async function createCart(
         input.locale ?? defaults.default_locale,
         input.country ?? defaults.default_country,
         JSON.stringify(input.metadata ?? {}),
+        ctx.customerId ?? null,
       ],
     );
     return render(tx, r.rows[0]!.id);

@@ -9,6 +9,12 @@ export interface CustomerClaims {
   /** The store the token is bound to (`store.code`, e.g. `brand-a`). */
   storeCode: string;
   email?: string;
+  /**
+   * True ONLY when the token's `email_verified` claim is the boolean `true`. Absent, null, the string
+   * "true" or anything else is false. `email` is identity only when this is true: the customers realm
+   * allows self-registration, so an unverified address may belong to someone else (#307).
+   */
+  emailVerified: boolean;
   issuer: string;
   expiresAt: number;
 }
@@ -18,6 +24,8 @@ export interface CustomerTokenVerifierOptions {
   /** `KEYCLOAK_REALM_CUSTOMERS`, default `customers`. */
   realm?: string;
   audience?: string;
+  /** Override the JWKS URL (tests only — the constructor throws when `NODE_ENV === 'production'`). */
+  jwksUri?: string;
 }
 
 export interface CustomerTokenVerifier {
@@ -40,6 +48,7 @@ export function createCustomerTokenVerifier(
     ...(opts.keycloakUrl ? { keycloakUrl: opts.keycloakUrl } : {}),
     realm: opts.realm ?? process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers',
     ...(opts.audience ? { audience: opts.audience } : {}),
+    ...(opts.jwksUri ? { jwksUri: opts.jwksUri } : {}),
   });
   return {
     issuer: inner.issuer,
@@ -61,6 +70,8 @@ export function createCustomerTokenVerifier(
         subject: claims.subject,
         storeCode,
         ...(claims.email ? { email: claims.email } : {}),
+        // Strict on purpose: no truthiness, no "true" string — a lenient read here is an account takeover.
+        emailVerified: claims.raw.email_verified === true,
         issuer: claims.issuer,
         expiresAt: claims.expiresAt,
       };

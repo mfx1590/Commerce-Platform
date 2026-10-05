@@ -75,6 +75,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/domains/{domainId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Moves the primary flag to this domain (exactly one primary per store).
+         * @description `is_primary: false` on the current primary is refused with 409 — a store always has one
+         *     primary; move it by setting another domain primary instead.
+         */
+        patch: operations["updateDomain"];
+        trace?: never;
+    };
     "/admin/stores/{storeId}/sales-channels": {
         parameters: {
             query?: never;
@@ -106,6 +130,30 @@ export interface paths {
         put?: never;
         /** Returns the plain key exactly once */
         post: operations["createApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/api-keys/{keyId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revokes a key. Idempotent on an already revoked key (200, same revoked_at).
+         * @description Refuses with 409 `last_live_key` when the key is the store's last publishable key with
+         *     `revoked_at: null` — the storefront would lose its only credential.
+         */
+        post: operations["revokeApiKey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -798,6 +846,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/customers/{customerId}/addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        /** The customer's saved addresses (personal data — same gate as the record) */
+        get: operations["listCustomerAddresses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/customers/{customerId}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** GDPR data export — schedules a bundle of everything held about the customer (profile, addresses, consent, orders); delivery is the core's concern (emits customer.export_requested) */
+        post: operations["exportCustomer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/customer-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get: operations["listCustomerGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -1316,7 +1422,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, out_of_stock, payment_failed, internal */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, internal */
             code: string;
             message: string;
             details?: {
@@ -1382,7 +1488,9 @@ export interface components {
             default_locale?: string;
             default_country?: string;
             timezone?: string;
+            /** @description Replaces the whole enabled set. The default (given or current) is always kept; omitted = unchanged. */
             currencies?: string[];
+            /** @description Replaces the whole enabled set. The default (given or current) is always kept; omitted = unchanged. */
             locales?: string[];
             content_space_id?: string | null;
             search_index?: string | null;
@@ -1406,6 +1514,10 @@ export interface components {
             default_locale: string;
             default_country: string;
             timezone: string;
+            /** @description Enabled ISO-4217 codes; always contains default_currency */
+            currencies: string[];
+            /** @description Enabled BCP-47 tags; always contains default_locale */
+            locales: string[];
             content_space_id: string | null;
             search_index: string | null;
             psp_account_id: string | null;
@@ -2684,6 +2796,12 @@ export interface operations {
                      *           "default_locale": "en-GB",
                      *           "default_country": "NL",
                      *           "timezone": "Europe/Amsterdam",
+                     *           "currencies": [
+                     *             "EUR"
+                     *           ],
+                     *           "locales": [
+                     *             "en-GB"
+                     *           ],
                      *           "content_space_id": "brand-a",
                      *           "search_index": "brand-a_products",
                      *           "psp_account_id": null,
@@ -2863,6 +2981,48 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    updateDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                domainId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    is_primary: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "40000000-0000-4000-8000-000000000001",
+                     *       "hostname": "shop.brand-a.example",
+                     *       "is_primary": true,
+                     *       "verified_at": "2026-09-04T00:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Domain"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     listSalesChannels: {
         parameters: {
             query?: never;
@@ -3033,6 +3193,62 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    revokeApiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                keyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "40000000-0000-4000-8000-000000000101",
+                     *       "name": "storefront",
+                     *       "type": "publishable",
+                     *       "key_prefix": "pk_brand",
+                     *       "sales_channel_id": "30000000-0000-4000-8000-000000000001",
+                     *       "revoked_at": "2026-09-25T00:00:00Z",
+                     *       "created_at": "2026-09-04T00:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApiKey"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The last live publishable key cannot be revoked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "last_live_key",
+                     *       "message": "the store's last live publishable key cannot be revoked",
+                     *       "details": {
+                     *         "key_id": "40000000-0000-4000-8000-000000000101"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listWarehouses: {
@@ -5146,6 +5362,126 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listCustomerAddresses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "30000000-0000-4000-8000-000000000c01",
+                     *           "first_name": "Jane",
+                     *           "last_name": "Doe",
+                     *           "company": null,
+                     *           "line1": "Keizersgracht 1",
+                     *           "line2": null,
+                     *           "city": "Amsterdam",
+                     *           "region": null,
+                     *           "postal_code": "1015 CC",
+                     *           "country": "NL",
+                     *           "phone": null,
+                     *           "is_default_shipping": true,
+                     *           "is_default_billing": true
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: (components["schemas"]["Address"] & {
+                            /** Format: uuid */
+                            id: string;
+                            is_default_shipping: boolean;
+                            is_default_billing: boolean;
+                        })[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    exportCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Export scheduled */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCustomerGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "40000000-0000-4000-8000-000000000001",
+                     *           "code": "vip",
+                     *           "name": "VIP"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            code: string;
+                            name: string;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listUsers: {

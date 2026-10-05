@@ -14,7 +14,32 @@ import { defineConfig, devices } from '@playwright/test';
  * `E2E_CHANNEL` overrides both ways.
  */
 const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3101';
+/**
+ * Brand A runs on :3101, but `e2e/support/build-origin.ts` (a starter file) defaults `SITE_URL` to
+ * the starter's :3100. Every redirect is built on `SITE_URL` since #320, so left alone the sign-in
+ * callback and sign-out would send the browser to the starter's port. Set before the workers start,
+ * so the specs' `RUNTIME_SITE_URL` and the server agree.
+ */
+process.env.SITE_URL ??= new URL(APP_URL).origin;
+const SITE_URL = process.env.SITE_URL;
+/**
+ * Where `scripts/e2e-server.mjs` says the app is ready — which it does only once a page and a static
+ * chunk have each answered quickly twice in a row. Waiting on the app's own URL started the workers
+ * on a cold server seconds after `next build`, and the first tests timed out on this laptop while
+ * CI, with no start-up load, passed (#298 review). Keep in step with `readyPort` in the script.
+ */
+const READY_PORT = process.env.E2E_READY_PORT ?? String(Number(new URL(APP_URL).port) + 1000);
+const READY_URL = `http://127.0.0.1:${READY_PORT}/`;
 const MOCK_URL = process.env.MOCK_API_URL ?? 'http://localhost:4010';
+/**
+ * Against the real core (task 2.1): `E2E_STORE_API_URL=http://localhost:9000 pnpm e2e`.
+ *
+ * Prism still starts, because the core proxies `/store/customers*` to it
+ * (`CORE_STORE_API_FALLBACK_URL`) for the account journeys; everything else the core answers
+ * itself. Unset — the default — the app runs against Prism alone, so a laptop with no docker stack
+ * still gets a full green run.
+ */
+const STORE_API_URL = process.env.E2E_STORE_API_URL;
 const CHANNEL = process.env.E2E_CHANNEL ?? (process.env.CI ? undefined : 'chrome');
 const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 
@@ -43,17 +68,34 @@ export default defineConfig({
       command: 'pnpm --filter @platform/contracts mock',
       // Any HTTP answer means Prism is up; `/store` without a key correctly returns 401.
       url: `${MOCK_URL}/store`,
+      // One directory deeper than the starter.
       cwd: '../../..',
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },
     {
-      command: 'pnpm run build && pnpm run start',
-      url: APP_URL,
+      // Builds with one `SITE_URL` and starts with another, so a value captured by `next build`
+      // shows up as the wrong origin in a spec instead of in production (#302).
+      command: 'node scripts/e2e-server.mjs',
+      url: READY_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
-      // `start` honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
-      env: { MOCK_API_URL: MOCK_URL, PORT: new URL(APP_URL).port },
+      // The server honours $PORT rather than hard-coding one (REQUEST #68), so the port is set here.
+      env: {
+        MOCK_API_URL: MOCK_URL,
+        PORT: new URL(APP_URL).port,
+        // Said out loud rather than inherited: e2e/runtime-origin.spec.ts compares what is served
+        // against this value, and the build is made with a different one.
+        SITE_URL,
+        // The indexable configuration, as in `perf`. Without it `/robots.txt` is a bare
+        // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
+        // build origin is absent from it could not fail whatever robots.txt did (#309 review).
+        ROBOTS_ALLOW_INDEXING: '1',
+        // Set for a core run. For a mock run there is nothing to set here — and a `STORE_API_URL`
+        // exported by the shell would still reach the server, because Playwright merges this map
+        // over `process.env`. `scripts/e2e-env.mjs` removes it there, as `scripts/perf.mjs` does.
+        ...(STORE_API_URL === undefined ? {} : { STORE_API_URL }),
+      },
     },
   ],
 });

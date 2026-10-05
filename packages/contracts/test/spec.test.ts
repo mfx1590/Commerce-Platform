@@ -75,6 +75,74 @@ describe('store-api.yaml', () => {
     expect(complete.body).toMatch(/previous_unit_price_minor/);
   });
 
+  it('0.5.2 (#303 PR B): address default flags on addMyAddress, 400 on updateMe and listMyOrders', () => {
+    const body = (id: string) => ops.find((o) => o.id === id)!.body;
+    // the flags extend the shared Address in the request only — the shared schema stays as carts use it
+    expect(body('addMyAddress')).toMatch(/allOf:\n\s+- \$ref: '#\/components\/schemas\/Address'/);
+    expect(body('addMyAddress')).toMatch(/is_default_shipping:\n\s+type: boolean/);
+    expect(body('addMyAddress')).toMatch(/is_default_billing:\n\s+type: boolean/);
+    // 0.5.3: no schema default — absent on the first address means default, so `default: false` was untrue
+    expect(body('addMyAddress')).not.toMatch(
+      /is_default_(shipping|billing)[^\n]*\n?[^\n]*default: false/,
+    );
+    // 0.5.3: createCart documents the 409 of a token whose email belongs to another account
+    expect(body('createCart')).toContain(`'409':`);
+    expect(body('createCart')).toMatch(/Without a token\s+this operation never answers 409/);
+    const address = text.slice(
+      text.indexOf('\n    Address:\n'),
+      text.indexOf('\n    ', text.indexOf('\n    Address:\n') + 1),
+    );
+    expect(address).not.toMatch(/is_default/);
+    for (const id of ['updateMe', 'listMyOrders']) {
+      expect(body(id), `${id} 400`).toContain(`'400':`);
+    }
+    // listMyAddresses takes no query and no body: no 400, on purpose
+    expect(body('listMyAddresses')).not.toContain(`'400':`);
+  });
+
+  it('0.5.1 (#303, #310): customer self-service statuses and the optional customer token on cart create/complete', () => {
+    const body = (id: string) => ops.find((o) => o.id === id)!.body;
+    // registerCustomer: 201 created, 200 the row existed, 400 body email differs from the token's, 409 collision
+    for (const status of ['201', '200', '400', '401', '409']) {
+      expect(body('registerCustomer'), `registerCustomer ${status}`).toContain(`'${status}':`);
+    }
+    expect(body('registerCustomer')).toMatch(/always come\s+from the customer token/);
+    for (const id of ['getMe', 'updateMe', 'listMyAddresses', 'addMyAddress', 'listMyOrders']) {
+      expect(body(id), `${id} 401`).toContain(`'401':`);
+      expect(body(id), `${id} 409`).toContain(`'409':`);
+    }
+    // the token is OPTIONAL on the two cart operations: a key-only alternative is listed first
+    const optionalToken =
+      /security:\n\s+- publishableKey: \[\]\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]/;
+    for (const id of ['createCart', 'completeCart']) {
+      expect(body(id), id).toMatch(optionalToken);
+      expect(body(id), `${id} 401`).toContain(`'401':`);
+      expect(body(id), id).toMatch(
+        /A token that is sent but invalid, expired or bound to another store is a 401/,
+      );
+    }
+    expect(body('completeCart')).toMatch(
+      /linked to another customer than the token's \(`conflict`\)/,
+    );
+    const withToken = ops.filter((o) => optionalToken.test(o.body)).map((o) => o.id);
+    // getOrder has taken an optional token since 0.2 (a guest reads by key, a customer by token)
+    expect(withToken.sort()).toEqual(['completeCart', 'createCart', 'getOrder']);
+  });
+
+  it('0.5.0 (#270): the typed review shape — null-average rule, author-PII constraint, read-only listing', () => {
+    const op = ops.find((o) => o.id === 'listProductReviews')!;
+    expect(op).toBeDefined();
+    expect(text).toMatch(/\/store\/products\/\{handle\}\/reviews:/);
+    for (const schema of ['Review', 'ReviewSummary', 'ReviewPage']) {
+      expect(text, schema).toMatch(new RegExp(`^ {4}${schema}:$`, 'm'));
+    }
+    // average is null when count is 0 — never 0 ("rated zero out of five" is a defamatory bug)
+    expect(text).toMatch(/average: \{ type: \[number, 'null'\], minimum: 1, maximum: 5 \}/);
+    // the author field carries the manager's PII constraint in its comment
+    expect(text).toMatch(/provided or chosen by the customer AT REVIEW TIME/);
+    expect(text).toMatch(/review_summary:/);
+  });
+
   it('0.4.0 (#245): recoverCart is a POST, single-use semantics documented, one 404 for all misses', () => {
     const op = ops.find((o) => o.id === 'recoverCart')!;
     expect(op).toBeDefined();
@@ -92,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.4\.0/);
+    expect(text).toMatch(/version: 0\.5\.3/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -108,7 +176,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.6/);
+    expect(text).toMatch(/version: 0\.4\.8/);
     for (const tag of [
       'registry',
       'catalog',
@@ -265,6 +333,41 @@ describe('admin-api.yaml', () => {
     for (const f of ['abandoned_count', 'redeemed_count', 'recovered_count', 'recovery_rate']) {
       expect(text, f).toMatch(new RegExp(`${f}:`));
     }
+  });
+
+  it('customers additions (0.4.7, #264): addresses read at support, export at store_admin, groups at viewer', () => {
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(permission('listCustomerAddresses')).toEqual(['support', 'store:{storeId}']);
+    expect(permission('exportCustomer')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('listCustomerGroups')).toEqual(['viewer', 'store:{storeId}']);
+    expect(ops.find((o) => o.id === 'exportCustomer')!.body).toMatch(/'202':/);
+  });
+
+  it('registry settings (0.4.7, #279): revoke with last_live_key, domain primary move, enabled sets', () => {
+    const permission = (id: string) =>
+      ops
+        .find((o) => o.id === id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(permission('revokeApiKey')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('updateDomain')).toEqual(['owner', 'organization:hq']);
+    expect(ops.find((o) => o.id === 'revokeApiKey')!.body).toMatch(/last_live_key/);
+    // the Store response now carries the enabled sets, and the machine-code list names the new code
+    expect(text).toMatch(/always contains default_currency/);
+    expect(text).toMatch(/always contains default_locale/);
+    expect(text).toMatch(/conflict, last_live_key, out_of_stock/);
+  });
+
+  it('0.4.8 (#279): Store.currencies and Store.locales are required now that the core returns them', () => {
+    const start = text.indexOf('\n    Store:\n');
+    const required = text.slice(start, text.indexOf('\n      properties:', start));
+    expect(required).toMatch(/\n\s+currencies,\n\s+locales,\n\s+\]/);
+    // a malformed key id is a 400, not an undocumented answer
+    expect(ops.find((o) => o.id === 'revokeApiKey')!.body).toContain(`'400':`);
   });
 
   it('segment rules (0.4.4, #239): frozen closed grammar, no flat-shape leftovers', () => {

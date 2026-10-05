@@ -3,10 +3,12 @@
 // bodies are validated against the spec, responses are checked against the spec's components.
 import express from 'express';
 import request from 'supertest';
+import { CONTRACTS_VERSION } from '@platform/contracts';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  adminNotFound,
   coreErrorHandler,
   DevTokenVerifier,
   hasPermission,
@@ -74,6 +76,8 @@ beforeAll(async () => {
     ),
     (_req, res) => res.json({ items: [] }),
   );
+  // What createServer() mounts between our chain and Medusa's loaders (#265).
+  app.use('/admin', adminNotFound);
   app.use(coreErrorHandler);
 }, 180_000);
 
@@ -96,6 +100,67 @@ describe('/admin/me', () => {
       ['brand-b', ['store_admin']],
     ]);
     expect((await request(app).get('/admin/me')).status).toBe(401);
+  });
+});
+
+describe('X-Contracts-Version (#284)', () => {
+  it('travels on /health (body stays the bare OK) and on every /admin answer: 200, 401, 403, 404', async () => {
+    const health = await request(app).get('/health');
+    expect(health.status).toBe(200);
+    expect(health.text).toBe('OK');
+    expect(health.headers['x-contracts-version']).toBe(CONTRACTS_VERSION);
+
+    const answers = [
+      [200, await storeAdmin.get('/admin/me')],
+      [401, await request(app).get('/admin/me')],
+      [403, await storeStaff.post('/admin/stores', {})],
+      [404, await owner.get('/admin/stores/00000000-0000-4000-8000-0000000000ff')],
+    ] as const;
+    for (const [status, res] of answers) {
+      expect(res.status).toBe(status);
+      expect(res.headers['x-contracts-version']).toBe(CONTRACTS_VERSION);
+    }
+    expect(CONTRACTS_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe('unmounted /admin paths (#265)', () => {
+  it('answer the contract 404 to any authenticated staff user and 401 to everyone else; mounted routes keep their auth', async () => {
+    // Window 4's exact request: customers is window 13's module, not mounted in the core.
+    const path = `/admin/stores/${A}/customers`;
+    const query = '?page=1&limit=20&sort=created_at&order=desc';
+    // No permission is checked for a route that does not exist: every role gets the same 404, never a 403 —
+    // store staff asking through a store they cannot see (brand-b) included.
+    for (const res of [
+      await storeAdmin.get(path + query),
+      await analyst.get(path + query),
+      await storeStaff.get(`/admin/stores/${B}/customers`),
+    ]) {
+      expect(res.status).toBe(404);
+      spec.assertSchema('Error', res.body);
+      expect(res.body.code).toBe('not_found');
+      expect(res.body.details).toEqual({});
+      expect(res.headers['x-contracts-version']).toBe(CONTRACTS_VERSION);
+    }
+    // The message names method and path, never the query string.
+    expect((await storeAdmin.get(path + query)).body.message).toBe(
+      `GET /admin/stores/${A}/customers is not implemented`,
+    );
+    const posted = await owner.post('/admin/nothing-here', { any: 'body' });
+    expect(posted.status).toBe(404);
+    expect(posted.body.message).toBe('POST /admin/nothing-here is not implemented');
+
+    // Without a valid staff token our own auth answers first: the route table stays unknown to anonymous callers.
+    const anonymous = await request(app).get(path);
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.body.code).toBe('unauthorized');
+    const badToken = await request(app).get(path).set('Authorization', 'Bearer not-a-staff-token');
+    expect(badToken.status).toBe(401);
+
+    // Mounted routes are untouched: 401 without a token, 403 without the permission.
+    expect((await request(app).get('/admin/stores')).status).toBe(401);
+    expect((await storeStaff.post('/admin/stores', {})).status).toBe(403);
+    expect((await storeAdmin.get(`/admin/_probe/stores/${A}/customers`)).status).toBe(200);
   });
 });
 
@@ -266,6 +331,109 @@ describe('registry routes', () => {
     spec.assertItems('LegalEntity', les.body);
     expect((await storeAdmin.get('/admin/legal-entities')).status).toBe(403);
     expect((await owner.get('/admin/legal-entities')).status).toBe(200);
+  });
+
+  it('Store.currencies / locales (0.4.7, #279): returned on every store read, replaced as a set by PATCH', async () => {
+    const read = await storeStaff.get(`/admin/stores/${A}`);
+    expect(read.status).toBe(200);
+    spec.assertSchema('Store', read.body);
+    expect(read.body.currencies).toEqual([read.body.default_currency]);
+    expect(read.body.locales[0]).toBe(read.body.default_locale);
+    const list = await owner.get('/admin/stores');
+    for (const s of list.body.items as {
+      default_currency: string;
+      default_locale: string;
+      currencies: string[];
+      locales: string[];
+    }[]) {
+      expect(s.currencies).toContain(s.default_currency);
+      expect(s.locales).toContain(s.default_locale);
+    }
+
+    const widened = await storeAdmin.patch(`/admin/stores/${A}`, {
+      currencies: ['EUR', 'USD', 'CHF'],
+    });
+    expect(widened.status).toBe(200);
+    spec.assertSchema('Store', widened.body);
+    expect(widened.body.currencies).toEqual(['EUR', 'CHF', 'USD']);
+    expect(widened.body.locales).toEqual(read.body.locales); // omitted = unchanged
+    const narrowed = await storeAdmin.patch(`/admin/stores/${A}`, { currencies: ['USD'] });
+    expect(narrowed.body.currencies).toEqual(['EUR', 'USD']); // the default is never removed
+    const back = await storeAdmin.patch(`/admin/stores/${A}`, { currencies: [] });
+    expect(back.body.currencies).toEqual(['EUR']);
+    expect((await storeStaff.patch(`/admin/stores/${A}`, { currencies: ['USD'] })).status).toBe(
+      403,
+    );
+    expect((await storeAdmin.patch(`/admin/stores/${A}`, { currencies: 'USD' })).status).toBe(400);
+  });
+
+  it('POST …/api-keys/{keyId}/revoke (0.4.7, #279): store_admin; idempotent 200; 409 last_live_key', async () => {
+    const keys = (await storeAdmin.get(`/admin/stores/${A}/api-keys`)).body.items as {
+      id: string;
+      type: string;
+      revoked_at: string | null;
+    }[];
+    const live = keys.filter((k) => k.type === 'publishable' && !k.revoked_at);
+    expect(live).toHaveLength(2); // the seeded key and "storefront 2" from the test above
+    const path = (id: string) => `/admin/stores/${A}/api-keys/${id}/revoke`;
+
+    expect((await storeStaff.post(path(live[1]!.id))).status).toBe(403);
+    expect((await request(app).post(path(live[1]!.id))).status).toBe(401);
+    const revoked = await storeAdmin.post(path(live[1]!.id));
+    expect(revoked.status).toBe(200);
+    spec.assertSchema('ApiKey', revoked.body);
+    expect(revoked.body.revoked_at).not.toBeNull();
+    const again = await storeAdmin.post(path(live[1]!.id));
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(revoked.body); // same revoked_at
+
+    const last = await storeAdmin.post(path(live[0]!.id));
+    expect(last.status).toBe(409);
+    spec.assertSchema('Error', last.body);
+    expect(last.body).toMatchObject({ code: 'last_live_key', details: { key_id: live[0]!.id } });
+
+    expect((await storeAdmin.post(path('not-a-uuid'))).status).toBe(400);
+    expect((await storeAdmin.post(path('00000000-0000-4000-8000-0000000000ff'))).status).toBe(404);
+    // brand-a's key through brand-b's path: not found there
+    expect(
+      (await storeAdmin.post(`/admin/stores/${B}/api-keys/${live[0]!.id}/revoke`)).status,
+    ).toBe(404);
+  });
+
+  it('PATCH …/domains/{domainId} (0.4.7, #279): owner only; moves the primary; clearing it is a 409', async () => {
+    const domains = (await owner.get(`/admin/stores/${A}/domains`)).body.items as {
+      id: string;
+      is_primary: boolean;
+    }[];
+    const primary = domains.find((d) => d.is_primary)!;
+    const other = domains.find((d) => !d.is_primary)!;
+    const path = (id: string) => `/admin/stores/${A}/domains/${id}`;
+
+    expect((await storeAdmin.patch(path(other.id), { is_primary: true })).status).toBe(403);
+    expect((await owner.patch(path(other.id), {})).status).toBe(400);
+    expect((await owner.patch(path(other.id), { is_primary: 'yes' })).status).toBe(400);
+    const cleared = await owner.patch(path(primary.id), { is_primary: false });
+    expect(cleared.status).toBe(409);
+    spec.assertSchema('Error', cleared.body);
+    expect(cleared.body.code).toBe('conflict');
+
+    const moved = await owner.patch(path(other.id), { is_primary: true });
+    expect(moved.status).toBe(200);
+    spec.assertSchema('Domain', moved.body);
+    expect(moved.body).toMatchObject({ id: other.id, is_primary: true });
+    const after = (await owner.get(`/admin/stores/${A}/domains`)).body.items as {
+      id: string;
+      is_primary: boolean;
+    }[];
+    expect(after.filter((d) => d.is_primary).map((d) => d.id)).toEqual([other.id]);
+
+    expect(
+      (await owner.patch(path('00000000-0000-4000-8000-0000000000ff'), { is_primary: true }))
+        .status,
+    ).toBe(404);
+    expect(
+      (await owner.patch(`/admin/stores/${B}/domains/${other.id}`, { is_primary: true })).status,
+    ).toBe(404);
   });
 });
 
@@ -687,7 +855,12 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     expect(unknownOrder.status).toBe(404);
     const noKey = await support.post(refundPath, refundBody);
     expect(noKey.status).toBe(400);
-    const staffRefund = await storeStaff.post(refundPath, refundBody);
+    // With the key: the 403 is the permission, whichever of the two the route validates first.
+    const staffRefund = await request(app)
+      .post(refundPath)
+      .set('Authorization', 'Bearer dev:seed-store-staff')
+      .set('Idempotency-Key', 'idem-refund-staff-check')
+      .send(refundBody);
     expect(staffRefund.status).toBe(403);
     // window 8: fulfillmentAdminRouter (#133) — pick lists answer behind staff auth; an unknown shipment is a 404
     const pickLists = await as('seed-operations').get(`/admin/stores/${A}/pick-lists`);

@@ -6,8 +6,10 @@ Medusa 2 commerce core (modular monolith) over the tenant-scoped schema in `@pla
 registry, catalog, pricing, checkout, orders, inventory, fulfillment, customers, hq-rbac, hq-warehouse, payments,
 tax, fraud, shipping, search, promotions. Phase 1 (window 1): registry + catalog, Store/Admin API routes for them.
 Phase 2 (window 1): cart (2.1, done), checkout/placement (2.2, done), orders (2.3, done), inventory (2.4, done), returns (2.5, done),
-`cart.abandoned` job + lifecycle replay (2.6, done) — **Phase 2 core complete**; only `/store/customers*` (window 13)
-stays on the Prism mock behind the fallback proxy.
+`cart.abandoned` job + lifecycle replay (2.6, done) — **Phase 2 core complete**. Customer self-service (#303, window 1):
+every `/store/customers*` operation of the Store API is real, an undefined operation under that prefix is a
+terminal 404 (never the fallback proxy), and `createCart` / `completeCart` honour a customer token (#310): the
+order is placed for the signed-in customer.
 
 ## Owner
 
@@ -47,8 +49,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - HTTP: implements `packages/contracts/openapi/store-api.yaml` and `admin-api.yaml` exactly (registry + catalog
   routes in Phase 1; Store API 0.3.0 `currency` query and the cart operations since 2.1; shipping options, payment
   session, `POST …/complete` and `GET /store/orders/{orderId}` since 2.2; `POST /store/cart-recovery/{token}`
-  (#246, window 17's `validateRecoveryToken`) — the fallback proxy now covers only
-  `/store/customers*`). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
+  (#246, window 17's `validateRecoveryToken`) — and the customer self-service routes
+  (`src/http/customer-routes.ts`, #303 parts A and B); the fallback proxy covers no customer path). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
   mounted ahead of Medusa (they win over Medusa's same-path routes, its key gate and its admin auth).
   Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the
   OpenAPI components in tests (`test/helpers/openapi.ts`).
@@ -61,6 +63,15 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `/admin` staff principal (`req.principal`, 401/503; `storeClientFor` 403 outside scope) → hq-rbac adapter →
   Admin API routes → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
   contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).
+- `createServer()` then mounts the terminal `/admin` 404 (`adminNotFound`, #265) before Medusa loads: an
+  unmounted `/admin/*` path is 404 `not_found` for any authenticated staff user and 401 without a valid token —
+  never Medusa's admin auth. `X-Contracts-Version` (`CONTRACTS_VERSION`) is on `/health` and every `/admin/*`
+  answer, errors included (#284).
+- Customer auth (`src/http/customer-routes.ts`): publishable key + customers-realm bearer, verified by
+  auth-sdk's `verifyCustomerToken` against the store code of the key (another brand's token = 401). An email
+  counts as an identity only when the token carries `email_verified: true` — for adopting a guest row and for
+  reading guest orders by email. The verifier can be replaced by tests through `customerTokenVerifier`
+  (code only, never from the environment, refused in production).
 - Staff auth (`src/http/staff-auth.ts`): `KeycloakStaffTokenVerifier` (default, built by `buildStaffAuth()` in
   `src/server.ts`) = hq-rbac's `createStaffScopeMiddleware` over `@platform/auth-sdk`: JWT → `staff_user` →
   OpenFGA scope; the principal carries `scope: StaffScope` (+ the `fga` client). `composeStaffTokenVerifier`
@@ -166,6 +177,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   | `src/modules/cart`        | Store API cart: create/read/update, line items, promotion codes and discounts, totals through the price, discount, shipping and tax seams; abandoned-cart marking with reactivation; bypasses Medusa's cart                                                                                                                                                                                                  | `cart.abandoned`                                                               | `src/modules/cart/README.md`        |
   | `src/modules/checkout`    | shipping options, payment session (`PaymentProvider` seam, `manual` built in), placement as one transaction (order + lines + payment + attribution + cart completed), Store API order read                                                                                                                                                                                                                   | `order.placed` (+ `attribution.recorded` via src/lib/attribution)              | `src/modules/checkout/README.md`    |
   | `src/modules/orders`      | order state machine (`transition()` over the transition tables), wrappers for windows 7/8, cancel (payment void), edits before fulfilment, Store + Admin order reads, outbox projection/replay                                                                                                                                                                                                               | `order.confirmed`, `order.updated`, `order.cancelled`, `order.completed`       | `src/modules/orders/README.md`      |
+  | `src/modules/customers`   | customer self-service: the store-level customer resolved from the verified customers-realm token and created on first use, register / update (names, phone, consent), addresses (first = default, explicit default flags under a lock, cap 50), the email collision rule (a verified email adopts a guest row, anything else 409), disabled / erased = 401                                                   | `customer.created`, `customer.updated`                                         | `src/modules/customers/README.md`   |
   | `src/modules/inventory`   | levels per (variant, warehouse), `moveStock` (append-only ledger + `stock.moved`), reservations at placement / release on cancel / consume on shipment, Admin `listInventoryLevels` + `createStockMovement`                                                                                                                                                                                                  | `stock.moved`                                                                  | `src/modules/inventory/README.md`   |
   | `src/modules/returns`     | return lifecycle (`transitionReturn` over `RETURN_TRANSITIONS`), receive = order returned quantities + restock + refund seam, exchange link, Admin `createReturn` / `receiveReturn`, projection                                                                                                                                                                                                              | `return.requested`, `return.received`                                          | `src/modules/returns/README.md`     |
   | `src/jobs`                | Medusa scheduled jobs: `abandoned-carts.ts` (window 1; hourly, `cart.abandoned`) — every file here must export the job contract; window 9's reindex CLI lives in `src/modules/search/cli/index-products.ts`                                                                                                                                                                                                  | `cart.abandoned`                                                               | `src/modules/cart/README.md`        |

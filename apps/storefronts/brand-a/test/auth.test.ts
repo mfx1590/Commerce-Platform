@@ -20,7 +20,15 @@ const CONFIG = {
 
 describe('oidcConfigFromEnv', () => {
   it('defaults to the local customers realm and this app’s callback', () => {
-    expect(oidcConfigFromEnv({})).toEqual(CONFIG);
+    // Local development: the one place the callback may default to localhost (#298).
+    expect(oidcConfigFromEnv({ NODE_ENV: 'development' })).toEqual(CONFIG);
+  });
+
+  it('refuses to guess the callback when nothing says where the site is (#298)', () => {
+    // No NODE_ENV and no SITE_URL is how a misconfigured pod looks, not a laptop: a sign-in that
+    // cannot name its callback must not start.
+    expect(() => oidcConfigFromEnv({})).toThrow(/SITE_URL is not set/);
+    expect(() => oidcConfigFromEnv({ NODE_ENV: 'staging' })).toThrow(/SITE_URL is not set/);
   });
 
   it('follows the environment for Keycloak, realm, client and site URL', () => {
@@ -188,5 +196,33 @@ describe('exchangeCode', () => {
     await expect(
       exchangeCode(CONFIG, { code: 'c', codeVerifier: 'v' }, fetchImpl as never),
     ).rejects.toThrow(/returned 400$/);
+  });
+});
+
+/**
+ * The same control-character bypass as the referral landing (review of #273). This one matters more:
+ * `returnTo` is followed *after* the customer has authenticated, so an off-origin target hands a
+ * freshly signed-in customer to someone else's page. The guard is now shared between the two.
+ */
+describe('safeReturnTo and control characters', () => {
+  it('rejects a target that URL parsing would turn into another origin', () => {
+    // Tab, newline and carriage return are stripped before parsing — these are the real bypass.
+    for (const raw of ['/\t/evil.example', '/\n/evil.example', '/\r/evil.example']) {
+      expect(new URL(raw, 'https://shop.example').origin).toBe('https://evil.example');
+      expect(safeReturnTo(raw)).toBe('/account');
+      expect(safeReturnTo(raw, '/en-GB/account')).toBe('/en-GB/account');
+    }
+  });
+
+  it('also rejects the control characters that do not resolve off-origin today', () => {
+    // Defence in depth, and said as such rather than dressed up as an exploit.
+    for (const raw of ['/\u0000/x', '/\u007f/x', '/\u2028/x']) {
+      expect(new URL(raw, 'https://shop.example').origin).toBe('https://shop.example');
+      expect(safeReturnTo(raw)).toBe('/account');
+    }
+  });
+
+  it('still keeps an ordinary same-site path', () => {
+    expect(safeReturnTo('/en-GB/account/orders')).toBe('/en-GB/account/orders');
   });
 });

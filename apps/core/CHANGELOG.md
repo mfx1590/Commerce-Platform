@@ -2,6 +2,144 @@
 
 ## Unreleased — Phase 2 (window 1, contracts-v0.3)
 
+### 2026-10-03 · the customer on carts and orders — review fixes (#325)
+
+- **Replay never answers another principal's order.** A replay with a customer token whose customer is not the
+  stored order's is a 409 `conflict` and returns nothing of the order (it answered the order before).
+- **No livelock on a price change at the link.** The recovery transaction after a 409 `price_changed` applies
+  the customer link (same conflict rule) before it re-prices, so the persisted prices are the customer's and the
+  retry with the same key completes. Before, the rollback undid the link, the recovery persisted guest prices,
+  and the retry met the same difference forever. Test with a customer-group price list, shown red first.
+- **Token before the body parser.** The customer token of `createCart` / `completeCart` is judged by a gate
+  mounted ahead of the JSON parser: a bad token with malformed or oversized JSON is a 401, not a 400 / 413. The
+  cart handlers fail closed when reached without the gate.
+- The "nothing authorised" tests watch the payment provider itself.
+
+### 2026-10-03 · customer self-service, part C — the customer on carts and orders (#303, #310)
+
+- `createCart` and `completeCart` honour a customer token (Store API 0.5.1). No `Authorization` header = a
+  guest, as before. A header that is sent is verified like on `/store/customers/me`, before the body and the
+  `Idempotency-Key`: it is a 401 when it does not verify — **never ignored** (`POST /store/carts` with a bearer
+  that is not a token answered 201 until now).
+- `createCart` with a token creates the cart for the customer. `completeCart` with a token links a guest cart
+  inside the placement transaction (after the cart lock, before pricing, reservation and authorisation): the
+  order and `order.placed` carry `customer_id`, so a signed-in customer finds the order under
+  `GET /store/customers/me/orders` without a verified email. A cart of another customer is a 409 `conflict`,
+  nothing placed. A replay answers the stored order to its own customer (or to a request without a token) and
+  changes no link; another customer's token on a replay is a 409 with nothing of the order.
+- The first address is ALWAYS the default for shipping and billing — an explicit `false` is ignored on it.
+- An undefined operation under `/store/customers` (unknown path, or PUT / DELETE on a known one) is a terminal
+  404 `not_found` ("… is not implemented"), with or without a bearer; it never reaches the fallback proxy.
+- Recorded deviation: `createCart` can answer 409 `conflict` on an email collision (0.5.2 documents 400 / 401).
+- Named gaps: a linked cart is readable by anyone holding the cart id (Phase 3); older guest orders are covered
+  only by the read-time verified-email match.
+
+### 2026-10-03 · customer self-service, part B (#303)
+
+- `PATCH /store/customers/me` (`updateCustomer`: names, phone, consent; an empty string clears a column; one
+  `customer.updated` naming the columns, nothing when nothing changes), `GET /store/customers/me/addresses`
+  (default shipping first, then oldest) and `POST /store/customers/me/addresses` (201). All three resolve-or-
+  provision first, exactly as part A. The three paths join `REAL_STORE_PATHS`: **no `/store/customers*` path
+  reaches the fallback proxy any more** — the known gap of part A (the bearer token forwarded to Prism outside
+  production) is closed.
+- Default address: the first address is the default for shipping and billing, later ones are neither, unless
+  the body carries `is_default_shipping` / `is_default_billing` (contracts 0.4.9, field names accepted now):
+  `true` moves that default to the new row. Decided under a lock on the customer row and applied as
+  clear-then-set in one transaction (no unique index on the flags). At most 50 addresses per customer (400).
+- Free text is trimmed, blank required address fields are a 400 naming the field, over 200 characters is a 400.
+- Audit `customer_address.create` (ids and flags only) + `customer.updated` `['addresses']` per added address.
+- Recorded deviation: `updateMe` answers 400 on a wrong type (0.5.1 documents none; 0.4.9 adds it with the
+  `listMyOrders` 400). `listMyAddresses` needs no 400.
+
+### 2026-10-02 · customer self-service, part A — review fixes (#318)
+
+- The JSON body parser is mounted on `POST /store/customers` only (it was on the whole `/store/customers`
+  prefix, so a GET with a malformed body answered 400).
+- Every function that accepts a customer token verifier (`mountStoreRoutes`, `mountCustomerRoutes`,
+  `getOrderRouteWith`) refuses a non-default one in production itself; the two route factories and
+  `requireCustomer` left `src/http/index.ts`. A guard lists the exact call sites in non-test source.
+- Test for an accepted rule that had none: rows whose email differs only by letter case → 409, nothing adopted.
+- Recorded deviation: `GET /store/customers/me/orders` answers 400 on an invalid `page` / `limit` (house rule
+  for an invalid query, not clamped); Store API 0.5.1 does not document it yet.
+
+### 2026-10-02 · catalog: one statement at a time on a transaction client
+
+- `loadAggregates` (catalog, since Phase 1) issued three and then two queries at once on ONE transaction
+  connection (`Promise.all` over `tx.query`). A connection runs its statements in sequence anyway, so nothing
+  was gained; pg queued them and printed "Calling client.query() when the client is already executing a query"
+  — an error from pg 9 on. Now five sequential awaits; same queries, same results. Every product read that
+  loads variants went through it (Store and Admin product lists and details).
+- Tests: the catalog suite fails on that pg notice; a guard refuses `Promise.all` / `allSettled` / `race` over
+  `tx.query` anywhere in non-test source. It was the only such place in `apps/core/src`.
+
+### 2026-10-02 · customer self-service, part A (#303)
+
+- New module `src/modules/customers` (window 1 by ruling): the store-level customer of a signed-in shopper is
+  resolved from the verified customers-realm token and **created on first use** — no `getMe` 404, no "register
+  first". Store from the publishable key, subject and email from the token only.
+- Routes (`src/http/customer-routes.ts`, in `REAL_STORE_PATHS`): `POST /store/customers` (201 when this call
+  created the row, 200 when it existed; a body email that is not the token's → 400), `GET /store/customers/me`,
+  `GET /store/customers/me/orders`. 401 without a valid token for this store, for a disabled or erased customer,
+  and for a token without an email that has no row yet. 409 `conflict` when the token's email is on a row that
+  cannot be adopted; a **verified** email adopts a row without a subject (a guest who signs in keeps one row).
+- Events `customer.created` / `customer.updated` and one audit row per change, in the same transaction; ids,
+  `email_hash`, status, consent and column names only.
+- **An email is an identity only when the token says it is verified.** `getStoreOrder`'s token arm no longer
+  matches on the customer row's email: it opens orders linked to the customer, and guest orders with the
+  token's email only when `email_verified` is true (`OrderAccess.verifiedEmail`). An order linked to a customer
+  is not opened by anyone else's verified email. The guest `?email=` rule is unchanged. New
+  `listStoreOrders` (orders module) under the same rule. The claim is auth-sdk's `CustomerClaims.emailVerified`
+  (#307), consumed only as `=== true`.
+- `customerIdForSubject` left the orders module; the route uses `findCustomerForSubject` (customers module),
+  and a disabled or erased customer's token opens no order.
+- Test seam for the customers-realm verifier: `mountCoreMiddleware(app, verifier, { customerTokenVerifier })` /
+  `mountStoreRoutes(app, verifier)` — code only, no environment variable, never passed by `createServer()`,
+  refused when `NODE_ENV` is `production`.
+- Known gaps, named in the module README: `PATCH /store/customers/me` and `…/me/addresses` stay on the
+  fallback proxy until part B — outside production, with the fallback on, those two still forward the customer's
+  bearer token to the Prism mock; and the row's email goes stale when the customer changes it at Keycloak (no
+  email-change sync before Phase 3, window 13).
+- Malformed JSON on `/store/customers` is a 400 before the token check (the body parser runs first); every
+  other body rule is checked after the token.
+- Built against contracts 0.4.8 (Store API 0.5.1: `registerCustomer` 200 / 400 / 409, 409 on the `/me`
+  operations).
+
+### 2026-10-02 · registry outbox completeness (#308 review ruling)
+
+- Every registry mutation writes `store.updated` in its transaction; these five wrote an audit row only:
+  `addDomain` (`['domains']`), `addLocale` / `addCurrency` without a new default (`['locales']` /
+  `['currencies']`; nothing when the value was already enabled), `createSalesChannel` (`['sales_channels']`),
+  `createApiKey` (`['api_keys']`). The payload names the area only — never a hostname, never key material.
+
+### 2026-10-02 · registry settings, admin 404, contracts version header (#279, #265, #284; contracts-v0.4.7)
+
+- **`X-Contracts-Version`** (#284): `CONTRACTS_VERSION` from `@platform/contracts` on `GET /health` (body still
+  the bare `OK`) and on every `/admin/*` answer — 200, 401, 403, 404, 503 — stamped ahead of the staff auth.
+- **Unmounted `/admin/*` paths answer the contract 404** (#265) instead of Medusa's 401: `createServer()` mounts
+  a terminal handler after our chain and before Medusa's loaders. No valid staff token → 401 from our own auth
+  (the route table stays unknown to anonymous callers); any authenticated staff user → 404 `not_found`
+  ("`<METHOD> <path>` is not implemented", `details: {}`), no permission checked, never 403. Mounted routes are
+  unchanged.
+- **Registry set replacement** (#279): `StoreInput.currencies` / `locales` replace the enabled set (delete what
+  is not in it — never the default, given or current —, insert what is missing; `[]` = default only; omitted =
+  unchanged), with `store.updated` in the same transaction and `changed_fields` computed from the real
+  before/after sets (a repeat emits nothing). `getStore` / `listStores` / `createStore` / `updateStore` return
+  `currencies` and `locales`, default first. Removing a set member that is still in use is not blocked; an
+  existing cart in a removed currency still reads (tested).
+- **The store row is locked before the sets are read** (#308 review): `updateStore`, `addLocale`, `addCurrency`
+  take `FOR NO KEY UPDATE` on the store row, then read. Unlocked, a replacement that had read the old default
+  could delete or un-flag the row of a default a concurrent request had just committed (the store row said USD,
+  `store_currency` flagged EUR), and two overlapping replacements left the union neither caller asked for.
+- **`revokeApiKey`** (`POST /admin/stores/{storeId}/api-keys/{keyId}/revoke`, store_admin): idempotent; 409
+  `last_live_key` for the store's last publishable key with `revoked_at IS NULL` (rows locked: two concurrent
+  revokes cannot both pass); `store.updated` `changed_fields: ['api_keys']`, no key material. **Behaviour
+  change** of the module function: a repeat used to throw 409 `conflict`.
+- **`updateDomain`** (`PATCH /admin/stores/{storeId}/domains/{domainId}`, owner): moves the primary in one
+  transaction; `is_primary: false` on the current primary → 409; a no-op writes nothing; `store.updated`
+  `changed_fields: ['domains']`, no hostname.
+- Parked #233 nits: the promotions import guard also catches a bare side-effect import; the store-staff 403
+  refund assertion sends `Idempotency-Key`, so it no longer depends on permission being checked first.
+
 ### 2026-09-20 · promotions at placement, order freeze, pro-rata edits; fraud block hook (#230 PR B, #241)
 
 - **Placement re-evaluates promotions under the cart lock** at its own clock. A changed discount or a lost/gained

@@ -24,7 +24,7 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | Variable                   | Default                      | Meaning                                                                                                                                |
 | -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `PORT`                     | `3100`                       | `start` honours `$PORT` (image contract, REQUEST #68) and defaults to 3100 rather than Next's 3000, which collides with the admin app. |
-| `SITE_URL`                 | `http://localhost:3100`      | Absolute URLs: canonical links and the OIDC redirect URI.                                                                              |
+| `SITE_URL`                 | `http://localhost:3100`      | **Required on every deployment.** This site's public origin: canonicals, sitemap, OIDC redirect URIs, every redirect. See below.       |
 | `STORE_API_URL`            | `http://localhost:9000`      | The core's Store API — the default since 2.1. Wins over `MOCK_API_URL`.                                                                |
 | `MOCK_API_URL`             | —                            | Prism mock. Set it to run against contract examples instead of the core (Playwright does).                                             |
 | `STORE_PUBLISHABLE_KEY`    | `pk_test_storefront_starter` | Sent as `X-Publishable-Key`; the mock accepts any value.                                                                               |
@@ -34,6 +34,20 @@ Configuration (all optional; `.env.example` at the repo root has the local defau
 | `ROBOTS_ALLOW_INDEXING`    | —                            | `1` on the **production** deployment only; anything else serves `Disallow: /`.                                                         |
 
 `GET /health` answers 200 for the container HEALTHCHECK (`infra/README.md`).
+
+**`SITE_URL` is the only source of this site's origin, and a production server without it fails
+closed (#298).** The default in the table is an **allow-list**: `NODE_ENV=development`,
+`NODE_ENV=test`, and while `next build` runs — nowhere else. A server started with `SITE_URL`
+unset under `NODE_ENV=production`, `staging`, anything misspelt, or no `NODE_ENV` at all throws
+`SiteUrlError` on the first page, sitemap or redirect that needs an absolute URL, instead
+of advertising `http://localhost:3100`; so `pnpm start` by hand needs `SITE_URL=…` (the e2e and
+perf scripts set it). The origin is **never taken from the request**: behind the ingress a route
+handler's own `request.nextUrl.origin` is the pod's address (`localhost:3100`, whatever the
+`Host` header says), and `Host` / `X-Forwarded-Host` are text the client chose — a redirect
+built on either is wrong or an open redirect. Route handlers that redirect go through
+`src/lib/site-origin.ts` (`urlOnThisSite`), which also applies both layers of the safe-path rule.
+The one exception to throwing is sign-out: with no origin configured it still clears the session
+and ends the Keycloak session, only without a return address.
 
 ## Running against the core
 
@@ -56,7 +70,52 @@ E2E_STORE_API_URL=http://localhost:9000 pnpm --filter @platform/storefront-start
 
 `E2E_STORE_API_URL` is what switches Playwright over; unset, the suite runs against Prism alone, so
 a laptop with no stack still gets a full green run. Prism starts either way, because the core's
-fallback proxies the account journeys' `/store/customers*` to it.
+fallback proxies the account journeys' `/store/customers*` to it. The core has to accept the
+app's key: export `STORE_PUBLISHABLE_KEY` (the repo-root `.env` has the seeded one) in the shell
+that runs the suite.
+
+**A run against the core costs one unit of seed stock.** The journey places a real order; the
+core reserves stock for it and releases it only on cancel, and nothing in this suite cancels —
+that would need the Admin API and a staff token, which a storefront test has no business holding.
+So the budget is finite and shared by every suite using the same publishable key. The journey
+does not buy "the first product": it opens the listed products in turn and takes the first one
+the storefront itself reports as purchasable (`data-purchasable` on the add-to-cart form), so one
+product running out moves the cost to the next instead of ending the suite. When none of the
+first twelve can be bought it fails with **`Seed stock exhausted — reseed`** and the list of what
+it tried, rather than with a timeout on a disabled button. The remedy is the one the message
+names: reseed the store. On the shared development stack that is the manager's call, not a window's.
+
+**What each backend proves.** The mock is stateless and answers with the contract's examples, so
+against it the suite proves the pages render what the API returned, consistently — not that
+anything was really placed, sorted or filtered:
+
+| Check                                                         | Prism mock                           | Core                          |
+| ------------------------------------------------------------- | ------------------------------------ | ----------------------------- |
+| Confirmation shows the reviewed lines, total and an order no. | examples that agree with each other  | a real cart and a real order  |
+| Product chosen by reported stock                              | the example is always in stock       | real stock                    |
+| Sort reorders, a category narrows                             | **skipped, with the reason**         | real; **fails** under 2 items |
+| Unknown product handle is a 404                               | skipped (every handle "exists")      | real                          |
+| Sign-in, return URL, session, sign-out                        | real (Keycloak)                      | real (Keycloak)               |
+| Profile and order history contents                            | the examples, labelled **mock-only** | not run — waits for #303      |
+
+Prism returns the same example whatever `sort` or `category` it is sent, so more examples in the
+contract would not make the sort/filter test real against it; that is why it skips rather than
+passes. The journey reads what it compares from `data-*` hooks (`src/lib/test-hooks.ts`): lines,
+quantities and totals in minor units on cart, review and confirmation, the order number on the
+confirmation, handle, price and category on a listing card. **The hooks ship in production
+builds** — they are ordinary attributes, and every visitor receives them. Most restate text that is
+on the same element (SKU, quantity, amounts, order number) and only spare the test from parsing
+`19,99 €`; `data-order-id`, `data-category`, `data-availability` and `data-purchasable` are not
+text on the page, and are public anyway: the order id is in the page's URL, the category handle
+in the link beside it, and the other two say what the buy button already shows.
+
+**A core run and a mock run cannot be confused by the shell.** The e2e server's backend comes
+from `E2E_STORE_API_URL` alone (`scripts/e2e-env.mjs`): a `STORE_API_URL` exported in the shell
+is dropped for a mock run. Before that, a shell carrying the `.env.example` value made a "mock"
+run talk to the core — the core-only tests skipped with the mock's reason while the journey spent
+real stock. The journey also ties the confirmation to its own run: against the core it enters an
+email only that run uses and requires the confirmation to name it, and on both backends the cart
+must be empty afterwards.
 
 **The suite is data-independent** (2.1). It used to encode the mock — the fixture's product name and
 handle, its price, its SKU, Jane's street, and the assumption that a cart already carries an address
@@ -74,6 +133,17 @@ against the core it opens at address and the spec fills the form.
 Product images: the seed's thumbnails are `https://picsum.photos/seed/…`, so that host is in
 `next.config.mjs` `remotePatterns`, scoped to `/seed/**`. Without it the PLP cannot render against
 the core at all — `next/image` refuses an unlisted hostname.
+
+**No e2e request leaves the machine for an image (#327).** `scripts/e2e-server.mjs` builds and
+starts the app with `E2E_LOCAL_IMAGES=1`: `ProductImage` then sends every remote image (picsum,
+and the CDN hosts too) to `/e2e-placeholder.svg`, served by the app itself. `images.unoptimized`
+would not have been enough — it only moves the fetch from the optimiser to the browser. The flag is
+inlined at build time; a build made with it **refuses to start** unless the runtime `SITE_URL` is a
+loopback origin (`src/instrumentation.ts`), so it can never serve customers. `NODE_ENV` could not
+draw that line: the e2e server is `next build` + `next start`, which is `production` too. The
+e2e server also deletes `.next/cache/fetch-cache` before every build, so a run never renders stock
+cached by the previous one. Readiness in the specs is `<html data-hydrated="true">`
+(`HydrationMarker`, waited on by `hydrated()` in `e2e/support/journey.ts`), not network idle.
 
 ## The Store API client
 
@@ -94,8 +164,10 @@ const products = await storeApi().listProducts(
   so a contract change surfaces as a compile error at every call site.
 - Failures become a `StoreApiError` carrying the contract's machine-readable `code`
   (`out_of_stock`, `payment_failed`, …), the HTTP status and `X-Request-Id`.
-- The customer's bearer token is only ever attached to `/store/customers/*` and `/store/orders/{id}`;
-  passing one to any other path throws rather than leaking it (`allowsCustomerToken`).
+- The customer's bearer token is only ever attached where the contract takes one: `/store/customers/*`,
+  `GET /store/orders/{id}`, and — since Store API 0.5.1 — `POST /store/carts` and
+  `POST /store/carts/{id}/complete`, by method and exact path. Passing one anywhere else throws
+  rather than leaking it (`allowsCustomerToken`).
 - The client is server-only. It throws if it is constructed in the browser, which keeps the key out
   of the client bundle.
 
@@ -103,6 +175,11 @@ const products = await storeApi().listProducts(
 
 A brand app edits `src/brand/` and, when it must, whole route files. Everything else stays identical
 to the starter, so a re-sync from the starter shows real drift instead of noise.
+
+That includes `test/`: the starter's tests are copied into a brand app, so none of them may assert
+what `src/brand/` contains. The slot mechanism is tested with fixtures (`test/slots.test.ts`); the
+facts that hold only for the starter — no overrides, no tokens — are in
+`test/starter-defaults.test.ts`, which runs only when the package name is the starter's.
 
 ```
 src/brand/
@@ -128,8 +205,8 @@ export const layoutOverrides: Partial<LayoutSlots> = { Header: BrandHeader };
 
 **3. Identity.** `brandConfig` in `src/brand/config.ts` holds the brand name, the default meta
 description and, optionally, the canonical origin and Twitter handle. This is **build configuration
-rather than API data on purpose**: root metadata that awaits `GET /store` is resolved too late to
-land in `<head>`, which is what cost the storefront SEO points in Phase 1 (see "SEO" below). Prices,
+rather than API data on purpose**: root metadata must not make the first byte of every page wait on
+`GET /store` for a title (see "SEO" below for what does and does not decide `<head>` placement). Prices,
 availability, locales and the theme still come from the Store API, where they belong.
 
 **4. Route files.** Anything more than a slot — a bespoke home page, an extra route — is a normal
@@ -194,6 +271,22 @@ component in the catalog.
 The cart lives in the API. The browser carries only its id, in an httpOnly cookie, so nothing about
 price, stock or totals is client-controlled. Every mutation is a **server action** in
 `src/lib/actions.ts` using the typed client — the browser never calls the Store API itself.
+
+**A signed-in customer's cart and order are theirs (#312, Store API 0.5.1).** `createCart` and
+`completeCart` carry the customer token when there is a session, so the cart — and the order placed
+from it — are linked to the customer at the core and appear in their history without relying on an
+email match. A cart begun as a guest and completed after signing in is linked at completion. The
+contract never ignores a token it is sent: a token that is invalid, expired or another store's is a 401. For the customer that is a stale session, not a lost sale, so `asCustomerOrGuest`
+(`src/lib/customer-link.ts`) drops the session and makes the call **once more** as a guest — once,
+never in a loop; a second 401 is the publishable key's problem and surfaces as such. A 409
+`conflict` at completion **on the customer attempt** (a token was sent and not refused) with
+**empty `details`** means the cart is already linked to _another_ customer: nothing was placed, and
+the review step says so and offers the two ways out (sign out and place it as a guest, or start a
+new cart). The core's other completion conflicts — a promotion's last use, an `Idempotency-Key`
+reused on another cart — carry details and keep the generic message. `asCustomerOrGuest` reports
+each attempt's mode through `onAttempt`, so a thrown error is read against the attempt that threw
+it. No other cart operation ever carries the token. Nothing about the
+token is logged.
 
 Steps are `/checkout/address` → `shipping` → `payment` → `review`; `/checkout` redirects to whichever
 the cart still needs. The order is enforced server-side in `requireCheckoutStep`, not by hiding
@@ -357,8 +450,9 @@ the tokens go into an httpOnly cookie — no page, component or script ever sees
   freshly signed-in customer to somebody else's page.
 - An expired access token sends the customer through sign-in again rather than refreshing during a
   render — cookies cannot be written while rendering, and Keycloak's SSO session makes it invisible.
-- The customer token reaches only `/store/customers/*` and `/store/orders/{id}`; the API client
-  throws if anything tries to send it elsewhere.
+- The customer token reaches `/store/customers/*`, `/store/orders/{id}`, and the two cart operations
+  that link a cart to its customer (see "Cart and checkout"); the API client throws if anything
+  tries to send it elsewhere.
 
 Window 13 takes this folder over in Phase 3, so it is deliberately the smallest correct thing rather
 than a session framework. Known limits, both fine for Phase 1: the session lives in the cookie, so it
@@ -401,25 +495,110 @@ otherwise `robots.txt` would advertise a URL that 404s. Both read the same `site
 index cannot list a page that does not exist. A failure part-way through the walk returns what was
 collected: a short sitemap is a crawler inefficiency, a 500 makes it back off from all of it.
 
-**Where metadata ends up, and the limit of this.** Next resolves page metadata during the render and
-emits it in `<head>` only if it is ready before the shell is flushed; when it is not, the tags are
-appended to `<body>` and React hoists them at hydration. The DOM is correct either way and every
-end-to-end assertion passes — but a crawler reading raw HTML, and Lighthouse's `meta-description`
-audit, see nothing. That is what put the PLP at SEO 91 in Phase 1, with the tag present and correct.
+**The sitemap is rendered per request (#302).** Both routes are `force-dynamic`. As prerendered
+routes with `revalidate` they were written by `next build` with the build machine's `SITE_URL`,
+and served that origin — in every `<loc>` and every `hreflang` alternate — for the first hour after
+each deploy. What is cached is the upstream reads (an hour, by tag), so a request costs a render
+(about 5 ms measured), not a walk of the catalogue. `robots.txt` and the pages' canonical and
+alternate links were checked for the same capture and do not have it: they already render per
+request.
 
-Taking `GET /store` out of the root layout's metadata (hence `src/brand/config.ts`) removes the
-biggest cause. It does **not** make head placement deterministic: both catalogue routes still render
-dynamically because pricing reads the currency cookie, so under a cold fetch cache the metadata can
-still be flushed late. Measured, the SEO score therefore moves between **92 and 100** for the same
-build. The budget is set at 90 rather than 95 because a 95 gate would be flaky, not because 95 is
-unreachable — and the one audit that flips is `meta-description`, whose tag is always in the DOM.
+**The end-to-end server is built somewhere it does not run.** `scripts/e2e-server.mjs` runs
+`next build` with `SITE_URL=https://build-time.invalid` and `next start` with the runtime one, and
+`e2e/runtime-origin.spec.ts` asserts that every sitemap `<loc>` and alternate, the `Sitemap:` line
+of `robots.txt` and the pages' canonical links are on the **runtime** origin — compared for
+equality with the value the server was started with — and that the build origin appears in
+none of them. Presence is asserted before absence: the e2e server runs with
+`ROBOTS_ALLOW_INDEXING=1` so that `robots.txt` has a `Sitemap:` line at all; without it the file
+is a bare `Disallow: /`, there is no origin in it, and "the build origin is absent" passes
+whatever `robots.txt` does (the first version of the spec had exactly that hole). It exists because this class of defect — a per-environment value captured at build time
+— had shipped three times (the CSP, `robots.txt`, the sitemap) and was invisible each time: every
+test built and started the app with the same environment, where the two values are the same
+string.
 
-Making it deterministic means making the catalogue routes statically renderable, which means taking
-per-request currency out of the server render — a trade against the behaviour task 2.1 shipped
-deliberately. Worth revisiting when partial prerendering is stable in Next.
+**The e2e server reports ready only once it is warm.** Playwright used to wait on the app's own URL
+and start its workers the moment the response headers arrived — seconds after `next build`, while
+the machine was still busy with the build's aftermath and the server had served nothing. On a
+laptop the first documents then took 10 s, static chunks 10 s to first byte, and the first tests
+of a run timed out, while CI passed the same code every time. `scripts/e2e-server.mjs` now answers
+Playwright's readiness URL (`http://127.0.0.1:<port + 1000>/`, `E2E_READY_PORT` to override) only
+after a page **and** a static chunk have each answered in under a second twice in a row — not
+longer timeouts, which would have hidden the cold start instead of waiting it out. A server
+already on the port is reused as before, but held to the same bar.
 
-**This is a recorded deviation from #110's acceptance criterion (SEO ≥ 95), accepted by the manager
-on 2026-09-21:** the budget stays at 90 until the catalogue routes can render statically.
+**That spec refuses to pass vacuously.** Locally Playwright reuses a server that is already
+running on the port, and one you built with `pnpm build` has the same origin at build time and
+at run time — nothing in the spec could fail against it. `e2e-server.mjs` therefore leaves a
+marker next to its build (`.next/e2e-build.json`: the build id and the origin it was built with),
+and the spec checks it first. Without a matching marker the three tests are **skipped, and the
+reason is printed** (`runtime-origin would pass vacuously: the build was not made by
+scripts/e2e-server.mjs …`); when `CI` is set they **fail** instead, because CI never reuses a
+server and getting there means the setup is broken. To run it for real on a laptop, stop the
+server on :3100 and let Playwright start it. The rules are in `e2e/support/build-origin.ts`
+and unit-tested in `test/e2e-build-origin.test.ts`.
+**CMS content is in the sitemap, per locale (#293).** Published `page` and `legal` documents and
+live `campaignLanding`s are listed under `/pages`, `/legal` and `/campaign`, between the static
+routes and the catalogue. A CMS document exists only in the locales it was published in, so each
+entry carries its own locale list: it gets one URL per such locale and `hreflang` alternates for
+exactly those — an alternate pointing at a 404 is worse than none. That is also why the page count
+is no longer `paths × locales`: `sitemapUrls()` in `src/lib/seo.ts` is the one place paths become
+URLs, and the sitemap pages and the index both count its output.
+
+The documents come from the cms module's public reader, `routedDocuments(locale)` (requested from
+window 6 in #300): noIndex documents and the `home` page are filtered there, the schedule is
+returned and applied here at render time, so an expired campaign leaves the sitemap at the next
+revalidation rather than staying until the cached list is refreshed. The reader is built with
+`createReader`, never `getCms()` — that one reads the preview cookie, and a sitemap is cached and
+public. The schedule rule is the reader's own `campaignIsLive`, the same one `campaign/[slug]`
+applies before it renders; a missing schedule side is an absent key, never `null`. A CMS that is
+unconfigured, unreachable or failing costs the content entries and nothing else.
+
+**Where metadata ends up (#274).** Since Next 15.2, `generateMetadata` is _streamed_ for every user
+agent that does not match `htmlLimitedBots`: `</head>` is sent first and the title, description,
+canonical, `hreflang` alternates and og/twitter tags are written into `<body>` afterwards. A
+browser's DOM still finds them, so every page-level assertion passes — but Google ignores `hreflang`
+outside `<head>`, and Lighthouse's `meta-description` audit fails. Next's default pattern covers
+link-preview bots and Bing; it leaves out ordinary browsers, Lighthouse (whose user agent no longer
+carries a `Chrome-Lighthouse` token) and Googlebot itself.
+
+This was first read as a timing problem ("metadata that resolves before the shell is flushed lands
+in `<head>`"), and `src/brand/config.ts` was introduced to make the root metadata resolve at once.
+That reading was wrong, and the measurement that supported it was the trap: streamed metadata is a
+race that the **first request to a route after boot can win**, so one `curl`, or Lighthouse's first
+run of three, reports "in head" while every later request gets it in `<body>`. The same build scored
+SEO 92–100 for that reason.
+
+Two things make the placement deterministic:
+
+- `htmlLimitedBots: /.*/` in `next.config.mjs` — metadata blocks for every user agent, so it is in
+  `<head>` before the first byte. The price is that the first byte waits for `generateMetadata`,
+  which awaits the same cached reads the page needs before it can render anything. The same holds
+  for a **soft navigation**: the client-side transition to a route also waits for that route's
+  metadata instead of streaming it in afterwards, so a slow `generateMetadata` is felt on every
+  in-app link, not only on a first load. Keep metadata on reads the page already makes.
+- The middleware gives a request with **no** `User-Agent` header a placeholder one. Next never
+  consults the pattern for such a request and always streams; a bare HTTP client is a crawler far
+  more often than a customer.
+
+`e2e/seo-head.spec.ts` holds it: raw requests (no page, so hydration cannot rescue anything), twice
+per route, for home, listing, product and the content not-found path in both locales, with six
+user agents including none and an empty one — asserting the **byte offset** of each tag against `</head>`. The HTML
+is a single line, so a line-based check (`sed -n '1,/<\/head>/p' | grep …`) prints the whole
+document and passes falsely. `test/seo-head.test.ts` pins the pattern in the unit run.
+
+**JSON-LD stays in `<body>`, deliberately.** It is a `<script type="application/ld+json">` the page
+renders next to the content it describes, not Metadata API output, and Google reads structured data
+from either place. Moving it would mean a second data read in the layout for no reader's benefit.
+
+**Not verified: a content route answering 200.** No CMS dataset exists in any local or CI
+environment, so `(content)` is exercised on its not-found path, which renders through the same root
+layout. A published `/pages/<slug>` should be probed the first time a dataset exists.
+
+**The Lighthouse SEO budget is 95**, which is #110's original criterion. It was held at 90 from
+2026-09-21 to 2026-10-01 as a recorded deviation, because the race above made the same build score
+92 on some runs and 100 on others. With the placement fixed, all three runs of both URLs score 100
+(before, on the same machine and mock: 100, 92, 92), and the first byte is no slower — Lighthouse's
+server response time was 19–30 ms warm before and 17–25 ms after.
 
 **Indexing is opt-in.** `/robots.txt` says `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1`, and it is
 rendered per request. In 2.2 it was static — baked by `next build`, which always runs with
@@ -480,8 +659,16 @@ pnpm --filter @platform/storefront-starter perf
 ```
 
 It makes a production build against the mock, checks the **bundle budget**, starts the server, runs
-**Lighthouse CI** (median of three, mobile), stops the server whatever happened, and reports both
+**Lighthouse CI** (three runs per URL, mobile), stops the server whatever happened, and reports both
 results — one failure never hides the other.
+
+**Which of the three runs a budget is checked against.** Not the median, although this README said
+so until #286's PR: LHCI's default `aggregationMethod` is `optimistic`, the **best** of the runs.
+That is a reasonable way to keep runner noise out of the performance, LCP and CLS budgets, and it
+is still what they use. It is the wrong way to guard metadata placement: the streaming race
+(#274) is won by run 1 and lost by runs 2 and 3, so the old build's SEO of 100, 92, 92 passes a
+95 budget on its best run. `categories:seo` therefore sets `aggregationMethod: "pessimistic"` —
+the **worst** run must clear 95 — and `test/perf-budget.test.ts` pins that setting.
 
 The measured run sets `ROBOTS_ALLOW_INDEXING=1`, because it is measuring the configuration that goes
 to production. Without it `/robots.txt` serves `Disallow: /` — correct for staging — and Lighthouse's
@@ -494,7 +681,7 @@ budget to 100 ms each turned the exit code to 1, and restoring them returned it 
 | Budget                     | Where                | Limit                                                                 |
 | -------------------------- | -------------------- | --------------------------------------------------------------------- |
 | Performance, accessibility | `lighthouserc.json`  | ≥ 90                                                                  |
-| SEO                        | `lighthouserc.json`  | ≥ 90 (see "SEO" — a recorded deviation)                               |
+| SEO                        | `lighthouserc.json`  | ≥ 95 (see "SEO": metadata placement is deterministic since #274)      |
 | LCP / CLS / TBT            | `lighthouserc.json`  | ≤ 2.5 s / ≤ 0.1 / ≤ 300 ms (warn)                                     |
 | First-load JS per route    | `bundle-budget.json` | measured + ~5 kB, per route                                           |
 | Web fonts                  | —                    | **none**: the system font stack, zero requests                        |
@@ -564,15 +751,15 @@ nothing that reflects on the app is skipped.
 The config targets `127.0.0.1`, not `localhost`: on Windows `localhost` resolves to `::1` first,
 where nothing listens, and Lighthouse then fails to connect to a server that is plainly running.
 
-Latest Lighthouse run (2026-09-24, median of 3, against the mock, after task 2.4):
+Latest Lighthouse run (2026-10-01, three runs each, against the mock, after #274):
 
-| Page                   | Perf | A11y | Best practices | SEO    |
-| ---------------------- | ---- | ---- | -------------- | ------ |
-| `/en-GB/products`      | 98   | 100  | 96             | 92–100 |
-| `/en-GB/products/…tee` | 94   | 100  | 96             | 92–100 |
+| Page                   | Perf        | A11y | Best practices | SEO           |
+| ---------------------- | ----------- | ---- | -------------- | ------------- |
+| `/en-GB/products`      | 100, 99, 99 | 100  | 96             | 100, 100, 100 |
+| `/en-GB/products/…tee` | 100, 99, 99 | 100  | 96             | 100, 100, 100 |
 
-The SEO range is not noise in the measurement but a real property of the build: see "SEO" above for
-why metadata placement varies with cache warmth, and what making it deterministic would cost.
+The same build without the #274 change scored SEO 100, 92, 92 on both pages: run 1 won the streaming
+race and runs 2 and 3 found no description in `<head>`. See "SEO" above.
 
 The first measurement came in at 89 and 85, entirely on blocking time: the root layout was handing
 `NextIntlClientProvider` the whole message catalogue, so every page serialised and hydrated strings

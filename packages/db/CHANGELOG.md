@@ -43,3 +43,11 @@
 
 - Migration 0170: `cart_recovery` (one row per abandoned cart — `UNIQUE (cart_id)` is the replay guard; `token_hash` only, `UNIQUE`, plaintext never stored; `token_expires_at`; `status` pending → redeemed → recovered with `(status='recovered') = (recovered_at IS NOT NULL)`; deliberately NO cross-clock CHECK per the #244 correction — db now() vs an app timestamp breaks on ordinary skew) and `marketing_cursor` (one row per (store, consumer); a durable outbox position instead of one hidden in an external store). Both RLS `store`, `set_updated_at` triggers. The SQL is window 17's proven proposed copy verbatim.
 - test/rls.test.ts: marketing_cursor isolation + per-(store,name) UNIQUE, and a cart_recovery constraint-pinning case incl. the absent cross-clock CHECK (18 cases).
+
+## 0.3.2 — tooling, 2026-10-04 (no migration, schema version unchanged)
+
+- `topUpStock(pool, { floor })` and `pnpm --filter @platform/db top-up-stock [floor]` (default 25): local development only. Test journeys place real
+  orders against the shared seed and a placed order keeps its units reserved, so variants run out; `seed` is `ON CONFLICT DO NOTHING` and cannot
+  restore them. The top-up raises `on_hand` on every seeded-store level whose `available` is below the floor and writes the same delta to
+  `stock_movement` (`adjustment`, note `seed top-up`) in one transaction; reservations are untouched. The CLI refuses a non-loopback database host.
+- test/seed.test.ts: one case (drained level, ledger equals the raise, idempotent second run, invalid floor).
