@@ -2,6 +2,17 @@
 
 Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/Dockerfile`.
 
+## Unreleased — Phase 3
+
+### Added (Refs #348 — the perf gate shows what it measured, pass or fail)
+
+- `infra/ci/lighthouse-summary.mjs`: after every perf leg, pass or fail, prints per URL every run's value for each
+  numeric assertion in the storefront's `lighthouserc.json`, the CPU benchmark per run, and the value the
+  assertion compared (LHCI's aggregation: `optimistic` = best run, `pessimistic` = worst, `median`), with the
+  budget and the margin — to the log and the job summary. A witness: always exits 0. Self-test (5 cases, one of
+  them #341's failing leg) in the `changes` job. No threshold changed.
+- The Lighthouse reports are uploaded on success as well as failure (30-day retention).
+
 ## Unreleased — Phase 2
 
 ### Added (REQUEST #285 — admin e2e against the real core, advisory)

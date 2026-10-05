@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-10-05 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: **Phase 2 infra docket** (2026-10-05): #283 ✅ (#336) · #295 ✅ (#339) · #297 ✅ (#344) · #285 = draft #341, waiting on window 4's PR 345.
+Status: **Phase 2 COMPLETE** (2026-10-05) — #283 (#336) · #295 (#339) · #297 (#344) · #285 (#341) · TOTP barrier (#347). Phase 3: perf-metrics (Refs #348) in flight, then quiet until Phase 3 tasks are issued.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,25 +108,32 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#285 → draft PR #341 on `infra/phase2`** (advisory job `admin e2e against the core (advisory)`). OPEN and
-  unmerged until window 4's PR 345 (orders spec places its own order, refund skips with a reason, a 404 on a
-  collection read shows the not-available panel) is on main AND the job is green 3× in a row. Manager's rule:
-  the merge queue refuses any red check, advisory or not. Runs so far: run 1 (job 111687783337, head af6c9fa)
-  red in setup — fga:seed needs contracts dist, fixed `d758bce`; run 2 (job 111688693287, head d758bce)
-  20 passed / 3 failed / 0 — spec-vs-fresh-core (routed to window 4, no REQUEST from me).
-  Expected after 345 on a fresh seed: **22 passed, 1 skipped, 0 failed**.
-  2026-10-05: PR 345 merged (`6b129d9`). main `6b129d9` merged into `infra/phase2` with the #344 nits and
-  pushed once; now running the advisory job 3× (expected 22 passed / 1 skipped / 0 failed). If it is not
-  that: STOP and send the manager the failing spec + snapshot before any re-run. Last Phase 2 item.
+- **Phase 3 start — the perf gate shows what it measured (Refs #348).** Branch `infra/phase3-perf-metrics`,
+  rebased onto main `7568f56`; second-branch exception approved. `infra/ci/lighthouse-summary.mjs` (+ a 5-case
+  self-test in the `changes` job) prints, per URL: every run's value for each numeric assertion, the CPU
+  benchmark per run, the compared value (optimistic = best, pessimistic = worst, median) and the margin. Output
+  goes to the log and the job summary, and reports are uploaded on success too (30 days). Checked locally against
+  #341's real failing reports: PLP LCP 2815·2598·2571 → compared 2571, +71, FAIL. No threshold touched; brand A's
+  lighthouserc and LCP are window 10's (#348). This PR also carries the Phase 2 close in this file.
+  Next: draft PR "Refs #348" → every check → message the manager what it printed for both storefronts.
 
-## Next — the docket, in order
+## Next
 
-- Nothing after #285 in this docket. Follow-ups recorded on #342 (not now): one environment per derived
-  realm output; positive gate rules (https-only, no wildcard redirect, PKCE required, sslRequired); SMTP +
-  password policy; brand A's Helm values / ArgoCD app / ECR repo; window 2's live first-broker-login check.
+- After the perf-metrics PR: **quiet** until Phase 3 tasks are issued.
+- **#342** (deploy Keycloak to dev/staging from the derived realm; brand A's Helm values / ArgoCD app / ECR repo)
+  is BLOCKED on the owner's AWS account and domain. Do not start it. Recorded follow-ups there: one environment
+  per derived-realm output; positive gate rules (https-only, no wildcard redirect, PKCE, sslRequired); SMTP +
+  password policy; window 2's live first-broker-login check; the dev export's `trustEmail: true`.
+- #348 (brand A listing-page LCP on its budget) is window 10's; this window supplies the measurement.
 
 ## Done (earlier)
 
+- **#285** — PR #341 **merged** as `7568f56` (2026-10-05). Advisory job `admin e2e against the core (advisory)`;
+  3× green at 22 passed / 1 skipped / 0 failed (run 37301539904; jobs 111735244122, 111738060290, 111739669910)
+  after window 4's #345. Earlier: run 1 red in setup (fga:seed needs contracts dist → `d758bce`), run 2 20/3/0
+  (spec vs fresh core → window 4). Required perf leg (brand A) red once on that head: PLP LCP best-of-three 2570.6
+  vs 2500; re-run of that leg alone passed → #348 + the perf-metrics PR. Advisory until a week of green runs.
+- **Phase 2 infra docket closed (2026-10-05):** #283, #295, #297, #285 and the TOTP barrier all merged.
 - **Owner-TOTP collision on the required live job** — PR #347 **merged** as `7993482` (2026-10-05). #344's
   reorder was wrong (order is not a separation: PR 345 run 37293071865, hq-rbac scope.test.ts invalid_grant,
   126/129). `infra/ci/totp-barrier.sh wait` sleeps from the core step's end (step S) to the start of S+2;
@@ -388,6 +395,11 @@ Standing debts (parked), whenever this window is next open:
   stop at `terraform validate` / `helm template` / runbooks. Never commit credentials.
 
 ## Gotchas learned
+
+- **LHCI prints metric values only for FAILED assertions**, and the default `optimistic` aggregation compares the
+  BEST of the runs (min for `max*`). A green perf leg tells you only that one of three runs got under the line.
+- **Re-running one job copies the other jobs into the new attempt with NEW job ids and identical logs** — do not
+  count those as extra measurements (dedupe by log content).
 
 - **Commit messages: never close/fix/resolve next to a `#number`** (GitHub closing keywords), unless the commit
   really finishes that issue. #347's subject "fixes #344's wrong fix" was flagged — say "corrects" / "follow-up to".
