@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` · Status: **Phase 2 DONE** except #144, whose launch-checklist PR is open (Refs #144: no staging exists for the dry run).
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` (at main 976fe99) · Status: **PHASE 2 COMPLETE** — #139–#144 closed. Quiet until Phase 3.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,7 +17,9 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **#144 · 2.6 launch checklist** — `apps/storefronts/brand-a/LAUNCH.md`, PR open (Refs #144). 11
+- **#144 · 2.6 launch checklist** — `apps/storefronts/brand-a/LAUNCH.md`, PR #340 MERGED as 976fe99;
+  #144 CLOSED by the manager with a recorded waiver (the staging dry run becomes an Integration 2 /
+  Phase 3 gate). 11
   areas, each item with owner window + verification command/URL + state on 2026-10-05; the two
   gates waived from #142 (content routes on staging, Google Rich Results); owner actions
   (Cloudinary upload, 48 legal placeholders + lawyer review, consent decision). Staging dry run
@@ -80,8 +82,7 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — #144 launch-checklist PR open (stop pushing; the manager reviews)
-- LAUNCH.md + README stock budget (about five units per full run) + memory. Refs #144.
+## In progress — nothing. Phase 2 docket complete; quiet until the manager opens Phase 3.
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
@@ -110,8 +111,8 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
 ## RESUME HERE (the exact sequence, in order)
 
 1. ~~Phase 2 tasks 2.1–2.5~~: all merged; #139–#143 closed.
-2. **#144 (2.6)**: the launch-checklist PR is open. After the manager's review, Phase 2 is done for
-   window 10. It stays Refs until a staging dry run is possible (window 5 + owner credentials).
+2. ~~#144 (2.6)~~ — merged as 976fe99, closed with a waiver. The staging dry run is an Integration 2 /
+   Phase 3 gate. LAUNCH.md's findings go to the owner and the Integration 2 plan as they stand.
 3. Phase 3: start from "Phase 3 onboarding — gaps" above and LAUNCH.md's owner actions.
 
 ### Machine recipe that works (verified 2026-10-02)
@@ -178,7 +179,7 @@ manager's OK.
 - [x] **#141 · 2.3** CMS content for brand A — MERGED (1a44b04)
 - [x] **#142 · 2.4** SEO and i18n for brand A — CLOSED by #337 (8690267); two gates waived to #144
 - [x] **#143 · 2.5** End-to-end suite browse → buy → account for brand A — CLOSED by #337 (8690267), 91/0 ×3
-- [~] **#144 · 2.6** Launch checklist for brand A — LAUNCH.md PR open; the staging dry run waits on a deployment
+- [x] **#144 · 2.6** Launch checklist for brand A — CLOSED (PR #340, 976fe99; staging dry run waived to Integration 2)
 
 ## Decisions made (with reasons)
 - **Brand A is designed here, not in Figma** (2.2): no Figma exists. `src/brand/DESIGN.md` is
