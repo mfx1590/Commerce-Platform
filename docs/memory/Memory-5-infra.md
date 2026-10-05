@@ -110,7 +110,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 - **#285 — on `infra/phase2`, main `423f64b` merged, pushed as a DRAFT** (2026-10-05); needs three consecutive
   green runs of the new job, counts in the body. Carries the #339 nit: keep-mode startup failure now kills the
-  process group, not just the pnpm pid. Job `admin-e2e-core`
+  process group, not just the pnpm pid.
+  Run 1 (job 111687783337) FAILED in setup: fga:seed imports @platform/contracts dist, unbuilt on a clean
+  runner → fixed by `turbo run build --filter='@platform/auth-sdk^...'` first. Goes in the PR body. Job `admin-e2e-core`
   in ci.yml (`e2e` group): compose auth stack → `fga:seed` (ids to $GITHUB_ENV, `.env` removed) → kept core
   (no CORE_DEV_TOKENS; staff tokens need OpenFGA) → `E2E_API=core CORE_URL=http://127.0.0.1:9000 PORT=3200
   ADMIN_APP_URL=http://localhost:3200 pnpm --filter @platform/admin e2e` → stop core → stack down. Advisory
@@ -118,6 +120,15 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   consecutive green runs of the new job with counts in the body; local reference run (admin README, 2026-09-28):
   core 22 passed + 1 skipped (no refundable order). Nightly/workflow_dispatch from the issue NOT added — a
   ci.yml schedule would run the whole pipeline; say so in the PR, offer a separate workflow if wanted.
+
+- **#297 rest — PR A APPROVED (closes #297), build locally, push after #341 merges.** Generator + self-test
+  OUTSIDE infra/keycloak (window 2's row) — e.g. infra/deploy/keycloak/; read customers-realm.json only.
+  Mutation-test every rule in the PR body. Item 3: first option (key from ExternalSecret). PR B → issue #342
+  (not now). Earlier findings: Findings: NOTHING deploys Keycloak to
+  dev/staging (terraform only outputs KEYCLOAK_URL; no chart/app). Core live tests (`apps/core/test/auth-live`,
+  `customers-api` live block) self-gate on Keycloak+OpenFGA+DATABASE_URL reachability → silent skip risk.
+  Staging `storefront` (= starter image) carries `STORE_PUBLISHABLE_KEY: pk_brand-a_dev_…` (LAUNCH.md finding).
+  No prod values file exists; check.sh's SITE_URL rule already covers any storefront values file.
 
 ## Next — the docket, in order
 

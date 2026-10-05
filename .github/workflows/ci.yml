@@ -484,9 +484,13 @@ jobs:
       # fga:seed records the ids in a repo-root .env (created from .env.example). They are moved into
       # the job's environment and the .env removed, so nothing else the job starts reads the
       # example's localhost defaults by accident — the same no-.env shape as `auth-e2e`.
+      # fga:seed runs auth-sdk's source through tsx, which imports @platform/contracts from its dist/:
+      # on a clean runner that does not exist yet (run 1 of #341 failed exactly there). `^...` builds
+      # auth-sdk's workspace dependencies, not auth-sdk itself.
       - name: seed OpenFGA (model + staff tuples) and export its ids
         if: needs.changes.outputs.e2e == 'true'
         run: |
+          pnpm exec turbo run build --filter='@platform/auth-sdk^...'
           pnpm --filter @platform/auth-sdk fga:seed
           grep -E '^OPENFGA_(STORE|MODEL)_ID=.+' .env >> "$GITHUB_ENV"
           grep -cE '^OPENFGA_(STORE|MODEL)_ID=.+' .env | grep -qx 2 || { echo 'fga:seed wrote no ids'; exit 1; }
