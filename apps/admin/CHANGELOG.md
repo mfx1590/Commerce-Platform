@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added — task 2.5b, issue #117: revoke, primary domain, enabled sets (Admin API 0.4.8)
+
+- **Enabled currencies and locales** in General (`updateStore` set replacement; `CodeListField`;
+  the default always kept and sent first). store_staff reads them.
+- **Make primary** per domain (`updateDomain { is_primary: true }`, owner on organization:hq).
+- **Revoke** per API key (`revokeApiKey`, store_admin): asks first; the last live publishable key
+  has no button and says why; 409 `last_live_key` is mapped to a plain message.
+- **Server-side permission check** in every registry server action (`refuseUnlessPermitted`):
+  the operation's `x-permission` from `REGISTRY_PERMISSIONS` against `/admin/me`, refused with the
+  contract's 403 body before the API; the table is pinned against `admin-api.yaml` in a test.
+- #287 review nits: a non-404 failure on `/health` is `unreachable`, not the mock; route labels
+  fold numeric ids too; README says :9100 was that run's port, :9000 the default.
+- Tests: `test/settings-actions.test.ts` (12: every action × role, 401, uuid ids, 409 mapping,
+  sets), `test/settings.test.tsx` (+13), contract settings 15 (+5), mock e2e settings journey.
+- Real core run 2026-10-05 recorded in the README (sets, revoke, last-live note + 409, primary
+  move, store-staff refused by the server action and the core); screenshots `docs/settings/2-5b-*`.
+
 ### Added — task 2.6, issue #118: the real core as a first-class mode
 
 - **API mode line** above every page (`ApiModeBanner` in the shell): a `/health` probe (core 200,

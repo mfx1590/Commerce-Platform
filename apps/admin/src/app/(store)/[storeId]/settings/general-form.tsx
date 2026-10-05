@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { Controller } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
+import { CodeListField, codeListError } from '@/components/form/code-list-field';
 import { SelectField, TextField, errorMessage } from '@/components/form/fields';
 import { useContractForm } from '@/components/form/use-contract-form';
 import { ActionRefusal } from '@/components/states/action-refusal';
@@ -11,8 +13,9 @@ import { STORE_STATUSES, storeSettingsSchema, type StoreSettingsValues } from '@
 import { statusChangeQuestion, type StoreSettingsDefaults } from '@/lib/settings';
 
 /**
- * `updateStore` for the store's own name, status and defaults (store_admin). A move to `paused`
- * or `archived` takes the storefront offline, so Save asks first and only the confirmation sends.
+ * `updateStore` for the store's own name, status, defaults and enabled currency/locale sets
+ * (store_admin). A move to `paused` or `archived` takes the storefront offline, so Save asks first
+ * and only the confirmation sends. Each set replaces the stored one; its default is always kept.
  */
 export function GeneralSettingsForm({
   storeId,
@@ -28,6 +31,8 @@ export function GeneralSettingsForm({
     default_locale: current.default_locale,
     default_country: current.default_country,
     timezone: current.timezone,
+    currencies: [...current.currencies],
+    locales: [...current.locales],
   };
   const [question, setQuestion] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -42,6 +47,8 @@ export function GeneralSettingsForm({
     onSuccess: () => setSaved(true),
   });
   const errors = form.formState.errors;
+  const defaultCurrency = form.watch('default_currency');
+  const defaultLocale = form.watch('default_locale');
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -101,6 +108,35 @@ export function GeneralSettingsForm({
           hint="e.g. Europe/Amsterdam"
           error={errorMessage(errors.timezone)}
           {...form.register('timezone')}
+        />
+        <Controller
+          control={form.control}
+          name="currencies"
+          render={({ field }) => (
+            <CodeListField
+              label="Enabled currencies"
+              hint="ISO codes, separated by commas."
+              value={field.value}
+              onChange={field.onChange}
+              locked={defaultCurrency}
+              normalise={(entry) => entry.toUpperCase()}
+              error={codeListError(errors.currencies, field.value)}
+            />
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="locales"
+          render={({ field }) => (
+            <CodeListField
+              label="Enabled locales"
+              hint="BCP-47 tags, separated by commas."
+              value={field.value}
+              onChange={field.onChange}
+              locked={defaultLocale}
+              error={codeListError(errors.locales, field.value)}
+            />
+          )}
         />
       </div>
 
