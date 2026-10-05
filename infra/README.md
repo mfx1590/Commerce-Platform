@@ -581,7 +581,7 @@ belongs to the main window.
 | `perf`           | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                             |
 | `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                     |
 | `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; `apps/*` journeys on Prism, `apps/storefronts/*` on the kept core (below)   |
-| `helm`           | `helm`      | `infra/helm/check.sh` — lint, render every app/env, kubeconform                                                                                                                              |
+| `helm`           | `helm`      | `infra/helm/check.sh` (lint, render every app/env, kubeconform, then `check-values.sh`); `check-values.test.sh`; `node --test infra/deploy/keycloak/` (the derived customers realm)          |
 | `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                   |
 | `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                       |
 
@@ -725,6 +725,41 @@ Two things worth knowing about that list:
 
 `preview deploy (placeholder)` is intentionally **not** required — it is a placeholder that will become the
 per-PR preview environment.
+
+## The deployed customers realm (#297)
+
+`infra/keycloak/customers-realm.json` is window 2's dev export: the local stack imports it with the
+`test-cli` client (direct access grants, for the live suites), the seeded customer `jane@example.com`,
+`http://localhost:*` URIs and `verifyEmail: false`. None of that may reach a deployed Keycloak, so the deployed
+realm is **generated** from the export, never kept by hand beside it:
+
+```bash
+node infra/deploy/keycloak/derive-customers-realm.mjs --out customers-realm.deployed.json
+```
+
+It drops `test-cli` and every user, strips every localhost / 127.0.0.1 URI (redirects, web origins,
+post-logout, root URLs, `frontendUrl`), drops a storefront client left with no deployed redirect URI (brands
+B and C today), sets `verifyEmail: true` and `trustEmail: false` on identity providers, and refuses a broker
+flow with an auto-link step. It only reads `infra/keycloak/`. `derive-customers-realm.test.mjs` runs in the
+`helm` job and mutation-tests every rule. Deploying Keycloak itself (chart, database, import job) is
+[#342](https://github.com/mfx1590/Commerce-Platform/issues/342), blocked on an AWS account.
+
+**Live check still owed (window 2):** the first-broker-login path with Google switched on — that a
+pre-registered, unverified account is not linked without proof. The derivation enforces the static settings;
+it cannot prove Keycloak's runtime behaviour.
+
+## Values rules
+
+`infra/helm/check-values.sh` holds the rules kubeconform cannot see, because each renders valid Kubernetes:
+storefront `SITE_URL` must be `https://<ingress.host>` in every environment (production included);
+`ROBOTS_ALLOW_INDEXING: '1'` in `values-prod.yaml` and nowhere else; production is `values-prod.yaml` exactly
+(`values-production.yaml` / `values-prd.yaml` are refused); and no staging or production values file may carry
+a seeded dev publishable key (`pk_<store>_dev_…`). `check-values.test.sh` builds a fixture that breaks each
+rule and shows it fails.
+
+**Staging serves store `brand-a` through the starter app**, deliberately, until brand A has its own deployment
+(#342). Its key is brand A's staging key from `staging/stores/brand-a/storefront`
+(`{"STORE_PUBLISHABLE_KEY": "…"}`), created with the store — not the seeded dev key.
 
 ## Secrets
 

@@ -108,17 +108,47 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#295 + #297 item 1 → draft PR #339** on `infra/phase2`. Three consecutive green runs of `live auth +
-  end-to-end` on head `9c75b26` (run 37281415177; jobs 111670191710, 111672927484, 111675190625): brand A
-  against the core **91/0/22** each time, starter 67/0/3, admin 21/0/2, no retries. Evidence table in the PR
-  body. Then merged main `d3715d9` (after #338) → new head; full CI re-runs on it. Manager marks it ready.
-  Proof the core was used: brand A's journey.spec `REQUIRE_CORE` under CI FAILS (not skips) without a core.
-  Skip reasons are not printed by the `github` reporter — the 22 are not itemised from logs.
+- **#285 — on `infra/phase2`, main `423f64b` merged, pushed as a DRAFT** (2026-10-05); needs three consecutive
+  green runs of the new job, counts in the body. Carries the #339 nit: keep-mode startup failure now kills the
+  process group, not just the pnpm pid.
+  Run 1 (job 111687783337) FAILED in setup: fga:seed imports @platform/contracts dist, unbuilt on a clean
+  runner → fixed by `turbo run build --filter='@platform/auth-sdk^...'` first. Goes in the PR body. Job `admin-e2e-core`
+  in ci.yml (`e2e` group): compose auth stack → `fga:seed` (ids to $GITHUB_ENV, `.env` removed) → kept core
+  (no CORE_DEV_TOKENS; staff tokens need OpenFGA) → `E2E_API=core CORE_URL=http://127.0.0.1:9000 PORT=3200
+  ADMIN_APP_URL=http://localhost:3200 pnpm --filter @platform/admin e2e` → stop core → stack down. Advisory
+  (recommend: advisory for a week, as the manager's default). Seeded realm users only. Evidence rule: three
+  consecutive green runs of the new job with counts in the body; local reference run (admin README, 2026-09-28):
+  core 22 passed + 1 skipped (no refundable order). Nightly/workflow_dispatch from the issue NOT added — a
+  ci.yml schedule would run the whole pipeline; say so in the PR, offer a separate workflow if wanted.
+
+- **#341 runs:** run 1 failed in setup (fga:seed needs contracts dist → fixed `d758bce`); run 2 (job
+  111688693287) reached the journeys: 20/3/0. Failures are spec-vs-fresh-core, not the job: two order specs
+  need existing orders (fresh seed has none → "No orders yet"); the customers spec expects "Not available on
+  this API yet" but the core answers a `not_found` 404 → "Customers was not found". Both written into the PR
+  body; reported to the manager for routing to window 4 (+1). No reruns until fixed.
+- **Order changed (manager, 2026-10-05):** #341 stays OPEN as a draft until window 4's spec fix is on main and
+  the admin job is green 3×; push to `infra/phase2` only to merge main when told. After PR A merges: bring
+  `infra/phase2` up to date with main and wait for the manager's word on re-runs.
+- **#297 PR A REBUILT on main** — branch `infra/phase2-realm` from `origin/main` `423f64b` + cherry-pick of
+  501885c without #341's commits (one-time exception to one-branch-per-window, approved by the manager).
+  The old local branch is kept as `infra/phase2-realm-on-341`. Was: built on `d758bce`. Core live
+  suites in auth-e2e + `infra/ci/require-live-tests.mjs` guard (6 tests); `infra/deploy/keycloak/derive-customers-realm.mjs`
+  + mutation test (16 tests); `infra/helm/check-values.sh` split out + `check-values.test.sh` (13 cases);
+  staging key → `staging/stores/brand-a/storefront`; classifier helm group += infra/deploy/ + customers realm
+  (57 ok). Brands B/C clients dropped from the derived realm (localhost-only). Dev export has
+  `trustEmail: true` on Google — derived sets false; worth telling window 2.
+- (superseded plan note) **#297 rest — PR A APPROVED (closes #297), build locally, push after #341 merges.** Generator + self-test
+  OUTSIDE infra/keycloak (window 2's row) — e.g. infra/deploy/keycloak/; read customers-realm.json only.
+  Mutation-test every rule in the PR body. Item 3: first option (key from ExternalSecret). PR B → issue #342
+  (not now). Earlier findings: Findings: NOTHING deploys Keycloak to
+  dev/staging (terraform only outputs KEYCLOAK_URL; no chart/app). Core live tests (`apps/core/test/auth-live`,
+  `customers-api` live block) self-gate on Keycloak+OpenFGA+DATABASE_URL reachability → silent skip risk.
+  Staging `storefront` (= starter image) carries `STORE_PUBLISHABLE_KEY: pk_brand-a_dev_…` (LAUNCH.md finding).
+  No prod values file exists; check.sh's SITE_URL rule already covers any storefront values file.
 
 ## Next — the docket, in order
 
-1. **#285** — admin-e2e-core job variant; the Prism job stays required.
-2. **#297 rest** — core live tests into the live job; deployed Keycloak from the customers realm export minus
+1. **#297 rest** — core live tests into the live job; deployed Keycloak from the customers realm export minus
    test-cli/jane/localhost URIs, verifyEmail true, no first-broker-login auto-link; production SITE_URL in Helm.
 
 Rules this docket: no e2e/builds/docker on the laptop (another window measures); evidence is CI on a DRAFT PR;
@@ -126,6 +156,8 @@ Rules this docket: no e2e/builds/docker on the laptop (another window measures);
 
 ## Done (earlier)
 
+- **#295 + #297 item 1** — PR #339 **merged** as `423f64b`: brand A journeys in CI against a kept core,
+  four green live runs (91/0/22 each), `perf_unmeasured`. #295 closed; #297 open for the rest.
 - **#283** — PR #336 **merged** as `978ebf4` (2026-10-05): perf gate per storefront (`perf_apps` matrix +
   `perf` aggregator keeping the required name). Brand A measured in CI for the first time (139.6/144 kB).
 - **REQUEST #257** (window 3) — PR #272 **merged**, main `aa3b977` (commits `69fad5e` + `3432040`).

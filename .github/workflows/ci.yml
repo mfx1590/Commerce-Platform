@@ -74,6 +74,9 @@ jobs:
       # testable instead of buried in YAML. Same arrangement as scripts/check-ownership.sh.
       - name: self-test the classifier
         run: bash infra/ci/changes.test.sh
+      # Node's built-in runner, no install: the live-suite guard used by `auth-e2e`.
+      - name: self-test the live-suite guard
+        run: node --test infra/ci/require-live-tests.test.mjs
       - id: filter
         run: |
           if [ "${{ github.event_name }}" != 'pull_request' ]; then
@@ -400,6 +403,16 @@ jobs:
       - name: live auth suites (packages/auth-sdk + apps/core hq-rbac)
         if: needs.changes.outputs.e2e == 'true'
         run: pnpm exec turbo run test --filter=@platform/auth-sdk
+      # The core's own live suites (#297): until now they ran in no CI job — the `unit` job has no
+      # Keycloak, so `describe.runIf(live)` skipped them there, quietly. Here the stack is up, and the
+      # report is checked so a probe that misses fails the step instead of skipping the block. Each
+      # suite creates its own throwaway database (createTestDatabase), so nothing shared is seeded.
+      - name: core live suites (real Keycloak tokens, OpenFGA) — and they really ran
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          pnpm exec turbo run build --filter='@platform/core^...'
+          pnpm --filter @platform/core exec vitest run test/auth-live.test.ts test/customers-api.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-live.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-live.json"             'Integration 1: real Keycloak tokens + OpenFGA through mountCoreMiddleware'             'live: real customers-realm tokens through the real verifier'
       # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
       # `pnpm exec playwright` at the workspace root cannot find it.
       # Boot the real server. Everything else in this pipeline reasons about the code without
@@ -467,6 +480,17 @@ jobs:
       - name: render and validate every chart and environment
         if: needs.changes.outputs.helm == 'true'
         run: bash infra/helm/check.sh
+      # Every values rule (storefront SITE_URL/robots, the production file name, seeded dev keys) is
+      # shown to fail on a fixture built to break it — check.sh only shows today's files pass.
+      - name: values rules self-test
+        if: needs.changes.outputs.helm == 'true'
+        run: bash infra/helm/check-values.test.sh
+      # The deployed customers realm is generated from infra/keycloak/customers-realm.json (#297);
+      # the self-test proves it carries no test client, user, localhost URI, unverified email or
+      # auto-linking broker login, and that each of those rules fails when its violation is put back.
+      - name: derived customers realm is deployable (and every rule can fail)
+        if: needs.changes.outputs.helm == 'true'
+        run: node --test infra/deploy/keycloak/
 
   observability:
     name: observability config
