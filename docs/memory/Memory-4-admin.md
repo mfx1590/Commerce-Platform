@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: **Phase 2 complete** — 2.5b merged as cc0e1dc (#338, #117 closed); quiet until Phase 3
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: **Phase 2 complete** — 2.5b merged as cc0e1dc (#338, #117 closed); #285 fix merged as 6b129d9 (#345); quiet until Phase 3
 
 ## Identity (does not change)
 Owned paths (write):
@@ -419,22 +419,27 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   but not numeric ids; one word in the README on :9100 (this run) vs :9000 (the default).
 - **2.5b MERGED as cc0e1dc** (#338, 2026-10-05; Fable review MERGE; #117 closed). Phase 2 docket
   complete. Quiet until Phase 3: no runs, no pushes. Merged main (cc0e1dc) + install locally.
-- **#285 core-mode e2e fixes (Refs #285), built locally 2026-10-05, not pushed:** orders journey
-  places its own guest order through the Store API (`e2e/core-order.ts`, seeded dev key from
-  `STORE_PUBLISHABLE_KEY` or `.env.example`); refund journey skips in core mode (manual provider
-  never captures); `reclassifyUnmounted`: 404 on a collection GET, or the core's "is not
-  implemented" marker → not_implemented (manager ruling). #338 nits carried (apps/admin/CLAUDE.md:8 left out
-  — manager raises it with the owner; I do not edit an instruction file on a peer's say-so). Unit
-  599, contract 74, mock e2e 21+2, **core-mode run 2026-10-05: 22 passed, 1 skipped** (populated
-  table, no reseed — manager ruling). Then one push. Proof = that local run + normal CI (the advisory job is NOT on my PR; #341
-  merges after mine and must then go green 3×).
-- **Parked nits for the next push** (#338 review):
-  - `createStoreAction` / `updateStoreAction` have the guard but no refused-role test.
-  - `test/settings-actions.test.ts`: no cross-store case (store_admin of brand-a sending brand-c's
-    storeId) and no `/admin/me` 500 case.
-  - `storeId` is not uuid-checked in the actions, though the #338 body said path ids are.
-  - `apps/admin/CLAUDE.md:8` still says "Admin API 0.4.0" and "Phase 1".
-  - CHANGELOG and README write `docs/settings/2-5b-*` without the `apps/admin/` prefix.
+- **#285 core-mode e2e fixes = PR #345, MERGED as 6b129d9** (2026-10-05, Refs #285; Opus review
+  MERGE). Orders journey places its own guest order via the Store API (`e2e/core-order.ts`, seeded
+  dev key from `STORE_PUBLISHABLE_KEY` or `.env.example`); refund journey skips in core mode
+  (manual provider authorises only; capture is Stripe-only); `reclassifyUnmounted`: 404 on a
+  collection GET, or the core's "is not implemented" marker → not_implemented (manager ruling).
+  #338 nits carried (apps/admin/CLAUDE.md:8 left out — manager raises it with the owner). Unit 599,
+  contract 74, mock e2e 21+2, core-mode run 22 passed + 1 skipped (populated table, no reseed).
+  First CI run red for a cause outside the diff (shared owner TOTP code, fixed by #347). #341 (the
+  advisory job) re-runs after this and must go green 3× — window 5's. Merged main 6b129d9 locally.
+  Quiet until Phase 3: no runs, no pushes.
+- **Parked nits for the next push** (#345 review):
+  - README line ~90 still says the refund "skips when no seeded order has a refundable payment" —
+    contradicts the new #285 paragraph; rewrite to the manual-provider reason.
+  - README does not say the core-mode run places one guest order per run and which stock it
+    takes (first in-stock variant among the first 20 products, price ascending; decrements stock).
+  - `test/settings-actions.test.ts` non-uuid storeId case does not assert `loadPrincipal` was never
+    called (make the principal mock a `vi.fn` and assert it).
+  - `reclassifyUnmounted`: a nested list whose PARENT is missing (e.g. `GET …/orders/{missing}/
+    shipments` → 404 not_found) would show "not available" instead of "not found". Decide: e.g.
+    only collection reads with no id segment after the store id, or prefer the core's marker.
+  - (Still open from #338) `apps/admin/CLAUDE.md:8` "Admin API 0.4.0" / "Phase 1" — owner's call.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
