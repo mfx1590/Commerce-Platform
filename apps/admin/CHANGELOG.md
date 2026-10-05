@@ -16,6 +16,8 @@
   fold numeric ids too; README says :9100 was that run's port, :9000 the default.
 - Tests: `test/settings-actions.test.ts` (12: every action × role, 401, uuid ids, 409 mapping,
   sets), `test/settings.test.tsx` (+13), contract settings 15 (+5), mock e2e settings journey.
+- Real core run 2026-10-05 recorded in the README (sets, revoke, last-live note + 409, primary
+  move, store-staff refused by the server action and the core); screenshots `docs/settings/2-5b-*`.
 
 ### Added — task 2.6, issue #118: the real core as a first-class mode
 

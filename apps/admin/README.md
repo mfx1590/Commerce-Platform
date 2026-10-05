@@ -521,8 +521,19 @@ stay on the server), the three client forms and the row buttons (ids and names o
 when the Store view passes a `storeId` and the permission). The HQ store
 page and the settings page both use them; every registry action revalidates both paths.
 
-**2.5b against the core:** not run yet — the machine is held by another window. Unit, Prism
-contract and mock e2e cover it; the core-mode e2e journey revokes the key it creates.
+**2.5b real core run** (2026-10-05; core from this branch on :9000, contracts 0.4.10; the built app
+on :3000 against it; real Keycloak sign-in; OpenFGA re-seeded). As **store-admin** on brand-a:
+enabled currencies `EUR` → `EUR, GBP` saved and read back after a reload, then put back to `EUR`;
+a key created for the run was revoked after the question and listed as revoked; on brand-b (one
+live publishable key) the row shows the last-live note and no Revoke, and a direct
+`revokeApiKey` on that key answers 409 `last_live_key`. As **owner** (password + TOTP): a test
+domain was added, made primary, and the primary moved back to `shop.brand-a.local`. As
+**store-staff**: no forms or row buttons; store-admin's captured Save POST replayed with
+store-staff's session was refused by the server action (403 `requires store_admin on store:…`,
+the core never called), and the core itself answers 403 to store-staff's `updateStore` and
+`revokeApiKey`. Left behind (no operation removes them): the non-primary test domain
+`core-run-muuydbgx.brand-a.local` and the revoked run key `core run 2.5b muuydbgx`. No core defects.
+Screenshots `docs/settings/2-5b-*.png` (prefixes only, no key value).
 
 **Real core run** (2026-09-26; core from this branch on :9100, the built app on :3000 with
 `ADMIN_API_URL` pointing at it, real Keycloak sign-in, OpenFGA re-seeded). As **store-admin**: all
