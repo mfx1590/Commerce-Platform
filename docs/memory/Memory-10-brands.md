@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` · Status: **re-sync PR open** (Closes #142, Closes #143), three clean passes 91/0.
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` · Status: **Phase 2 DONE** except #144, whose launch-checklist PR is open (Refs #144: no staging exists for the dry run).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,7 +17,19 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **Re-sync PR #328** (open, Refs #142) — commits **466213e** (re-sync from the starter at main
+- **#144 · 2.6 launch checklist** — `apps/storefronts/brand-a/LAUNCH.md`, PR open (Refs #144). 11
+  areas, each item with owner window + verification command/URL + state on 2026-10-05; the two
+  gates waived from #142 (content routes on staging, Google Rich Results); owner actions
+  (Cloudinary upload, 48 legal placeholders + lawyer review, consent decision). Staging dry run
+  NOT possible (no deployed environment; brand A not in the deploy matrix). Laptop dry run: 10
+  checks, all passing, recorded in the file.
+- **Re-sync with #312/#326/#327 + three clean passes** — PR #337, merged as 8690267. **#142 and #143
+  CLOSED.** 91 passed / 0 failed / 22 skipped ×3 against the core; order #1123 linked at placement
+  (read-only query). Unit tests at the merge: **687 passed, 2 skipped**.
+- **Imagery** — PR #335, merged as 013da4a; the review carry-overs (cloud-name validation, upload
+  hashes the bytes it sends) rode in #337.
+- **#143 order history against the core** — PR #333, merged as 96aeb19.
+- **Re-sync PR #328** (MERGED as 444ee6b, Refs #142) — commits **466213e** (re-sync from the starter at main
   4c4aa80; the four preserved files rebuilt from the starter; `SITE_URL` no longer defaulted;
   #274 placement pin and `STATIC_PATHS` pin replaced by real assertions), **697af36** (preserved-file
   drift report: `scripts/preserved-drift.mjs`, `scripts/starter-preserved.json`, 5 tests; REQUEST
@@ -27,7 +39,7 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   **Flake check FAILED: 84/3, 87/0, 82/5** (22 skipped each) — picsum through the optimiser +
   `networkidle`, REQUEST #327 (decided: window 3 serves a local placeholder and drops networkidle).
   gitleaks flagged a blob id in starter-preserved.json — false positive, allow-listed on main 2a0f828.
-- **#143 · 2.5 e2e browse → buy** — PR #301 (de3e9ef), verdict MERGE, queued behind window 3.
+- **#143 · 2.5 e2e browse → buy** — PR #301 (de3e9ef), MERGED (f999f78).
   `journey.spec.ts`: PLP sort (asserts real ordering), category filter (page handles ⊆ API's
   category handles), PDP variants, and a placed order tied to the cart — quantity from the cart's
   `<input name="quantity">`, and `order total == cart total + the Delivery row` in **minor units**.
@@ -68,22 +80,39 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — re-sync PR open on brands/phase2 (stop pushing; the manager reviews)
-- **Re-sync at main 6f5019f**, bringing #312, #326 and #327. The drift report named next.config.mjs and
-  playwright.config.ts, and both were ported. The starter-defaults EXCLUDE is dropped. Brand specs use
-  hydrated(), with no networkidle left. **Three full passes against the core: 91/0, 91/0, 91/0** (22
-  gated skips each). Order #1123 is linked to Jane's customer row at placement (read-only query).
-- It also carries 6c81825 (the #335 review carry-overs).
+## In progress — #144 launch-checklist PR open (stop pushing; the manager reviews)
+- LAUNCH.md + README stock budget (about five units per full run) + memory. Refs #144.
+
+## Phase 3 onboarding — gaps recorded at the end of Phase 2
+For whoever starts the next brand, or takes brand A live. Details and verify commands are in
+`apps/storefronts/brand-a/LAUNCH.md`.
+- **No deployed environment exists.** Staging is coded (Terraform, Helm, ArgoCD) but never applied;
+  AWS/ArgoCD credentials are missing. Brand A is absent from `deploy-staging.yml` (`APPS: core admin
+  storefront-starter`), the Terraform `apps` list (no ECR repo) and the Helm values (window 5).
+  The starter's `values-staging.yaml` carries brand A's dev publishable key.
+- **Payments:** checkout offers only the `manual` provider. Stripe hosted fields are window 7/3's;
+  live keys are refused by design in Phase 2.
+- **Search:** shopper search is a database ILIKE; the Algolia index exists in code (window 9) but
+  nothing deploys or schedules it.
+- **Consent:** `sf_attribution` (30 days) is set without a consent gate, and there is no banner; this
+  needs an owner/lawyer decision first.
+- **Monitoring:** no alert rules, no error tracking in the storefront, and `/health` reports
+  `"app":"storefront-starter"` (starter's, window 3).
+- **Legal:** 48 placeholders (19 distinct), not lawyer-reviewed. A "no `[[` left" launch gate is
+  missing (window 10, Phase 3).
+- **Media:** no Cloudinary account (paid plan needed: 18/19 stills > 10 MB); hero loops wait on #330.
+- **CMS:** no Sanity project locally, so content routes are never runtime-tested; `CMS_DATASET` is
+  set nowhere in CI.
+- **Process lessons:** diff every preserved file on each sync (the drift report does this since
+  #328); rebuild the workspace packages after every merge of main; never `String.replace` with `$`
+  in replacement text (it duplicated a file once). Write multi-line edits as a script file.
 
 ## RESUME HERE (the exact sequence, in order)
 
-1. ~~Re-sync~~, ~~placement pin~~, ~~SEO re-measure~~, ~~flake check~~ — all DONE in #328 (see Done).
-   #142 stays open: SEO and hreflang hold; the flake criterion waits on #327.
-2. ~~#143 order-history test~~ — merged as #333 (96aeb19). #143 stays open for the three clean passes.
-3. ~~Re-sync with #312/#326/#327, spec alignment, three clean passes~~ — PR open (see In progress).
-4. ~~Imagery wiring~~ — merged as #335 (013da4a).
-5. **2.6 (#144)** — launch checklist for brand A.
-6. Nit for a later PR: CHANGELOG says main 4c4aa80, the #328 body says d335979 — reconcile.
+1. ~~Phase 2 tasks 2.1–2.5~~: all merged; #139–#143 closed.
+2. **#144 (2.6)**: the launch-checklist PR is open. After the manager's review, Phase 2 is done for
+   window 10. It stays Refs until a staging dry run is possible (window 5 + owner credentials).
+3. Phase 3: start from "Phase 3 onboarding — gaps" above and LAUNCH.md's owner actions.
 
 ### Machine recipe that works (verified 2026-10-02)
 ```
@@ -104,17 +133,10 @@ manager's OK.
   records one as pre-approved: the manager's current instruction named `wsl --shutdown` as
   stop-and-ask, and a standing pre-approval does not outrank a current instruction.
 
-## Blocked on other windows (2.4 follow-up closes #142)
-- **#274** (window 3): metadata in `<body>` not `<head>` on home/PDP/content → SEO stuck at 0.92
-  vs the required >=95, and hreflang ignored there. Diagnosed by me with byte offsets.
-- **#293** (window 3): sitemap `STATIC_PATHS = ['', '/products']` advertises none of the 20 brand-A
-  documents — verified at runtime, 4 URLs served. Combined with #274 the content routes have
-  hreflang in *neither* accepted mechanism.
-- **#295** (window 5, behind #283): run brand A's e2e in CI (`E2E_INCLUDE_BRAND_STOREFRONTS=1`).
-  Deliberately excludes the Keycloak half (#212) and the `CMS_DATASET` checks.
-- ~~**#212**~~ MERGED (871f086): brand A sign-in from :3101 works; `account.spec.ts` passes 3/3.
-- When both land: re-sync, delete the `STATIC_PATHS` pin in `test/brand-i18n-seo.test.ts`, assert
-  the real inventory, re-measure SEO, close #142 in a small follow-up PR.
+## Blocked on other windows — resolved (kept for history)
+- ~~#274~~ (metadata in `<head>`) fixed by #299; ~~#293~~ (sitemap content routes) fixed by #322; both
+  verified in #328. ~~#212~~ MERGED (871f086). #142 closed with #337.
+- **#295** (window 5): brand A's e2e in CI. Still open on 2026-10-05; it is LAUNCH.md item 11.4.
 
 ## Carried nits
 ### From the #291 review
@@ -154,11 +176,9 @@ manager's OK.
 - [x] **#139 · 2.1** Clone the starter into apps/storefronts/brand-a — MERGED (#198)
 - [x] **#140 · 2.2** Theme and layout overrides from the brand design — MERGED (8c49bd4)
 - [x] **#141 · 2.3** CMS content for brand A — MERGED (1a44b04)
-- [~] **#142 · 2.4** SEO and i18n for brand A — SEO 1.00 and hreflang hold (#328, 444ee6b); the closing
-      PR is open
-- [~] **#143 · 2.5** End-to-end suite browse → buy → account for brand A — three clean passes 91/0;
-      the closing PR is open
-- [ ] **#144 · 2.6** Launch checklist for brand A
+- [x] **#142 · 2.4** SEO and i18n for brand A — CLOSED by #337 (8690267); two gates waived to #144
+- [x] **#143 · 2.5** End-to-end suite browse → buy → account for brand A — CLOSED by #337 (8690267), 91/0 ×3
+- [~] **#144 · 2.6** Launch checklist for brand A — LAUNCH.md PR open; the staging dry run waits on a deployment
 
 ## Decisions made (with reasons)
 - **Brand A is designed here, not in Figma** (2.2): no Figma exists. `src/brand/DESIGN.md` is

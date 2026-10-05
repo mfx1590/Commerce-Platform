@@ -8,6 +8,10 @@ For everything the app _does_ — the Store API client, routes, cart/checkout, l
 attribution, the brand override pattern — read the starter's README: this app is that app, plus
 the identity below. Documenting behaviour twice would only let the copies drift.
 
+**Going live:** [`LAUNCH.md`](LAUNCH.md) is the launch checklist (#144): every item with its owner
+window and the command that verifies it, the laptop dry run's results, and the owner actions still
+open.
+
 ## Run it
 
 ```bash
@@ -48,6 +52,7 @@ Everything else is byte-identical to `apps/storefront-starter` at the commit of 
 | File                                              | Why                                                                                                                                                             |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`                                                                         |
+| `LAUNCH.md`                                       | new — the launch checklist (#144)                                                                                                                               |
 | `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                                                                                      |
 | `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                                                                                               |
 | `scripts/start.mjs`                               | default port 3101                                                                                                                                               |
@@ -178,11 +183,13 @@ and finds that order in the customer's history. `account.spec.ts` keeps the Keyc
 
 ## Stock budget
 
-The two buy tests (browse → buy, and order history) **each place a real order and consume one unit
-per run**, against a seed shared with every
-other suite on the same publishable key. It buys from the deepest-stocked variant in the catalogue,
-chosen by property at runtime, so no single product is drained. Budget: **two units per full-suite
-run**; a day of heavy iteration is tens of units against variants seeded with 17–44 each.
+A full run against the core **places five real orders and consumes about five units**: the
+inherited `checkout.spec.ts` journey (1), brand A's `journey.spec.ts` buy and order-history tests
+(2), and the two buys `account.spec.ts` gained with #312 (2). All of them draw on a seed shared with
+every other suite on the same publishable key. Brand A's tests buy from the deepest-stocked variant
+in the catalogue, chosen by property at runtime, so no single product is drained. A day of heavy
+iteration is tens of units; the shared seed is topped up to at least 25 available per variant
+(`packages/db` top-up-stock, the manager's).
 
 ## End-to-end against the core
 
