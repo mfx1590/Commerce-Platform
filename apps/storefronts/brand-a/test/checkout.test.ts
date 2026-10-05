@@ -4,6 +4,7 @@ import {
   isCheckoutable,
   isStepReachable,
   mapCheckoutError,
+  mapCompletionError,
   nextIncompleteStep,
   parseAddressForm,
   stepPath,
@@ -241,6 +242,55 @@ describe('mapCheckoutError', () => {
   it('falls back for a non-API failure', () => {
     expect(mapCheckoutError(new Error('socket hang up')).message).toMatch(/went wrong/i);
     expect(mapCheckoutError(new Error('boom')).code).toBe('internal');
+  });
+});
+
+describe('mapCompletionError', () => {
+  const conflict = () =>
+    new StoreApiError(409, { code: 'conflict', message: 'cart linked elsewhere' });
+
+  it('reads a 409 conflict at completion AS THE CUSTOMER as the link conflict, and says what to do', () => {
+    const mapped = mapCompletionError(conflict(), 'customer');
+    expect(mapped.code).toBe('conflict');
+    expect(mapped.message).toMatch(/different customer account/);
+    expect(mapped.message).toMatch(/Sign out|new cart/);
+    expect(mapped.step).toBeUndefined();
+  });
+
+  it('keeps the generic text for the core’s other completion conflicts, even as the customer', () => {
+    const promotion = new StoreApiError(409, {
+      code: 'conflict',
+      message: 'promotion usage limit reached',
+      details: { promotion_id: 'promo_spring' },
+    } as never);
+    const keyReuse = new StoreApiError(409, {
+      code: 'conflict',
+      message: 'Idempotency-Key was already used for another cart',
+      details: { 'Idempotency-Key': 'reuse across carts' },
+    } as never);
+    for (const error of [promotion, keyReuse]) {
+      const mapped = mapCompletionError(error, 'customer');
+      expect(mapped).toEqual(mapCheckoutError(error));
+      expect(mapped.message).not.toMatch(/different customer account/);
+    }
+  });
+
+  it('leaves a 409 conflict as a guest with its usual meaning', () => {
+    expect(mapCompletionError(conflict(), 'guest')).toEqual(mapCheckoutError(conflict()));
+  });
+
+  it('changes nothing else: every other failure maps as before, in both modes', () => {
+    const outOfStock = new StoreApiError(409, {
+      code: 'out_of_stock',
+      message: 'gone',
+      details: { available: 1, variant_id: 'v1' },
+    });
+    for (const mode of ['customer', 'guest'] as const) {
+      expect(mapCompletionError(outOfStock, mode)).toEqual(mapCheckoutError(outOfStock));
+      expect(mapCompletionError(new Error('boom'), mode)).toEqual(
+        mapCheckoutError(new Error('boom')),
+      );
+    }
   });
 });
 

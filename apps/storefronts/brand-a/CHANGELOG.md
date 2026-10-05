@@ -1,5 +1,26 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-05 · re-sync at main 6f5019f; three clean passes (#142, #143)
+
+- **Re-sync**: 188 copied, 1 merged, 10 preserved, 4 excluded. Brings #312 (customer token on cart
+  create and completion), #326 (`starter-defaults.test.ts` imports inside `runIf`, so the exclusion
+  is dropped and the file skips itself here) and #327 (local placeholder images under
+  `E2E_LOCAL_IMAGES`, hydration readiness, a clean fetch cache per e2e build, the 4-worker cap).
+- **The drift report caught both preserved-file changes** (`~ next.config.mjs`,
+  `~ playwright.config.ts`). Ported by hand: the `E2E_LOCAL_IMAGES` build constant, and the worker
+  cap (4 locally, CI default, `E2E_WORKERS` overrides).
+- **Brand A's own specs no longer wait on network idle**: `a11y.spec.ts`, `journey.spec.ts`
+  (order history included) and `visual.spec.ts` use `hydrated()`. The visual spec also waits for
+  its images to finish loading.
+- **Order history now goes through the placement-time link.** Checked read-only: order #1123,
+  placed by pass 1's order-history test, has `customer_id` set to the customer's row and is not a
+  guest order. The test's comment says so.
+- `test/brand-i18n-seo.test.ts` stubs the starter's `HydrationMarker` (a `useEffect`-only client
+  component) where it calls the layout as a function.
+- **Three consecutive full passes against the core, each from a clean fetch cache: 91 passed /
+  0 failed, three times** (2.1, 1.6 and 1.5 min), with 22 skipped each, all gated by design:
+  content routes without `CMS_DATASET`, opt-in visual baselines, and mock-only tests on a core run.
+
 ## Unreleased — brand A imagery
 
 - `cms/brand-a/media/manifest.json` covers the 19 premium stills and 2 hero loops: source path, bytes, sha256, aspect, Cloudinary public id, and alt text in en-GB and de-DE for each placed slot. No binaries are in the repo.

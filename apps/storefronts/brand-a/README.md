@@ -45,25 +45,24 @@ and its sales channel from it. `GET /health` answers 200 for the container HEALT
 
 Everything else is byte-identical to `apps/storefront-starter` at the commit of the last sync.
 
-| File                                              | Why                                                                                           |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`       |
-| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                    |
-| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                             |
-| `scripts/start.mjs`                               | default port 3101                                                                             |
-| `next.config.mjs`                                 | `STORE_PUBLISHABLE_KEY` default via `??=` (deliberately not `SITE_URL`)                       |
-| `playwright.config.ts`                            | `APP_URL` :3101 and `SITE_URL` from it; mock `cwd` one level deeper; platform-keyed snapshots |
-| `lighthouserc.json`                               | none today — matches `scripts/perf.mjs`'s `127.0.0.1:3100` (the gate is vacuous, #283)        |
-| `src/brand/config.ts`                             | `name` and `description` only; the rest tracks the starter (fail-closed `siteUrl()`)          |
-| `test/starter-defaults.test.ts`                   | **excluded** — starter-only; its imports evaluate brand fonts under vitest (REQUEST #326)     |
-| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                               |
-| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                        |
-| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                |
-| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                          |
-| `scripts/starter-manifest.json`                   | new — **generated**: the starter's package.json at the last sync                              |
-| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                              |
-| `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here        |
-| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)  |
+| File                                              | Why                                                                                                                                                             |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`                                                                         |
+| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                                                                                      |
+| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                                                                                               |
+| `scripts/start.mjs`                               | default port 3101                                                                                                                                               |
+| `next.config.mjs`                                 | `STORE_PUBLISHABLE_KEY` default via `??=` (deliberately not `SITE_URL`); otherwise the starter, incl. #327's `E2E_LOCAL_IMAGES`                                 |
+| `playwright.config.ts`                            | `APP_URL` :3101 and `SITE_URL` from it; mock `cwd` one level deeper; platform-keyed snapshots; otherwise the starter, incl. #327's 4-worker cap (`E2E_WORKERS`) |
+| `lighthouserc.json`                               | none today — matches `scripts/perf.mjs`'s `127.0.0.1:3100` (the gate is vacuous, #283)                                                                          |
+| `src/brand/config.ts`                             | `name` and `description` only; the rest tracks the starter (fail-closed `siteUrl()`)                                                                            |
+| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                                                                                                 |
+| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                                                                                          |
+| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                                                                                  |
+| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                                                                                            |
+| `scripts/starter-manifest.json`                   | new — **generated**: the starter's package.json at the last sync                                                                                                |
+| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                                                                                                |
+| `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here                                                                          |
+| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)                                                                    |
 
 ## Theme
 
@@ -192,9 +191,14 @@ selection**, and the cart→checkout hand-off, against the core.
 
 **Order history against the core** (`journey.spec.ts`, "order history"): sign in as the realm's
 verified customer, buy one unit, then find **that order id** in `/account/orders` at the confirmation's
-total, and open it from there. Brand A does not have #312 yet (it arrives with the next sync), so the
-order is placed as a **guest order** and reaches the history through the core's verified-email match,
-not through the placement-time link. Needs Keycloak as well as the core.
+total, and open it from there. Since the sync that brought #312, brand A sends the customer token on
+cart create and completion, so the order is **linked to the customer at placement** and the history
+lists it by that link. Needs Keycloak as well as the core.
+
+Brand A's own specs wait for **hydration**, not for network idle (#327): `hydrated()` from
+`e2e/support/journey.ts`, which reads the `data-hydrated` marker the layout sets. The visual spec also
+waits for its images to finish loading. The e2e build serves local placeholder images, so no run
+depends on picsum. Locally Playwright runs **4 workers**; `E2E_WORKERS` overrides.
 
 `account.spec.ts` covers the **Keycloak** half — the sign-in redirect, the return URL, the session
 cookie and sign-out.

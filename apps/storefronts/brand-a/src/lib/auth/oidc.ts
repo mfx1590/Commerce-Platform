@@ -55,7 +55,7 @@ export function authorizationEndpoint(config: OidcConfig): string {
   return `${config.issuer}/protocol/openid-connect/auth`;
 }
 
-export function tokenEndpoint(config: OidcConfig): string {
+export function tokenEndpoint(config: Pick<OidcConfig, 'issuer'>): string {
   return `${config.issuer}/protocol/openid-connect/token`;
 }
 
@@ -127,7 +127,7 @@ export interface TokenResponse {
 }
 
 async function postToken(
-  config: OidcConfig,
+  config: OidcProvider,
   body: Record<string, string>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<TokenResponse> {
@@ -163,8 +163,13 @@ export function exchangeCode(
   );
 }
 
+/**
+ * Takes the provider half only: a refresh names the issuer and the client, never the callback,
+ * so it can never depend on `SITE_URL` (#298) — a stale token on a cart call must not become a
+ * missing-origin failure.
+ */
 export function refreshTokens(
-  config: OidcConfig,
+  config: OidcProvider,
   refreshToken: string,
   fetchImpl?: typeof fetch,
 ): Promise<TokenResponse> {
