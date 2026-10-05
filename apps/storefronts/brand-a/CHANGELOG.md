@@ -1,5 +1,19 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-05 · launch checklist (#144)
+
+- **`LAUNCH.md`**: domain/DNS, certificates, env and secrets, the Keycloak customers client, Stripe,
+  the search index, the CMS dataset, imagery (Cloudinary), analytics and consent, legal pages,
+  monitoring and alerts, and rollback. Each item has an owner window, a verification command or URL,
+  and its state on 2026-10-05. It includes the two go-live gates waived from #142 (content routes
+  on staging, Google Rich Results) and the owner actions: Cloudinary upload, the 48 legal
+  placeholders and the lawyer review, and the consent decision.
+- **Dry run:** the staging dry run could not be run, because no deployed environment exists and
+  brand A is not in the deploy matrix. The laptop dry run (10 checks, all passing, plus the
+  placeholder count) is recorded in the file.
+- README: the stock budget is about five units per full run (checkout, the journey buy, order
+  history, and the two buys `account.spec.ts` gained with #312).
+
 ## Unreleased — 2026-10-05 · re-sync at main 6f5019f; three clean passes (#142, #143)
 
 - **Re-sync**: 188 copied, 1 merged, 10 preserved, 4 excluded. Brings #312 (customer token on cart
