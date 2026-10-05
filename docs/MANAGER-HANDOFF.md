@@ -74,7 +74,7 @@ Rules learned the hard way:
   for an integration period.
 - Anything the plan didn't name (a library, a port, a tag): decide, write the reason in Memory-main, move on.
 
-## 5. Paste messages
+## 5. Messages to windows (pasted by the owner until 2026-10-05; sent by the manager since — see section 12)
 
 One fenced block per window, starting `Manager:`, containing only: what merged, what to `git pull`/`pnpm install`, the
 verdict and exact fix if BLOCK, the next task and its issue number, decisions on their requests, nits marked as not-now.
@@ -142,3 +142,19 @@ mocks 4010/4011, observability (2.5) Grafana 3400 / Loki 3410 / Tempo 3420 / Pro
 - **A ruling must say who may see the result.** "A replay answers the stored order" let PR C return one customer's order to another principal. Rulings about reads name the principal.
 - **Preserved files in clones drift silently.** Brand A's sync never overwrites `next.config.mjs`, `src/brand/config.ts`, `playwright.config.ts`, `lighthouserc.json`; four starter fixes never reached it. `sync --check` now reports preserved files whose starter counterpart changed (window 10, re-sync PR).
 - **Generated media lives outside the repo** (`C:\Users\mehdi\Desktop\commerce-platform-media\<brand>` + manifest); the repo holds only a manifest with Cloudinary ids. Recipe in `docs/start-messages/00-manager-resume.md` §5.
+
+## 12. Mechanics learned 2026-10-03 → 10-05 (manager session four; Phase 2 closed)
+
+- **The manager messages the windows directly** (owner's decision, 10-05). `list_sessions` finds a window by title and `cwd`; `send_message` delivers one `Manager:` block ("delivered" = its turn started, "queued" = it runs after the window's current turn); `list_events` reads its last turn. Windows report back by messaging the manager session twice: PR up (number + head sha), then checks finished. They forget about one time in three — `gh pr list` is the truth. The manager cannot create sessions; a new window is the owner's step. Twelve PRs merged on the first day of this, against six or seven a day with hand relay.
+- **The check-in loop.** With several things in flight, `/loop 20m Manager check-in: …` wakes the manager to read the PR list and the windows' last turns. Without it the manager only runs when a window messages, a background task ends, or the owner writes. Stop the loop when the round is done.
+- **A CI timing or flake fix needs repeated runs with per-run evidence. Reasoning is not evidence and a static review cannot certify timing.** #344 put a second `owner` sign-in into the required live job and separated the two suites by step ORDER; the reviewer called it robust; three PRs in a row went red (`token for owner: invalid_grant`). #347 separates them by a computed TOTP-step gap and prints a witness table from Keycloak's event log; five consecutive runs were quoted before it merged. Ask for: N consecutive runs on one head, all attempts listed (so none is hidden), and the measured quantity per run.
+- **A new required-path job is proven before it is trusted:** three consecutive green runs on the draft, counts in the PR body (#339, #341). A job that is red for reasons in another window's paths waits unmerged until that window's fix is on main — the queue refuses any red check, advisory included, and an attempt to exempt "(advisory)" checks was refused by the harness as a CI bypass. That refusal is right; do not look for a way round it.
+- **Advisory jobs still gate their own PR.** `admin e2e against the core (advisory)` is not in branch protection; promote it after a week of green runs.
+- **Perf gate.** Since #336 the required check `storefront performance budget (bundle + Lighthouse)` is an aggregate over one leg per storefront; the aggregate keeps the exact required name. LHCI's default for a max assertion is `optimistic` = the BEST of three runs. Passing legs printed nothing until #349; now every leg prints per-run values, the CPU benchmark and the margin. Brand A's listing page is marginal (#348).
+- **Waivers.** A criterion that cannot be met on a laptop (a staging dry run, Google's validator, CMS routes without a Sanity project) is waived in writing ON THE ISSUE before the PR merges, and the gate moves to the launch checklist (`apps/storefronts/brand-a/LAUNCH.md`) — #142, #144.
+- **Scope calls that closed Phase 2:** work that produces artefacts nobody can run is deferred with an issue, not built (#342: a Keycloak deployment with no cluster). Say so to the owner the same hour.
+- **Stale `dist`.** After every merge of main: rebuild the workspace packages before starting a core. A stale `packages/auth-sdk/dist` read every token as unverified and was mis-diagnosed as a Keycloak fault; the live realm was checked read-only with `node infra/keycloak/reimport.mjs --export customers` and the admin API before anything was reimported.
+- **gitleaks.** `[allowlist]` cannot sit next to `[[allowlists]]` (8.30); a GLOBAL allowlist with `paths` exempts the whole file whatever `condition` says — only an allowlist with `targetRules` honours `condition = "AND"`. Mutation-test every new entry (the thing passes; another secret in the same file fails; the same string elsewhere fails).
+- **Windows refuse some things correctly:** a window will not edit its own `CLAUDE.md` because another session asked, and will not wipe shared data for a test. Route those to the owner; design the test so it creates its own data.
+- **Usage pacing.** `get_usage` each round. Fable is the scarce one: use it for the reviews the rule names, read small diffs yourself. Thresholds are in `00-manager-resume.md` §9.
+- **Showing the owner the apps** costs the machine: stop the core explicitly afterwards (it outlives its background wrapper and holds port 9000).
