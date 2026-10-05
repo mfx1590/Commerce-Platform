@@ -131,7 +131,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   `infra/phase2` up to date with main and wait for the manager's word on re-runs.
 - **#297 PR A REBUILT on main** — branch `infra/phase2-realm` from `origin/main` `423f64b` + cherry-pick of
   501885c without #341's commits (one-time exception to one-branch-per-window, approved by the manager).
-  The old local branch is kept as `infra/phase2-realm-on-341`. Was: built on `d758bce`. Core live
+  The old local branch is kept as `infra/phase2-realm-on-341`. Was: built on `d758bce`.
+  **PR #344** (draft). First CI run (head `de59809`): helm red — `node --test <dir>` unsupported by the
+  runner's preinstalled Node (laptop Node 20.19 accepts it) → pass the file. Live red — core auth-live owner
+  grant `invalid_grant`: TOTP reuse; auth-sdk's keycloak-realms spends the current+next window codes, core's
+  helper tries prev/current/next → all spent. Fix: core live step runs BEFORE auth-sdk's (it spends only the
+  previous window). 39/40 live tests passed in that run. Core live
   suites in auth-e2e + `infra/ci/require-live-tests.mjs` guard (6 tests); `infra/deploy/keycloak/derive-customers-realm.mjs`
   + mutation test (16 tests); `infra/helm/check-values.sh` split out + `check-values.test.sh` (13 cases);
   staging key → `staging/stores/brand-a/storefront`; classifier helm group += infra/deploy/ + customers realm

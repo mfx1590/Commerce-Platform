@@ -1,6 +1,6 @@
 // Self-test for derive-customers-realm.mjs (#297). Runs in CI's `helm` job:
 //
-//   node --test infra/deploy/keycloak/
+//   node --test infra/deploy/keycloak/derive-customers-realm.test.mjs
 //
 // Two halves. The real export derives to a realm with no violations, without touching the export.
 // Then every rule is MUTATION-TESTED: each violation is put back into an otherwise clean derived

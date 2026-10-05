@@ -396,6 +396,23 @@ jobs:
       - name: the auth stack is really up (the live suites skip silently otherwise)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/wait-for-auth-stack.sh
+      # The core's own live suites (#297): until now they ran in no CI job — the `unit` job has no
+      # Keycloak, so `describe.runIf(live)` skipped them there, quietly. Here the stack is up, and the
+      # report is checked so a probe that misses fails the step instead of skipping the block. Each
+      # suite creates its own throwaway database (createTestDatabase), so nothing shared is seeded.
+      #
+      # BEFORE the auth-sdk live suites, deliberately. Both sign `owner` in with the dev TOTP, and
+      # Keycloak refuses a code that was already used. auth-sdk's keycloak-realms test spends the
+      # current window's code and the next one's; the core's helper tries the previous window, then
+      # the current, then waits for the next — so after auth-sdk every code it can try is spent and
+      # the owner grant fails `invalid_grant` (first run of #344). Run first, the core spends only the
+      # previous window's code, which auth-sdk never uses.
+      - name: core live suites (real Keycloak tokens, OpenFGA) — and they really ran
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          pnpm exec turbo run build --filter='@platform/core^...'
+          pnpm --filter @platform/core exec vitest run test/auth-live.test.ts test/customers-api.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-live.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-live.json"             'Integration 1: real Keycloak tokens + OpenFGA through mountCoreMiddleware'             'live: real customers-realm tokens through the real verifier'
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
       # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
       # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and
@@ -403,16 +420,6 @@ jobs:
       - name: live auth suites (packages/auth-sdk + apps/core hq-rbac)
         if: needs.changes.outputs.e2e == 'true'
         run: pnpm exec turbo run test --filter=@platform/auth-sdk
-      # The core's own live suites (#297): until now they ran in no CI job — the `unit` job has no
-      # Keycloak, so `describe.runIf(live)` skipped them there, quietly. Here the stack is up, and the
-      # report is checked so a probe that misses fails the step instead of skipping the block. Each
-      # suite creates its own throwaway database (createTestDatabase), so nothing shared is seeded.
-      - name: core live suites (real Keycloak tokens, OpenFGA) — and they really ran
-        if: needs.changes.outputs.e2e == 'true'
-        run: |
-          pnpm exec turbo run build --filter='@platform/core^...'
-          pnpm --filter @platform/core exec vitest run test/auth-live.test.ts test/customers-api.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-live.json"
-          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-live.json"             'Integration 1: real Keycloak tokens + OpenFGA through mountCoreMiddleware'             'live: real customers-realm tokens through the real verifier'
       # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
       # `pnpm exec playwright` at the workspace root cannot find it.
       # Boot the real server. Everything else in this pipeline reasons about the code without
@@ -490,7 +497,7 @@ jobs:
       # auto-linking broker login, and that each of those rules fails when its violation is put back.
       - name: derived customers realm is deployable (and every rule can fail)
         if: needs.changes.outputs.helm == 'true'
-        run: node --test infra/deploy/keycloak/
+        run: node --test infra/deploy/keycloak/derive-customers-realm.test.mjs
 
   observability:
     name: observability config
