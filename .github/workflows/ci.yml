@@ -390,9 +390,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
         if: needs.changes.outputs.e2e == 'true'
+      # The events overlay makes Keycloak log every login (success included), so the TOTP barrier below can
+      # report when each suite signed `owner` in. CI only; laptops start the stack without it.
       - name: boot keycloak (staff + customers realms), openfga and postgres
         if: needs.changes.outputs.e2e == 'true'
-        run: docker compose -f infra/docker/docker-compose.yml up -d postgres redis keycloak openfga
+        run: >-
+          docker compose -f infra/docker/docker-compose.yml -f infra/ci/compose.keycloak-events.yml
+          up -d postgres redis keycloak openfga
       - name: the auth stack is really up (the live suites skip silently otherwise)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/wait-for-auth-stack.sh
@@ -401,18 +405,23 @@ jobs:
       # report is checked so a probe that misses fails the step instead of skipping the block. Each
       # suite creates its own throwaway database (createTestDatabase), so nothing shared is seeded.
       #
-      # BEFORE the auth-sdk live suites, deliberately. Both sign `owner` in with the dev TOTP, and
-      # Keycloak refuses a code that was already used. auth-sdk's keycloak-realms test spends the
-      # current window's code and the next one's; the core's helper tries the previous window, then
-      # the current, then waits for the next — so after auth-sdk every code it can try is spent and
-      # the owner grant fails `invalid_grant` (first run of #344). Run first, the core spends only the
-      # previous window's code, which auth-sdk never uses.
+      #
+      # Both this step and the auth-sdk step sign `owner` in with the dev TOTP, and Keycloak refuses a
+      # used code. ORDER ALONE DOES NOT SEPARATE THEM (#344's first fix claimed it did, and PR 345's run
+      # 37293071865 went red: when the previous step's code is refused, the core's helper spends the
+      # CURRENT one, which the auth-sdk suites starting seconds later also need). The next step is the
+      # separation: a 30-second-step gap, explained in infra/ci/totp-barrier.sh.
       - name: core live suites (real Keycloak tokens, OpenFGA) — and they really ran
         if: needs.changes.outputs.e2e == 'true'
         run: |
           pnpm exec turbo run build --filter='@platform/core^...'
           pnpm --filter @platform/core exec vitest run test/auth-live.test.ts test/customers-api.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-live.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-live.json"             'Integration 1: real Keycloak tokens + OpenFGA through mountCoreMiddleware'             'live: real customers-realm tokens through the real verifier'
+      # The core can only have spent owner codes from steps <= S (the step it finished in); waiting until
+      # step S+2 begins means auth-sdk's earliest code is S+1. 30-60 s, from the clock, every run.
+      - name: TOTP barrier — owner's one-time codes cannot be shared between the two live suites
+        if: needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/totp-barrier.sh wait
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
       # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
       # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and
@@ -420,6 +429,13 @@ jobs:
       - name: live auth suites (packages/auth-sdk + apps/core hq-rbac)
         if: needs.changes.outputs.e2e == 'true'
         run: pnpm exec turbo run test --filter=@platform/auth-sdk
+      # The witness for the barrier: every owner grant Keycloak logged, with its TOTP step and which
+      # suite it belongs to. Runs on failure too (that is when it matters) and never fails the job.
+      # Nothing later in this job signs `owner` in: admin's Prism journeys use store-admin and finance,
+      # the storefronts use the customers realm, and admin-e2e-core runs in its own job and stack.
+      - name: owner grants by TOTP step (barrier evidence)
+        if: always() && needs.changes.outputs.e2e == 'true'
+        run: bash infra/ci/totp-barrier.sh report
       # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
       # `pnpm exec playwright` at the workspace root cannot find it.
       # Boot the real server. Everything else in this pipeline reasons about the code without

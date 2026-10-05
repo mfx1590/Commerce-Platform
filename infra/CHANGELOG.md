@@ -11,6 +11,15 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 @platform/admin e2e` on :3200. Seeded realm test users only, no new secrets. Advisory (not in branch protection)
   until it has a week of green runs; the Prism variant in `auth-e2e` stays required.
 
+### Fixed (owner-TOTP collision on `live auth + end-to-end`, follow-up to #344)
+
+- #344 ran the core live suites before auth-sdk's on the claim that the core then spends only the previous TOTP
+  step's code. Wrong: when that code is refused the core's helper spends the CURRENT one, which auth-sdk's suites
+  need seconds later (PR 345, run 37293071865: hq-rbac `scope.test.ts`, "token for owner: invalid_grant",
+  126/129). `infra/ci/totp-barrier.sh wait` now sleeps from the end of the core step (step S) until step S+2
+  begins, so the core's codes (<= S) and auth-sdk's (>= S+1) cannot meet. `report` prints every owner grant by
+  step from Keycloak's event log (CI-only overlay `infra/ci/compose.keycloak-events.yml`). No test edited.
+
 ### Added (REQUEST #297 — core live suites in CI, the deployed customers realm, staging key, production values)
 
 - `auth-e2e` runs the core's live suites (`apps/core/test/auth-live.test.ts`, the live block of

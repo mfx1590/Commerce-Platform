@@ -13,6 +13,7 @@ import { expect, test } from '@playwright/test';
  */
 
 import { AGAINST_CORE, EXPECT, stamped } from './api-mode';
+import { placeCoreOrder } from './core-order';
 import { BRAND_A, BRAND_C, sessionCookies, signIn } from './staff';
 
 test.describe('store-admin', () => {
@@ -154,15 +155,25 @@ test.describe('store-admin', () => {
 
   test('orders: the list renders money and pills from the Admin API, the detail opens', async ({
     page,
+    request,
   }) => {
+    // Core mode never relies on orders a database happens to hold (#285): place one first.
+    const placed = AGAINST_CORE
+      ? await placeCoreOrder(
+          request,
+          process.env.CORE_URL ?? 'http://localhost:9000',
+          stamped('order'),
+        )
+      : null;
+
     await signIn(page, `/${BRAND_A}/orders`);
     await page.waitForURL(new RegExp(`/${BRAND_A}/orders`));
 
     const table = page.getByRole('table', { name: 'Orders' });
     await expect(table).toBeVisible();
-    if (AGAINST_CORE) {
-      // Whatever orders the shared database holds: a number link and a money cell.
-      await expect(table.getByRole('link', { name: /^#\d+$/ }).first()).toBeVisible();
+    if (placed !== null) {
+      // The order this run placed: its number link, and a money cell.
+      await expect(table.getByRole('link', { name: `#${placed.display_id}` })).toBeVisible();
       await expect(table.getByText(/\d[.,]\d{2}/).first()).toBeVisible();
     } else {
       // The mock's example: #1000, confirmed, captured, unfulfilled, €29.18.
@@ -171,7 +182,10 @@ test.describe('store-admin', () => {
       await expect(table.getByText(/29[.,]18/)).toBeVisible();
     }
 
-    const first = table.getByRole('link', { name: /^#\d+$/ }).first();
+    const first =
+      placed !== null
+        ? table.getByRole('link', { name: `#${placed.display_id}` })
+        : table.getByRole('link', { name: /^#\d+$/ }).first();
     const number = (await first.innerText()).trim();
     await first.click();
     await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));
@@ -181,32 +195,17 @@ test.describe('store-admin', () => {
   });
 
   test('orders: a refund asks first and states the ceiling', async ({ page }) => {
+    // A refund needs a captured payment. The only provider a seeded core can complete a cart with
+    // is `manual`, which authorizes and never captures (capture is Stripe only), so no run can
+    // produce a refundable order — and relying on one a database happens to hold is what #285
+    // removed. The refund question is covered by the mock run and the unit tests.
+    test.skip(
+      AGAINST_CORE,
+      'core mode: no refundable order can be produced — the seeded manual provider authorises only; capture is Stripe-only',
+    );
     await signIn(page, `/${BRAND_A}/orders`);
     const orders = page.getByRole('table', { name: 'Orders' });
     await expect(orders).toBeVisible();
-
-    if (AGAINST_CORE) {
-      // Seeded orders are shared: find one with a captured payment, go as far as the question with
-      // its ceiling, and cancel. Nothing is refunded.
-      const count = await orders.getByRole('link', { name: /^#\d+$/ }).count();
-      for (let index = 0; index < count; index += 1) {
-        await page.goto(`/${BRAND_A}/orders`);
-        await orders
-          .getByRole('link', { name: /^#\d+$/ })
-          .nth(index)
-          .click();
-        await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));
-        const refund = page.getByRole('button', { name: 'Refund', exact: true });
-        if ((await refund.count()) === 0) continue;
-        await refund.click();
-        await expect(page.getByText(/can still be refunded/)).toBeVisible();
-        await expect(page.getByRole('button', { name: /Yes, refund/ })).toBeVisible();
-        await page.getByRole('button', { name: 'Cancel' }).click();
-        await expect(page.getByRole('button', { name: /Yes, refund/ })).toHaveCount(0);
-        return;
-      }
-      test.skip(true, 'no order in the shared database has a refundable payment');
-    }
 
     await orders.getByRole('link', { name: '#1000' }).click();
     await page.waitForURL(new RegExp(`/${BRAND_A}/orders/[0-9a-f-]{36}$`));

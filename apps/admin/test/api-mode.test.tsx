@@ -11,7 +11,7 @@ import {
   versionVerdict,
   type ApiModeInfo,
 } from '@/lib/api/api-mode';
-import { reclassifyUnmounted, routeLabel } from '@/lib/api/not-implemented';
+import { isCollectionRead, reclassifyUnmounted, routeLabel } from '@/lib/api/not-implemented';
 
 vi.mock('server-only', () => ({}));
 
@@ -166,13 +166,68 @@ describe('not implemented vs session ended vs missing record (core only)', () =>
     expect(me).not.toHaveBeenCalled();
   });
 
-  it('a missing record (404 not_found) stays a 404', async () => {
+  it('a missing record (404 not_found on a single resource) stays a 404', async () => {
     const result = await reclassifyUnmounted(
       failed(404, 'not_found'),
-      { method: 'GET', path },
+      { method: 'GET', path: `${path}/${STORE}` },
       { mode: 'core', meStatus: async () => 200 },
     );
     expect(result).toMatchObject({ status: 404, error: { code: 'not_found' } });
+  });
+
+  it('since #308: 404 not_found on a collection read → not_implemented (a list has no record to miss)', async () => {
+    const me = vi.fn(async () => 200);
+    const result = await reclassifyUnmounted(
+      failed(404, 'not_found'),
+      { method: 'GET', path: `${path}?page=1` },
+      { mode: 'core', meStatus: me },
+    );
+    expect(result).toMatchObject({
+      status: 501,
+      error: { code: 'not_implemented', details: { route: 'GET /admin/stores/{id}/customers' } },
+    });
+    expect(me).not.toHaveBeenCalled();
+  });
+
+  it("the core's own unmounted marker turns a single-resource 404 not_found into not_implemented", async () => {
+    const result = await reclassifyUnmounted(
+      {
+        ok: false,
+        status: 404,
+        error: {
+          code: 'not_found',
+          message: `GET /admin/stores/${STORE}/customers/${STORE} is not implemented`,
+          details: {},
+        },
+      },
+      { method: 'GET', path: `${path}/${STORE}` },
+      { mode: 'core', meStatus: async () => 200 },
+    );
+    expect(result).toMatchObject({
+      status: 501,
+      error: { details: { route: 'GET /admin/stores/{id}/customers/{id}' } },
+    });
+  });
+
+  it('a collection 404 from Prism stays a 404', async () => {
+    const result = await reclassifyUnmounted(
+      failed(404, 'not_found'),
+      { method: 'GET', path },
+      { mode: 'mock', meStatus: async () => 200 },
+    );
+    expect(result.status).toBe(404);
+  });
+
+  it.each([
+    ['GET', `/admin/stores/${STORE}/orders`, true],
+    ['GET', `/admin/stores/${STORE}/orders?page=2`, true],
+    ['GET', '/admin/stores', true],
+    ['GET', `/admin/stores/${STORE}/orders/${STORE}`, false],
+    ['GET', '/admin/pick-lists/42', false],
+    ['GET', `/admin/stores/${STORE}`, false],
+    ['POST', `/admin/stores/${STORE}/orders`, false],
+  ] as const)('isCollectionRead(%s %s) = %s', (method, url, expected) => {
+    expect(isCollectionRead(method, url)).toBe(expected);
   });
 
   it('against Prism nothing is reclassified, and /admin/me is not asked', async () => {

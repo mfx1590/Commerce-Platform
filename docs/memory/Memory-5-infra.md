@@ -115,9 +115,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   red in setup — fga:seed needs contracts dist, fixed `d758bce`; run 2 (job 111688693287, head d758bce)
   20 passed / 3 failed / 0 — spec-vs-fresh-core (routed to window 4, no REQUEST from me).
   Expected after 345 on a fresh seed: **22 passed, 1 skipped, 0 failed**.
-  Local (not pushed): main `1e14f03` merged into `infra/phase2` + the #344 review nits. WAIT for the manager's
-  word that 345 is on main → merge main again → push ONCE → re-run the advisory job until 3 consecutive green
-  → message the manager the counts. Then delete local `infra/phase2-realm` and `infra/phase2-realm-on-341`.
+  2026-10-05: PR 345 merged (`6b129d9`). main `6b129d9` merged into `infra/phase2` with the #344 nits and
+  pushed once; now running the advisory job 3× (expected 22 passed / 1 skipped / 0 failed). If it is not
+  that: STOP and send the manager the failing spec + snapshot before any re-run. Last Phase 2 item.
 
 ## Next — the docket, in order
 
@@ -127,6 +127,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## Done (earlier)
 
+- **Owner-TOTP collision on the required live job** — PR #347 **merged** as `7993482` (2026-10-05). #344's
+  reorder was wrong (order is not a separation: PR 345 run 37293071865, hq-rbac scope.test.ts invalid_grant,
+  126/129). `infra/ci/totp-barrier.sh wait` sleeps from the core step's end (step S) to the start of S+2;
+  `report` prints owner grants by step from Keycloak's event log (CI overlay `infra/ci/compose.keycloak-events.yml`).
+  5 consecutive green runs on `c190e28` (run 37294007283): core grants <= S, auth-sdk's in S+2 every time;
+  core 40/40, auth-sdk 129/129. Held on #343 and #345 too. Caveat: no core LOGIN_ERROR in those runs.
+  The real cure (second OTP user / shared owner-token fixture) is filed by the manager for windows 1/2.
 - **#297 (rest)** — PR #344 **merged** as `1e14f03` (2026-10-05), built on main as a one-time second branch
   (`infra/phase2-realm`). Green head **`ecca795`** (run 37289318570): core live suites **40/40** (guard 10/10 and
   3/3), derived realm 16/16 (12 mutations), check-values 13 cases, guard self-test 6/6. Run 1 (`de59809`) was red:
@@ -382,6 +389,11 @@ Standing debts (parked), whenever this window is next open:
 
 ## Gotchas learned
 
+- **Commit messages: never close/fix/resolve next to a `#number`** (GitHub closing keywords), unless the commit
+  really finishes that issue. #347's subject "fixes #344's wrong fix" was flagged — say "corrects" / "follow-up to".
+- **Ordering two suites is not a separation for single-use codes.** A helper that falls back to the current
+  TOTP code spends exactly what the next suite needs. Separate by a step GAP computed from the clock
+  (`infra/ci/totp-barrier.sh`), and get evidence from the server's own event log, not from one green run.
 - **The owner's dev TOTP is a shared, single-use resource inside one CI job.** Keycloak refuses a reused code.
   auth-sdk's `keycloak-realms.test.ts` spends the current and next 30 s windows; core's `auth-live` helper tries
   previous → current → next. Run core's live suites FIRST (they spend only the previous window). Any new suite

@@ -133,10 +133,12 @@ async function placedOrder(lines = 1, confirm = true) {
   return { orderId: placed.order.id, lines: items.rows };
 }
 
+// Ordered by `seq`, the outbox's identity column: the order the rows were written. occurred_at is a wall-clock
+// value per event and two events from one transition can tie or straddle a millisecond (#255).
 const eventsFor = (shipmentId: string) =>
   owner.query<{ topic: string; payload: Record<string, unknown> }>(
     `SELECT topic, payload FROM outbox WHERE aggregate_type = 'shipment' AND aggregate_id = $1
-      ORDER BY occurred_at, topic`,
+      ORDER BY seq`,
     [shipmentId],
   );
 
@@ -476,11 +478,13 @@ describe('shipments', () => {
     });
     await buyShipmentLabel(a, planned.id, { actor });
     await updateShipment(a, planned.id, { status: 'delivered', actor });
+    // Both events are written in one transaction, shipped first: `seq` (the outbox identity) is the write order.
+    // occurred_at can tie or differ by a millisecond between the two, so it must not decide the order (#255).
     const events = await eventsFor(planned.id);
     expect(events.rows.map((row) => row.topic)).toEqual([
       'shipment.created',
-      'shipment.delivered',
       'shipment.shipped',
+      'shipment.delivered',
     ]);
     const row = await getShipment(a, planned.id);
     expect(row.shipped_at).not.toBeNull();
@@ -650,7 +654,7 @@ describe('a two-shipment order, replayed', () => {
     // Every order event this order ever wrote, in order, folded from nothing.
     const stream = await owner.query<ProjectedEvent>(
       `SELECT topic, payload FROM outbox
-        WHERE aggregate_type = 'order' AND aggregate_id = $1 ORDER BY occurred_at, seq`,
+        WHERE aggregate_type = 'order' AND aggregate_id = $1 ORDER BY seq`,
       [order.orderId],
     );
     const replayed = projectOrder(stream.rows);
