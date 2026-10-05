@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.0.
+ * Contract: Admin API 0.4.8.
  */
 
 import 'server-only';
@@ -111,6 +111,19 @@ export async function addDomain(
   });
 }
 
+/** Moves the primary flag to this domain (owner on hq); the core clears it on the old one. */
+export async function updateDomain(
+  storeId: string,
+  domainId: string,
+  body: { is_primary: boolean },
+): Promise<ApiResult<AdminResponse<'updateDomain'>>> {
+  return adminCall<'updateDomain'>({
+    path: buildPath('/admin/stores/{storeId}/domains/{domainId}', { storeId, domainId }),
+    method: 'PATCH',
+    body,
+  });
+}
+
 export async function listSalesChannels(
   storeId: string,
 ): Promise<ApiResult<AdminResponse<'listSalesChannels'>>> {
@@ -150,6 +163,17 @@ export async function createApiKey(
     path: buildPath('/admin/stores/{storeId}/api-keys', { storeId }),
     method: 'POST',
     body,
+  });
+}
+
+/** 409 `last_live_key` when this is the store's only live publishable key. Idempotent. */
+export async function revokeApiKey(
+  storeId: string,
+  keyId: string,
+): Promise<ApiResult<AdminResponse<'revokeApiKey'>>> {
+  return adminCall<'revokeApiKey'>({
+    path: buildPath('/admin/stores/{storeId}/api-keys/{keyId}/revoke', { storeId, keyId }),
+    method: 'POST',
   });
 }
 

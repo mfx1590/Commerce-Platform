@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-09-26 · Contracts: contracts-v0.4.6 (Admin API 0.4.6) · Branch: `admin/phase2` · Status: Phase 2 — 2.1–2.3 merged, 2.4 = #276 (MERGE, queued), 2.5 part one built locally, 2.5b waits on #279, 2.6 next
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: Phase 2 — 2.1–2.6 merged except 2.5b = this PR (Refs #117 until a core run proves AC1)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,22 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **2.5b — issue #117 revoke / primary / enabled sets** · 2026-10-05 · one commit after merging
+  main 6f5019f (sha in the PR) · PR body **Refs #117** — AC1 (real core run) not proven for the
+  2.5b parts: the manager holds the machine for another window; asked for it in the report.
+  - General: `currencies`/`locales` via `CodeListField` (+ `codeListError`), `storeSettingsSchema`
+    `.extend` with `enabledSet` (unique), action sends `withDefault(set, default)`. Read-only shows
+    both. `forStoreSettings` now 8 keys.
+  - Domains: `MakePrimaryButton` (`updateDomain {is_primary:true}`, owner hq), never sends false.
+  - Keys: `RevokeKeyButton` asks first; `lastLiveKeyId` → no button, row says why; 409
+    `last_live_key` → `LAST_LIVE_KEY_MESSAGE` (lives in `src/lib/settings`, not the 'use server' file).
+  - **Server-side guard** `src/lib/settings/guard.ts` `refuseUnlessPermitted(op, storeId)` in every
+    registry action (createStore/updateStore/updateStoreSettings/addDomain/setPrimaryDomain/
+    createSalesChannel/createApiKey/revokeApiKey); table `REGISTRY_PERMISSIONS` pinned against the
+    yaml in `test/settings.test.tsx`. Path ids uuid-checked before the API.
+  - #287 nits done (probe non-404 → unreachable; numeric ids fold; README :9100 vs :9000).
+  - Tests: unit 584/584 (`settings-actions` 12 new, settings 36), contract 74/74 (settings 15),
+    mock e2e 21 + 2 core-only skipped (against the shared docker Prism :4011, which served 0.4.8).
 - **2.6 — issue #118 Real-API hardening** · 2026-09-28 · local commit (sha in the PR)
   - `src/lib/api/api-mode.ts`: `/health` probe (core 200 / Prism 404 / unreachable), 60 s cache,
     1.5 s timeout, `X-Contracts-Version` read; `versionVerdict` → chip or warning, never a block.
@@ -396,14 +412,16 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   directly. **2.5b nits from the #287 review:** `probeApiMode` treats a core 500 on `/health` as
   mock (match 404 specifically; anything else non-2xx = unreachable); `routeLabel` folds uuids
   but not numeric ids; one word in the README on :9100 (this run) vs :9000 (the default).
-- After that: 2.5b when #279 lands as 0.4.7 (closes #117) → then Phase 2 done.
+- **2.5b = PR (see report), Refs #117** (2026-10-05). To close #117: a core run of the settings
+  page (store-admin: sets save, revoke a second key, last-live note; owner: make primary;
+  store-staff read-only) — needs the machine from the manager. Then Phase 2 done.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
 - [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
-- [ ] **#117 · 2.5** Store settings — part one = PR #282 (Refs #117); 2.5b after #279 (0.4.7) closes it
+- [ ] **#117 · 2.5** Store settings — part one merged (#282); 2.5b in PR (Refs #117) — core run pending
 - [x] **#118 · 2.6** Real-API hardening and e2e against the core — PR #287 (Refs #118)
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
@@ -600,6 +618,12 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **A 'use server' file may export only async functions** — a message constant there breaks
+  `next build`; keep constants in `src/lib/**`.
+- **`import.meta.url` is not a file URL under Vitest's jsdom** — `fileURLToPath` throws; resolve
+  repo files from `process.cwd()` (apps/admin).
+- **Prism's `/admin/me` is a store_admin** — owner-only actions are refused by the server-side
+  guard in contract tests; exercise those operations through the wrappers.
 - **`packages/contracts/dist` can be stale in a worktree** (built 2026-09-24 at 0.4.5 while `src`
   said 0.4.6): the app and typecheck import the built `dist`, not `src`. The 2.6 banner exposed it
   ("this app speaks 0.4.5"). After a contracts bump on main: `pnpm --filter @platform/contracts

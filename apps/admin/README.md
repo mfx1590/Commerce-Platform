@@ -88,7 +88,7 @@ which routes the core does not mount). **Core-mode journeys write into the share
 database**: everything they create is stamped with the run (product handles, promotion codes, key
 names), so reruns never collide, and nothing irreversible is confirmed on seeded data (the refund
 journey stops at the question and cancels; it skips when no seeded order has a refundable payment).
-Recorded run 2026-09-28 (core from this branch on :9100): mock 21 passed + 2 core-only skipped;
+Recorded run 2026-09-28 (core from this branch on :9100 for that run only — the default and the commands above use :9000): mock 21 passed + 2 core-only skipped;
 core 22 passed + 1 skipped (no refundable order). A CI variant is REQUEST #285 (window 5).
 
 `e2e/catalog-core.spec.ts` is the deep catalog journey and runs in core mode only:
@@ -473,18 +473,39 @@ are parsed by `parseMoney`, string arithmetic, never a float. The action also re
 compare-at below the amount (the preview and the core refuse it too); every refusal class has a
 batch test in `test/pricing.test.ts`, which is the standard for any money-adjacent import.
 
-## Store settings (task 2.5, issue #117 — part one; 2.5b after CONTRACT CHANGE #279)
+## Store settings (task 2.5 + 2.5b, issue #117; Admin API 0.4.8)
 
 **Store · Settings** (`settings`, `/{storeId}/settings`) is open to **store_staff and up**, and
 read-only below store_admin. One page, four cards, each form offered only to the relation its
 operation needs and otherwise replaced by a line naming that relation (`src/lib/settings`):
 
-| Card           | Read (x-permission)             | Write (x-permission)                                      |
-| -------------- | ------------------------------- | --------------------------------------------------------- |
-| General        | `getStore` — viewer             | `updateStore` — store_admin (name, status, defaults)      |
-| Domains        | `listDomains` — viewer          | `addDomain` — **owner on organization:hq**, not the store |
-| Sales channels | `listSalesChannels` — viewer    | `createSalesChannel` — store_admin                        |
-| API keys       | `listApiKeys` — **store_admin** | `createApiKey` — store_admin, publishable only here       |
+| Card           | Read (x-permission)             | Write (x-permission)                                                      |
+| -------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| General        | `getStore` — viewer             | `updateStore` — store_admin (name, status, defaults, enabled sets)        |
+| Domains        | `listDomains` — viewer          | `addDomain`, `updateDomain` (make primary) — **owner on organization:hq** |
+| Sales channels | `listSalesChannels` — viewer    | `createSalesChannel` — store_admin                                        |
+| API keys       | `listApiKeys` — **store_admin** | `createApiKey`, `revokeApiKey` — store_admin, publishable only here       |
+
+**Checked on the server, not only in the page.** Every registry server action
+(`src/app/actions/stores.ts`) starts with `refuseUnlessPermitted(operation, storeId)`
+(`src/lib/settings/guard.ts`): it loads the principal from `GET /admin/me` and refuses with the
+contract's 403 body unless the principal holds the operation's `x-permission`, before the Admin API
+is called — a server action is a public POST, reachable whatever the page offered. The relations
+come from one table, `REGISTRY_PERMISSIONS` in `src/lib/settings`, which also drives what the page
+offers; a unit test pins every row against `admin-api.yaml` itself. The Admin API checks again.
+
+**Enabled sets.** General edits the enabled currencies and locales as one line each
+(`CodeListField`, `EUR, USD`). `updateStore` replaces the whole set; the default is always kept —
+the action sends it first (`withDefault`), as the core would keep it anyway.
+
+**Primary domain.** "Make primary" on each non-primary domain (owner on hq) sends
+`updateDomain { is_primary: true }`; the core clears the old one. `false` is never sent (the spec
+refuses clearing the only primary with 409).
+
+**Revoking a key** asks first ("cannot be undone"), and only the confirmation sends. The store's last
+live publishable key has no Revoke — its row says to create another first (`lastLiveKeyId`); if the
+core refuses anyway (409 `last_live_key`, e.g. a key revoked in another tab), the action returns
+that in plain words inside the question.
 
 Below store_admin the keys list is not even requested; the card is the relation panel. Moving the
 status to `paused` or `archived` asks first (it takes the storefront offline). The Store view's
@@ -496,12 +517,12 @@ only — never in the URL, storage, a prop, a log, or the server-rendered list (
 `key_prefix`) — and "Done" removes it from the document for good (tested in unit and e2e).
 
 **Shared with HQ.** `src/components/registry/` holds the lists (server components, the records
-stay on the server) and the three client forms (ids and `ClientSafe` options only). The HQ store
+stay on the server), the three client forms and the row buttons (ids and names only; shown only
+when the Store view passes a `storeId` and the permission). The HQ store
 page and the settings page both use them; every registry action revalidates both paths.
 
-**Not yet (2.5b).** Revoking a key (with the last-live-key refusal), moving the primary domain and
-the enabled locale/currency sets have no operation in Admin API 0.4.6 — CONTRACT CHANGE #279
-asks for them. Nothing is shown for them until then.
+**2.5b against the core:** not run yet — the machine is held by another window. Unit, Prism
+contract and mock e2e cover it; the core-mode e2e journey revokes the key it creates.
 
 **Real core run** (2026-09-26; core from this branch on :9100, the built app on :3000 with
 `ADMIN_API_URL` pointing at it, real Keycloak sign-in, OpenFGA re-seeded). As **store-admin**: all

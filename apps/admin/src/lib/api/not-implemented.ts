@@ -25,7 +25,8 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 /** `GET /admin/stores/{id}/customers` — ids folded so the label names the route, not the row. */
 export function routeLabel(method: string, path: string): string {
   const [bare = path] = path.split('?');
-  return `${method.toUpperCase()} ${bare.replace(UUID, '{id}')}`;
+  // uuids and purely numeric segments both fold to `{id}`, so one route has one label.
+  return `${method.toUpperCase()} ${bare.replace(UUID, '{id}').replace(/\/\d+(?=\/|$)/g, '/{id}')}`;
 }
 
 export function notImplementedError(method: string, path: string): AdminError {

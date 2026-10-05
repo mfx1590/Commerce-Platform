@@ -27,6 +27,7 @@ export const dynamic = 'force-dynamic';
 const NONE: SettingsPermissions = {
   canEditStore: false,
   canAddDomain: false,
+  canMovePrimary: false,
   canCreateChannel: false,
   canManageKeys: false,
 };
@@ -55,6 +56,8 @@ function ReadOnlyGeneral({ store }: { store: AdminComponents['Store'] }) {
     ['Default locale', store.default_locale],
     ['Default country', store.default_country],
     ['Timezone', store.timezone],
+    ['Enabled currencies', store.currencies.join(', ')],
+    ['Enabled locales', store.locales.join(', ')],
   ];
   return (
     <dl className="grid max-w-3xl gap-x-6 gap-y-2 text-sm sm:grid-cols-[12rem_1fr]">
@@ -71,10 +74,11 @@ function ReadOnlyGeneral({ store }: { store: AdminComponents['Store'] }) {
 /**
  * Store settings (#117): General, Domains, Sales channels, API keys.
  *
- * store_staff reads everything except the API keys (listing them is store_admin); each form is
- * offered only to the relation its operation needs, and otherwise names that relation. Revoking a
- * key, moving the primary domain and the enabled locale/currency sets wait for CONTRACT CHANGE
- * #279 (2.5b) — none of them is shown until the contract has them.
+ * store_staff reads everything except the API keys (listing them is store_admin); each form and
+ * button is offered only to the relation its operation needs, and otherwise names that relation.
+ * The server actions refuse the same way before calling the API (`src/lib/settings/guard.ts`).
+ * General includes the enabled currency/locale sets; Domains moves the primary (owner on hq); API
+ * keys revoke after a confirmation, never the last live publishable key (Admin API 0.4.8, #279).
  *
  * Lists render here on the server; the client forms take ids, options and six scalars.
  */
@@ -133,14 +137,22 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
           />
           <CardBody className="space-y-4">
             {domains.ok ? (
-              <DomainList domains={domains.data.items} />
+              <DomainList
+                domains={domains.data.items}
+                storeId={storeId}
+                canMovePrimary={can.canMovePrimary}
+              />
             ) : (
               <RequestErrorPanel status={domains.status} error={domains.error} />
             )}
             {can.canAddDomain ? (
               <AddDomainForm storeId={storeId} />
             ) : (
-              <Needs relation="owner" object="organization:hq" to="Adding a domain" />
+              <Needs
+                relation="owner"
+                object="organization:hq"
+                to="Adding a domain or moving the primary"
+              />
             )}
           </CardBody>
         </Card>
@@ -177,6 +189,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
                 <ApiKeyList
                   keys={keys.data.items}
                   channels={channels.ok ? channels.data.items : []}
+                  storeId={storeId}
+                  canRevoke={can.canManageKeys}
                 />
                 <CreateApiKey
                   storeId={storeId}

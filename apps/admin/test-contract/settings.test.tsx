@@ -1,7 +1,11 @@
 /**
- * Store settings (#117) against the spec's own examples (Admin API 0.4.6): the eight registry
+ * Store settings (#117) against the spec's own examples (Admin API 0.4.8): the ten registry
  * operations the page and its actions call, and the refusals the spec documents on them. Prism is
  * spawned here on its own port; the wrappers are pointed at it before the app modules load.
+ *
+ * The actions' own permission check reads `/admin/me` from Prism too, whose example is a
+ * store_admin on brand-a: so owner-only actions are refused here before the API, and their
+ * operations are exercised through the wrappers.
  */
 import { render, screen } from '@testing-library/react';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -33,7 +37,7 @@ beforeAll(async () => {
 afterAll(() => prism?.stop());
 
 describe('the settings reads reach the paths the spec documents', () => {
-  it('reads the store, and the General projection takes exactly its six fields', async () => {
+  it('reads the store, and the General projection takes its six fields and the two sets', async () => {
     const store = await api.getStore(SEED_STORE_ID);
     if (!store.ok) throw new Error(`getStore failed: ${store.status}`);
     expect(forStoreSettings(store.data)).toEqual({
@@ -43,6 +47,8 @@ describe('the settings reads reach the paths the spec documents', () => {
       default_locale: expect.any(String),
       default_country: expect.stringMatching(/^[A-Z]{2}$/),
       timezone: expect.any(String),
+      currencies: expect.arrayContaining([store.data.default_currency]),
+      locales: expect.arrayContaining([store.data.default_locale]),
     });
   });
 
@@ -83,6 +89,8 @@ describe('the settings actions against the spec', () => {
       default_locale: 'en-GB',
       default_country: 'NL',
       timezone: 'Europe/Amsterdam',
+      currencies: ['EUR', 'USD'],
+      locales: ['en-GB', 'nl-NL'],
     });
     expect(result.status).toBe('success');
     if (result.status !== 'success') throw new Error('expected success');
@@ -97,6 +105,8 @@ describe('the settings actions against the spec', () => {
       default_locale: 'en-GB',
       default_country: 'NL',
       timezone: 'Europe/Amsterdam',
+      currencies: ['EUR'],
+      locales: ['en-GB'],
       // An edited request: the Store view never sends these.
       ...({ code: 'brand-z', legal_entity_id: '00000000-0000-4000-8000-000000000012' } as object),
     });
@@ -104,11 +114,11 @@ describe('the settings actions against the spec', () => {
   });
 
   it('adds a domain (201) and creates a sales channel (201)', async () => {
-    const domain = await actions.addDomainAction(SEED_STORE_ID, {
+    const domain = await api.addDomain(SEED_STORE_ID, {
       hostname: 'shop.brand-a.example',
       is_primary: true,
     });
-    expect(domain).toMatchObject({ status: 'success', data: { hostname: expect.any(String) } });
+    expect(domain).toMatchObject({ ok: true, data: { hostname: expect.any(String) } });
 
     const channel = await actions.createSalesChannelAction(SEED_STORE_ID, {
       code: 'web-eu',
@@ -128,6 +138,60 @@ describe('the settings actions against the spec', () => {
     if (result.status !== 'success') throw new Error('expected success');
     expect(result.data.key).toEqual(expect.any(String));
     expect(result.data.key.startsWith(result.data.key_prefix.slice(0, 2))).toBe(true);
+  });
+});
+
+describe('moving the primary domain and revoking a key (#279, Admin API 0.4.7)', () => {
+  const DOMAIN_ID = '40000000-0000-4000-8000-000000000001';
+  const KEY_ID = '40000000-0000-4000-8000-000000000101';
+
+  it('updateDomain answers 200 with the domain, now primary', async () => {
+    const result = await api.updateDomain(SEED_STORE_ID, DOMAIN_ID, { is_primary: true });
+    expect(result).toMatchObject({ ok: true, data: { is_primary: true } });
+  });
+
+  it("setPrimaryDomainAction is refused for Prism's store_admin before the API (owner on hq)", async () => {
+    const result = await actions.setPrimaryDomainAction(SEED_STORE_ID, DOMAIN_ID);
+    expect(result).toMatchObject({
+      status: 'error',
+      refusal: {
+        status: 403,
+        error: { details: { relation: 'owner', object: 'organization:hq' } },
+      },
+    });
+  });
+
+  it('revokeApiKeyAction passes the check for a store_admin and gets the revoked key back', async () => {
+    const result = await actions.revokeApiKeyAction(SEED_STORE_ID, KEY_ID);
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') throw new Error('expected success');
+    expect(result.data.revoked_at).toEqual(expect.any(String));
+  });
+
+  it('409 last_live_key on revokeApiKey is the documented error the action maps', async () => {
+    const result = await adminRequest<'revokeApiKey'>({
+      baseUrl: BASE,
+      path: `/admin/stores/${SEED_STORE_ID}/api-keys/${KEY_ID}/revoke`,
+      method: 'POST',
+      accessToken: 'contract-test-token',
+      headers: preferring(409),
+    });
+    if (result.ok) throw new Error('expected 409');
+    expect(result.status).toBe(409);
+    expect(result.error.code).toBe('last_live_key');
+  });
+
+  it('409 on updateDomain (clearing the only primary) comes back as a conflict', async () => {
+    const result = await adminRequest<'updateDomain'>({
+      baseUrl: BASE,
+      path: `/admin/stores/${SEED_STORE_ID}/domains/${DOMAIN_ID}`,
+      method: 'PATCH',
+      body: { is_primary: false },
+      accessToken: 'contract-test-token',
+      headers: preferring(409),
+    });
+    if (result.ok) throw new Error('expected 409');
+    expect(result.status).toBe(409);
   });
 });
 

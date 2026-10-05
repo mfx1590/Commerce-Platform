@@ -78,19 +78,36 @@ export const storeUpdateSchema = storeCreateSchema.partial();
 export type StoreUpdateValues = z.infer<typeof storeUpdateSchema>;
 const _storeUpdateMatches: MatchesContract<StoreUpdateValues, AdminComponents['StoreInput']> = true;
 
+const localeTag = z
+  .string()
+  .regex(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/, 'Use BCP-47 tags, e.g. en-GB, nl-NL');
+
+/** An enabled set: each entry once. `updateStore` replaces the whole set with what is sent. */
+function enabledSet<T extends z.ZodString>(entry: T) {
+  return z
+    .array(entry)
+    .refine((values) => new Set(values).size === values.length, 'List each one once');
+}
+
 /**
- * The Store view's General settings: what a store_admin may change about their own store. The
- * legal entity and the code are HQ's (the HQ store form edits them); the enabled locale and
- * currency sets wait for CONTRACT CHANGE #279 (2.5b).
+ * The Store view's General settings: what a store_admin may change about their own store,
+ * including the enabled currency and locale sets (Admin API 0.4.7, #279). The legal entity and the
+ * code are HQ's (the HQ store form edits them). The core always keeps the default in its set; the
+ * action adds it too (`withDefault`), so a set without it is not an error.
  */
-export const storeSettingsSchema = storeCreateSchema.pick({
-  name: true,
-  status: true,
-  default_currency: true,
-  default_locale: true,
-  default_country: true,
-  timezone: true,
-});
+export const storeSettingsSchema = storeCreateSchema
+  .pick({
+    name: true,
+    status: true,
+    default_currency: true,
+    default_locale: true,
+    default_country: true,
+    timezone: true,
+  })
+  .extend({
+    currencies: enabledSet(currencyCode),
+    locales: enabledSet(localeTag),
+  });
 export type StoreSettingsValues = z.infer<typeof storeSettingsSchema>;
 const _storeSettingsMatches: MatchesContract<StoreSettingsValues, AdminComponents['StoreInput']> =
   true;
