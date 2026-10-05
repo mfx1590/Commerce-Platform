@@ -33,7 +33,10 @@ export async function probeApiMode(
     if (response.ok) {
       return { mode: 'core', contractsVersion: response.headers.get('x-contracts-version') };
     }
-    return { mode: 'mock', contractsVersion: null };
+    // Only Prism's 404 means the mock. A core answering 500 (or anything else) on `/health` is a
+    // core in trouble, not a mock — calling it the mock would hide the not-implemented mapping.
+    if (response.status === 404) return { mode: 'mock', contractsVersion: null };
+    return { mode: 'unreachable', contractsVersion: null };
   } catch {
     return { mode: 'unreachable', contractsVersion: null };
   }

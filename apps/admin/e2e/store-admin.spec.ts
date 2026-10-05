@@ -325,7 +325,7 @@ test.describe('store-admin', () => {
     await expect(page.getByRole('button', { name: 'Import 1 accepted row' })).toBeVisible();
   });
 
-  test('settings: domains are owner-only, and a new publishable key is shown exactly once', async ({
+  test('settings: domains are owner-only, sets are editable, a new key is shown once and can be revoked', async ({
     page,
   }) => {
     await signIn(page, `/${BRAND_A}/settings`);
@@ -339,7 +339,23 @@ test.describe('store-admin', () => {
     ).toBeVisible();
     // store_admin is not owner on organization:hq: the domain form is replaced by what it needs.
     await expect(page.getByRole('form', { name: 'Add domain' })).toHaveCount(0);
-    await expect(page.getByText(/Adding a domain needs/)).toContainText('owner on organization:hq');
+    await expect(page.getByText(/Adding a domain or moving the primary needs/)).toContainText(
+      'owner on organization:hq',
+    );
+    await expect(page.getByRole('button', { name: /^Make .* primary$/ })).toHaveCount(0);
+    // The enabled sets are part of General and always hold the default.
+    const general = page.getByRole('form', { name: 'General settings' });
+    const defaultCurrency = await general.getByLabel(/^Default currency/).inputValue();
+    await expect(general.getByLabel('Enabled currencies')).toHaveValue(
+      new RegExp(`\\b${defaultCurrency}\\b`),
+    );
+    await expect(
+      general.getByText(`${defaultCurrency} is the default and is always enabled.`),
+    ).toBeVisible();
+    if (!AGAINST_CORE) {
+      // Prism lists one live publishable key: it is the last one, so it offers no Revoke.
+      await expect(page.getByTestId('last-live-key')).toBeVisible();
+    }
 
     const keyForm = page.getByRole('form', { name: 'New API key' });
     await keyForm.getByLabel(/^Name/).fill(stamped('e2e storefront', ' '));
@@ -356,6 +372,22 @@ test.describe('store-admin', () => {
     // And a fresh server render does not bring it back.
     await page.reload();
     expect(await page.content()).not.toContain(value);
+
+    if (AGAINST_CORE) {
+      // The core now holds at least two live publishable keys: the new one may go, after asking.
+      const name = (
+        await page
+          .getByRole('list', { name: 'API keys' })
+          .getByText(/^e2e storefront/)
+          .last()
+          .innerText()
+      ).trim();
+      await page.getByRole('button', { name: `Revoke ${name}` }).click();
+      const question = page.getByRole('alertdialog', { name: `Confirm revoking ${name}` });
+      await expect(question).toContainText('cannot be undone');
+      await question.getByRole('button', { name: 'Revoke key' }).click();
+      await expect(page.getByRole('button', { name: `Revoke ${name}` })).toHaveCount(0);
+    }
   });
 
   test('the media rows can be reordered in the editor', async ({ page }) => {
