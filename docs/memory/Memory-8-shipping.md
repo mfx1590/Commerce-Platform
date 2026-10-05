@@ -1,6 +1,6 @@
 # Memory 8 — Shipping & fulfillment
 Window: 8 · Key: `shipping` · Branch prefix: `shipping/` · Model: Sonnet
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (nothing changed for shipping since v0.4.3) (Admin API 0.4.3, events 0.3.0, db 0.3.0 incl. migrations 0140 `webhook_event` and 0160 pick/pack statuses) · Branch: `shipping/phase2` · **Status: PHASE 2 COMPLETE — 2.1–2.5 all merged; window quiet.**
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (nothing changed for shipping since v0.4.3) (Admin API 0.4.3, events 0.3.0, db 0.3.0 incl. migrations 0140 `webhook_event` and 0160 pick/pack statuses) · Branch: `shipping/phase2` · **Status: PHASE 2 COMPLETE — 2.1–2.5 + #255 (PR #343) merged; window quiet until Phase 3.**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,7 +16,7 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **#255 — outbox-order flake in the module's database tests** · PR pending (2026-10-05)
+- **#255 — outbox-order flake in the module's database tests** · commit `aaabf73` · PR #343, merged as `bc3a346` (2026-10-05); #255 closed
   `shipments-db.test.ts` ordered a shipment's outbox rows by `occurred_at, topic`; the skipped-scan test expected
   `delivered` before `shipped`, true only on an occurred_at tie (alphabetical). Every shipment/order stream query in
   shipping and fulfillment tests now orders by `seq` (outbox identity = write order), and the skipped-scan test
@@ -197,6 +197,10 @@ lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.
 - (nothing)
 
 ## Gotchas learned
+- Reporting to the manager (since 2026-10-05 via session messaging): send a message AS SOON AS the PR is up,
+  then a second one when every check has finished. On #343 I waited for CI and the manager found the PR in the
+  list first. A red check caused outside the diff (e.g. live suites sharing the owner's one-time code, fixed by
+  #347) is the manager's call, not a reason to push again.
 - Order outbox rows in tests by `seq` alone, never `occurred_at`: occurred_at is a wall clock per event (two events
   of one transition can tie or straddle a millisecond), `seq` is the identity column and the write order (#255).
 - After a contract lands, **rebuild the workspace packages** before judging anything: `@platform/events` generates
