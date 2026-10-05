@@ -209,6 +209,15 @@ describe('the cloud name, and only the cloud name', () => {
     );
   });
 
+  it('accepts a valid cloud name and refuses anything that is not one, loudly', () => {
+    expect(cloudNameFrom({ CLOUDINARY_CLOUD_NAME: ' fieldnote-eu_1 ' })).toBe('fieldnote-eu_1');
+    for (const bad of ['Fieldnote', 'a/b', 'a.b', '../x', 'a b', 'x?y=1']) {
+      expect(() => cloudNameFrom({ CLOUDINARY_CLOUD_NAME_BRAND_A: bad }), bad).toThrow(
+        /is not valid/,
+      );
+    }
+  });
+
   it('never reads the API key or secret', () => {
     const read: string[] = [];
     const env = new Proxy(

@@ -27,7 +27,7 @@
  * syntax does not exist on Windows, where this repo is developed.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -144,6 +144,11 @@ async function main() {
     // reused it before this script existed; keep that, but still insist on warmth.
     console.error(`[e2e-server] reusing the server already on ${appUrl}; not building`);
   } else {
+    // A clean data cache, every build (#327). `.next/cache/fetch-cache` outlives `next build`, so
+    // a run could render stock cached by the previous run within CATALOG_REVALIDATE: on 2026-10-03
+    // the PDP offered a product the core had just sold out, and add-to-cart refused it. The rest of
+    // `.next/cache` (the compiler's) is kept; it holds no data.
+    rmSync(join(root, '.next', 'cache', 'fetch-cache'), { recursive: true, force: true });
     const built = spawnSync(process.execPath, [NEXT_BIN, 'build'], {
       cwd: root,
       env: { ...serverEnv, SITE_URL: BUILD_SITE_URL },

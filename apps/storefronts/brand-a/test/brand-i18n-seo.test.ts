@@ -32,6 +32,11 @@ vi.mock('next/navigation', async (importOriginal) => ({
 vi.mock('next/font/local', () => ({
   default: () => ({ className: 'f', style: { fontFamily: 'f' }, variable: '--f' }),
 }));
+// Since #327 the layout renders the starter's `HydrationMarker`, a client component whose only job
+// is a `useEffect` that marks `<html>` hydrated for the e2e specs. This test calls the layout as a
+// function, with no React renderer to dispatch hooks, and asserts what the server renders, which
+// the marker never touches.
+vi.mock('@/components/hydration-marker', () => ({ HydrationMarker: () => null }));
 vi.mock('next-intl', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   NextIntlClientProvider: ({ children }: { children: unknown }) => children,
