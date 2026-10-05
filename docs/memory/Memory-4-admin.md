@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: Phase 2 — 2.1–2.6 merged except 2.5b = PR #338 (Closes #117 after the 2026-10-05 core run)
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: **Phase 2 complete** — 2.5b merged as cc0e1dc (#338, #117 closed); quiet until Phase 3
 
 ## Identity (does not change)
 Owned paths (write):
@@ -417,15 +417,22 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   directly. **2.5b nits from the #287 review:** `probeApiMode` treats a core 500 on `/health` as
   mock (match 404 specifically; anything else non-2xx = unreachable); `routeLabel` folds uuids
   but not numeric ids; one word in the README on :9100 (this run) vs :9000 (the default).
-- **2.5b = PR #338, Closes #117** (2026-10-05) — core run done, waiting for checks and the
-  reviewer. Then Phase 2 done.
+- **2.5b MERGED as cc0e1dc** (#338, 2026-10-05; Fable review MERGE; #117 closed). Phase 2 docket
+  complete. Quiet until Phase 3: no runs, no pushes. Merged main (cc0e1dc) + install locally.
+- **Parked nits for the next push** (#338 review):
+  - `createStoreAction` / `updateStoreAction` have the guard but no refused-role test.
+  - `test/settings-actions.test.ts`: no cross-store case (store_admin of brand-a sending brand-c's
+    storeId) and no `/admin/me` 500 case.
+  - `storeId` is not uuid-checked in the actions, though the #338 body said path ids are.
+  - `apps/admin/CLAUDE.md:8` still says "Admin API 0.4.0" and "Phase 1".
+  - CHANGELOG and README write `docs/settings/2-5b-*` without the `apps/admin/` prefix.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
 - [x] **#114 · 2.2** Orders: list, detail, actions — built, PR pending #259 confirmation
 - [x] **#115 · 2.3** Customers and consent (support-gated) — merged (#268, dd8f424)
 - [x] **#116 · 2.4** Promotions and price lists screens — merged (#276, 4cd1d38)
-- [x] **#117 · 2.5** Store settings — part one merged (#282); 2.5b = PR #338 (Closes #117), core run done
+- [x] **#117 · 2.5** Store settings — part one merged (#282); 2.5b merged (#338, cc0e1dc)
 - [x] **#118 · 2.6** Real-API hardening and e2e against the core — PR #287 (Refs #118)
 
 ## Rail nits — canonical list (2.2 step 0, review pass against docs/admin-design.md, 2026-09-24)
@@ -622,8 +629,8 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
-- **Owner signs in with password + TOTP** (dev secret `owner-dev-totp-secret-20260905`, RFC 6238
-  over the raw string; see packages/auth-sdk/test/keycloak-realms.test.ts). `test-cli` password
+- **Owner signs in with password + TOTP** — the dev secret and algorithm are in
+  infra/keycloak/README.md (code example: packages/auth-sdk/test/keycloak-realms.test.ts). `test-cli` password
   grant gives real tokens (aud core-api) for every user without TOTP — handy for direct core checks.
 - **Proving a server action refuses server-side:** capture the `Next-Action` POST from the
   permitted user's Save (Playwright `page.on('request')`) and replay it with the lower user's
