@@ -138,7 +138,7 @@ async function placedOrder(store: StoreFixture) {
 const outboxFor = (shipmentId: string) =>
   owner.query<{ topic: string; payload: Record<string, unknown> }>(
     `SELECT topic, payload FROM outbox WHERE aggregate_type = 'shipment' AND aggregate_id = $1
-      ORDER BY occurred_at, seq`,
+      ORDER BY seq`,
     [shipmentId],
   );
 

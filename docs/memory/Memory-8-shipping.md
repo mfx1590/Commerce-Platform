@@ -1,6 +1,6 @@
 # Memory 8 — Shipping & fulfillment
 Window: 8 · Key: `shipping` · Branch prefix: `shipping/` · Model: Sonnet
-Last updated: 2026-09-19 · Contracts: contracts-v0.4.3 (Admin API 0.4.3, events 0.3.0, db 0.3.0 incl. migrations 0140 `webhook_event` and 0160 pick/pack statuses) · Branch: `shipping/phase2` · **Status: PHASE 2 COMPLETE — 2.1–2.5 all merged; window quiet.**
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (nothing changed for shipping since v0.4.3) (Admin API 0.4.3, events 0.3.0, db 0.3.0 incl. migrations 0140 `webhook_event` and 0160 pick/pack statuses) · Branch: `shipping/phase2` · **Status: PHASE 2 COMPLETE — 2.1–2.5 all merged; window quiet.**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,12 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
+- **#255 — outbox-order flake in the module's database tests** · PR pending (2026-10-05)
+  `shipments-db.test.ts` ordered a shipment's outbox rows by `occurred_at, topic`; the skipped-scan test expected
+  `delivered` before `shipped`, true only on an occurred_at tie (alphabetical). Every shipment/order stream query in
+  shipping and fulfillment tests now orders by `seq` (outbox identity = write order), and the skipped-scan test
+  asserts the product's guarantee: `shipped` then `delivered`. Test-only change; 20/20 runs of the file green;
+  full core suite 815 passed, 6 skipped, 0 failed.
 - **2.5 (#133) — pick/pack lifecycle, events, admin operations** · PR #235 (contracts-v0.4.3)
   `fulfillment/lifecycle.ts` (`pickShipment` / `packShipment` / `listPickLists`), `lifecycle-events.ts` (the
   three `fulfillment.*` events, written to the outbox in the same transaction as the move; the `EVENT_TOPICS`
@@ -191,6 +197,8 @@ lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.
 - (nothing)
 
 ## Gotchas learned
+- Order outbox rows in tests by `seq` alone, never `occurred_at`: occurred_at is a wall clock per event (two events
+  of one transition can tie or straddle a millisecond), `seq` is the identity column and the write order (#255).
 - After a contract lands, **rebuild the workspace packages** before judging anything: `@platform/events` generates
   `EVENT_TOPICS` from its schemas at build time, so a stale build reports brand-new topics as unknown
   (2026-09-19, after contracts-v0.4.3).
