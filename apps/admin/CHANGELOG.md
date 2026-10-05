@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Fixed — issue #285: core-mode e2e no longer depends on a long-lived database
+
+- **Orders journey (core mode)** places its own guest order through the Store API first
+  (`e2e/core-order.ts`: cart → in-stock variant → NL address + shipping → `manual` payment session →
+  complete with an Idempotency-Key; the seeded brand-a dev key from `STORE_PUBLISHABLE_KEY` or
+  `.env.example`) and finds it by its display id. The mock run is unchanged.
+- **Refund journey (core mode)** skips with the reason in the skip message: the seeded manual
+  provider authorises only; capture is Stripe-only, so no run can produce a refundable order.
+- **404 on a collection read is "not available on this API yet"** (core mode, `reclassifyUnmounted`):
+  a `GET` whose last segment is not an id, or any 404 carrying the core's own unmounted marker
+  ("`<METHOD> <path> is not implemented`"), becomes 501 `not_implemented`; a plain 404 `not_found`
+  on a single record stays "was not found". Since #308 the core answers unmounted `/admin` paths
+  with 404 `not_found`, which the customers screen showed as "Customers was not found".
+- #338 review nits: refused-role tests for `createStoreAction` / `updateStoreAction`, a cross-store
+  case and a `/admin/me` 500 case in `test/settings-actions.test.ts`; the guard uuid-checks the
+  store id; README/CHANGELOG screenshot paths carry `apps/admin/`.
+- Core-mode run 2026-10-05 (core :9000 from this branch, real Keycloak, fga:seed): 22 passed,
+  1 skipped (refund, reason above).
+
 ### Added — task 2.5b, issue #117: revoke, primary domain, enabled sets (Admin API 0.4.8)
 
 - **Enabled currencies and locales** in General (`updateStore` set replacement; `CodeListField`;
@@ -17,7 +36,7 @@
 - Tests: `test/settings-actions.test.ts` (12: every action × role, 401, uuid ids, 409 mapping,
   sets), `test/settings.test.tsx` (+13), contract settings 15 (+5), mock e2e settings journey.
 - Real core run 2026-10-05 recorded in the README (sets, revoke, last-live note + 409, primary
-  move, store-staff refused by the server action and the core); screenshots `docs/settings/2-5b-*`.
+  move, store-staff refused by the server action and the core); screenshots `apps/admin/docs/settings/2-5b-*`.
 
 ### Added — task 2.6, issue #118: the real core as a first-class mode
 

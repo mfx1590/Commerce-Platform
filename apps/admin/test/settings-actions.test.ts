@@ -19,13 +19,15 @@ vi.mock('@/lib/principal', () => ({
           status: 401,
           error: { code: 'unauthorized', message: 'session ended' },
         }
-      : {
-          ok: true,
-          status: 200,
-          data: (await import('./fixtures/principals')).principals[
-            principalOf.current as PrincipalKey
-          ],
-        },
+      : principalOf.current === 'meFails'
+        ? { ok: false, status: 500, error: { code: 'internal', message: 'boom' } }
+        : {
+            ok: true,
+            status: 200,
+            data: (await import('./fixtures/principals')).principals[
+              principalOf.current as PrincipalKey
+            ],
+          },
 }));
 
 const api = vi.hoisted(() => ({
@@ -186,6 +188,72 @@ describe('owner', () => {
   });
 });
 
+describe('the HQ store actions carry the same check', () => {
+  const storeInput = {
+    legal_entity_id: '00000000-0000-4000-8000-000000000011',
+    code: 'brand-z',
+    name: 'Brand Z',
+    status: 'draft' as const,
+    default_currency: 'EUR',
+    default_locale: 'en-GB',
+    default_country: 'NL',
+    timezone: 'Europe/Amsterdam',
+  };
+
+  it('createStoreAction refuses store_admin (owner on hq) before the API; owner reaches it', async () => {
+    principalOf.current = 'storeAdmin';
+    expect(await actions.createStoreAction(storeInput)).toMatchObject({
+      refusal: {
+        status: 403,
+        error: { details: { relation: 'owner', object: 'organization:hq' } },
+      },
+    });
+    expect(api.createStore).not.toHaveBeenCalled();
+    principalOf.current = 'owner';
+    expect(await actions.createStoreAction(storeInput)).toMatchObject({ status: 'success' });
+  });
+
+  it('updateStoreAction refuses store_staff before the API; store_admin reaches it', async () => {
+    principalOf.current = 'storeStaff';
+    expect(await actions.updateStoreAction(STORE_ID, { name: 'Brand A' })).toMatchObject({
+      refusal: { status: 403, error: { details: { relation: 'store_admin' } } },
+    });
+    expect(api.updateStore).not.toHaveBeenCalled();
+    principalOf.current = 'storeAdmin';
+    expect(await actions.updateStoreAction(STORE_ID, { name: 'Brand A' })).toMatchObject({
+      status: 'success',
+    });
+  });
+});
+
+describe('cross-store and malformed store ids', () => {
+  it("store_admin of brand-a is refused every action on brand-c's id, before the API", async () => {
+    principalOf.current = 'storeAdmin';
+    const brandC = SEED.stores.brandC;
+    for (const call of [
+      () => actions.updateStoreSettingsAction(brandC, general),
+      () =>
+        actions.createSalesChannelAction(brandC, { code: 'web-eu', name: 'Web EU', type: 'web' }),
+      () => actions.createApiKeyAction(brandC, { name: 'checkout', type: 'publishable' }),
+      () => actions.revokeApiKeyAction(brandC, KEY_ID),
+    ]) {
+      expect(await call()).toMatchObject({
+        refusal: { status: 403, error: { details: { object: `store:${brandC}` } } },
+      });
+    }
+    expect(apiCalls()).toBe(0);
+  });
+
+  it('a store id that is not a uuid never reaches the principal check or the API', async () => {
+    principalOf.current = 'owner';
+    expect(await actions.revokeApiKeyAction('brand-a', KEY_ID)).toMatchObject({
+      status: 'error',
+      formError: 'That store is not valid.',
+    });
+    expect(apiCalls()).toBe(0);
+  });
+});
+
 describe('no principal', () => {
   it('an ended session is the 401 refusal, and nothing is sent', async () => {
     principalOf.current = null;
@@ -193,6 +261,16 @@ describe('no principal', () => {
       status: 'error',
       refusal: { status: 401 },
     });
+    expect(apiCalls()).toBe(0);
+  });
+});
+
+describe('/admin/me failing', () => {
+  it('a 500 fails closed: a message, no refusal panel, nothing sent', async () => {
+    principalOf.current = 'meFails';
+    const result = await calls.revokeApiKey();
+    expect(result).toMatchObject({ status: 'error', formError: 'boom' });
+    expect(result).not.toHaveProperty('refusal');
     expect(apiCalls()).toBe(0);
   });
 });

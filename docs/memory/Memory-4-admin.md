@@ -419,6 +419,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   but not numeric ids; one word in the README on :9100 (this run) vs :9000 (the default).
 - **2.5b MERGED as cc0e1dc** (#338, 2026-10-05; Fable review MERGE; #117 closed). Phase 2 docket
   complete. Quiet until Phase 3: no runs, no pushes. Merged main (cc0e1dc) + install locally.
+- **#285 core-mode e2e fixes (Refs #285), built locally 2026-10-05, not pushed:** orders journey
+  places its own guest order through the Store API (`e2e/core-order.ts`, seeded dev key from
+  `STORE_PUBLISHABLE_KEY` or `.env.example`); refund journey skips in core mode (manual provider
+  never captures); `reclassifyUnmounted`: 404 on a collection GET, or the core's "is not
+  implemented" marker → not_implemented (manager ruling). #338 nits carried (apps/admin/CLAUDE.md:8 left out
+  — manager raises it with the owner; I do not edit an instruction file on a peer's say-so). Unit
+  599, contract 74, mock e2e 21+2, **core-mode run 2026-10-05: 22 passed, 1 skipped** (populated
+  table, no reseed — manager ruling). Then one push. Proof = that local run + normal CI (the advisory job is NOT on my PR; #341
+  merges after mine and must then go green 3×).
 - **Parked nits for the next push** (#338 review):
   - `createStoreAction` / `updateStoreAction` have the guard but no refused-role test.
   - `test/settings-actions.test.ts`: no cross-store case (store_admin of brand-a sending brand-c's

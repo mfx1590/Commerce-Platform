@@ -8,8 +8,16 @@ import type { ApiMode } from './api-mode';
  * Against the core only (Prism serves every documented path, and a contract test that forces
  * `Prefer: code=401` must still see a 401):
  *
- * - a **404 without the contract's `not_found` code** is a route the core has not mounted — the
- *   core's own missing-record 404s always say `not_found`;
+ * - a **404 without the contract's `not_found` code** is a route the core has not mounted (before
+ *   #265 the core's own missing-record 404s were the only ones saying `not_found`);
+ * - since #265/#308 the core answers an unmounted `/admin/*` path with **404 `not_found`** too, so:
+ *   a 404 on a **collection read** (a `GET` whose last segment is not an id) is "this API does not
+ *   serve this list yet" — a list has no record to be missing (manager ruling, #285; the store
+ *   itself is already checked against the principal before any store screen loads). "Was not
+ *   found" stays for a single resource;
+ * - and any 404 carrying the core's own marker for an unmounted route (`adminNotFound` in
+ *   apps/core/src/http/errors.ts: message "`<METHOD> <path> is not implemented`") is the same,
+ *   for a single-resource route as well;
  * - a **401 while `GET /admin/me` with the same token answers 200** is the same thing seen through
  *   Medusa's admin auth, which catches unmatched `/admin/*` with a 401 until #265 lands. The
  *   session is demonstrably fine, so the session-ended panel would be a lie.
@@ -21,6 +29,20 @@ import type { ApiMode } from './api-mode';
 export const NOT_IMPLEMENTED = 'not_implemented';
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const ID_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+)$/i;
+
+/** `GET /admin/stores/{id}/orders` is a collection read; `GET …/orders/{id}` is not. */
+export function isCollectionRead(method: string, path: string): boolean {
+  if (method.toUpperCase() !== 'GET') return false;
+  const [bare = path] = path.split('?');
+  const last = bare.replace(/\/+$/, '').split('/').pop() ?? '';
+  return last !== '' && !ID_SEGMENT.test(last);
+}
+
+/** The core's own 404 for a path no router answered (`adminNotFound`). */
+function saysNotImplemented(error: AdminError): boolean {
+  return / is not implemented$/.test(error.message);
+}
 
 /** `GET /admin/stores/{id}/customers` — ids folded so the label names the route, not the row. */
 export function routeLabel(method: string, path: string): string {
@@ -45,7 +67,10 @@ export async function reclassifyUnmounted<T>(
 ): Promise<ApiResult<T>> {
   if (result.ok || context.mode !== 'core') return result;
   const unmounted =
-    (result.status === 404 && result.error.code !== 'not_found') ||
+    (result.status === 404 &&
+      (result.error.code !== 'not_found' ||
+        isCollectionRead(request.method, request.path) ||
+        saysNotImplemented(result.error))) ||
     (result.status === 401 &&
       !request.path.startsWith('/admin/me') &&
       (await context.meStatus()) === 200);
