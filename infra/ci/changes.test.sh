@@ -70,6 +70,9 @@ check 'the manifest guard'  'infra/ci/check-image-manifests.sh'                 
 check 'the e2e runner'      'infra/ci/run-e2e.sh'                               "$CI_SCRIPT_CHG"
 # The realms and the authorization model are what the live auth suites run against.
 check 'a keycloak realm'    'infra/keycloak/staff-realm.json'                   'code=false images=false terraform=false e2e=true helm=false observ=false perf=false'
+# The customers realm is also the input of the derived deployed realm, so it re-runs that self-test (#297).
+check 'the customers realm'  'infra/keycloak/customers-realm.json'              'code=false images=false terraform=false e2e=true helm=true observ=false perf=false'
+check 'the derived realm'    'infra/deploy/keycloak/derive-customers-realm.mjs' 'code=false images=false terraform=false e2e=false helm=true observ=false perf=false'
 check 'the openfga model'   'infra/openfga/model.fga'                           'code=false images=false terraform=false e2e=true helm=false observ=false perf=false'
 # The charts and the ArgoCD manifests are their own group: nothing else needs re-checking for them.
 check 'the chart'           'infra/helm/platform-app/values.yaml'                'code=false images=false terraform=false e2e=false helm=true observ=false perf=false'

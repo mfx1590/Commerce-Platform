@@ -4,6 +4,23 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 2
 
+### Added (REQUEST #297 — core live suites in CI, the deployed customers realm, staging key, production values)
+
+- `auth-e2e` runs the core's live suites (`apps/core/test/auth-live.test.ts`, the live block of
+  `customers-api.test.ts`), which ran in no CI job before; `infra/ci/require-live-tests.mjs` reads vitest's JSON
+  report and fails the step unless every named live block ran and passed (a missed stack probe used to skip them
+  silently). Self-test in the `changes` job.
+- `infra/deploy/keycloak/derive-customers-realm.mjs`: the deployed customers realm, generated from window 2's
+  export — no `test-cli`, no users, no localhost URIs, `verifyEmail: true`, `trustEmail: false`, no auto-link.
+  Mutation-tested in the `helm` job; the classifier's `helm` group now also fires on `infra/deploy/` and the
+  customers realm export.
+- `infra/helm/check-values.sh` (split out of `check.sh`) + `check-values.test.sh`: production `SITE_URL` covered by
+  a fixture case; `values-production.yaml` / `values-prd.yaml` refused; a seeded `_dev_` publishable key refused
+  in staging/production values.
+- Staging storefront (the starter) no longer carries brand A's dev key: `STORE_PUBLISHABLE_KEY` comes from
+  `staging/stores/brand-a/storefront`.
+- Deploying Keycloak to dev/staging moved to #342.
+
 ### Changed (REQUEST #295 + #297 item 1 — brand A's browse → buy in CI against the core)
 
 - `infra/ci/boot-smoke.sh`: `CORE_SMOKE_KEEP=1` leaves the booted core running (own session via `setsid`, pid and
