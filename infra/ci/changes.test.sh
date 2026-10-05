@@ -21,7 +21,7 @@ export STOREFRONTS=$'apps/storefront-starter\napps/storefronts/brand-a'
 # The seven group flags; `perf_apps` has its own check below.
 check() {
   local name="$1" files="$2" want="$3" got
-  got="$(CHANGED_FILES="$files" bash "$SUT" 2>/dev/null | grep -v '^perf_apps=' | tr '\n' ' ')"
+  got="$(CHANGED_FILES="$files" bash "$SUT" 2>/dev/null | grep -Ev '^perf_(apps|unmeasured)=' | tr '\n' ' ')"
   got="${got% }"
   if [ "$got" = "$want" ]; then
     printf 'ok   %-34s %s\n' "$name" "$got"
@@ -114,6 +114,25 @@ check_apps 'apps: docs only'           'docs/x.md'                              
 # A prefix of a storefront's name is not that storefront.
 check_apps 'apps: brand-ab is not brand-a' 'apps/storefronts/brand-ab/src/x.ts'         '[]'
 
+# A brand storefront with no perf script cannot be measured: it is named, so the perf check fails on
+# it instead of reporting "no storefront changed" (#336 review). perf stays false — nothing to build.
+check_unmeasured() {
+  local name="$1" files="$2" want="$3" got
+  got="$(CHANGED_FILES="$files" bash "$SUT" 2>/dev/null | sed -n 's/^perf_unmeasured=//p')"
+  if [ "$got" = "$want" ]; then
+    printf 'ok   %-34s perf_unmeasured=%s\n' "$name" "$got"
+  else
+    printf 'FAIL %-34s want [%s] got [%s]\n' "$name" "$want" "$got"
+    fail=1
+  fi
+}
+check_unmeasured 'unmeasured: a new brand'      'apps/storefronts/brand-b/src/x.ts'            '["apps/storefronts/brand-b"]'
+check_unmeasured 'unmeasured: a measured brand' 'apps/storefronts/brand-a/src/x.ts'            '[]'
+check_unmeasured 'unmeasured: the starter'      'apps/storefront-starter/src/x.ts'             '[]'
+check_unmeasured 'unmeasured: core only'        'apps/core/src/x.ts'                           '[]'
+check_unmeasured 'unmeasured: mixed'            $'apps/storefronts/brand-a/a.ts\napps/storefronts/brand-b/b.ts' '["apps/storefronts/brand-b"]'
+check 'a brand without a perf script' 'apps/storefronts/brand-b/src/x.ts' 'code=true images=false terraform=false e2e=true helm=false observ=false perf=false'
+
 # The real directory scan: the starter and brand A both have a perf script on main.
 got="$(unset STOREFRONTS; CHANGED_FILES='packages/ui/x.ts' bash "$SUT" 2>/dev/null | sed -n 's/^perf_apps=//p')"
 case "$got" in
@@ -125,7 +144,7 @@ case "$got" in
 esac
 
 # CHANGES_ALL wins over everything: a push to main runs the lot.
-got="$(CHANGES_ALL=1 CHANGED_FILES='docs/x.md' bash "$SUT" 2>/dev/null | grep -v '^perf_apps=' | tr '\n' ' ')"
+got="$(CHANGES_ALL=1 CHANGED_FILES='docs/x.md' bash "$SUT" 2>/dev/null | grep -Ev '^perf_(apps|unmeasured)=' | tr '\n' ' ')"
 got="${got% }"
 if [ "$got" = 'code=true images=true terraform=true e2e=true helm=true observ=true perf=true' ]; then
   printf 'ok   %-34s %s\n' 'CHANGES_ALL overrides' "$got"

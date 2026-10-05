@@ -4,6 +4,19 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 2
 
+### Changed (REQUEST #295 + #297 item 1 — brand A's browse → buy in CI against the core)
+
+- `infra/ci/boot-smoke.sh`: `CORE_SMOKE_KEEP=1` leaves the booted core running (own session via `setsid`, pid and
+  database in `$CORE_SMOKE_STATE`, `CORE_STORE_API_FALLBACK_URL` defaulting to Prism); `--stop` kills its process
+  group and drops its database, always exiting 0.
+- `infra/ci/run-e2e.sh`: brand storefront journeys are on by default (`E2E_INCLUDE_BRAND_STOREFRONTS=0` opts out);
+  the #212 paragraph is gone. Brands get `E2E_STORE_API_URL` = the kept core; on CI an unreachable core fails the
+  brand journey instead of falling back to Prism.
+- CI `auth-e2e`: the boot step keeps the core up, a stop step drops it before the stack stops, and the Playwright
+  report upload covers `apps/storefronts/*/playwright-report`.
+- From the #336 review: `changes.sh` emits `perf_unmeasured` (changed brand storefronts with no `perf` script) and
+  the required perf check fails on it, instead of the same green "no storefront changed". Self-test cases added.
+
 ### Changed (REQUEST #283 — the perf gate measures every storefront that changed)
 
 - `infra/ci/changes.sh` emits `perf_apps`, a JSON array of the storefronts to measure (each

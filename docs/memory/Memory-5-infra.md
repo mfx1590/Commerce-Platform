@@ -108,14 +108,42 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#283** — perf gate for every storefront. Branch `infra/phase2` (main `6f5019f` merged). `changes.sh` emits
-  `perf_apps` (JSON array: storefront dirs with a `perf` script; one storefront's change → that one; shared
-  packages/root files/ci.yml → all); `perf-app` matrix job; `perf` aggregator keeps the required check name
-  (fails unless `changes` succeeded and every entry passed). "median of three" corrected (LHCI default
-  `optimistic` = best of 3, verified in @lhci/utils assertions.js; SEO is `pessimistic`). Starter home page:
-  no Lighthouse/axe in CI — documented, not mine to widen. Self-test 49 ok. Evidence = draft PR's CI.
-  Unexercised by this PR: the empty-matrix path (`perf=false`, job-level `if` skips before `fromJSON('[]')`),
-  because the PR touches ci.yml and so measures everything.
+- **#283 → PR #336**, head `dd1139b`, all 15 checks green, reviewed MERGE, in the merge queue (2026-10-05).
+  Do NOT push `infra/phase2` until the manager confirms the merge.
+- **#295 + #297 item 1 — APPROVED and BUILT locally, committed on `infra/phase2-brand-e2e`, NOT pushed.**
+  Push only after the manager confirms #336 AND PR 337 merged; merge main first. Manager's conditions:
+  (1) three consecutive green runs of `live auth + end-to-end` on the draft (re-run the job twice), brand
+  suite pass/fail/skip counts from each quoted in the PR body; a failed run's cause goes in the body, no
+  silent reruns; (2) the always() stop drops the kept DB and never masks the result (`--stop` exits 0);
+  (3) OpenFGA not needed — only staff tokens use it (`apps/core/src/server.ts` buildStaffAuth warns only
+  outside production). Scope-by-change: the job's `e2e` group already skips docs-only PRs — no new group.
+  Built: boot-smoke `CORE_SMOKE_KEEP=1` / `--stop` (setsid, process-group kill, state in $RUNNER_TEMP);
+  run-e2e brand default ON with `E2E_STORE_API_URL`, CI fails if the core is down; ci.yml keep/stop/report
+  path; `perf_unmeasured` (#336 nit) fails the perf aggregator. Self-test 55 ok. Not covered (in PR body):
+  CMS content routes (no CMS_DATASET), visual spec (opt-in, win32 baselines only).
+  Message the manager (SendMessage to the manager session) when the draft has its three runs.
+  Original plan, for reference: Local branch `infra/phase2-brand-e2e`
+  (from `dd1139b`), unpushed. Depends on PR 337 (window 10's re-sync: #334's conventions in brand A).
+  Findings: after 337 brand A's own `e2e-server.mjs` turns on `E2E_LOCAL_IMAGES=1` and clears
+  `.next/cache/fetch-cache` every build; its config keeps Playwright's default workers under CI and sets
+  `ROBOTS_ALLOW_INDEXING=1` for the server; `E2E_REQUIRE_CORE/KEYCLOAK` are automatic under CI. So infra
+  only has to give it a live core. `pnpm db:seed` creates brand A's catalogue and the publishable key
+  `pk_brand-a_dev_…` (the brand's default). Today CI runs every journey against Prism only.
+  Plan:
+  1. `infra/ci/boot-smoke.sh` gains a keep-running mode (`CORE_SMOKE_KEEP=1`): same fresh DB +
+     migrate + seed + medusa migrate + build + start, but leaves the server up on :9000 and writes its
+     pid/log path; the job stops it in an `always()` step. Core started with
+     `CORE_STORE_API_FALLBACK_URL=http://127.0.0.1:4010` (Prism, which the brand's webServer starts).
+  2. `infra/ci/run-e2e.sh`: brand default flips to ON (`E2E_INCLUDE_BRAND_STOREFRONTS` default 1, `0`
+     still opts out), the #212 paragraph deleted. For `apps/storefronts/*` it exports
+     `E2E_STORE_API_URL=http://127.0.0.1:9000` (NOT only STORE_API_URL — the config derives the
+     server env from it) and `E2E_BASE_URL=http://localhost:3101`; the starter stays on Prism as today.
+  3. `ci.yml` auth-e2e: boot step keeps the core running; playwright report upload path also covers
+     `apps/storefronts/*/playwright-report`; stop-core step.
+  4. Carry the #336 review nits: a storefront dir without a `perf` script fails `changes.sh` loudly
+     (not just stderr) when the PR touches it; watch the first core-only PR for the empty-matrix path.
+  Out of scope (named in the PR): CMS content routes (no `CMS_DATASET` in CI), OpenFGA ids for the core
+  (none seeded in CI today — if the core needs them the first run says so).
 
 ## Next — the docket, in order
 
