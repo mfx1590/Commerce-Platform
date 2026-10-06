@@ -636,6 +636,15 @@ export async function applyTransition(
     RANK[target] <= RANK.delivered &&
     RANK[shipment.status] < RANK.shipped;
   const reachesDelivered = target === 'delivered' && shipment.status !== 'delivered';
+  // The shipment leaving `pending` is what tells the order someone has started working on it (#350 / #366):
+  // picking, packing, a label, or a despatch that skipped all three. Cancelling or failing it is not work
+  // starting, so neither moves the order — even though both outrank `pending`.
+  const leavesPending =
+    target !== undefined &&
+    shipment.status === 'pending' &&
+    target !== 'cancelled' &&
+    target !== 'failed' &&
+    RANK[target] > RANK.pending;
 
   const shippedAt = iso(shipment.shipped_at) ?? (passesShipped ? at : null);
   const deliveredAt = iso(shipment.delivered_at) ?? (reachesDelivered ? at : null);
@@ -732,6 +741,9 @@ export async function applyTransition(
   // module owns `fulfilled_quantity`, `fulfillment_status` and `status` — shipping only reports the facts.
   const orders = currentOrdersPort();
   const call = { tx, orderId: row.order_id, actor: input.actor };
+  // Before the despatch: an order that goes straight from `pending` to `shipped` still passes through
+  // `processing`, for the same reason it still emits `shipment.shipped` before `shipment.delivered`.
+  if (leavesPending) await orders.shipmentStarted(call);
   if (passesShipped) {
     await orders.shipped({
       ...call,

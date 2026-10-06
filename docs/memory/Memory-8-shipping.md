@@ -83,9 +83,8 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 - **Owed after contracts 0.4.12 lands** (the manager lands `ERROR_CODES` + the core's status map once #368/#369
   are in): delete the `PROVIDER_UNSUPPORTED` cast in `shipping/shipments.ts` and use the real `ErrorCode`. One
   line, plus the comment above it.
-- **#366 part 2 waits for #350 to be on main**: call `markShipmentStartedInTx` when a shipment leaves `pending`.
-  The function does not exist on main yet. Part 1 (tests only) is PR #370 on `shipping/366-tests`, the manager's
-  one-time second branch.
+- **#366 is fully in PR #369 now.** Part 1 (tests) merged as `5e10724`; part 2 (the `markShipmentStartedInTx`
+  call) is a separate commit on `shipping/phase3` after #350 landed as `f20245c`. The PR body says `Closes #366`.
 - Not mine, tracked elsewhere: window 1 mounts `fulfillmentAdminRouter()` with one `routers.push(...)` line in
   `src/http/module-routers.ts`. `shippingAdminRouter` and `shippingWebhookRouter` are already mounted there, and
   `registerCarrierProviders()` runs from `src/wiring.ts`.
@@ -140,6 +139,12 @@ Contract changes this window filed: **#187** `webhook_event` (with window 7, lan
 lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.md` rows).
 
 ## Decisions made (with reasons)
+- **The order starts when a shipment LEAVES `pending`, and a cancel is not a start** (#366 part 2): the call sits
+  in `applyTransition`, the single writer of a shipment's status, so picking, packing, buying a label and a
+  despatch that skipped all three each report it exactly once without four call sites. `cancelled` and `failed`
+  are excluded although both outrank `pending` — nothing was worked on. A jump from `pending` straight to
+  `shipped` reports the start first, the same filled-in-skipped-step rule as `shipment.shipped` before
+  `shipment.delivered`: an order must never reach its fulfilment without having passed through `processing`.
 - **An already-labelled shipment is a 409, not the label it holds** (#356): the old call was idempotent and
   answered 200 with the existing label. Buying a label is real money, and an operator who repeats the call must
   learn that the state changed under them. It also falls out of the contract's own rule — only `packed` is

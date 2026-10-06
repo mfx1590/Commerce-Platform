@@ -40,6 +40,18 @@ something it should.
   away with that contracts change.
 - Hygiene: the status-machine comment no longer points at the deleted `proposed/0160_shipment_pick_pack.sql`.
 
+### 2026-10-06 · A shipment leaving `pending` starts the order (#366 part 2, after #350)
+
+`markShipmentStartedInTx` landed with #350/#371, so the orders port gains `shipmentStarted` and `applyTransition`
+— the single writer of a shipment's status — calls it the first time a shipment leaves `pending`, on the same
+transaction as the move. Picking, packing, buying a label or despatching straight away all report it; **cancelling
+or failing a planned shipment does not**, although both outrank `pending`, because nothing was worked on. A
+shipment that jumps from `pending` to `shipped` reports the start before the despatch, so an order never reaches
+its fulfilment without having passed through `processing`.
+
+`markShipmentCreatedInTx` is still called when a shipment is planned and still 404s for an unknown order, but
+since #350 it moves nothing — planning is not work starting.
+
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
 ### 2026-10-05 · Deterministic outbox order in the database tests (#255)

@@ -282,6 +282,60 @@ describe('shipments', () => {
     expect(await orderFulfillment(order.orderId)).toBe('unfulfilled');
   });
 
+  it('moves the order to processing when a shipment leaves pending, and a cancel does not', async () => {
+    // #366 part 2, on top of #350: planning alone is not work starting — the order only moves once someone
+    // picks (or packs, labels, or despatches straight away). The call is on shipping's own transaction.
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    const afterPlanning = await orderState(order.orderId);
+    expect(afterPlanning.fulfillment_status).toBe('unfulfilled');
+    expect(afterPlanning.status).not.toBe('processing');
+
+    await updateShipment(a, planned.id, { status: 'picking', actor });
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'processing',
+      fulfillment_status: 'unfulfilled',
+    });
+
+    // Every later move is a no-op on the order's status: only the FIRST leaving of `pending` starts it, and
+    // the orders module is idempotent on the target state anyway.
+    await updateShipment(a, planned.id, { status: 'packed', actor });
+    expect((await orderState(order.orderId)).status).toBe('processing');
+
+    // A second shipment on the same order that is cancelled while still planned must not claim work started.
+    const other = await placedOrder();
+    const doomed = await createShipment(a, {
+      orderId: other.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: other.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await updateShipment(a, doomed.id, { status: 'cancelled', actor });
+    expect((await orderState(other.orderId)).status).not.toBe('processing');
+  });
+
+  it('starts the order even when the shipment goes straight from pending to shipped', async () => {
+    // The same guarantee as `shipment.shipped` before `shipment.delivered`: a skipped step is filled in, so an
+    // order never reaches its fulfilment without having passed through `processing`.
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await updateShipment(a, planned.id, { status: 'shipped', actor });
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'processing',
+      fulfillment_status: 'fulfilled',
+    });
+  });
+
   it('refuses more than the order still owes, an unknown line and an unknown warehouse', async () => {
     const order = await placedOrder();
     const line = order.lines[0]!.id;

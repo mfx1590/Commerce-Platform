@@ -184,7 +184,8 @@ events, the order's status and the stock movements commit together or not at all
 
 | When                                    | Orders module                                                     | Inventory module                 |
 | --------------------------------------- | ----------------------------------------------------------------- | -------------------------------- |
-| a shipment is planned                   | `markShipmentCreatedInTx` (`confirmed` to `processing`)           | `consumeReservationsForShipment` |
+| a shipment is planned                   | `markShipmentCreatedInTx` (moves nothing since #350)              | `consumeReservationsForShipment` |
+| it **leaves `pending`**                 | `markShipmentStartedInTx` (`confirmed` to `processing`)           | —                                |
 | it reaches `shipped` (or jumps past it) | `markShippedInTx` with the line quantities                        | —                                |
 | it reaches `delivered`                  | `markDeliveredInTx` (`processing` to `completed`, once fulfilled) | —                                |
 | a planned shipment is cancelled         | —                                                                 | `releaseReservationsForShipment` |
@@ -197,8 +198,18 @@ so it is reported in the outcome instead of thrown. Each call runs inside a `SAV
 to it: a call that wrote some rows before refusing leaves nothing behind. **Inventory calls are not advisory** — a
 stock failure is a real failure and rolls the shipment back.
 
-**Behaviour to know: fulfilment is recorded on despatch, not on plan.** Planning a shipment only moves the order
-to `processing`; `fulfilled_quantity` and `fulfillment_status` change when the shipment reaches `shipped`.
+**Behaviour to know: planning is not work starting, and fulfilment is recorded on despatch.** Since #350 the
+order's `status` is derived from these calls, so the module is careful about which fact each one reports:
+
+- **Planning moves nothing.** A shipment can sit `pending` for a day before anyone touches it, and an order that
+  only has a plan is not yet being worked on.
+- **Leaving `pending` is what starts it** (#366): picking, packing, buying a label, or a despatch that skipped
+  all three — whichever happens first calls `markShipmentStartedInTx` on the same transaction as the move.
+  Cancelling or failing a planned shipment does **not**, although both outrank `pending`: nothing was worked on.
+  A shipment that goes straight from `pending` to `shipped` still reports the start first, for the same reason it
+  still emits `shipment.shipped` before `shipment.delivered` — a skipped step is filled in, never dropped.
+- **Fulfilment is recorded on despatch**: `fulfilled_quantity` and `fulfillment_status` change when the shipment
+  reaches `shipped`, with the quantities that actually left.
 
 ## Tracking webhooks (task 2.3)
 
