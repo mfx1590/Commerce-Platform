@@ -130,9 +130,23 @@ detached to a file with bounded polls, say "machine free" after any core run.
    (the queue merged main into the branch as `06b893e` first). Commits `54a8171` (the fix) and
    `128542e` (prettier). See Done below.
 
-2. **#372, brand A's half — DONE locally, pushed, PR open.** See Done below.
+2. **#372, brand A's half — DONE. PR #379 is up, head `771f35d`, awaiting checks.** Manager
+   notified 2026-10-06 with the number, sha and the full preserved-drift report; **owed them a second
+   report once #379's checks finish.** CI monitor deliberately OFF, I do not poll — the owner relays.
+   See Done below.
+   Manager 2026-10-06 (late): #379 noted, **static review running, the queue is next session** — the
+   owner's day was over and no merges happened tonight. They called the `RUNTIME_SITE_URL` refusal
+   "the right call — well documented". **The stale Docker Prism on :4010 is an owner decision**; the
+   manager has asked for the OK to restart the mock containers and will pass the 4310/4311
+   workaround to the other windows. I did not touch the stack.
+   **NOTE for the next session: #379 is still OPEN on `brands/phase3`.** Anything pushed to that
+   branch lands in #379. Either wait for it to merge (the manager's instruction: hold #348's push
+   until they confirm #379 MERGED) or cut a separate `brands/` branch for #348.
 
-3. **#348 — a DECISION from data that already exists, and I will give it its OWN PR** (the manager
+3. **#348 — NEXT, and not started: the owner's day ended before they gave the word.** The manager
+   says continue it locally and hold the push; the owner asked to be the one to start it, and a peer
+   does not override that, so it waits for them. Nothing is half-done — no files touched for #348.
+   **A DECISION from data that already exists, and it gets its OWN PR** (the manager
    left the choice to me; riding it in a 36-file re-sync body would bury it).
    The ask is explicit: ten runs' PLP + PDP LCP from the perf-leg logs, then **either** a real LCP
    improvement on the listing page **or** a measured decision on the threshold — "do not loosen the
