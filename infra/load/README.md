@@ -6,6 +6,7 @@ per second; p95 under 500 ms** for `GET /store`, the product list and product de
 ```bash
 bash infra/load/run.sh                                        # target (10 min) + pool knee (~5.5 min) + placement ceiling (~6.5 min)
 LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh   # target run only
+LOAD_SKIP_TARGET=1 bash infra/load/run.sh                     # the two ramps only (~12 min)
 DURATION=1m BROWSE_RPS=5 ORDERS_PER_MIN=6 POOL_STEPS=20,40 POOL_STEP_S=20 CEILING_STEPS=6,12 CEILING_STEP=30s bash infra/load/run.sh   # smoke
 ```
 

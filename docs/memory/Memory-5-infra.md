@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-10-05 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: **Phase 3 / Integration 2a** (2026-10-06): #359 k6 load test — PLAN, awaiting the manager's OK (budget rule). Phase 2 complete; #349 merged (`a0a6e02`).
+Last updated: 2026-10-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
+Status: **Phase 3 / Integration 2a** (2026-10-06): **#359 → PR #364 reviewed MERGE**, ready for the queue (head after the review-fix push; the reviewed head was `5eccdf1`). Machine reported free. Phase 2 complete; #349 merged (`a0a6e02`).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,7 +108,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#359 — k6 load test against the real core (Integration 2a).** Branch `infra/phase3` from main `c0e5202`.
+- **#359 — k6 load test against the real core (Integration 2a). DONE pending the merge queue: PR #364, reviewed
+  MERGE on `5eccdf1`; review-fix push (report wording, 15-case count everywhere, README LOAD_SKIP_TARGET, this
+  header) then `gh pr ready 364`.** History below. Branch `infra/phase3` from main `c0e5202`.
   The laptop is MINE until I report "machine free" (manager, 2026-10-06). Target: 30 orders/min for 10 min while
   browsing at 50 rps; p95 < 500 ms for GET /store, product list, product detail; errors < 0.1%.
   Facts found: k6 is not installed locally → run the pinned `grafana/k6` image (same binary on the laptop and in
