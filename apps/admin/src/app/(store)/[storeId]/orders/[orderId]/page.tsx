@@ -6,13 +6,15 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { getOrder, getStore, listWarehouses } from '@/lib/api/admin';
 import { formatMoney } from '@/lib/forms/money';
 import { orderPermissions, type OrderPermissions } from '@/lib/orders/permissions';
-import { forActions, forFulfilment, forLines } from '@/lib/orders/projection';
+import { orderStatusMeaning } from '@/lib/orders/lifecycle';
+import { forActions, forFulfilment, forLines, forPayments } from '@/lib/orders/projection';
 import { supportRefundLimitMinor } from '@/lib/orders/refunds';
 import { loadPrincipal } from '@/lib/principal';
 import { statusLabel, toneFor } from '../orders-table.config';
 import { AddressBlock } from './address-block';
 import { LineItemsPanel } from './line-items-panel';
 import { OrderActions } from './order-actions';
+import { PaymentsPanel } from './payments-panel';
 import { FulfilmentPanel } from './shipments-panel';
 import { Timeline } from './timeline';
 
@@ -20,10 +22,12 @@ export const dynamic = 'force-dynamic';
 
 const NO_PERMISSIONS: OrderPermissions = {
   canEditOrder: false,
+  canCapture: false,
   canRefund: false,
   canRequestReturn: false,
   canFulfil: false,
   canReceiveReturn: false,
+  canBuyLabel: false,
 };
 
 export default async function OrderDetailPage({
@@ -69,6 +73,7 @@ export default async function OrderDetailPage({
       <div className="space-y-6">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold">Order #{current.display_id}</h1>
+          {/* The status the core reports (#350 lifecycle); never derived here. */}
           <Badge tone={toneFor(current.status)}>{statusLabel(current.status)}</Badge>
           <Badge tone={toneFor(current.payment_status)}>
             {statusLabel(current.payment_status)}
@@ -79,6 +84,9 @@ export default async function OrderDetailPage({
           <Link href={`/${storeId}/orders`} className="text-accent ml-auto text-sm hover:underline">
             All orders
           </Link>
+          <p className="text-muted basis-full text-sm" data-testid="order-status-meaning">
+            {orderStatusMeaning(current.status)}
+          </p>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -141,6 +149,25 @@ export default async function OrderDetailPage({
             </CardBody>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader
+            title="Payments"
+            description={
+              permissions.canCapture
+                ? 'An authorised payment is captured here, whole or in part; only captured payments can be refunded.'
+                : 'Authorised and captured payments. Capturing needs store_admin on the store.'
+            }
+          />
+          <CardBody>
+            <PaymentsPanel
+              storeId={storeId}
+              order={forPayments(current)}
+              locale={locale}
+              canCapture={permissions.canCapture}
+            />
+          </CardBody>
+        </Card>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2">

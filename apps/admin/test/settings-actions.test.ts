@@ -11,24 +11,24 @@ vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 
 const principalOf = vi.hoisted(() => ({ current: 'storeAdmin' as string | null }));
-vi.mock('@/lib/principal', () => ({
-  loadPrincipal: async () =>
-    principalOf.current === null
-      ? {
-          ok: false,
-          status: 401,
-          error: { code: 'unauthorized', message: 'session ended' },
-        }
-      : principalOf.current === 'meFails'
-        ? { ok: false, status: 500, error: { code: 'internal', message: 'boom' } }
-        : {
-            ok: true,
-            status: 200,
-            data: (await import('./fixtures/principals')).principals[
-              principalOf.current as PrincipalKey
-            ],
-          },
-}));
+const loadPrincipal = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/principal', () => ({ loadPrincipal }));
+const principalAnswer = async () =>
+  principalOf.current === null
+    ? {
+        ok: false,
+        status: 401,
+        error: { code: 'unauthorized', message: 'session ended' },
+      }
+    : principalOf.current === 'meFails'
+      ? { ok: false, status: 500, error: { code: 'internal', message: 'boom' } }
+      : {
+          ok: true,
+          status: 200,
+          data: (await import('./fixtures/principals')).principals[
+            principalOf.current as PrincipalKey
+          ],
+        };
 
 const api = vi.hoisted(() => ({
   createStore: vi.fn(),
@@ -75,6 +75,7 @@ const ok = { ok: true as const, status: 200, data: { id: 'x' } };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  loadPrincipal.mockImplementation(principalAnswer);
   for (const fn of Object.values(api)) fn.mockResolvedValue(ok);
 });
 
@@ -250,6 +251,7 @@ describe('cross-store and malformed store ids', () => {
       status: 'error',
       formError: 'That store is not valid.',
     });
+    expect(loadPrincipal).not.toHaveBeenCalled();
     expect(apiCalls()).toBe(0);
   });
 });
