@@ -1,5 +1,46 @@
 # Changelog — @platform/storefront-starter
 
+## 0.13.0 — 2026-10-06
+
+Issue #358 (Integration 2a). Reads Store API 0.5.4's optional `Store.payment.methods` when present
+(contracts-v0.4.11, the generated `Store` type). New dependencies, pinned: `@stripe/stripe-js` 10.0.0,
+`@stripe/react-stripe-js` 7.0.0.
+
+- **Card payment with Stripe's Payment Element** (hosted fields; card data never reaches this app).
+  The store decides what is offered (`Store.payment.methods`); Card also needs a Stripe publishable
+  key here (`STRIPE_PUBLISHABLE_KEY_<STORE CODE>`, else `STRIPE_PUBLISHABLE_KEY`; only
+  `pk_test_`/`pk_live_` values). Where the store does not say yet, the interim
+  `STOREFRONT_ALLOW_INVOICE=1` (default off) decides Pay on invoice — removed in a follow-up. The
+  choice is re-checked on the server.
+- **The review step confirms the card in the browser, then places the order** with the cart's one
+  idempotency key (3-D Secure in Stripe's modal; an already-authorised intent is not confirmed
+  again). Declines are Stripe's messages; an abandoned 3-D Secure says nothing was charged and the
+  cart is unchanged. Both recoverable on the page.
+- `placeOrderAction` never picks a method for the customer. The payment step remembers the
+  customer's choice for this cart (`checkout_payment` cookie, `<cartId>:<provider>`); at "Place order" a
+  missing or failed session is renewed **only for an invoice the customer chose**, and only while the
+  store offers it (a backend may keep no session — Prism answers every cart with `payment_session:
+null`). A card session, or no recorded choice, goes back to the payment step. `409 price_changed` is mapped (back to review with a message) and refreshes a card
+  session.
+- **A new client secret remounts the Payment Element** (`key` on `<Elements>` and on the review
+  page's `<CardPayment>`): react-stripe-js ignores a changed `clientSecret` on a mounted
+  `<Elements>`, so after `409 price_changed` recreated the session the Element would have confirmed
+  the stale intent (review of #365). `test/card-payment-remount.test.ts` (jsdom, new dev dependency
+  `jsdom` 26.1.0, the UI kit's version) is red without the key.
+- **The card form is its own chunk, fetched only when it mounts** (`CardPaymentLazy`: a client
+  component with `next/dynamic` and `ssr: false`). Stripe's packages had pushed the review route's
+  first load to 139.6 kB against its 139 kB budget. `next/dynamic` from the server page was not
+  enough — measured 140 kB, the Stripe chunk still in the page's entry; with the client wrapper the
+  route measures 134.8 kB and an invoice checkout never downloads Stripe's code.
+- **CSP:** `https://js.stripe.com` (script, frame), `https://hooks.stripe.com` (frame),
+  `https://api.stripe.com` (connect). Nothing wider.
+- The e2e server allows invoices; the journey chooses Pay on invoice explicitly. New
+  `e2e/card-payment.spec.ts` (core + Stripe test key only, skips with the reason otherwise): 4242,
+  3-D Secure 3184, 3-D Secure abandoned then 4242, declined 0002 then 4242; prints one line with
+  the reason when it skips.
+- Tests: `test/payment-options.test.ts`, the CSP's Stripe hosts, action-level tests for the session
+  rules, `price_changed` and `createPaymentSessionAction`'s server-side check.
+
 ## 0.12.10 — 2026-10-06
 
 Issue #351 (REQUEST, manager's walk-through of order #1136). No contract change.
