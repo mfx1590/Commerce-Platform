@@ -762,6 +762,12 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- **Never write a secret-shaped literal anywhere — tests, memory, PR bodies, commit messages.**
+  gitleaks scans every branch's full history in CI, so one quoted Stripe-key-shaped string in a
+  memory commit (2026-10-06, #365) turned the secret scan red on every open PR until the manager
+  extended the allowlist. Describe it instead ("the sk_test fixture"); test fixtures for "a wrong
+  key" use shapes no rule matches (e.g. 'not-a-publishable-key').
+
 - **The e2e build keeps `.next/cache/fetch-cache` between runs**, so a core run can render stock
   cached by an earlier core run (CATALOG_REVALIDATE): the PDP said purchasable, the core said 0,
   add-to-cart answered "That item just sold out". `rm -rf apps/storefront-starter/.next/cache/fetch-cache`
