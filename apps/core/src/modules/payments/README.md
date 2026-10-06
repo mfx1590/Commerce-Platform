@@ -1,37 +1,40 @@
-# payments — Stripe provider, capture, credentials, webhooks, refunds (window 7, tasks 2.1 #124, 2.2 #125, 2.3 #126)
+# payments — Stripe provider, capture, credentials, webhooks, refunds (window 7, tasks 2.1 #124, 2.2 #125, 2.3 #126, Integration 2a #355)
 
 The `stripe` implementation of the checkout module's `PaymentProvider` seam (hosted fields / Payment Element:
 card data NEVER touches this process, ADR 0004), the capture-on-confirm use case, and the per-store credential
 loader, (2.2) the signed Stripe webhook receiver with exactly-once processing and replay, and (2.3) refunds —
-the Admin API `createRefund`, the returns module's `RefundRequester`, webhook settlement. Test mode only in
-Phase 2 (decisions.md #10): live-mode keys are refused. Contracts: contracts-v0.4.1 (v0.3 at 2.1).
+the Admin API `createRefund`, the returns module's `RefundRequester`, webhook settlement, and (Integration 2a,
+#355) the Admin API `capturePayment` route with partial capture. Test mode only (decisions.md #10): live-mode keys
+are refused. Contracts: contracts-v0.4.11 (Admin API 0.4.9; v0.3 at 2.1).
 
 ## Public API (`index.ts`)
 
-| Export                                                                    | Purpose                                                                                                                                                 |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `registerPaymentProviders()`                                              | registers `stripe` with the checkout registry; src/server.ts calls it at boot (REQUEST #176)                                                            |
-| `createStripePaymentProvider(opts?)`                                      | the `PaymentProvider`; `opts.apiFactory` / `opts.env` are test seams                                                                                    |
-| `capturePayment(client, paymentId, { actor })`                            | capture on confirm; see below                                                                                                                           |
-| `stripeCredentialsFor(storeCode, env?)`                                   | per-store credentials, fail-closed; see below                                                                                                           |
-| `StripeClient` / `StripeError` / `StripeApi`                              | thin fetch-based REST client (no `stripe` npm dependency — apps/core/package.json is window 1's; same precedent as search's Algolia client)             |
-| `FakeStripe`                                                              | in-memory `StripeApi` for tests: idempotency map, call log, scriptable declines                                                                         |
-| `confirmIdempotencyKey(placementKey)`                                     | `confirm_<sha256(placement Idempotency-Key)>` — exported for tests                                                                                      |
-| `voidIdempotencyKey(voidKey)`                                             | `void_<sha256(orders' `<payment.idempotency_key>:void`)>` — exported for tests                                                                          |
-| `paymentsWebhookRouter()`                                                 | `POST /webhooks/stripe/:storeCode` (2.2); mounted by src/server.ts outside `/store` and `/admin` (REQUEST #176 part 3)                                  |
-| `handleStripeWebhook(input)`                                              | the receiver behind the router (signature → extract → exactly-once → process); see below                                                                |
-| `replayWebhookEvent(client, evt_id)`                                      | reprocess a stored event idempotently; refuses a tampered extract (seal ≠ `payload_hash`)                                                               |
-| `getWebhookEvent(client, evt_id)`                                         | one stored event (runbook / tests)                                                                                                                      |
-| `verifyStripeSignature` / `signStripePayload`                             | Stripe-Signature verification (constant time, raw body, secret-roll aware) and the header builder tests use                                             |
-| `redactStripeEvent` / `sealExtract` / `verifySeal`                        | the redacted extract of an event and its integrity seal                                                                                                 |
-| `stripeWebhookSecretFor(storeCode, env?)`                                 | `STRIPE_WEBHOOK_SECRET_<CODE>`, else `STRIPE_WEBHOOK_SECRET`, else null (receiver fails closed)                                                         |
-| `stripeWebhookSecretsFor(storeCode, env?)`                                | `[current, previous]` — the `_PREVIOUS` variable keeps pre-roll rows verifiable during a secret roll                                                    |
-| `createRefund(client, input)` / `createRefundIn(tx, input)`               | the refund use case (2.3): own transaction, or the caller's (returns module); see below                                                                 |
-| `paymentsRefundRequester`                                                 | the returns module's `RefundRequester`, registered by `registerPaymentProviders()`                                                                      |
-| `paymentsAdminRouter()`                                                   | `POST /admin/stores/:storeId/orders/:orderId/refunds` (Admin API `createRefund`); mounted through `moduleAdminRouters()` (REQUEST #176 part 4)          |
-| `getRefund` / `renderRefund` / `refundedMinor` / `syncOrderPaymentStatus` | refund read helpers and the order `payment_status` sync used by the use case and the webhook receiver                                                   |
-| `storeSecretFor(storeCode, name, env?)` / `requireStoreSecret(…)`         | THE per-store credential loader shared by payments, tax and fraud (2.5): `NAME_<CODE>` over `NAME`, read per call, fail-closed form names the variables |
-| `registerWebhookHandler(eventType, handler)`                              | lets another module own an event type inside this receiver (fraud: `review.opened` / `review.closed`)                                                   |
+| Export                                                                    | Purpose                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerPaymentProviders()`                                              | registers `stripe` with the checkout registry; src/server.ts calls it at boot (REQUEST #176)                                                                                                                                                                           |
+| `createStripePaymentProvider(opts?)`                                      | the `PaymentProvider`; `opts.apiFactory` / `opts.env` are test seams                                                                                                                                                                                                   |
+| `capturePayment(client, paymentId, { actor, amountMinor?, orderId? })`    | capture, full or partial (`amountMinor`), scoped to an order (`orderId`); see below                                                                                                                                                                                    |
+| `renderPayment(row)`                                                      | a `payment` row as the contract `Payment` (the shape `Order.payments[]` uses)                                                                                                                                                                                          |
+| `PROVIDER_UNSUPPORTED` / `providerUnsupported(provider)`                  | the 422 `provider_unsupported` error of Admin API 0.4.9 — carried locally until contracts 0.4.12 adds the code to `ERROR_CODES` (see below)                                                                                                                            |
+| `stripeCredentialsFor(storeCode, env?)`                                   | per-store credentials, fail-closed; see below                                                                                                                                                                                                                          |
+| `StripeClient` / `StripeError` / `StripeApi`                              | thin fetch-based REST client (no `stripe` npm dependency — apps/core/package.json is window 1's; same precedent as search's Algolia client)                                                                                                                            |
+| `FakeStripe`                                                              | in-memory `StripeApi` for tests: idempotency map, call log, scriptable declines                                                                                                                                                                                        |
+| `confirmIdempotencyKey(placementKey)`                                     | `confirm_<sha256(placement Idempotency-Key)>` — exported for tests                                                                                                                                                                                                     |
+| `voidIdempotencyKey(voidKey)`                                             | `void_<sha256(orders' `<payment.idempotency_key>:void`)>` — exported for tests                                                                                                                                                                                         |
+| `paymentsWebhookRouter()`                                                 | `POST /webhooks/stripe/:storeCode` (2.2); mounted by src/server.ts outside `/store` and `/admin` (REQUEST #176 part 3)                                                                                                                                                 |
+| `handleStripeWebhook(input)`                                              | the receiver behind the router (signature → extract → exactly-once → process); see below                                                                                                                                                                               |
+| `replayWebhookEvent(client, evt_id)`                                      | reprocess a stored event idempotently; refuses a tampered extract (seal ≠ `payload_hash`)                                                                                                                                                                              |
+| `getWebhookEvent(client, evt_id)`                                         | one stored event (runbook / tests)                                                                                                                                                                                                                                     |
+| `verifyStripeSignature` / `signStripePayload`                             | Stripe-Signature verification (constant time, raw body, secret-roll aware) and the header builder tests use                                                                                                                                                            |
+| `redactStripeEvent` / `sealExtract` / `verifySeal`                        | the redacted extract of an event and its integrity seal                                                                                                                                                                                                                |
+| `stripeWebhookSecretFor(storeCode, env?)`                                 | `STRIPE_WEBHOOK_SECRET_<CODE>`, else `STRIPE_WEBHOOK_SECRET`, else null (receiver fails closed)                                                                                                                                                                        |
+| `stripeWebhookSecretsFor(storeCode, env?)`                                | `[current, previous]` — the `_PREVIOUS` variable keeps pre-roll rows verifiable during a secret roll                                                                                                                                                                   |
+| `createRefund(client, input)` / `createRefundIn(tx, input)`               | the refund use case (2.3): own transaction, or the caller's (returns module); see below                                                                                                                                                                                |
+| `paymentsRefundRequester`                                                 | the returns module's `RefundRequester`, registered by `registerPaymentProviders()`                                                                                                                                                                                     |
+| `paymentsAdminRouter(opts?)`                                              | Admin API `createRefund` (`POST …/orders/:orderId/refunds`) and `capturePayment` (`POST …/orders/:orderId/payments/:paymentId/capture`, #355); mounted through `moduleAdminRouters()` (REQUEST #176 part 4); `opts.stripe` = the capture route's Stripe seam for tests |
+| `getRefund` / `renderRefund` / `refundedMinor` / `syncOrderPaymentStatus` | refund read helpers and the order `payment_status` sync used by the use case and the webhook receiver                                                                                                                                                                  |
+| `storeSecretFor(storeCode, name, env?)` / `requireStoreSecret(…)`         | THE per-store credential loader shared by payments, tax and fraud (2.5): `NAME_<CODE>` over `NAME`, read per call, fail-closed form names the variables                                                                                                                |
+| `registerWebhookHandler(eventType, handler)`                              | lets another module own an event type inside this receiver (fraud: `review.opened` / `review.closed`)                                                                                                                                                                  |
 
 ## The provider
 
@@ -68,27 +71,69 @@ Phase 2 (decisions.md #10): live-mode keys are refused. Contracts: contracts-v0.
   webhook receiver picks up a later `refund.failed`). The store — and so the credentials — is resolved from the
   `payment` row by `provider_payment_id` (RLS-scoped, so a tenant client can only refund its own payments).
 
-## Capture on confirm — `capturePayment(client, paymentId, { actor })`
+## Capture — `capturePayment(client, paymentId, { actor, amountMinor?, orderId? })` and the Admin route (#355)
 
-One transaction on the scoped client: `payment` row locked `FOR UPDATE` → must be `stripe` (400) and
-`authorized` (409 `{ field, from, to }` otherwise; `captured` → replay, see below) → Stripe capture with
-idempotency key `capture_<payment_id>` and `latest_charge.balance_transaction` expanded → row `captured` with
-`captured_at` and `fee_minor` (null when Stripe does not return the balance transaction) → `payment.captured`
-v1 through `withEvents`, same transaction. Then, in its own transaction, the orders module's
+One transaction on the scoped client: `payment` row locked `FOR UPDATE` (with `orderId` the row must belong to that
+order, else 404) → must be `stripe` (**422 `provider_unsupported`** `{ provider }` otherwise — the built-in
+`manual` provider has nothing to capture) and `authorized` (409 `{ field, from, to }` otherwise; `captured` →
+replay, see below) → Stripe capture with idempotency key `capture_<payment_id>` and
+`latest_charge.balance_transaction` expanded → row `captured` with `captured_at` and `fee_minor` (null when
+Stripe does not return the balance transaction) → `payment.captured` v1 through `withEvents` → one `audit_log` row
+(`payment.capture`, ids and amounts only), same transaction. Then, in its own transaction, the orders module's
 `markPaymentCaptured` (idempotent on the target state; emits its `order.updated`).
 
-- A **definitive** Stripe failure (4xx, not 429) writes row `failed` + `failure_reason` + `payment.failed` in
-  the same transaction, then `markPaymentFailed`, then throws 402 `payment_failed`. An outage writes NOTHING
-  and rethrows: retry later, the idempotency key makes the retry safe.
+- **Partial capture** (`amountMinor`, the route's `amount_minor`): Stripe's `amount_to_capture`; the rest of the
+  hold is released by Stripe. More than the authorised amount → 409 `conflict`
+  `{ field: 'amount_minor', requested_minor, authorized_minor }`, nothing sent; below one minor unit → 400. After
+  a capture the row's `amount_minor` **is the captured amount** — the refund ceiling (2.3) and `Order.payments[]
+.amount` read it — and `metadata.capture = { authorized_minor, captured_minor, partial }` keeps the authorised
+  one on record; `payment.captured.amount_minor` is what was captured ("source of truth for cash").
+- A **definitive** Stripe failure (4xx, not 429) writes row `failed` + `failure_reason` + `payment.failed` + an
+  audit row in the same transaction, then `markPaymentFailed`, then throws 402 `payment_failed`. An outage writes
+  NOTHING and rethrows: retry later, the idempotency key makes the retry safe. Stripe's `idempotency_error` (the
+  same key with another amount — a retry after a lost response) is a 409 with nothing written: the first request's
+  parameters stand; retry with the same amount or let the webhook settle it.
 - **Held for fraud**: a payment whose `metadata.fraud.status` is `review` or `confirmed_fraud` (fraud module, 2.5)
   is never captured — 409 `conflict` with the reason code; the authorization hold stays until a human clears
   the review or cancels the order.
 - **Replay**: a `captured` row makes no Stripe call and emits nothing new, but still calls
   `markPaymentCaptured` — so a crash between the payment transaction and the order transition is healed by
   calling `capturePayment` again. Returns `{ payment, replayed: true }`.
+- **Route and webhook agree**: after a capture by the route the row is `captured`, so Stripe's
+  `payment_intent.succeeded` for it is a `skipped` ("already captured") — one state, one `payment.captured`,
+  whatever the order of arrival (the webhook waits at the row lock while the route's transaction runs). A partial
+  capture made at Stripe WITHOUT us (dashboard) stays a `failed amount_conflict` event: a money discrepancy a human
+  must look at, never silently adopted.
 - `./orders-seam.ts` re-exports `markPaymentCaptured` / `markPaymentFailed` from `../orders` (window 1's orders
   module, #174, on main since merge round 8). It stays as the module's single import point for the orders seam,
   so the webhook receiver (2.2) and any later caller share one place where that boundary is documented.
+
+### Admin API `capturePayment` — `POST /admin/stores/{storeId}/orders/{orderId}/payments/{paymentId}/capture`
+
+Admin API 0.4.9 (contracts-v0.4.11, CONTRACT CHANGE #354). Part of `paymentsAdminRouter()` (`./capture-route.ts`),
+so it is already mounted through `moduleAdminRouters()`. Permission = the operation's `x-permission`
+(`store_admin` on `store:{storeId}`) through `requirePermission` (`./admin-permission.ts`, shared with the refund
+route — never a hard-coded relation); the store scope is the tenant client plus the payment's `order_id`. The body
+is optional and validated against the spec: no body = the whole authorisation, `{ amount_minor }` = partial.
+
+| Answer                     | When                                                                                                                                                                                                                         |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 200 `Payment` (`captured`) | captured now; `amount` is what was captured, `fee_minor` from the balance transaction                                                                                                                                        |
+| 409 `conflict`             | payment not `authorized` — **including already `captured`** (the use case replays and heals the order, the route says 409: never a second charge) — or `amount_minor` above the authorisation, or Stripe `idempotency_error` |
+| 422 `provider_unsupported` | the payment's provider cannot capture (`manual`): `{ provider }` in `details`, message names the provider                                                                                                                    |
+| 402 `payment_failed`       | Stripe refused the capture definitively (row `failed`, `payment.failed` emitted)                                                                                                                                             |
+| 404 / 403 / 400            | payment not on this order (or unknown); no `store_admin`; invalid body                                                                                                                                                       |
+
+**`provider_unsupported` is mocked locally** (`PROVIDER_UNSUPPORTED` in `./capture.ts`: `AppError` with the code cast
+and status 422): contracts-v0.4.11 documents it on `Error.code` and the shared `Unprocessable` response but does not
+list it in `ERROR_CODES`; the manager lands code + the core's status map in contracts 0.4.12. When that is on main,
+delete the cast and the local status in `./capture.ts` — behaviour stays byte-identical.
+
+**Live run** (`capture-live.test.ts`): the whole chain through the module against Stripe TEST mode — our provider
+creates the PaymentIntent at session time, Stripe's own test token `pm_card_visa` is attached (never a card number),
+`completeCart` authorises, `capturePayment` captures (full on one order, partial on another), `createRefund` refunds
+the captured amount. Needs `STRIPE_SECRET_KEY_BRAND_A` (or `STRIPE_SECRET_KEY`) in the repo-root `.env` and a
+Postgres; without a key it skips and prints a warning naming the variables; a live-mode key is refused.
 
 ## Webhooks — `POST /webhooks/stripe/:storeCode` (task 2.2, #125)
 
