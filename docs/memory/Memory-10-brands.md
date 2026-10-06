@@ -163,6 +163,37 @@ detached to a file with bounded polls, say "machine free" after any core run.
    product image?) and is it prioritised, sized and served at the right width — because a genuine fix
    beats a threshold argument.
 
+## DO THIS FIRST NEXT SESSION (manager, late 2026-10-06) — one push, then #379 queues
+
+#379's static review is **MERGE on the code**: the sync was faithful across 16 compared blobs, the
+`RUNTIME_SITE_URL` reasoning was verified, and #372's assertions are present. Only the **secret scan**
+is red, and the cause is not mine to fix in the file:
+
+- The sync copied the starter's Stripe-**shaped test literals** into `test/payment-options.test.ts`
+  (`pk_test_storeword`, `pk_test_globalword`, and `sk_test_secretword` / `rk_test_restrictedword` /
+  `whsec_word` in the case that asserts a non-publishable key is **refused**). I verified them: the
+  file is **byte-identical to the starter's**, every literal is `prefix_` + a dictionary word, and
+  none is key material. The test that proves secrets never reach the browser is what trips the
+  scanner.
+- **Do not "fix" the literals.** Editing them would diverge from the starter and the next sync would
+  overwrite it. The manager extended the **allowlist path on main** to cover every storefront clone
+  and has pushed that commit; merging main clears the check.
+
+**The one push, exactly as the manager framed it:**
+1. `git fetch origin` and **merge `origin/main`** (it carries the allowlist fix).
+2. **In the same commit**, add **PR #379 and head sha `771f35d`** to `CHANGELOG.md` and to this file —
+   both currently cite only the sync base (`e7f2f3e`) and no PR number.
+3. `pnpm install` + rebuild the workspace packages, then the full gate:
+   `pnpm lint && pnpm format:check && pnpm typecheck --filter @platform/storefront-brand-a &&
+   pnpm test --filter @platform/storefront-brand-a`, plus the mock e2e **on private ports**
+   (`MOCK_API_URL=http://127.0.0.1:4310 MOCK_STORE_PORT=4310 MOCK_ADMIN_PORT=4311`) — see the Docker
+   gotcha below.
+4. **One push** to `brands/phase3` (this updates #379 in place; do not open a second PR). Then message
+   the manager the new head sha. It queues after that.
+5. Local commit `2c96716` is **not yet pushed** and rides along with this.
+
+Only then #348, and only on the owner's word.
+
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
 `apps/storefronts/brand-a/LAUNCH.md`.
