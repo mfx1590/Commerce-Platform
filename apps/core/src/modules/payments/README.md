@@ -15,7 +15,7 @@ are refused. Contracts: contracts-v0.4.11 (Admin API 0.4.9; v0.3 at 2.1).
 | `createStripePaymentProvider(opts?)`                                      | the `PaymentProvider`; `opts.apiFactory` / `opts.env` are test seams                                                                                                                                                                                                   |
 | `capturePayment(client, paymentId, { actor, amountMinor?, orderId? })`    | capture, full or partial (`amountMinor`), scoped to an order (`orderId`); see below                                                                                                                                                                                    |
 | `renderPayment(row)`                                                      | a `payment` row as the contract `Payment` (the shape `Order.payments[]` uses)                                                                                                                                                                                          |
-| `PROVIDER_UNSUPPORTED` / `providerUnsupported(provider)`                  | the 422 `provider_unsupported` error of Admin API 0.4.9 — carried locally until contracts 0.4.12 adds the code to `ERROR_CODES` (see below)                                                                                                                            |
+| `PROVIDER_UNSUPPORTED` / `providerUnsupported(provider)`                  | the 422 `provider_unsupported` error of Admin API 0.4.9 (`ERROR_CODES` + the core status map since contracts 0.4.12)                                                                                                                                                   |
 | `stripeCredentialsFor(storeCode, env?)`                                   | per-store credentials, fail-closed; see below                                                                                                                                                                                                                          |
 | `StripeClient` / `StripeError` / `StripeApi`                              | thin fetch-based REST client (no `stripe` npm dependency — apps/core/package.json is window 1's; same precedent as search's Algolia client)                                                                                                                            |
 | `FakeStripe`                                                              | in-memory `StripeApi` for tests: idempotency map, call log, scriptable declines                                                                                                                                                                                        |
@@ -124,10 +124,8 @@ is optional and validated against the spec: no body = the whole authorisation, `
 | 402 `payment_failed`       | Stripe refused the capture definitively (row `failed`, `payment.failed` emitted)                                                                                                                                             |
 | 404 / 403 / 400            | payment not on this order (or unknown); no `store_admin`; invalid body                                                                                                                                                       |
 
-**`provider_unsupported` is mocked locally** (`PROVIDER_UNSUPPORTED` in `./capture.ts`: `AppError` with the code cast
-and status 422): contracts-v0.4.11 documents it on `Error.code` and the shared `Unprocessable` response but does not
-list it in `ERROR_CODES`; the manager lands code + the core's status map in contracts 0.4.12. When that is on main,
-delete the cast and the local status in `./capture.ts` — behaviour stays byte-identical.
+**`provider_unsupported`** is in `ERROR_CODES` and the core's status map (422) since contracts 0.4.12 (manager landing
+2026-10-06); the route carried the code locally for one day between 0.4.11 and 0.4.12 — nothing of that remains.
 
 **Live run** (`capture-live.test.ts`): the whole chain through the module against Stripe TEST mode — our provider
 creates the PaymentIntent at session time, Stripe's own test token `pm_card_visa` is attached (never a card number),

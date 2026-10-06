@@ -1,5 +1,5 @@
 /**
- * The orders screens' wrappers and actions against the spec's own examples (Admin API 0.4.5).
+ * The orders screens' wrappers and actions against the spec's own examples (Admin API 0.4.9).
  *
  * Prism answers with what `admin-api.yaml` documents, so this proves the code reads the fields the
  * spec actually has — and, with `Prefer: code=<n>`, that the documented refusals (401/403/409) come
@@ -186,9 +186,73 @@ describe('the server actions against the spec', () => {
     expect(result).toMatchObject({ status: 'error', formError: 'Missing idempotency key.' });
   });
 
-  it('a shipment update with nothing changed is refused before the API', async () => {
+  it("a shipment update by Prism's store_admin is refused by the server-side guard (operations on hq)", async () => {
+    // Prism's /admin/me is a store_admin on brand-a without `operations`: the guard answers before
+    // validation and before the API (#357 put every order action under it).
     const result = await actions.updateShipmentAction(SEED_STORE_ID, ORDER_ID, SHIPMENT_ID, {});
-    expect(result).toMatchObject({ status: 'error', formError: 'Change at least one field' });
+    expect(result).toMatchObject({
+      status: 'error',
+      refusal: {
+        status: 403,
+        error: { details: { relation: 'operations', object: 'organization:hq' } },
+      },
+    });
+  });
+});
+
+describe('capture and buy label (Admin API 0.4.9, #357)', () => {
+  const PAYMENT_ID = '60000000-0000-4000-8000-000000000101';
+  const capturePath = `/admin/stores/${SEED_STORE_ID}/orders/${ORDER_ID}/payments/${PAYMENT_ID}/capture`;
+  const labelPath = `/admin/shipments/${SHIPMENT_ID}/label`;
+  const ask = (code: number, path: string) =>
+    adminRequest<'capturePayment'>({
+      baseUrl: BASE,
+      path,
+      method: 'POST',
+      accessToken: 'contract-test-token',
+      headers: preferring(code),
+    });
+
+  it("capturePaymentAction (Prism's store_admin passes the guard) returns the captured payment", async () => {
+    const result = await actions.capturePaymentAction(SEED_STORE_ID, ORDER_ID, PAYMENT_ID, {
+      amount_minor: 1000,
+    });
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') throw new Error('expected success');
+    expect(result.data).toMatchObject({ status: 'captured', captured_at: expect.any(String) });
+  });
+
+  it('buyShipmentLabel answers the shipment with label link and tracking', async () => {
+    const result = await api.buyShipmentLabel(SHIPMENT_ID);
+    if (!result.ok) throw new Error(`buyShipmentLabel failed: ${result.status}`);
+    expect(result.data).toMatchObject({
+      status: 'label_created',
+      label_url: expect.any(String),
+      tracking_number: expect.any(String),
+    });
+  });
+
+  it("buyShipmentLabelAction is refused for Prism's store_admin before the API (operations on hq)", async () => {
+    expect(
+      await actions.buyShipmentLabelAction(SEED_STORE_ID, ORDER_ID, SHIPMENT_ID),
+    ).toMatchObject({
+      refusal: { status: 403, error: { details: { relation: 'operations' } } },
+    });
+  });
+
+  it.each([
+    ['capturePayment', capturePath],
+    ['buyShipmentLabel', labelPath],
+  ])('%s: the documented 422 is provider_unsupported and the 409 a conflict', async (_op, path) => {
+    const unsupported = await ask(422, path);
+    if (unsupported.ok) throw new Error('expected 422');
+    expect(unsupported.status).toBe(422);
+    expect(unsupported.error.code).toBe('provider_unsupported');
+
+    const conflict = await ask(409, path);
+    if (conflict.ok) throw new Error('expected 409');
+    expect(conflict.status).toBe(409);
+    expect(conflict.error.code).toBe('conflict');
   });
 });
 

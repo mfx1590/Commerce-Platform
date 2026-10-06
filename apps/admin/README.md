@@ -86,12 +86,16 @@ answering `/health`), and fails fast with instructions if the core is not up. Th
 one body; `e2e/api-mode.ts` holds the few things that differ (display name, domain, key format,
 which routes the core does not mount). **Core-mode journeys write into the shared local
 database**: everything they create is stamped with the run (product handles, promotion codes, key
-names), so reruns never collide, and nothing irreversible is confirmed on seeded data (the refund
-journey stops at the question and cancels; it skips when no seeded order has a refundable payment).
-Core mode creates what it reads (#285): the orders journey places its own guest order through
-the Store API (`e2e/core-order.ts`) and the refund journey skips with its reason (the seeded
-manual provider authorises only; capture is Stripe-only). Run 2026-10-05 (core :9000): 22 passed,
-1 skipped.
+names), so reruns never collide, and nothing irreversible is confirmed on seeded data.
+Core mode creates what it reads (#285): the orders journeys place their own guest order through
+the Store API (`e2e/core-order.ts`) — one order per journey that needs one (the orders list, and
+since #357 capture → refund and buy label), each taking **one unit** of the first in-stock variant
+among the first 20 brand-a products by ascending price, so every run lowers that variant's
+available stock by one (`topUpStock` in packages/db restores the shared seed). In core mode the
+mock's refund journey skips with its reason (the seeded manual provider authorises only; capture
+is Stripe-only); `e2e/orders-core.spec.ts` captures and refunds the run's own order instead, and
+skips with the same reason when the core answers 422 `provider_unsupported`. Run 2026-10-05
+(core :9000): 22 passed, 1 skipped.
 Recorded run 2026-09-28 (core from this branch on :9100 for that run only — the default and the commands above use :9000): mock 21 passed + 2 core-only skipped;
 core 22 passed + 1 skipped (no refundable order). A CI variant is REQUEST #285 (window 5).
 
@@ -403,6 +407,30 @@ the API re-checks the relation — a refusal renders as `ActionRefusal`, never a
 | Refund                                              | `support`                         | ≤ captured − refunded-or-pending; the store's support ceiling stated                     |
 | Request return                                      | `support`                         | per line ≤ shipped − returned                                                            |
 | Fulfil, pick, pack, update shipment, receive return | `operations` on `organization:hq` | warehouse from `listWarehouses`; per line ≤ fulfillable; status-appropriate buttons only |
+| Capture a payment (#357)                            | `store_admin`                     | `authorized` payments only; whole or part, ≤ the authorised amount; asks first           |
+| Buy a label (#357)                                  | `operations` on `organization:hq` | `packed` shipments only; asks first (the carrier charges)                                |
+
+**Checked on the server too (#357).** Every order server action starts with the same guard as the
+registry's (`refuseUnlessPermitted`, `src/lib/permissions/guard.ts`): it refuses with the
+contract's 403 body before the Admin API is called unless the principal holds the operation's
+`x-permission` from `ORDER_PERMISSIONS` (pinned against `admin-api.yaml`), and path ids must be
+uuids. `test/orders-actions.test.ts` has one case per action proving the refusal comes first.
+
+**Capture and Buy label** (Admin API 0.4.9). The **Payments** card lists each payment with Capture
+on an `authorized` one: the question names the authorised amount, a part can be captured instead
+(minor units, never more than authorised), and only the confirmation sends. The shipment row offers
+**Buy label** on a `packed` shipment; afterwards the row shows the **Label** link and the tracking
+number. A provider or carrier that cannot do it — the manual ones answer **422
+`provider_unsupported`** — is a neutral note ("not available for this payment provider", "…for this
+shipment's carrier — attach the tracking number with Update instead"), not an error panel; a 409
+(not `authorized` / not `packed`, or more than authorised) is a message. Refund keeps listing
+captured payments only. The header shows the status the core reports with its #350 meaning
+(`src/lib/orders/lifecycle.ts`) — never one derived from payments or shipments.
+
+Screenshots **against the Prism mock** (a scratchpad stub in front of it gave the order example an
+authorised payment and a packed EasyPost shipment, and an owner principal so both actions are
+offered): `docs/orders/capture-question.png`, `capture-done.png`, `capture-manual-provider.png`
+(the 422 note), `label-question.png`, `label-created.png`, `order-detail.png`.
 
 **Refunds are idempotent by construction.** The contract requires an `Idempotency-Key`; the form
 mints one per attempt (`idempotencyKeyHolder`, `src/lib/orders/refunds.ts`) and re-sends the
@@ -492,7 +520,7 @@ operation needs and otherwise replaced by a line naming that relation (`src/lib/
 
 **Checked on the server, not only in the page.** Every registry server action
 (`src/app/actions/stores.ts`) starts with `refuseUnlessPermitted(operation, storeId)`
-(`src/lib/settings/guard.ts`): it loads the principal from `GET /admin/me` and refuses with the
+(`src/lib/permissions/guard.ts`): it loads the principal from `GET /admin/me` and refuses with the
 contract's 403 body unless the principal holds the operation's `x-permission`, before the Admin API
 is called — a server action is a public POST, reachable whatever the page offered. The relations
 come from one table, `REGISTRY_PERMISSIONS` in `src/lib/settings`, which also drives what the page
