@@ -144,7 +144,8 @@
       "cardFailed": "Your card was not authorised. Please check the details or try another card.",
       "cardUnavailable": "Card payment is not available right now.",
       "choosePayment": "Choose another payment method",
-      "priceChanged": "A price changed since you reviewed your order. Please check the new total and place it again."
+      "priceChanged": "A price changed since you reviewed your order. Please check the new total and place it again.",
+      "threeDSecureAbandoned": "The card check with your bank was not completed, so nothing was charged and your order was not placed. Your cart is unchanged — you can try again."
     },
     "confirmation": {
       "badge": "Order placed",

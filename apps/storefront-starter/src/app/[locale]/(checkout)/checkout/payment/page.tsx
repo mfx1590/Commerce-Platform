@@ -18,7 +18,7 @@ export default async function PaymentStepPage({
 }) {
   const { cart } = await requireCheckoutStep('payment');
   const [t, store] = await Promise.all([getTranslations('checkout.payment'), getStoreOrNull()]);
-  const options = paymentOptions(store?.code ?? null);
+  const options = paymentOptions(store);
   const provider = cart.payment_session?.provider ?? null;
   // `placeOrderAction` sends a declined payment back here with the contract's error code.
   const { error } = await searchParams;

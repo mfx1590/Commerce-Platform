@@ -144,7 +144,8 @@
       "cardFailed": "Ihre Karte wurde nicht autorisiert. Bitte prüfen Sie die Angaben oder verwenden Sie eine andere Karte.",
       "cardUnavailable": "Kartenzahlung ist gerade nicht verfügbar.",
       "choosePayment": "Andere Zahlungsart wählen",
-      "priceChanged": "Seit Ihrer Prüfung hat sich ein Preis geändert. Bitte prüfen Sie die neue Summe und geben Sie die Bestellung erneut auf."
+      "priceChanged": "Seit Ihrer Prüfung hat sich ein Preis geändert. Bitte prüfen Sie die neue Summe und geben Sie die Bestellung erneut auf.",
+      "threeDSecureAbandoned": "Die Kartenprüfung bei Ihrer Bank wurde nicht abgeschlossen. Es wurde nichts belastet und keine Bestellung aufgegeben. Ihr Warenkorb ist unverändert — Sie können es erneut versuchen."
     },
     "confirmation": {
       "badge": "Bestellung aufgegeben",

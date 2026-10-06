@@ -2,10 +2,11 @@
 
 import { Button } from '@platform/ui';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { loadStripe, type Stripe, type StripeElementLocale } from '@stripe/stripe-js';
+import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { useTranslations } from 'next-intl';
 import { startTransition, useActionState, useState, type FormEvent } from 'react';
 import { placeOrderAction, type ActionState } from '@/lib/actions';
+import { cardErrorMessage, stripeLocale } from '@/lib/card-payment-messages';
 
 /**
  * Card payment on the review step (#358): Stripe's Payment Element — hosted fields in Stripe's
@@ -35,11 +36,6 @@ function stripeFor(publishableKey: string): Promise<Stripe | null> {
     stripeByKey.set(publishableKey, stripe);
   }
   return stripe;
-}
-
-/** Our locales are `en-GB` / `de-DE`; Stripe takes `en-GB` and `de`. */
-export function stripeLocale(locale: string): StripeElementLocale {
-  return (locale === 'en-GB' ? 'en-GB' : locale.split('-')[0]) as StripeElementLocale;
 }
 
 export function CardPayment({
@@ -85,7 +81,12 @@ function CardPaymentForm({ clientSecret }: { clientSecret: string }) {
           confirmParams: { return_url: window.location.href },
         });
         if (error !== undefined) {
-          setCardError(error.message ?? t('cardFailed'));
+          setCardError(
+            cardErrorMessage(error, {
+              threeDSecureAbandoned: t('threeDSecureAbandoned'),
+              cardFailed: t('cardFailed'),
+            }),
+          );
           return;
         }
         if (paymentIntent === undefined || !AUTHORISED.has(paymentIntent.status)) {

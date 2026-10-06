@@ -307,12 +307,19 @@ returns to the payment step, `409 cart_completed` forwards to the order that alr
 
 Card payment is Stripe's **Payment Element** — hosted fields in Stripe's iframes, so card data never
 reaches this app. The payment step offers what the store has (`src/lib/payment-options.ts`, read per
-request, re-checked on submit):
+request, re-checked on submit). **The store decides** through `Store.payment.methods`
+(`'card' | 'invoice'`, Store API 0.5.4, optional on `GET /store`, derived by the core: `card` when
+the store has a Stripe key, `invoice` from its `settings.payment.invoice_allowed`):
 
-| Method         | Offered when                                                                                                                  |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Card           | a Stripe **publishable** key resolves: `STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else `STRIPE_PUBLISHABLE_KEY` |
-| Pay on invoice | `STOREFRONT_ALLOW_INVOICE=1` — **default off**; an interim switch until the store carries the setting                         |
+| Method         | `Store.payment.methods` present                          | absent (a core or mock before 0.5.4)           |
+| -------------- | -------------------------------------------------------- | ---------------------------------------------- |
+| Card           | `card` listed **and** a publishable key resolves here    | a publishable key resolves here                |
+| Pay on invoice | `invoice` listed (`STOREFRONT_ALLOW_INVOICE` is ignored) | `STOREFRONT_ALLOW_INVOICE=1` — **default off** |
+
+`STOREFRONT_ALLOW_INVOICE` is the **interim** switch (manager ruling on #358): it keeps an invoice
+path for the mock and the e2e journeys until every core serves the property, and goes in a follow-up
+once #350/#354 are on main. The e2e server sets it. The publishable key is
+`STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else `STRIPE_PUBLISHABLE_KEY`.
 
 The key variable names follow the core's per-store secrets (`STRIPE_SECRET_KEY_<STORE CODE>`). Only a
 `pk_test_`/`pk_live_` value is used, so a secret key put in the wrong variable is never sent to a
@@ -329,8 +336,9 @@ off. The card is entered on the **review step**, where "Place order" does two th
    order `authorized`; capture is the shop's step.
 
 An intent that is already authorised (a retry after the placement failed on the network) is not
-confirmed again. Declines and an abandoned 3-D Secure come back from Stripe as messages written for
-the customer and are shown as they are; `409 price_changed` refreshes the session (the core updates
+confirmed again. Declines come back from Stripe as messages written for the customer and are shown as
+they are; an **abandoned or failed 3-D Secure** (`payment_intent_authentication_failure`) gets our own
+sentence — nothing was charged, nothing placed, the cart is unchanged, try again; `409 price_changed` refreshes the session (the core updates
 or replaces the PaymentIntent) and returns to the review step with the new total.
 
 **Running with Stripe test keys.** Put the store's keys in the repo-root `.env` — never in git, never
@@ -338,8 +346,9 @@ in chat: `STRIPE_PUBLISHABLE_KEY_BRAND_A=pk_test_…` (this app) and `STRIPE_SEC
 (the core). Start the core and this app with that environment, choose Card, and use Stripe's test
 cards: `4242 4242 4242 4242` (authorised), `4000 0027 6000 3184` (3-D Secure: press "Complete" in
 the test modal), `4000 0000 0000 0002` (declined); any future expiry and any CVC.
-`e2e/card-payment.spec.ts` drives those three against the core and **skips with the reason** when
-the run is against the mock or no test publishable key is set.
+`e2e/card-payment.spec.ts` drives those against the core (plus 3-D Secure abandoned with the test
+modal's "Fail") and, when it cannot, **prints one line saying why** (`[e2e] card-payment skipped: no
+core …` / `… no Stripe TEST publishable key …`) and skips.
 
 ## Locales and currency
 

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getAccessToken: vi.fn<() => Promise<string | null>>(),
   clearSession: vi.fn(async () => {}),
   session: { status: 'pending', provider: 'manual' } as { status: string; provider: string } | null,
+  store: { code: 'brand-a' } as { code: string; payment?: { methods: string[] } },
 }));
 
 vi.mock('next/headers', () => ({
@@ -42,7 +43,7 @@ vi.mock('@/lib/auth/session', () => ({
   getAccessToken: mocks.getAccessToken,
   clearSession: mocks.clearSession,
 }));
-vi.mock('@/lib/store', () => ({ getStoreOrNull: async () => ({ code: 'brand-a' }) }));
+vi.mock('@/lib/store', () => ({ getStoreOrNull: async () => mocks.store }));
 vi.mock('@/lib/store-api', async (importActual) => ({
   ...(await importActual<typeof StoreApiModule>()),
   storeApi: () => ({
@@ -70,6 +71,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   mocks.session = { status: 'pending', provider: 'manual' };
+  mocks.store = { code: 'brand-a' };
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -182,6 +184,15 @@ describe('placeOrderAction — the payment session (#358)', () => {
 });
 
 describe('createPaymentSessionAction (#358)', () => {
+  it('Store.payment.methods decides when the core sends it — the interim switch is ignored', async () => {
+    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.store = { code: 'brand-a', payment: { methods: ['card'] } };
+    const form = new FormData();
+    form.set('provider', 'manual');
+    expect(await createPaymentSessionAction({}, form)).toMatchObject({ error: expect.any(String) });
+    expect(mocks.createPaymentSession).not.toHaveBeenCalled();
+  });
+
   const choose = (provider: string) => {
     const form = new FormData();
     form.set('provider', provider);

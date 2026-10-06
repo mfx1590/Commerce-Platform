@@ -6,7 +6,7 @@ import { clearCart, getCart, getOrCreateCart, refreshCartAttribution } from './c
 import { mapCheckoutError, mapCompletionError, parseAddressForm, stepPath } from './checkout';
 import { asCustomerOrGuest, type CartCallMode } from './customer-link';
 import { checkoutIdempotencyKey, clearIdempotencyKey } from './idempotency';
-import { invoiceAllowed, offers, paymentOptions } from './payment-options';
+import { offers, paymentOptions } from './payment-options';
 import { getStoreOrNull } from './store';
 import { storeApi } from './store-api';
 
@@ -162,7 +162,7 @@ export async function createPaymentSessionAction(
 
   const provider = stringField(formData, 'provider') ?? '';
   const store = await getStoreOrNull();
-  if (!offers(paymentOptions(store?.code ?? null), provider)) {
+  if (!offers(paymentOptions(store), provider)) {
     return { error: 'That payment method is not available. Please choose another.' };
   }
 
@@ -187,7 +187,10 @@ export async function placeOrderAction(
   const session = cart.payment_session;
   if (session === null) return redirectLocalized(stepPath('payment'));
   const renewInvoiceSession = session.status === 'failed';
-  if (renewInvoiceSession && (session.provider !== 'manual' || !invoiceAllowed())) {
+  if (
+    renewInvoiceSession &&
+    (session.provider !== 'manual' || !paymentOptions(await getStoreOrNull()).invoice)
+  ) {
     return redirectLocalized(`${stepPath('payment')}?error=payment_failed`);
   }
 

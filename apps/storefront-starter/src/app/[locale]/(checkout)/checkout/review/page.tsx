@@ -33,7 +33,7 @@ export default async function ReviewStepPage({
   // secret — Stripe's design: the secret lets this browser confirm this one PaymentIntent, nothing
   // more. Without both, the card cannot be taken here, so the customer goes back to choose again.
   const session = cart.payment_session;
-  const publishableKey = paymentOptions(store?.code ?? null).stripePublishableKey;
+  const publishableKey = paymentOptions(store).stripePublishableKey;
   const card =
     session?.provider === 'stripe' && session.client_secret !== null && publishableKey !== null
       ? { publishableKey, clientSecret: session.client_secret }

@@ -31,17 +31,26 @@ const HAS_STRIPE_KEY = Object.entries(process.env).some(
 
 test.describe.configure({ mode: 'serial' });
 
+/** Why this spec cannot run here, or null when it can. One reason, said once. */
+const SKIP_REASON = !AGAINST_CORE
+  ? `no core (this run is against ${BACKEND}; set E2E_STORE_API_URL)`
+  : !HAS_STRIPE_KEY
+    ? 'no Stripe TEST publishable key (STRIPE_PUBLISHABLE_KEY_<STORE CODE>=pk_test_…)'
+    : null;
+
+test.beforeAll(() => {
+  // Printed, not only recorded: a skipped card spec must say why in the run's output (#358).
+  if (SKIP_REASON !== null) console.info(`[e2e] card-payment skipped: ${SKIP_REASON}`);
+});
+
 test.beforeEach(() => {
-  test.skip(!AGAINST_CORE, `card payment needs the core (this run is against ${BACKEND})`);
-  test.skip(
-    !HAS_STRIPE_KEY,
-    'card payment needs a Stripe TEST publishable key (STRIPE_PUBLISHABLE_KEY_<STORE CODE>) — skipped',
-  );
+  test.skip(SKIP_REASON !== null, `card payment skipped: ${SKIP_REASON ?? ''}`);
   test.setTimeout(JOURNEY_TIMEOUT);
 });
 
 const CARDS = {
   authorised: '4242424242424242',
+
   threeDSecure: '4000002760003184',
   declined: '4000000000000002',
 } as const;
@@ -128,4 +137,32 @@ test('a declined card is a recoverable message; a good card then places exactly 
   await enterCard(page, CARDS.authorised);
   await placeOrder(page);
   await expectPlaced(page, 'card (declined, then 4242)');
+});
+
+test('an abandoned 3-D Secure leaves the cart as it was and says so; a good card then places the order', async ({
+  page,
+}) => {
+  await toCardReview(page);
+  const before = await captureOrder(page, 'the review step');
+  await enterCard(page, CARDS.threeDSecure);
+  await placeOrder(page);
+
+  const challenge = page
+    .frameLocator('iframe[name^="__stripeJSChallengeFrame"]')
+    .frameLocator('iframe[name="stripe-challenge-frame"]');
+  await challenge.getByRole('button', { name: /fail/i }).click({ timeout: NAVIGATION_TIMEOUT });
+
+  await expect(page.getByTestId('card-payment').getByRole('alert')).toContainText(
+    'nothing was charged',
+    { timeout: SERVER_ACTION_TIMEOUT },
+  );
+  await expect(page, 'still on the review step: nothing was placed').toHaveURL(
+    /\/checkout\/review/,
+  );
+  const after = await captureOrder(page, 'the review step, after the abandoned challenge');
+  expect(after, 'the cart is unchanged').toEqual(before);
+
+  await enterCard(page, CARDS.authorised);
+  await placeOrder(page);
+  await expectPlaced(page, 'card (3-D Secure abandoned, then 4242)');
 });
