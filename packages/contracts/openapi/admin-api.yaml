@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.8
+  version: 0.4.9
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -13,6 +13,8 @@ info:
     documents `401` and `403` on every operation (#180): every `x-permission` can fail, and Prism can only mock what is written down.
     0.4.1 adds per-item product media + signed Cloudinary upload params (#168), `getPromotion`/`updatePromotion` with the
     `buy_x_get_y` type and `stackable`/`exclusive` (#189), and spells `ProductFeed` out so `status: error` validates (#194).
+    0.4.9 (#354, Integration 2a) adds `capturePayment` and `buyShipmentLabel`, the shared `Unprocessable` (422) response,
+    and documents the order status lifecycle decided on #350 on the `Order` schema.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -1442,6 +1444,49 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /admin/stores/{storeId}/orders/{orderId}/payments/{paymentId}/capture:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { $ref: '#/components/parameters/OrderId' }
+      - { $ref: '#/components/parameters/PaymentId' }
+    post:
+      tags: [orders]
+      operationId: capturePayment
+      summary: Capture an authorised payment in full or in part (emits payment.captured)
+      description: |
+        Captures through the payment's provider. Without a body the whole authorised amount is captured;
+        `amount_minor` captures part of it and must not exceed the authorised amount. The response is the
+        payment with status `captured`. 409 when the payment is not `authorized` (already captured, failed,
+        cancelled, still pending) or `amount_minor` exceeds the authorised amount; 422 when the provider cannot
+        capture (the manual provider has nothing to capture).
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount_minor:
+                  {
+                    type: integer,
+                    minimum: 1,
+                    description: Partial capture; at most the authorised amount. Omitted = the whole authorisation,
+                  }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Payment' }
+              examples:
+                captured: { $ref: '#/components/examples/PaymentCaptured' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
   /admin/stores/{storeId}/orders/{orderId}/returns:
     parameters:
       - { $ref: '#/components/parameters/StoreId' }
@@ -1999,6 +2044,32 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/shipments/{shipmentId}/label:
+    parameters:
+      - { name: shipmentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [fulfillment]
+      operationId: buyShipmentLabel
+      summary: Buy a carrier label for a packed shipment (emits shipment.label_created)
+      description: |
+        Buys the label through the store's carrier and moves the shipment to `label_created` with `label_url`,
+        `tracking_number` and `tracking_url` set. 409 when the shipment is not `packed`; 422 when the store's
+        carrier cannot buy labels (the manual carrier — attach tracking with updateShipment instead).
+      x-permission: { relation: operations, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shipment' }
+              examples:
+                labelCreated: { $ref: '#/components/examples/ShipmentLabelCreated' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
 
   /admin/stores/{storeId}/pick-lists:
     parameters:
@@ -3680,6 +3751,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     Page:
       name: page
       in: query
@@ -3735,6 +3811,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { code: conflict, message: handle already exists, details: { field: handle } }
+    Unprocessable:
+      description: The store's provider or carrier cannot perform this operation (e.g. the manual provider / carrier)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: provider_unsupported,
+              message: the manual provider cannot capture payments,
+              details: { provider: manual },
+            }
 
   schemas:
     Error:
@@ -3744,7 +3831,7 @@ components:
         code:
           {
             type: string,
-            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, internal',
+            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -4387,7 +4474,12 @@ components:
         display_id: { type: integer }
         email: { type: string }
         customer_id: { type: [string, 'null'], format: uuid }
-        status: { type: string, enum: [pending, confirmed, processing, completed, cancelled] }
+        status:
+          {
+            type: string,
+            enum: [pending, confirmed, processing, completed, cancelled],
+            description: Order lifecycle (#350) — see the `Order` schema description for when each transition happens,
+          }
         payment_status:
           {
             type: string,
@@ -4515,6 +4607,18 @@ components:
         requested_at: { type: string, format: date-time }
         received_at: { type: [string, 'null'], format: date-time }
     Order:
+      description: |
+        Order status lifecycle (manager decision on #350, contracts 0.4.11). Every automatic transition happens in
+        the core in the same transaction as the change that triggers it, with its outbox row.
+        - `pending` — placed, payment not yet authorised.
+        - `confirmed` — payment authorised (automatic; at placement for the manual provider and for a Stripe
+          session that succeeded; emits `order.confirmed`).
+        - `processing` — fulfilment started, i.e. the first shipment leaves planned (`Shipment.status`
+          `pending`) (automatic; emits `order.updated`).
+        - `completed` — every shipment of the order is `delivered` (automatic; emits `order.completed`).
+        - `cancelled` — `cancelOrder` (explicit).
+        A manual-carrier shipment reaches `delivered` through `updateShipment` (`status: delivered`); carrier
+        webhooks do it for EasyPost.
       allOf:
         - $ref: '#/components/schemas/OrderSummary'
         - type: object
@@ -5457,6 +5561,31 @@ components:
           - { order_line_item_id: 30000000-0000-4000-8000-000000000901, quantity: 1 }
         shipped_at: null
         delivered_at: null
+    ShipmentLabelCreated:
+      value:
+        id: 60000000-0000-4000-8000-000000000301
+        order_id: 30000000-0000-4000-8000-000000000501
+        warehouse_id: 00000000-0000-4000-8000-000000000021
+        carrier: easypost
+        service: Express
+        tracking_number: EZ1000000001
+        tracking_url: https://track.easypost.com/djE6dHJrXzEwMDAwMDAwMDE
+        label_url: https://easypost-files.s3.amazonaws.com/files/postage_label/20261006/label-mock.png
+        cost: { amount_minor: 1250, currency: EUR }
+        status: label_created
+        items:
+          - { order_line_item_id: 30000000-0000-4000-8000-000000000901, quantity: 1 }
+        shipped_at: null
+        delivered_at: null
+    PaymentCaptured:
+      value:
+        id: 60000000-0000-4000-8000-000000000101
+        provider: stripe
+        provider_payment_id: pi_3Mock
+        amount: { amount_minor: 2918, currency: EUR }
+        status: captured
+        fee_minor: 62
+        captured_at: '2026-09-04T10:00:05Z'
     OrderDetail:
       value:
         id: 30000000-0000-4000-8000-000000000501

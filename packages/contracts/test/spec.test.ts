@@ -160,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.3/);
+    expect(text).toMatch(/version: 0\.5\.4/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -169,6 +169,20 @@ describe('store-api.yaml', () => {
       expect(op.body, id).toMatch(/'400': \{ \$ref: '#\/components\/responses\/BadRequest' \}/);
     }
   });
+
+  it('0.5.4 (#354/#358): optional Store.payment.methods (card | invoice), in the getStore example', () => {
+    const start = text.indexOf('\n    Store:\n');
+    const store = text.slice(start, text.indexOf('\n    Review:\n', start));
+    const required = store.slice(0, store.indexOf('\n      properties:'));
+    // optional until the core returns it
+    expect(required).not.toMatch(/\bpayment\b/);
+    expect(store).toMatch(/^ {8}payment:\n {10}type: object\n {10}required: \[methods\]/m);
+    expect(store).toMatch(
+      /uniqueItems: true\n\s+items: \{ type: string, enum: \[card, invoice\] \}/,
+    );
+    expect(store).toMatch(/settings\.payment\.invoice_allowed/);
+    expect(text).toMatch(/^ {8}payment: \{ methods: \[card, invoice\] \}$/m);
+  });
 });
 
 describe('admin-api.yaml', () => {
@@ -176,7 +190,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.8/);
+    expect(text).toMatch(/version: 0\.4\.9/);
     for (const tag of [
       'registry',
       'catalog',
@@ -408,6 +422,79 @@ describe('admin-api.yaml', () => {
     for (const id of ['pickShipment', 'packShipment']) {
       expect(ops.find((o) => o.id === id)!.body, id).toMatch(/'409':/);
     }
+  });
+
+  it('0.4.9 (#354): capturePayment and buyShipmentLabel — permissions, 200/409/422, honest examples', () => {
+    const op = (id: string) => ops.find((o) => o.id === id)!;
+    const permission = (id: string) =>
+      op(id)
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    const component = (name: string) =>
+      text
+        .slice(text.indexOf(`\n    ${name}:\n`) + 1)
+        .match(/^ {4}\w+:\n[\s\S]*?(?=^ {4}\w+:\n|^ {2}\w+:\n|(?![\s\S]))/m)![0];
+    for (const id of ['capturePayment', 'buyShipmentLabel']) expect(op(id), id).toBeDefined();
+    expect(text).toMatch(
+      /\/admin\/stores\/\{storeId\}\/orders\/\{orderId\}\/payments\/\{paymentId\}\/capture:/,
+    );
+    expect(text).toMatch(/\/admin\/shipments\/\{shipmentId\}\/label:/);
+    expect(permission('capturePayment')).toEqual(['store_admin', 'store:{storeId}']);
+    expect(permission('buyShipmentLabel')).toEqual(['operations', 'organization:hq']);
+    for (const id of ['capturePayment', 'buyShipmentLabel']) {
+      for (const code of ['200', '401', '403', '404', '409', '422']) {
+        expect(op(id).body, `${id} ${code}`).toMatch(new RegExp(`'${code}':`));
+      }
+      expect(op(id).body, id).toMatch(
+        /'422': \{ \$ref: '#\/components\/responses\/Unprocessable' \}/,
+      );
+    }
+    // capture: optional body, partial amount at least 1, answers the Payment
+    const capture = op('capturePayment').body;
+    expect(capture).toMatch(/requestBody:\n\s+required: false/);
+    expect(capture).toMatch(/amount_minor:\n\s+\{\n\s+type: integer,\n\s+minimum: 1,/);
+    expect(capture).toMatch(/schema: \{ \$ref: '#\/components\/schemas\/Payment' \}/);
+    // path parameters sit above operationId, so look at the whole document
+    expect(text).toMatch(/- \{ \$ref: '#\/components\/parameters\/PaymentId' \}/);
+    expect(text).toMatch(/^ {4}PaymentId:\n {6}name: paymentId\n {6}in: path/m);
+    // label: no body, answers the Shipment
+    const label = op('buyShipmentLabel').body;
+    expect(label).not.toMatch(/requestBody:/);
+    expect(label).toMatch(/schema: \{ \$ref: '#\/components\/schemas\/Shipment' \}/);
+    // the examples are honest: captured payment, label_created shipment with label + tracking set
+    const payment = component('PaymentCaptured');
+    expect(payment).toMatch(/status: captured\n/);
+    expect(payment).not.toMatch(/captured_at: null/);
+    const shipment = component('ShipmentLabelCreated');
+    expect(shipment).toMatch(/status: label_created\n/);
+    for (const f of ['label_url', 'tracking_number', 'tracking_url']) {
+      expect(shipment, f).toMatch(new RegExp(`${f}: \\S`));
+      expect(shipment, f).not.toMatch(new RegExp(`${f}: null`));
+    }
+    // the shared 422 and its machine code
+    expect(component('Unprocessable')).toMatch(/code: provider_unsupported/);
+    expect(text).toMatch(/payment_failed, provider_unsupported, internal/);
+  });
+
+  it('0.4.9 (#350): the Order status enum is the documented five-state lifecycle', () => {
+    expect(text).toMatch(
+      /status:\n\s+\{\n\s+type: string,\n\s+enum: \[pending, confirmed, processing, completed, cancelled\],/,
+    );
+    const order = text.slice(
+      text.indexOf('\n    Order:\n'),
+      text.indexOf('\n    InventoryLevel:\n'),
+    );
+    for (const s of ['pending', 'confirmed', 'processing', 'completed', 'cancelled']) {
+      expect(order, s).toMatch(new RegExp(`- \`${s}\` — `));
+    }
+    for (const e of ['order.confirmed', 'order.updated', 'order.completed', 'cancelOrder']) {
+      expect(order, e).toContain(e);
+    }
+    // a manual-carrier shipment can reach delivered (so an order can reach completed) without a db edit
+    expect(text).toMatch(
+      /enum: \[label_created, shipped, in_transit, delivered, failed, cancelled\]/,
+    );
+    expect(ops.find((o) => o.id === 'updateShipment')).toBeDefined();
   });
 
   it('feeds (0.4.1, #194): ProductFeed is spelled out, so status=error validates; the input cannot claim it', () => {

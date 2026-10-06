@@ -413,6 +413,10 @@ export interface components {
             };
             content_space_id?: string | null;
             search_index?: string | null;
+            /** @description Payment methods the checkout may offer: `card` when the store has a Stripe key configured, `invoice` (the manual provider) when the store setting `settings.payment.invoice_allowed` is true (default false in production, true in the seed). Derived by the core (#350/#358). Absent = the storefront's own default. Optional until the core returns it. */
+            payment?: {
+                methods: ("card" | "invoice")[];
+            };
             /** @description Token overrides for @platform/ui (`BrandTokens`). Each key is a token group — color, font, fontSize, fontWeight, lineHeight, spacing, radius, shadow — mapping token name to a CSS value string, e.g. `{ color: { primary: "#1E40AF", primaryForeground: "#ffffff" } }`. Unknown groups, unknown keys and non-string values are ignored by the storefront. */
             theme: {
                 [key: string]: unknown;

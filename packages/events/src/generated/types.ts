@@ -5,7 +5,7 @@
  */
 export interface EventEnvelopeV1Base {
 event_id: string
-topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.shipped" | "shipment.delivered" | "fulfillment.requested" | "fulfillment.picking" | "fulfillment.packed" | "return.requested" | "return.received" | "stock.moved" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
+topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.label_created" | "shipment.shipped" | "shipment.delivered" | "fulfillment.requested" | "fulfillment.picking" | "fulfillment.packed" | "return.requested" | "return.received" | "stock.moved" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
 version: number
 occurred_at: string
 organization_id: string
@@ -536,6 +536,18 @@ order_id: string
 delivered_at: string
 }
 /**
+ * A carrier label was bought for a packed shipment (buyShipmentLabel). Carries the tracking number and the label URL, never an address or a name.
+ */
+export interface ShipmentLabelCreatedV1 {
+shipment_id: string
+order_id: string
+store_id: string
+carrier: string
+tracking_number: string
+label_url: string
+created_at: string
+}
+/**
  * Carrier picked up the parcel. Source of truth for shipping cost and COGS timing.
  */
 export interface ShipmentShippedV1 {
@@ -623,6 +635,7 @@ export interface EventPayloads {
   'review.published@1': ReviewPublishedV1;
   'shipment.created@1': ShipmentCreatedV1;
   'shipment.delivered@1': ShipmentDeliveredV1;
+  'shipment.label_created@1': ShipmentLabelCreatedV1;
   'shipment.shipped@1': ShipmentShippedV1;
   'stock.moved@1': StockMovedV1;
   'store.created@1': StoreCreatedV1;
@@ -660,6 +673,7 @@ export interface LatestPayloads {
   'review.published': ReviewPublishedV1;
   'shipment.created': ShipmentCreatedV1;
   'shipment.delivered': ShipmentDeliveredV1;
+  'shipment.label_created': ShipmentLabelCreatedV1;
   'shipment.shipped': ShipmentShippedV1;
   'stock.moved': StockMovedV1;
   'store.created': StoreCreatedV1;
