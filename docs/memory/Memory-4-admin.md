@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: **Phase 2 complete** — 2.5b merged as cc0e1dc (#338, #117 closed); #285 fix merged as 6b129d9 (#345); quiet until Phase 3
+Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: **Phase 2 complete** — 2.5b merged as cc0e1dc (#338, #117 closed); #285 fix merged as 6b129d9 (#345); #357 built on admin/phase3, push held
 
 ## Identity (does not change)
 Owned paths (write):
@@ -407,6 +407,19 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#357 (Integration 2a) — built 2026-10-06, committed locally, push held** (manager: push only
+  after window 3's #358 PR is open; "Refs #357" at opening; Closes only if the final head shows the
+  advisory "admin e2e against the core" green 3× with run URLs in the body). Branch `admin/phase3`
+  from 777be2f (contracts-v0.4.11, Admin API 0.4.9).
+  - Capture (Payments card, `payments-panel.tsx`), Buy label (shipments row), header status meaning
+    (`src/lib/orders/lifecycle.ts`), `ActionResult.unavailable` for 422 `provider_unsupported`.
+  - Guard moved to `src/lib/permissions/guard.ts` (+ `rules.ts`); `ORDER_PERMISSIONS` table; all 12
+    order actions guarded + uuid ids (manager (a): yes, house rule). `test/orders-actions.test.ts`.
+  - Core journeys `e2e/orders-core.spec.ts` (capture→refund as store-admin; plan/pick/pack/label as
+    `operations`) — written, NOT run (no machine).
+  - #345 nits done. Screenshots `apps/admin/docs/orders/` via a scratchpad stub (:4312) in front of
+    my own Prism (:4311) — the shared docker Prism :4011 serves an OLD spec (404 on 0.4.9 routes).
+  - Tests: unit 640, contract 79, mock e2e 21 passed + 4 skipped (against my Prism :4311).
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
 - **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
