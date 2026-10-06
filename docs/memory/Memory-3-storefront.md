@@ -762,6 +762,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- **Prism keeps no state: every cart example has `payment_session: null`.** A placement rule of "no
+  session → back to the payment step" loops on the mock (review → payment, #365's CI). The customer's
+  choice is remembered per cart instead (`src/lib/payment-choice.ts`).
+- **Escaped backticks: never `sed 's/\`/`/'` and never a quoted heredoc with backslash-backtick.**
+  GNU sed reads backslash-backtick as "start of buffer" and prefixed EVERY line with a backtick (twice on
+  2026-10-06). Write files with the Write tool, or repair with Python (`chr(92)+chr(96)`), keeping
+  `newline=''`.
+
 - **Never write a secret-shaped literal anywhere — tests, memory, PR bodies, commit messages.**
   gitleaks scans every branch's full history in CI, so one quoted Stripe-key-shaped string in a
   memory commit (2026-10-06, #365) turned the secret scan red on every open PR until the manager
