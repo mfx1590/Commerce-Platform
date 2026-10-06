@@ -17,7 +17,9 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
 
 ## Done
 - **#356 · Integration 2a — buy-label route, `shipment.label_created`, lifecycle to `delivered`** · branch
-  `shipping/phase3` · PR <!-- fill in on merge -->
+  `shipping/phase3` · PR #369, code commit `4dd85e7` (this memory commit sits on top of it; the merge sha
+  goes here when it lands) · body says `Refs #356`, not `Closes`: the issue closes at the Integration 2a
+  gate, when a real test-mode label prints
   `POST /admin/shipments/{shipmentId}/label` on `shippingAdminRouter` (permission from the spec: `operations` on
   `organization:hq`, no request body, store resolved from the shipment). `buyShipmentLabel` now matches Admin API
   0.4.9 instead of its old README: **409 unless the shipment is exactly `packed`** (an already-labelled shipment is
@@ -74,8 +76,14 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#356 — awaiting review and the manager's merge confirmation.** Nothing else is being written. When the PR
-  merges, move it to Done with the merge sha and clear this.
+- **#356 / PR #369 — reviewed MERGE (Fable static review, 2026-10-06), queues on green.** Nothing else is being
+  written on this branch. When it merges, put the merge sha on the Done entry and clear this.
+- **Owed after contracts 0.4.12 lands** (the manager lands `ERROR_CODES` + the core's status map once #368/#369
+  are in): delete the `PROVIDER_UNSUPPORTED` cast in `shipping/shipments.ts` and use the real `ErrorCode`. One
+  line, plus the comment above it.
+- **#366 part 2 waits for #350 to be on main**: call `markShipmentStartedInTx` when a shipment leaves `pending`.
+  The function does not exist on main yet. Part 1 (tests only) is PR #370 on `shipping/366-tests`, the manager's
+  one-time second branch.
 - Not mine, tracked elsewhere: window 1 mounts `fulfillmentAdminRouter()` with one `routers.push(...)` line in
   `src/http/module-routers.ts`. `shippingAdminRouter` and `shippingWebhookRouter` are already mounted there, and
   `registerCarrierProviders()` runs from `src/wiring.ts`.
