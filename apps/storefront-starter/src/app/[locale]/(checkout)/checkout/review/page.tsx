@@ -1,8 +1,8 @@
 import { Price } from '@platform/ui';
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
-import nextDynamic from 'next/dynamic';
 import { Link } from '@/i18n/navigation';
+import { CardPaymentLazy } from '@/components/card-payment-lazy';
 import { PlaceOrderForm } from '@/components/checkout-forms';
 import { CheckoutSteps } from '@/components/checkout-steps';
 import { AddressCard, TotalsTable } from '@/components/order-summary';
@@ -11,15 +11,6 @@ import { requireCheckoutStep } from '@/lib/checkout-page';
 import { stepPath } from '@/lib/checkout';
 import { paymentOptions } from '@/lib/payment-options';
 import { getStoreOrNull } from '@/lib/store';
-
-/**
- * Card payment is loaded as its own chunk (#365 review): Stripe's packages pushed this route's first
- * load past its 139 kB budget, and only a card checkout needs them — an invoice checkout never
- * downloads them.
- */
-const CardPayment = nextDynamic(() =>
-  import('@/components/card-payment').then((module) => module.CardPayment),
-);
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getTranslations('checkout.review'))('title') };
@@ -100,7 +91,7 @@ export default async function ReviewStepPage({
       ) : null}
 
       {card !== null ? (
-        <CardPayment
+        <CardPaymentLazy
           key={card.clientSecret}
           publishableKey={card.publishableKey}
           clientSecret={card.clientSecret}

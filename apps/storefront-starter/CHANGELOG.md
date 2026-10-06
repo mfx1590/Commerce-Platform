@@ -27,9 +27,11 @@ null`). A card session, or no recorded choice, goes back to the payment step. `4
   `<Elements>`, so after `409 price_changed` recreated the session the Element would have confirmed
   the stale intent (review of #365). `test/card-payment-remount.test.ts` (jsdom, new dev dependency
   `jsdom` 26.1.0, the UI kit's version) is red without the key.
-- **The card form is its own chunk** (`next/dynamic` on the review page): Stripe's packages had
-  pushed the review route's first load to 139.6 kB against its 139 kB budget; an invoice checkout
-  now never downloads them.
+- **The card form is its own chunk, fetched only when it mounts** (`CardPaymentLazy`: a client
+  component with `next/dynamic` and `ssr: false`). Stripe's packages had pushed the review route's
+  first load to 139.6 kB against its 139 kB budget. `next/dynamic` from the server page was not
+  enough — measured 140 kB, the Stripe chunk still in the page's entry; with the client wrapper the
+  route measures 134.8 kB and an invoice checkout never downloads Stripe's code.
 - **CSP:** `https://js.stripe.com` (script, frame), `https://hooks.stripe.com` (frame),
   `https://api.stripe.com` (connect). Nothing wider.
 - The e2e server allows invoices; the journey chooses Pay on invoice explicitly. New
