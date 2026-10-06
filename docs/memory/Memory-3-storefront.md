@@ -384,7 +384,38 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       signed-in customer's email (`checkoutEmailDefault`, best-effort). 0.12.10. Lint, format,
       typecheck, 525 unit; **no e2e run (machine not mine) — the checkout journey's email check moved
       to `order-contact` unverified in a browser.**
-- [ ] **#358 (Integration 2a) — Stripe Payment Element.** Next after #351. Read the issue first.
+- [ ] **#358 (Integration 2a) — Stripe Payment Element. PLAN written 2026-10-06, waiting for the
+      manager on two decisions (CLAUDE.md: > ~20 calls → plan first).** Facts: core
+      `createSession(stripe)` = manual-capture PaymentIntent, `automatic_payment_methods` with
+      redirects off, same intent updated on a new amount; `authorize` at completion: amount/currency
+      check, confirms server-side only from `requires_confirmation`, `requires_capture` = authorized,
+      **`requires_action` = failed** → the browser must confirm (3DS in Stripe's modal) BEFORE
+      `completeCart`. Contract `Store` has **no payment setting** (no invoice flag).
+      Plan:
+      1. Deps `@stripe/stripe-js` + `@stripe/react-stripe-js` (lockfile is mine).
+      2. Publishable key read server-side at runtime: `STRIPE_PUBLISHABLE_KEY_<STORE CODE>` else
+         `STRIPE_PUBLISHABLE_KEY` (the core's `NAME_<CODE>` convention); public by design, passed
+         as a prop. No key → no Card option.
+      3. Payment step: choose Card (when a key) / Pay on invoice (when allowed); the choice creates the
+         session (`createPaymentSession(stripe|manual)`).
+      4. **Element lives on the REVIEW step** (an Element cannot survive a page change, and Stripe
+         wants confirmation at the final action): "Place order" = `stripe.confirmPayment({ redirect:
+         'if_required' })` in the browser → on `requires_capture` call `placeOrderAction` (same
+         idempotency key) → order `authorized`. `client_secret` passed as a prop (Stripe's design).
+      5. Errors, recoverable: declined (Element's message), 3DS abandoned (`payment_intent_authentication_failure`),
+         409 `price_changed` (recreate the session, return to review), 402 from completion; never a
+         second order (same key; a confirmed intent is reused by the core).
+      6. CSP (`src/lib/csp.ts`, runtime — not next.config): script `https://js.stripe.com`; frame
+         `https://js.stripe.com https://hooks.stripe.com`; connect `https://api.stripe.com`. Nothing wider.
+      7. Mock path: Prism returns a `pi_3Mock` session → Element cannot load against it; under the mock
+         (no key) only invoice/manual shows, so the mock e2e stays unchanged.
+      8. e2e (core + keys only, skip loudly otherwise): `pm_card_visa`-equivalent card 4242…, a 3DS card
+         4000 0027 6000 3184 through Stripe's test modal; declined 4000 0000 0000 0002.
+      9. README (running with test keys), CHANGELOG, unit tests (key resolution, invoice gate, error
+         mapping, CSP), three clean passes when the keys + machine come.
+      **Decisions asked:** (A) where "Pay on invoice allowed" lives — CONTRACT CHANGE `Store.payment`
+      (e.g. `{ invoice_allowed: boolean }`, core-owned) vs a storefront env flag for now
+      (`STOREFRONT_ALLOW_INVOICE=1`, default off); (B) Element on the review step (recommended) vs payment step.
 
 - [x] **DONE in #351 (`cb2fef0`).** Nits from the review of #334 — carry into the NEXT push, not on their own (manager, 2026-10-05):**
       (1) `playwright.config.ts`: `Number(process.env.E2E_WORKERS)` is NaN on garbage — validate
