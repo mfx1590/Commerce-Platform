@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** #358 code merged (PR #365, `c8fb6bd`); the issue stays open until a test-mode card order is proven at the 2a gate. **#372 (now):** branch `storefront/phase3` from main `4e03a81`; `d6d75e5` = interim invoice switch REMOVED (absent `Store.payment` → card on key, never invoice; e2e relies on the seed / mock example). **Waiting for the manager on three questions:** (1) nobody ships the run's order — drive the Admin API from the starter spec? which staff token/realm/operations; (2) the live job runs the starter on Prism — starter-on-core leg (window 5) or assert in brand A (window 10)?; (3) render the status on the confirmation page (mine) rather than window 13's order history. Machine was offered; no core run started.
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#372 → PR ("Closes #372")**: confirmation shows `Order.status` (translated, `data-order-status`, sentence follows the status); `e2e/order-lifecycle.spec.ts` (core only, ships/delivers via the Admin API as `operations`, test-cli password grant); interim invoice switch removed. Core run 2026-10-06: lifecycle spec 1/1 (order 1137: Processing → Completed); full suite on the core 70 passed / 0 failed / 5 skipped (orders 1138–1141). **SHARED-STACK CHANGE (owner-approved via the manager):** brand-a `settings` `{support_refund_limit_minor:5000}` → `{support_refund_limit_minor:5000, payment:{invoice_allowed:true}}` through updateStore as `store-admin` (`owner` has OTP, the password grant cannot pass it; store-admin holds updateStore's store_admin) → `Store.payment.methods` = [invoice]. This worktree's .env had EMPTY OpenFGA ids → Admin API 503 FgaValidationError; `fga:seed` fixed it (store reused, 0 tuples written, repo files unchanged). Machine released.
 
 ## Identity (does not change)
 
@@ -761,6 +761,13 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **Admin API 503 `authorization service unavailable` / `FgaValidationError` = this worktree's .env has
+  no OpenFGA ids.** `pnpm --filter @platform/auth-sdk fga:seed` (reuses the shared store, writes the
+  ids into .env), then restart the core. Check the raw response before trusting a read: a dry run
+  printed `settings: {}` from an error body.
+- **The seeded `owner` has OTP** — the test-cli password grant answers `invalid_grant` for it. Use the
+  staff user that holds the operation's relation (e.g. `store-admin` for updateStore on brand-a).
 
 - **`next/dynamic` called from a SERVER page does not lazy-load a client component**: it still
   server-renders it and lists its chunk in the page's entry (`app-build-manifest.json`), so the bundle
