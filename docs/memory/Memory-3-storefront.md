@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3; **0.4.11 / 0.5.4 lands today** with optional `Store.payment.methods`) · **Manager = the session "Project manager handoff"** (message it when a PR is up and when checks finish; "Project manager takeover" is closed). Branches: `storefront/phase3` = PR #362 (#351), green, **in the merge queue — hold every push until the manager confirms MERGED**; **#358 on the LOCAL branch `storefront/358-local`** (`d199fdd` + `5d66699`), not pushed. After #362 merges: pull main (it brings the root .env.example entries, a51c3f3), put #358 on phase3, merge main, push once, PR "Closes #358" with the manager's ruling in the body. **Machine NOT mine.**
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** on main; **0.4.11 (Store API 0.5.4, `Store.payment.methods`) is PR #363** — built against `origin/integration/contracts-0.4.11` (shape matches the local `StorePaymentFacts`; its example store has `[card, invoice]`) · **Manager = "Project manager handoff".** #351 DONE (PR #362, `384996f`). **#358 is on `storefront/phase3` (local, NOT pushed)**: main merged (`eafbf28`), install + packages rebuilt, lint, format, typecheck, 548 unit pass. **No push before the manager confirms 0.4.11 is on main**; then merge main once more (also brings `a51c3f3`, the root .env.example entries — not on origin yet at `eafbf28`), push once, PR "Closes #358" with the ruling in the body. **Machine NOT mine.**
 
 ## Identity (does not change)
 
