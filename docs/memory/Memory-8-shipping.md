@@ -194,7 +194,15 @@ lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.
   defaults. Every field falls back to a default rather than throwing.
 
 ## Blocked / waiting
-- (nothing)
+- **#366 part 1 (tests) is in review on `shipping/366-tests`** — a one-time second branch the manager allowed
+  while #356 sits on `shipping/phase3`. Test-only: the two `shipments-db.test.ts` cases that asserted
+  `order.status` now assert what shipping owns (the order's `fulfillment_status`, and the shipment planned), so
+  they hold both on today's main and after #350 changes the order lifecycle. **Part 2 of #366 — calling
+  `markShipmentStartedInTx` when a shipment leaves `pending` — waits for #350 to be on main**, because the
+  function does not exist there yet; it goes into #356's branch afterwards.
+- **One-line follow-up owed after contracts 0.4.12 lands**: drop the `PROVIDER_UNSUPPORTED` cast in
+  `shipping/shipments.ts` once `ERROR_CODES` carries `provider_unsupported` (the manager lands it after #368/#369
+  merge).
 
 ## Gotchas learned
 - Order outbox rows in tests by `seq` alone, never `occurred_at`: occurred_at is a wall clock per event (two events
