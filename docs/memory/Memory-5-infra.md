@@ -168,6 +168,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   lost. Fix: `--user $(id -u):$(id -g)` on Linux. Also added LOAD_SKIP_TARGET (ramps-only) and a ramps-only
   render mode (15 tests). Laptop ramps are held until Windows shows AC (PowerLineStatus=Online); at 14:13 it
   was still Offline although the owner was said to have plugged in.
+  **Runner run 2 (37479512779, head 9335cfe) clean:** target passes (GET /store p95 7 ms, list 41, detail 10,
+  0 of 32,108 errors, 301 orders, 50 req/s). Pool knee between 200 and 400 req/s of GET /store alone; the
+  throughput ceiling is ~380–390 req/s with all 10 connections busy. Store lock: 960/min held on one store, no
+  lock waits (≥ 32× target). The report has all three datapoints. Temporary trigger removed in its own commit;
+  main merged in the final push (35457f6+ carries the gitleaks allowlist for window 3's memory literals).
 
 ## Next
 
