@@ -86,7 +86,8 @@ description = "two wrong-key fixtures in the storefront publishable-key guard te
 targetRules = ["stripe-access-token"]
 condition = "AND"
 paths = [
-  '''^apps/storefront-starter/test/payment-options\.test\.ts$''',
+  # The starter and every brand clone of it (`sync-from-starter` copies the test verbatim, #379).
+  '''^apps/(storefront-starter|storefronts/[a-z0-9-]+)/test/payment-options\.test\.ts$''',
   '''^docs/memory/Memory-3-storefront\.md$''',
 ]
 regexes = ['''^(sk_test_secretword|rk_test_restrictedword)$''']
