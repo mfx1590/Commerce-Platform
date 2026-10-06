@@ -76,6 +76,8 @@ const conflict = (details?: Record<string, unknown>) =>
 const unauthorized = () => new StoreApiError(401, { code: 'unauthorized', message: 'refused' });
 
 const place = () => placeOrderAction({}, new FormData());
+/** A store that allows invoices (Store API 0.5.4 — the seed's `invoice_allowed`). */
+const INVOICE_STORE = { code: 'brand-a', payment: { methods: ['invoice'] } };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -147,7 +149,7 @@ describe('placeOrderAction — the payment session (#358)', () => {
   });
 
   it('no session and no recorded choice: back to the payment step, nothing placed', async () => {
-    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.store = INVOICE_STORE;
     mocks.session = null;
     expect(await place()).toEqual({ redirectedTo: '/checkout/payment' });
     expect(mocks.createPaymentSession).not.toHaveBeenCalled();
@@ -155,7 +157,7 @@ describe('placeOrderAction — the payment session (#358)', () => {
   });
 
   it('no session, the customer chose invoice for THIS cart: renewed for invoice and placed (Prism keeps no session)', async () => {
-    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.store = INVOICE_STORE;
     mocks.session = null;
     mocks.cookies.set('checkout_payment', 'cart_word:manual');
     mocks.completeCart.mockResolvedValue({ id: 'order_word' });
@@ -164,7 +166,7 @@ describe('placeOrderAction — the payment session (#358)', () => {
   });
 
   it('no session and an invoice choice made for ANOTHER cart, or a card choice: back to the payment step', async () => {
-    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.store = INVOICE_STORE;
     mocks.session = null;
     for (const stored of ['other_cart:manual', 'cart_word:stripe']) {
       mocks.cookies.set('checkout_payment', stored);
@@ -181,7 +183,7 @@ describe('placeOrderAction — the payment session (#358)', () => {
   });
 
   it('a failed card session: back to the payment step with the reason — never an invoice instead', async () => {
-    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.store = INVOICE_STORE;
     mocks.session = { status: 'failed', provider: 'stripe' };
     expect(await place()).toEqual({ redirectedTo: '/checkout/payment?error=payment_failed' });
     expect(mocks.createPaymentSession).not.toHaveBeenCalled();
@@ -189,7 +191,7 @@ describe('placeOrderAction — the payment session (#358)', () => {
   });
 
   it('a failed invoice session is renewed when the store allows invoices, then placed', async () => {
-    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.store = INVOICE_STORE;
     mocks.session = { status: 'failed', provider: 'manual' };
     mocks.completeCart.mockResolvedValue({ id: 'order_word' });
     expect(await place()).toEqual({ redirectedTo: '/orders/order_word' });
@@ -223,7 +225,7 @@ describe('placeOrderAction — the payment session (#358)', () => {
 
 describe('createPaymentSessionAction (#358)', () => {
   it('Store.payment.methods decides when the core sends it — the interim switch is ignored', async () => {
-    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.store = INVOICE_STORE;
     mocks.store = { code: 'brand-a', payment: { methods: ['card'] } };
     const form = new FormData();
     form.set('provider', 'manual');
@@ -249,7 +251,6 @@ describe('createPaymentSessionAction (#358)', () => {
   it('refuses a method the store does not offer, whatever the form says', async () => {
     vi.stubEnv('STRIPE_PUBLISHABLE_KEY_BRAND_A', '');
     vi.stubEnv('STRIPE_PUBLISHABLE_KEY', '');
-    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '');
     for (const provider of ['stripe', 'manual', 'paypal', '']) {
       expect(await choose(provider), provider).toMatchObject({ error: expect.any(String) });
     }
