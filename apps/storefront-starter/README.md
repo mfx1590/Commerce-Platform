@@ -306,6 +306,16 @@ a stale cookie cannot attach an old key to a new order. Errors are mapped from t
 never from messages: `409 out_of_stock` offers the quantity actually left, `402 payment_failed`
 returns to the payment step, `409 cart_completed` forwards to the order that already exists.
 
+### The order's status (#372)
+
+The confirmation page shows the order's `status` exactly as the core reports it — `pending`,
+`confirmed`, `processing` (fulfilment started), `completed` (every shipment delivered),
+`cancelled` — as a translated `Status:` line, and its opening sentence follows the status. The core
+moves the order (#371); this app only renders it. `e2e/order-lifecycle.spec.ts` proves it against the
+core: it ships and delivers its own order through the Admin API as the seeded `operations` user (the
+staff realm's dev/CI-only `test-cli` client, password grant; `E2E_STAFF_USERNAME` /
+`E2E_STAFF_PASSWORD` override the fixture) and reads **Processing**, then **Completed**.
+
 ### Paying by card (#358)
 
 Card payment is Stripe's **Payment Element** — hosted fields in Stripe's iframes, so card data never
