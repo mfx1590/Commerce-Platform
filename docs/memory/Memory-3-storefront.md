@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-05 · Contracts: **contracts-v0.4.10** (Store API 0.5.3) · Branch: `storefront/phase2` = main `6f5019f` merged locally as `6f5019f` (install + packages rebuilt), **NOT pushed — the next push carries the nits below** · **Phase 2 docket COMPLETE:** #312 (PR #329, `7ca6fee`), #326 (PR #331, `a6d6b84`), #327 (PR #334, `c2d984a`; Fable review MERGE). #247 (cart recovery page) moved to Phase 3 by the manager. **Quiet until the manager writes; no runs (machine with window 10), no pushes.** Manager now messages this session directly (owner-approved).
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3) · Branch: **`storefront/phase3`** (from main `c0e5202`) · Phase 2 docket complete (#312 PR #329, #326 PR #331, #327 PR #334). **Integration 2a (manager, 2026-10-06): (1) #351 — `cb2fef0`, PR up; (2) #358 — Stripe Payment Element in the payment step (hosted fields; core's `createPaymentSession(provider: stripe)`; Stripe TEST mode; keys `STRIPE_PUBLISHABLE_KEY_BRAND_A` / `STRIPE_SECRET_KEY_BRAND_A` arrive in this worktree's .env from the owner — never in chat; until then UI + mock path; "Pay on invoice" behind a store setting; CSP only Stripe's hosts). One PR per issue; message the manager (session `local_b694c72f…`, "Project manager takeover") when a PR is up and when checks finish.** Machine NOT mine until the manager says (core runs for #358 once keys exist). #334 review nits shipped with #351.
 
 ## Identity (does not change)
 
@@ -376,7 +376,17 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **Nits from the review of #334 — carry into the NEXT push, not on their own (manager, 2026-10-05):**
+- [ ] **#351 (Integration 2a) — `cb2fef0`, in PR.** Confirmation page: `OrderConfirmationHeader` —
+      "Order #N has been placed and is being processed", follow it in Order history (signed in) or
+      keep the order number (guest); no email / "confirmed" claim (order is `pending`, nothing sends
+      email until Phase 4); contact email shown as a plain detail (`data-testid="order-contact"`,
+      which the checkout journey now reads instead of the header). Address step pre-fills the
+      signed-in customer's email (`checkoutEmailDefault`, best-effort). 0.12.10. Lint, format,
+      typecheck, 525 unit; **no e2e run (machine not mine) — the checkout journey's email check moved
+      to `order-contact` unverified in a browser.**
+- [ ] **#358 (Integration 2a) — Stripe Payment Element.** Next after #351. Read the issue first.
+
+- [x] **DONE in #351 (`cb2fef0`).** Nits from the review of #334 — carry into the NEXT push, not on their own (manager, 2026-10-05):**
       (1) `playwright.config.ts`: `Number(process.env.E2E_WORKERS)` is NaN on garbage — validate
       (positive integer, else ignore or throw with the reason); (2) its comment says the 4-worker
       suite took 1.2 min, the PR said 1.7 (the diagnostic pass was 1.2, the accepted passes 1.6–1.9 —
