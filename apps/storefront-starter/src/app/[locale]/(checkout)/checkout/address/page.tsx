@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { AddressForm } from '@/components/checkout-forms';
 import { CheckoutSteps } from '@/components/checkout-steps';
+import { checkoutEmailDefault } from '@/lib/checkout-email';
 import { requireCheckoutStep } from '@/lib/checkout-page';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -11,13 +12,16 @@ export const dynamic = 'force-dynamic';
 
 export default async function AddressStepPage() {
   const { cart, country } = await requireCheckoutStep('address');
-  const t = await getTranslations('checkout.address');
+  const [t, defaultEmail] = await Promise.all([
+    getTranslations('checkout.address'),
+    checkoutEmailDefault(cart.email),
+  ]);
 
   return (
     <div className="flex flex-col gap-6">
       <CheckoutSteps cart={cart} current="address" />
       <h1 className="text-2xl font-bold">{t('title')}</h1>
-      <AddressForm cart={cart} defaultCountry={country} />
+      <AddressForm cart={cart} defaultCountry={country} defaultEmail={defaultEmail} />
     </div>
   );
 }

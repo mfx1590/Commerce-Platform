@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-04 · Contracts: **contracts-v0.4.10** (Store API 0.5.3; main `96aeb19` merged here as `6ed6443`, touched nothing in this package) · Branch: **`storefront/phase2` = #327 PR, pushed once, CI pending; no further pushes until the manager says** · Done: #312 (PR #329, `7ca6fee`), #326 (PR #331, `a6d6b84`). **#327:** `2f083bf` (code, 0.12.9), `a767a9d` (local-images spec), `bf13d89` (sign-in / sort deadlines), `736bf01` (≤ 4 Playwright workers locally, `E2E_WORKERS` overrides, CI unchanged), `cf886e4` (bounded step wait naming the page error) — all accepted by the manager. Three consecutive full core passes 69/0/1 ×3 (orders 1111–1119). After the merge: install, packages rebuilt, lint, format, typecheck, 515 unit pass. **Machine NOT mine.** Seed: alpine-beanie 0, alpine-bucket-hat ~21. Hold branches deleted. Parked: #329 review nits; `details.reason` (later contracts change).
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3) · Branch: **`storefront/phase3`** (from main `c0e5202`) · Phase 2 docket complete (#312 PR #329, #326 PR #331, #327 PR #334). **Integration 2a (manager, 2026-10-06): (1) #351 — `cb2fef0`, PR up; (2) #358 — Stripe Payment Element in the payment step (hosted fields; core's `createPaymentSession(provider: stripe)`; Stripe TEST mode; keys `STRIPE_PUBLISHABLE_KEY_BRAND_A` / `STRIPE_SECRET_KEY_BRAND_A` arrive in this worktree's .env from the owner — never in chat; until then UI + mock path; "Pay on invoice" behind a store setting; CSP only Stripe's hosts). One PR per issue; message the manager (session `local_b694c72f…`, "Project manager takeover") when a PR is up and when checks finish.** Machine NOT mine until the manager says (core runs for #358 once keys exist). #334 review nits shipped with #351.
 
 ## Identity (does not change)
 
@@ -376,7 +376,26 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#327 — 2026-10-04: on `storefront/phase2` as `2f083bf` (0.12.9) + `a767a9d` (spec
+- [ ] **#351 (Integration 2a) — `cb2fef0`, in PR.** Confirmation page: `OrderConfirmationHeader` —
+      "Order #N has been placed and is being processed", follow it in Order history (signed in) or
+      keep the order number (guest); no email / "confirmed" claim (order is `pending`, nothing sends
+      email until Phase 4); contact email shown as a plain detail (`data-testid="order-contact"`,
+      which the checkout journey now reads instead of the header). Address step pre-fills the
+      signed-in customer's email (`checkoutEmailDefault`, best-effort). 0.12.10. Lint, format,
+      typecheck, 525 unit; **no e2e run (machine not mine) — the checkout journey's email check moved
+      to `order-contact` unverified in a browser.**
+- [ ] **#358 (Integration 2a) — Stripe Payment Element.** Next after #351. Read the issue first.
+
+- [x] **DONE in #351 (`cb2fef0`).** Nits from the review of #334 — carry into the NEXT push, not on their own (manager, 2026-10-05):**
+      (1) `playwright.config.ts`: `Number(process.env.E2E_WORKERS)` is NaN on garbage — validate
+      (positive integer, else ignore or throw with the reason); (2) its comment says the 4-worker
+      suite took 1.2 min, the PR said 1.7 (the diagnostic pass was 1.2, the accepted passes 1.6–1.9 —
+      say that); (3) CHANGELOG 0.12.9 says sign-in "more than 5 s", the PR said over 15 s (the first
+      failure was the 5 s default expect; with the 15 s deadline it still timed out — say over 15 s).
+- [ ] **#247 (cart recovery page) — moved to Phase 3** by the manager: only useful once recovery
+      emails are sent.
+
+- [x] **DONE — PR #334 merged as `c2d984a` (2026-10-05).** #327 — 2026-10-04: on `storefront/phase2` as `2f083bf` (0.12.9) + `a767a9d` (spec
       `e2e/local-images.spec.ts`: images present, all the placeholder, no non-local request, nothing
       proxied — not yet run). Plan when the machine is mine: preflight (processes, :3100/:9000), own
       core detached + /health poll, STORE_PUBLISHABLE_KEY + E2E_STORE_API_URL=http://127.0.0.1:9000,
@@ -384,7 +403,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       fetch cache), each logged to its own file with a hard timeout; stop the core after. First check
       a flagged build refuses `SITE_URL=https://x.example` (instrumentation exit). Seed: each full
       core pass buys ~4 units (checkout journey + 2 account purchases + …) — check stock first.**
-- [ ] **#327 (REQUEST from window 10, manager decision on the issue) — CODE WRITTEN, committed
+- [x] **(history, superseded by the entry above)** #327 (REQUEST from window 10, manager decision on the issue) — CODE WRITTEN, committed
       `08b3240` on the local-only `storefront/hold-327` (on top of PR #329's head `e594fc6`),
       CHANGELOG/version 0.12.8 there — **renumber to 0.12.9 when moved (#326 took 0.12.8 on 2026-10-04)**.
       NOT pushed, NOT run against anything. Order changed 2026-10-04: #326 first, then this.**
@@ -408,7 +427,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       "Closes #327" on the manager's confirm. Brand A inherits by sync (`public/` is new — tell
       window 10); window 10 aligns its own specs.
 
-- [ ] **#326 (REQUEST from window 10) — IN PR:** `test/starter-defaults.test.ts`
+- [x] **#326 — DONE, PR #331 merged as `a6d6b84`.** `test/starter-defaults.test.ts`
       imports `@/brand/*` at top level, so a clone whose `tokens.ts` uses `next/font/local` fails to
       collect the file before `runIf` is consulted. Fix: dynamic `await import(...)` inside each `it`
       of the gated block. Brand A then drops its sync exclusion. **Written and committed as

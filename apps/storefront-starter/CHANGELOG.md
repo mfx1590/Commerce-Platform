@@ -1,5 +1,25 @@
 # Changelog — @platform/storefront-starter
 
+## 0.12.10 — 2026-10-06
+
+Issue #351 (REQUEST, manager's walk-through of order #1136). No contract change.
+
+- **The confirmation page says only what happened.** It no longer claims the order "is confirmed"
+  (it is `pending` until the core confirms it) or that a confirmation was sent (nothing in the
+  platform sends email yet — notifications are Phase 4). It now says the order has been placed and
+  is being processed, and where to follow it: Order history for a signed-in customer; for a guest,
+  keep the order number. The page shown when an order cannot be read no longer points at "the link
+  from your confirmation email". The order's contact email is shown as a plain detail. New
+  `OrderConfirmationHeader`; en-GB and de-DE.
+- **Checkout pre-fills a signed-in customer's email** in the address step when the cart has none
+  (`checkoutEmailDefault`, from `GET /store/customers/me`); any failure leaves it empty.
+- Tests: `test/order-confirmation-header.test.ts` pins the wording in both locales, signed in and
+  as a guest (red against the old sentence); `test/checkout-email.test.ts`. The checkout journey
+  now finds its own email in the order's contact detail.
+- Review nits from #334: `E2E_WORKERS` must be a positive integer (garbage fails the config with the
+  reason instead of becoming `NaN`); the timings in `playwright.config.ts` and the 0.12.9 entry
+  below now match the PR (4-worker passes 1.6–1.9 min; sign-in over 15 s).
+
 ## 0.12.9 — 2026-10-04
 
 Issue #327 (REQUEST from window 10; manager decision on the issue). No contract change.
@@ -22,7 +42,7 @@ Issue #327 (REQUEST from window 10; manager decision on the issue). No contract 
   placeholder, and no request the browser made went to a host other than the app (nor through the
   optimiser to a remote URL). Runs on the mock and on the core.
 - **Deadlines for the first wave of a full core run.** With 11 workers on one server a listing took
-  17.7 s and a sign-in round trip more than 5 s (0.1 s alone). `signIn()` now waits, with
+  17.7 s and a sign-in round trip over 15 s (0.1 s alone). `signIn()` now waits, with
   `NAVIGATION_TIMEOUT`, until the browser is back on the storefront with the page loaded; the
   "Order history" navigations take the same deadline; the sort-control test takes
   `LISTING_TIMEOUT` like its sibling. The first three core passes failed 1 each on exactly these.
