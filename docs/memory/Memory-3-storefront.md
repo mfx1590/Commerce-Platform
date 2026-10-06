@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#372 → PR ("Closes #372")**: confirmation shows `Order.status` (translated, `data-order-status`, sentence follows the status); `e2e/order-lifecycle.spec.ts` (core only, ships/delivers via the Admin API as `operations`, test-cli password grant); interim invoice switch removed. Core run 2026-10-06: lifecycle spec 1/1 (order 1137: Processing → Completed); full suite on the core 70 passed / 0 failed / 5 skipped (orders 1138–1141). **SHARED-STACK CHANGE (owner-approved via the manager):** brand-a `settings` `{support_refund_limit_minor:5000}` → `{support_refund_limit_minor:5000, payment:{invoice_allowed:true}}` through updateStore as `store-admin` (`owner` has OTP, the password grant cannot pass it; store-admin holds updateStore's store_admin) → `Store.payment.methods` = [invoice]. This worktree's .env had EMPTY OpenFGA ids → Admin API 503 FgaValidationError; `fga:seed` fixed it (store reused, 0 tuples written, repo files unchanged). Machine released.
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#372 = PR #375 ("Closes #372"), reviewed head `290eaec` (Opus static review MERGE, 2026-10-06); this memory-only commit follows it**: confirmation shows `Order.status` (translated, `data-order-status`, sentence follows the status); `e2e/order-lifecycle.spec.ts` (core only, ships/delivers via the Admin API as `operations`, test-cli password grant); interim invoice switch removed. Core run 2026-10-06: lifecycle spec 1/1 (order 1137: Processing → Completed); full suite on the core 70 passed / 0 failed / 5 skipped (orders 1138–1141). **SHARED-STACK CHANGE (owner-approved via the manager):** brand-a `settings` `{support_refund_limit_minor:5000}` → `{support_refund_limit_minor:5000, payment:{invoice_allowed:true}}` through updateStore as `store-admin` (`owner` has OTP, the password grant cannot pass it; store-admin holds updateStore's store_admin) → `Store.payment.methods` = [invoice]. This worktree's .env had EMPTY OpenFGA ids → Admin API 503 FgaValidationError; `fga:seed` fixed it (store reused, 0 tuples written, repo files unchanged). Machine released.
 
 ## Identity (does not change)
 
@@ -375,6 +375,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 -->
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+
+- [ ] **Nits from the review of #375 (manager: "not now"):** \`e2e/order-lifecycle.spec.ts\` falls back to
+      the documented \`operations\` dev-fixture password — env-only (\`E2E_STAFF_USERNAME\` /
+      \`E2E_STAFF_PASSWORD\`) would be cleaner; its \`json()\` helper puts the Admin API error body into
+      assertion messages — keep those PII-free (status + machine code only).
 
 - [ ] **#351 (Integration 2a) — `cb2fef0`, PR #362: 15/15 checks green, CLEAN, reported to the manager (old + "Project manager handoff" session).** Confirmation page: `OrderConfirmationHeader` —
       "Order #N has been placed and is being processed", follow it in Order history (signed in) or
