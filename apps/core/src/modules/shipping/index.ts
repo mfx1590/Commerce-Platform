@@ -16,6 +16,7 @@ export {
 } from './easypost-provider';
 export {
   createManualCarrierProvider,
+  createTestCarrierProvider,
   DEFAULT_MANUAL_CONFIG,
   manualCarrierProvider,
 } from './manual-provider';
@@ -39,6 +40,8 @@ export {
   iso,
   listOrderShipments,
   loadShipment,
+  PROVIDER_UNSUPPORTED,
+  providerUnsupported,
   readShipmentMetadata,
   renderShipment,
   updateShipment,
@@ -52,6 +55,7 @@ export {
   verifyEasyPostSignature,
 } from './tracking';
 export {
+  BUY_SHIPMENT_LABEL_PATH,
   CREATE_SHIPMENT_PATH,
   EASYPOST_WEBHOOK_BODY_LIMIT,
   EASYPOST_WEBHOOK_PATH,

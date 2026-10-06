@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createManualCarrierProvider,
+  createTestCarrierProvider,
   DEFAULT_MANUAL_CONFIG,
   manualCarrierProvider,
 } from './manual-provider';
@@ -178,6 +179,27 @@ describe('manual carrier provider', () => {
     expect(rate).toMatchObject({ provider: 'post-nl', carrier: 'post-nl', priceMinor: 395 });
     const label = await custom.buyLabel({ rateId: rate!.rateId });
     expect(label.trackingUrl).toBeNull();
+  });
+
+  it('declares that `manual` cannot buy labels, while the test double can', async () => {
+    // What makes `buyShipmentLabel` answer 422 `provider_unsupported` for a store on the manual carrier
+    // (Admin API 0.4.9). The flag is the carrier's capability, not a feature switch: the same implementation
+    // under any other name is the test double and buys labels.
+    expect(manualCarrierProvider.canBuyLabels).toBe(false);
+    expect(createManualCarrierProvider().canBuyLabels).toBe(false);
+
+    const double = createTestCarrierProvider();
+    expect(double.name).toBe('test-carrier');
+    expect(double.canBuyLabels).toBe(true);
+    const [rate] = await double.rates(request());
+    await expect(
+      double.buyLabel({ rateId: rate!.rateId, reference: 'double' }),
+    ).resolves.toMatchObject({ provider: 'test-carrier' });
+
+    // It must never be able to impersonate the carrier it exists to stand in for.
+    expect(() => createTestCarrierProvider(DEFAULT_MANUAL_CONFIG, 'manual')).toThrow(
+      /must not be registered as `manual`/,
+    );
   });
 
   it('exports a shared built-in instance that can be reset', async () => {
