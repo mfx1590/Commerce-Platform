@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Admin API 0.4.8) · Branch: `admin/phase2` · Status: **Phase 2 complete** — 2.5b merged as cc0e1dc (#338, #117 closed); #285 fix merged as 6b129d9 (#345); #357 built on admin/phase3, push held
+Last updated: 2026-10-06 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 = **PR #367** (Refs #357; head 661b9a0 before this memory commit; Fable review MERGE on the code), waiting for CI and the queue
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,25 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#357 (Integration 2a) — PR #367** · 2026-10-06 · code commit 7cbb70a, main 6160385 merged, head
+  661b9a0 at opening (this memory commit follows it) · Fable static review MERGE on the code; memory
+  record fixed on request (manager: push was held until window 3's #365 opened; "Refs #357" at opening; Closes only if the final head shows the
+  advisory "admin e2e against the core" green 3× with run URLs in the body). Branch `admin/phase3`
+  from 777be2f (contracts-v0.4.11, Admin API 0.4.9).
+  - Capture (Payments card, `payments-panel.tsx`), Buy label (shipments row), header status meaning
+    (`src/lib/orders/lifecycle.ts`), `ActionResult.unavailable` for 422 `provider_unsupported`.
+  - Guard moved to `src/lib/permissions/guard.ts` (+ `rules.ts`); `ORDER_PERMISSIONS` table; all 12
+    order actions guarded + uuid ids (manager (a): yes, house rule). `test/orders-actions.test.ts`.
+  - Core journeys `e2e/orders-core.spec.ts` (capture→refund as store-admin; plan/pick/pack/label as
+    `operations`) — written, NOT run (no machine).
+  - #345 nits done. Screenshots `apps/admin/docs/orders/` via a scratchpad stub (:4312) in front of
+    my own Prism (:4311) — the shared docker Prism :4011 serves an OLD spec (404 on 0.4.9 routes).
+  - Tests: unit 640, contract 79, mock e2e 21 passed + 4 skipped (against my Prism :4311).
+  - Parked nits (#367 review, next push): `src/lib/orders/permissions.ts` doc comment on
+    `canFulfil` names `listPickLists` — the operation exists (`GET /admin/stores/{storeId}/pick-lists`,
+    operations on hq) but is a read, not in `ORDER_PERMISSIONS`; reword so the comment lists only
+    table rows. Test idempotency keys must be words only (gitleaks): `'idem-key-words-0001'` in
+    `test/orders-actions.test.ts` → e.g. `'idem-key-words-only'`.
 - **2.5b — issue #117 revoke / primary / enabled sets** · 2026-10-05 · one commit after merging
   main 6f5019f, **PR #338** (dfc4943) + run-record commit · body switched to **Closes #117** after
   the core run (manager gave the machine and OK'd exactly one more push).
@@ -407,19 +426,6 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#357 (Integration 2a) — built 2026-10-06, committed locally, push held** (manager: push only
-  after window 3's #358 PR is open; "Refs #357" at opening; Closes only if the final head shows the
-  advisory "admin e2e against the core" green 3× with run URLs in the body). Branch `admin/phase3`
-  from 777be2f (contracts-v0.4.11, Admin API 0.4.9).
-  - Capture (Payments card, `payments-panel.tsx`), Buy label (shipments row), header status meaning
-    (`src/lib/orders/lifecycle.ts`), `ActionResult.unavailable` for 422 `provider_unsupported`.
-  - Guard moved to `src/lib/permissions/guard.ts` (+ `rules.ts`); `ORDER_PERMISSIONS` table; all 12
-    order actions guarded + uuid ids (manager (a): yes, house rule). `test/orders-actions.test.ts`.
-  - Core journeys `e2e/orders-core.spec.ts` (capture→refund as store-admin; plan/pick/pack/label as
-    `operations`) — written, NOT run (no machine).
-  - #345 nits done. Screenshots `apps/admin/docs/orders/` via a scratchpad stub (:4312) in front of
-    my own Prism (:4311) — the shared docker Prism :4011 serves an OLD spec (404 on 0.4.9 routes).
-  - Tests: unit 640, contract 79, mock e2e 21 passed + 4 skipped (against my Prism :4311).
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
 - **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
