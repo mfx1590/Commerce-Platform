@@ -314,15 +314,15 @@ request, re-checked on submit). **The store decides** through `Store.payment.met
 (`'card' | 'invoice'`, Store API 0.5.4, optional on `GET /store`, derived by the core: `card` when
 the store has a Stripe key, `invoice` from its `settings.payment.invoice_allowed`):
 
-| Method         | `Store.payment.methods` present                          | absent (a core or mock before 0.5.4)           |
-| -------------- | -------------------------------------------------------- | ---------------------------------------------- |
-| Card           | `card` listed **and** a publishable key resolves here    | a publishable key resolves here                |
-| Pay on invoice | `invoice` listed (`STOREFRONT_ALLOW_INVOICE` is ignored) | `STOREFRONT_ALLOW_INVOICE=1` — **default off** |
+| Method         | `Store.payment.methods` present                       | absent (a core before 0.5.4)    |
+| -------------- | ----------------------------------------------------- | ------------------------------- |
+| Card           | `card` listed **and** a publishable key resolves here | a publishable key resolves here |
+| Pay on invoice | `invoice` listed (the store's `invoice_allowed`)      | never                           |
 
-`STOREFRONT_ALLOW_INVOICE` is the **interim** switch (manager ruling on #358): it keeps an invoice
-path for the mock and the e2e journeys until every core serves the property, and goes in a follow-up
-once #350/#354 are on main. The e2e server sets it. The publishable key is
-`STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else `STRIPE_PUBLISHABLE_KEY`.
+The seed allows invoices, and so does the contract's example store the mock serves, so every e2e run
+keeps an invoice path without any switch. (The interim `STOREFRONT_ALLOW_INVOICE` of #358 is gone,
+#372.) The publishable key is `STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else
+`STRIPE_PUBLISHABLE_KEY`.
 
 The key variable names follow the core's per-store secrets (`STRIPE_SECRET_KEY_<STORE CODE>`). Only a
 `pk_test_`/`pk_live_` value is used, so a secret key put in the wrong variable is never sent to a
