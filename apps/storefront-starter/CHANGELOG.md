@@ -3,7 +3,7 @@
 ## 0.13.0 — 2026-10-06
 
 Issue #358 (Integration 2a). Reads Store API 0.5.4's optional `Store.payment.methods` when present
-(typed locally until contracts 0.4.11). New dependencies, pinned: `@stripe/stripe-js` 10.0.0,
+(contracts-v0.4.11, the generated `Store` type). New dependencies, pinned: `@stripe/stripe-js` 10.0.0,
 `@stripe/react-stripe-js` 7.0.0.
 
 - **Card payment with Stripe's Payment Element** (hosted fields; card data never reaches this app).

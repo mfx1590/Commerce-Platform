@@ -1,3 +1,5 @@
+import type { Store } from './store-api';
+
 /**
  * Which payment methods the checkout offers (#358). Server-only: it reads the environment at
  * request time, so one image serves every store and every environment (#302).
@@ -58,19 +60,12 @@ export function invoiceFlag(env: Env = process.env): boolean {
   return env[INVOICE_FLAG] === '1';
 }
 
-/**
- * The part of `GET /store` this reads. `payment` is Store API 0.5.4 (contracts 0.4.11); typed here
- * until the contract's `Store` carries it, and read defensively because an older core omits it.
- */
-export interface StorePaymentFacts {
-  code: string;
-  payment?: { methods?: readonly string[] } | null;
-}
+/** The part of `GET /store` this reads (`Store.payment`: Store API 0.5.4, contracts 0.4.11). */
+export type StorePaymentFacts = Pick<Store, 'code' | 'payment'>;
 
 /** `Store.payment.methods` when the store says, else null (the property is absent). */
 export function storeMethods(store: StorePaymentFacts | null): readonly string[] | null {
-  const methods = store?.payment?.methods;
-  return Array.isArray(methods) ? methods : null;
+  return store?.payment?.methods ?? null;
 }
 
 export function paymentOptions(

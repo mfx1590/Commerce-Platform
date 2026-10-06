@@ -10,6 +10,11 @@ import {
 /** #358: which payment methods a store offers, from the environment, decided on the server. */
 const PK_STORE = 'pk_test_storeword';
 const PK_GLOBAL = 'pk_test_globalword';
+/** A store that says which methods it allows (Store API 0.5.4). */
+const withMethods = (...methods: ('card' | 'invoice')[]) => ({
+  code: 'brand-a',
+  payment: { methods },
+});
 
 describe('stripePublishableKey', () => {
   it('names the variable like the core does: brand-a → BRAND_A', () => {
@@ -59,20 +64,19 @@ describe('paymentOptions', () => {
     const store = { code: 'brand-a' };
     expect(paymentOptions(store, KEY)).toEqual({ stripePublishableKey: PK_STORE, invoice: false });
     expect(paymentOptions(store, FLAG)).toEqual({ stripePublishableKey: null, invoice: true });
-    expect(paymentOptions({ code: 'brand-a', payment: null }, FLAG).invoice).toBe(true);
   });
 
   it('a store with Store.payment.methods: the store decides, and the switch is ignored', () => {
-    const both = { code: 'brand-a', payment: { methods: ['card', 'invoice'] } };
+    const both = withMethods('card', 'invoice');
     expect(paymentOptions(both, KEY)).toEqual({ stripePublishableKey: PK_STORE, invoice: true });
 
-    const cardOnly = { code: 'brand-a', payment: { methods: ['card'] } };
+    const cardOnly = withMethods('card');
     expect(paymentOptions(cardOnly, { ...KEY, ...FLAG }).invoice, 'switch ignored').toBe(false);
 
-    const invoiceOnly = { code: 'brand-a', payment: { methods: ['invoice'] } };
+    const invoiceOnly = withMethods('invoice');
     expect(paymentOptions(invoiceOnly, KEY).stripePublishableKey, 'card not offered').toBeNull();
 
-    const none = { code: 'brand-a', payment: { methods: [] } };
+    const none = withMethods();
     expect(paymentOptions(none, { ...KEY, ...FLAG })).toEqual({
       stripePublishableKey: null,
       invoice: false,
@@ -80,7 +84,7 @@ describe('paymentOptions', () => {
   });
 
   it('card needs both: the store saying card AND a publishable key here', () => {
-    const card = { code: 'brand-a', payment: { methods: ['card'] } };
+    const card = withMethods('card');
     expect(paymentOptions(card, {}).stripePublishableKey).toBeNull();
   });
 });
@@ -91,7 +95,7 @@ describe('offers', () => {
     expect(offers(cardOnly, 'stripe')).toBe(true);
     expect(offers(cardOnly, 'manual')).toBe(false);
 
-    const invoiceOnly = paymentOptions({ code: 'brand-a', payment: { methods: ['invoice'] } }, {});
+    const invoiceOnly = paymentOptions(withMethods('invoice'), {});
     expect(offers(invoiceOnly, 'stripe')).toBe(false);
     expect(offers(invoiceOnly, 'manual')).toBe(true);
 
