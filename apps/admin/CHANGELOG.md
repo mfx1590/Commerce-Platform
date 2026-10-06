@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added — issue #357 (Integration 2a): Capture and Buy label; order status from the core (Admin API 0.4.9)
+
+- **Capture** (`capturePayment`, store_admin) on an `authorized` payment in a new **Payments** card:
+  asks first, whole or partial (minor units, ≤ authorised); 409 → message; 422
+  `provider_unsupported` → "not available for this payment provider" (`ActionResult.unavailable`),
+  a neutral note rather than an error.
+- **Buy label** (`buyShipmentLabel`, operations on hq) on a `packed` shipment: asks first; the row
+  then shows the label link and tracking number; 422 → "not available for this shipment's carrier —
+  attach the tracking number with Update instead".
+- The order header adds the #350 meaning of the status the core reports (`orderStatusMeaning`).
+  Refund still lists captured payments only (tested).
+- **Server-side guard on every order action** (house rule): `refuseUnlessPermitted` moved to
+  `src/lib/permissions/guard.ts` and serves both `REGISTRY_PERMISSIONS` and the new
+  `ORDER_PERMISSIONS` (pinned against the yaml); path ids uuid-checked. One test per action proves
+  the refusal precedes the API (`test/orders-actions.test.ts`). The Prism contract test for an
+  empty shipment update now meets the guard first (Prism's principal lacks `operations`).
+- Core-mode journeys `e2e/orders-core.spec.ts`: capture → refund and plan → pick → pack → buy label on
+  the run's own order; each skips with its reason on 422 `provider_unsupported`. Not run here (no
+  machine); the advisory job runs them.
+- #345 review nits: README refund wording and the per-run guest order + stock it takes; the
+  non-uuid storeId test asserts `/admin/me` is never asked; a nested list whose parent may be
+  missing (`GET …/orders/{id}/shipments`) is not a bare collection read — it needs the core's
+  unmounted marker to become "not available".
+- Screenshots against the Prism mock in `apps/admin/docs/orders/`.
+
 ### Fixed — issue #285: core-mode e2e no longer depends on a long-lived database
 
 - **Orders journey (core mode)** places its own guest order through the Store API first

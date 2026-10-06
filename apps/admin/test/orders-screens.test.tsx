@@ -32,11 +32,15 @@ const actions = vi.hoisted(() => ({
   updateShipmentAction: vi.fn(),
   pickShipmentAction: vi.fn(),
   packShipmentAction: vi.fn(),
+  buyShipmentLabelAction: vi.fn(),
+  capturePaymentAction: vi.fn(),
 }));
 vi.mock('@/app/actions/orders', () => actions);
 
 const ALL: OrderPermissions = {
   canEditOrder: true,
+  canCapture: true,
+  canBuyLabel: true,
   canRefund: true,
   canRequestReturn: true,
   canFulfil: true,
@@ -44,6 +48,8 @@ const ALL: OrderPermissions = {
 };
 const NONE: OrderPermissions = {
   canEditOrder: false,
+  canCapture: false,
+  canBuyLabel: false,
   canRefund: false,
   canRequestReturn: false,
   canFulfil: false,
