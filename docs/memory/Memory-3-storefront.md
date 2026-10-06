@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3) · Branch: **`storefront/phase3`** (from main `c0e5202`) · Phase 2 docket complete (#312 PR #329, #326 PR #331, #327 PR #334). **Integration 2a (manager, 2026-10-06): (1) #351 — PR #362 green, waiting for merge; (2b) #358 code on local `storefront/358-local`; (2) #358 — Stripe Payment Element in the payment step (hosted fields; core's `createPaymentSession(provider: stripe)`; Stripe TEST mode; keys `STRIPE_PUBLISHABLE_KEY_BRAND_A` / `STRIPE_SECRET_KEY_BRAND_A` arrive in this worktree's .env from the owner — never in chat; until then UI + mock path; "Pay on invoice" behind a store setting; CSP only Stripe's hosts). One PR per issue; message the manager (now the session "Project manager handoff"; the old "Project manager takeover" is retired) when a PR is up and when checks finish.** Machine NOT mine until the manager says (core runs for #358 once keys exist). #334 review nits shipped with #351.
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3; **0.4.11 / 0.5.4 lands today** with optional `Store.payment.methods`) · **Manager = the session "Project manager handoff"** (message it when a PR is up and when checks finish; "Project manager takeover" is closed). Branches: `storefront/phase3` = PR #362 (#351), green, **in the merge queue — hold every push until the manager confirms MERGED**; **#358 on the LOCAL branch `storefront/358-local`** (`d199fdd` + `5d66699`), not pushed. After #362 merges: pull main (it brings the root .env.example entries, a51c3f3), put #358 on phase3, merge main, push once, PR "Closes #358" with the manager's ruling in the body. **Machine NOT mine.**
 
 ## Identity (does not change)
 
@@ -384,6 +384,16 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       signed-in customer's email (`checkoutEmailDefault`, best-effort). 0.12.10. Lint, format,
       typecheck, 525 unit; **no e2e run (machine not mine) — the checkout journey's email check moved
       to `order-contact` unverified in a browser.**
+- [ ] **#358 — ruling (manager, 2026-10-06, reconciling two sessions): the store decides via
+      `Store.payment.methods` ('card' | 'invoice', Store API 0.5.4, optional on GET /store);
+      `STOREFRONT_ALLOW_INVOICE` stays as the INTERIM fallback only when the property is absent
+      (removed in a follow-up after #350/#354); Element on the REVIEW step; confirmPayment then
+      placeOrderAction with the same key; an abandoned 3DS leaves the cart intact with a recoverable
+      message; Stripe packages pinned; the card spec prints one line saying why it skipped. All in
+      `5d66699`: `paymentOptions(store)`, `src/lib/card-payment-messages.ts` (`stripeLocale`,
+      `cardErrorMessage`), lockfile pinned with a 2-line diff (a plain `pnpm install` re-resolved
+      Medusa/Vitest peers — reverted; edit the specifiers and verify `--frozen-lockfile`). Lint, format,
+      typecheck, 548 unit. PR body must state the ruling.**
 - [ ] **#358 — CODE WRITTEN `d199fdd` on the LOCAL branch `storefront/358-local` (on phase3 `cd06681` +
       memory). NOT pushed: phase3 waits for #362's merge. Manager: "continue as planned" → (A) invoice
       behind `STOREFRONT_ALLOW_INVOICE=1`, (B) Element on the review step. 0.13.0; lint, format,
