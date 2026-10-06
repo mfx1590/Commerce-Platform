@@ -197,7 +197,7 @@ iteration is tens of units; the shared seed is topped up to at least 25 availabl
 selection**, and the cart→checkout hand-off, against the core.
 
 **Money is never arithmetic the spec does** (#374). The buy test compares the confirmation's total
-with the **review step's** — captured by `completeCheckout()` before *Place order*, in minor units off
+with the **review step's** — captured by `completeCheckout()` before _Place order_, in minor units off
 the page — because the review step is the last page to state the price and the first to state it with
 delivery chosen. It once asserted `order == cart + delivery` instead, and #352 (delivery charged at
 the goods' VAT rate) made a correct app fail by exactly that VAT. Adding up rows here re-states the

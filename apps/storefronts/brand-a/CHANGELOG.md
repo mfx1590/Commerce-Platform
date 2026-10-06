@@ -9,7 +9,7 @@
   correct app failed by exactly the €4.99's 21% VAT.
 - **What it compares now:** the confirmation against the **review step** — the last page that states
   the price, and the first that states it with delivery chosen. `completeCheckout()` captures the
-  review step's totals with `captureOrder()` before clicking *Place order* and returns them; the
+  review step's totals with `captureOrder()` before clicking _Place order_ and returns them; the
   confirmation's total, lines and currency are asserted equal to those. Both sides are read from the
   page in minor units, so the assertion holds whatever the core decides delivery and tax are, on
   today's main and after #373, with no edit either way. This is the comparison brand A's own

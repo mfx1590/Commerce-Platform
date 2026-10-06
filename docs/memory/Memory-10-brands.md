@@ -140,6 +140,12 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
 - **Process lessons:** diff every preserved file on each sync (the drift report does this since
   #328); rebuild the workspace packages after every merge of main; never `String.replace` with `$`
   in replacement text (it duplicated a file once). Write multi-line edits as a script file.
+- **The local gate is `pnpm lint && pnpm format:check && pnpm typecheck && pnpm test --filter ...`.**
+  CI's "lint + typecheck" job runs **`pnpm format:check` too**, and CLAUDE.md's gate line omits it —
+  so lint and typecheck can both be clean and the job still red. It cost #377 one red run on two
+  markdown files (prettier wants `_Place order_`, not `*Place order*`). Run it before every push,
+  especially after hand-writing CHANGELOG/README prose. That job also runs `git diff --exit-code` on
+  `packages/{events,contracts}/src/generated`, so rebuild those packages before pushing too.
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app
