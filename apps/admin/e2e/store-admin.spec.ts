@@ -1,3 +1,4 @@
+import { orderStatusMeaning } from '../src/lib/orders/lifecycle';
 import { expect, test } from '@playwright/test';
 
 /**
@@ -198,7 +199,9 @@ test.describe('store-admin', () => {
     await expect(payments).toBeVisible();
     if (!AGAINST_CORE) {
       // The example's payment is already captured: nothing to capture.
-      await expect(page.getByTestId('order-status-meaning')).toHaveText(/authorised/);
+      await expect(page.getByTestId('order-status-meaning')).toHaveText(
+        orderStatusMeaning('confirmed'),
+      );
       await expect(payments.getByText('captured')).toBeVisible();
       await expect(payments.getByRole('button', { name: 'Capture' })).toHaveCount(0);
     }

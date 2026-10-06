@@ -1,3 +1,4 @@
+import { orderStatusMeaning } from '../src/lib/orders/lifecycle';
 import { expect, test, type Page } from '@playwright/test';
 import { AGAINST_CORE, stamped } from './api-mode';
 import { placeCoreOrder, type PlacedOrder } from './core-order';
@@ -36,8 +37,12 @@ test.describe('orders against the core: capture, refund, label', () => {
     const placed = await placeCoreOrder(request, CORE_URL, stamped('capture'));
     await signIn(page, `/${BRAND_A}/orders`);
     await openOrder(page, placed);
-    // The status the core reports for a placed, authorised order (#350).
-    await expect(page.getByTestId('order-status-meaning')).toHaveText(/authorised/);
+    // The status the core reports for a placed order whose payment is authorised (#350: the manual
+    // provider authorises at placement → `confirmed`). Exact sentence: `/authorised/` would also
+    // match "not yet authorised" and pass on a `pending` order.
+    await expect(page.getByTestId('order-status-meaning')).toHaveText(
+      orderStatusMeaning('confirmed'),
+    );
 
     const payments = page.getByRole('list', { name: 'Payments' });
     await payments.getByRole('button', { name: 'Capture' }).click();
@@ -79,7 +84,9 @@ test.describe('orders against the core: capture, refund, label', () => {
     await page.getByRole('button', { name: 'Pack', exact: true }).click();
     await page.getByRole('button', { name: 'Yes, mark packed' }).click();
     // Fulfilment started: the core moves the order to processing (#350).
-    await expect(page.getByTestId('order-status-meaning')).toHaveText(/Fulfilment started/);
+    await expect(page.getByTestId('order-status-meaning')).toHaveText(
+      orderStatusMeaning('processing'),
+    );
 
     await page.getByRole('button', { name: 'Buy label' }).click();
     await expect(page.getByRole('alertdialog', { name: 'Confirm buying a label' })).toBeVisible();

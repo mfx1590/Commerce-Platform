@@ -34,6 +34,13 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     `canFulfil` names `listPickLists` — the operation exists (`GET /admin/stores/{storeId}/pick-lists`,
     operations on hq) but is a read, not in `ORDER_PERMISSIONS`; reword so the comment lists only
     table rows. (Done: the test idempotency key in `test/orders-actions.test.ts` is words only.)
+  - Advisory core job red on a674214 (expected: core on main had no #350 lifecycle, no capture
+    route). Read it: capture → not_implemented (route unmounted); label → status "Placed; payment
+    not yet authorised." after pack. With #368 the manual provider answers 422 provider_unsupported
+    → skip path; with #350 the status after pack = processing = lifecycle.ts wording. The label
+    journey ALSO needs #369 (buy-label route, window 8) on main. Found a weak assertion: `/authorised/`
+    matched "not yet authorised" (passed on a pending order) → both status checks now use the exact
+    `orderStatusMeaning(...)` sentence (local commit, push held until the manager says so).
   - Gitleaks red on #367 (2026-10-06) was NOT this branch: window 3's Memory-3 quoted two
     Stripe-shaped literals and CI fetches every branch, so every PR's scan went red; allowlist on
     main 35457f6. Lesson: a red gitleaks with "leaks found" and a green main can still come from
