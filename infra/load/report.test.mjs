@@ -254,3 +254,18 @@ test('the ceiling ramp starts at the first placement, not at setup', async () =>
   const [first] = ceilingSteps(rows, [], [30], 60);
   assert.equal(first.achievedPerMin, 30);
 });
+
+test('a ramps-only run (no target summary) leaves the target out instead of failing it', () => {
+  const d = (count) => ({ values: { count, med: 10, 'p(95)': 20, 'p(99)': 30 } });
+  const pool = {
+    pool_steps: { steps: [50, 100], hold_s: 60, ramp_s: 5 },
+    metrics: {
+      'http_req_duration{step:s0}': d(50 * 65),
+      'http_req_duration{step:s1}': d(100 * 65),
+    },
+  };
+  const md = render({ meta: META, load: undefined, pgLoad: [], ceilingRows: [], pool, pgPool: [] });
+  assert.match(md, /No target phase in this run/);
+  assert.doesNotMatch(md, /❌ fail/);
+  assert.match(md, /No knee within the ramp:\*\* every step up to 100 req\/s held/);
+});

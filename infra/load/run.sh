@@ -3,6 +3,7 @@
 #
 #   bash infra/load/run.sh [out-dir]   # target (10 min) + pool knee (~5.5 min) + placement ceiling (~6.5 min) + report
 #   LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh    # the target run only
+#   LOAD_SKIP_TARGET=1 bash infra/load/run.sh                       # the two ramps only (~12 min)
 #   DURATION=1m BROWSE_RPS=5 ORDERS_PER_MIN=6 LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh   # smoke
 #
 # Needs the compose stack's Postgres (127.0.0.1:5433) and Redis (127.0.0.1:6381) up, and Docker for the
@@ -38,7 +39,9 @@ export CORE_SMOKE_LOG="$OUT/core.log"
 
 # How k6, inside its container, reaches the core on this host.
 case "$(uname -s)" in
-  Linux) NET=(--network host); BASE=http://127.0.0.1:9000 ;;
+  # On Linux the container also runs as this user: grafana/k6 runs as its own non-root uid, which cannot
+  # write the bind-mounted output directory (the first runner run lost every summary to "permission denied").
+  Linux) NET=(--network host --user "$(id -u):$(id -g)"); BASE=http://127.0.0.1:9000 ;;
   *) NET=(); BASE=http://host.docker.internal:9000 ;;
 esac
 # Docker Desktop on Windows wants a Windows path for the bind mount; Git Bash would mangle it otherwise.
@@ -99,8 +102,10 @@ run_k6() {
   echo "$rc" > "$OUT/$name.exit"
 }
 
-echo "== 3+4. target run"
-run_k6 load load.js
+if [ -z "${LOAD_SKIP_TARGET:-}" ]; then
+  echo "== 3+4. target run"
+  run_k6 load load.js
+fi
 if [ -z "${LOAD_SKIP_POOL:-}" ]; then
   run_k6 pool pool.js
 fi

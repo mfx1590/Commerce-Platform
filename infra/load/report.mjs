@@ -280,6 +280,10 @@ export function render({
   pgPool,
 }) {
   const L = [];
+  // A ramps-only run (LOAD_SKIP_TARGET) has no target summary: its target sections are left out, not shown
+  // as empty "fail" lines.
+  const hasTarget = Boolean(load);
+  load = load ?? { metrics: {} };
   const seconds = durationSeconds(meta.duration || '10m');
   const routes = routeStats(load);
   const browseCount = ['store', 'list', 'detail', 'search'].reduce(
@@ -316,79 +320,90 @@ export function render({
     '',
   );
 
-  L.push('## Against the target', '');
-  const targetBanner = suspendBanner(pgLoad, 'Target run');
-  if (targetBanner) L.push(targetBanner, '');
-  L.push('| line | target | measured | |', '|---|---|---|---|');
-  for (const r of TARGET.routes) {
-    const s = routes[r];
+  if (hasTarget) {
+    L.push('## Against the target', '');
+    const targetBanner = suspendBanner(pgLoad, 'Target run');
+    if (targetBanner) L.push(targetBanner, '');
+    L.push('| line | target | measured | |', '|---|---|---|---|');
+    for (const r of TARGET.routes) {
+      const s = routes[r];
+      L.push(
+        `| ${ROUTE_LABEL[r]} p95 | < ${TARGET.p95Ms} ms | ${ms(s?.p95)} | ${verdict(s && s.p95 < TARGET.p95Ms)} |`,
+      );
+    }
     L.push(
-      `| ${ROUTE_LABEL[r]} p95 | < ${TARGET.p95Ms} ms | ${ms(s?.p95)} | ${verdict(s && s.p95 < TARGET.p95Ms)} |`,
+      `| errors, every load request | < 0.1% | ${(failedRate * 100).toFixed(3)}% (${Math.round(loadFailed)} of ${loadRequests}) | ${verdict(failedRate < TARGET.errorRate)} |`,
+      `| — answered by the core with an error (HTTP ≥ 400) | < 0.1% | ${(coreRate * 100).toFixed(3)}% (${httpErr}) | ${verdict(coreRate < TARGET.errorRate)} |`,
+      `| — never reached the core (connection not opened, status 0) | — | ${transport} | ${transport ? '⚠ harness' : '✅ none'} |`,
     );
-  }
-  L.push(
-    `| errors, every load request | < 0.1% | ${(failedRate * 100).toFixed(3)}% (${Math.round(loadFailed)} of ${loadRequests}) | ${verdict(failedRate < TARGET.errorRate)} |`,
-    `| — answered by the core with an error (HTTP ≥ 400) | < 0.1% | ${(coreRate * 100).toFixed(3)}% (${httpErr}) | ${verdict(coreRate < TARGET.errorRate)} |`,
-    `| — never reached the core (connection not opened, status 0) | — | ${transport} | ${transport ? '⚠ harness' : '✅ none'} |`,
-  );
-  L.push(
-    `| orders placed per minute | ${wantOrders} sustained | ${ordersPerMin.toFixed(1)} (${placed} in ${seconds / 60} min) | ${verdict(ordersPerMin >= 0.98 * wantOrders)} |`,
-  );
-  L.push(
-    `| browse throughput | ${wantRps} req/s | ${browseRps.toFixed(1)} req/s | ${verdict(browseRps >= 0.98 * wantRps)} |`,
-  );
-  L.push(
-    `| iterations k6 could not start in time | 0 | ${dropped} | ${verdict(dropped === 0)} |`,
-    '',
-  );
-  if (wantOrders !== TARGET.ordersPerMin || wantRps !== TARGET.browseRps || seconds !== 600) {
     L.push(
-      `_This run was configured below the owner's target (${meta.duration}, ${wantRps} req/s, ${wantOrders} orders/min): the rate lines compare against what was configured; only a 10m / 50 / 30 run answers the target._`,
+      `| orders placed per minute | ${wantOrders} sustained | ${ordersPerMin.toFixed(1)} (${placed} in ${seconds / 60} min) | ${verdict(ordersPerMin >= 0.98 * wantOrders)} |`,
+    );
+    L.push(
+      `| browse throughput | ${wantRps} req/s | ${browseRps.toFixed(1)} req/s | ${verdict(browseRps >= 0.98 * wantRps)} |`,
+    );
+    L.push(
+      `| iterations k6 could not start in time | 0 | ${dropped} | ${verdict(dropped === 0)} |`,
       '',
     );
-  }
-  const crossed = crossedThresholds(load);
-  if (crossed.length) {
+    if (wantOrders !== TARGET.ordersPerMin || wantRps !== TARGET.browseRps || seconds !== 600) {
+      L.push(
+        `_This run was configured below the owner's target (${meta.duration}, ${wantRps} req/s, ${wantOrders} orders/min): the rate lines compare against what was configured; only a 10m / 50 / 30 run answers the target._`,
+        '',
+      );
+    }
+    const crossed = crossedThresholds(load);
+    if (crossed.length) {
+      L.push(
+        `_k6 itself exited 99: it crossed ${crossed.map((c) => `\`${c}\``).join(', ')}. \`placement_failed\` is per placement (any of the seven requests failing fails the placement), so one failed request in ${placed} orders is ${((1 / Math.max(1, placed)) * 100).toFixed(2)}% there — read it with the error split below._`,
+        '',
+      );
+    }
+    if (transport) {
+      L.push(
+        `_${transport} request(s) never reached the core: the connection from k6's container to the host was not opened (\`dial: i/o timeout\`). On the laptop k6 runs in Docker Desktop and reaches the core through \`host.docker.internal\`; on the Linux runner it uses \`--network host\`. They are counted, not hidden; the line above them is what the core itself answered._`,
+        '',
+      );
+    }
+
     L.push(
-      `_k6 itself exited 99: it crossed ${crossed.map((c) => `\`${c}\``).join(', ')}. \`placement_failed\` is per placement (any of the seven requests failing fails the placement), so one failed request in ${placed} orders is ${((1 / Math.max(1, placed)) * 100).toFixed(2)}% there — read it with the error split below._`,
+      '## Latency per route (target run)',
       '',
+      '| route | requests | p50 | p95 | p99 | max | failed |',
+      '|---|---|---|---|---|---|---|',
     );
-  }
-  if (transport) {
+    for (const [r, s] of Object.entries(routes)) {
+      L.push(
+        `| ${ROUTE_LABEL[r]} | ${s.count} | ${ms(s.p50)} | ${ms(s.p95)} | ${ms(s.p99)} | ${ms(s.max)} | ${(s.failRate * 100).toFixed(2)}% |`,
+      );
+    }
+    const journey = load.metrics.placement_journey_ms?.values;
+    if (journey)
+      L.push(
+        '',
+        `Whole placement journey (7 requests): p50 ${ms(journey.med)}, p95 ${ms(journey['p(95)'])}, p99 ${ms(journey['p(99)'])}.`,
+      );
+    L.push('');
+  } else {
     L.push(
-      `_${transport} request(s) never reached the core: the connection from k6's container to the host was not opened (\`dial: i/o timeout\`). On the laptop k6 runs in Docker Desktop and reaches the core through \`host.docker.internal\`; on the Linux runner it uses \`--network host\`. They are counted, not hidden; the line above them is what the core itself answered._`,
+      '## Against the target',
+      '',
+      '_No target phase in this run (`LOAD_SKIP_TARGET`): only the two ramps below. The target is answered by the runs that had it._',
       '',
     );
   }
 
-  L.push(
-    '## Latency per route (target run)',
-    '',
-    '| route | requests | p50 | p95 | p99 | max | failed |',
-    '|---|---|---|---|---|---|---|',
-  );
-  for (const [r, s] of Object.entries(routes)) {
+  L.push('## Bottleneck 1 — the app pool (four connections per GET /store)', '');
+  if (hasTarget)
     L.push(
-      `| ${ROUTE_LABEL[r]} | ${s.count} | ${ms(s.p50)} | ${ms(s.p95)} | ${ms(s.p99)} | ${ms(s.max)} | ${(s.failRate * 100).toFixed(2)}% |`,
-    );
-  }
-  const journey = load.metrics.placement_journey_ms?.values;
-  if (journey)
-    L.push(
+      `The core's app pool is \`DB_POOL_MAX\` = ${meta.db_pool_max} connections (role \`platform_app\`). Sampled once a second from \`pg_stat_activity\` during the target run (${pool.samples} samples):`,
       '',
-      `Whole placement journey (7 requests): p50 ${ms(journey.med)}, p95 ${ms(journey['p(95)'])}, p99 ${ms(journey['p(99)'])}.`,
+      `- connections held by role \`platform_app\`: max **${pool.maxTotal}** — more than \`DB_POOL_MAX\` when it is, because more than one pool in the core connects as that role; the request pool is the one capped at ${meta.db_pool_max};`,
+      `- busy (active or idle in a transaction): max **${pool.maxBusy}**, mean ${pool.meanBusy.toFixed(1)};`,
+      `- **saturated** (every pool connection busy) in **${(pool.saturatedShare * 100).toFixed(1)}%** of samples.`,
+      '',
     );
-  L.push('');
-
   L.push(
-    '## Bottleneck 1 — the app pool (four connections per GET /store)',
-    '',
-    `The core's app pool is \`DB_POOL_MAX\` = ${meta.db_pool_max} connections (role \`platform_app\`). Sampled once a second from \`pg_stat_activity\` during the target run (${pool.samples} samples):`,
-    '',
-    `- connections held by role \`platform_app\`: max **${pool.maxTotal}** — more than \`DB_POOL_MAX\` when it is, because more than one pool in the core connects as that role; the request pool is the one capped at ${meta.db_pool_max};`,
-    `- busy (active or idle in a transaction): max **${pool.maxBusy}**, mean ${pool.meanBusy.toFixed(1)};`,
-    `- **saturated** (every pool connection busy) in **${(pool.saturatedShare * 100).toFixed(1)}%** of samples.`,
-    '',
     `With four connections per \`GET /store\`, ${meta.db_pool_max} connections serve at most ${Math.floor((meta.db_pool_max || 10) / 4)} such requests at once; every further request waits for a connection inside the core, which Postgres cannot see — it shows up as latency on the routes above, not as waits here. Top wait events: ${pool.topWaits.map(([k, v]) => `\`${k}\` ×${v}`).join(', ') || 'none'}.`,
     '',
   );
@@ -429,9 +444,12 @@ export function render({
   L.push(
     "Every order takes its store's row lock: migration 0006's trigger `app.assign_order_display_id()` runs `UPDATE store SET next_order_number … RETURNING` inside the order insert and holds it until `completeCart` commits, so one store's placements serialise on the rest of that transaction (lines, payment, reservations, attribution, outbox).",
     '',
-    `During the target run Postgres saw lock waits in ${(pool.lockSampleShare * 100).toFixed(1)}% of samples (max ${pool.maxLockWaits} sessions waiting at once, mean ${pool.meanLockWaits.toFixed(2)}).`,
-    '',
   );
+  if (hasTarget)
+    L.push(
+      `During the target run Postgres saw lock waits in ${(pool.lockSampleShare * 100).toFixed(1)}% of samples (max ${pool.maxLockWaits} sessions waiting at once, mean ${pool.meanLockWaits.toFixed(2)}).`,
+      '',
+    );
   const complete = routes.complete;
   if (complete) {
     // A floor under the ceiling: placements fully serial on the store row, one at a time, each holding it for

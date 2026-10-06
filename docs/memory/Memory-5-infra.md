@@ -161,6 +161,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   on big CSVs, and ceiling steps now anchored on the first cart_create (setup had shifted them).
   Report: infra/load/reports/2026-10-06.md (runner column pending). Next: commit, push the draft, dispatch
   load.yml on the draft, add the runner datapoint, message "Project manager handoff".
+  **Draft PR #364** (head d85213e had a TEMPORARY `push: branches: [infra/phase3]` trigger in load.yml, the
+  manager's option (a); remove it before ready and quote the run URLs in the body). ci.yml was all green on
+  d85213e. Runner run 1 (37476880630): every phase ran (target 32,614 requests, 0%, 301 orders; pool
+  77,243 requests), but k6 could not write /out (grafana/k6's non-root uid on a Linux bind mount) → summaries
+  lost. Fix: `--user $(id -u):$(id -g)` on Linux. Also added LOAD_SKIP_TARGET (ramps-only) and a ramps-only
+  render mode (15 tests). Laptop ramps are held until Windows shows AC (PowerLineStatus=Online); at 14:13 it
+  was still Offline although the owner was said to have plugged in.
 
 ## Next
 
