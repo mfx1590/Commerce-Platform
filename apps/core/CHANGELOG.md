@@ -12,7 +12,8 @@
   window 8; `markShipped(InTx)` applies it too, in the same transition as the fulfilment change); **`completed`**
   when every shipment of the order is `delivered` (cancelled ones excluded) and the order is fulfilled —
   `markDelivered(InTx)` is a quiet no-op until then (it answered 409 "not fully fulfilled" before) and passes a
-  `confirmed` order through `processing`. Only `cancelOrder` is explicit.
+  `confirmed` order through `processing`. A `failed` shipment counts as open: the order stays `processing` until
+  operations re-plan or cancel it (review decision). Only `cancelOrder` is explicit.
 - `markShipmentCreated(InTx)` moves nothing any more (planning is not leaving planned); kept for window 8's call.
 - Placement answers `status: confirmed` for the manual provider; a fraud-held placement still answers `pending`.
 - `GET /store` carries `payment.methods` (Store API 0.5.4, #350 / #358): `card` when the store has a Stripe
