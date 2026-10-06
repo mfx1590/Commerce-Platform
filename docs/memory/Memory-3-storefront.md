@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3) · Branch: **`storefront/phase3`** (from main `c0e5202`) · Phase 2 docket complete (#312 PR #329, #326 PR #331, #327 PR #334). **Integration 2a (manager, 2026-10-06): (1) #351 — `cb2fef0`, PR up; (2) #358 — Stripe Payment Element in the payment step (hosted fields; core's `createPaymentSession(provider: stripe)`; Stripe TEST mode; keys `STRIPE_PUBLISHABLE_KEY_BRAND_A` / `STRIPE_SECRET_KEY_BRAND_A` arrive in this worktree's .env from the owner — never in chat; until then UI + mock path; "Pay on invoice" behind a store setting; CSP only Stripe's hosts). One PR per issue; message the manager (session `local_b694c72f…`, "Project manager takeover") when a PR is up and when checks finish.** Machine NOT mine until the manager says (core runs for #358 once keys exist). #334 review nits shipped with #351.
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3) · Branch: **`storefront/phase3`** (from main `c0e5202`) · Phase 2 docket complete (#312 PR #329, #326 PR #331, #327 PR #334). **Integration 2a (manager, 2026-10-06): (1) #351 — PR #362 green, waiting for merge; (2b) #358 code on local `storefront/358-local`; (2) #358 — Stripe Payment Element in the payment step (hosted fields; core's `createPaymentSession(provider: stripe)`; Stripe TEST mode; keys `STRIPE_PUBLISHABLE_KEY_BRAND_A` / `STRIPE_SECRET_KEY_BRAND_A` arrive in this worktree's .env from the owner — never in chat; until then UI + mock path; "Pay on invoice" behind a store setting; CSP only Stripe's hosts). One PR per issue; message the manager (now the session "Project manager handoff"; the old "Project manager takeover" is retired) when a PR is up and when checks finish.** Machine NOT mine until the manager says (core runs for #358 once keys exist). #334 review nits shipped with #351.
 
 ## Identity (does not change)
 
@@ -376,7 +376,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#351 (Integration 2a) — `cb2fef0`, in PR.** Confirmation page: `OrderConfirmationHeader` —
+- [ ] **#351 (Integration 2a) — `cb2fef0`, PR #362: 15/15 checks green, CLEAN, reported to the manager (old + "Project manager handoff" session).** Confirmation page: `OrderConfirmationHeader` —
       "Order #N has been placed and is being processed", follow it in Order history (signed in) or
       keep the order number (guest); no email / "confirmed" claim (order is `pending`, nothing sends
       email until Phase 4); contact email shown as a plain detail (`data-testid="order-contact"`,
@@ -384,8 +384,15 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       signed-in customer's email (`checkoutEmailDefault`, best-effort). 0.12.10. Lint, format,
       typecheck, 525 unit; **no e2e run (machine not mine) — the checkout journey's email check moved
       to `order-contact` unverified in a browser.**
-- [ ] **#358 (Integration 2a) — Stripe Payment Element. PLAN written 2026-10-06, waiting for the
-      manager on two decisions (CLAUDE.md: > ~20 calls → plan first).** Facts: core
+- [ ] **#358 — CODE WRITTEN `d199fdd` on the LOCAL branch `storefront/358-local` (on phase3 `cd06681` +
+      memory). NOT pushed: phase3 waits for #362's merge. Manager: "continue as planned" → (A) invoice
+      behind `STOREFRONT_ALLOW_INVOICE=1`, (B) Element on the review step. 0.13.0; lint, format,
+      typecheck, 542 unit. **Not run: anything in a browser** — the Payment Element, 3DS modal
+      selectors in `e2e/card-payment.spec.ts` (`iframe[title="Secure payment input frame"]`,
+      `__stripeJSChallengeFrame` → `stripe-challenge-frame`, input names number/expiry/cvc/postalCode)
+      are from Stripe's docs, unverified; the CSP too. Needs the owner's test keys in .env + the machine.
+      After #362 merges: rebase/move onto phase3 (or merge main into it), merge main, push, PR "Closes #358".
+      REQUEST sent: root .env.example to list the two variables.** History: PLAN written 2026-10-06 (CLAUDE.md: > ~20 calls → plan first). Facts: core
       `createSession(stripe)` = manual-capture PaymentIntent, `automatic_payment_methods` with
       redirects off, same intent updated on a new amount; `authorize` at completion: amount/currency
       check, confirms server-side only from `requires_confirmation`, `requires_capture` = authorized,
