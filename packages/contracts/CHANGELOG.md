@@ -144,3 +144,14 @@
 - `CONTRACTS_VERSION = '0.4.11'`; types regenerated; spec tests + 3 (the Store API `payment` property; the two operations with permissions, 200/404/409/422
   and honest examples; the five-state lifecycle). Producers: window 1 (#350 lifecycle, capture), the shipping module
   (label). Consumers: window 4 (admin order and fulfilment screens).
+
+## 0.4.12 — 2026-10-06 (`provider_unsupported` in `ERROR_CODES`; contracts-v0.4.12)
+
+- Admin API 0.4.10 (113 operations, unchanged): `buyShipmentLabel`'s description documents the carrier-outage deviation —
+  a carrier that is merely unavailable answers 502 (retryable); 422 `provider_unsupported` means the store's carrier can
+  never buy labels. Prose only: no 502 response object (the spec documents no 5xx anywhere). Version history line added.
+- `ERROR_CODES` += `provider_unsupported` (after `last_live_key`, before `internal`), ending the 0.4.11 "NOT yet in
+  `ERROR_CODES`" note. The one consumer-side touch is the core's status map (`apps/core/src/lib/errors.ts`:
+  `provider_unsupported: 422`), as 0.4.7 did for `last_live_key`. The local `as ErrorCode` casts in the payments
+  (and, once merged, shipping) modules are removed by windows 7 and 8 in their own follow-ups.
+- Store API 0.5.4, events 0.3.1, db 0.3.2 unchanged. `CONTRACTS_VERSION = '0.4.12'`; types regenerated.

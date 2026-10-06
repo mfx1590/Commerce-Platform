@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.9
+  version: 0.4.10
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -15,6 +15,7 @@ info:
     `buy_x_get_y` type and `stackable`/`exclusive` (#189), and spells `ProductFeed` out so `status: error` validates (#194).
     0.4.9 (#354, Integration 2a) adds `capturePayment` and `buyShipmentLabel`, the shared `Unprocessable` (422) response,
     and documents the order status lifecycle decided on #350 on the `Order` schema.
+    0.4.10: provider_unsupported enters ERROR_CODES; documents the carrier-outage deviation.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -2056,6 +2057,7 @@ paths:
         Buys the label through the store's carrier and moves the shipment to `label_created` with `label_url`,
         `tracking_number` and `tracking_url` set. 409 when the shipment is not `packed`; 422 when the store's
         carrier cannot buy labels (the manual carrier — attach tracking with updateShipment instead).
+        A carrier that is merely unavailable answers 502 (retryable); 422 means the store's carrier can never buy labels.
       x-permission: { relation: operations, object: 'organization:hq' }
       responses:
         '200':

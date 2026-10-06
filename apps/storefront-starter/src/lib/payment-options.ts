@@ -14,15 +14,12 @@ import type { Store } from './store-api';
  *
  * **What the store allows comes from the store** (manager ruling on #358): `Store.payment.methods`
  * (`'card' | 'invoice'`, Store API 0.5.4, an optional property on `GET /store`, derived by the core —
- * `card` when the store has a Stripe key, `invoice` from its `settings.payment.invoice_allowed`).
- * When the core returns it, it decides: Card needs `card` there **and** a publishable key here;
- * Invoice needs `invoice`. When the property is absent (a core or mock before 0.5.4) the interim
- * switch decides instead: Card on the key alone, Invoice on `STOREFRONT_ALLOW_INVOICE=1` (default
- * off; the e2e server turns it on so the mock run, which has no Stripe key, can still check out).
- * The switch goes in a follow-up once the core serves the property everywhere (#350/#354).
+ * `card` when the store has a Stripe key, `invoice` from its `settings.payment.invoice_allowed`, true
+ * in the seed and false by default in production). Card needs `card` there **and** a publishable key
+ * here; Invoice needs `invoice`. When the property is absent
+ * (a core before 0.5.4) the storefront's own default applies: Card on the key alone, no invoice. The
+ * interim `STOREFRONT_ALLOW_INVOICE` switch is gone (#372) now that the core returns the property.
  */
-
-export const INVOICE_FLAG = 'STOREFRONT_ALLOW_INVOICE';
 
 export type PaymentProviderId = 'stripe' | 'manual';
 
@@ -55,11 +52,6 @@ export function stripePublishableKey(
   return PUBLISHABLE.test(value) ? value : null;
 }
 
-/** The interim switch — consulted only when the store does not say (see above). */
-export function invoiceFlag(env: Env = process.env): boolean {
-  return env[INVOICE_FLAG] === '1';
-}
-
 /** The part of `GET /store` this reads (`Store.payment`: Store API 0.5.4, contracts 0.4.11). */
 export type StorePaymentFacts = Pick<Store, 'code' | 'payment'>;
 
@@ -74,7 +66,7 @@ export function paymentOptions(
 ): PaymentOptions {
   const key = stripePublishableKey(store?.code ?? null, env);
   const methods = storeMethods(store);
-  if (methods === null) return { stripePublishableKey: key, invoice: invoiceFlag(env) };
+  if (methods === null) return { stripePublishableKey: key, invoice: false };
   return {
     stripePublishableKey: methods.includes('card') ? key : null,
     invoice: methods.includes('invoice'),
