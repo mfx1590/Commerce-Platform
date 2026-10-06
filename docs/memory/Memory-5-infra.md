@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-10-05 · Contracts: `contracts-v0.1` · Branch: `infra/phase2` · Worktree: `../wt-infra`
-Status: **Phase 2 COMPLETE** (2026-10-05) — #283 (#336) · #295 (#339) · #297 (#344) · #285 (#341) · TOTP barrier (#347). Phase 3: perf-metrics (Refs #348) in flight, then quiet until Phase 3 tasks are issued.
+Last updated: 2026-10-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
+Status: **Phase 3 / Integration 2a** (2026-10-06): **#359 → PR #364 reviewed MERGE**, ready for the queue (head after the review-fix push; the reviewed head was `5eccdf1`). Machine reported free. Phase 2 complete; #349 merged (`a0a6e02`).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,14 +108,73 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **Phase 3 start — the perf gate shows what it measured (Refs #348).** Branch `infra/phase3-perf-metrics`,
-  rebased onto main `7568f56`; second-branch exception approved. `infra/ci/lighthouse-summary.mjs` (+ a 5-case
-  self-test in the `changes` job) prints, per URL: every run's value for each numeric assertion, the CPU
-  benchmark per run, the compared value (optimistic = best, pessimistic = worst, median) and the margin. Output
-  goes to the log and the job summary, and reports are uploaded on success too (30 days). Checked locally against
-  #341's real failing reports: PLP LCP 2815·2598·2571 → compared 2571, +71, FAIL. No threshold touched; brand A's
-  lighthouserc and LCP are window 10's (#348). This PR also carries the Phase 2 close in this file.
-  Next: draft PR "Refs #348" → every check → message the manager what it printed for both storefronts.
+- **#359 — k6 load test against the real core (Integration 2a). DONE pending the merge queue: PR #364, reviewed
+  MERGE on `5eccdf1`; review-fix push (report wording, 15-case count everywhere, README LOAD_SKIP_TARGET, this
+  header) then `gh pr ready 364`.** History below. Branch `infra/phase3` from main `c0e5202`.
+  The laptop is MINE until I report "machine free" (manager, 2026-10-06). Target: 30 orders/min for 10 min while
+  browsing at 50 rps; p95 < 500 ms for GET /store, product list, product detail; errors < 0.1%.
+  Facts found: k6 is not installed locally → run the pinned `grafana/k6` image (same binary on the laptop and in
+  CI). Core app pool `DB_POOL_MAX` default 10 (apps/core/src/lib/db.ts) with 4 connections per GET /store.
+  completeCart locks the cart FOR UPDATE, then reservations under level-row locks; the store-row lock is to be
+  located and measured. Payment session `provider: manual`; complete needs `Idempotency-Key` (minLength 8).
+  **PLAN (awaiting OK):**
+  1. `infra/load/k6/load.js`: one k6 run, two scenarios at once, using constant-arrival-rate.
+     - browse: 50 rps for 10 min, mix store 20% / list 40% / detail 30% / search 10%, tagged by route.
+     - place: 0.5 iterations per second (30/min) for 10 min, running cart → line item → email + addresses →
+       shipping options → shipping option → manual payment session → complete with Idempotency-Key.
+       Each step is tagged; a variant is picked by stock at setup.
+     - Thresholds: p95 < 500 per browse route, errors < 0.1%, plus counts of placed orders.
+  2. `infra/load/k6/ceiling.js`: a stepped placement-only ramp (30 → 60 → 120 → 240 /min, 1 min each) on one
+     store, to find where the store-row lock serialises placement. Reports the knee.
+  3. `infra/load/run.sh`, on the laptop and in CI:
+     - start a kept core with `CORE_SMOKE_KEEP=1 boot-smoke.sh` (fresh `platform_boot_smoke` DB), then
+       `top-up-stock` on that DB;
+     - run a Postgres sampler at 1 s via `pg_stat_activity` for that DB (by state, waiting, wait_event_type=Lock)
+       plus pool settings;
+     - run `docker run grafana/k6` (laptop: host.docker.internal:9000; CI: --network host), with summary JSON
+       and raw CSV;
+     - stop the core with `--stop`.
+  4. `infra/load/report.mjs`: summary + sampler → Markdown, pass/fail per target line, p50/p95/p99 per route,
+     orders/min achieved, error rate, peak connections vs pool max and time at saturation, lock waits, the
+     placement knee, and what Grafana would need (an OTel exporter in the core, pg-pool metrics, k6 → Prometheus
+     remote write). Self-test with a fixture summary.
+  5. `.github/workflows/load.yml` "load (manual)": workflow_dispatch only, uploads the summary and report.
+  6. A laptop run commits `infra/load/reports/2026-10-06.md`. One PR, "Closes #359".
+  Estimate: about 40–60 tool calls, plus 10-min runs ×2–3.
+  **APPROVED 2026-10-06** (separate load.yml; fresh kept core on its own DB; `docker run` of the pinned k6
+  image is an explicit exception; do NOT change DB_POOL_MAX or apps/core; the report states the laptop's specs;
+  the CI run on a GitHub runner is the second datapoint before merge). **Manager is now the session
+  "Project manager handoff"** (not "…takeover"): message it when the draft is up, when checks finish, and
+  "machine free". Long runs detached, output to a file, bounded polls.
+  Built (uncommitted): infra/load/{k6/lib.js,k6/load.js,k6/ceiling.js,pg-sampler.mjs,run.sh,report.mjs,
+  report.test.mjs (10 ok),README.md,.gitignore}, .github/workflows/load.yml, a ci.yml step for the report test.
+  Two smoke runs: fixed a Git Bash /tmp path mismatch (node reads /tmp as C:	mp → use `pwd -W`) and a hang
+  (kill -INT never reaches native node → the sampler now stops on a `.stop` file). The laptop shows ~7–8
+  `dial: i/o timeout` per run from k6's container to host.docker.internal; the report counts these apart from
+  what the core answered. Full laptop run started 10:53 UTC.
+  **Laptop results (2026-10-06):** run A 10:53 (clean) and run B 12:08 (target valid) both pass every target
+  line (GET /store p95 25/23 ms, list 76/69, detail 37/35, errors 0.003%/0.000%, 300 orders, 50 req/s).
+  Bottlenecks: the pool never saturated at target (busy max 8/6); the pool ramp held 100 req/s of GET /store
+  (p95 20 ms), and the knee above that is NOT measured on the laptop. The placement ceiling held 240/min on one
+  store (≥ 8× target) with no lock waits; serial floor ~840–913/min.
+  **Laptop sleeps on battery**: Modern Standby voided run 11:16 entirely and run B's ramps after 12:22. The app's
+  keep-awake doesn't hold on battery; the owner must plug in AC. Never change power settings. report.mjs now
+  detects suspends (sampler gaps > 5 s) and voids those steps. Also fixed: a Math.min(...rows) stack overflow
+  on big CSVs, and ceiling steps now anchored on the first cart_create (setup had shifted them).
+  Report: infra/load/reports/2026-10-06.md (runner column pending). Next: commit, push the draft, dispatch
+  load.yml on the draft, add the runner datapoint, message "Project manager handoff".
+  **Draft PR #364** (head d85213e had a TEMPORARY `push: branches: [infra/phase3]` trigger in load.yml, the
+  manager's option (a); remove it before ready and quote the run URLs in the body). ci.yml was all green on
+  d85213e. Runner run 1 (37476880630): every phase ran (target 32,614 requests, 0%, 301 orders; pool
+  77,243 requests), but k6 could not write /out (grafana/k6's non-root uid on a Linux bind mount) → summaries
+  lost. Fix: `--user $(id -u):$(id -g)` on Linux. Also added LOAD_SKIP_TARGET (ramps-only) and a ramps-only
+  render mode (15 tests). Laptop ramps are held until Windows shows AC (PowerLineStatus=Online); at 14:13 it
+  was still Offline although the owner was said to have plugged in.
+  **Runner run 2 (37479512779, head 9335cfe) clean:** target passes (GET /store p95 7 ms, list 41, detail 10,
+  0 of 32,108 errors, 301 orders, 50 req/s). Pool knee between 200 and 400 req/s of GET /store alone; the
+  throughput ceiling is ~380–390 req/s with all 10 connections busy. Store lock: 960/min held on one store, no
+  lock waits (≥ 32× target). The report has all three datapoints. Temporary trigger removed in its own commit;
+  main merged in the final push (35457f6+ carries the gitleaks allowlist for window 3's memory literals).
 
 ## Next
 

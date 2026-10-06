@@ -32,6 +32,8 @@ export class FakeStripe implements StripeApi {
   readonly intents = new Map<string, FakeIntent>();
   readonly refunds = new Map<string, StripeRefund>();
   private readonly recorded = new Map<string, string>(); // idempotency key → object id
+  /** Capture params per idempotency key: like Stripe, the same key with other params is `idempotency_error`. */
+  private readonly captureParams = new Map<string, string>();
   /** Fee the fake charges on capture (minor units); asserted as `payment.fee_minor`. */
   captureFee = 123;
   /** Script the next refund to be accepted but not settled: Stripe answers `pending` (then reset). */
@@ -199,6 +201,16 @@ export class FakeStripe implements StripeApi {
       idempotencyKey: opts.idempotencyKey,
       expand: opts.expand,
     });
+    if (opts.idempotencyKey) {
+      const previous = this.captureParams.get(opts.idempotencyKey);
+      if (previous !== undefined && previous !== JSON.stringify(params)) {
+        throw new StripeError(
+          400,
+          'Keys for idempotent requests can only be used with the same parameters they were first used with.',
+          'idempotency_error',
+        );
+      }
+    }
     const replayed = this.replay(opts.idempotencyKey, (rid) => this.intents.get(rid));
     if (replayed) return replayed;
     if (this.outageNextCapture) {
@@ -219,6 +231,24 @@ export class FakeStripe implements StripeApi {
         'payment_intent_unexpected_state',
       );
     }
+    // Partial capture (#355): `amount_to_capture` ≤ the authorised amount, like Stripe; the rest is released.
+    const toCapture = params.amount_to_capture;
+    if (toCapture !== undefined) {
+      if (
+        !Number.isInteger(toCapture) ||
+        (toCapture as number) < 1 ||
+        (toCapture as number) > intent.amount
+      ) {
+        throw new StripeError(
+          400,
+          `amount_to_capture must be between 1 and ${intent.amount}`,
+          'invalid_request_error',
+          'amount_too_large',
+        );
+      }
+    }
+    intent.amount_received = (toCapture as number | undefined) ?? intent.amount;
+    if (opts.idempotencyKey) this.captureParams.set(opts.idempotencyKey, JSON.stringify(params));
     intent.status = 'succeeded';
     intent.latest_charge = {
       id: `ch_${randomUUID().replace(/-/g, '').slice(0, 24)}`,

@@ -4,6 +4,7 @@
 export {
   cancelOrder,
   cancelOrderInTx,
+  confirmOnAuthorizationInTx,
   confirmOrder,
   confirmOrderInTx,
   markDeliveredInTx,
@@ -14,6 +15,8 @@ export {
   markPaymentRefundedInTx,
   markReturnedInTx,
   markShipmentCreatedInTx,
+  markShipmentStarted,
+  markShipmentStartedInTx,
   markShippedInTx,
   markDelivered,
   markPaymentAuthorized,

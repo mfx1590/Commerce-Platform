@@ -10,6 +10,7 @@
 //
 // Forward only. A carrier scan that would move a shipment backwards is ignored, not an error: carriers deliver
 // their events out of order, and `delivered` before `in_transit` is normal.
+import type { ErrorCode } from '@platform/contracts';
 import type { ScopedClient, Queryable } from '@platform/db';
 import { AppError, conflict, notFound, validationError } from '../../lib/errors';
 import type { Actor } from '../../lib/audit';
@@ -20,6 +21,22 @@ import { carrierProvider } from './registry';
 import { CarrierError, toCarrierAddress } from './redact';
 import { currentInventoryPort, currentOrdersPort } from './ports';
 import type { CarrierLabel, CarrierProvider, ContractAddress, Parcel } from './types';
+
+/**
+ * 422 `provider_unsupported`: the store's carrier cannot do this at all (the manual carrier and labels, Admin
+ * API 0.4.9). It is a permanent property of the carrier, so the client must not retry — unlike a carrier
+ * outage, which stays a 502.
+ *
+ * **Local mock.** `provider_unsupported` is documented on the contract's `Error.code` in admin-api.yaml 0.4.9
+ * but is still missing from `ERROR_CODES` in `@platform/contracts`, which is the main window's path. The cast
+ * below is the mock the manager asked for; delete it (and this comment) once the contracts change lands and
+ * `ErrorCode` includes the code.
+ */
+export const PROVIDER_UNSUPPORTED = 'provider_unsupported' as ErrorCode;
+
+export function providerUnsupported(message: string, details?: Record<string, unknown>): AppError {
+  return new AppError(PROVIDER_UNSUPPORTED, message, details, 422);
+}
 
 export type ShipmentStatus =
   | 'pending'
@@ -34,8 +51,8 @@ export type ShipmentStatus =
 
 /**
  * How far along a status is. Forward only: a move to an equal or lower rank is refused. `picking` and `packed`
- * come from CONTRACT CHANGE #225 (migration 0160 widens the column's CHECK); until it lands, the module's tests
- * apply `../fulfillment/proposed/0160_shipment_pick_pack.sql` themselves.
+ * came from CONTRACT CHANGE #225 and are real: migration 0160 in `@platform/db` widens the column's CHECK, so
+ * nothing applies a proposed file any more.
  */
 const RANK: Record<ShipmentStatus, number> = {
   pending: 0,
@@ -260,9 +277,19 @@ export async function createShipment(
 }
 
 /**
- * Buys the carrier label for a planned shipment and moves it to `label_created`. Idempotent: a shipment that
- * already has a label is returned unchanged rather than buying a second one (the carrier call is not retried
- * either — see the EasyPost provider).
+ * Admin API `buyShipmentLabel`: buys the carrier label for a **packed** shipment and moves it to
+ * `label_created` with `label_url`, `tracking_number` and `tracking_url` set, writing
+ * `shipment.label_created` to the outbox in the same transaction as the move.
+ *
+ * Three refusals, as the contract (Admin API 0.4.9) spells them out:
+ *   - **409** unless the shipment is exactly `packed`. A shipment that already holds a label is
+ *     `label_created`, so a second call is a 409 too — it is not answered with the existing label. Buying a
+ *     label is real money and the operator must be told the state changed under them.
+ *   - **422 `provider_unsupported`** when the store's carrier cannot buy labels at all (the manual carrier):
+ *     attach tracking with `updateShipment` instead. Permanent — do not retry.
+ *   - **502** when the carrier itself failed (down, timeout, quoted nothing). The shipment is untouched and the
+ *     call can be retried; the carrier call itself is never retried for us, because a 5xx can arrive after the
+ *     label was created and a retry would buy a second parcel.
  */
 export async function buyShipmentLabel(
   client: ScopedClient,
@@ -271,14 +298,8 @@ export async function buyShipmentLabel(
 ): Promise<StoreShipment> {
   // ---- 1. read what the carrier call needs (short transaction; nothing is held over the network) ----
   const prepared = await client.transaction(async (tx) => {
-    const { shipment, items } = await loadShipment(tx, shipmentId);
-    if (shipment.label_url) return { already: renderShipment(shipment, items) } as const;
-    if (!canTransition(shipment.status, 'label_created')) {
-      throw conflict('shipment is past label creation', {
-        shipment_id: shipmentId,
-        status: shipment.status,
-      });
-    }
+    const { shipment } = await loadShipment(tx, shipmentId);
+    requirePacked(shipment, shipmentId);
     const order = await loadOrder(tx, shipment.order_id);
     const store = await tx.query<{ code: string; settings: Record<string, unknown> | null }>(
       `SELECT code, settings FROM store WHERE id = $1`,
@@ -291,6 +312,11 @@ export async function buyShipmentLabel(
     if (!provider) {
       throw new AppError('internal', 'no carrier provider is configured for this store', {
         provider: config.provider,
+      });
+    }
+    if (provider.canBuyLabels === false) {
+      throw providerUnsupported(`the ${provider.name} carrier cannot buy labels`, {
+        provider: provider.name,
       });
     }
     const origin = await warehouseAddress(tx, shipment.warehouse_id);
@@ -309,7 +335,6 @@ export async function buyShipmentLabel(
       currency: shipment.currency,
     } as const;
   });
-  if ('already' in prepared) return prepared.already;
 
   // ---- 2. quote and buy — NO transaction open, because a carrier can take seconds or time out ----
   const { provider, config } = prepared;
@@ -361,16 +386,12 @@ export async function buyShipmentLabel(
   try {
     return await client.transaction(async (tx) => {
       const { shipment, items } = await loadShipment(tx, shipmentId);
-      if (shipment.label_url) {
-        // A concurrent call already bought one; ours is surplus (voided by the catch below).
-        throw conflict('shipment already has a label', { shipment_id: shipmentId });
-      }
-      if (!canTransition(shipment.status, 'label_created')) {
-        throw conflict('shipment moved while the label was being bought', {
-          shipment_id: shipmentId,
-          status: shipment.status,
-        });
-      }
+      // Someone may have moved or labelled the shipment while we were on the network. `packed` is still the
+      // only state a label may be recorded on, so a concurrent buy (now `label_created`) is a 409 here and ours
+      // is surplus — voided by the catch below.
+      requirePacked(shipment, shipmentId, 'shipment moved while the label was being bought');
+      // One timestamp for the row's own record of the purchase and for the event, so they never disagree.
+      const boughtAt = new Date().toISOString();
       // The provider's own shipment id is the only handle a void needs later, and it is nowhere in the
       // contract columns — so it goes on `metadata.carrier_label`, this module's own jsonb.
       const updated = await tx.query<ShipmentRow>(
@@ -391,16 +412,51 @@ export async function buyShipmentLabel(
             provider: provider.name,
             provider_shipment_id: label.providerShipmentId,
             tracking_number: label.trackingNumber,
-            bought_at: new Date().toISOString(),
+            bought_at: boughtAt,
           } satisfies CarrierLabelRef),
         ],
       );
-      return renderShipment(updated.rows[0]!, items);
+      const row = updated.rows[0]!;
+      // The event goes out on this transaction, so the label and its announcement commit together (ADR 0003).
+      // Ids, the carrier and the label URL only — no address, no name (events 0.3.1).
+      await withEvents(tx, [
+        await buildEvent({
+          topic: 'shipment.label_created',
+          organizationId: row.organization_id,
+          storeId: row.store_id,
+          aggregateType: 'shipment',
+          aggregateId: row.id,
+          actor: eventActor(input.actor),
+          payload: {
+            shipment_id: row.id,
+            order_id: row.order_id,
+            store_id: row.store_id,
+            carrier: label.carrier,
+            tracking_number: label.trackingNumber,
+            label_url: label.labelUrl,
+            created_at: boughtAt,
+          },
+        }),
+      ]);
+      return renderShipment(row, items);
     });
   } catch (error) {
     await voidQuietly(provider, label, shipmentId);
     throw error;
   }
+}
+
+/**
+ * A label may only be bought on a `packed` shipment (Admin API 0.4.9). Everything else is a 409, including
+ * `label_created` — which is what a shipment that already holds a label is.
+ */
+function requirePacked(
+  shipment: ShipmentRow,
+  shipmentId: string,
+  message = 'shipment is not packed',
+): void {
+  if (shipment.status === 'packed') return;
+  throw conflict(message, { shipment_id: shipmentId, status: shipment.status });
 }
 
 export const CARRIER_LABEL_METADATA_KEY = 'carrier_label';
@@ -580,6 +636,15 @@ export async function applyTransition(
     RANK[target] <= RANK.delivered &&
     RANK[shipment.status] < RANK.shipped;
   const reachesDelivered = target === 'delivered' && shipment.status !== 'delivered';
+  // The shipment leaving `pending` is what tells the order someone has started working on it (#350 / #366):
+  // picking, packing, a label, or a despatch that skipped all three. Cancelling or failing it is not work
+  // starting, so neither moves the order — even though both outrank `pending`.
+  const leavesPending =
+    target !== undefined &&
+    shipment.status === 'pending' &&
+    target !== 'cancelled' &&
+    target !== 'failed' &&
+    RANK[target] > RANK.pending;
 
   const shippedAt = iso(shipment.shipped_at) ?? (passesShipped ? at : null);
   const deliveredAt = iso(shipment.delivered_at) ?? (reachesDelivered ? at : null);
@@ -676,6 +741,9 @@ export async function applyTransition(
   // module owns `fulfilled_quantity`, `fulfillment_status` and `status` — shipping only reports the facts.
   const orders = currentOrdersPort();
   const call = { tx, orderId: row.order_id, actor: input.actor };
+  // Before the despatch: an order that goes straight from `pending` to `shipped` still passes through
+  // `processing`, for the same reason it still emits `shipment.shipped` before `shipment.delivered`.
+  if (leavesPending) await orders.shipmentStarted(call);
   if (passesShipped) {
     await orders.shipped({
       ...call,

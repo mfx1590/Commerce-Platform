@@ -36,6 +36,10 @@ describe('e2eServerEnv', () => {
     expect(e2eServerEnv({ E2E_STORE_API_URL: CORE }).E2E_LOCAL_IMAGES).toBe('1');
   });
 
+  it('allows pay-on-invoice for every run, so a run without a Stripe key can check out (#358)', () => {
+    expect(e2eServerEnv({}).STOREFRONT_ALLOW_INVOICE).toBe('1');
+  });
+
   it('does not touch the environment it was given', () => {
     const shell = { STORE_API_URL: CORE };
     e2eServerEnv(shell);

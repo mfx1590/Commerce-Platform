@@ -29,6 +29,7 @@ import {
   listStoreProducts,
   type StoreSort,
 } from '../modules/catalog';
+import { storeSecretFor } from '../modules/payments';
 import { getStore, listCurrencies, listLocales, listSalesChannels } from '../modules/registry';
 import { AppError, notFound, validationError } from '../lib/errors';
 import {
@@ -49,6 +50,27 @@ type StoreSummary = StoreComponents['schemas']['Store'];
 
 const SORTS: readonly StoreSort[] = ['relevance', 'price_asc', 'price_desc', 'newest'];
 const CURRENCY = /^[A-Z]{3}$/;
+
+type PaymentMethod = NonNullable<StoreSummary['payment']>['methods'][number];
+
+/**
+ * `Store.payment.methods` (Store API 0.5.4, #350 / #358) — what the checkout may offer: `card` when the store has
+ * a Stripe secret key configured (`STRIPE_SECRET_KEY_<CODE>`, else `STRIPE_SECRET_KEY`; the payments module's
+ * per-store loader, read on every call so a rotated or added key shows without a restart), `invoice` (the
+ * `manual` provider) when `settings.payment.invoice_allowed` is exactly `true` — absent means false, so a
+ * production store offers invoice only when someone set it; the seed sets it. Derived, never stored.
+ */
+export function paymentMethodsOf(
+  storeCode: string,
+  settings: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+): PaymentMethod[] {
+  const methods: PaymentMethod[] = [];
+  if (storeSecretFor(storeCode, 'STRIPE_SECRET_KEY', env) !== null) methods.push('card');
+  const payment = settings.payment as { invoice_allowed?: unknown } | undefined;
+  if (payment?.invoice_allowed === true) methods.push('invoice');
+  return methods;
+}
 
 /** `GET /store` — the store resolved from the publishable key. */
 export async function storeSummary(t: StoreContext): Promise<StoreSummary> {
@@ -73,6 +95,7 @@ export async function storeSummary(t: StoreContext): Promise<StoreSummary> {
     currencies: currencies.map((c) => c.currency),
     locales: locales.map((l) => l.locale),
     sales_channel: { id: channel.id, code: channel.code, type: channel.type },
+    payment: { methods: paymentMethodsOf(store.code, store.settings) },
     content_space_id: store.content_space_id,
     search_index: store.search_index,
     theme: store.theme,

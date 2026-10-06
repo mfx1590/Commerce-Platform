@@ -173,7 +173,7 @@ describe('completeCart — one transaction', () => {
     });
     expect(replayed).toBe(false);
     expect(order).toMatchObject({
-      status: 'pending',
+      status: 'confirmed', // #350: authorised at placement → confirmed in the placement transaction
       payment_status: 'authorized',
       fulfillment_status: 'unfulfilled',
       email: cart.email.trim(),
@@ -233,6 +233,7 @@ describe('completeCart — one transaction', () => {
     expect(events.rows.map((e) => e.topic).sort()).toEqual([
       'attribution.recorded',
       'attribution.recorded',
+      'order.confirmed', // #350: authorised → confirmed in the placement transaction (after order.placed)
       'order.placed',
       'payment.authorized', // #176 (window 7): the payment row's baseline event, same transaction
     ]);

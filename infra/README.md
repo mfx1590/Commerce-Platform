@@ -642,6 +642,14 @@ runner startup; the saving is the install, the test run and the image build.
 - Node jobs: `actions/setup-node` caches the pnpm store, and `actions/cache` keeps turbo's task
   output so an unchanged package skips its work entirely.
 
+## Load test (manual)
+
+`infra/load/` holds the #359 load test: k6 scripts for the owner's target (30 orders/min for 10 min while
+browsing at 50 req/s; p95 < 500 ms; errors < 0.1%) and a placement-ceiling ramp, run against a fresh core on its
+own database by `infra/load/run.sh`, with Postgres sampled throughout and a Markdown report at the end. It runs on
+a laptop or as **load (manual)** (`.github/workflows/load.yml`, `workflow_dispatch` only — never on a pull
+request). Reports worth keeping are committed under `infra/load/reports/`. Details: `infra/load/README.md`.
+
 ## Deploying staging
 
 `.github/workflows/deploy-staging.yml`, on every push to `main` and on demand. It builds the three app images

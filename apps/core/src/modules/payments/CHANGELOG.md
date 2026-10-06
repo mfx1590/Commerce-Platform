@@ -3,6 +3,29 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
+## Integration 2a — payments/phase3 (contracts-v0.4.11)
+
+### 2026-10-06 · #355 Admin API `capturePayment` route, partial capture, 422 for the manual provider
+
+- `capture-route.ts` (+ `admin-permission.ts`, the `x-permission` helper shared with the refund route):
+  `POST /admin/stores/{storeId}/orders/{orderId}/payments/{paymentId}/capture` (Admin API 0.4.9), `store_admin`
+  on the store, optional body `{ amount_minor }` validated against the spec, 200 = contract `Payment`; a second
+  capture of a captured payment is 409 (the use case replays and heals the order transition, never a second
+  charge). Part of `paymentsAdminRouter(opts?)` — already mounted; `opts.stripe` is the test seam (FakeStripe).
+- `capture.ts`: `amountMinor` (partial capture via Stripe `amount_to_capture`; above the authorisation → 409
+  `{ field: 'amount_minor', requested_minor, authorized_minor }`; after a capture the row's `amount_minor` is the
+  CAPTURED amount, `metadata.capture` keeps the authorised one, `payment.captured.amount_minor` = captured);
+  `orderId` (the payment must belong to the order → 404); a non-Stripe provider → **422 `provider_unsupported`**
+  `{ provider }` (was 400; code carried locally until contracts 0.4.12 adds it to `ERROR_CODES`); `audit_log` row
+  in the capture transaction (`payment.capture` / `payment.capture_failed`); Stripe `idempotency_error` → 409,
+  nothing written. `renderPayment(row)` exported.
+- `fake-stripe.ts`: `amount_to_capture` honoured (`amount_received`, `amount_too_large`), and — like Stripe — the
+  same idempotency key with other params is an `idempotency_error`. `stripe-client.ts`: `amount_received?` on the
+  intent type.
+- Tests: `capture.test.ts` (13: partial capture + refund ceiling + audit, 409s, 422, 404 scope, idempotency_error,
+  route-then-webhook agreement, the route with dev tokens) and `capture-live.test.ts` (Stripe test mode through the
+  module: place → capture → refund; skips loudly without `STRIPE_SECRET_KEY_BRAND_A` / `STRIPE_SECRET_KEY`).
+
 ## Phase 2 — payments/phase2 (contracts-v0.3 → v0.4.1)
 
 ### 2026-09-19 · follow-up: refund replay match (nit from the #219 review)

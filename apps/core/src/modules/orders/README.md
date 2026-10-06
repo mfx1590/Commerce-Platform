@@ -5,6 +5,21 @@ windows 7 (payments) and 8 (shipping) call, order edits before fulfilment, the A
 the Store API order read (moved here from checkout), and a pure projection that replays an order from its outbox
 stream (reused by 2.5 and 2.6).
 
+## The `status` lifecycle is automatic (#350, contracts 0.4.11)
+
+| Status       | Reached when                                                                                                                                                                                                                               | Trigger (same transaction, with its outbox row)                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pending`    | placed, payment not yet authorised — or placed and **held by a fraud review** (#231)                                                                                                                                                       | the placement                                                                                                                                                                                                                        |
+| `confirmed`  | the payment is authorised (or captured) and no fraud review holds the order                                                                                                                                                                | `confirmOnAuthorizationInTx`: the placement itself (the manual provider and a succeeded Stripe session authorise at once), a `payment_status` move to `authorized` / `captured`, `resolveOrderReview('cleared')` — `order.confirmed` |
+| `processing` | the first shipment LEAVES planned (`pending` → picking, packed, a label, shipped)                                                                                                                                                          | `markShipmentStarted(InTx)` from window 8, or at the latest `markShipped(InTx)` (goods left, so the shipment did) — `order.updated`                                                                                                  |
+| `completed`  | every shipment of the order is `delivered` (cancelled ones do not count; a **`failed`** shipment DOES count as open — the order stays `processing` until operations re-plan or cancel it, an explicit action) and the order is `fulfilled` | `markDelivered(InTx)` on each delivery; a no-op until the last one — `order.completed`                                                                                                                                               |
+| `cancelled`  | an explicit `cancelOrder` (Admin API or a module)                                                                                                                                                                                          | `order.cancelled`                                                                                                                                                                                                                    |
+
+Planning a shipment moves nothing: `markShipmentCreated(InTx)` is kept for its callers and answers the order
+unchanged. `confirmOrder` stays as the explicit form (a no-op on a confirmed order; 409 while a fraud review
+holds it). An order held by a fraud review keeps `pending` through captures and shipments — the fulfilment facts
+are still recorded — and confirms in the transaction that clears the review.
+
 ## Transition table (source of truth: `transitions.ts`; `orders.test.ts` asserts this README shows the same maps)
 
 `status`
@@ -40,12 +55,12 @@ stream (reused by 2.5 and 2.6).
 
 Events per legal transition (exactly one outbox row per `transition()` call):
 
-| Change                                                                                   | Event                                                                                 |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `status → confirmed`                                                                     | `order.confirmed`                                                                     |
-| `status → cancelled`                                                                     | `order.cancelled` (`legal_entity_id`, `currency`, `totals`, `reason`, `cancelled_at`) |
-| `status → completed`                                                                     | `order.completed`                                                                     |
-| `status → processing`, any `payment_status` / `fulfillment_status` change, an order edit | `order.updated` with `changed_fields`                                                 |
+| Change                                                                                                                                                                | Event                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `status → confirmed`                                                                                                                                                  | `order.confirmed`                                                                     |
+| `status → cancelled`                                                                                                                                                  | `order.cancelled` (`legal_entity_id`, `currency`, `totals`, `reason`, `cancelled_at`) |
+| `status → completed`                                                                                                                                                  | `order.completed`                                                                     |
+| `status → processing` (alone, or in the same transition as the fulfilment change of `markShipped`), any `payment_status` / `fulfillment_status` change, an order edit | `order.updated` with `changed_fields`                                                 |
 
 An illegal move → 409 `conflict` with `details: { field, from, to }`. A `transition()` that names no status field
 must carry `changed_fields` (an edit) — otherwise 400. The guard test (`test/guards.test.ts`) fails on any
@@ -63,18 +78,19 @@ unchanged, no event).
 Scoped client + ids, never provider objects. Each wrapper is **idempotent on its target state** (a webhook retry
 is not a 409) and returns the Admin `Order`.
 
-| Function                                                                                                      | Transition                                                                                               | Caller                                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `confirmOrder(client, orderId, actor)`                                                                        | `pending → confirmed`                                                                                    | operator, or window 7 on capture. The checkout does **not** auto-confirm: `pending` is a real state.                   |
-| `markPaymentAuthorized / markPaymentCaptured / markPaymentFailed`                                             | `payment_status`                                                                                         | window 7. A failure changes only `payment_status`; cancelling stays an explicit call.                                  |
-| `markPaymentPartiallyRefunded / markPaymentRefunded`                                                          | `payment_status`                                                                                         | window 7 (2.5 returns)                                                                                                 |
-| `setFulfillmentStatusIn(tx, orderId, status, actor)` / `setFulfillmentStatus({ tx, orderId, status, actor })` | `fulfillment_status` on the caller's transaction, idempotent                                             | window 8 (#191's `setFulfillmentStatus` shape): the status it derives from live shipments; illegal per the table → 409 |
-| `markShipmentCreated(client, orderId, actor)`                                                                 | `confirmed → processing`                                                                                 | window 8 (`pending → processing` is illegal: confirm first)                                                            |
-| `markShipped(client, orderId, [{ lineItemId, quantity }], actor)`                                             | `order_line_item.fulfilled_quantity` (capped at the line quantity) → `partially_fulfilled` / `fulfilled` | window 8                                                                                                               |
-| `markDelivered(client, orderId, actor)`                                                                       | `processing → completed` (409 unless fulfilled)                                                          | window 8                                                                                                               |
-| `markReturned(client, orderId, [{ lineItemId, quantity }], actor)`                                            | `returned_quantity` (capped at fulfilled) → `partially_returned` / `returned`                            | task 2.5                                                                                                               |
-| `movePaymentStatusIn(tx, orderId, to, actor)` / `mergeOrderMetadataIn(tx, orderId, patch)`                    | a payment_status move / a metadata merge on the caller's transaction                                     | the returns module (refund outcome, exchange link)                                                                     |
-| `cancelOrder(client, orderId, { reason, actor })`                                                             | `→ cancelled`                                                                                            | Admin API `cancelOrder`, module callers                                                                                |
+| Function                                                                                                      | Transition                                                                                                                                                                   | Caller                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `confirmOrder(client, orderId, actor)`                                                                        | `pending → confirmed` by hand                                                                                                                                                | an operator; a no-op since #350 (the authorisation confirms); 409 while a fraud review holds the order                 |
+| `markPaymentAuthorized / markPaymentCaptured / markPaymentFailed`                                             | `payment_status`; `authorized` / `captured` also confirm a pending order (#350)                                                                                              | window 7. A failure changes only `payment_status`; cancelling stays an explicit call.                                  |
+| `markPaymentPartiallyRefunded / markPaymentRefunded`                                                          | `payment_status`                                                                                                                                                             | window 7 (2.5 returns)                                                                                                 |
+| `setFulfillmentStatusIn(tx, orderId, status, actor)` / `setFulfillmentStatus({ tx, orderId, status, actor })` | `fulfillment_status` on the caller's transaction, idempotent                                                                                                                 | window 8 (#191's `setFulfillmentStatus` shape): the status it derives from live shipments; illegal per the table → 409 |
+| `markShipmentCreated(client, orderId, actor)`                                                                 | nothing (#350: planning is not leaving planned); answers the order                                                                                                           | window 8 on plan — kept for the call                                                                                   |
+| `markShipmentStarted(client, orderId, actor)`                                                                 | `confirmed → processing` (`pending → processing` is illegal: a held order)                                                                                                   | window 8 when the first shipment leaves `pending` (picking / packed / label / shipped); `markShipped` applies it too   |
+| `markShipped(client, orderId, [{ lineItemId, quantity }], actor)`                                             | `order_line_item.fulfilled_quantity` (capped at the line quantity) → `partially_fulfilled` / `fulfilled`; a `confirmed` order goes `processing` in the same transition       | window 8                                                                                                               |
+| `markDelivered(client, orderId, actor)`                                                                       | `→ completed` once every shipment is `delivered` (cancelled ones excluded) and the order is `fulfilled`; a quiet no-op before that (`confirmed` passes through `processing`) | window 8 on each delivery                                                                                              |
+| `markReturned(client, orderId, [{ lineItemId, quantity }], actor)`                                            | `returned_quantity` (capped at fulfilled) → `partially_returned` / `returned`                                                                                                | task 2.5                                                                                                               |
+| `movePaymentStatusIn(tx, orderId, to, actor)` / `mergeOrderMetadataIn(tx, orderId, patch)`                    | a payment_status move / a metadata merge on the caller's transaction                                                                                                         | the returns module (refund outcome, exchange link)                                                                     |
+| `cancelOrder(client, orderId, { reason, actor })`                                                             | `→ cancelled`                                                                                                                                                                | Admin API `cancelOrder`, module callers                                                                                |
 
 `cancelOrder` is allowed only while `fulfillment_status = unfulfilled` (409 otherwise — use a return). Every
 **authorised, uncaptured** payment is voided through its `PaymentProvider.void()` (checkout module; `manual` is a
@@ -88,7 +104,8 @@ cannot turn an intended no-op into a 409 (#174 review).
 
 Every marker also exists as `…InTx(tx, …)` — `confirmOrderInTx`, `markPaymentAuthorizedInTx`,
 `markPaymentCapturedInTx`, `markPaymentFailedInTx`, `markPaymentPartiallyRefundedInTx`, `markPaymentRefundedInTx`,
-`markShipmentCreatedInTx`, `markShippedInTx`, `markDeliveredInTx`, `markReturnedInTx`, `cancelOrderInTx`,
+`markShipmentCreatedInTx` (a no-op since #350), `markShipmentStartedInTx`, `markShippedInTx`, `markDeliveredInTx`,
+`markReturnedInTx`, `cancelOrderInTx`, `confirmOnAuthorizationInTx`,
 `setFulfillmentStatusIn` (also as #191's object shape `setFulfillmentStatus({ tx, orderId, status, actor })`) — with
 the same semantics on the caller's transaction and no return value (render the
 order yourself if you need it). Use them when your transaction already holds a lock the order row participates in:
@@ -162,7 +179,13 @@ resolved_at?, resolution? }` and emit ONE `order.updated` through `transition()`
 - **2026-09-08 · Wrappers are idempotent on the target state**; `transition()` itself is strict (a self-move is
   illegal because the tables have no self-loops). Windows 7/8 get safe retries without losing the 409 for real
   mistakes.
-- **2026-09-08 · No auto-confirm at placement**; `pending` waits for an operator or window 7's capture.
+- **2026-10-06 · The `status` lifecycle is automatic (#350; supersedes "no auto-confirm at placement" of 2026-09-08).**
+  Nothing moved an order out of `pending` for a month: `confirmOrder` had no caller, so shipped and delivered
+  orders read `pending` to the customer and in the admin. Now the trigger that makes a state true performs the
+  move in its own transaction — the authorisation confirms, the first shipment leaving planned starts processing,
+  the last delivery completes — and only `cancelled` is a decision. A fraud hold is the one thing that keeps an
+  authorised order `pending`, and clearing it confirms. Completion reads the `shipment` rows (every one delivered
+  or cancelled): window 8 updates the row before it reports the delivery, so the check sees the current state.
 - **2026-09-08 · Edits leave money alone** and record the delta for window 7; no order-edit endpoint until the
   contract has one.
 - The Store API order read moved here from checkout; checkout imports `renderStoreOrder` back (a benign module
