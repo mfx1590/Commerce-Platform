@@ -293,10 +293,13 @@ Steps are `/checkout/address` → `shipping` → `payment` → `review`; `/check
 the cart still needs. The order is enforced server-side in `requireCheckoutStep`, not by hiding
 links: typing `/checkout/review` with no address lands you back on the address step.
 
-Reachability deliberately does **not** depend on `payment_session`'s status. The customer chooses a
-_method_ at the payment step, which creates the session; `placeOrderAction` renews a failed
-**invoice** session rather than stranding anyone, but never picks a method on the customer's behalf:
-no session, or a failed card session, goes back to the payment step.
+Reachability deliberately does **not** depend on `payment_session`. The customer chooses a _method_
+at the payment step, which creates the session and remembers the choice for this cart
+(`src/lib/payment-choice.ts`). The session is a PSP artifact with its own lifetime — and a backend may
+keep none (Prism answers every cart with `payment_session: null`) — so at "Place order" a missing or
+failed session is renewed for an **invoice the customer chose**, while the store offers it. A method
+is never picked on the customer's behalf: a card session (only the browser can confirm one) or no
+recorded choice goes back to the payment step.
 
 `Idempotency-Key` is generated once per cart and reused on every retry, stored as `<cartId>:<key>` so
 a stale cookie cannot attach an old key to a new order. Errors are mapped from the contract's codes,

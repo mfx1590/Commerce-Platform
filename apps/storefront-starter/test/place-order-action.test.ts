@@ -15,12 +15,22 @@ const mocks = vi.hoisted(() => ({
   createPaymentSession: vi.fn(),
   getAccessToken: vi.fn<() => Promise<string | null>>(),
   clearSession: vi.fn(async () => {}),
+  cookies: new Map<string, string>(),
   session: { status: 'pending', provider: 'manual' } as { status: string; provider: string } | null,
   store: { code: 'brand-a' } as { code: string; payment?: { methods: string[] } },
 }));
 
 vi.mock('next/headers', () => ({
-  cookies: async () => ({ get: () => undefined, set: () => {}, delete: () => {} }),
+  cookies: async () => ({
+    get: (name: string) =>
+      mocks.cookies.has(name) ? { name, value: mocks.cookies.get(name) } : undefined,
+    set: (name: string, value: string) => {
+      mocks.cookies.set(name, value);
+    },
+    delete: (name: string) => {
+      mocks.cookies.delete(name);
+    },
+  }),
 }));
 vi.mock('@/lib/navigate', () => ({
   redirectLocalized: async (href: string) => ({ redirectedTo: href }),
@@ -72,6 +82,7 @@ beforeEach(() => {
   vi.unstubAllEnvs();
   mocks.session = { status: 'pending', provider: 'manual' };
   mocks.store = { code: 'brand-a' };
+  mocks.cookies.clear();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -135,11 +146,38 @@ describe('placeOrderAction — the payment session (#358)', () => {
     mocks.getAccessToken.mockResolvedValue(null);
   });
 
-  it('no session yet: back to the payment step, nothing placed', async () => {
+  it('no session and no recorded choice: back to the payment step, nothing placed', async () => {
+    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
     mocks.session = null;
     expect(await place()).toEqual({ redirectedTo: '/checkout/payment' });
     expect(mocks.createPaymentSession).not.toHaveBeenCalled();
     expect(mocks.completeCart).not.toHaveBeenCalled();
+  });
+
+  it('no session, the customer chose invoice for THIS cart: renewed for invoice and placed (Prism keeps no session)', async () => {
+    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.session = null;
+    mocks.cookies.set('checkout_payment', 'cart_word:manual');
+    mocks.completeCart.mockResolvedValue({ id: 'order_word' });
+    expect(await place()).toEqual({ redirectedTo: '/orders/order_word' });
+    expect(mocks.createPaymentSession).toHaveBeenCalledWith('cart_word', { provider: 'manual' });
+  });
+
+  it('no session and an invoice choice made for ANOTHER cart, or a card choice: back to the payment step', async () => {
+    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.session = null;
+    for (const stored of ['other_cart:manual', 'cart_word:stripe']) {
+      mocks.cookies.set('checkout_payment', stored);
+      expect(await place(), stored).toEqual({ redirectedTo: '/checkout/payment' });
+    }
+    expect(mocks.createPaymentSession).not.toHaveBeenCalled();
+  });
+
+  it('no session, invoice chosen, but the store no longer offers it: back to the payment step', async () => {
+    mocks.session = null;
+    mocks.cookies.set('checkout_payment', 'cart_word:manual');
+    expect(await place()).toEqual({ redirectedTo: '/checkout/payment' });
+    expect(mocks.createPaymentSession).not.toHaveBeenCalled();
   });
 
   it('a failed card session: back to the payment step with the reason — never an invoice instead', async () => {
@@ -203,6 +241,9 @@ describe('createPaymentSessionAction (#358)', () => {
     vi.stubEnv('STRIPE_PUBLISHABLE_KEY_BRAND_A', 'pk_test_storeword');
     expect(await choose('stripe')).toEqual({ redirectedTo: '/checkout/review' });
     expect(mocks.createPaymentSession).toHaveBeenCalledWith('cart_word', { provider: 'stripe' });
+    expect(mocks.cookies.get('checkout_payment'), 'the choice is remembered for this cart').toBe(
+      'cart_word:stripe',
+    );
   });
 
   it('refuses a method the store does not offer, whatever the form says', async () => {

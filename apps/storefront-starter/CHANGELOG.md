@@ -16,15 +16,20 @@ Issue #358 (Integration 2a). Reads Store API 0.5.4's optional `Store.payment.met
   idempotency key (3-D Secure in Stripe's modal; an already-authorised intent is not confirmed
   again). Declines are Stripe's messages; an abandoned 3-D Secure says nothing was charged and the
   cart is unchanged. Both recoverable on the page.
-- `placeOrderAction` no longer creates a `manual` session on its own: no session or a failed card
-  session goes back to the payment step; a failed invoice session is renewed only while invoices are
-  allowed. `409 price_changed` is mapped (back to review with a message) and refreshes a card
+- `placeOrderAction` never picks a method for the customer. The payment step remembers the
+  customer's choice for this cart (`checkout_payment` cookie, `<cartId>:<provider>`); at "Place order" a
+  missing or failed session is renewed **only for an invoice the customer chose**, and only while the
+  store offers it (a backend may keep no session — Prism answers every cart with `payment_session:
+null`). A card session, or no recorded choice, goes back to the payment step. `409 price_changed` is mapped (back to review with a message) and refreshes a card
   session.
 - **A new client secret remounts the Payment Element** (`key` on `<Elements>` and on the review
   page's `<CardPayment>`): react-stripe-js ignores a changed `clientSecret` on a mounted
   `<Elements>`, so after `409 price_changed` recreated the session the Element would have confirmed
   the stale intent (review of #365). `test/card-payment-remount.test.ts` (jsdom, new dev dependency
   `jsdom` 26.1.0, the UI kit's version) is red without the key.
+- **The card form is its own chunk** (`next/dynamic` on the review page): Stripe's packages had
+  pushed the review route's first load to 139.6 kB against its 139 kB budget; an invoice checkout
+  now never downloads them.
 - **CSP:** `https://js.stripe.com` (script, frame), `https://hooks.stripe.com` (frame),
   `https://api.stripe.com` (connect). Nothing wider.
 - The e2e server allows invoices; the journey chooses Pay on invoice explicitly. New

@@ -6,6 +6,7 @@ import { clearCart, getCart, getOrCreateCart, refreshCartAttribution } from './c
 import { mapCheckoutError, mapCompletionError, parseAddressForm, stepPath } from './checkout';
 import { asCustomerOrGuest, type CartCallMode } from './customer-link';
 import { checkoutIdempotencyKey, clearIdempotencyKey } from './idempotency';
+import { paymentChoice, rememberPaymentChoice } from './payment-choice';
 import { offers, paymentOptions } from './payment-options';
 import { getStoreOrNull } from './store';
 import { storeApi } from './store-api';
@@ -168,6 +169,7 @@ export async function createPaymentSessionAction(
 
   try {
     await storeApi().createPaymentSession(cart.id, { provider });
+    await rememberPaymentChoice(cart.id, provider);
   } catch (error) {
     return { error: mapCheckoutError(error).message };
   }
@@ -181,17 +183,25 @@ export async function placeOrderAction(
   const cart = await getCart();
   if (!cart) return { error: 'Your cart has expired. Please start again.' };
 
-  // Never a *new* payment method behind the customer's back (#358): no session goes back to the
-  // payment step, and so does a failed one unless it is an invoice the store still allows. Decided
-  // before the try: `redirect` signals by throwing, and the catch below would swallow it.
+  // Never a *new* payment method behind the customer's back (#358). A missing session is renewed only
+  // for the method the customer chose at the payment step (a backend may keep none — Prism answers
+  // every cart with `payment_session: null` — or it may have expired), and only an invoice can be
+  // renewed here: a card needs the browser to confirm it. A failed session likewise. Everything else
+  // goes back to the payment step. Decided before the try: `redirect` signals by throwing, and the
+  // catch below would swallow it.
   const session = cart.payment_session;
-  if (session === null) return redirectLocalized(stepPath('payment'));
-  const renewInvoiceSession = session.status === 'failed';
-  if (
-    renewInvoiceSession &&
-    (session.provider !== 'manual' || !paymentOptions(await getStoreOrNull()).invoice)
-  ) {
-    return redirectLocalized(`${stepPath('payment')}?error=payment_failed`);
+  const invoiceOffered = paymentOptions(await getStoreOrNull()).invoice;
+  let renewInvoiceSession = false;
+  if (session === null) {
+    if ((await paymentChoice(cart.id)) !== 'manual' || !invoiceOffered) {
+      return redirectLocalized(stepPath('payment'));
+    }
+    renewInvoiceSession = true;
+  } else if (session.status === 'failed') {
+    if (session.provider !== 'manual' || !invoiceOffered) {
+      return redirectLocalized(`${stepPath('payment')}?error=payment_failed`);
+    }
+    renewInvoiceSession = true;
   }
 
   let orderId: string;
@@ -205,7 +215,7 @@ export async function placeOrderAction(
     // CONTRACT CHANGE #100.
     await refreshCartAttribution(cart.id);
 
-    // An invoice session that failed between steps is renewed here rather than stranding the
+    // An invoice session that is missing or failed is renewed here rather than stranding the
     // customer (the cases that go back to the payment step are decided above, outside the try).
     if (renewInvoiceSession) {
       await storeApi().createPaymentSession(cart.id, { provider: 'manual' });
