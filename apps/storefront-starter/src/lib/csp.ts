@@ -34,6 +34,16 @@ export function keycloakOrigin(url: string | undefined): string {
   }
 }
 
+/**
+ * Stripe's Payment Element (#358): its script, the iframes that hold the card fields and 3-D Secure,
+ * and the API the Element calls from the browser. Exactly the hosts Stripe documents for the
+ * Payment Element with card payments — no wildcard, nothing wider. Card data goes from those
+ * iframes to Stripe; it never reaches this origin.
+ */
+export const STRIPE_SCRIPT_HOSTS = ['https://js.stripe.com'] as const;
+export const STRIPE_FRAME_HOSTS = ['https://js.stripe.com', 'https://hooks.stripe.com'] as const;
+export const STRIPE_CONNECT_HOSTS = ['https://api.stripe.com'] as const;
+
 export function contentSecurityPolicy({ keycloakUrl, frameHosts }: CspInput): string {
   const frames = (frameHosts ?? '').split(/\s+/).filter((host) => /^https:\/\/\S+$/.test(host));
 
@@ -45,12 +55,13 @@ export function contentSecurityPolicy({ keycloakUrl, frameHosts }: CspInput): st
     "style-src 'self' 'unsafe-inline'",
     // Not XSS protection: Next's App Router emits inline bootstrap scripts, and removing
     // 'unsafe-inline' needs a nonce threaded through every <Script>. Stated, not implied.
-    "script-src 'self' 'unsafe-inline'",
-    // The Store API is called server-side; the browser only ever talks to this origin.
-    "connect-src 'self'",
+    `script-src 'self' 'unsafe-inline' ${STRIPE_SCRIPT_HOSTS.join(' ')}`,
+    // The Store API is called server-side; the browser talks to this origin — and, from the
+    // Payment Element, to Stripe's API.
+    `connect-src 'self' ${STRIPE_CONNECT_HOSTS.join(' ')}`,
     // Campaign embeds (REQUEST #199). The sandbox on each iframe is the first layer; this stops an
     // embed being pointed at a host nobody reviewed.
-    `frame-src 'self'${frames.length === 0 ? '' : ` ${frames.join(' ')}`}`,
+    `frame-src 'self' ${[...STRIPE_FRAME_HOSTS, ...frames].join(' ')}`,
     // Nothing may frame us: clickjacking a checkout is the attack this prevents.
     "frame-ancestors 'none'",
     "object-src 'none'",

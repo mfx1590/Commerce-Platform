@@ -56,6 +56,7 @@ export {
   REAL_STORE_PATHS,
   removeLineItemRoute,
   resolveCurrency,
+  paymentMethodsOf,
   storeSummary,
   updateCartRoute,
   updateLineItemRoute,
