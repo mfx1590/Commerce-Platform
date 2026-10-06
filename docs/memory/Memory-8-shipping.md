@@ -1,6 +1,6 @@
 # Memory 8 — Shipping & fulfillment
 Window: 8 · Key: `shipping` · Branch prefix: `shipping/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.11 (Admin API 0.4.9 adds `buyShipmentLabel` + the shared `Unprocessable` 422; events 0.3.1 adds `shipment.label_created`; db 0.3.0) · Branch: `shipping/phase3` (off `origin/main`; `shipping/phase2` is dead — only its memory commit was carried over) · **Status: INTEGRATION 2a — #356 done locally, PR open.**
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.12** (`provider_unsupported` is in `ERROR_CODES` and the core maps it to 422; Admin API 0.4.9 `buyShipmentLabel`; events 0.3.1 `shipment.label_created`; order status automatic since #350) · Branch: `shipping/phase3` · **Status: INTEGRATION 2a — #356 code merged as `cdbf611`; the cast-removal follow-up is the open PR. #356 itself stays open for the 2a gate (a real EasyPost test-mode label).**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,10 +16,10 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **#356 · Integration 2a — buy-label route, `shipment.label_created`, lifecycle to `delivered`** · branch
-  `shipping/phase3` · PR #369, code commit `4dd85e7` (this memory commit sits on top of it; the merge sha
-  goes here when it lands) · body says `Refs #356`, not `Closes`: the issue closes at the Integration 2a
-  gate, when a real test-mode label prints
+- **#356 · Integration 2a — buy-label route, `shipment.label_created`, lifecycle to `delivered`** · PR #369,
+  **merged as `cdbf611`** (2026-10-06) · branch `shipping/phase3` · **#356 itself is still OPEN**: the PR said
+  `Refs`, not `Closes`, because the real EasyPost round trip through the route is unproven until a test-mode
+  label prints at the Integration 2a gate. #366 closed with this PR.
   `POST /admin/shipments/{shipmentId}/label` on `shippingAdminRouter` (permission from the spec: `operations` on
   `organization:hq`, no request body, store resolved from the shipment). `buyShipmentLabel` now matches Admin API
   0.4.9 instead of its old README: **409 unless the shipment is exactly `packed`** (an already-labelled shipment is
@@ -29,6 +29,13 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   sharing one timestamp with `metadata.carrier_label.bought_at`. New `createTestCarrierProvider()` is the manual
   implementation under another name — the carrier test double every label test now buys from. Module suites
   187 passed, 2 skipped (the EasyPost live tests — no key in this worktree yet).
+- **#366 — the order's status stops depending on shipping's tests, and starts when work does** · part 1 merged
+  as `5e10724` (PR #370, the manager's one-time second branch), part 2 in PR #369 → `cdbf611`; #366 closed.
+  Part 1: the two `shipments-db.test.ts` planning cases assert the order's `fulfillment_status` and the planned
+  shipment instead of `order.status`, so they hold on both sides of #350. Part 2: `OrdersPort.shipmentStarted`
+  calls `markShipmentStartedInTx` from `applyTransition` the first time a shipment leaves `pending` — one call
+  site for pick, pack, label and a straight despatch; `cancelled` / `failed` excluded; a `pending → shipped`
+  jump reports the start first.
 - **#255 — outbox-order flake in the module's database tests** · commit `aaabf73` · PR #343, merged as `bc3a346` (2026-10-05); #255 closed
   `shipments-db.test.ts` ordered a shipment's outbox rows by `occurred_at, topic`; the skipped-scan test expected
   `delivered` before `shipped`, true only on an occurred_at tie (alphabetical). Every shipment/order stream query in
@@ -76,15 +83,15 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#356 / PR #369 — reviewed MERGE (Fable static review, 2026-10-06); skipped by the queue once on a
-  conflict with #370, re-merged against main `e708727` (which carries #368 and #370's `5e10724`) and
-  re-gated, so it queues again on green.** Nothing else is being
-  written on this branch. When it merges, put the merge sha on the Done entry and clear this.
-- **Owed after contracts 0.4.12 lands** (the manager lands `ERROR_CODES` + the core's status map once #368/#369
-  are in): delete the `PROVIDER_UNSUPPORTED` cast in `shipping/shipments.ts` and use the real `ErrorCode`. One
-  line, plus the comment above it.
-- **#366 is fully in PR #369 now.** Part 1 (tests) merged as `5e10724`; part 2 (the `markShipmentStartedInTx`
-  call) is a separate commit on `shipping/phase3` after #350 landed as `f20245c`. The PR body says `Closes #366`.
+- **The cast-removal follow-up is an open PR** (`Refs #356`): contracts-v0.4.12 landed as `e3a8c0b`, so
+  `providerUnsupported()` now builds a plain `AppError('provider_unsupported', …)` — the cast, the exported
+  `PROVIDER_UNSUPPORTED` constant, the `ErrorCode` import and the explicit `422` are all gone, because
+  `errors.ts` maps the code to 422 itself. Nothing else is being written.
+- **Window 7 still has the same mock**, in `payments/capture.ts` (`PROVIDER_UNSUPPORTED`,
+  `PROVIDER_UNSUPPORTED_STATUS`, the cast, exported from `payments/index.ts`). Not my path — reported to the
+  manager, not touched.
+- **#356 closes at the 2a gate, not by me**: it needs `EASYPOST_API_KEY*` in this worktree's `.env` (OWNER #361)
+  and the manager's Integration 2a run printing a real test-mode label. Nothing to do until then.
 - Not mine, tracked elsewhere: window 1 mounts `fulfillmentAdminRouter()` with one `routers.push(...)` line in
   `src/http/module-routers.ts`. `shippingAdminRouter` and `shippingWebhookRouter` are already mounted there, and
   `registerCarrierProviders()` runs from `src/wiring.ts`.
@@ -251,17 +258,17 @@ lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.
   defaults. Every field falls back to a default rather than throwing.
 
 ## Blocked / waiting
-- **#366 part 1 (tests) is in review on `shipping/366-tests`** — a one-time second branch the manager allowed
-  while #356 sits on `shipping/phase3`. Test-only: the two `shipments-db.test.ts` cases that asserted
-  `order.status` now assert what shipping owns (the order's `fulfillment_status`, and the shipment planned), so
-  they hold both on today's main and after #350 changes the order lifecycle. **Part 2 of #366 — calling
-  `markShipmentStartedInTx` when a shipment leaves `pending` — waits for #350 to be on main**, because the
-  function does not exist there yet; it goes into #356's branch afterwards.
-- **One-line follow-up owed after contracts 0.4.12 lands**: drop the `PROVIDER_UNSUPPORTED` cast in
-  `shipping/shipments.ts` once `ERROR_CODES` carries `provider_unsupported` (the manager lands it after #368/#369
-  merge).
+- **contracts 0.4.12 (PR #376)** — the only thing this window waits on. See In progress for exactly what to
+  delete when it lands.
 
 ## Gotchas learned
+- **`pnpm install` after merging main, before trusting any gate** (2026-10-06): #358 added `@stripe/react-stripe-js`
+  to `apps/storefront-starter`, and `pnpm typecheck` failed there with TS2307 on a tree where nothing of mine was
+  wrong. A merge that touches `pnpm-lock.yaml` or any `package.json` means the worktree's `node_modules` is stale;
+  the failure looks like someone else's broken code until you install.
+- **Record the PR number and sha, not a placeholder** (2026-10-06): a `<!-- fill in on merge -->` in the Done
+  entry was caught in review as a record defect and cost a round trip. Write the number as soon as the PR exists
+  and the merge sha as soon as it merges.
 - **Two branches editing one test file collide in the merge queue, and the queue never resolves a conflict**
   (2026-10-06): #370 (tests) and #369 (the label work) both inserted a helper above `orderState` in
   `shipments-db.test.ts`, so #370 merged and #369 was SKIPPED. Resolution was to keep both helpers (`pack` and

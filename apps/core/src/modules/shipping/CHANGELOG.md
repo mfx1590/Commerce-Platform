@@ -3,6 +3,16 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
+## Integration 2a — shipping/phase3 (contracts-v0.4.12)
+
+### 2026-10-06 · `provider_unsupported` is a real contract code now (follow-up to #356)
+
+contracts-v0.4.12 adds `provider_unsupported` to `ERROR_CODES` and the core's `errors.ts` maps it to 422, so the
+local mock is gone: `providerUnsupported()` constructs `new AppError('provider_unsupported', …)` with **no cast
+and no explicit status** — the status map supplies the 422. The exported `PROVIDER_UNSUPPORTED` constant and the
+`ErrorCode` import went with it; the helper itself and every answer the route gives are unchanged, which the 422
+service and route tests pin.
+
 ## Integration 2a — shipping/phase3 (contracts-v0.4.11)
 
 ### 2026-10-06 · The buy-label route, its event, and the lifecycle to `delivered` (#356)
@@ -35,7 +45,8 @@ something it should.
 - Tests: the 200 and its event, the 409s (not packed, already labelled), the 422, the 502, the route itself
   (403/409/422/404), and the full lifecycle — `packed` → label → `in_transit` → `delivered` driven only by signed
   EasyPost tracking webhooks, asserting the whole outbox stream in `seq` order and the carrier's own timestamps.
-- `provider_unsupported` is mocked locally (`PROVIDER_UNSUPPORTED` in `shipments.ts`): admin-api.yaml 0.4.9
+- `provider_unsupported` is mocked locally (`PROVIDER_UNSUPPORTED` in `shipments.ts`) — **no longer true, the
+  mock was removed the same day, see the 0.4.12 entry above**: admin-api.yaml 0.4.9
   documents it on `Error.code`, but `ERROR_CODES` in `@platform/contracts` does not list it yet. The cast goes
   away with that contracts change.
 - Hygiene: the status-machine comment no longer points at the deleted `proposed/0160_shipment_pick_pack.sql`.

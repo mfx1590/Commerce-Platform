@@ -30,7 +30,7 @@ import {
 } from '@/lib/forms/schemas';
 import { fieldNames } from '@/lib/forms/schemas';
 import { LAST_LIVE_KEY_MESSAGE, withDefault } from '@/lib/settings';
-import { refuseUnlessPermitted } from '@/lib/settings/guard';
+import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 
 /**
  * Registry mutations. Each one re-validates with the same Zod schema the browser used — the client

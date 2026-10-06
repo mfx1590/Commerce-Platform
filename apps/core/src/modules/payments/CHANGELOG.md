@@ -5,6 +5,11 @@ file is the module's own history (linked from the PRs).
 
 ## Integration 2a — payments/phase3 (contracts-v0.4.11)
 
+### 2026-10-06 · with #373 — contracts 0.4.12 on main: the local `provider_unsupported` cast is gone
+
+- `capture.ts`: `PROVIDER_UNSUPPORTED` is a plain `ErrorCode`; `providerUnsupported()` lets `AppError` pick the 422 from the
+  core's status map. Behaviour identical (the 422 tests are unchanged).
+
 ### 2026-10-06 · #355 Admin API `capturePayment` route, partial capture, 422 for the manual provider
 
 - `capture-route.ts` (+ `admin-permission.ts`, the `x-permission` helper shared with the refund route):

@@ -24,7 +24,17 @@ export interface ActionRefusalInfo {
 }
 
 export type ActionResult<T> =
-  { status: 'success'; data: T } | ({ status: 'error'; refusal?: ActionRefusalInfo } & FormErrors);
+  | { status: 'success'; data: T }
+  | ({
+      status: 'error';
+      refusal?: ActionRefusalInfo;
+      /**
+       * The operation exists but this store's provider or carrier cannot do it (422
+       * `provider_unsupported`, e.g. the manual payment provider or carrier). Not a failure to
+       * retry: the screen says it is not available here, in a neutral tone, and `formError` says why.
+       */
+      unavailable?: true;
+    } & FormErrors);
 
 export function actionSuccess<T>(data: T): ActionResult<T> {
   return { status: 'success', data };

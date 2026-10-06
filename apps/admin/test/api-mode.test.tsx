@@ -209,6 +209,29 @@ describe('not implemented vs session ended vs missing record (core only)', () =>
     });
   });
 
+  it('a nested list whose parent is missing (404 not_found) stays "not found"', async () => {
+    const result = await reclassifyUnmounted(
+      failed(404, 'not_found'),
+      { method: 'GET', path: `/admin/stores/${STORE}/orders/${STORE}/shipments` },
+      { mode: 'core', meStatus: async () => 200 },
+    );
+    expect(result).toMatchObject({ status: 404, error: { code: 'not_found' } });
+  });
+
+  it('…but the same nested list with the core unmounted marker is "not available"', async () => {
+    const nested = `/admin/stores/${STORE}/orders/${STORE}/shipments`;
+    const result = await reclassifyUnmounted(
+      {
+        ok: false,
+        status: 404,
+        error: { code: 'not_found', message: `GET ${nested} is not implemented` },
+      },
+      { method: 'GET', path: nested },
+      { mode: 'core', meStatus: async () => 200 },
+    );
+    expect(result.status).toBe(501);
+  });
+
   it('a collection 404 from Prism stays a 404', async () => {
     const result = await reclassifyUnmounted(
       failed(404, 'not_found'),
@@ -226,6 +249,10 @@ describe('not implemented vs session ended vs missing record (core only)', () =>
     ['GET', '/admin/pick-lists/42', false],
     ['GET', `/admin/stores/${STORE}`, false],
     ['POST', `/admin/stores/${STORE}/orders`, false],
+    // Nested under another record: its parent may be missing, so not a bare collection read.
+    ['GET', `/admin/stores/${STORE}/orders/${STORE}/shipments`, false],
+    ['GET', '/admin/pick-lists/42/lines', false],
+    ['GET', '/admin/warehouses', true],
   ] as const)('isCollectionRead(%s %s) = %s', (method, url, expected) => {
     expect(isCollectionRead(method, url)).toBe(expected);
   });

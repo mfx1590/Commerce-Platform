@@ -3,15 +3,15 @@
  * first. Pure, so the role fixtures can be asserted in a table.
  *
  * Every flag mirrors one operation's `x-permission` in Admin API 0.4.8 (`REGISTRY_PERMISSIONS`).
- * The same table gates the server actions before they call the API (`./guard.ts`), and the Admin
+ * The same table gates the server actions before they call the API (`../permissions/guard.ts`), and the Admin
  * API re-checks each mutation again; UI gating is only the convenience on top. A form that will
  * certainly be refused is not offered; the relation it needs is named instead.
  */
 
 import type { AdminComponents } from '../api/admin-client';
 import { makeProjection, type ClientSafe } from '../client-safe';
-import { findStore, type Principal } from '../nav/navigation';
-import { expandOrganizationRelations, expandStoreRelations, type Relation } from '../nav/relations';
+import type { Principal } from '../nav/navigation';
+import { holds, ruleObject, type PermissionRule } from '../permissions/rules';
 
 type Store = AdminComponents['Store'];
 type SalesChannel = AdminComponents['SalesChannel'];
@@ -30,15 +30,13 @@ export const REGISTRY_PERMISSIONS = {
   createSalesChannel: { relation: 'store_admin', object: 'store' },
   createApiKey: { relation: 'store_admin', object: 'store' },
   revokeApiKey: { relation: 'store_admin', object: 'store' },
-} as const satisfies Record<string, { relation: Relation; object: 'organization' | 'store' }>;
+} as const satisfies Record<string, PermissionRule>;
 
 export type RegistryOperation = keyof typeof REGISTRY_PERMISSIONS;
 
 /** The object an operation's `x-permission` names, as the Admin API writes it in a 403. */
 export function permissionObject(operation: RegistryOperation, storeId: string): string {
-  return REGISTRY_PERMISSIONS[operation].object === 'organization'
-    ? 'organization:hq'
-    : `store:${storeId}`;
+  return ruleObject(REGISTRY_PERMISSIONS[operation], storeId);
 }
 
 /** Whether the principal holds the relation `operation` requires (implied relations included). */
@@ -47,16 +45,7 @@ export function mayPerform(
   operation: RegistryOperation,
   storeId: string,
 ): boolean {
-  const { relation, object } = REGISTRY_PERMISSIONS[operation];
-  const organizationRelations = principal.organization_relations as Relation[];
-  const held =
-    object === 'organization'
-      ? expandOrganizationRelations(organizationRelations)
-      : expandStoreRelations(
-          (findStore(principal, storeId)?.relations ?? []) as Relation[],
-          organizationRelations,
-        );
-  return held.has(relation);
+  return holds(principal, REGISTRY_PERMISSIONS[operation], storeId);
 }
 
 export interface SettingsPermissions {
