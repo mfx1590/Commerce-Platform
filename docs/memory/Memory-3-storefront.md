@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#358 = PR #365 ("Refs #358" — the issue closes at the Integration 2a gate once a test-mode card order is proven)**: review items fixed (`8ca4629`: key on <Elements> + page, remount test, lockfile = Stripe + jsdom only), main merged with the gitleaks allowlist `6160385` (`893cf60`), pushed once — head = the commit carrying this line (previous head `77bd44f`). Report the head sha and the check results to the manager; no further pushes until it says. **Never add secret-shaped literals to tests** (gitleaks scans history; use e.g. 'not-a-publishable-key'). Machine NOT mine; the card order needs the owner's Stripe test keys.
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#358 = PR #365 ("Refs #358")** — CI red fixed: (1) Prism keeps no session → the payment choice is remembered per cart (httpOnly `checkout_payment` = `<cartId>:<provider>`, no PII), a missing/failed session is renewed only for an invoice the customer chose, never a card; (2) bundle budget: `CardPaymentLazy` (client, `next/dynamic`, `ssr: false`) — measured 139.6 → 140 (server-side dynamic, not enough) → **134.8 kB** (budget 139). Build + budget run on the machine with the manager's OK; machine released. Pushed once after merging main; report head + checks; no further pushes until the manager says. Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -761,6 +761,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`next/dynamic` called from a SERVER page does not lazy-load a client component**: it still
+  server-renders it and lists its chunk in the page's entry (`app-build-manifest.json`), so the bundle
+  budget counts it. Lazy means a `'use client'` wrapper with `next/dynamic(..., { ssr: false })`
+  (#365: 140 → 134.8 kB).
 
 - **Prism keeps no state: every cart example has `payment_session: null`.** A placement rule of "no
   session → back to the payment step" loops on the mock (review → payment, #365's CI). The customer's
