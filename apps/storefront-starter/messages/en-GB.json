@@ -141,12 +141,16 @@
     "confirmation": {
       "badge": "Order placed",
       "title": "Thank you",
-      "body": "Order #{order} is confirmed. We have sent a confirmation to {email}.",
+      "body": "Order #{order} has been placed and is being processed.",
       "delivery": "Delivery",
       "unavailable": "Order not available",
-      "unavailableBody": "Open the link from your confirmation email to see this order, or sign in to your account.",
+      "unavailableBody": "This order can only be shown to whoever placed it. Sign in to see the orders in your account.",
       "goToAccount": "Go to your account",
-      "deliveryAddress": "Delivery address"
+      "deliveryAddress": "Delivery address",
+      "followSignedIn": "You can follow its status in your account:",
+      "orderHistory": "Order history",
+      "followGuest": "Please keep your order number, #{order} — you will need it if you contact us about this order.",
+      "contactEmail": "Email"
     },
     "errors": {
       "generic": "Something went wrong. Please try again.",

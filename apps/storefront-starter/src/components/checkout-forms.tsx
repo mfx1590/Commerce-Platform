@@ -80,7 +80,16 @@ function Field({
   );
 }
 
-export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCountry: string }) {
+export function AddressForm({
+  cart,
+  defaultCountry,
+  defaultEmail,
+}: {
+  cart: Cart;
+  defaultCountry: string;
+  /** The cart's email, or a signed-in customer's (#351); see `checkoutEmailDefault`. */
+  defaultEmail: string;
+}) {
   const [state, formAction] = useActionState(saveAddressAction, EMPTY);
   const t = useTranslations('checkout.address');
   const address: Partial<Address> = cart.shipping_address ?? {};
@@ -95,7 +104,7 @@ export function AddressForm({ cart, defaultCountry }: { cart: Cart; defaultCount
         type="email"
         autoComplete="email"
         errors={errors}
-        defaultValue={cart.email ?? ''}
+        defaultValue={defaultEmail}
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <Field

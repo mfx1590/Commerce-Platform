@@ -40,13 +40,18 @@ const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 // ~25 Link prefetch renders. Playwright's default (half the cores: 11 on the 22-thread dev
 // machine) saturated it: in a full core run a listing took 17.7 s and a sign-in round trip over
 // 15 s (0.1 s alone), and three passes failed 1, 1 and 9 tests on deadlines. With 4 workers the
-// same suite passed 69/0 and finished faster (1.2 min against 1.6–2.3) — #327. CI keeps
-// Playwright's default (its runners have few cores); `E2E_WORKERS` overrides either.
-const WORKERS: number | undefined = process.env.E2E_WORKERS
-  ? Number(process.env.E2E_WORKERS)
-  : process.env.CI
-    ? undefined
-    : 4;
+// same suite passed 69/0 three times running, in about the same time (1.6–1.9 min against 1.6–2.3;
+// one diagnostic pass took 1.2) — #327. CI keeps Playwright's default (its runners have few cores);
+// `E2E_WORKERS` overrides either, and must be a positive integer.
+function workersFromEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === '') return process.env.CI ? undefined : 4;
+  const workers = Number(raw);
+  if (!Number.isInteger(workers) || workers < 1) {
+    throw new Error(`E2E_WORKERS must be a positive integer, got "${raw}"`);
+  }
+  return workers;
+}
+const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
 
 export default defineConfig({
   testDir: './e2e',
