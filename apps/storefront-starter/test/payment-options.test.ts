@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  envSuffix,
-  invoiceFlag,
-  offers,
-  paymentOptions,
-  stripePublishableKey,
-} from '@/lib/payment-options';
+import { envSuffix, offers, paymentOptions, stripePublishableKey } from '@/lib/payment-options';
 
 /** #358: which payment methods a store offers, from the environment, decided on the server. */
 const PK_STORE = 'pk_test_storeword';
@@ -48,36 +42,30 @@ describe('stripePublishableKey', () => {
   });
 });
 
-describe('invoiceFlag (the interim switch)', () => {
-  it('is off unless STOREFRONT_ALLOW_INVOICE is exactly 1', () => {
-    expect(invoiceFlag({})).toBe(false);
-    expect(invoiceFlag({ STOREFRONT_ALLOW_INVOICE: 'true' })).toBe(false);
-    expect(invoiceFlag({ STOREFRONT_ALLOW_INVOICE: '1' })).toBe(true);
-  });
-});
-
 describe('paymentOptions', () => {
   const KEY = { STRIPE_PUBLISHABLE_KEY_BRAND_A: PK_STORE };
-  const FLAG = { STOREFRONT_ALLOW_INVOICE: '1' };
 
-  it('a store without Store.payment (before 0.5.4): the key and the interim switch decide', () => {
+  it('a store without Store.payment (a core before 0.5.4): card on the key alone, never an invoice', () => {
     const store = { code: 'brand-a' };
     expect(paymentOptions(store, KEY)).toEqual({ stripePublishableKey: PK_STORE, invoice: false });
-    expect(paymentOptions(store, FLAG)).toEqual({ stripePublishableKey: null, invoice: true });
+    expect(paymentOptions(store, { STOREFRONT_ALLOW_INVOICE: '1' })).toEqual({
+      stripePublishableKey: null,
+      invoice: false,
+    });
   });
 
-  it('a store with Store.payment.methods: the store decides, and the switch is ignored', () => {
+  it('a store with Store.payment.methods: the store decides', () => {
     const both = withMethods('card', 'invoice');
     expect(paymentOptions(both, KEY)).toEqual({ stripePublishableKey: PK_STORE, invoice: true });
 
     const cardOnly = withMethods('card');
-    expect(paymentOptions(cardOnly, { ...KEY, ...FLAG }).invoice, 'switch ignored').toBe(false);
+    expect(paymentOptions(cardOnly, KEY).invoice).toBe(false);
 
     const invoiceOnly = withMethods('invoice');
     expect(paymentOptions(invoiceOnly, KEY).stripePublishableKey, 'card not offered').toBeNull();
 
     const none = withMethods();
-    expect(paymentOptions(none, { ...KEY, ...FLAG })).toEqual({
+    expect(paymentOptions(none, KEY)).toEqual({
       stripePublishableKey: null,
       invoice: false,
     });

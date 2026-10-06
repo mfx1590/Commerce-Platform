@@ -150,7 +150,6 @@
     "confirmation": {
       "badge": "Order placed",
       "title": "Thank you",
-      "body": "Order #{order} has been placed and is being processed.",
       "delivery": "Delivery",
       "unavailable": "Order not available",
       "unavailableBody": "This order can only be shown to whoever placed it. Sign in to see the orders in your account.",
@@ -159,7 +158,22 @@
       "followSignedIn": "You can follow its status in your account:",
       "orderHistory": "Order history",
       "followGuest": "Please keep your order number, #{order} — you will need it if you contact us about this order.",
-      "contactEmail": "Email"
+      "contactEmail": "Email",
+      "bodyByStatus": {
+        "pending": "Order #{order} has been placed and is being processed.",
+        "confirmed": "Order #{order} has been placed and is being processed.",
+        "processing": "Order #{order} is on its way.",
+        "completed": "Order #{order} has been delivered.",
+        "cancelled": "Order #{order} has been cancelled."
+      },
+      "statusLabel": "Status:",
+      "status": {
+        "pending": "Received",
+        "confirmed": "Confirmed",
+        "processing": "Processing",
+        "completed": "Completed",
+        "cancelled": "Cancelled"
+      }
     },
     "errors": {
       "generic": "Something went wrong. Please try again.",
