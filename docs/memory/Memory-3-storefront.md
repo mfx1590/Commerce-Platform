@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** on main; **0.4.11 (Store API 0.5.4, `Store.payment.methods`) is PR #363** — built against `origin/integration/contracts-0.4.11` (shape matches the local `StorePaymentFacts`; its example store has `[card, invoice]`) · **Manager = "Project manager handoff".** #351 DONE (PR #362, `384996f`). **#358 is on `storefront/phase3` (local, NOT pushed)**: main merged (`eafbf28`, then `7d91f52` with the .env.example entries `2ca72c4`), install + packages rebuilt, lint, format, typecheck, 548 unit pass. **No push before the manager confirms 0.4.11 is on main**; then **drop the local optional typing of `Store.payment` (`StorePaymentFacts`) for the generated contract type**, rebuild packages, merge main once, push once, PR "Closes #358" with the ruling in the body. **Machine NOT mine.**
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** (Store API 0.5.4 — `Store.payment.methods`; main `777be2f`) · **Manager = "Project manager handoff".** #351 DONE (PR #362, `384996f`). **#358 on `storefront/phase3`: pushed once, PR open (number in the next line of this file's history / the PR list), checks pending — report PR + head sha now and again when checks finish; no further pushes until the manager says.** Generated `Store` type replaces the local `StorePaymentFacts` shape (now `Pick<Store, 'code' | 'payment'>`). Lint, format, typecheck, 548 unit. **Not run in a browser: the Payment Element, 3DS and decline paths need the owner's Stripe test keys + the machine (with window 5).**
 
 ## Identity (does not change)
 
