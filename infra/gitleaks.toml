@@ -78,10 +78,15 @@ regexes = ['''^[0-9a-f]{40}$''']
 # only. Both conditions must hold (AND): only this one test file, and only those two exact literals,
 # so any other sk_/rk_ string in that file still fails, and the same literals anywhere else still
 # fail. Added by the manager 2026-10-06: the finding sits in pushed history (5d66699), so the branch
-# cannot clear it by editing the file. New "wrong key" fixtures must use shapes no rule matches.
+# cannot clear it by editing the file. The window's memory file quoted the same two literals (44e7834)
+# and CI scans every branch (fetch-depth 0), so that one file is covered too. New "wrong key" fixtures
+# must use shapes no rule matches, and memory files never quote a secret-shaped literal.
 [[allowlists]]
-description = "two wrong-key fixtures in the storefront publishable-key guard test"
+description = "two wrong-key fixtures in the storefront publishable-key guard test (+ the memory file that quotes them)"
 targetRules = ["stripe-access-token"]
 condition = "AND"
-paths = ['''^apps/storefront-starter/test/payment-options\.test\.ts$''']
+paths = [
+  '''^apps/storefront-starter/test/payment-options\.test\.ts$''',
+  '''^docs/memory/Memory-3-storefront\.md$''',
+]
 regexes = ['''^(sk_test_secretword|rk_test_restrictedword)$''']
