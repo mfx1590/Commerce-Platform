@@ -50,7 +50,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   routes in Phase 1; Store API 0.3.0 `currency` query and the cart operations since 2.1; shipping options, payment
   session, `POST …/complete` and `GET /store/orders/{orderId}` since 2.2; `POST /store/cart-recovery/{token}`
   (#246, window 17's `validateRecoveryToken`) — and the customer self-service routes
-  (`src/http/customer-routes.ts`, #303 parts A and B); the fallback proxy covers no customer path). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
+  (`src/http/customer-routes.ts`, #303 parts A and B); the fallback proxy covers no customer path; `GET /store`
+  carries `payment.methods` since Store API 0.5.4 — `card` with a Stripe key, `invoice` with
+  `settings.payment.invoice_allowed`, #350 / #358). Store API routes live in `src/http/store-routes.ts`, Admin API routes in `src/http/admin-routes.ts`; both are
   mounted ahead of Medusa (they win over Medusa's same-path routes, its key gate and its admin auth).
   Contract header `X-Publishable-Key`; errors `{ code, message, details }`. Response shapes are checked against the
   OpenAPI components in tests (`test/helpers/openapi.ts`).
@@ -124,8 +126,12 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `FraudCheck.recordBlocked` hook (#241; `recordsBlockedAfterRollback`). The cart's metadata can never pre-write
   the core's own order keys (`fraud`, `promotions`).
 - Order lifecycle (`src/modules/orders`): every status change goes through `transition()` (table-driven, one event
-  each); windows 7 and 8 call `confirmOrder`, `markPayment*`, `markShipmentCreated`, `markShipped`, `markDelivered`,
-  `markReturned`, `cancelOrder` with a scoped client + ids (idempotent on the target state). Edits before fulfilment
+  each). The `status` lifecycle is AUTOMATIC (#350, contracts 0.4.11): `confirmed` when the payment is
+  authorised (at placement; a fraud hold keeps `pending` until cleared), `processing` when the first shipment
+  leaves planned (`markShipmentStarted`, or `markShipped` at the latest), `completed` when every shipment is
+  delivered (`markDelivered` checks the `shipment` rows); only `cancelOrder` is explicit. Windows 7 and 8 call
+  `markPayment*`, `markShipmentStarted`, `markShipped`, `markDelivered`, `markReturned`, `cancelOrder` with a
+  scoped client + ids (idempotent on the target state); `markShipmentCreated` is a kept no-op. Edits before fulfilment
   recompute totals with the cart's `TaxCalculator` and leave money to window 7 (`order.metadata.edits`).
 - Inventory (`src/modules/inventory`): `on_hand` changes only through `moveStock` (append-only `stock_movement` +
   one `stock.moved`); reservations are the placement stock check (`reserveForOrder` from the checkout, deterministic

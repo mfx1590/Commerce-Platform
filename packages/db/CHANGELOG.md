@@ -44,6 +44,13 @@
 - Migration 0170: `cart_recovery` (one row per abandoned cart — `UNIQUE (cart_id)` is the replay guard; `token_hash` only, `UNIQUE`, plaintext never stored; `token_expires_at`; `status` pending → redeemed → recovered with `(status='recovered') = (recovered_at IS NOT NULL)`; deliberately NO cross-clock CHECK per the #244 correction — db now() vs an app timestamp breaks on ordinary skew) and `marketing_cursor` (one row per (store, consumer); a durable outbox position instead of one hidden in an external store). Both RLS `store`, `set_updated_at` triggers. The SQL is window 17's proven proposed copy verbatim.
 - test/rls.test.ts: marketing_cursor isolation + per-(store,name) UNIQUE, and a cart_recovery constraint-pinning case incl. the absent cross-clock CHECK (18 cases).
 
+## 0.3.2 — seed, 2026-10-06 (no migration, schema version unchanged; window 1 via PR, #350 / #358)
+
+- Seed: every seeded store's `settings` gains `payment: { invoice_allowed: true }`, so `GET /store` offers
+  `invoice` (the manual provider) locally — Store API 0.5.4 `Store.payment.methods`. Absent = false, which is
+  what a production store gets until someone sets it. `seed` is `ON CONFLICT DO NOTHING`: an existing database
+  keeps its rows; set the key by hand there (`UPDATE store SET settings = settings || '{"payment": {"invoice_allowed": true}}'`).
+
 ## 0.3.2 — tooling, 2026-10-04 (no migration, schema version unchanged)
 
 - `topUpStock(pool, { floor })` and `pnpm --filter @platform/db top-up-stock [floor]` (default 25): local development only. Test journeys place real
