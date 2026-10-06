@@ -293,18 +293,53 @@ Steps are `/checkout/address` → `shipping` → `payment` → `review`; `/check
 the cart still needs. The order is enforced server-side in `requireCheckoutStep`, not by hiding
 links: typing `/checkout/review` with no address lands you back on the address step.
 
-Reachability deliberately does **not** depend on `payment_session`. That session is a PSP artifact
-with its own lifetime, not customer input — the customer chooses a _method_ at the payment step, and
-`placeOrderAction` creates the session immediately before authorising. Gating review on it would
-strand anyone whose session expired between steps.
+Reachability deliberately does **not** depend on `payment_session`'s status. The customer chooses a
+_method_ at the payment step, which creates the session; `placeOrderAction` renews a failed
+**invoice** session rather than stranding anyone, but never picks a method on the customer's behalf:
+no session, or a failed card session, goes back to the payment step.
 
 `Idempotency-Key` is generated once per cart and reused on every retry, stored as `<cartId>:<key>` so
 a stale cookie cannot attach an old key to a new order. Errors are mapped from the contract's codes,
 never from messages: `409 out_of_stock` offers the quantity actually left, `402 payment_failed`
 returns to the payment step, `409 cart_completed` forwards to the order that already exists.
 
-Phase 1 pays with the `manual` provider — a placeholder. Card data never reaches this app in any
-phase: window 7 adds hosted fields driven by `payment_session.client_secret`.
+### Paying by card (#358)
+
+Card payment is Stripe's **Payment Element** — hosted fields in Stripe's iframes, so card data never
+reaches this app. The payment step offers what the store has (`src/lib/payment-options.ts`, read per
+request, re-checked on submit):
+
+| Method         | Offered when                                                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Card           | a Stripe **publishable** key resolves: `STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else `STRIPE_PUBLISHABLE_KEY` |
+| Pay on invoice | `STOREFRONT_ALLOW_INVOICE=1` — **default off**; an interim switch until the store carries the setting                         |
+
+The key variable names follow the core's per-store secrets (`STRIPE_SECRET_KEY_<STORE CODE>`). Only a
+`pk_test_`/`pk_live_` value is used, so a secret key put in the wrong variable is never sent to a
+browser. With neither method available the payment step says so instead of offering nothing.
+
+Choosing Card creates the core's `stripe` session: a **manual-capture PaymentIntent** with redirects
+off. The card is entered on the **review step**, where "Place order" does two things in order
+(`src/components/card-payment.tsx`):
+
+1. the browser confirms the PaymentIntent with Stripe (`redirect: 'if_required'`) — 3-D Secure, when
+   the card needs it, happens in Stripe's own modal;
+2. only an intent that is now authorised (`requires_capture`) goes on to `placeOrderAction`, with
+   the cart's one `Idempotency-Key` — the core counts `requires_capture` as authorised and places the
+   order `authorized`; capture is the shop's step.
+
+An intent that is already authorised (a retry after the placement failed on the network) is not
+confirmed again. Declines and an abandoned 3-D Secure come back from Stripe as messages written for
+the customer and are shown as they are; `409 price_changed` refreshes the session (the core updates
+or replaces the PaymentIntent) and returns to the review step with the new total.
+
+**Running with Stripe test keys.** Put the store's keys in the repo-root `.env` — never in git, never
+in chat: `STRIPE_PUBLISHABLE_KEY_BRAND_A=pk_test_…` (this app) and `STRIPE_SECRET_KEY_BRAND_A=sk_test_…`
+(the core). Start the core and this app with that environment, choose Card, and use Stripe's test
+cards: `4242 4242 4242 4242` (authorised), `4000 0027 6000 3184` (3-D Secure: press "Complete" in
+the test modal), `4000 0000 0000 0002` (declined); any future expiry and any CVC.
+`e2e/card-payment.spec.ts` drives those three against the core and **skips with the reason** when
+the run is against the mock or no test publishable key is set.
 
 ## Locales and currency
 
@@ -613,6 +648,10 @@ deployment that forgot the variable is noticed the same day: that asymmetry deci
 The `Content-Security-Policy` is built **per request in the middleware** (`src/lib/csp.ts`); the
 environment-independent companions (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
 `Permissions-Policy`) stay in `next.config.mjs`.
+
+**Stripe (#358)** is allowed exactly where the Payment Element needs it and nowhere wider:
+`script-src https://js.stripe.com`, `frame-src https://js.stripe.com https://hooks.stripe.com` (the
+card fields and 3-D Secure), `connect-src https://api.stripe.com`. No wildcard.
 
 `frame-src` is the point of it (REQUEST #199): campaign landings embed Builder.io and Framer pages,
 and the host list is **imported from `@platform/cms`** rather than copied, because `EMBED_HOSTS` is

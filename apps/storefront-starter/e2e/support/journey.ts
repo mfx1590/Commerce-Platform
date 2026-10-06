@@ -70,7 +70,11 @@ export async function completeAddressStep(page: Page, email: string): Promise<vo
  * a real cart from the core starts at address. Driving whatever step is on screen is what makes one
  * spec cover both — and it exercises more of the funnel against the core, not less.
  */
-export async function advanceToReview(page: Page, email: string): Promise<string[]> {
+export async function advanceToReview(
+  page: Page,
+  email: string,
+  method: 'invoice' | 'card' = 'invoice',
+): Promise<string[]> {
   const visited: string[] = [];
 
   for (let guard = 0; guard < CHECKOUT_STEPS_MAX; guard += 1) {
@@ -88,6 +92,11 @@ export async function advanceToReview(page: Page, email: string): Promise<string
         await page.getByRole('button', { name: 'Continue to payment' }).click();
         break;
       case 'payment':
+        // Explicitly, not the preselected first method: with a Stripe key the first is Card, and the
+        // card journey is its own spec (#358).
+        await page
+          .getByRole('radio', { name: method === 'card' ? /^Card/ : /Pay on invoice/ })
+          .check();
         await page.getByRole('button', { name: 'Continue to review' }).click();
         break;
       default:

@@ -2,24 +2,42 @@ import { Price } from '@platform/ui';
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
+import { CardPayment } from '@/components/card-payment';
 import { PlaceOrderForm } from '@/components/checkout-forms';
 import { CheckoutSteps } from '@/components/checkout-steps';
 import { AddressCard, TotalsTable } from '@/components/order-summary';
 import { orderLineHooks } from '@/lib/test-hooks';
 import { requireCheckoutStep } from '@/lib/checkout-page';
 import { stepPath } from '@/lib/checkout';
+import { paymentOptions } from '@/lib/payment-options';
+import { getStoreOrNull } from '@/lib/store';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getTranslations('checkout.review'))('title') };
 }
 export const dynamic = 'force-dynamic';
 
-export default async function ReviewStepPage() {
+export default async function ReviewStepPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { cart, locale } = await requireCheckoutStep('review');
-  const [t, tCommon] = await Promise.all([
+  const [t, tCommon, store, { error }] = await Promise.all([
     getTranslations('checkout.review'),
     getTranslations('common'),
+    getStoreOrNull(),
+    searchParams,
   ]);
+  // Card (#358): the Payment Element needs the store's publishable key and the session's client
+  // secret — Stripe's design: the secret lets this browser confirm this one PaymentIntent, nothing
+  // more. Without both, the card cannot be taken here, so the customer goes back to choose again.
+  const session = cart.payment_session;
+  const publishableKey = paymentOptions(store?.code ?? null).stripePublishableKey;
+  const card =
+    session?.provider === 'stripe' && session.client_secret !== null && publishableKey !== null
+      ? { publishableKey, clientSecret: session.client_secret }
+      : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -63,7 +81,31 @@ export default async function ReviewStepPage() {
         <TotalsTable totals={cart.totals} locale={locale} />
       </div>
 
-      <PlaceOrderForm />
+      {error === 'price_changed' ? (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive p-3 text-sm text-destructive"
+        >
+          {t('priceChanged')}
+        </p>
+      ) : null}
+
+      {card !== null ? (
+        <CardPayment
+          publishableKey={card.publishableKey}
+          clientSecret={card.clientSecret}
+          locale={locale}
+        />
+      ) : session?.provider === 'stripe' ? (
+        <p role="alert" className="text-sm text-muted-foreground">
+          {t('cardUnavailable')}{' '}
+          <Link href={stepPath('payment')} className="underline">
+            {t('choosePayment')}
+          </Link>
+        </p>
+      ) : (
+        <PlaceOrderForm />
+      )}
     </div>
   );
 }

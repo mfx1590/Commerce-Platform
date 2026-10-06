@@ -1,5 +1,30 @@
 # Changelog — @platform/storefront-starter
 
+## 0.13.0 — 2026-10-06
+
+Issue #358 (Integration 2a). No contract change. New dependencies: `@stripe/stripe-js` 10,
+`@stripe/react-stripe-js` 7.
+
+- **Card payment with Stripe's Payment Element** (hosted fields; card data never reaches this app).
+  The payment step offers Card when a Stripe publishable key resolves
+  (`STRIPE_PUBLISHABLE_KEY_<STORE CODE>`, else `STRIPE_PUBLISHABLE_KEY`; only `pk_test_`/`pk_live_`
+  values) and Pay on invoice when `STOREFRONT_ALLOW_INVOICE=1` (default off). The choice is
+  re-checked on the server.
+- **The review step confirms the card in the browser, then places the order** with the cart's one
+  idempotency key (3-D Secure in Stripe's modal; an already-authorised intent is not confirmed
+  again). Declines and an abandoned challenge are Stripe's messages, recoverable on the page.
+- `placeOrderAction` no longer creates a `manual` session on its own: no session or a failed card
+  session goes back to the payment step; a failed invoice session is renewed only while invoices are
+  allowed. `409 price_changed` is mapped (back to review with a message) and refreshes a card
+  session.
+- **CSP:** `https://js.stripe.com` (script, frame), `https://hooks.stripe.com` (frame),
+  `https://api.stripe.com` (connect). Nothing wider.
+- The e2e server allows invoices; the journey chooses Pay on invoice explicitly. New
+  `e2e/card-payment.spec.ts` (core + Stripe test key only, skips with the reason otherwise): 4242,
+  3-D Secure 3184, declined 0002 then 4242.
+- Tests: `test/payment-options.test.ts`, the CSP's Stripe hosts, action-level tests for the session
+  rules, `price_changed` and `createPaymentSessionAction`'s server-side check.
+
 ## 0.12.10 — 2026-10-06
 
 Issue #351 (REQUEST, manager's walk-through of order #1136). No contract change.

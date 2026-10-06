@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   createPaymentSession: vi.fn(),
   getAccessToken: vi.fn<() => Promise<string | null>>(),
   clearSession: vi.fn(async () => {}),
+  session: { status: 'pending', provider: 'manual' } as { status: string; provider: string } | null,
 }));
 
 vi.mock('next/headers', () => ({
@@ -27,7 +28,7 @@ vi.mock('@/lib/cart', () => ({
   getCart: async () => ({
     id: 'cart_word',
     email: null,
-    payment_session: { status: 'pending' },
+    payment_session: mocks.session,
   }),
   getOrCreateCart: vi.fn(),
   clearCart: async () => {},
@@ -41,6 +42,7 @@ vi.mock('@/lib/auth/session', () => ({
   getAccessToken: mocks.getAccessToken,
   clearSession: mocks.clearSession,
 }));
+vi.mock('@/lib/store', () => ({ getStoreOrNull: async () => ({ code: 'brand-a' }) }));
 vi.mock('@/lib/store-api', async (importActual) => ({
   ...(await importActual<typeof StoreApiModule>()),
   storeApi: () => ({
@@ -49,7 +51,7 @@ vi.mock('@/lib/store-api', async (importActual) => ({
   }),
 }));
 
-const { placeOrderAction } = await import('@/lib/actions');
+const { createPaymentSessionAction, placeOrderAction } = await import('@/lib/actions');
 
 const LINK_MESSAGE = /different customer account/;
 const GENERIC_CONFLICT = 'Your cart changed while you were checking out. Please review it.';
@@ -66,6 +68,8 @@ const place = () => placeOrderAction({}, new FormData());
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  mocks.session = { status: 'pending', provider: 'manual' };
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -117,5 +121,86 @@ describe('placeOrderAction — a 409 at completion', () => {
     mocks.completeCart.mockResolvedValue({ id: 'order_word' });
 
     expect(await place()).toEqual({ redirectedTo: '/orders/order_word' });
+  });
+});
+
+/**
+ * #358: the payment session decides how an order is placed, and the action never picks a method on
+ * the customer's behalf.
+ */
+describe('placeOrderAction — the payment session (#358)', () => {
+  beforeEach(() => {
+    mocks.getAccessToken.mockResolvedValue(null);
+  });
+
+  it('no session yet: back to the payment step, nothing placed', async () => {
+    mocks.session = null;
+    expect(await place()).toEqual({ redirectedTo: '/checkout/payment' });
+    expect(mocks.createPaymentSession).not.toHaveBeenCalled();
+    expect(mocks.completeCart).not.toHaveBeenCalled();
+  });
+
+  it('a failed card session: back to the payment step with the reason — never an invoice instead', async () => {
+    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.session = { status: 'failed', provider: 'stripe' };
+    expect(await place()).toEqual({ redirectedTo: '/checkout/payment?error=payment_failed' });
+    expect(mocks.createPaymentSession).not.toHaveBeenCalled();
+    expect(mocks.completeCart).not.toHaveBeenCalled();
+  });
+
+  it('a failed invoice session is renewed when the store allows invoices, then placed', async () => {
+    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '1');
+    mocks.session = { status: 'failed', provider: 'manual' };
+    mocks.completeCart.mockResolvedValue({ id: 'order_word' });
+    expect(await place()).toEqual({ redirectedTo: '/orders/order_word' });
+    expect(mocks.createPaymentSession).toHaveBeenCalledWith('cart_word', { provider: 'manual' });
+  });
+
+  it('a failed invoice session where invoices are no longer allowed: back to the payment step', async () => {
+    mocks.session = { status: 'failed', provider: 'manual' };
+    expect(await place()).toEqual({ redirectedTo: '/checkout/payment?error=payment_failed' });
+    expect(mocks.completeCart).not.toHaveBeenCalled();
+  });
+
+  it('409 price_changed on a card order: the session is refreshed and the review step says why', async () => {
+    mocks.session = { status: 'pending', provider: 'stripe' };
+    mocks.completeCart.mockRejectedValue(
+      new StoreApiError(409, { code: 'price_changed', message: 'price changed' }),
+    );
+    mocks.createPaymentSession.mockResolvedValue({});
+    expect(await place()).toEqual({ redirectedTo: '/checkout/review?error=price_changed' });
+    expect(mocks.createPaymentSession).toHaveBeenCalledWith('cart_word', { provider: 'stripe' });
+  });
+
+  it('402 payment_failed at completion (a declined card): back to the payment step', async () => {
+    mocks.session = { status: 'pending', provider: 'stripe' };
+    mocks.completeCart.mockRejectedValue(
+      new StoreApiError(402, { code: 'payment_failed', message: 'card_declined' }),
+    );
+    expect(await place()).toEqual({ redirectedTo: '/checkout/payment?error=payment_failed' });
+  });
+});
+
+describe('createPaymentSessionAction (#358)', () => {
+  const choose = (provider: string) => {
+    const form = new FormData();
+    form.set('provider', provider);
+    return createPaymentSessionAction({}, form);
+  };
+
+  it('creates the session for an offered method and moves on to review', async () => {
+    vi.stubEnv('STRIPE_PUBLISHABLE_KEY_BRAND_A', 'pk_test_storeword');
+    expect(await choose('stripe')).toEqual({ redirectedTo: '/checkout/review' });
+    expect(mocks.createPaymentSession).toHaveBeenCalledWith('cart_word', { provider: 'stripe' });
+  });
+
+  it('refuses a method the store does not offer, whatever the form says', async () => {
+    vi.stubEnv('STRIPE_PUBLISHABLE_KEY_BRAND_A', '');
+    vi.stubEnv('STRIPE_PUBLISHABLE_KEY', '');
+    vi.stubEnv('STOREFRONT_ALLOW_INVOICE', '');
+    for (const provider of ['stripe', 'manual', 'paypal', '']) {
+      expect(await choose(provider), provider).toMatchObject({ error: expect.any(String) });
+    }
+    expect(mocks.createPaymentSession).not.toHaveBeenCalled();
   });
 });

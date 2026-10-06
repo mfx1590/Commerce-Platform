@@ -6,6 +6,8 @@ import { clearCart, getCart, getOrCreateCart, refreshCartAttribution } from './c
 import { mapCheckoutError, mapCompletionError, parseAddressForm, stepPath } from './checkout';
 import { asCustomerOrGuest, type CartCallMode } from './customer-link';
 import { checkoutIdempotencyKey, clearIdempotencyKey } from './idempotency';
+import { invoiceAllowed, offers, paymentOptions } from './payment-options';
+import { getStoreOrNull } from './store';
 import { storeApi } from './store-api';
 
 /**
@@ -146,19 +148,26 @@ export async function saveShippingAction(
 }
 
 /**
- * Phase 1 uses the `manual` provider: no card data, no hosted fields, nothing to leak. Window 7
- * replaces this with Stripe hosted fields driven by `payment_session.client_secret` in Phase 2 —
- * card details never reach our servers either way.
+ * The payment method the customer chose (#358): `stripe` (card, Payment Element on the review step)
+ * or `manual` (pay on invoice). Re-checked here against what the store offers — the form is a
+ * convenience, not the gate. Card data never reaches this server: the session only yields the
+ * PaymentIntent's `client_secret` for Stripe's hosted fields.
  */
 export async function createPaymentSessionAction(
   _previous: ActionState,
-  _formData: FormData,
+  formData: FormData,
 ): Promise<ActionState> {
   const cart = await getCart();
   if (!cart) return { error: 'Your cart has expired. Please start again.' };
 
+  const provider = stringField(formData, 'provider') ?? '';
+  const store = await getStoreOrNull();
+  if (!offers(paymentOptions(store?.code ?? null), provider)) {
+    return { error: 'That payment method is not available. Please choose another.' };
+  }
+
   try {
-    await storeApi().createPaymentSession(cart.id, { provider: 'manual' });
+    await storeApi().createPaymentSession(cart.id, { provider });
   } catch (error) {
     return { error: mapCheckoutError(error).message };
   }
@@ -172,6 +181,16 @@ export async function placeOrderAction(
   const cart = await getCart();
   if (!cart) return { error: 'Your cart has expired. Please start again.' };
 
+  // Never a *new* payment method behind the customer's back (#358): no session goes back to the
+  // payment step, and so does a failed one unless it is an invoice the store still allows. Decided
+  // before the try: `redirect` signals by throwing, and the catch below would swallow it.
+  const session = cart.payment_session;
+  if (session === null) return redirectLocalized(stepPath('payment'));
+  const renewInvoiceSession = session.status === 'failed';
+  if (renewInvoiceSession && (session.provider !== 'manual' || !invoiceAllowed())) {
+    return redirectLocalized(`${stepPath('payment')}?error=payment_failed`);
+  }
+
   let orderId: string;
   // Which attempt the completion is on — set before each attempt, so a 409 thrown by the customer
   // attempt is read as the customer's (#329 review). Decides what a 409 at completion means.
@@ -183,9 +202,9 @@ export async function placeOrderAction(
     // CONTRACT CHANGE #100.
     await refreshCartAttribution(cart.id);
 
-    // The session is created here rather than gating the review step on it: it is a PSP artifact
-    // with its own lifetime, and one that expired between steps must not strand the customer.
-    if (cart.payment_session === null || cart.payment_session.status === 'failed') {
+    // An invoice session that failed between steps is renewed here rather than stranding the
+    // customer (the cases that go back to the payment step are decided above, outside the try).
+    if (renewInvoiceSession) {
       await storeApi().createPaymentSession(cart.id, { provider: 'manual' });
     }
     // Generated once for this cart and reused on every retry, so a timeout cannot double-charge.
@@ -218,6 +237,14 @@ export async function placeOrderAction(
     await clearIdempotencyKey();
   } catch (error) {
     const mapped = mapCompletionError(error, mode);
+    // The total changed under a confirmed card: the core refreshes (or replaces) the PaymentIntent
+    // when the session is created again, so the review step shows the new total with an Element that
+    // can confirm it. Best effort — the message is shown either way.
+    if (mapped.code === 'price_changed' && cart.payment_session?.provider === 'stripe') {
+      await storeApi()
+        .createPaymentSession(cart.id, { provider: 'stripe' })
+        .catch(() => undefined);
+    }
     // The cart was already completed: send the customer to the order rather than to an error.
     if (mapped.orderId !== undefined) {
       await clearCart();
