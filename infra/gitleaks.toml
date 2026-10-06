@@ -71,3 +71,17 @@ targetRules = ["generic-api-key"]
 condition = "AND"
 paths = ['''^apps/storefronts/[^/]+/scripts/starter-preserved\.json$''']
 regexes = ['''^[0-9a-f]{40}$''']
+
+# "Wrong key" fixtures in the storefront's publishable-key guard test (window 3, PR #365):
+# 'sk_test_secretword' and 'rk_test_restrictedword' are the literals the test feeds the guard to prove
+# a secret or restricted key is never handed to the browser. They match `stripe-access-token` by shape
+# only. Both conditions must hold (AND): only this one test file, and only those two exact literals,
+# so any other sk_/rk_ string in that file still fails, and the same literals anywhere else still
+# fail. Added by the manager 2026-10-06: the finding sits in pushed history (5d66699), so the branch
+# cannot clear it by editing the file. New "wrong key" fixtures must use shapes no rule matches.
+[[allowlists]]
+description = "two wrong-key fixtures in the storefront publishable-key guard test"
+targetRules = ["stripe-access-token"]
+condition = "AND"
+paths = ['''^apps/storefront-starter/test/payment-options\.test\.ts$''']
+regexes = ['''^(sk_test_secretword|rk_test_restrictedword)$''']
