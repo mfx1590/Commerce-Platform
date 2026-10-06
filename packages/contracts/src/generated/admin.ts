@@ -814,6 +814,7 @@ export interface paths {
          * @description Buys the label through the store's carrier and moves the shipment to `label_created` with `label_url`,
          *     `tracking_number` and `tracking_url` set. 409 when the shipment is not `packed`; 422 when the store's
          *     carrier cannot buy labels (the manual carrier — attach tracking with updateShipment instead).
+         *     A carrier that is merely unavailable answers 502 (retryable); 422 means the store's carrier can never buy labels.
          */
         post: operations["buyShipmentLabel"];
         delete?: never;
