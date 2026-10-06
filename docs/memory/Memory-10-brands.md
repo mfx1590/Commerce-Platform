@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (Store API 0.5.3) · Branch: `brands/phase2` (at main 976fe99) · Status: **PHASE 2 COMPLETE** — #139–#144 closed. Quiet until Phase 3.
+Last updated: 2026-10-06 · Contracts: contracts-v0.4.11 · Branch: `brands/phase3` (from main 1280fe6) · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); working the manager's 2a docket (#374, then #372's brand A half, then #348).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,6 +17,26 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#374 · the buy test's order total** — `apps/storefronts/brand-a/e2e/journey.spec.ts`. It asserted
+  `order total == cart total + delivery row`, which silently claimed delivery is untaxed; #352 (PR
+  #373) taxes delivery at the goods' rate, so the core answered 2661 where the spec demanded
+  2057 + 499 and #373's live job went red on a correct app. **Now the confirmation is compared with
+  the REVIEW STEP** — `completeCheckout()` captures the review step's totals with the existing
+  `captureOrder()` before clicking *Place order* and returns them (its old `string[]` return was
+  unused at both call sites); total, lines and currency are asserted equal. Both sides are read off
+  the page in minor units, so it passes on today's main and after #373 with no edit either way. The
+  cart stays only as a lower bound; the delivery row is still asserted present;
+  `completeCheckout()` now throws if the review step never rendered, which would otherwise have left
+  the comparison vacuous and green. CHANGELOG + README updated. Gates: lint clean, typecheck clean,
+  unit **687 passed / 2 skipped**, mock e2e **83 passed / 30 skipped** (exit 0) — `journey.spec.ts`
+  skips on the mock by design, so **the live job on the PR is the proof**; the pattern it adopts is
+  the one `checkout.spec.ts:52` already runs green against the mock. **Machine free** (no core, no
+  Keycloak, no docker — Playwright started and stopped the Prism mock and the app itself).
+  - **Reported, not edited (window 3's file):** `apps/storefront-starter/e2e/checkout.spec.ts` does
+    **not** share the assumption — it already does `expect(placed.totalMinor).toBe(reviewed.totalMinor)`
+    at :159. A case-insensitive sweep for arithmetic on money (`grep -i minor` filtered to lines with
+    `+`/`-`) found **no** other site in the starter's suite or brand A's: `journey.spec.ts:405-411`
+    was the only one in the repo. Nothing is owed to window 3.
 - **#144 · 2.6 launch checklist** — `apps/storefronts/brand-a/LAUNCH.md`, PR #340 MERGED as 976fe99;
   #144 CLOSED by the manager with a recorded waiver (the staging dry run becomes an Integration 2 /
   Phase 3 gate). 11
@@ -82,7 +102,20 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — nothing. Phase 2 docket complete; quiet until the manager opens Phase 3.
+## In progress — Integration 2a, the manager's docket (opened 2026-10-06)
+
+Branch `brands/phase3`, cut from `origin/main` 1280fe6 (≥ 4e03a81, contracts-v0.4.11), with the
+Phase 2 memory commit carried across by cherry-pick. Rules for 2a: merge main before pushing, one PR
+per task, **hold each push until the manager confirms the previous merge**, no docker, long runs
+detached to a file with bounded polls, say "machine free" after any core run.
+
+1. **#374 — DONE locally, PR open.** See Done below.
+2. **#372, brand A's half** — order status asserted after ship/deliver. Window 3 does the starter
+   first; I align by sync, so **wait for the starter's version to land** rather than writing it twice.
+3. **#348** — decide with data: ten runs of LCP for brand A's PLP and PDP are on the issue and in the
+   perf logs. A decision task, not a measurement task — read the numbers that already exist before
+   running anything, and remember that a measurement run has to be driven in-turn
+   ([[laptop-standby-voids-background-runs]]).
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
@@ -107,13 +140,23 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
 - **Process lessons:** diff every preserved file on each sync (the drift report does this since
   #328); rebuild the workspace packages after every merge of main; never `String.replace` with `$`
   in replacement text (it duplicated a file once). Write multi-line edits as a script file.
+- **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
+  rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
+  *as a red test on correct code*, which costs another window their merge. Compare two pages the app
+  rendered instead. `captureOrder()` in `e2e/support/journey.ts` already returns totals in minor
+  units for exactly this; the cart, the review step and the confirmation all carry the hooks.
+  Corollary: when a comparison's other side is captured elsewhere, assert it was actually captured —
+  a vacuous comparison is green.
 
 ## RESUME HERE (the exact sequence, in order)
 
 1. ~~Phase 2 tasks 2.1–2.5~~: all merged; #139–#143 closed.
 2. ~~#144 (2.6)~~ — merged as 976fe99, closed with a waiver. The staging dry run is an Integration 2 /
    Phase 3 gate. LAUNCH.md's findings go to the owner and the Integration 2 plan as they stand.
-3. Phase 3: start from "Phase 3 onboarding — gaps" above and LAUNCH.md's owner actions.
+3. **Integration 2a (current)** — the manager's docket, in "In progress" above: #374 (done, PR
+   open), then #372's brand A half (after the starter's), then #348 (decide from the LCP numbers
+   already on the issue). Push only after the manager confirms the previous merge.
+4. Phase 3 proper: start from "Phase 3 onboarding — gaps" above and LAUNCH.md's owner actions.
 
 ### Machine recipe that works (verified 2026-10-02)
 ```
