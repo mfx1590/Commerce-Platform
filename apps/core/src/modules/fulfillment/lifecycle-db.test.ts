@@ -115,6 +115,11 @@ async function plannedShipment(warehouseId = EU) {
   return { orderId: placed.order.id, lineId: line.id, shipment };
 }
 
+/** The order's own status, which since #350 the shipment's moves drive (#366). */
+const orderStatus = async (orderId: string) =>
+  (await owner.query<{ status: string }>(`SELECT status FROM "order" WHERE id = $1`, [orderId]))
+    .rows[0]!.status;
+
 const outboxFor = (shipmentId: string) =>
   owner.query<{ topic: string; payload: Record<string, unknown> }>(
     `SELECT topic, payload FROM outbox WHERE aggregate_type = 'shipment' AND aggregate_id = $1
@@ -177,6 +182,16 @@ describe('pick and pack', () => {
     await packShipment(a, shipment.id, { actor });
     await expect(pickShipment(a, shipment.id, actor)).rejects.toMatchObject({ code: 'conflict' });
     expect((await getShipment(a, shipment.id)).status).toBe('packed');
+  });
+
+  it('tells the order that work started when the warehouse picks (#366)', async () => {
+    // The real pick path, not a direct status write: `pickShipment` moves the shipment and the order's status
+    // in one transaction, so an operator pressing Pick is what turns the order `processing` (#350).
+    const { orderId, shipment } = await plannedShipment();
+    expect(await orderStatus(orderId)).not.toBe('processing');
+
+    await pickShipment(a, shipment.id, actor);
+    expect(await orderStatus(orderId)).toBe('processing');
   });
 
   it('allows skipping picking, and refuses picking once the parcel has gone', async () => {
