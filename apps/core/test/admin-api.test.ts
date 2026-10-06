@@ -673,7 +673,7 @@ describe('orders (task 2.3): listOrders, getOrder, cancelOrder', () => {
     expect(res.body).toMatchObject({
       id: orderId,
       display_id: displayId,
-      status: 'pending',
+      status: 'confirmed', // #350
       payment_status: 'authorized',
       payments: [{ provider: 'manual', status: 'authorized' }],
       shipments: [],

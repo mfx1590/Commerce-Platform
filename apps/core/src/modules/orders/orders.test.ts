@@ -13,6 +13,7 @@ import {
   completeCart,
   createPaymentSession,
   manualPaymentProvider,
+  setFraudCheck,
   setPaymentProvider,
 } from '../checkout';
 import {
@@ -24,11 +25,15 @@ import {
   getAdminOrder,
   listAdminOrders,
   markDelivered,
+  markPaymentAuthorized,
   markPaymentCaptured,
+  markPaymentFailed,
   markShipmentCreated,
+  markShipmentStarted,
   markShipped,
   PAYMENT_TRANSITIONS,
   projectOrder,
+  resolveOrderReviewWith,
   setFulfillmentStatus,
   STATUS_TRANSITIONS,
   transition,
@@ -185,13 +190,13 @@ describe('transition table', () => {
     expect(STATUS_TRANSITIONS.cancelled).toEqual([]);
     expect(PAYMENT_TRANSITIONS.refunded).toEqual([]);
     expect(FULFILLMENT_TRANSITIONS.returned).toEqual([]);
-    const order = await placeOrder();
+    const order = await placeOrder(); // confirmed at placement (#350)
     await expect(
       a.transaction((tx) => transition(tx, order.id, { status: 'completed', actor })),
     ).rejects.toMatchObject({
       code: 'conflict',
       status: 409,
-      details: { field: 'status', from: 'pending', to: 'completed' },
+      details: { field: 'status', from: 'confirmed', to: 'completed' },
     });
     await expect(
       a.transaction((tx) => transition(tx, order.id, { payment_status: 'refunded', actor })),
@@ -206,19 +211,22 @@ describe('transition table', () => {
     await expect(a.transaction((tx) => transition(tx, order.id, { actor }))).rejects.toMatchObject({
       code: 'validation_error',
     });
-    expect((await stream(order.id)).map((e) => e.topic)).toEqual(['order.placed']);
+    expect((await stream(order.id)).map((e) => e.topic)).toEqual([
+      'order.placed',
+      'order.confirmed',
+    ]);
   });
 });
 
 describe('lifecycle through the public wrappers (windows 7 and 8)', () => {
-  it('confirm → captured → processing → shipped → delivered: one event per transition, idempotent re-calls, replay matches', async () => {
+  it('confirmed at placement → captured → processing → shipped → delivered: one event per transition, idempotent re-calls, replay matches', async () => {
     const order = await placeOrder(2);
     const topics = async () => (await stream(order.id)).map((e) => e.topic);
-    expect(await topics()).toEqual(['order.placed']);
-
-    await confirmOrder(a, order.id, actor);
+    // #350: the payment was authorised at placement, so the order is confirmed in the placement transaction —
+    // order.placed first, order.confirmed right behind it.
+    expect(order.status).toBe('confirmed');
     expect(await topics()).toEqual(['order.placed', 'order.confirmed']);
-    await confirmOrder(a, order.id, actor); // idempotent: no second event
+    await confirmOrder(a, order.id, actor); // the explicit call is a no-op now
     expect(await topics()).toHaveLength(2);
 
     const captured = await markPaymentCaptured(a, order.id, actor);
@@ -227,18 +235,23 @@ describe('lifecycle through the public wrappers (windows 7 and 8)', () => {
     expect(last.topic).toBe('order.updated');
     expect(last.payload.changed_fields).toEqual(['payment_status']);
 
-    const processing = await markShipmentCreated(a, order.id, actor);
+    // planning a shipment moves nothing (#350: processing waits for the first shipment to LEAVE planned) …
+    const planned = await markShipmentCreated(a, order.id, actor);
+    expect(planned.status).toBe('confirmed');
+    expect(await topics()).toHaveLength(3);
+    // … and a delivery report before anything shipped is a quiet no-op, not a 409
+    expect((await markDelivered(a, order.id, actor)).status).toBe('confirmed');
+    expect(await topics()).toHaveLength(3);
+
+    const processing = await markShipmentStarted(a, order.id, actor);
     expect(processing.status).toBe('processing');
     last = (await stream(order.id)).at(-1)!;
     expect(last).toMatchObject({
       topic: 'order.updated',
       payload: { status: 'processing', changed_fields: ['status'] },
     });
-
-    await expect(markDelivered(a, order.id, actor)).rejects.toMatchObject({
-      code: 'conflict',
-      details: { field: 'fulfillment_status', from: 'unfulfilled', to: 'fulfilled' },
-    });
+    await markShipmentStarted(a, order.id, actor); // idempotent
+    expect(await topics()).toHaveLength(4);
 
     const [l1, l2] = processing.items;
     const partial = await markShipped(a, order.id, [{ lineItemId: l1!.id, quantity: 2 }], actor);
@@ -270,14 +283,179 @@ describe('lifecycle through the public wrappers (windows 7 and 8)', () => {
     expect(state).toEqual(await projectionOf(order.id));
   });
 
-  it('shipment before confirmation is illegal (pending → processing); payment failure only touches payment_status', async () => {
+  it('a pending order: a shipment leaving planned is illegal (pending → processing); payment failure only touches payment_status; a new authorisation confirms it', async () => {
     const order = await placeOrder();
-    await expect(markShipmentCreated(a, order.id, actor)).rejects.toMatchObject({
+    // placed-but-not-confirmed is what a fraud hold leaves behind; the row is put there by hand
+    await owner.query(`UPDATE "order" SET status = 'pending' WHERE id = $1`, [order.id]);
+    await expect(markShipmentStarted(a, order.id, actor)).rejects.toMatchObject({
       details: { field: 'status', from: 'pending', to: 'processing' },
     });
-    const { markPaymentFailed } = await import('./index');
     const failed = await markPaymentFailed(a, order.id, actor);
     expect(failed).toMatchObject({ status: 'pending', payment_status: 'failed' });
+    // #350: the authorisation confirms the order in the same transaction as the payment move
+    const authorized = await markPaymentAuthorized(a, order.id, actor);
+    expect(authorized).toMatchObject({ status: 'confirmed', payment_status: 'authorized' });
+    expect(
+      (await stream(order.id)).slice(-2).map((e) => [e.topic, e.payload.changed_fields ?? null]),
+    ).toEqual([
+      ['order.updated', ['payment_status']],
+      ['order.confirmed', null],
+    ]);
+  });
+});
+
+describe('the automatic lifecycle (#350)', () => {
+  const statusOf = async (orderId: string) => (await row(orderId)).status;
+  const shipmentRows = async (orderId: string, statuses: string[]) => {
+    const ids: string[] = [];
+    for (const status of statuses) {
+      const r = await owner.query<{ id: string }>(
+        `INSERT INTO shipment (organization_id, store_id, order_id, warehouse_id, carrier, currency, status)
+         VALUES ($1, $2, $3, $4, 'manual', 'EUR', $5) RETURNING id`,
+        [ORG, A, orderId, SEED_IDS.warehouses.eu, status],
+      );
+      ids.push(r.rows[0]!.id);
+    }
+    return ids;
+  };
+  const setShipment = (id: string, status: string) =>
+    owner.query(`UPDATE shipment SET status = $2 WHERE id = $1`, [id, status]);
+
+  it('an order held by a fraud review stays pending — through a capture too — and confirms when the review is cleared', async () => {
+    setFraudCheck({
+      async evaluate() {
+        return { outcome: 'review', reasonCode: 'velocity_email', provider: 'rules' };
+      },
+    });
+    let order;
+    try {
+      order = await placeOrder();
+    } finally {
+      setFraudCheck(null);
+    }
+    expect(order.status).toBe('pending');
+    const topics = async () => (await stream(order.id)).map((e) => e.topic);
+    // the review flag and order.placed are written in the placement transaction (the flag first); no confirmation
+    expect([...(await topics())].sort()).toEqual(['order.placed', 'order.updated']);
+    expect((await markPaymentCaptured(a, order.id, actor)).status).toBe('pending');
+    await expect(confirmOrder(a, order.id, actor)).rejects.toMatchObject({ code: 'conflict' });
+
+    await resolveOrderReviewWith(a, order.id, {
+      status: 'cleared',
+      resolution: 'looked fine',
+      actor,
+    });
+    expect(await statusOf(order.id)).toBe('confirmed');
+    expect((await topics()).slice(2)).toEqual([
+      'order.updated', // captured
+      'order.updated', // cleared
+      'order.confirmed',
+    ]);
+    // a second clearing changes nothing
+    await resolveOrderReviewWith(a, order.id, { status: 'cleared', resolution: 'again', actor });
+    expect(await topics()).toHaveLength(5);
+  });
+
+  it('confirmed_fraud keeps the hold: no confirmation, and a later capture does not confirm either', async () => {
+    setFraudCheck({
+      async evaluate() {
+        return { outcome: 'review', reasonCode: 'velocity_email', provider: 'rules' };
+      },
+    });
+    let order;
+    try {
+      order = await placeOrder();
+    } finally {
+      setFraudCheck(null);
+    }
+    await resolveOrderReviewWith(a, order.id, {
+      status: 'confirmed_fraud',
+      resolution: 'stolen card',
+      actor,
+    });
+    expect((await markPaymentCaptured(a, order.id, actor)).status).toBe('pending');
+    expect((await stream(order.id)).map((e) => e.topic)).not.toContain('order.confirmed');
+  });
+
+  it('shipping goods moves a confirmed order to processing in the same event as the fulfilment; a pending order keeps its status', async () => {
+    const order = await placeOrder(2);
+    const [l1, l2] = order.items;
+    const partial = await markShipped(a, order.id, [{ lineItemId: l1!.id, quantity: 2 }], actor);
+    expect(partial).toMatchObject({
+      status: 'processing',
+      fulfillment_status: 'partially_fulfilled',
+    });
+    const last = (await stream(order.id)).at(-1)!;
+    expect(last).toMatchObject({
+      topic: 'order.updated',
+      payload: {
+        status: 'processing',
+        fulfillment_status: 'partially_fulfilled',
+        changed_fields: ['fulfillment_status', 'line_items', 'status'],
+      },
+    });
+    const rest = await markShipped(a, order.id, [{ lineItemId: l2!.id, quantity: 2 }], actor);
+    expect(rest).toMatchObject({ status: 'processing', fulfillment_status: 'fulfilled' });
+
+    const held = await placeOrder();
+    await owner.query(`UPDATE "order" SET status = 'pending' WHERE id = $1`, [held.id]);
+    const shipped = await markShipped(
+      a,
+      held.id,
+      [{ lineItemId: held.items[0]!.id, quantity: 2 }],
+      actor,
+    );
+    expect(shipped).toMatchObject({ status: 'pending', fulfillment_status: 'fulfilled' });
+  });
+
+  it('completed only when EVERY shipment is delivered (cancelled ones do not count) and the order is fulfilled; a delivery report before that is a quiet no-op', async () => {
+    const order = await placeOrder(2);
+    const [first, second, dropped] = await shipmentRows(order.id, [
+      'pending',
+      'pending',
+      'cancelled',
+    ]);
+    // delivered reports arrive before anything shipped: nothing happens, nothing emitted
+    expect((await markDelivered(a, order.id, actor)).status).toBe('confirmed');
+    await markShipped(
+      a,
+      order.id,
+      order.items.map((l) => ({ lineItemId: l.id, quantity: 2 })),
+      actor,
+    );
+    expect(await statusOf(order.id)).toBe('processing');
+    const before = (await stream(order.id)).length;
+
+    await setShipment(first!, 'delivered');
+    expect((await markDelivered(a, order.id, actor)).status).toBe('processing'); // one still open
+    expect((await stream(order.id)).length).toBe(before);
+    await setShipment(second!, 'delivered');
+    const done = await markDelivered(a, order.id, actor);
+    expect(done.status).toBe('completed');
+    expect((await stream(order.id)).at(-1)!.topic).toBe('order.completed');
+    expect(dropped).toBeTruthy(); // the cancelled shipment never counted
+    await markDelivered(a, order.id, actor); // idempotent
+    expect((await stream(order.id)).length).toBe(before + 1);
+  });
+
+  it('a confirmed order whose shipments are all delivered passes through processing on the way to completed (two events)', async () => {
+    const order = await placeOrder();
+    await owner.query(
+      `UPDATE order_line_item SET fulfilled_quantity = quantity WHERE order_id = $1`,
+      [order.id],
+    );
+    await a.transaction((tx) =>
+      setFulfillmentStatus({ tx, orderId: order.id, status: 'fulfilled', actor }),
+    );
+    const [only] = await shipmentRows(order.id, ['delivered']);
+    expect(only).toBeTruthy();
+    expect((await markDelivered(a, order.id, actor)).status).toBe('completed');
+    expect(
+      (await stream(order.id)).slice(-2).map((e) => [e.topic, e.payload.status ?? null]),
+    ).toEqual([
+      ['order.updated', 'processing'],
+      ['order.completed', null],
+    ]);
   });
 });
 
@@ -345,8 +523,11 @@ describe('cancelOrder', () => {
       code: 'payment_failed',
       message: 'PSP down',
     });
-    expect((await row(other.id)).status).toBe('pending');
-    expect((await stream(other.id)).map((e) => e.topic)).toEqual(['order.placed']);
+    expect((await row(other.id)).status).toBe('confirmed');
+    expect((await stream(other.id)).map((e) => e.topic)).toEqual([
+      'order.placed',
+      'order.confirmed',
+    ]);
   });
 });
 
@@ -361,7 +542,7 @@ describe('compensation', () => {
       { afterEvents: async () => Promise.reject(new Error('boom after events')) },
     ]) {
       await expect(
-        a.transaction((tx) => transition(tx, order.id, { status: 'confirmed', actor, hooks })),
+        a.transaction((tx) => transition(tx, order.id, { status: 'processing', actor, hooks })),
       ).rejects.toThrow(/boom/);
       expect(await row(order.id)).toEqual(before);
       expect(await count()).toBe(events);
@@ -423,7 +604,7 @@ describe('order edits before fulfilment', () => {
 
     // after fulfilment started: no more edits
     await confirmOrder(a, order.id, actor);
-    await markShipmentCreated(a, order.id, actor);
+    await markShipmentStarted(a, order.id, actor);
     await expect(decreaseLineQuantity(a, order.id, l1!.id, 1, actor)).rejects.toMatchObject({
       code: 'conflict',
       details: { field: 'status', from: 'processing' },
@@ -433,15 +614,15 @@ describe('order edits before fulfilment', () => {
 
 describe('admin read model', () => {
   it('lists with filters, q (display id / email), sort + order, pagination; RLS hides other stores', async () => {
-    const o1 = await placeOrder();
+    const o1 = await placeOrder(); // confirmed at placement (#350)
     const o2 = await placeOrder();
-    await confirmOrder(a, o2.id, actor);
+    await markShipmentStarted(a, o2.id, actor); // processing
     const all = await listAdminOrders(a, A, { limit: 100 });
     expect(all.total).toBeGreaterThanOrEqual(2);
     for (const item of all.items) expect(item.total.currency).toBe('EUR');
-    const confirmed = await listAdminOrders(a, A, { status: 'confirmed', limit: 100 });
-    expect(confirmed.items.map((i) => i.id)).toContain(o2.id);
-    expect(confirmed.items.map((i) => i.id)).not.toContain(o1.id);
+    const processing = await listAdminOrders(a, A, { status: 'processing', limit: 100 });
+    expect(processing.items.map((i) => i.id)).toContain(o2.id);
+    expect(processing.items.map((i) => i.id)).not.toContain(o1.id);
     const byId = await listAdminOrders(a, A, { q: `#${o1.display_id}` });
     expect(byId.items.map((i) => i.id)).toEqual([o1.id]);
     const byEmail = await listAdminOrders(a, A, { q: o2.email.toUpperCase() });
@@ -477,10 +658,11 @@ describe('admin read model', () => {
 });
 
 describe("tx-taking markers (window 8, #191): no deadlock behind a shipment insert's FOR KEY SHARE lock", () => {
-  it('confirm → shipment created → shipped → delivered inside ONE transaction that also inserts the shipment row', async () => {
+  it('(confirmed at placement) → shipment created → started → shipped → delivered inside ONE transaction that also inserts the shipment row', async () => {
     const {
       confirmOrderInTx,
       markShipmentCreatedInTx,
+      markShipmentStartedInTx,
       markShippedInTx,
       markDeliveredInTx,
       markPaymentCapturedInTx,
@@ -496,12 +678,15 @@ describe("tx-taking markers (window 8, #191): no deadlock behind a shipment inse
         [ORG, A, order.id, SEED_IDS.warehouses.eu],
       );
       await markShipmentCreatedInTx(tx, order.id, actor); // would deadlock on a second connection
+      await markShipmentStartedInTx(tx, order.id, actor);
       await markShippedInTx(
         tx,
         order.id,
         order.items.map((l) => ({ lineItemId: l.id, quantity: 2 })),
         actor,
       );
+      // window 8 moves the shipment row before it reports the delivery (#350: completion checks every shipment)
+      await tx.query(`UPDATE shipment SET status = 'delivered' WHERE order_id = $1`, [order.id]);
       await markDeliveredInTx(tx, order.id, actor);
     });
     const r = await row(order.id);
