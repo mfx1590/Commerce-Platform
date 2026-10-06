@@ -8,7 +8,7 @@ import request from 'supertest';
 import { createOrganizationClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { DevTokenVerifier } from '../src/http';
+import { DevTokenVerifier, paymentMethodsOf } from '../src/http';
 import { closePool, initDb, tenantClient } from '../src/lib/db';
 import { setFraudCheck } from '../src/modules/checkout';
 import { markAbandonedCarts, setDiscountEvaluator } from '../src/modules/cart';
@@ -62,7 +62,59 @@ describe('contract replay (packages/contracts/test/contract.test.ts, Store API p
       currencies: ['EUR'],
       locales: ['en-GB', 'de-DE'],
       sales_channel: { code: 'web', type: 'web' },
+      // Store API 0.5.4 (#350 / #358): no Stripe key in the test environment, invoice allowed by the seed
+      payment: { methods: ['invoice'] },
     });
+  });
+
+  it("Store.payment.methods (0.5.4): card follows the store's Stripe key, invoice follows settings.payment.invoice_allowed === true", async () => {
+    const clean = { ...process.env };
+    delete clean.STRIPE_SECRET_KEY;
+    delete clean.STRIPE_SECRET_KEY_BRAND_A;
+    const seeded = { support_refund_limit_minor: 5000, payment: { invoice_allowed: true } };
+    expect(paymentMethodsOf('brand-a', seeded, clean)).toEqual(['invoice']);
+    expect(
+      paymentMethodsOf('brand-a', seeded, { ...clean, STRIPE_SECRET_KEY: 'sk_test_x' }),
+    ).toEqual(['card', 'invoice']);
+    expect(
+      paymentMethodsOf('brand-a', seeded, { ...clean, STRIPE_SECRET_KEY_BRAND_A: 'sk_test_x' }),
+    ).toEqual(['card', 'invoice']);
+    // another store's key is not this store's
+    expect(
+      paymentMethodsOf('brand-b', seeded, { ...clean, STRIPE_SECRET_KEY_BRAND_A: 'sk_test_x' }),
+    ).toEqual(['invoice']);
+    // invoice only on an explicit true: absent, false, or a truthy non-boolean all mean no
+    expect(paymentMethodsOf('brand-a', {}, clean)).toEqual([]);
+    expect(paymentMethodsOf('brand-a', { payment: { invoice_allowed: false } }, clean)).toEqual([]);
+    expect(paymentMethodsOf('brand-a', { payment: { invoice_allowed: 'yes' } }, clean)).toEqual([]);
+    expect(paymentMethodsOf('brand-a', { payment: 'nonsense' }, clean)).toEqual([]);
+
+    // through the route: the key is read on every call, so setting it shows at once; nothing is stored
+    const previous = process.env.STRIPE_SECRET_KEY_BRAND_A;
+    process.env.STRIPE_SECRET_KEY_BRAND_A = 'sk_test_only_for_this_assertion';
+    try {
+      const res = await asA('/store');
+      spec.assertSchema('Store', res.body);
+      expect(res.body.payment).toEqual({ methods: ['card', 'invoice'] });
+      expect(JSON.stringify(res.body)).not.toContain('sk_test');
+    } finally {
+      if (previous === undefined) delete process.env.STRIPE_SECRET_KEY_BRAND_A;
+      else process.env.STRIPE_SECRET_KEY_BRAND_A = previous;
+    }
+    expect((await asA('/store')).body.payment).toEqual({ methods: ['invoice'] });
+    // and the setting switched off: no invoice (restored afterwards — brand-a's seed row is shared by this file)
+    await owner.query(
+      `UPDATE store SET settings = settings || '{"payment": {"invoice_allowed": false}}'::jsonb WHERE id = $1`,
+      [SEED_IDS.stores.brandA],
+    );
+    try {
+      expect((await asA('/store')).body.payment).toEqual({ methods: [] });
+    } finally {
+      await owner.query(
+        `UPDATE store SET settings = settings || '{"payment": {"invoice_allowed": true}}'::jsonb WHERE id = $1`,
+        [SEED_IDS.stores.brandA],
+      );
+    }
   });
 
   it('GET /store/products and /store/products/{handle} conform to their schemas', async () => {
@@ -547,7 +599,7 @@ describe('checkout routes (contract replay, task 2.2)', () => {
     expect(placed.status).toBe(201);
     spec.assertSchema('Order', placed.body);
     expect(placed.body).toMatchObject({
-      status: 'pending',
+      status: 'confirmed', // #350: confirmed in the placement transaction (the manual provider authorises at once)
       payment_status: 'authorized',
       fulfillment_status: 'unfulfilled',
       email: cart.email,

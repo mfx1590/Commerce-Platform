@@ -468,7 +468,9 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
             primaryForeground: '#ffffff',
           },
         }),
-        JSON.stringify({ support_refund_limit_minor: 5000 }),
+        // `payment.invoice_allowed`: the seeded stores may take `invoice` (the manual provider) at checkout —
+        // `Store.payment.methods` on GET /store (Store API 0.5.4, #350 / #358). Absent = false in production.
+        JSON.stringify({ support_refund_limit_minor: 5000, payment: { invoice_allowed: true } }),
       ]),
     );
     await bulk(

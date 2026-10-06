@@ -7,7 +7,7 @@ import type { Queryable, ScopedClient } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { orderFraudOf, type OrderFraudFlag, type OrderFraudStatus } from './fraud-flag';
 import { loadOrder } from './read-model';
-import { mergeOrderMetadataIn, transition } from './service';
+import { confirmOnAuthorizationInTx, mergeOrderMetadataIn, transition } from './service';
 
 export type { OrderFraudFlag, OrderFraudStatus } from './fraud-flag';
 
@@ -55,6 +55,8 @@ export async function resolveOrderReview(
   };
   await mergeOrderMetadataIn(tx, orderId, { fraud: flag });
   await transition(tx, orderId, { changed_fields: fields(flag), actor: input.actor });
+  // The hold is what kept the order pending: cleared → the automatic confirmation runs now (#350).
+  if (input.status === 'cleared') await confirmOnAuthorizationInTx(tx, orderId, input.actor);
   return flag;
 }
 

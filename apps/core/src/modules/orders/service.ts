@@ -4,6 +4,12 @@
 // caller's transaction. The public wrappers below are what windows 7 (payments) and 8 (shipping) call: scoped
 // client + ids, never provider objects; each one is idempotent on its target state (a webhook retry is not a 409).
 // Cancelling voids an authorised payment through the checkout's PaymentProvider (`void`, no-op for `manual`).
+//
+// The `status` lifecycle is AUTOMATIC (#350, contracts 0.4.11): `confirmed` when the payment is authorised
+// (`confirmOnAuthorizationInTx` — at placement, on a payment_status move to authorized / captured, when a fraud
+// review is cleared), `processing` when the first shipment leaves planned (`markShipmentStartedInTx`, or at the
+// latest `markShippedInTx`), `completed` when every shipment is delivered (`markDeliveredInTx`). Only
+// `cancelled` is an explicit call. Each move happens in the transaction of its trigger, with its outbox row.
 import type { Queryable, ScopedClient } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
@@ -11,7 +17,7 @@ import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { paymentProvider } from '../../lib/payment-seam';
 import { releaseForOrder } from '../inventory';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
-import { assertNotHeldByFraud } from './fraud-flag';
+import { assertNotHeldByFraud, isHeldByFraud } from './fraud-flag';
 import { allowed } from './transitions';
 import type {
   AdminOrder,
@@ -182,14 +188,56 @@ async function moveField(
   });
 }
 
-/** `pending → confirmed` (operator, or window 7 on capture). */
+/**
+ * `pending → confirmed` by hand. Since #350 the core confirms automatically when the payment is authorised, so
+ * this is normally a no-op; it stays for an operator and for the tests. A fraud hold still refuses it (409).
+ */
 export const confirmOrder = (client: ScopedClient, orderId: string, actor: Actor) =>
   moveField(client, orderId, 'status', 'confirmed', actor);
 
+/**
+ * The automatic confirmation (#350): `pending → confirmed` as soon as the payment is authorised (or captured),
+ * unless a fraud review holds the order (#231 — the hold is lifted by `resolveOrderReview('cleared')`, which
+ * calls this again). Idempotent: an order that is not pending, or not paid, is left alone. Called inside the
+ * transaction of whatever authorised the payment: the placement, a payment_status move, a cleared review.
+ */
+export async function confirmOnAuthorizationInTx(
+  tx: Queryable,
+  orderId: string,
+  actor: Actor,
+): Promise<boolean> {
+  const o = await loadOrder(tx, orderId, true);
+  if (o.status !== 'pending') return false;
+  if (o.payment_status !== 'authorized' && o.payment_status !== 'captured') return false;
+  if (isHeldByFraud(o.metadata)) return false;
+  await transition(tx, orderId, { status: 'confirmed', actor });
+  return true;
+}
+
+/** A payment_status move that may confirm the order (authorized / captured), on the caller's transaction. */
+async function movePaymentIn(
+  tx: Queryable,
+  orderId: string,
+  to: PaymentStatus,
+  actor: Actor,
+): Promise<void> {
+  await moveFieldInTx(tx, orderId, 'payment_status', to, actor);
+  if (to === 'authorized' || to === 'captured')
+    await confirmOnAuthorizationInTx(tx, orderId, actor);
+}
+
+const movePayment = (client: ScopedClient, orderId: string, to: PaymentStatus, actor: Actor) =>
+  client.transaction(async (tx) => {
+    await movePaymentIn(tx, orderId, to, actor);
+    return renderAdminOrder(tx, orderId);
+  });
+
+/** Window 7: the payment is authorised — and the order confirms with it (#350). */
 export const markPaymentAuthorized = (client: ScopedClient, orderId: string, actor: Actor) =>
-  moveField(client, orderId, 'payment_status', 'authorized', actor);
+  movePayment(client, orderId, 'authorized', actor);
+/** Window 7: captured — confirms a still-pending order too (a capture implies the authorisation). */
 export const markPaymentCaptured = (client: ScopedClient, orderId: string, actor: Actor) =>
-  moveField(client, orderId, 'payment_status', 'captured', actor);
+  movePayment(client, orderId, 'captured', actor);
 /** Payment failure changes only `payment_status`; cancelling stays an explicit call. */
 export const markPaymentFailed = (client: ScopedClient, orderId: string, actor: Actor) =>
   moveField(client, orderId, 'payment_status', 'failed', actor);
@@ -198,25 +246,45 @@ export const markPaymentPartiallyRefunded = (client: ScopedClient, orderId: stri
 export const markPaymentRefunded = (client: ScopedClient, orderId: string, actor: Actor) =>
   moveField(client, orderId, 'payment_status', 'refunded', actor);
 
-/** Window 8: a shipment exists for the order → `confirmed → processing`. */
-export const markShipmentCreated = (client: ScopedClient, orderId: string, actor: Actor) =>
+/**
+ * Window 8: the first shipment LEAVES planned (picking, packed, a label, shipped — anything but `pending`) →
+ * `confirmed → processing` (#350). Idempotent; 409 from `pending` (a held order). `markShippedInTx` applies the
+ * same move on its own, so an order whose shipping never reports the pick still reaches `processing` on
+ * despatch.
+ */
+export const markShipmentStarted = (client: ScopedClient, orderId: string, actor: Actor) =>
   moveField(client, orderId, 'status', 'processing', actor);
+
+/**
+ * Window 8: a shipment was PLANNED for the order. Since #350 planning moves nothing — `processing` waits for the
+ * first shipment to leave planned (`markShipmentStarted`). Kept for the callers; answers the order unchanged.
+ */
+export const markShipmentCreated = (client: ScopedClient, orderId: string, _actor: Actor) =>
+  client.transaction((tx) => renderAdminOrder(tx, orderId));
 
 // ---- tx-taking twins (window 8, #191): same semantics on the caller's transaction ----
 export const confirmOrderInTx = (tx: Queryable, orderId: string, actor: Actor) =>
   moveFieldInTx(tx, orderId, 'status', 'confirmed', actor);
 export const markPaymentAuthorizedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
-  moveFieldInTx(tx, orderId, 'payment_status', 'authorized', actor);
+  movePaymentIn(tx, orderId, 'authorized', actor);
 export const markPaymentCapturedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
-  moveFieldInTx(tx, orderId, 'payment_status', 'captured', actor);
+  movePaymentIn(tx, orderId, 'captured', actor);
 export const markPaymentFailedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
   moveFieldInTx(tx, orderId, 'payment_status', 'failed', actor);
 export const markPaymentPartiallyRefundedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
   moveFieldInTx(tx, orderId, 'payment_status', 'partially_refunded', actor);
 export const markPaymentRefundedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
   moveFieldInTx(tx, orderId, 'payment_status', 'refunded', actor);
-export const markShipmentCreatedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
+export const markShipmentStartedInTx = (tx: Queryable, orderId: string, actor: Actor) =>
   moveFieldInTx(tx, orderId, 'status', 'processing', actor);
+/** Planning moves nothing since #350 (see `markShipmentCreated`); kept so window 8's call keeps compiling. */
+export const markShipmentCreatedInTx = async (
+  tx: Queryable,
+  orderId: string,
+  _actor: Actor,
+): Promise<void> => {
+  await loadOrder(tx, orderId, false); // 404 for an unknown order, as before
+};
 
 function fulfillmentFrom(
   lines: { quantity: number; fulfilled_quantity: number; returned_quantity: number }[],
@@ -269,16 +337,24 @@ export async function markShippedInTx(
   const lines = await loadOrderLines(tx, orderId);
   const next = fulfillmentFrom(lines, 'fulfilled');
   const current = await loadOrder(tx, orderId, false);
-  if (current.fulfillment_status !== next) {
+  // Goods left the warehouse, so the first shipment has certainly left planned: `confirmed → processing` rides
+  // in the same transition (one event) when shipping did not report the pick itself (#350). A held (pending)
+  // order keeps its status — the fulfilment facts are recorded all the same.
+  const startsProcessing = current.status === 'confirmed';
+  if (current.fulfillment_status !== next || startsProcessing) {
     await transition(tx, orderId, {
-      fulfillment_status: next,
+      ...(startsProcessing ? { status: 'processing' as const } : {}),
+      ...(current.fulfillment_status !== next ? { fulfillment_status: next } : {}),
       actor,
       changed_fields: ['line_items'],
     });
   }
 }
 
-/** Window 8: delivered → `processing → completed` (requires the order to be fulfilled). */
+/**
+ * Window 8: a shipment was delivered → `completed` once EVERY shipment of the order is delivered (cancelled
+ * ones do not count) and the order is fulfilled (#350). Until then it is a no-op — the next delivery asks again.
+ */
 export async function markDelivered(
   client: ScopedClient,
   orderId: string,
@@ -297,14 +373,17 @@ export async function markDeliveredInTx(
   actor: Actor,
 ): Promise<void> {
   const o = await loadOrder(tx, orderId, true);
-  if (o.status === 'completed') return;
-  if (o.fulfillment_status !== 'fulfilled') {
-    throw conflict('order is not fully fulfilled', {
-      field: 'fulfillment_status',
-      from: o.fulfillment_status,
-      to: 'fulfilled',
-    });
-  }
+  if (o.status === 'completed' || o.status === 'cancelled') return;
+  if (o.fulfillment_status !== 'fulfilled') return;
+  // Every shipment the order still has must have arrived (window 8 updates the row before it calls this).
+  const open = await tx.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM shipment WHERE order_id = $1 AND status NOT IN ('delivered', 'cancelled')`,
+    [orderId],
+  );
+  if (Number(open.rows[0]!.n) > 0) return;
+  // `pending` (held by a fraud review) never completes; `confirmed` passes through `processing` first.
+  if (o.status === 'pending') return;
+  if (o.status === 'confirmed') await transition(tx, orderId, { status: 'processing', actor });
   await transition(tx, orderId, { status: 'completed', actor });
 }
 
@@ -402,8 +481,7 @@ export async function movePaymentStatusIn(
   to: PaymentStatus,
   actor: Actor,
 ): Promise<void> {
-  const current = await loadOrder(tx, orderId, true);
-  if (current.payment_status !== to) await transition(tx, orderId, { payment_status: to, actor });
+  await movePaymentIn(tx, orderId, to, actor);
 }
 
 interface AuthorizedPayment {

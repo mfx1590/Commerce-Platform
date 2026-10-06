@@ -25,6 +25,12 @@ export function orderFraudOf(
 }
 
 /** Orders held by a review cannot move on: 409 until the review is `cleared` (used by the confirm transition). */
+/** True while a fraud review holds the order (`review` or `confirmed_fraud`). */
+export function isHeldByFraud(metadata: Record<string, unknown>): boolean {
+  const flag = orderFraudOf(metadata);
+  return flag?.status === 'review' || flag?.status === 'confirmed_fraud';
+}
+
 export function assertNotHeldByFraud(metadata: Record<string, unknown>, to: string): void {
   const flag = orderFraudOf(metadata);
   if (flag && (flag.status === 'review' || flag.status === 'confirmed_fraud')) {
