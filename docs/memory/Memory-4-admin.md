@@ -33,8 +33,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   - Parked nits (#367 review, next push): `src/lib/orders/permissions.ts` doc comment on
     `canFulfil` names `listPickLists` — the operation exists (`GET /admin/stores/{storeId}/pick-lists`,
     operations on hq) but is a read, not in `ORDER_PERMISSIONS`; reword so the comment lists only
-    table rows. Test idempotency keys must be words only (gitleaks): `'idem-key-words-0001'` in
-    `test/orders-actions.test.ts` → e.g. `'idem-key-words-only'`.
+    table rows. (Done: the test idempotency key in `test/orders-actions.test.ts` is words only.)
+  - Gitleaks red on #367 (2026-10-06) was NOT this branch: window 3's Memory-3 quoted two
+    Stripe-shaped literals and CI fetches every branch, so every PR's scan went red; allowlist on
+    main 35457f6. Lesson: a red gitleaks with "leaks found" and a green main can still come from
+    another branch — ask the manager for the unredacted scan before rewriting anything.
 - **2.5b — issue #117 revoke / primary / enabled sets** · 2026-10-05 · one commit after merging
   main 6f5019f, **PR #338** (dfc4943) + run-record commit · body switched to **Closes #117** after
   the core run (manager gave the machine and OK'd exactly one more push).

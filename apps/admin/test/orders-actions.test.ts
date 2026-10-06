@@ -44,7 +44,7 @@ const { ORDER_PERMISSIONS } = await import('@/lib/orders/permissions');
 
 const STORE = SEED.stores.brandA;
 const ORDER = IDS.order;
-const KEY = 'idem-key-words-0001';
+const KEY = 'idem-key-words-only';
 
 /** action, operation it calls, a role without the relation, a role with it. */
 const CASES = [
