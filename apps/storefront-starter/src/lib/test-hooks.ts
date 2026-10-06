@@ -49,11 +49,17 @@ export function totalsHooks(totals: Totals) {
 }
 
 /** The confirmation header: the number the customer is told, and the id in the URL. */
-export function orderConfirmationHooks(order: { id: string; display_id: number | string }) {
+export function orderConfirmationHooks(order: {
+  id: string;
+  display_id: number | string;
+  status: string;
+}) {
   return {
     'data-testid': 'order-confirmation',
     'data-order-id': order.id,
     'data-order-number': String(order.display_id),
+    // The order's own status, as the API sent it (#372) — the page shows it as text too.
+    'data-order-status': order.status,
   } as const;
 }
 

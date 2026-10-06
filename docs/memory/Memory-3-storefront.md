@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.10** (Store API 0.5.3) · Branch: **`storefront/phase3`** (from main `c0e5202`) · Phase 2 docket complete (#312 PR #329, #326 PR #331, #327 PR #334). **Integration 2a (manager, 2026-10-06): (1) #351 — `cb2fef0`, PR up; (2) #358 — Stripe Payment Element in the payment step (hosted fields; core's `createPaymentSession(provider: stripe)`; Stripe TEST mode; keys `STRIPE_PUBLISHABLE_KEY_BRAND_A` / `STRIPE_SECRET_KEY_BRAND_A` arrive in this worktree's .env from the owner — never in chat; until then UI + mock path; "Pay on invoice" behind a store setting; CSP only Stripe's hosts). One PR per issue; message the manager (session `local_b694c72f…`, "Project manager takeover") when a PR is up and when checks finish.** Machine NOT mine until the manager says (core runs for #358 once keys exist). #334 review nits shipped with #351.
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#372 = PR #375 ("Closes #372"), reviewed head `290eaec` (Opus static review MERGE, 2026-10-06); this memory-only commit follows it**: confirmation shows `Order.status` (translated, `data-order-status`, sentence follows the status); `e2e/order-lifecycle.spec.ts` (core only, ships/delivers via the Admin API as `operations`, test-cli password grant); interim invoice switch removed. Core run 2026-10-06: lifecycle spec 1/1 (order 1137: Processing → Completed); full suite on the core 70 passed / 0 failed / 5 skipped (orders 1138–1141). **SHARED-STACK CHANGE (owner-approved via the manager):** brand-a `settings` `{support_refund_limit_minor:5000}` → `{support_refund_limit_minor:5000, payment:{invoice_allowed:true}}` through updateStore as `store-admin` (`owner` has OTP, the password grant cannot pass it; store-admin holds updateStore's store_admin) → `Store.payment.methods` = [invoice]. This worktree's .env had EMPTY OpenFGA ids → Admin API 503 FgaValidationError; `fga:seed` fixed it (store reused, 0 tuples written, repo files unchanged). Machine released.
 
 ## Identity (does not change)
 
@@ -376,7 +376,12 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#351 (Integration 2a) — `cb2fef0`, in PR.** Confirmation page: `OrderConfirmationHeader` —
+- [ ] **Nits from the review of #375 (manager: "not now"):** \`e2e/order-lifecycle.spec.ts\` falls back to
+      the documented \`operations\` dev-fixture password — env-only (\`E2E_STAFF_USERNAME\` /
+      \`E2E_STAFF_PASSWORD\`) would be cleaner; its \`json()\` helper puts the Admin API error body into
+      assertion messages — keep those PII-free (status + machine code only).
+
+- [ ] **#351 (Integration 2a) — `cb2fef0`, PR #362: 15/15 checks green, CLEAN, reported to the manager (old + "Project manager handoff" session).** Confirmation page: `OrderConfirmationHeader` —
       "Order #N has been placed and is being processed", follow it in Order history (signed in) or
       keep the order number (guest); no email / "confirmed" claim (order is `pending`, nothing sends
       email until Phase 4); contact email shown as a plain detail (`data-testid="order-contact"`,
@@ -384,7 +389,55 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       signed-in customer's email (`checkoutEmailDefault`, best-effort). 0.12.10. Lint, format,
       typecheck, 525 unit; **no e2e run (machine not mine) — the checkout journey's email check moved
       to `order-contact` unverified in a browser.**
-- [ ] **#358 (Integration 2a) — Stripe Payment Element.** Next after #351. Read the issue first.
+- [ ] **#358 — ruling (manager, 2026-10-06, reconciling two sessions): the store decides via
+      `Store.payment.methods` ('card' | 'invoice', Store API 0.5.4, optional on GET /store);
+      `STOREFRONT_ALLOW_INVOICE` stays as the INTERIM fallback only when the property is absent
+      (removed in a follow-up after #350/#354); Element on the REVIEW step; confirmPayment then
+      placeOrderAction with the same key; an abandoned 3DS leaves the cart intact with a recoverable
+      message; Stripe packages pinned; the card spec prints one line saying why it skipped. All in
+      `5d66699`: `paymentOptions(store)`, `src/lib/card-payment-messages.ts` (`stripeLocale`,
+      `cardErrorMessage`), lockfile pinned with a 2-line diff (a plain `pnpm install` re-resolved
+      Medusa/Vitest peers — reverted; edit the specifiers and verify `--frozen-lockfile`). Lint, format,
+      typecheck, 548 unit. PR body must state the ruling.**
+- [ ] **#358 — CODE WRITTEN `d199fdd` on the LOCAL branch `storefront/358-local` (on phase3 `cd06681` +
+      memory). NOT pushed: phase3 waits for #362's merge. Manager: "continue as planned" → (A) invoice
+      behind `STOREFRONT_ALLOW_INVOICE=1`, (B) Element on the review step. 0.13.0; lint, format,
+      typecheck, 542 unit. **Not run: anything in a browser** — the Payment Element, 3DS modal
+      selectors in `e2e/card-payment.spec.ts` (`iframe[title="Secure payment input frame"]`,
+      `__stripeJSChallengeFrame` → `stripe-challenge-frame`, input names number/expiry/cvc/postalCode)
+      are from Stripe's docs, unverified; the CSP too. Needs the owner's test keys in .env + the machine.
+      After #362 merges: rebase/move onto phase3 (or merge main into it), merge main, push, PR "Closes #358".
+      REQUEST sent: root .env.example to list the two variables.** History: PLAN written 2026-10-06 (CLAUDE.md: > ~20 calls → plan first). Facts: core
+      `createSession(stripe)` = manual-capture PaymentIntent, `automatic_payment_methods` with
+      redirects off, same intent updated on a new amount; `authorize` at completion: amount/currency
+      check, confirms server-side only from `requires_confirmation`, `requires_capture` = authorized,
+      **`requires_action` = failed** → the browser must confirm (3DS in Stripe's modal) BEFORE
+      `completeCart`. Contract `Store` has **no payment setting** (no invoice flag).
+      Plan:
+      1. Deps `@stripe/stripe-js` + `@stripe/react-stripe-js` (lockfile is mine).
+      2. Publishable key read server-side at runtime: `STRIPE_PUBLISHABLE_KEY_<STORE CODE>` else
+         `STRIPE_PUBLISHABLE_KEY` (the core's `NAME_<CODE>` convention); public by design, passed
+         as a prop. No key → no Card option.
+      3. Payment step: choose Card (when a key) / Pay on invoice (when allowed); the choice creates the
+         session (`createPaymentSession(stripe|manual)`).
+      4. **Element lives on the REVIEW step** (an Element cannot survive a page change, and Stripe
+         wants confirmation at the final action): "Place order" = `stripe.confirmPayment({ redirect:
+         'if_required' })` in the browser → on `requires_capture` call `placeOrderAction` (same
+         idempotency key) → order `authorized`. `client_secret` passed as a prop (Stripe's design).
+      5. Errors, recoverable: declined (Element's message), 3DS abandoned (`payment_intent_authentication_failure`),
+         409 `price_changed` (recreate the session, return to review), 402 from completion; never a
+         second order (same key; a confirmed intent is reused by the core).
+      6. CSP (`src/lib/csp.ts`, runtime — not next.config): script `https://js.stripe.com`; frame
+         `https://js.stripe.com https://hooks.stripe.com`; connect `https://api.stripe.com`. Nothing wider.
+      7. Mock path: Prism returns a `pi_3Mock` session → Element cannot load against it; under the mock
+         (no key) only invoice/manual shows, so the mock e2e stays unchanged.
+      8. e2e (core + keys only, skip loudly otherwise): `pm_card_visa`-equivalent card 4242…, a 3DS card
+         4000 0027 6000 3184 through Stripe's test modal; declined 4000 0000 0000 0002.
+      9. README (running with test keys), CHANGELOG, unit tests (key resolution, invoice gate, error
+         mapping, CSP), three clean passes when the keys + machine come.
+      **Decisions asked:** (A) where "Pay on invoice allowed" lives — CONTRACT CHANGE `Store.payment`
+      (e.g. `{ invoice_allowed: boolean }`, core-owned) vs a storefront env flag for now
+      (`STOREFRONT_ALLOW_INVOICE=1`, default off); (B) Element on the review step (recommended) vs payment step.
 
 - [x] **DONE in #351 (`cb2fef0`).** Nits from the review of #334 — carry into the NEXT push, not on their own (manager, 2026-10-05):**
       (1) `playwright.config.ts`: `Number(process.env.E2E_WORKERS)` is NaN on garbage — validate
@@ -713,6 +766,32 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **Admin API 503 `authorization service unavailable` / `FgaValidationError` = this worktree's .env has
+  no OpenFGA ids.** `pnpm --filter @platform/auth-sdk fga:seed` (reuses the shared store, writes the
+  ids into .env), then restart the core. Check the raw response before trusting a read: a dry run
+  printed `settings: {}` from an error body.
+- **The seeded `owner` has OTP** — the test-cli password grant answers `invalid_grant` for it. Use the
+  staff user that holds the operation's relation (e.g. `store-admin` for updateStore on brand-a).
+
+- **`next/dynamic` called from a SERVER page does not lazy-load a client component**: it still
+  server-renders it and lists its chunk in the page's entry (`app-build-manifest.json`), so the bundle
+  budget counts it. Lazy means a `'use client'` wrapper with `next/dynamic(..., { ssr: false })`
+  (#365: 140 → 134.8 kB).
+
+- **Prism keeps no state: every cart example has `payment_session: null`.** A placement rule of "no
+  session → back to the payment step" loops on the mock (review → payment, #365's CI). The customer's
+  choice is remembered per cart instead (`src/lib/payment-choice.ts`).
+- **Escaped backticks: never `sed 's/\`/`/'` and never a quoted heredoc with backslash-backtick.**
+  GNU sed reads backslash-backtick as "start of buffer" and prefixed EVERY line with a backtick (twice on
+  2026-10-06). Write files with the Write tool, or repair with Python (`chr(92)+chr(96)`), keeping
+  `newline=''`.
+
+- **Never write a secret-shaped literal anywhere — tests, memory, PR bodies, commit messages.**
+  gitleaks scans every branch's full history in CI, so one quoted Stripe-key-shaped string in a
+  memory commit (2026-10-06, #365) turned the secret scan red on every open PR until the manager
+  extended the allowlist. Describe it instead ("the sk_test fixture"); test fixtures for "a wrong
+  key" use shapes no rule matches (e.g. 'not-a-publishable-key').
 
 - **The e2e build keeps `.next/cache/fetch-cache` between runs**, so a core run can render stock
   cached by an earlier core run (CATALOG_REVALIDATE): the PDP said purchasable, the core said 0,

@@ -148,6 +148,13 @@ export interface AddressValidation {
  */
 export interface CarrierProvider {
   readonly name: CarrierProviderName;
+  /**
+   * Whether this carrier can buy labels at all. Absent means it can — a provider only has to say so when it
+   * cannot. `manual` is the one built-in that declares `false`: it is "no carrier integration", so
+   * `buyShipmentLabel` refuses with 422 `provider_unsupported` and an operator attaches tracking by hand with
+   * `updateShipment` (Admin API 0.4.9). This is a permanent property of the carrier, never a transient failure.
+   */
+  readonly canBuyLabels?: boolean;
   rates(request: RateRequest): Promise<CarrierRate[]>;
   buyLabel(request: BuyLabelRequest): Promise<CarrierLabel>;
   voidLabel(request: VoidLabelRequest): Promise<VoidLabelResult>;

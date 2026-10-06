@@ -293,18 +293,75 @@ Steps are `/checkout/address` → `shipping` → `payment` → `review`; `/check
 the cart still needs. The order is enforced server-side in `requireCheckoutStep`, not by hiding
 links: typing `/checkout/review` with no address lands you back on the address step.
 
-Reachability deliberately does **not** depend on `payment_session`. That session is a PSP artifact
-with its own lifetime, not customer input — the customer chooses a _method_ at the payment step, and
-`placeOrderAction` creates the session immediately before authorising. Gating review on it would
-strand anyone whose session expired between steps.
+Reachability deliberately does **not** depend on `payment_session`. The customer chooses a _method_
+at the payment step, which creates the session and remembers the choice for this cart
+(`src/lib/payment-choice.ts`). The session is a PSP artifact with its own lifetime — and a backend may
+keep none (Prism answers every cart with `payment_session: null`) — so at "Place order" a missing or
+failed session is renewed for an **invoice the customer chose**, while the store offers it. A method
+is never picked on the customer's behalf: a card session (only the browser can confirm one) or no
+recorded choice goes back to the payment step.
 
 `Idempotency-Key` is generated once per cart and reused on every retry, stored as `<cartId>:<key>` so
 a stale cookie cannot attach an old key to a new order. Errors are mapped from the contract's codes,
 never from messages: `409 out_of_stock` offers the quantity actually left, `402 payment_failed`
 returns to the payment step, `409 cart_completed` forwards to the order that already exists.
 
-Phase 1 pays with the `manual` provider — a placeholder. Card data never reaches this app in any
-phase: window 7 adds hosted fields driven by `payment_session.client_secret`.
+### The order's status (#372)
+
+The confirmation page shows the order's `status` exactly as the core reports it — `pending`,
+`confirmed`, `processing` (fulfilment started), `completed` (every shipment delivered),
+`cancelled` — as a translated `Status:` line, and its opening sentence follows the status. The core
+moves the order (#371); this app only renders it. `e2e/order-lifecycle.spec.ts` proves it against the
+core: it ships and delivers its own order through the Admin API as the seeded `operations` user (the
+staff realm's dev/CI-only `test-cli` client, password grant; `E2E_STAFF_USERNAME` /
+`E2E_STAFF_PASSWORD` override the fixture) and reads **Processing**, then **Completed**.
+
+### Paying by card (#358)
+
+Card payment is Stripe's **Payment Element** — hosted fields in Stripe's iframes, so card data never
+reaches this app. The payment step offers what the store has (`src/lib/payment-options.ts`, read per
+request, re-checked on submit). **The store decides** through `Store.payment.methods`
+(`'card' | 'invoice'`, Store API 0.5.4, optional on `GET /store`, derived by the core: `card` when
+the store has a Stripe key, `invoice` from its `settings.payment.invoice_allowed`):
+
+| Method         | `Store.payment.methods` present                       | absent (a core before 0.5.4)    |
+| -------------- | ----------------------------------------------------- | ------------------------------- |
+| Card           | `card` listed **and** a publishable key resolves here | a publishable key resolves here |
+| Pay on invoice | `invoice` listed (the store's `invoice_allowed`)      | never                           |
+
+The seed allows invoices, and so does the contract's example store the mock serves, so every e2e run
+keeps an invoice path without any switch. (The interim `STOREFRONT_ALLOW_INVOICE` of #358 is gone,
+#372.) The publishable key is `STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else
+`STRIPE_PUBLISHABLE_KEY`.
+
+The key variable names follow the core's per-store secrets (`STRIPE_SECRET_KEY_<STORE CODE>`). Only a
+`pk_test_`/`pk_live_` value is used, so a secret key put in the wrong variable is never sent to a
+browser. With neither method available the payment step says so instead of offering nothing.
+
+Choosing Card creates the core's `stripe` session: a **manual-capture PaymentIntent** with redirects
+off. The card is entered on the **review step**, where "Place order" does two things in order
+(`src/components/card-payment.tsx`):
+
+1. the browser confirms the PaymentIntent with Stripe (`redirect: 'if_required'`) — 3-D Secure, when
+   the card needs it, happens in Stripe's own modal;
+2. only an intent that is now authorised (`requires_capture`) goes on to `placeOrderAction`, with
+   the cart's one `Idempotency-Key` — the core counts `requires_capture` as authorised and places the
+   order `authorized`; capture is the shop's step.
+
+An intent that is already authorised (a retry after the placement failed on the network) is not
+confirmed again. Declines come back from Stripe as messages written for the customer and are shown as
+they are; an **abandoned or failed 3-D Secure** (`payment_intent_authentication_failure`) gets our own
+sentence — nothing was charged, nothing placed, the cart is unchanged, try again; `409 price_changed` refreshes the session (the core updates
+or replaces the PaymentIntent) and returns to the review step with the new total.
+
+**Running with Stripe test keys.** Put the store's keys in the repo-root `.env` — never in git, never
+in chat: `STRIPE_PUBLISHABLE_KEY_BRAND_A=pk_test_…` (this app) and `STRIPE_SECRET_KEY_BRAND_A=sk_test_…`
+(the core). Start the core and this app with that environment, choose Card, and use Stripe's test
+cards: `4242 4242 4242 4242` (authorised), `4000 0027 6000 3184` (3-D Secure: press "Complete" in
+the test modal), `4000 0000 0000 0002` (declined); any future expiry and any CVC.
+`e2e/card-payment.spec.ts` drives those against the core (plus 3-D Secure abandoned with the test
+modal's "Fail") and, when it cannot, **prints one line saying why** (`[e2e] card-payment skipped: no
+core …` / `… no Stripe TEST publishable key …`) and skips.
 
 ## Locales and currency
 
@@ -613,6 +670,10 @@ deployment that forgot the variable is noticed the same day: that asymmetry deci
 The `Content-Security-Policy` is built **per request in the middleware** (`src/lib/csp.ts`); the
 environment-independent companions (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
 `Permissions-Policy`) stay in `next.config.mjs`.
+
+**Stripe (#358)** is allowed exactly where the Payment Element needs it and nowhere wider:
+`script-src https://js.stripe.com`, `frame-src https://js.stripe.com https://hooks.stripe.com` (the
+card fields and 3-D Secure), `connect-src https://api.stripe.com`. No wildcard.
 
 `frame-src` is the point of it (REQUEST #199): campaign landings embed Builder.io and Framer pages,
 and the host list is **imported from `@platform/cms`** rather than copied, because `EMBED_HOSTS` is

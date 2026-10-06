@@ -15,6 +15,13 @@ const live = Boolean(apiKey && isTestModeKey(apiKey));
 
 if (apiKey && !isTestModeKey(apiKey)) {
   console.warn('easypost live test skipped: EASYPOST_API_KEY is not a test-mode key (EZTK…)');
+} else if (!apiKey) {
+  // Loud on purpose (#356): without a key nothing here runs, and a silent skip reads like a pass. The route
+  // itself (`POST /admin/shipments/{id}/label`) is covered against the carrier test double in
+  // `shipments-db.test.ts`; against the real carrier it is exercised by the Integration 2a run.
+  console.warn(
+    'easypost live test skipped: EASYPOST_API_KEY is not set (repo-root .env or CI environment)',
+  );
 }
 
 const from: CarrierAddress = {

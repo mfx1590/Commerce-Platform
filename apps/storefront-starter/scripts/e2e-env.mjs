@@ -19,6 +19,8 @@
  * @returns {Record<string, string | undefined>} a copy, safe to hand to the build and the server
  */
 export function e2eServerEnv(env) {
+  // Invoices come from the store itself (`Store.payment.methods`: the seed allows them, and so does
+  // the contract's example store the mock serves) — no switch needed any more (#372).
   const serverEnv = { ...env, E2E_LOCAL_IMAGES: '1' };
   const core = env.E2E_STORE_API_URL;
   if (core === undefined || core === '') {

@@ -102,6 +102,12 @@ describe('EasyPost provider', () => {
     expect(() => createEasyPostProvider({ apiKey: 'EZAK_live', allowLiveKey: true })).not.toThrow();
   });
 
+  it('can buy labels, so a store on easypost is never answered 422 provider_unsupported', () => {
+    // The mirror of the manual carrier's `canBuyLabels: false`. Absent means capable, and this provider must
+    // never declare otherwise — it is the one carrier the buy-label route exists for.
+    expect(createEasyPostProvider({ apiKey: KEY }).canBuyLabels).not.toBe(false);
+  });
+
   it('sends Basic auth, converts centimetres and grams, and keeps only the requested currency', async () => {
     const { fetchImpl, calls } = fakeFetch([{ body: shipmentBody }]);
     const provider = createEasyPostProvider({ apiKey: KEY, fetch: fetchImpl });

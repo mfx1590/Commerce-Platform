@@ -199,10 +199,9 @@ describe('whole lifecycle: place → confirm → capture → ship → deliver �
     const orderTopics = (await stream(order.id, 'order.')).map((e) => e.topic);
     expect(orderTopics).toEqual([
       'order.placed',
-      'order.confirmed',
+      'order.confirmed', // at placement (#350); the explicit confirmOrder above was a no-op
       'order.updated', // payment captured
-      'order.updated', // processing
-      'order.updated', // fulfilled
+      'order.updated', // processing + fulfilled in one transition: markShipmentCreated moves nothing since #350
       'order.completed',
       'order.updated', // partially_returned
       'order.updated', // partially_refunded

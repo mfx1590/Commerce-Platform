@@ -16,7 +16,7 @@ import { mountCoreMiddleware } from '../../server';
 import { addLineItem, createCart, updateCart } from '../cart';
 import { confirmOrder, projectOrder, type ProjectedEvent } from '../orders';
 import { completeCart, createPaymentSession } from '../checkout';
-import { createManualCarrierProvider } from './manual-provider';
+import { createTestCarrierProvider } from './manual-provider';
 import { coreInventoryPort, setInventoryPort, type InventoryPort } from './ports';
 import { resetCarrierProviders, setCarrierProvider } from './registry';
 import {
@@ -35,6 +35,14 @@ const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
 const WH = SEED_IDS.warehouses.eu;
 const SECRET = 'whsec_shipping_tests';
+/** The name brand A's `settings.shipping.provider` points at; the test double registers under it. */
+const TEST_CARRIER = 'test-carrier';
+/**
+ * The carrier the double's labels name. It keeps the manual pricing table, so the label's carrier — the brand
+ * that moves the parcel, what lands in `shipment.carrier` and in the event — stays `manual` while the provider
+ * doing the buying is `test-carrier`. The two are different things and this suite asserts both.
+ */
+const LABEL_CARRIER = 'manual';
 const actor = { id: null, type: 'staff' as const, requestId: 'req-shipping-2-3' };
 const address = {
   first_name: 'Jane',
@@ -81,6 +89,16 @@ beforeAll(async () => {
     [A],
   );
   standardOptionId = opt.rows[0]!.id;
+  // Brand A's carrier is the deterministic test double, which CAN buy labels. The built-in `manual` carrier
+  // cannot (Admin API 0.4.9 answers 422 `provider_unsupported` for it), so a store left on the default would
+  // never get past the capability check — `refuses a label for the manual carrier` relies on exactly that.
+  await owner.query(
+    `UPDATE store SET settings = coalesce(settings, '{}'::jsonb)
+       || jsonb_build_object('shipping',
+            coalesce(settings -> 'shipping', '{}'::jsonb) || jsonb_build_object('provider', $2::text))
+      WHERE id = $1`,
+    [A, TEST_CARRIER],
+  );
 }, 180_000);
 
 afterAll(async () => {
@@ -89,7 +107,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  const carrier = createManualCarrierProvider();
+  const carrier = createTestCarrierProvider();
   setCarrierProvider(carrier);
 });
 
@@ -141,6 +159,14 @@ const eventsFor = (shipmentId: string) =>
       ORDER BY seq`,
     [shipmentId],
   );
+
+/**
+ * Moves a planned shipment to `packed`, the only state `buyShipmentLabel` accepts (Admin API 0.4.9). The
+ * warehouse reaches it through the fulfillment module's `pickShipment` / `packShipment`; this file is shipping's
+ * own suite, so it writes the status through the same state machine directly.
+ */
+const pack = async (shipmentId: string) =>
+  updateShipment(a, shipmentId, { status: 'packed', actor });
 
 /**
  * The order's **fulfilment** state, which is the part shipping reports and owns (`markShipmentCreatedInTx`,
@@ -256,6 +282,60 @@ describe('shipments', () => {
     expect(await orderFulfillment(order.orderId)).toBe('unfulfilled');
   });
 
+  it('moves the order to processing when a shipment leaves pending, and a cancel does not', async () => {
+    // #366 part 2, on top of #350: planning alone is not work starting — the order only moves once someone
+    // picks (or packs, labels, or despatches straight away). The call is on shipping's own transaction.
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    const afterPlanning = await orderState(order.orderId);
+    expect(afterPlanning.fulfillment_status).toBe('unfulfilled');
+    expect(afterPlanning.status).not.toBe('processing');
+
+    await updateShipment(a, planned.id, { status: 'picking', actor });
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'processing',
+      fulfillment_status: 'unfulfilled',
+    });
+
+    // Every later move is a no-op on the order's status: only the FIRST leaving of `pending` starts it, and
+    // the orders module is idempotent on the target state anyway.
+    await updateShipment(a, planned.id, { status: 'packed', actor });
+    expect((await orderState(order.orderId)).status).toBe('processing');
+
+    // A second shipment on the same order that is cancelled while still planned must not claim work started.
+    const other = await placedOrder();
+    const doomed = await createShipment(a, {
+      orderId: other.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: other.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await updateShipment(a, doomed.id, { status: 'cancelled', actor });
+    expect((await orderState(other.orderId)).status).not.toBe('processing');
+  });
+
+  it('starts the order even when the shipment goes straight from pending to shipped', async () => {
+    // The same guarantee as `shipment.shipped` before `shipment.delivered`: a skipped step is filled in, so an
+    // order never reaches its fulfilment without having passed through `processing`.
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await updateShipment(a, planned.id, { status: 'shipped', actor });
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'processing',
+      fulfillment_status: 'fulfilled',
+    });
+  });
+
   it('refuses more than the order still owes, an unknown line and an unknown warehouse', async () => {
     const order = await placedOrder();
     const line = order.lines[0]!.id;
@@ -324,7 +404,7 @@ describe('shipments', () => {
     expect((await orderState(order.orderId)).status).toBe('completed');
   });
 
-  it('buys a label once and is idempotent on a second call', async () => {
+  it('buys a label for a packed shipment, emits shipment.label_created, and 409s on a second call', async () => {
     const order = await placedOrder();
     const planned = await createShipment(a, {
       orderId: order.orderId,
@@ -333,23 +413,101 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
+    await pack(planned.id);
     const labelled = await buyShipmentLabel(a, planned.id, { actor });
-    expect(labelled).toMatchObject({ status: 'label_created', carrier: 'manual' });
+    expect(labelled).toMatchObject({ status: 'label_created', carrier: LABEL_CARRIER });
     expect(labelled.tracking_number).toMatch(/^MAN[0-9A-F]{16}$/);
     expect(labelled.label_url).toMatch(/^https:\/\//);
+    expect(labelled.tracking_url).toMatch(/^https:\/\//);
     expect(labelled.cost).toEqual({ amount_minor: 590, currency: 'EUR' });
-    const again = await buyShipmentLabel(a, planned.id, { actor });
-    expect(again).toEqual(labelled);
-    // Buying a label is not a shipment event: only shipment.created so far.
+
+    // The label and its announcement commit together: the event is on the outbox, with the ids, the carrier
+    // and the label URL — and nothing that could identify the customer (events 0.3.1).
+    const events = await eventsFor(planned.id);
+    expect(events.rows.map((row) => row.topic)).toEqual([
+      'shipment.created',
+      'shipment.label_created',
+    ]);
+    expect(events.rows[1]!.payload).toEqual({
+      shipment_id: planned.id,
+      order_id: order.orderId,
+      store_id: A,
+      carrier: LABEL_CARRIER,
+      tracking_number: labelled.tracking_number,
+      label_url: labelled.label_url,
+      created_at: expect.any(String),
+    });
+
+    // A shipment that already holds a label is `label_created`, not `packed`: the second call is a 409 and no
+    // second parcel is bought. The contract has no "returned unchanged" answer for this operation.
+    await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({
+      code: 'conflict',
+      status: 409,
+      details: { shipment_id: planned.id, status: 'label_created' },
+    });
+    expect((await eventsFor(planned.id)).rows).toHaveLength(2);
+  });
+
+  it('refuses a label for the manual carrier with 422 provider_unsupported', async () => {
+    // The store's own setting decides, not the registry: `manual` is "no carrier integration", so an operator
+    // attaches tracking with updateShipment instead. Permanent — the client must not retry.
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await pack(planned.id);
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(settings, ARRAY['shipping', 'provider'], '"manual"'::jsonb, true)
+        WHERE id = $1`,
+      [A],
+    );
+    try {
+      await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({
+        code: 'provider_unsupported',
+        status: 422,
+        details: { provider: 'manual' },
+      });
+    } finally {
+      await owner.query(
+        `UPDATE store SET settings = jsonb_set(settings, ARRAY['shipping', 'provider'], $2::jsonb, true)
+          WHERE id = $1`,
+        [A, JSON.stringify(TEST_CARRIER)],
+      );
+    }
+    // Nothing moved and nothing was announced.
+    expect((await getShipment(a, planned.id)).status).toBe('packed');
     expect((await eventsFor(planned.id)).rows.map((row) => row.topic)).toEqual([
       'shipment.created',
     ]);
   });
 
+  it('refuses a label on a shipment that is not packed yet', async () => {
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({
+      code: 'conflict',
+      status: 409,
+      details: { shipment_id: planned.id, status: 'pending' },
+    });
+    await updateShipment(a, planned.id, { status: 'picking', actor });
+    await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({
+      code: 'conflict',
+      details: { status: 'picking' },
+    });
+  });
+
   it('voids a label it could not record, and leaves the shipment where it found it', async () => {
     // The shipment is cancelled WHILE the carrier is buying: step 3 must refuse, and the bought label — real
     // money — goes back to the carrier instead of being orphaned.
-    const carrier = createManualCarrierProvider();
+    const carrier = createTestCarrierProvider();
     const voided: string[] = [];
     const realBuy = carrier.buyLabel.bind(carrier);
     const realVoid = carrier.voidLabel.bind(carrier);
@@ -360,6 +518,7 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
+    await pack(planned.id);
     carrier.buyLabel = async (request) => {
       const label = await realBuy(request);
       await updateShipment(a, planned.id, { status: 'cancelled', actor });
@@ -380,8 +539,8 @@ describe('shipments', () => {
     expect(row.label_url).toBeNull();
   });
 
-  it('reports a carrier failure as 502 and leaves the shipment pending', async () => {
-    const broken = createManualCarrierProvider();
+  it('reports a carrier failure as 502 and leaves the shipment packed', async () => {
+    const broken = createTestCarrierProvider();
     broken.rates = async () => {
       throw new Error('carrier exploded');
     };
@@ -393,12 +552,17 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
-    await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({ status: 502 });
-    expect((await getShipment(a, planned.id)).status).toBe('pending');
+    await pack(planned.id);
+    // A carrier outage is NOT 422: 422 says the carrier can never do this, while this call can be retried.
+    await expect(buyShipmentLabel(a, planned.id, { actor })).rejects.toMatchObject({
+      status: 502,
+      code: 'internal',
+    });
+    expect((await getShipment(a, planned.id)).status).toBe('packed');
   });
 
   it('voids the label when a shipment holding one is cancelled', async () => {
-    const carrier = createManualCarrierProvider();
+    const carrier = createTestCarrierProvider();
     const voided: string[] = [];
     const realVoid = carrier.voidLabel.bind(carrier);
     carrier.voidLabel = async (request) => {
@@ -414,6 +578,7 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
+    await pack(planned.id);
     const labelled = await buyShipmentLabel(a, planned.id, { actor });
     expect(labelled.status).toBe('label_created');
 
@@ -423,7 +588,7 @@ describe('shipments', () => {
   });
 
   it('refuses the cancel when the void fails, and records the divergence', async () => {
-    const carrier = createManualCarrierProvider();
+    const carrier = createTestCarrierProvider();
     carrier.voidLabel = async () => {
       throw new Error('carrier refused');
     };
@@ -436,6 +601,7 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
+    await pack(planned.id);
     await buyShipmentLabel(a, planned.id, { actor });
 
     await expect(
@@ -458,6 +624,7 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
+    await pack(planned.id);
     await buyShipmentLabel(a, planned.id, { actor });
     const shipped = await updateShipment(a, planned.id, { status: 'shipped', actor });
     expect(shipped.shipped_at).not.toBeNull();
@@ -468,13 +635,14 @@ describe('shipments', () => {
     const events = await eventsFor(planned.id);
     expect(events.rows.map((row) => row.topic)).toEqual([
       'shipment.created',
+      'shipment.label_created',
       'shipment.shipped',
       'shipment.delivered',
     ]);
-    expect(events.rows[1]!.payload).toMatchObject({
+    expect(events.rows[2]!.payload).toMatchObject({
       shipment_id: planned.id,
       order_id: order.orderId,
-      carrier: 'manual',
+      carrier: LABEL_CARRIER,
       cost_minor: 590,
       currency: 'EUR',
     });
@@ -497,6 +665,7 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
+    await pack(planned.id);
     await buyShipmentLabel(a, planned.id, { actor });
     await updateShipment(a, planned.id, { status: 'delivered', actor });
     // Both events are written in one transaction, shipped first: `seq` (the outbox identity) is the write order.
@@ -504,6 +673,7 @@ describe('shipments', () => {
     const events = await eventsFor(planned.id);
     expect(events.rows.map((row) => row.topic)).toEqual([
       'shipment.created',
+      'shipment.label_created',
       'shipment.shipped',
       'shipment.delivered',
     ]);
@@ -644,6 +814,7 @@ async function shippedShipment() {
     items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
     actor,
   });
+  await pack(planned.id);
   const labelled = await buyShipmentLabel(a, planned.id, { actor });
   return { orderId: order.orderId, shipmentId: planned.id, tracking: labelled.tracking_number! };
 }
@@ -706,6 +877,74 @@ describe('a two-shipment order, replayed', () => {
 });
 
 describe('tracking webhooks', () => {
+  it('carries a packed shipment from its label to delivered on carrier scans alone', async () => {
+    // Integration 2a end to end: the operator buys the label, then only the carrier moves the shipment. Every
+    // scan arrives signed, is recorded once, and the shipment's own state machine decides what it means.
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      service: 'manual_standard',
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await pack(planned.id);
+    const labelled = await buyShipmentLabel(a, planned.id, { actor });
+    const tracking = labelled.tracking_number!;
+
+    const scans: { status: string; at: string }[] = [
+      { status: 'pre_transit', at: '2026-10-06T08:00:00Z' },
+      { status: 'in_transit', at: '2026-10-06T12:00:00Z' },
+      { status: 'out_for_delivery', at: '2026-10-07T07:30:00Z' },
+      { status: 'delivered', at: '2026-10-07T10:15:00Z' },
+    ];
+    const outcomes: string[] = [];
+    for (const [index, scan] of scans.entries()) {
+      const result = await handleEasyPostWebhook(
+        a,
+        webhook(tracking, scan.status, `evt_life_${planned.id}_${index}`, scan.at),
+      );
+      outcomes.push(`${scan.status}:${result.outcome}:${result.status ?? '-'}`);
+    }
+    expect(outcomes).toEqual([
+      // `pre_transit` maps to nothing actionable; `out_for_delivery` is still `in_transit` for us, so the
+      // shipment is already there and the scan is recorded and skipped.
+      'pre_transit:skipped:label_created',
+      'in_transit:applied:in_transit',
+      'out_for_delivery:skipped:in_transit',
+      'delivered:applied:delivered',
+    ]);
+
+    const finished = await getShipment(a, planned.id);
+    expect(finished).toMatchObject({ status: 'delivered', tracking_number: tracking });
+    expect(finished.label_url).toBe(labelled.label_url);
+    // The carrier's own clock, not ours: `in_transit` is when the parcel left, delivery when it arrived.
+    expect(finished.shipped_at).toBe('2026-10-06T12:00:00.000Z');
+    expect(finished.delivered_at).toBe('2026-10-07T10:15:00.000Z');
+
+    // The whole stream, in `seq` order (the outbox identity = the write order, #255): the label first, then
+    // the despatch the `in_transit` scan implies, then the delivery.
+    const events = await eventsFor(planned.id);
+    expect(events.rows.map((row) => row.topic)).toEqual([
+      'shipment.created',
+      'shipment.label_created',
+      'shipment.shipped',
+      'shipment.delivered',
+    ]);
+    expect(events.rows[3]!.payload).toMatchObject({
+      shipment_id: planned.id,
+      order_id: order.orderId,
+      // The event passes the carrier's instant through exactly as the carrier wrote it; the column above is the
+      // same instant after Postgres normalised it. Both are ISO-8601 and neither is invented here.
+      delivered_at: '2026-10-07T10:15:00Z',
+    });
+    // And the order heard it: one shipment, fully delivered.
+    expect(await orderState(order.orderId)).toEqual({
+      status: 'completed',
+      fulfillment_status: 'fulfilled',
+    });
+  });
+
   it('applies a scan, stores a redacted extract with the raw body hash, and a duplicate changes nothing', async () => {
     const { shipmentId, tracking } = await shippedShipment();
     const req = webhook(tracking, 'in_transit', `evt_dup_${shipmentId}`, '2026-09-08T10:00:00Z');
@@ -771,6 +1010,7 @@ describe('tracking webhooks', () => {
     expect(events.rows.map((e) => e.topic).sort()).toEqual([
       'shipment.created',
       'shipment.delivered',
+      'shipment.label_created',
       'shipment.shipped',
     ]);
     const row = await getShipment(a, shipmentId);
@@ -990,6 +1230,77 @@ describe('shippingAdminRouter', () => {
       status: 'pending',
       items: payload.items,
     });
+  });
+
+  it('buyShipmentLabel: 200 on a packed shipment, 403, 409 unless packed, 404 unknown', async () => {
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      service: 'manual_standard',
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    const path = `/admin/shipments/${planned.id}/label`;
+
+    // The permission is the spec's (`operations` on `organization:hq`), exactly like pick and pack.
+    expect((await as('seed-store-admin').post(path)).status).toBe(403);
+
+    const tooEarly = await as('seed-operations').post(path);
+    expect(tooEarly.status).toBe(409);
+    expect(tooEarly.body).toMatchObject({ code: 'conflict', details: { status: 'pending' } });
+
+    await pack(planned.id);
+    const bought = await as('seed-operations').post(path);
+    expect(bought.status).toBe(200);
+    expect(bought.body).toMatchObject({
+      id: planned.id,
+      order_id: order.orderId,
+      status: 'label_created',
+      carrier: LABEL_CARRIER,
+    });
+    expect(bought.body.tracking_number).toMatch(/^MAN[0-9A-F]{16}$/);
+    expect(bought.body.label_url).toMatch(/^https:\/\//);
+    expect(bought.body.tracking_url).toMatch(/^https:\/\//);
+
+    // A second call finds `label_created`, not `packed`.
+    expect((await as('seed-operations').post(path)).status).toBe(409);
+
+    const missing = await as('seed-operations').post(
+      '/admin/shipments/00000000-0000-4000-8000-000000000000/label',
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  it('buyShipmentLabel: 422 provider_unsupported for the manual carrier', async () => {
+    const order = await placedOrder();
+    const planned = await createShipment(a, {
+      orderId: order.orderId,
+      warehouseId: WH,
+      items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
+      actor,
+    });
+    await pack(planned.id);
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(settings, ARRAY['shipping', 'provider'], '"manual"'::jsonb, true)
+        WHERE id = $1`,
+      [A],
+    );
+    try {
+      const refused = await as('seed-operations').post(`/admin/shipments/${planned.id}/label`);
+      expect(refused.status).toBe(422);
+      expect(refused.body).toEqual({
+        code: 'provider_unsupported',
+        message: expect.stringContaining('cannot buy labels'),
+        details: { provider: 'manual' },
+      });
+    } finally {
+      await owner.query(
+        `UPDATE store SET settings = jsonb_set(settings, ARRAY['shipping', 'provider'], $2::jsonb, true)
+          WHERE id = $1`,
+        [A, JSON.stringify(TEST_CARRIER)],
+      );
+    }
   });
 
   it('updateShipment: resolves the shipment store, 200 for operations, 409 on an illegal move, 404 unknown', async () => {
