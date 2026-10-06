@@ -1,6 +1,7 @@
 // Tax module (issue #127) on a seeded throwaway database + FakeStripe: the table provider for the three seeded
 // markets (EU/NL 21 %, UK/GB 20 %, US/NY 8.88 %) in tax-exclusive and tax-inclusive mode from store settings,
-// taxable shipping, parity with the cart's built-in calculator under default settings; the Stripe Tax provider
+// delivery VAT at the goods' rate (EU default, pro rata for mixed carts, explicit exemption, #352), parity of the
+// lines with the cart's built-in calculator; the Stripe Tax provider
 // (request shape without PII, result mapping, basis points, shipping tax, fail-closed without a key, refusals);
 // outages fail closed unless the explicit non-production opt-in is set; and the calculator registered with the
 // cart module end to end.
@@ -14,13 +15,18 @@ import {
   setTaxCalculator,
   tableTaxCalculator,
   taxOn,
+  updateCart,
   type TaxCalculation,
 } from '../cart';
 import { FakeStripe, StripeError } from '../payments';
 import {
+  allocateProRata,
   createTaxCalculator,
   DEFAULT_TAX_SETTINGS,
+  defaultShippingTaxable,
+  EU_COUNTRIES,
   rateBpOf,
+  shippingTaxAtGoodsRate,
   registerTaxProvider,
   TAX_FALLBACK_FLAG,
   taxFallbackEnabled,
@@ -60,6 +66,7 @@ beforeEach(() => {
 afterEach(async () => {
   setTaxCalculator(tableTaxCalculator);
   await owner.query(`UPDATE store SET settings = settings - 'tax'`);
+  await owner.query(`DELETE FROM tax_rate WHERE name = 'VAT 9% (test)'`);
 });
 
 async function setTax(storeId: string, tax: Record<string, unknown>): Promise<void> {
@@ -74,6 +81,7 @@ interface Line {
   quantity: number;
   unit: number;
   discount?: number;
+  categoryId?: string | null;
 }
 
 /** Runs `calculate` inside a transaction of the store's tenant client (what the cart does). */
@@ -112,7 +120,7 @@ function priced(
         lineItemId: l.id,
         variantId: randomUUID(),
         productId: randomUUID(),
-        categoryId: null,
+        categoryId: l.categoryId ?? null,
         quantity: l.quantity,
         unitPriceMinor: l.unit,
         discountMinor: l.discount ?? 0,
@@ -156,7 +164,12 @@ describe('rounding and settings', () => {
       taxSettingsFrom({
         tax: { provider: 'stripe', prices_include_tax: true, shipping_taxable: true },
       }),
-    ).toEqual({ provider: 'stripe', pricesIncludeTax: true, shippingTaxable: true });
+    ).toEqual({
+      provider: 'stripe',
+      pricesIncludeTax: true,
+      shippingTaxable: true,
+      shippingTaxableExplicit: true,
+    });
   });
 
   it('the table fallback flag: only the exact opt-in outside production; production refuses the flag itself', () => {
@@ -220,9 +233,10 @@ describe('table provider — the three seeded markets', () => {
         { lineItemId: l1, taxRateBp: 2100, taxMinor: 420 },
         { lineItemId: l2, taxRateBp: 2100, taxMinor: taxOn(4499, 2100) },
       ],
-      shippingTaxMinor: 0,
+      shippingTaxMinor: 105, // #352: an EU store's delivery charge carries VAT at the goods' rate by default
     });
-    // Parity: with default settings the registered calculator IS the cart's table calculator.
+    // Parity: the LINES are exactly the cart's built-in calculator; delivery VAT is the one platform default this
+    // module adds (the built-in never taxes shipping).
     const builtIn = await priced(A, {
       currency: 'EUR',
       country: 'NL',
@@ -230,7 +244,8 @@ describe('table provider — the three seeded markets', () => {
       shippingMinor: 500,
       calculator: tableTaxCalculator,
     });
-    expect(exclusive).toEqual(builtIn);
+    expect(exclusive.lines).toEqual(builtIn.lines);
+    expect(builtIn.shippingTaxMinor).toBe(0);
 
     await setTax(A, { prices_include_tax: true });
     const inclusive = await priced(A, {
@@ -243,10 +258,10 @@ describe('table provider — the three seeded markets', () => {
       { lineItemId: l1, taxRateBp: 2100, taxMinor: 347 },
       { lineItemId: l2, taxRateBp: 2100, taxMinor: taxOn(4499, 2100, true) },
     ]);
-    expect(inclusive.shippingTaxMinor).toBe(0);
+    expect(inclusive.shippingTaxMinor).toBe(taxOn(500, 2100, true)); // contained in the gross delivery price
   });
 
-  it('UK (GB 20 %): both modes; taxable shipping uses the store-wide rate in the same mode', async () => {
+  it("UK (GB 20 %): not in the EU set → shipping untaxed by default; opt-in taxes it at the goods' rate in the same mode", async () => {
     const lines: Line[] = [{ id: l1, quantity: 1, unit: 1999 }];
     expect(await priced(B, { currency: 'GBP', country: 'GB', lines })).toEqual({
       lines: [{ lineItemId: l1, taxRateBp: 2000, taxMinor: 400 }],
@@ -303,6 +318,209 @@ describe('table provider — the three seeded markets', () => {
   });
 });
 
+// ---------------------------------------------------------------------------------- delivery VAT (#352)
+
+describe("delivery VAT — shipping at the goods' rate (#352)", () => {
+  const l1 = randomUUID();
+  const l2 = randomUUID();
+
+  it("settings: the shipping_taxable default follows the legal entity's country (EU → taxable), an explicit value wins", () => {
+    expect(EU_COUNTRIES.size).toBe(27);
+    expect(defaultShippingTaxable('NL')).toBe(true);
+    expect(defaultShippingTaxable('nl')).toBe(true);
+    expect(defaultShippingTaxable('GB')).toBe(false);
+    expect(defaultShippingTaxable('US')).toBe(false);
+    expect(defaultShippingTaxable(null)).toBe(false);
+    expect(taxSettingsFrom({}, { legalEntityCountry: 'NL' })).toEqual({
+      ...DEFAULT_TAX_SETTINGS,
+      shippingTaxable: true,
+      shippingTaxableExplicit: false,
+    });
+    expect(
+      taxSettingsFrom({ tax: { provider: 'table' } }, { legalEntityCountry: 'DE' }),
+    ).toMatchObject({
+      shippingTaxable: true,
+      shippingTaxableExplicit: false,
+    });
+    expect(
+      taxSettingsFrom({ tax: { shipping_taxable: false } }, { legalEntityCountry: 'NL' }),
+    ).toMatchObject({
+      shippingTaxable: false,
+      shippingTaxableExplicit: true,
+    });
+    expect(
+      taxSettingsFrom({ tax: { shipping_taxable: true } }, { legalEntityCountry: 'US' }),
+    ).toMatchObject({
+      shippingTaxable: true,
+      shippingTaxableExplicit: true,
+    });
+    expect(
+      taxSettingsFrom({ tax: { shipping_taxable: 'yes' } }, { legalEntityCountry: 'US' }),
+    ).toMatchObject({
+      shippingTaxable: false, // malformed → the country default, never an error
+      shippingTaxableExplicit: false,
+    });
+    expect(taxSettingsFrom(undefined)).toEqual(DEFAULT_TAX_SETTINGS);
+  });
+
+  it('allocateProRata: integer shares that add up exactly (largest remainder)', () => {
+    expect(allocateProRata(400, [1000, 3000])).toEqual([100, 300]);
+    expect(allocateProRata(499, [2000, 1450])).toEqual([289, 210]); // 289.28 / 209.71 → the .71 gets the cent
+    expect(allocateProRata(1, [1, 1, 1])).toEqual([1, 0, 0]);
+    expect(allocateProRata(10, [0, 0])).toEqual([10, 0]);
+    expect(allocateProRata(0, [5, 5])).toEqual([0, 0]);
+    for (const [total, w] of [
+      [499, [2000, 1450, 333]],
+      [1, [7, 9]],
+      [12345, [1, 2, 3, 4]],
+    ] as [number, number[]][]) {
+      const shares = allocateProRata(total, w);
+      expect(shares.reduce((a, b) => a + b, 0)).toBe(total);
+      expect(shares.every((x) => Number.isInteger(x) && x >= 0)).toBe(true);
+    }
+  });
+
+  it('shippingTaxAtGoodsRate: one rate → that rate; mixed → pro rata per rate; no taxable goods → the fallback rate', () => {
+    expect(shippingTaxAtGoodsRate(499, [{ rateBp: 2100, baseMinor: 3450 }], 2100, false)).toBe(105);
+    expect(
+      shippingTaxAtGoodsRate(
+        400,
+        [
+          { rateBp: 2100, baseMinor: 1000 },
+          { rateBp: 900, baseMinor: 3000 },
+        ],
+        2100,
+        false,
+      ),
+    ).toBe(21 + 27);
+    expect(
+      shippingTaxAtGoodsRate(
+        499,
+        [
+          { rateBp: 2100, baseMinor: 2000 },
+          { rateBp: 900, baseMinor: 1450 },
+          { rateBp: 2100, baseMinor: 0 }, // a free line carries no weight
+        ],
+        2100,
+        false,
+      ),
+    ).toBe(taxOn(289, 2100) + taxOn(210, 900)); // 61 + 19 = 80
+    expect(shippingTaxAtGoodsRate(499, [{ rateBp: 2100, baseMinor: 0 }], 2100, false)).toBe(105);
+    expect(shippingTaxAtGoodsRate(499, [], 0, false)).toBe(0);
+    expect(shippingTaxAtGoodsRate(0, [{ rateBp: 2100, baseMinor: 100 }], 2100, false)).toBe(0);
+    // inclusive: the tax contained in the gross delivery price, per share
+    expect(
+      shippingTaxAtGoodsRate(
+        400,
+        [
+          { rateBp: 2100, baseMinor: 1000 },
+          { rateBp: 900, baseMinor: 3000 },
+        ],
+        2100,
+        true,
+      ),
+    ).toBe(taxOn(100, 2100, true) + taxOn(300, 900, true));
+  });
+
+  it("the manager's walk-through (NL, €34.50 goods, €4.99 delivery): tax €7.25 + €1.05, total €47.79", async () => {
+    const r = await priced(A, {
+      currency: 'EUR',
+      country: 'NL',
+      lines: [{ id: l1, quantity: 1, unit: 3450 }],
+      shippingMinor: 499,
+    });
+    expect(r).toEqual({
+      lines: [{ lineItemId: l1, taxRateBp: 2100, taxMinor: 725 }],
+      shippingTaxMinor: 105,
+    });
+    expect(3450 + 499 + 725 + 105).toBe(4779);
+  });
+
+  it("a mixed-rate NL cart apportions the delivery charge to the goods' rates (table provider)", async () => {
+    const cat = await owner.query<{ id: string }>(
+      `SELECT id FROM product_category WHERE store_id = $1 ORDER BY id LIMIT 1`,
+      [A],
+    );
+    const categoryId = cat.rows[0]!.id;
+    await owner.query(
+      `INSERT INTO tax_rate (organization_id, store_id, country, region, name, rate_bp, product_category_id)
+       VALUES ($1, $2, 'NL', NULL, 'VAT 9% (test)', 900, $3)`,
+      [ORG, A, categoryId],
+    );
+    const r = await priced(A, {
+      currency: 'EUR',
+      country: 'NL',
+      lines: [
+        { id: l1, quantity: 2, unit: 1000 }, // 2000 at 21 %
+        { id: l2, quantity: 1, unit: 1450, categoryId }, // 1450 at 9 %
+      ],
+      shippingMinor: 499,
+    });
+    expect(r.lines).toEqual([
+      { lineItemId: l1, taxRateBp: 2100, taxMinor: 420 },
+      { lineItemId: l2, taxRateBp: 900, taxMinor: taxOn(1450, 900) },
+    ]);
+    expect(r.shippingTaxMinor).toBe(taxOn(289, 2100) + taxOn(210, 900)); // 80
+    // Only reduced-rate goods → the whole charge at 9 %.
+    const reducedOnly = await priced(A, {
+      currency: 'EUR',
+      country: 'NL',
+      lines: [{ id: l2, quantity: 1, unit: 1450, categoryId }],
+      shippingMinor: 499,
+    });
+    expect(reducedOnly.shippingTaxMinor).toBe(taxOn(499, 900));
+  });
+
+  it("a store configured shipping-exempt keeps today's behaviour; a non-EU store is untaxed by default and can opt in", async () => {
+    const lines: Line[] = [{ id: l1, quantity: 1, unit: 3450 }];
+    await setTax(A, { shipping_taxable: false });
+    const exempt = await priced(A, { currency: 'EUR', country: 'NL', lines, shippingMinor: 499 });
+    expect(exempt).toEqual({
+      lines: [{ lineItemId: l1, taxRateBp: 2100, taxMinor: 725 }],
+      shippingTaxMinor: 0,
+    });
+    expect(exempt).toEqual(
+      await priced(A, {
+        currency: 'EUR',
+        country: 'NL',
+        lines,
+        shippingMinor: 499,
+        calculator: tableTaxCalculator,
+      }),
+    );
+    // US store (legal entity US): untaxed by default, taxed at the destination's rate on opt-in.
+    const us: Line[] = [{ id: l1, quantity: 1, unit: 10000 }];
+    expect(
+      (
+        await priced(C, {
+          currency: 'USD',
+          country: 'US',
+          region: 'NY',
+          lines: us,
+          shippingMinor: 1000,
+        })
+      ).shippingTaxMinor,
+    ).toBe(0);
+    await setTax(C, { shipping_taxable: true });
+    expect(
+      (
+        await priced(C, {
+          currency: 'USD',
+          country: 'US',
+          region: 'NY',
+          lines: us,
+          shippingMinor: 1000,
+        })
+      ).shippingTaxMinor,
+    ).toBe(89); // 8.88 % of 10.00
+    // An EU store shipping to an untaxed destination: no rate → no delivery tax either (not an error).
+    expect(
+      (await priced(A, { currency: 'EUR', country: 'CH', lines, shippingMinor: 499 }))
+        .shippingTaxMinor,
+    ).toBe(0);
+  });
+});
+
 // ---------------------------------------------------------------------------------------------- stripe provider
 
 describe('Stripe Tax provider (FakeStripe)', () => {
@@ -347,6 +565,30 @@ describe('Stripe Tax provider (FakeStripe)', () => {
     });
     // No name, street, phone or email ever leaves the process.
     expect(JSON.stringify(call.params)).not.toMatch(/Jane|Doe|Secret Street|\+31|@/);
+  });
+
+  it('an explicit shipping_taxable: false keeps the delivery charge out of the Stripe Tax calculation; the default lets Stripe decide', async () => {
+    await setTax(A, { provider: 'stripe', shipping_taxable: false });
+    fake.taxRateBp = 2100;
+    const exempt = await priced(A, {
+      currency: 'EUR',
+      country: 'NL',
+      lines: [{ id: l1, quantity: 1, unit: 3450 }],
+      shippingMinor: 499,
+    });
+    expect(exempt.shippingTaxMinor).toBe(0);
+    expect(fake.callsOf('createTaxCalculation')[0]!.params).not.toHaveProperty('shipping_cost');
+    await setTax(A, { provider: 'stripe' });
+    const decided = await priced(A, {
+      currency: 'EUR',
+      country: 'NL',
+      lines: [{ id: l1, quantity: 1, unit: 3450 }],
+      shippingMinor: 499,
+    });
+    expect(decided.shippingTaxMinor).toBe(105);
+    expect(fake.callsOf('createTaxCalculation')[1]!.params).toMatchObject({
+      shipping_cost: { amount: 499, tax_behavior: 'exclusive' },
+    });
   });
 
   it('inclusive stores ask Stripe for inclusive tax; a region travels as `state`', async () => {
@@ -450,5 +692,60 @@ describe('registered with the cart module', () => {
     expect(stripePriced.totals.tax.amount_minor).toBe(taxOn(base, 1000));
     expect(stripePriced.totals.total.amount_minor).toBe(base + taxOn(base, 1000));
     expect(fake.callsOf('createTaxCalculation').length).toBeGreaterThan(0);
+  });
+
+  it('checkout totals (#352): an NL cart with €4.99 delivery shows VAT on the delivery; a shipping-exempt store does not', async () => {
+    registerTaxProvider({ apiFactory: () => fake, env, log: () => {} });
+    const a = clients.get(A)!;
+    const channel = await owner.query<{ id: string }>(
+      `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+      [A],
+    );
+    const variant = await owner.query<{ id: string; price: string }>(
+      `SELECT v.id, pr.amount_minor::text AS price
+       FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
+       WHERE v.store_id = $1 ORDER BY v.sku LIMIT 1`,
+      [A],
+    );
+    const option = await owner.query<{ id: string; price_minor: string }>(
+      `SELECT id, price_minor::text FROM shipping_option WHERE store_id = $1 AND code = 'standard'`,
+      [A],
+    );
+    const v = variant.rows[0]!;
+    const shipping = Number(option.rows[0]!.price_minor);
+    expect(shipping).toBe(499);
+    const scope = { organizationId: ORG, storeId: A, salesChannelId: channel.rows[0]!.id };
+    const address = {
+      first_name: 'Jane',
+      last_name: 'Doe',
+      line1: 'Keizersgracht 1',
+      city: 'Amsterdam',
+      postal_code: '1015 CJ',
+      country: 'NL',
+    };
+
+    const cart = await createCart(a, scope, {});
+    await addLineItem(a, cart.id, { variant_id: v.id, quantity: 1 });
+    const priced1 = await updateCart(a, cart.id, {
+      shipping_address: address,
+      shipping_option_id: option.rows[0]!.id,
+    });
+    const base = Number(v.price);
+    const goodsTax = taxOn(base, 2100);
+    const deliveryTax = taxOn(shipping, 2100); // 105
+    expect(priced1.totals.shipping.amount_minor).toBe(shipping);
+    expect(priced1.totals.tax.amount_minor).toBe(goodsTax + deliveryTax);
+    expect(priced1.totals.total.amount_minor).toBe(base + shipping + goodsTax + deliveryTax);
+
+    await setTax(A, { shipping_taxable: false });
+    const cart2 = await createCart(a, scope, {});
+    await addLineItem(a, cart2.id, { variant_id: v.id, quantity: 1 });
+    const priced2 = await updateCart(a, cart2.id, {
+      shipping_address: address,
+      shipping_option_id: option.rows[0]!.id,
+    });
+    expect(priced2.totals.tax.amount_minor).toBe(goodsTax);
+    expect(priced2.totals.total.amount_minor).toBe(base + shipping + goodsTax);
   });
 });

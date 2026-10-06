@@ -32,11 +32,18 @@ export function taxFallbackEnabled(
   return flag === '1';
 }
 
+/**
+ * The store's `settings.tax` plus its legal entity's country (the `shipping_taxable` default, #352: EU → the
+ * delivery charge carries VAT at the goods' rate). `legal_entity` is an organization table the tenant client reads.
+ */
 async function settingsFor(ctx: TaxContext): Promise<TaxSettings> {
-  const r = await ctx.tx.query<{ settings: unknown }>(`SELECT settings FROM store WHERE id = $1`, [
-    ctx.storeId,
-  ]);
-  return taxSettingsFrom(r.rows[0]?.settings);
+  const r = await ctx.tx.query<{ settings: unknown; country: string | null }>(
+    `SELECT s.settings, le.country
+     FROM store s LEFT JOIN legal_entity le ON le.id = s.legal_entity_id
+     WHERE s.id = $1`,
+    [ctx.storeId],
+  );
+  return taxSettingsFrom(r.rows[0]?.settings, { legalEntityCountry: r.rows[0]?.country ?? null });
 }
 
 export function createTaxCalculator(opts: TaxCalculatorOptions = {}): TaxCalculator {
