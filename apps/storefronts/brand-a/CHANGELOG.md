@@ -1,5 +1,28 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-06 · the order total is compared with the review step, not with arithmetic (#374)
+
+- **`e2e/journey.spec.ts` no longer adds delivery by hand.** The buy test asserted
+  `order total == cart total + delivery row`, reading both off the page. The arithmetic carried an
+  unstated promise — that delivery is untaxed — and #352 (delivery charged at the goods' VAT rate,
+  merging as #373) broke it: the core answered 2661 where the spec demanded 2057 + 499, and a
+  correct app failed by exactly the €4.99's 21% VAT.
+- **What it compares now:** the confirmation against the **review step** — the last page that states
+  the price, and the first that states it with delivery chosen. `completeCheckout()` captures the
+  review step's totals with `captureOrder()` before clicking _Place order_ and returns them; the
+  confirmation's total, lines and currency are asserted equal to those. Both sides are read from the
+  page in minor units, so the assertion holds whatever the core decides delivery and tax are, on
+  today's main and after #373, with no edit either way. This is the comparison brand A's own
+  `checkout.spec.ts` and the starter's have always made.
+- The cart stays in the chain as a **bound**, not an equation: priced before delivery existed, it can
+  only say the order is not cheaper than the goods. The confirmation's delivery row is still
+  asserted present, for whatever it cost.
+- `completeCheckout()` now **fails loudly if the review step never rendered**, instead of leaving the
+  caller's total assertion comparing against nothing and passing.
+- Checked and clean, **not edited** (window 3's): `apps/storefront-starter/e2e/checkout.spec.ts`
+  already compares the confirmation with the review step. No spec in the starter's suite, and none
+  of brand A's others, does arithmetic on money.
+
 ## Unreleased — 2026-10-05 · launch checklist (#144)
 
 - **`LAUNCH.md`**: domain/DNS, certificates, env and secrets, the Keycloak customers client, Stripe,

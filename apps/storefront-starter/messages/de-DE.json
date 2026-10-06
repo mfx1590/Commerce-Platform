@@ -150,7 +150,6 @@
     "confirmation": {
       "badge": "Bestellung aufgegeben",
       "title": "Vielen Dank",
-      "body": "Bestellung #{order} wurde aufgegeben und wird bearbeitet.",
       "delivery": "Versand",
       "unavailable": "Bestellung nicht verfügbar",
       "unavailableBody": "Diese Bestellung kann nur der Person angezeigt werden, die sie aufgegeben hat. Melden Sie sich an, um die Bestellungen in Ihrem Konto zu sehen.",
@@ -159,7 +158,22 @@
       "followSignedIn": "Den Status sehen Sie in Ihrem Konto:",
       "orderHistory": "Bestellübersicht",
       "followGuest": "Bitte notieren Sie Ihre Bestellnummer #{order} — Sie benötigen sie, wenn Sie uns zu dieser Bestellung kontaktieren.",
-      "contactEmail": "E-Mail"
+      "contactEmail": "E-Mail",
+      "bodyByStatus": {
+        "pending": "Bestellung #{order} wurde aufgegeben und wird bearbeitet.",
+        "confirmed": "Bestellung #{order} wurde aufgegeben und wird bearbeitet.",
+        "processing": "Bestellung #{order} ist unterwegs.",
+        "completed": "Bestellung #{order} wurde zugestellt.",
+        "cancelled": "Bestellung #{order} wurde storniert."
+      },
+      "statusLabel": "Bestellstatus:",
+      "status": {
+        "pending": "Eingegangen",
+        "confirmed": "Bestätigt",
+        "processing": "In Bearbeitung",
+        "completed": "Abgeschlossen",
+        "cancelled": "Storniert"
+      }
     },
     "errors": {
       "generic": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
