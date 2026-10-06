@@ -19,7 +19,9 @@
  * @returns {Record<string, string | undefined>} a copy, safe to hand to the build and the server
  */
 export function e2eServerEnv(env) {
-  const serverEnv = { ...env, E2E_LOCAL_IMAGES: '1' };
+  // Invoices on (#358): the mock run has no Stripe key, so without them it could not check out. A
+  // card run adds the key on top; the journey chooses invoice explicitly either way.
+  const serverEnv = { ...env, E2E_LOCAL_IMAGES: '1', STOREFRONT_ALLOW_INVOICE: '1' };
   const core = env.E2E_STORE_API_URL;
   if (core === undefined || core === '') {
     // A mock run: nothing the shell exports may point the app anywhere else.

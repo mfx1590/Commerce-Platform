@@ -1,6 +1,6 @@
 'use client';
 
-import { Badge, Button, Input, Price, Select, cn } from '@platform/ui';
+import { Button, Input, Price, cn } from '@platform/ui';
 import { useTranslations } from 'next-intl';
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
@@ -25,7 +25,6 @@ const EMPTY: ActionState = {};
  * The contract's payment provider id (`PaymentSession.provider`), not copy: an identifier is the
  * same in every language, so it is a constant rather than a catalogue entry.
  */
-const PAYMENT_PROVIDER = 'manual';
 
 function SubmitButton({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus();
@@ -244,9 +243,36 @@ export function ShippingForm({
   );
 }
 
-export function PaymentForm({ failed }: { failed: boolean }) {
+/**
+ * The payment method (#358): Card (Stripe Payment Element) when the store has a publishable key,
+ * Pay on invoice when the store allows it — whatever the server says is on offer, re-checked on
+ * submit. Choosing creates the payment session; the card itself is entered on the review step, where
+ * "Place order" confirms it, so no authorisation is held before the customer has seen the total.
+ */
+export function PaymentForm({
+  failed,
+  methods,
+  selected,
+}: {
+  failed: boolean;
+  methods: { card: boolean; invoice: boolean };
+  selected: 'stripe' | 'manual' | null;
+}) {
   const [state, formAction] = useActionState(createPaymentSessionAction, EMPTY);
   const t = useTranslations('checkout.payment');
+  const offered = [
+    ...(methods.card ? [{ id: 'stripe', label: t('card'), body: t('cardBody') }] : []),
+    ...(methods.invoice ? [{ id: 'manual', label: t('manual'), body: t('manualBody') }] : []),
+  ];
+
+  if (offered.length === 0) {
+    return (
+      <p role="alert" className="text-sm text-muted-foreground">
+        {t('none')}
+      </p>
+    );
+  }
+  const preselected = offered.some((method) => method.id === selected) ? selected : offered[0]!.id;
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -260,18 +286,30 @@ export function PaymentForm({ failed }: { failed: boolean }) {
       ) : null}
       <ErrorNote state={state} />
 
-      <div className="flex items-center justify-between rounded-lg border border-border p-4">
-        <span className="flex flex-col">
-          <span className="font-medium">{t('manual')}</span>
-          <span className="text-sm text-muted-foreground">{t('manualBody')}</span>
-        </span>
-        <Badge variant="neutral">{PAYMENT_PROVIDER}</Badge>
-      </div>
-
-      {/* Present so the payment method is an explicit choice, as it will be with real providers. */}
-      <Select name="provider" aria-label={t('method')} defaultValue={PAYMENT_PROVIDER} disabled>
-        <option value={PAYMENT_PROVIDER}>{t('manual')}</option>
-      </Select>
+      <fieldset className="flex flex-col gap-3">
+        <legend className="sr-only">{t('method')}</legend>
+        {offered.map((method) => (
+          <label
+            key={method.id}
+            className={cn(
+              'flex cursor-pointer items-center gap-3 rounded-lg border border-border p-4',
+              'has-[:checked]:border-primary',
+            )}
+          >
+            <input
+              type="radio"
+              name="provider"
+              value={method.id}
+              defaultChecked={method.id === preselected}
+              className="h-4 w-4"
+            />
+            <span className="flex flex-col">
+              <span className="font-medium">{method.label}</span>
+              <span className="text-sm text-muted-foreground">{method.body}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
 
       <SubmitButton>{t('submit')}</SubmitButton>
     </form>

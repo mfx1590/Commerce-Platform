@@ -127,16 +127,25 @@
       "title": "How would you like to pay?",
       "method": "Payment method",
       "manual": "Pay on invoice",
-      "manualBody": "Phase 1 placeholder — the manual provider. Card payment arrives with hosted fields, so card data never reaches this app.",
+      "manualBody": "The order is placed now; payment is arranged separately with the shop.",
       "failed": "Payment was not authorised. Choose a payment method and try again.",
-      "submit": "Continue to review"
+      "submit": "Continue to review",
+      "card": "Card",
+      "cardBody": "Enter your card on the next step. Card details go straight to our payment provider, Stripe — never to this shop.",
+      "none": "No payment method is available for this shop right now. Please contact us to complete your order."
     },
     "review": {
       "title": "Review your order",
       "deliveryAddress": "Delivery address",
       "deliveryAndPayment": "Delivery and payment",
       "placeOrder": "Place order",
-      "idempotencyNote": "Placing the order sends an idempotency key, so a retry after a network error cannot create a second order."
+      "idempotencyNote": "Placing the order sends an idempotency key, so a retry after a network error cannot create a second order.",
+      "cardNote": "Placing the order checks your card and reserves the amount; your card is charged once the shop confirms the order. Card details go straight to Stripe — never to this shop.",
+      "cardFailed": "Your card was not authorised. Please check the details or try another card.",
+      "cardUnavailable": "Card payment is not available right now.",
+      "choosePayment": "Choose another payment method",
+      "priceChanged": "A price changed since you reviewed your order. Please check the new total and place it again.",
+      "threeDSecureAbandoned": "The card check with your bank was not completed, so nothing was charged and your order was not placed. Your cart is unchanged — you can try again."
     },
     "confirmation": {
       "badge": "Order placed",

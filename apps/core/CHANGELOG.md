@@ -1,6 +1,31 @@
 # Changelog — @platform/core
 
-## Unreleased — Phase 2 (window 1, contracts-v0.3)
+## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
+
+### 2026-10-06 · the order status lifecycle is automatic (#350, Integration 2a)
+
+- Every order stayed `pending` since September: `confirmOrder` had no caller. Now the trigger performs the move
+  in its own transaction, with the outbox row: **`confirmed`** when the payment is authorised
+  (`confirmOnAuthorizationInTx` — at placement, right after `order.placed`; on a `payment_status` move to
+  `authorized` / `captured`; when a fraud review is cleared — a hold keeps the order `pending`, through captures
+  and shipments); **`processing`** when the first shipment leaves planned (new `markShipmentStarted(InTx)` for
+  window 8; `markShipped(InTx)` applies it too, in the same transition as the fulfilment change); **`completed`**
+  when every shipment of the order is `delivered` (cancelled ones excluded) and the order is fulfilled —
+  `markDelivered(InTx)` is a quiet no-op until then (it answered 409 "not fully fulfilled" before) and passes a
+  `confirmed` order through `processing`. A `failed` shipment counts as open: the order stays `processing` until
+  operations re-plan or cancel it (review decision). Only `cancelOrder` is explicit.
+- `markShipmentCreated(InTx)` moves nothing any more (planning is not leaving planned); kept for window 8's call.
+- Placement answers `status: confirmed` for the manual provider; a fraud-held placement still answers `pending`.
+- `GET /store` carries `payment.methods` (Store API 0.5.4, #350 / #358): `card` when the store has a Stripe
+  secret key (`STRIPE_SECRET_KEY_<CODE>` or `STRIPE_SECRET_KEY`, read on every call), `invoice` when
+  `settings.payment.invoice_allowed === true` (absent = false; the seed sets it). Derived, never stored.
+- Tests: orders (automatic confirm; the fraud hold through capture and its clearing; `confirmed_fraud`; processing
+  on `markShipped`; completion only when every shipment is delivered; the pass through processing), checkout and
+  Store / Admin API placement reads, the lifecycle replay, `paymentMethodsOf` and the route.
+- Not in this PR (by the manager): `capturePayment` (#355, window 7), `buyShipmentLabel` (#356, window 8), the
+  `provider_unsupported` 422 mapping (contracts 0.4.12).
+
+## Phase 2 (window 1, contracts-v0.3)
 
 ### 2026-10-03 · the customer on carts and orders — review fixes (#325)
 

@@ -31,7 +31,7 @@ import {
   type PricingContext,
 } from '../cart';
 import { reserveForOrder } from '../inventory';
-import { flagOrderForReview, renderStoreOrder } from '../orders';
+import { confirmOnAuthorizationInTx, flagOrderForReview, renderStoreOrder } from '../orders';
 import { paymentProvider, registeredPaymentProviders } from './payment';
 import type {
   CompleteCartInput,
@@ -635,6 +635,10 @@ async function placeOrder(
         }),
       ]);
       if (input.hooks?.afterEvents) await input.hooks.afterEvents(tx);
+
+      // ---- confirmed (#350) ---- The payment is authorised, so the order confirms here, after order.placed in
+      // the stream; an order held by a fraud review stays pending until the review is cleared (#231).
+      await confirmOnAuthorizationInTx(tx, order.id, input.actor);
 
       // ---- cart completed ----
       await tx.query(
