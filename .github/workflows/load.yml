@@ -1,0 +1,73 @@
+name: load (manual)
+
+# The #359 load test on a GitHub-hosted runner: infra/load/run.sh, the same script the laptop runs.
+# workflow_dispatch ONLY — never on a pull request or a push. A 15-minute run that measures a machine is
+# not a check: it would turn every PR's CI into a benchmark of whichever runner it landed on.
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'target run length (k6 duration, e.g. 10m; 1m for a smoke)'
+        default: '10m'
+      browse_rps:
+        description: 'browse requests per second'
+        default: '50'
+      orders_per_min:
+        description: 'orders placed per minute'
+        default: '30'
+      skip_ramps:
+        description: 'skip the two ramps (the app-pool knee and the placement ceiling): the target run only'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  load:
+    name: load (manual)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The same services as `auth-e2e` in ci.yml. Nothing here needs a secret: the load uses the seeded
+      # publishable key on a throwaway database.
+      - name: boot postgres, redis, keycloak and openfga
+        run: docker compose -f infra/docker/docker-compose.yml up -d postgres redis keycloak openfga
+      - name: the stack is really up
+        run: bash infra/ci/wait-for-auth-stack.sh
+      - name: load run (target, the app-pool knee, the placement ceiling) and report
+        env:
+          DURATION: ${{ inputs.duration }}
+          BROWSE_RPS: ${{ inputs.browse_rps }}
+          ORDERS_PER_MIN: ${{ inputs.orders_per_min }}
+          LOAD_SKIP_POOL: ${{ inputs.skip_ramps && '1' || '' }}
+          LOAD_SKIP_CEILING: ${{ inputs.skip_ramps && '1' || '' }}
+        run: bash infra/load/run.sh "$RUNNER_TEMP/load"
+      - name: report to the job summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/load/report.md" ]; then cat "$RUNNER_TEMP/load/report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-report
+          path: ${{ runner.temp }}/load
+          retention-days: 30
+          if-no-files-found: warn
+      - name: stop the stack
+        if: always()
+        run: docker compose -f infra/docker/docker-compose.yml down -v
