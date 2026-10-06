@@ -543,6 +543,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/orders/{orderId}/payments/{paymentId}/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                paymentId: components["parameters"]["PaymentId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Capture an authorised payment in full or in part (emits payment.captured)
+         * @description Captures through the payment's provider. Without a body the whole authorised amount is captured;
+         *     `amount_minor` captures part of it and must not exceed the authorised amount. The response is the
+         *     payment with status `captured`. 409 when the payment is not `authorized` (already captured, failed,
+         *     cancelled, still pending) or `amount_minor` exceeds the authorised amount; 422 when the provider cannot
+         *     capture (the manual provider has nothing to capture).
+         */
+        post: operations["capturePayment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/orders/{orderId}/returns": {
         parameters: {
             query?: never;
@@ -764,6 +792,30 @@ export interface paths {
         put?: never;
         /** Mark a picked shipment packed and ready for the carrier (emits fulfillment.packed) */
         post: operations["packShipment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/shipments/{shipmentId}/label": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Buy a carrier label for a packed shipment (emits shipment.label_created)
+         * @description Buys the label through the store's carrier and moves the shipment to `label_created` with `label_url`,
+         *     `tracking_number` and `tracking_url` set. 409 when the shipment is not `packed`; 422 when the store's
+         *     carrier cannot buy labels (the manual carrier — attach tracking with updateShipment instead).
+         */
+        post: operations["buyShipmentLabel"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1422,7 +1474,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, internal */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, internal */
             code: string;
             message: string;
             details?: {
@@ -1920,7 +1972,10 @@ export interface components {
             email: string;
             /** Format: uuid */
             customer_id: string | null;
-            /** @enum {string} */
+            /**
+             * @description Order lifecycle (#350) — see the `Order` schema description for when each transition happens
+             * @enum {string}
+             */
             status: "pending" | "confirmed" | "processing" | "completed" | "cancelled";
             /** @enum {string} */
             payment_status: "awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed";
@@ -2009,6 +2064,19 @@ export interface components {
             /** Format: date-time */
             received_at: string | null;
         };
+        /**
+         * @description Order status lifecycle (manager decision on #350, contracts 0.4.11). Every automatic transition happens in
+         *     the core in the same transaction as the change that triggers it, with its outbox row.
+         *     - `pending` — placed, payment not yet authorised.
+         *     - `confirmed` — payment authorised (automatic; at placement for the manual provider and for a Stripe
+         *       session that succeeded; emits `order.confirmed`).
+         *     - `processing` — fulfilment started, i.e. the first shipment leaves planned (`Shipment.status`
+         *       `pending`) (automatic; emits `order.updated`).
+         *     - `completed` — every shipment of the order is `delivered` (automatic; emits `order.completed`).
+         *     - `cancelled` — `cancelOrder` (explicit).
+         *     A manual-carrier shipment reaches `delivered` through `updateShipment` (`status: delivered`); carrier
+         *     webhooks do it for EasyPost.
+         */
         Order: components["schemas"]["OrderSummary"] & {
             /** Format: uuid */
             sales_channel_id: string;
@@ -2690,10 +2758,29 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The store's provider or carrier cannot perform this operation (e.g. the manual provider / carrier) */
+        Unprocessable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "provider_unsupported",
+                 *       "message": "the manual provider cannot capture payments",
+                 *       "details": {
+                 *         "provider": "manual"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         StoreId: string;
         OrderId: string;
+        PaymentId: string;
         Page: number;
         Limit: number;
         /** @description Sort direction. Ignored unless `sort` is present. */
@@ -4439,6 +4526,42 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    capturePayment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                orderId: components["parameters"]["OrderId"];
+                paymentId: components["parameters"]["PaymentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Partial capture; at most the authorised amount. Omitted = the whole authorisation */
+                    amount_minor?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Payment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     createReturn: {
         parameters: {
             query?: never;
@@ -5104,6 +5227,33 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    buyShipmentLabel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Shipment"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     listPickLists: {

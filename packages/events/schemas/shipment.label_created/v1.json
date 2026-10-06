@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/shipment.label_created/v1.json",
+  "title": "shipment.label_created v1",
+  "description": "A carrier label was bought for a packed shipment (buyShipmentLabel). Carries the tracking number and the label URL, never an address or a name.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "shipment_id",
+    "order_id",
+    "store_id",
+    "carrier",
+    "tracking_number",
+    "label_url",
+    "created_at"
+  ],
+  "properties": {
+    "shipment_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "order_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "store_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "carrier": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tracking_number": {
+      "type": "string",
+      "minLength": 1
+    },
+    "label_url": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

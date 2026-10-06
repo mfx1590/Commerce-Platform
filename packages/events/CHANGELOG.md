@@ -20,3 +20,8 @@
 
 - Three additive v1 schemas: `fulfillment.requested` (a warehouse or 3PL accepted the fulfilment; carries provider + external_id), `fulfillment.picking` (picking started), `fulfillment.packed` (ready for the carrier; optional parcel_count). All carry ids, quantities and a timestamp only — no address, no name, no email. Envelope topic enum gains the three topics (34 total, was 31).
 - Producer: window 8 (fulfillment module, task 2.5). Consumers: windows 4 (admin fulfillment screens), 11 (warehouse, Phase 3), 15 (accounting reads shipment.shipped as before — fulfillment.* are workflow signals, not money).
+
+## 0.3.1 — 2026-10-06 (CONTRACT CHANGE #354, Integration 2a; contracts-v0.4.11)
+
+- One additive v1 schema: `shipment.label_created` — a carrier label was bought for a packed shipment (`buyShipmentLabel`, Admin API 0.4.9). Payload: `shipment_id`, `order_id`, `store_id`, `carrier`, `tracking_number`, `label_url`, `created_at`; ids, the tracking number and the label URL only — no address, no name. Envelope topic enum gains it (35 topics, was 34). `payment.captured`, `order.confirmed` and `order.completed` already exist at v1 and are unchanged.
+- Producer: the core's shipping module (in the same transaction as the move to `label_created`). Consumers: admin fulfillment screens; nobody is required to handle it (unknown-topic rule).

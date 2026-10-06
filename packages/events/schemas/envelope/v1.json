@@ -43,6 +43,7 @@
         "refund.issued",
         "refund.failed",
         "shipment.created",
+        "shipment.label_created",
         "shipment.shipped",
         "shipment.delivered",
         "fulfillment.requested",
