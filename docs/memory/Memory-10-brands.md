@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.11 · Branch: `brands/phase3` (from main 1280fe6) · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); working the manager's 2a docket (#374, then #372's brand A half, then #348).
+Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main e7f2f3e) · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); working the manager's 2a docket (#374, then #372's brand A half, then #348).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,6 +17,23 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#372 · brand A's half — the re-sync at main `e7f2f3e`.** 202 copied, 1 merged, 10 preserved, 4
+  excluded. Brings the starter's #372/#375 half **and** the card-payment work from #365/#367:
+  `order-confirmation-header.tsx` + `data-order-status` + `confirmation.bodyByStatus`/`status`
+  messages in both locales (the de-DE translations came through the sync in real German — the risk I
+  had flagged did not materialise); `e2e/order-lifecycle.spec.ts` (place → ship → deliver, asserts
+  `processing` then `completed` by hook *and* by rendered text — this IS #372's brand A assertion, so
+  no hand-written spec was needed); the whole Stripe Payment Element set; CSP for Stripe;
+  `e2e/card-payment.spec.ts`; and **`STOREFRONT_ALLOW_INVOICE` removed** — methods now come from
+  `Store.payment.methods` (Store API 0.5.4). `pnpm install` was needed for the three merged deps
+  (`@stripe/react-stripe-js`, `@stripe/stripe-js`, `jsdom`), so **pnpm-lock.yaml is in the PR**.
+  - **Preserved drift ported by hand: `playwright.config.ts`.** Took `workersFromEnv()`. **Refused**
+    the starter's new `import { RUNTIME_SITE_URL }` — see the Gotcha below; documented in the file,
+    the README row and the README's e2e section. `sync --check` now says "manifest is current".
+  - Gates: lint, `format:check`, typecheck clean; unit **730 passed / 2 skipped** (687 before — all
+    43 synced tests pass); mock e2e **83 passed / 35 skipped**, exit 0. `order-lifecycle.spec.ts` and
+    `card-payment.spec.ts` skip without the core by design — **the core leg on the PR is the proof**.
+  - **Machine free** (no core, no Keycloak, no docker touched).
 - **#374 · the buy test's order total** — `apps/storefronts/brand-a/e2e/journey.spec.ts`. It asserted
   `order total == cart total + delivery row`, which silently claimed delivery is untaxed; #352 (PR
   #373) taxes delivery at the goods' rate, so the core answered 2661 where the spec demanded
@@ -109,13 +126,28 @@ Phase 2 memory commit carried across by cherry-pick. Rules for 2a: merge main be
 per task, **hold each push until the manager confirms the previous merge**, no docker, long runs
 detached to a file with bounded polls, say "machine free" after any core run.
 
-1. **#374 — DONE locally, PR open.** See Done below.
-2. **#372, brand A's half** — order status asserted after ship/deliver. Window 3 does the starter
-   first; I align by sync, so **wait for the starter's version to land** rather than writing it twice.
-3. **#348** — decide with data: ten runs of LCP for brand A's PLP and PDP are on the issue and in the
-   perf logs. A decision task, not a measurement task — read the numbers that already exist before
-   running anything, and remember that a measurement run has to be driven in-turn
-   ([[laptop-standby-voids-background-runs]]).
+1. ~~**#374**~~ — **MERGED.** PR #377, reviewed MERGE by the manager, merged to main as `e1e515f`
+   (the queue merged main into the branch as `06b893e` first). Commits `54a8171` (the fix) and
+   `128542e` (prettier). See Done below.
+
+2. **#372, brand A's half — DONE locally, pushed, PR open.** See Done below.
+
+3. **#348 — a DECISION from data that already exists, and I will give it its OWN PR** (the manager
+   left the choice to me; riding it in a 36-file re-sync body would bury it).
+   The ask is explicit: ten runs' PLP + PDP LCP from the perf-leg logs, then **either** a real LCP
+   improvement on the listing page **or** a measured decision on the threshold — "do not loosen the
+   budget without the numbers". Acceptance also wants 30 consecutive green brand A perf legs.
+   Known so far: run 37301539904/job 111735243808 — PLP LCP 2815/2598/2571, asserted **2570.6** vs
+   `maxNumericValue: 2500` → **FAIL by 71 ms**; PDP passed at 2177 with a worst run of 2458 (42 ms
+   under). Runner CPU benchmark 2066–2463, and the slowest page run had the slowest benchmark —
+   simulated throttling scales LCP with runner speed, so this is runner variance, not a brand A
+   regression. Failure rate 1 in 20 on the brand A leg, 0 in 25 on the starter's.
+   The manager's 2026-10-06 datapoint: **PDP 2565/2648/2642**. Note that PDP is now *worse* than the
+   PLP numbers that failed — so the question may not be "fix the PLP" at all. Window 5's #283 leg
+   now prints per-run numbers, so the ten runs are recoverable from the perf-leg logs of recent PRs.
+   First real question to answer with the logs: **what is the LCP element on the PLP** (the first
+   product image?) and is it prioritised, sized and served at the right width — because a genuine fix
+   beats a threshold argument.
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
@@ -146,6 +178,23 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   markdown files (prettier wants `_Place order_`, not `*Place order*`). Run it before every push,
   especially after hand-writing CHANGELOG/README prose. That job also runs `git diff --exit-code` on
   `packages/{events,contracts}/src/generated`, so rebuild those packages before pushing too.
+- **A stale Docker-published Prism on :4010 silently poisons local mock e2e runs.** Two checkout
+  specs failed at "Pay on invoice" after the #372 re-sync. Nothing was wrong with the code: port 4010
+  on this laptop is held by `com.docker.backend` / `wslrelay` from **2026-10-01**, serving a spec
+  from before `Store.payment.methods` existed, and `reuseExistingServer: !CI` made Playwright adopt
+  it — so `paymentOptions()` saw a store with no `payment` and correctly rendered "no payment method
+  available". **Do not kill it** ([[stack-interventions-need-prior-ok]], and the 2a brief says no
+  docker): run on private ports instead —
+  `MOCK_API_URL=http://127.0.0.1:4310 MOCK_STORE_PORT=4310 MOCK_ADMIN_PORT=4311 pnpm e2e`
+  (set the admin port too: `mock.mjs` kills both servers if either fails to bind). CI is unaffected —
+  `reuseExistingServer` is off there. **Symptom to recognise:** a mock run failing on a feature the
+  contract gained recently, with no error in the app's own log.
+- **`playwright.config.ts` must never import `RUNTIME_SITE_URL`** from `e2e/support/build-origin`,
+  however the starter writes it. The module computes `process.env.SITE_URL ?? ':3100'` in a
+  module-level `const`; ES imports evaluate before the importing module's body; brand A's
+  `process.env.SITE_URL ??= ':3101'` is in that body. Importing it would bake in the starter's port
+  and send every redirect out of the brand. The sync flags this file whenever the starter touches it —
+  port the change, keep the divergence.
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app

@@ -1,5 +1,40 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-06 · re-sync at main e7f2f3e: order status, card payment, invoice from the store (#372)
+
+- **Re-sync**: 202 copied, 1 merged, 10 preserved, 4 excluded (from 217 tracked starter files).
+  Brings the starter's #372/#375 half and the card-payment work from #365/#367:
+  - **Order status on the confirmation (#372)** — `src/components/order-confirmation-header.tsx`,
+    `orderConfirmationHooks` gains `data-order-status`, and `confirmation.bodyByStatus` /
+    `confirmation.status` message groups in **both** locales. `e2e/order-lifecycle.spec.ts` arrives
+    with it: place an order, ship it, deliver it, and assert the confirmation says `processing` then
+    `completed` — by the hook _and_ by the rendered `Status: …` text.
+  - **Card payment** — `card-payment.tsx`, `card-payment-lazy.tsx`, `card-payment-messages.ts`,
+    `payment-choice.ts`, `payment-options.ts`, `checkout-email.ts`, the review step's Payment
+    Element and `price_changed` alert, CSP allowances for Stripe, and `e2e/card-payment.spec.ts`.
+    Dependencies `@stripe/react-stripe-js`, `@stripe/stripe-js` and `jsdom` came in with the
+    package.json merge.
+  - **`STOREFRONT_ALLOW_INVOICE` is gone (#372).** Which methods the checkout offers now comes from
+    `Store.payment.methods` (Store API 0.5.4); contracts are at **v0.4.12**.
+- **Preserved-file drift, ported by hand:** `~ playwright.config.ts` — took the starter's
+  `workersFromEnv()` validation (`E2E_WORKERS=0` or `=two` used to mean "Playwright's default"
+  silently). **Did not** take its new `import { RUNTIME_SITE_URL }`: that module reads
+  `process.env.SITE_URL` in a module-level `const` and ES imports run before the importing module's
+  body, so the import would freeze the starter's `:3100` before brand A's `??= :3101` ran and send
+  every redirect out of the brand. Documented in the README and in the file, because the sync will
+  report this file again next time.
+- The other 9 preserved files were clean; `sync --check` ends "manifest is current".
+- Verified: lint, `format:check` and typecheck clean; unit **730 passed / 2 skipped** (up from 687 —
+  the 43 synced tests all pass); mock e2e **83 passed / 35 skipped**, exit 0. `order-lifecycle.spec.ts`
+  and `card-payment.spec.ts` both skip without the core by design, so the **core leg on the PR is the
+  proof of the status assertion**.
+- **Local-only gotcha, not a code problem:** the first mock run failed two checkout specs at
+  "Pay on invoice". Port 4010 on this laptop is held by a **Docker-published Prism from 2026-10-01**,
+  predating `Store.payment.methods`, and Playwright's `reuseExistingServer` adopted it — so the app
+  saw a store with no `payment` and correctly rendered "no payment method available". Re-running with
+  `MOCK_API_URL`/`MOCK_STORE_PORT`/`MOCK_ADMIN_PORT` on 4310/4311 is green. CI is unaffected:
+  `reuseExistingServer` is off there, so it always starts a fresh mock from the current spec.
+
 ## Unreleased — 2026-10-06 · the order total is compared with the review step, not with arithmetic (#374)
 
 - **`e2e/journey.spec.ts` no longer adds delivery by hand.** The buy test asserted
