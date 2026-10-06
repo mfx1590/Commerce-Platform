@@ -114,7 +114,8 @@ from `E2E_STORE_API_URL` alone (`scripts/e2e-env.mjs`): a `STORE_API_URL` export
 is dropped for a mock run. Before that, a shell carrying the `.env.example` value made a "mock"
 run talk to the core — the core-only tests skipped with the mock's reason while the journey spent
 real stock. The journey also ties the confirmation to its own run: against the core it enters an
-email only that run uses and requires the confirmation to name it, and on both backends the cart
+email only that run uses and requires the confirmation to show it (as the order's contact detail —
+the page claims no email was sent, #351), and on both backends the cart
 must be empty afterwards.
 
 **The suite is data-independent** (2.1). It used to encode the mock — the fixture's product name and
