@@ -281,6 +281,10 @@ export function createManualCarrierProvider(
 
   return {
     name,
+    // `manual` means "no carrier integration": the Admin API answers 422 `provider_unsupported` to
+    // `buyShipmentLabel` for it. The same implementation under any other name is the carrier test double
+    // (`createTestCarrierProvider`) and does buy labels, which is what the module's own tests use.
+    canBuyLabels: name !== 'manual',
     rates,
     buyLabel,
     voidLabel,
@@ -294,5 +298,24 @@ export function createManualCarrierProvider(
   };
 }
 
-/** The built-in instance the registry serves under `manual`. */
+/** The built-in instance the registry serves under `manual`. It cannot buy labels — see `canBuyLabels`. */
 export const manualCarrierProvider = createManualCarrierProvider();
+
+/**
+ * The deterministic carrier test double: the manual implementation under another name, so it *can* buy labels.
+ * Register it with `setCarrierProvider` and point the store's `settings.shipping.provider` at the same name.
+ * It is what the label and tracking suites run against until EasyPost TEST keys are in the worktree's `.env`;
+ * `easypost-live.test.ts` covers the real carrier and skips without a key.
+ */
+export function createTestCarrierProvider(
+  config: ManualCarrierConfig = DEFAULT_MANUAL_CONFIG,
+  name = 'test-carrier',
+  limits: ManualProviderLimits = {},
+): ReturnType<typeof createManualCarrierProvider> {
+  if (name === 'manual') {
+    throw new Error(
+      'the carrier test double must not be registered as `manual`: manual cannot buy labels',
+    );
+  }
+  return createManualCarrierProvider(config, name, limits);
+}
