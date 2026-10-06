@@ -196,6 +196,14 @@ iteration is tens of units; the shared seed is topped up to at least 25 availabl
 `e2e/journey.spec.ts` covers what the inherited `checkout.spec.ts` does not: **PDP variant
 selection**, and the cart→checkout hand-off, against the core.
 
+**Money is never arithmetic the spec does** (#374). The buy test compares the confirmation's total
+with the **review step's** — captured by `completeCheckout()` before _Place order_, in minor units off
+the page — because the review step is the last page to state the price and the first to state it with
+delivery chosen. It once asserted `order == cart + delivery` instead, and #352 (delivery charged at
+the goods' VAT rate) made a correct app fail by exactly that VAT. Adding up rows here re-states the
+core's pricing rules in a place that does not own them; comparing two pages does not. The cart, priced
+before delivery existed, is only a lower bound on the order.
+
 **Order history against the core** (`journey.spec.ts`, "order history"): sign in as the realm's
 verified customer, buy one unit, then find **that order id** in `/account/orders` at the confirmation's
 total, and open it from there. Since the sync that brought #312, brand A sends the customer token on
