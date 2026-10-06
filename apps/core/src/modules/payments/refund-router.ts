@@ -9,14 +9,16 @@
 // else (support, and whoever else passes the `support` permission) gets `store.settings.support_refund_limit_minor`
 // as a ceiling; a missing setting means no limit. Mounted by window 1 through `moduleAdminRouters()` in
 // src/http/module-routers.ts (REQUEST #176 part 4) — after `adminRouter()`, so it has the staff principal, the
-// JSON body parser and the error handler.
+// JSON body parser and the error handler. The same router carries the capture route (#355, ./capture-route.ts).
 import { Router, type Request } from 'express';
 import { handle } from '../../http/errors';
 import { loadSpec } from '../../http/openapi';
-import { can, requirePermission, resolveObject } from '../../http/permissions';
+import { can } from '../../http/permissions';
 import { uuidParam } from '../../http/query';
 import { requirePrincipal, storeClientFor } from '../../http/staff-auth';
 import { validationError } from '../../lib/errors';
+import { permission } from './admin-permission';
+import { mountCaptureRoute, type CaptureRouteStripeOptions } from './capture-route';
 import { createRefund, type RefundReason } from './refunds';
 
 export const REFUNDS_PATH = '/admin/stores/:storeId/orders/:orderId/refunds';
@@ -36,14 +38,6 @@ function idempotencyKeyOf(req: Request): string {
   return key;
 }
 
-/** `requirePermission` for the operation's `x-permission`; `{storeId}` in the object comes from the path. */
-function permission(operationId: string) {
-  const perm = loadSpec('admin-api.yaml').permission(operationId);
-  return requirePermission(perm.relation, (req) =>
-    resolveObject(perm.object, { storeId: uuidParam(req.params, 'storeId') }),
-  );
-}
-
 interface CreateRefundBody {
   payment_id?: string;
   amount_minor: number;
@@ -51,8 +45,15 @@ interface CreateRefundBody {
   return_id?: string;
 }
 
-export function paymentsAdminRouter(): Router {
+export interface PaymentsAdminRouterOptions {
+  /** Stripe seam for the capture route (tests inject FakeStripe); production leaves it empty. */
+  stripe?: CaptureRouteStripeOptions;
+}
+
+export function paymentsAdminRouter(opts: PaymentsAdminRouterOptions = {}): Router {
   const router = Router();
+  // Admin API `capturePayment` (#355) lives next to `createRefund` under the one router window 1 mounts.
+  mountCaptureRoute(router, opts.stripe ?? {});
   router.post(
     REFUNDS_PATH,
     permission('createRefund'),

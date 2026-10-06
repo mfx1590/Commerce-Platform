@@ -76,7 +76,9 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **#356 / PR #369 — reviewed MERGE (Fable static review, 2026-10-06), queues on green.** Nothing else is being
+- **#356 / PR #369 — reviewed MERGE (Fable static review, 2026-10-06); skipped by the queue once on a
+  conflict with #370, re-merged against main `e708727` (which carries #368 and #370's `5e10724`) and
+  re-gated, so it queues again on green.** Nothing else is being
   written on this branch. When it merges, put the merge sha on the Done entry and clear this.
 - **Owed after contracts 0.4.12 lands** (the manager lands `ERROR_CODES` + the core's status map once #368/#369
   are in): delete the `PROVIDER_UNSUPPORTED` cast in `shipping/shipments.ts` and use the real `ErrorCode`. One
@@ -244,9 +246,23 @@ lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.
   defaults. Every field falls back to a default rather than throwing.
 
 ## Blocked / waiting
-- (nothing)
+- **#366 part 1 (tests) is in review on `shipping/366-tests`** — a one-time second branch the manager allowed
+  while #356 sits on `shipping/phase3`. Test-only: the two `shipments-db.test.ts` cases that asserted
+  `order.status` now assert what shipping owns (the order's `fulfillment_status`, and the shipment planned), so
+  they hold both on today's main and after #350 changes the order lifecycle. **Part 2 of #366 — calling
+  `markShipmentStartedInTx` when a shipment leaves `pending` — waits for #350 to be on main**, because the
+  function does not exist there yet; it goes into #356's branch afterwards.
+- **One-line follow-up owed after contracts 0.4.12 lands**: drop the `PROVIDER_UNSUPPORTED` cast in
+  `shipping/shipments.ts` once `ERROR_CODES` carries `provider_unsupported` (the manager lands it after #368/#369
+  merge).
 
 ## Gotchas learned
+- **Two branches editing one test file collide in the merge queue, and the queue never resolves a conflict**
+  (2026-10-06): #370 (tests) and #369 (the label work) both inserted a helper above `orderState` in
+  `shipments-db.test.ts`, so #370 merged and #369 was SKIPPED. Resolution was to keep both helpers (`pack` and
+  `orderFulfillment`) — trivial, but it costs a merge, a full gate run and a queue slot. When a second branch is
+  unavoidable, keep each one's edits in different regions of a shared file, as I managed to for the memory file
+  (#370 touched only Blocked/waiting) and failed to for the test file.
 - `jsonb_set(settings, ARRAY['shipping','provider'], …, true)` **silently changes nothing** when `settings` has no
   `shipping` key: create_missing creates only the LAST key of the path, and a missing intermediate makes the whole
   call return the document unchanged. Build the object instead:

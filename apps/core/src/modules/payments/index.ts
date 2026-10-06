@@ -76,7 +76,12 @@ export {
   type RefundStatus,
 } from './refunds';
 export { paymentsRefundRequester } from './refund-requester';
-export { paymentsAdminRouter, REFUNDS_PATH, SUPPORT_REFUND_LIMIT_SETTING } from './refund-router';
+export {
+  paymentsAdminRouter,
+  REFUNDS_PATH,
+  SUPPORT_REFUND_LIMIT_SETTING,
+  type PaymentsAdminRouterOptions,
+} from './refund-router';
 export {
   formEncode,
   STRIPE_API_VERSION,
@@ -107,10 +112,16 @@ export {
 } from './provider';
 export {
   capturePayment,
+  PROVIDER_UNSUPPORTED,
+  providerUnsupported,
+  renderPayment,
+  type AdminPayment,
   type CapturePaymentOptions,
   type CapturePaymentResult,
   type PaymentRow,
 } from './capture';
+// Admin API capturePayment (#355): the route is part of `paymentsAdminRouter()`.
+export { CAPTURE_PATH, mountCaptureRoute, type CaptureRouteStripeOptions } from './capture-route';
 
 /**
  * Registers this module's providers with the checkout module's registry (next to the built-in `manual`) and

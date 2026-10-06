@@ -47,6 +47,8 @@ export interface StripePaymentIntent {
   object: 'payment_intent';
   status: StripeIntentStatus;
   amount: number;
+  /** Captured so far (a partial capture takes less than `amount`; the rest of the hold is released). */
+  amount_received?: number;
   currency: string;
   client_secret: string | null;
   latest_charge?: string | StripeCharge | null;

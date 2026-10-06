@@ -168,6 +168,20 @@ const eventsFor = (shipmentId: string) =>
 const pack = async (shipmentId: string) =>
   updateShipment(a, shipmentId, { status: 'packed', actor });
 
+/**
+ * The order's **fulfilment** state, which is the part shipping reports and owns (`markShipmentCreatedInTx`,
+ * `markShippedInTx`, `markDeliveredInTx` write it). `order.status` is the orders module's own lifecycle and
+ * changes with #350 — confirmed on authorisation, `processing` once a shipment leaves `pending` — so a test in
+ * this suite that asserted it would be red on one side of that change or the other. Read this instead (#366).
+ */
+const orderFulfillment = async (orderId: string) =>
+  (
+    await owner.query<{ fulfillment_status: string }>(
+      `SELECT fulfillment_status FROM "order" WHERE id = $1`,
+      [orderId],
+    )
+  ).rows[0]!.fulfillment_status;
+
 const orderState = async (orderId: string) =>
   (
     await owner.query<{ status: string; fulfillment_status: string }>(
@@ -210,7 +224,7 @@ function webhook(trackingNumber: string, status: string, eventId: string, at: st
 }
 
 describe('shipments', () => {
-  it('plans a shipment, emits shipment.created and marks the order partially fulfilled', async () => {
+  it('plans a shipment, emits shipment.created and fulfils nothing yet', async () => {
     const order = await placedOrder(2);
     const shipment = await createShipment(a, {
       orderId: order.orderId,
@@ -239,14 +253,17 @@ describe('shipments', () => {
     });
     // No address anywhere in the event.
     expect(JSON.stringify(events.rows[0]!.payload)).not.toContain('Keizersgracht');
-    // Planning is not fulfilment: the order moves `confirmed → processing`, nothing is fulfilled yet.
-    expect(await orderState(order.orderId)).toEqual({
-      status: 'processing',
-      fulfillment_status: 'unfulfilled',
-    });
+    // Planning is not fulfilment — nothing has left the warehouse. Asserted on what this module owns: the
+    // order's fulfilment state, and the shipment itself sitting there planned. Whether the ORDER is `confirmed`,
+    // `processing` or still `pending` at this point is the orders module's lifecycle and moves with #350, so it
+    // is deliberately not asserted here (#366).
+    expect(await orderFulfillment(order.orderId)).toBe('unfulfilled');
+    expect(await listOrderShipments(a, order.orderId)).toMatchObject([
+      { id: shipment.id, status: 'pending', shipped_at: null, delivered_at: null },
+    ]);
   });
 
-  it('still plans a shipment for an order nobody confirmed, leaving its status alone', async () => {
+  it('still plans a shipment for an order nobody confirmed', async () => {
     const order = await placedOrder(1, false);
     const shipment = await createShipment(a, {
       orderId: order.orderId,
@@ -254,11 +271,15 @@ describe('shipments', () => {
       items: [{ order_line_item_id: order.lines[0]!.id, quantity: 2 }],
       actor,
     });
+    // The point of the test: planning does not depend on the order's status, and a refusal from the orders
+    // module's state machine is reported, not thrown (the call runs inside a SAVEPOINT). So the shipment exists
+    // and nothing is fulfilled — while the order's own status is left to the orders module, whose lifecycle
+    // #350 changes (an order may already be `confirmed` here once authorisation confirms it).
     expect(shipment.status).toBe('pending');
-    expect(await orderState(order.orderId)).toEqual({
-      status: 'pending',
-      fulfillment_status: 'unfulfilled',
-    });
+    expect(await listOrderShipments(a, order.orderId)).toMatchObject([
+      { id: shipment.id, status: 'pending' },
+    ]);
+    expect(await orderFulfillment(order.orderId)).toBe('unfulfilled');
   });
 
   it('refuses more than the order still owes, an unknown line and an unknown warehouse', async () => {
