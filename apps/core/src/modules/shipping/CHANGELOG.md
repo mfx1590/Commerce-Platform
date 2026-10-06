@@ -3,6 +3,43 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
+## Integration 2a — shipping/phase3 (contracts-v0.4.11)
+
+### 2026-10-06 · The buy-label route, its event, and the lifecycle to `delivered` (#356)
+
+Admin API 0.4.9 writes `buyShipmentLabel` down, and the three places this module disagreed with it are now the
+contract's answers. **Behaviour changes** — all three were documented the other way round in this README before:
+
+- **409 unless the shipment is `packed`.** It used to accept anything before `label_created`, so a `pending`
+  shipment nobody had picked could be labelled.
+- **An already-labelled shipment is a 409, not the label it holds.** The old call was idempotent and answered
+  200 with the existing label. Buying one is real money: an operator who repeats the call must learn that the
+  state changed under them, and only the first call gets a 200.
+- **422 `provider_unsupported` for the manual carrier.** `manual` means "no carrier integration" and declares
+  `canBuyLabels: false`; an operator attaches tracking with `updateShipment` instead. Previously it happily
+  "bought" a deterministic in-memory label, which looked like a real one to every consumer.
+
+A carrier that is merely down, timed out, or quoted nothing is still a **502** and the shipment is untouched:
+422 says the carrier can never do this, and turning an outage into 422 would tell a client not to retry
+something it should.
+
+- New: `POST /admin/shipments/{shipmentId}/label` (`buyShipmentLabel`, `x-permission: operations` on
+  `organization:hq`, no request body), on `shippingAdminRouter`. The store comes from the shipment, as for
+  `updateShipment`.
+- New: `shipment.label_created` (events 0.3.1) on the outbox **in the same transaction** as the move, carrying
+  the ids, the carrier, the tracking number and the label URL — no address and no name. One timestamp is shared
+  by the event's `created_at` and `metadata.carrier_label.bought_at`, so they cannot disagree.
+- New: `CarrierProvider.canBuyLabels` (absent = capable) and `createTestCarrierProvider()` — the manual
+  implementation under another name, which is what the label and tracking suites buy from while no EasyPost TEST
+  key is in the worktree's `.env`. `easypost-live.test.ts` still covers the real carrier and skips without a key.
+- Tests: the 200 and its event, the 409s (not packed, already labelled), the 422, the 502, the route itself
+  (403/409/422/404), and the full lifecycle — `packed` → label → `in_transit` → `delivered` driven only by signed
+  EasyPost tracking webhooks, asserting the whole outbox stream in `seq` order and the carrier's own timestamps.
+- `provider_unsupported` is mocked locally (`PROVIDER_UNSUPPORTED` in `shipments.ts`): admin-api.yaml 0.4.9
+  documents it on `Error.code`, but `ERROR_CODES` in `@platform/contracts` does not list it yet. The cast goes
+  away with that contracts change.
+- Hygiene: the status-machine comment no longer points at the deleted `proposed/0160_shipment_pick_pack.sql`.
+
 ## Phase 2 — shipping/phase2 (contracts-v0.3)
 
 ### 2026-10-05 · Deterministic outbox order in the database tests (#255)

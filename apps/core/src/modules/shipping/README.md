@@ -15,7 +15,8 @@ Window 8 (shipping). Paths: `apps/core/src/modules/shipping/**`, `apps/core/src/
 | Export                                                                                                                    | What it does                                                              |
 | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `CarrierProvider` (type)                                                                                                  | `rates` · `buyLabel` · `voidLabel` · `track` · optional `validateAddress` |
-| `manualCarrierProvider`, `createManualCarrierProvider`, `DEFAULT_MANUAL_CONFIG`                                           | the built-in in-memory carrier                                            |
+| `manualCarrierProvider`, `createManualCarrierProvider`, `DEFAULT_MANUAL_CONFIG`                                           | the built-in in-memory carrier (buys no labels)                           |
+| `createTestCarrierProvider`                                                                                               | the same implementation under another name: the carrier test double       |
 | `createEasyPostProvider`, `EASYPOST_BASE_URL`                                                                             | EasyPost over `fetch`, test mode only                                     |
 | `easyPostTrackingStatus`, `trackingEventOf`                                                                               | tracker mapping, reused by the 2.3 webhook receiver                       |
 | `setCarrierProvider`, `carrierProvider`, `carrierProviderOrManual`, `registeredCarrierProviders`, `resetCarrierProviders` | process-wide provider registry                                            |
@@ -35,7 +36,13 @@ Money is always an integer in minor units of an explicit currency; nothing in th
 
 ### `manual`
 
-A store that prints its own labels. Prices come from a table (`ManualCarrierConfig`): a flat base plus a charge
+A store that prints its own labels — so it **cannot buy one from a carrier**: `canBuyLabels` is `false` and the
+Admin API's `buyShipmentLabel` answers 422 `provider_unsupported` for a store on this provider (Admin API 0.4.9).
+An operator attaches the tracking number by hand with `updateShipment` instead. `createTestCarrierProvider()`
+is the same deterministic implementation under another name (`test-carrier`) and _does_ buy labels: it is what
+the label and tracking suites run against while no EasyPost TEST key is in the worktree's `.env`.
+
+Prices come from a table (`ManualCarrierConfig`): a flat base plus a charge
 per **started** kilogram, one set of services per zone (`domestic` when origin and destination country match,
 otherwise `international`). Every id is a sha1 of its inputs, so the same request always produces the same rate
 id, shipment id and tracking number, and tests assert on exact values. Bought labels live in a `Map` for the
@@ -120,11 +127,28 @@ before any store opts in.
 `createShipment` plans one from an order: it checks the requested quantities against what the order still owes
 (earlier live shipments counted), inserts `shipment` + `shipment_item`, consumes the reservations, refreshes the
 order's fulfilment status and emits `shipment.created` — one transaction, so the rows and the event commit
-together or not at all (ADR 0003). `buyShipmentLabel` then asks the store's carrier for a label and moves the shipment to `label_created`. It never
-holds a transaction across the carrier call: it reads what it needs, quotes and buys with nothing held, then
-records in a second short transaction. A carrier failure is a 502 and the shipment is untouched. If the shipment
-moved while the carrier was working, the bought label — real money — is **voided again** rather than orphaned, and
-the call is a 409. It is idempotent: a shipment that already has a label is returned unchanged.
+together or not at all (ADR 0003).
+
+`buyShipmentLabel` (`POST /admin/shipments/{shipmentId}/label`, Admin API 0.4.9) asks the store's carrier for a
+label and moves the shipment to `label_created` with `label_url`, `tracking_number` and `tracking_url` set,
+writing `shipment.label_created` to the outbox **in the same transaction as the move**. It never holds a
+transaction across the carrier call: it reads what it needs, quotes and buys with nothing held, then records in a
+second short transaction. If the shipment moved while the carrier was working, the bought label — real money — is
+**voided again** rather than orphaned, and the call is a 409.
+
+Who gets which answer:
+
+| Situation                                        | Answer                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------- |
+| the shipment is `packed`                         | 200, the shipment at `label_created`                                    |
+| it is anything else, `label_created` included    | 409 `conflict` with the status it found                                 |
+| the store's carrier cannot buy labels (`manual`) | 422 `provider_unsupported` — permanent, attach tracking by hand instead |
+| the carrier is down, timed out or quoted nothing | 502 `internal`, the shipment untouched, safe to call again              |
+
+A shipment that already holds a label is `label_created`, so a second call is a **409 and not the existing
+label**: buying one is real money, and an operator who sees 200 on a repeat would not learn that the state
+changed under them. Our own call to the carrier is still never retried — a 5xx can arrive after the label was
+created, and a retry would buy a second parcel.
 
 ### Status machine
 
@@ -284,11 +308,13 @@ and are resolved by the name in a store's settings; `carrierProviderOrManual` ne
 - `bounded-map.test.ts` — expiry, cap and eviction order (6 tests).
 - `tracking.test.ts` — signature verification, redacted extraction (no PII survives), the raw body hash and every
   transition rule (24 tests).
-- `shipments-db.test.ts` — on a seeded database with #187's DDL: planning against a real placed order, over-shipping
-  refused, label purchase and its idempotency, one event per transition, delivered-before-shipped, real inventory
+- `shipments-db.test.ts` — on a seeded database: planning against a real placed order, over-shipping refused,
+  the label purchase (200 on `packed` with its `shipment.label_created` row, 409 on a second call and on a
+  shipment that is not packed, 422 for the manual carrier, 502 on a carrier failure), the lifecycle from the
+  label to `delivered` on carrier scans alone, one event per transition, delivered-before-shipped, real inventory
   consume and release; the `webhook_event` row (redacted extract, raw-body hash, skipped outcomes, null carrier
   timestamp), byte-equality with payments' copy of the DDL; the webhook router (raw body, 401/404/503) and the
-  admin router (403 without the operation's permission, 400 on a body the spec refuses, 409, 404) (22 tests).
+  admin router (403 without the operation's permission, 400 on a body the spec refuses, 409, 422, 404).
 - `easypost-live.test.ts` — real round trip against EasyPost **test mode**: quote, buy, track, void, validate.
   Skips unless `EASYPOST_API_KEY` is set, and refuses a non-test key. Uses EasyPost's documentation addresses,
   so no customer data ever leaves the machine.

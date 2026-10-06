@@ -10,12 +10,13 @@ import { confirmOrder } from '../orders';
 import {
   buyShipmentLabel,
   coreInventoryPort,
-  createManualCarrierProvider,
+  createTestCarrierProvider,
   getShipment,
   readShipmentMetadata,
   setCarrierProvider,
   setInventoryPort,
 } from '../shipping';
+import { pickShipment, packShipment } from './lifecycle';
 import { createMemoryFulfillmentProvider, type MemoryFulfillmentProvider } from './memory-provider';
 import { resetFulfillmentProviders, setFulfillmentProvider } from './registry';
 import { applyFulfillmentUpdate, cancelFulfillment, requestFulfillment } from './service';
@@ -273,7 +274,7 @@ describe('fulfilment cancel and updates', () => {
     const orderId = await placedOrder(store);
     const { shipment } = await requestFulfillment(store.client, { orderId, actor });
 
-    const carrier = createManualCarrierProvider();
+    const carrier = createTestCarrierProvider();
     const voided: string[] = [];
     const realVoid = carrier.voidLabel.bind(carrier);
     carrier.voidLabel = async (request) => {
@@ -281,6 +282,19 @@ describe('fulfilment cancel and updates', () => {
       return realVoid(request);
     };
     setCarrierProvider(carrier);
+    // A label is bought on a `packed` shipment only (Admin API 0.4.9), and the warehouse gets it there through
+    // this module's own pick/pack. `manual` could not buy one at all, so the store points at the test double.
+    await owner.query(
+      // `||` and not `jsonb_set`: with no `shipping` object yet, jsonb_set's create_missing only creates the
+      // LAST key of the path and returns the document untouched.
+      `UPDATE store SET settings = coalesce(settings, '{}'::jsonb)
+         || jsonb_build_object('shipping',
+              coalesce(settings -> 'shipping', '{}'::jsonb) || jsonb_build_object('provider', $2::text))
+        WHERE id = $1`,
+      [store.scope.storeId, carrier.name],
+    );
+    await pickShipment(store.client, shipment.id, actor);
+    await packShipment(store.client, shipment.id, { actor });
     const labelled = await buyShipmentLabel(store.client, shipment.id, { actor });
     expect(labelled.status).toBe('label_created');
 
