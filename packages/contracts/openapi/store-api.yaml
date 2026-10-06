@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.3
+  version: 0.5.4
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -11,6 +11,7 @@ info:
     0.3.1 adds the `price_changed` error code on completeCart's 409 (additive);
     0.4.0 adds POST /store/cart-recovery/{token} (additive);
     0.5.0 adds the typed review shape — Product.review_summary and GET /store/products/{handle}/reviews (additive).
+    0.5.4 adds the optional `Store.payment.methods` (`card` | `invoice`) the checkout may offer (#354/#358, additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -977,6 +978,19 @@ components:
             type: { type: string, enum: [web, app, marketplace, pos] }
         content_space_id: { type: [string, 'null'] }
         search_index: { type: [string, 'null'] }
+        payment:
+          type: object
+          required: [methods]
+          description: >-
+            Payment methods the checkout may offer: `card` when the store has a Stripe key configured, `invoice`
+            (the manual provider) when the store setting `settings.payment.invoice_allowed` is true (default false
+            in production, true in the seed). Derived by the core (#350/#358). Absent = the storefront's own
+            default. Optional until the core returns it.
+          properties:
+            methods:
+              type: array
+              uniqueItems: true
+              items: { type: string, enum: [card, invoice] }
         theme:
           type: object
           additionalProperties: true
@@ -1378,6 +1392,7 @@ components:
         sales_channel: { id: 30000000-0000-4000-8000-000000000001, code: web, type: web }
         content_space_id: brand-a
         search_index: brand-a_products
+        payment: { methods: [card, invoice] }
         theme: { color: { primary: '#1E40AF', primaryForeground: '#ffffff' } }
     ProductClassicTee:
       value:

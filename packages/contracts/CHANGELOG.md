@@ -111,3 +111,36 @@
   address = default"; the rule is now in the property descriptions. No behaviour change, no new field.
 - Admin API unchanged. `CONTRACTS_VERSION = '0.4.10'`; types regenerated. Producer: window 1 (already merged, #325).
   Consumers: window 3 (nothing to change: the storefront maps `conflict` already), brands by re-sync.
+
+## 0.4.11 — 2026-10-06 (CONTRACT CHANGE #354 + the #350 lifecycle, Integration 2a; contracts-v0.4.11)
+
+- Admin API 0.4.9 (113 operations, was 111), additive:
+  - `POST /admin/stores/{storeId}/orders/{orderId}/payments/{paymentId}/capture` (`capturePayment`, tag `orders` next to
+    `createRefund` — there is no `payments` tag; `store_admin` on `store:{storeId}`): optional body `{ amount_minor? ≥ 1 }`
+    (partial capture, at most the authorised amount; omitted = the whole authorisation); 200 the `Payment` with status
+    `captured` (example `PaymentCaptured`); 404; 409 when the payment is not `authorized` or the amount exceeds it; 422 when
+    the provider cannot capture (the manual provider). New `PaymentId` path parameter. Emits `payment.captured` (v1, unchanged).
+  - `POST /admin/shipments/{shipmentId}/label` (`buyShipmentLabel`, tag `fulfillment`, `operations` on `organization:hq` like
+    pick/pack): no body; 200 the `Shipment` with `label_url`, `tracking_number`, `tracking_url` and status `label_created`
+    (example `ShipmentLabelCreated`); 404; 409 unless the shipment is `packed`; 422 when the store's carrier cannot buy
+    labels (the manual carrier). Emits `shipment.label_created` (events 0.3.1).
+  - New shared `Unprocessable` (422) response with machine code `provider_unsupported` (listed in `Error.code`; NOT yet in
+    `ERROR_CODES`: the core's `Record<ErrorCode, number>` status map in `apps/core/src/lib/errors.ts` would stop
+    typechecking — window 1 adds the code with its 422 mapping when it wires the routes).
+  - Order status lifecycle (manager decision on #350) documented on the `Order` schema; the enum is unchanged
+    (`pending | confirmed | processing | completed | cancelled`): `pending` = placed, payment not yet authorised ·
+    `confirmed` = payment authorised (automatic; at placement for the manual provider and for a succeeded Stripe
+    session; emits `order.confirmed`) · `processing` = the first shipment leaves planned (automatic; emits
+    `order.updated`) · `completed` = every shipment is `delivered` (automatic; emits `order.completed`) · `cancelled` =
+    `cancelOrder` (explicit). No `markShipmentDelivered`: `updateShipment` already moves a shipment to `delivered`
+    (409 on an illegal transition), so a manual-carrier order can reach `completed` without a database edit.
+- Store API 0.5.4 (22 operations, unchanged; manager addition on #354 from window 3's #358 plan): OPTIONAL `Store.payment`
+  `{ methods: ('card' | 'invoice')[] }` (unique items) on `GET /store` — `card` when the store has a Stripe key configured,
+  `invoice` (the manual provider) when `settings.payment.invoice_allowed` is true (default false in production, true in the
+  seed). Derived by the core (#350/#358); absent = the storefront's own default. Not in `required` until the core returns it
+  (optional-until-returned, as `Store.currencies` / `locales` were in 0.4.7). Example `StoreBrandA` carries
+  `methods: [card, invoice]`.
+- Events 0.3.1 (`shipment.label_created`). db unchanged (0.3.2).
+- `CONTRACTS_VERSION = '0.4.11'`; types regenerated; spec tests + 3 (the Store API `payment` property; the two operations with permissions, 200/404/409/422
+  and honest examples; the five-state lifecycle). Producers: window 1 (#350 lifecycle, capture), the shipping module
+  (label). Consumers: window 4 (admin order and fulfilment screens).

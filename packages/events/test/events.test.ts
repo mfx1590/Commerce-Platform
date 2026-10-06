@@ -82,10 +82,11 @@ describe('event schemas', () => {
       'fulfillment.requested',
       'fulfillment.picking',
       'fulfillment.packed',
+      'shipment.label_created',
     ]) {
       expect(EVENT_TOPICS).toContain(t);
     }
-    expect(EVENT_TOPICS).toHaveLength(34);
+    expect(EVENT_TOPICS).toHaveLength(35);
   });
 
   it('compiles every schema and has a v1 for every topic', () => {
@@ -301,5 +302,37 @@ describe('event schemas', () => {
         captured_at: '2026-09-04T10:00:00.000Z',
       }),
     ).toEqual({ ok: true, errors: [] });
+  });
+
+  it('shipment.label_created (0.3.1, #354) validates an envelope and refuses a missing label or an address', () => {
+    const labelCreated = {
+      shipment_id: ID,
+      order_id: ID,
+      store_id: STORE,
+      carrier: 'easypost',
+      tracking_number: 'EZ1000000001',
+      label_url: 'https://easypost-files.s3.amazonaws.com/files/postage_label/label-mock.png',
+      created_at: '2026-10-06T10:00:00.000Z',
+    };
+    const e = makeEvent({
+      topic: 'shipment.label_created',
+      organizationId: ORG,
+      storeId: STORE,
+      aggregateType: 'shipment',
+      aggregateId: ID,
+      payload: labelCreated,
+    });
+    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+    expect(LATEST_VERSION['shipment.label_created']).toBe(1);
+    const { label_url: _drop, ...noLabel } = labelCreated;
+    expect(v.validatePayload('shipment.label_created', 1, noLabel).ok).toBe(false);
+    expect(
+      v
+        .validatePayload('shipment.label_created', 1, {
+          ...labelCreated,
+          address: 'Keizersgracht 1',
+        })
+        .errors.join(),
+    ).toMatch(/additional properties/);
   });
 });
