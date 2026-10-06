@@ -684,7 +684,7 @@ describe('capturePayment', () => {
     expect(retry.payment.status).toBe('captured');
   });
 
-  it('refuses a non-stripe payment with 400', async () => {
+  it('refuses a non-stripe payment with 422 provider_unsupported (Admin API 0.4.9, #355)', async () => {
     const n = counter++;
     const cart = await createCart(a, scopeA, {});
     await addLineItem(a, cart.id, { variant_id: variants[n % variants.length]!.id, quantity: 1 });
@@ -704,7 +704,9 @@ describe('capturePayment', () => {
       order.id,
     ]);
     await expect(capturePayment(a, p.rows[0]!.id, opts())).rejects.toMatchObject({
-      code: 'validation_error',
+      code: 'provider_unsupported',
+      status: 422,
+      details: { provider: 'manual' },
     });
   });
 });
