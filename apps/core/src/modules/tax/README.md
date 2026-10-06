@@ -36,6 +36,11 @@ and this module plugs in. Contracts: contracts-v0.4.1 (nothing in packages/\* ch
   delivery charge is not sent to Stripe Tax either); an explicit `true` taxes delivery anywhere (UK, US stores
   opt in). When the setting is absent and the provider is `stripe`, Stripe Tax decides shipping tax itself — it
   knows the destination's rule — so the two providers agree for EU stores.
+  **Why the legal entity and not the destination** (manager decision 2026-10-06): it matches the existing
+  store-wide-rate model — the seller's establishment decides whether the delivery fee is part of its taxable
+  supply, and a store-level default must not flip per order; destination-based OSS rules are a later tax task.
+  **UK**: the UK rule also taxes delivery at the goods' rate; brand B (GB) stays opt-in for now and sets
+  `shipping_taxable: true` at go-live.
 
 Unknown or malformed values fall back to the defaults; reading settings never throws. **With default settings the
 registered calculator returns exactly what the cart's built-in `tableTaxCalculator` returns for the LINES**
