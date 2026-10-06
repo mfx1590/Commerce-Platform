@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#358 = PR #365 ("Refs #358")** — CI red fixed: (1) Prism keeps no session → the payment choice is remembered per cart (httpOnly `checkout_payment` = `<cartId>:<provider>`, no PII), a missing/failed session is renewed only for an invoice the customer chose, never a card; (2) bundle budget: `CardPaymentLazy` (client, `next/dynamic`, `ssr: false`) — measured 139.6 → 140 (server-side dynamic, not enough) → **134.8 kB** (budget 139). Build + budget run on the machine with the manager's OK; machine released. Pushed once after merging main; report head + checks; no further pushes until the manager says. Machine NOT mine.
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** #358 code merged (PR #365, `c8fb6bd`); the issue stays open until a test-mode card order is proven at the 2a gate. **#372 (now):** branch `storefront/phase3` from main `4e03a81`; `d6d75e5` = interim invoice switch REMOVED (absent `Store.payment` → card on key, never invoice; e2e relies on the seed / mock example). **Waiting for the manager on three questions:** (1) nobody ships the run's order — drive the Admin API from the starter spec? which staff token/realm/operations; (2) the live job runs the starter on Prism — starter-on-core leg (window 5) or assert in brand A (window 10)?; (3) render the status on the confirmation page (mine) rather than window 13's order history. Machine was offered; no core run started.
 
 ## Identity (does not change)
 
