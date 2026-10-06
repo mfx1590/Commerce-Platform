@@ -4,6 +4,16 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 3
 
+### Added (#359 — load test against the real core, Integration 2a)
+
+- `infra/load/`: `k6/load.js` (browse 50 req/s + place 30 orders/min, 10 min, thresholds on the owner's target),
+  `k6/pool.js` (`GET /store` ramp 50 → 800 req/s, the app-pool knee), `k6/ceiling.js` (placement-only ramp
+  30 → 960 orders/min on one store), `pg-sampler.mjs` (pg_stat_activity
+  once a second for the run's database), `report.mjs` (+ a 12-case self-test in the `changes` job) and `run.sh`
+  (fresh kept core via boot-smoke keep mode, stock on that database only, the pinned `grafana/k6:2.3.0` image).
+- `.github/workflows/load.yml` — **load (manual)**, `workflow_dispatch` only, uploads the summary and report.
+- `infra/load/reports/2026-10-06.md` — the laptop run and the GitHub-runner run against the target.
+
 ### Added (Refs #348 — the perf gate shows what it measured, pass or fail)
 
 - `infra/ci/lighthouse-summary.mjs`: after every perf leg, pass or fail, prints per URL every run's value for each
