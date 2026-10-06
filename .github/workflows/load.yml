@@ -4,6 +4,11 @@ name: load (manual)
 # workflow_dispatch ONLY — never on a pull request or a push. A 15-minute run that measures a machine is
 # not a check: it would turn every PR's CI into a benchmark of whichever runner it landed on.
 on:
+  # TEMPORARY (#364, manager's option (a)): GitHub dispatches a workflow_dispatch workflow only once it exists on
+  # main, so the runner datapoint is taken from a push to this branch. Push only, never pull_request; removed in
+  # the same PR before it leaves draft. On a push the inputs are empty and run.sh's defaults (the target) apply.
+  push:
+    branches: [infra/phase3]
   workflow_dispatch:
     inputs:
       duration:
