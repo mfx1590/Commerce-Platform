@@ -40,7 +40,6 @@ export {
   iso,
   listOrderShipments,
   loadShipment,
-  PROVIDER_UNSUPPORTED,
   providerUnsupported,
   readShipmentMetadata,
   renderShipment,

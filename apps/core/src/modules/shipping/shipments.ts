@@ -10,7 +10,6 @@
 //
 // Forward only. A carrier scan that would move a shipment backwards is ignored, not an error: carriers deliver
 // their events out of order, and `delivered` before `in_transit` is normal.
-import type { ErrorCode } from '@platform/contracts';
 import type { ScopedClient, Queryable } from '@platform/db';
 import { AppError, conflict, notFound, validationError } from '../../lib/errors';
 import type { Actor } from '../../lib/audit';
@@ -27,15 +26,11 @@ import type { CarrierLabel, CarrierProvider, ContractAddress, Parcel } from './t
  * API 0.4.9). It is a permanent property of the carrier, so the client must not retry — unlike a carrier
  * outage, which stays a 502.
  *
- * **Local mock.** `provider_unsupported` is documented on the contract's `Error.code` in admin-api.yaml 0.4.9
- * but is still missing from `ERROR_CODES` in `@platform/contracts`, which is the main window's path. The cast
- * below is the mock the manager asked for; delete it (and this comment) once the contracts change lands and
- * `ErrorCode` includes the code.
+ * A real contract code since contracts-v0.4.12, which `AppError` maps to 422 on its own: no cast and no
+ * explicit status here any more.
  */
-export const PROVIDER_UNSUPPORTED = 'provider_unsupported' as ErrorCode;
-
 export function providerUnsupported(message: string, details?: Record<string, unknown>): AppError {
-  return new AppError(PROVIDER_UNSUPPORTED, message, details, 422);
+  return new AppError('provider_unsupported', message, details);
 }
 
 export type ShipmentStatus =

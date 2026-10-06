@@ -1,6 +1,6 @@
 # Memory 8 — Shipping & fulfillment
 Window: 8 · Key: `shipping` · Branch prefix: `shipping/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.11 (Admin API 0.4.9 `buyShipmentLabel` + the shared `Unprocessable` 422; events 0.3.1 `shipment.label_created`; order status automatic since #350) · Branch: `shipping/phase3` (merged; reuse it for the next small PR off a fresh `origin/main`) · **Status: INTEGRATION 2a — #356 code MERGED as `cdbf611`; the issue stays open for the 2a gate (a real EasyPost test-mode label). Window quiet, waiting on contracts 0.4.12 (PR #376).**
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.12** (`provider_unsupported` is in `ERROR_CODES` and the core maps it to 422; Admin API 0.4.9 `buyShipmentLabel`; events 0.3.1 `shipment.label_created`; order status automatic since #350) · Branch: `shipping/phase3` · **Status: INTEGRATION 2a — #356 code merged as `cdbf611`; the cast-removal follow-up is the open PR. #356 itself stays open for the 2a gate (a real EasyPost test-mode label).**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -83,14 +83,13 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **Nothing is being written. The window is quiet on the manager's instruction.**
-- **Queued, waiting for the manager's go-ahead:** contracts 0.4.12 is PR #376 (`provider_unsupported` in
-  `ERROR_CODES` + the core's 422 status map). When the manager confirms it is on main, one small PR from
-  `shipping/phase3` (merge a fresh `origin/main` into it first): delete `PROVIDER_UNSUPPORTED` and
-  `providerUnsupported`'s cast in `shipping/shipments.ts`, use the real `ErrorCode`, drop the "Local mock"
-  comment, and keep `providerUnsupported()` itself — only the cast goes. Check whether `AppError`'s own `STATUS`
-  map now gives 422 for the code; if it does, the explicit `422` argument can go too. Tests to re-run: the 422
-  service and route cases in `shipments-db.test.ts`.
+- **The cast-removal follow-up is an open PR** (`Refs #356`): contracts-v0.4.12 landed as `e3a8c0b`, so
+  `providerUnsupported()` now builds a plain `AppError('provider_unsupported', …)` — the cast, the exported
+  `PROVIDER_UNSUPPORTED` constant, the `ErrorCode` import and the explicit `422` are all gone, because
+  `errors.ts` maps the code to 422 itself. Nothing else is being written.
+- **Window 7 still has the same mock**, in `payments/capture.ts` (`PROVIDER_UNSUPPORTED`,
+  `PROVIDER_UNSUPPORTED_STATUS`, the cast, exported from `payments/index.ts`). Not my path — reported to the
+  manager, not touched.
 - **#356 closes at the 2a gate, not by me**: it needs `EASYPOST_API_KEY*` in this worktree's `.env` (OWNER #361)
   and the manager's Integration 2a run printing a real test-mode label. Nothing to do until then.
 - Not mine, tracked elsewhere: window 1 mounts `fulfillmentAdminRouter()` with one `routers.push(...)` line in
