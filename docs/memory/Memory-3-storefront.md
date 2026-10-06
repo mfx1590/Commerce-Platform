@@ -376,9 +376,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **Nits from the review of #375 (manager: "not now"):** \`e2e/order-lifecycle.spec.ts\` falls back to
-      the documented \`operations\` dev-fixture password — env-only (\`E2E_STAFF_USERNAME\` /
-      \`E2E_STAFF_PASSWORD\`) would be cleaner; its \`json()\` helper puts the Admin API error body into
+- [ ] **Nits from the review of #375 (manager: "not now"):** `e2e/order-lifecycle.spec.ts` falls back to
+      the documented `operations` dev-fixture password — env-only (`E2E_STAFF_USERNAME` /
+      `E2E_STAFF_PASSWORD`) would be cleaner; its `json()` helper puts the Admin API error body into
       assertion messages — keep those PII-free (status + machine code only).
 
 - [ ] **#351 (Integration 2a) — `cb2fef0`, PR #362: 15/15 checks green, CLEAN, reported to the manager (old + "Project manager handoff" session).** Confirmation page: `OrderConfirmationHeader` —
