@@ -290,6 +290,9 @@ importers:
       autoprefixer:
         specifier: ^10.4.21
         version: 10.5.5(postcss@8.5.28)
+      jsdom:
+        specifier: 26.1.0
+        version: 26.1.0
       postcss:
         specifier: ^8.5.6
         version: 8.5.28
@@ -301,7 +304,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/node@20.19.43)(jiti@1.21.7)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
+        version: 3.2.7(@types/node@20.19.43)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
 
   apps/storefronts/brand-a:
     dependencies:
@@ -356,7 +359,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.0
-        version: 3.2.7(@types/node@20.19.43)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
+        version: 3.2.7(@types/node@20.19.43)(jiti@1.21.7)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
 
   cms:
     devDependencies:

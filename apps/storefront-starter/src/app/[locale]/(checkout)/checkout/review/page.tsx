@@ -92,6 +92,7 @@ export default async function ReviewStepPage({
 
       {card !== null ? (
         <CardPayment
+          key={card.clientSecret}
           publishableKey={card.publishableKey}
           clientSecret={card.clientSecret}
           locale={locale}

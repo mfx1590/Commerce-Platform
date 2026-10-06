@@ -20,6 +20,11 @@ Issue #358 (Integration 2a). Reads Store API 0.5.4's optional `Store.payment.met
   session goes back to the payment step; a failed invoice session is renewed only while invoices are
   allowed. `409 price_changed` is mapped (back to review with a message) and refreshes a card
   session.
+- **A new client secret remounts the Payment Element** (`key` on `<Elements>` and on the review
+  page's `<CardPayment>`): react-stripe-js ignores a changed `clientSecret` on a mounted
+  `<Elements>`, so after `409 price_changed` recreated the session the Element would have confirmed
+  the stale intent (review of #365). `test/card-payment-remount.test.ts` (jsdom, new dev dependency
+  `jsdom` 26.1.0, the UI kit's version) is red without the key.
 - **CSP:** `https://js.stripe.com` (script, frame), `https://hooks.stripe.com` (frame),
   `https://api.stripe.com` (connect). Nothing wider.
 - The e2e server allows invoices; the journey chooses Pay on invoice explicitly. New

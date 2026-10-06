@@ -48,7 +48,11 @@ export function CardPayment({
   locale: string;
 }) {
   return (
+    // Keyed by the secret: react-stripe-js ignores a changed `clientSecret` on a mounted <Elements>,
+    // so after a `409 price_changed` recreates the session the Element would confirm the STALE intent.
+    // A new secret must mean a new Element (#365 review).
     <Elements
+      key={clientSecret}
       stripe={stripeFor(publishableKey)}
       options={{ clientSecret, locale: stripeLocale(locale) }}
     >
