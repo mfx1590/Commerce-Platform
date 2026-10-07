@@ -142,11 +142,12 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
     );
     expect(orderId, 'the confirmation carries the order id').not.toBe('');
 
-    // **This run's order, not an earlier one's.** The confirmation names the email the order was
-    // placed with, and only this run has ever typed this one.
+    // **This run's order, not an earlier one's.** The confirmation shows the email the order was
+    // placed with (as a detail — it claims no email was sent, #351), and only this run has ever
+    // typed this one.
     if (enteredAddress) {
       await expect(
-        confirmation,
+        page.getByTestId('order-contact'),
         'the confirmation is for the order placed with the email this run entered',
       ).toContainText(shopperEmail);
     }
