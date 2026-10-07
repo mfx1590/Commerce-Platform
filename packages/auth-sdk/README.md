@@ -136,6 +136,11 @@ and Keycloak refuses a used one-time code, so the helper signs owner in once and
 processes through `$RUNNER_TEMP/staff-owner-token.json` in CI and `~/.cache/platform/staff-owner-token.json`
 locally (`STAFF_OWNER_TOKEN_FILE` overrides; mode 0600; content `{ issuer, access_token }`); it is reused only
 while this stack's userinfo endpoint accepts it, so a Keycloak restart or realm reimport just costs one new
-grant. Every live suite that needs owner must go through it (#346) and call `forgetStaffToken()` in
-`afterAll` (deletes the file locally; in CI it stays for the next step); only a test of the TOTP challenge
-itself spends a code, with `totp` and `waitForNextTotpStep` from the same module.
+grant. Every live suite that needs owner must go through it (#346). In this package the file is deleted once at
+the end of a local run that created it (`test/global-setup.ts`, vitest `globalSetup`), never per test file —
+per-file deletion made every file grant cold again (#406); a package with a single live file may call
+`forgetStaffToken()` in its `afterAll` instead (same rule: deletes only what this process wrote, never in CI).
+A refused owner grant waits `RETRY_GAP_MS` (1.5 s) before the next attempt: the realm's brute-force
+protection blocks a user for 60 s after two refused logins within one second, which would make the fresh-step
+fallback useless (#406). Only a test of the TOTP challenge itself spends a code, with `totp` and
+`waitForNextTotpStep` from the same module.
