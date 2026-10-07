@@ -1,5 +1,24 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-07 · the specs get brand A's publishable key (#379)
+
+- **`playwright.config.ts` sets `STORE_PUBLISHABLE_KEY` for the test process**, beside the `SITE_URL`
+  line and for the same reason: brand A's identity has to reach Playwright's process, not only the
+  server. `next.config.mjs` has always defaulted it for the app, so this gap was invisible until a
+  spec needed it.
+- **What it fixes.** The synced `e2e/order-lifecycle.spec.ts` reads `GET /store` with
+  `'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? ''`. CI sets no such variable for the
+  Playwright process, so against the core it sent an **empty** key, received a 401 **it never
+  checked**, and then asked the Admin API for `viewer on store:undefined` — a 403 that reads like a
+  permissions bug and is really a missing variable. `journey.spec.ts` never hit it because it carries
+  the same fallback itself. Brand A's leg is the only place that spec runs, which is why brand A
+  found it.
+- The value is the same dev **publishable** key as `next.config.mjs` — public by design and already
+  in this repo. Keep the two in step.
+- Window 3 hardens the spec separately (**#382**: assert `ok()` with status and body on `GET /store`
+  and every admin call), so the next missing variable fails where it happens instead of three calls
+  later. Not blocking this.
+
 ## Unreleased — 2026-10-06 · re-sync at main e7f2f3e: order status, card payment, invoice from the store (#372)
 
 **PR [#379](https://github.com/mfx1590/Commerce-Platform/pull/379)**, reviewed head `771f35d`

@@ -23,6 +23,25 @@ const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3101';
 process.env.SITE_URL ??= new URL(APP_URL).origin;
 const SITE_URL = process.env.SITE_URL;
 /**
+ * The store the **specs** talk to, set for the same reason as `SITE_URL` above: brand A's identity
+ * has to reach the test process, not only the server (#379).
+ *
+ * `next.config.mjs` defaults this for the app, so the server has always had it — but a spec runs in
+ * Playwright's process, where nothing set it and CI sets nothing either. The synced
+ * `e2e/order-lifecycle.spec.ts` reads `GET /store` with
+ * `'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? ''`, so against the core it sent an
+ * empty key, got a 401 it did not check, and asked the Admin API for `viewer on store:undefined` —
+ * a 403 that reads like a permissions bug and is really a missing variable. `journey.spec.ts`
+ * never hit it because it carries the same fallback itself.
+ *
+ * The same value as `next.config.mjs`, deliberately: a dev **publishable** key, which is public by
+ * design and already in this repo. Keep the two in step.
+ *
+ * Window 3 is hardening the spec separately (#382: assert `ok()` with status and body on
+ * `GET /store` and every admin call) so the next missing variable fails where it happens.
+ */
+process.env.STORE_PUBLISHABLE_KEY ??= 'pk_brand-a_dev_00000000000000000000';
+/**
  * **Deliberate divergence from the starter, re-checked at every sync.** Since #375 the starter's
  * config imports `RUNTIME_SITE_URL` from `e2e/support/build-origin` and passes that to the server.
  * Brand A must NOT: that module reads `process.env.SITE_URL` in a module-level `const`, ES imports

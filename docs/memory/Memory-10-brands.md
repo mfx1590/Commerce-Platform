@@ -174,60 +174,41 @@ detached to a file with bounded polls, say "machine free" after any core run.
    product image?) and is it prioritised, sized and served at the right width — because a genuine fix
    beats a threshold argument.
 
-## #379 status (2026-10-07) — at head `c88df9f`; waiting on window 3's spec fix
+## #379 status (2026-10-07) — at head `c88df9f`; both red checks fixed, pushing
 
 Merged `origin/main` `5b119ff` (the gitleaks allowlist), cited **PR #379** and reviewed head
 `771f35d` in the CHANGELOG and here, re-ran the gates, one push to `brands/phase3` — #379 updated in
 place at head **`77ab61e`**, no second PR. Static review was **MERGE on the code**; the manager
 confirmed two commits in one push is fine.
 
-**NEXT ACTION, and the only one outstanding on #379 (2026-10-07, after #381 landed):** wait for the
-manager to say **window 3's spec fix** is on main, then **re-sync that one file** into #379 — one
-push, carrying the local commits below. **Hold until they say.** Do not push before that.
+**NEXT ACTION:** nothing held — both red checks on `c88df9f` are addressed and pushed (the literal
+replacements, and the publishable-key line). After that, #379's live job is the proof of #372's
+assertion: report the **brand A leg** specifically to the manager — counts plus the
+`order-lifecycle.spec.ts` line.
 
 #381 (`7a4abb4`) landed and fixed the OpenFGA seed; #379 at `c88df9f` then went red twice again:
 
 - **secret scan — MY FAULT, fixed locally in `f3c2f4d`.** See the "never quote a secret-shaped
   literal" gotcha below. The manager allowlisted my two paths on main (`ab16125`) because commit
   messages cannot be rewritten; the replacements still ride in the next push, as asked.
-- **live job, `order-lifecycle.spec.ts` 403 `requires viewer on store:undefined` — the starter's
-  spec, NOT brand A's.** Manager's ruling, and it is the better call: the spec reads
-  `GET /store` with `X-Publishable-Key: process.env.STORE_PUBLISHABLE_KEY ?? ''` and **never checks
-  the response**, so when CI sets no key for the Playwright process it proceeds with
-  `store.id === undefined`. I had proposed a one-line `??=` fallback in brand A's
-  `playwright.config.ts` instead; that would have **hidden** a spec that does not validate its own
-  setup — the same vacuous-success trap as [[#374]] (a comparison with nothing on one side is
-  green). Window 3 fixes the spec; a REQUEST is filed. Brand A's leg is still the only place that
-  spec executes, which is why brand A found it. **Nothing of mine to change for it — take the fix by
-  re-syncing the one file.**
-
-**The two red checks on `771f35d`:**
-
-1. **secret scan — fixed by the merge.** gitleaks found exactly 2, both in
-   `test/payment-options.test.ts`: its wrong-key fixtures in the **secret-key** and
-   **restricted-key** shapes (never quote them — see the rule below). The sync copies that file from
-   the starter
-   verbatim and which exist to assert a non-publishable key is **refused**. Byte-identical to the
-   starter; no key material. Main's `5b119ff` widened the allowlist path to
-   `^apps/(storefront-starter|storefronts/[a-z0-9-]+)/test/payment-options\.test\.ts$`, which matches
-   brand A. **Never edit those literals** — it would diverge from the starter and be overwritten.
-2. **live auth + end-to-end — NOT mine, and it will recur.** `e2e/order-lifecycle.spec.ts:99` fails
-   at the first Admin API call, `GET /admin/stores/{id}/orders/{id}` → **503 `FgaValidationError`,
-   "authorization service unavailable"** — the core's Admin API authorization through OpenFGA, reached
-   with a `staffApi()` token. The storefront half passes (order placed on the core, confirmation
-   rendered, `data-order-status` correctly not yet `processing`/`completed`). The spec is
-   byte-identical to the starter's. Main has no FGA change, so merging main does not fix it.
-   **The find that matters:** the starter's own leg prints "order-lifecycle skipped: no core", so
-   only brand A's leg sets `E2E_STORE_API_URL` and reaches the admin path — **brand A's leg is the
-   first place this spec has ever executed**, and #372's assertion caught a real Admin API failure on
-   its first real run. Within the same job the two earlier legs were green (21, then 67 passed), so
-   FGA answered earlier in the run. **Root cause confirmed by the manager: the live job never seeded
-   OpenFGA at all** (the admin advisory job does, which is why that one is green). Filed as **#380**,
-   fixed by **window 5's PR #381** — nothing for me to file, and nothing of mine to change.
-   **When #381 is on main: one more merge-main push, and #379's live job is then the proof of #372's
-   assertion.** That is the only thing #379 is still waiting on.
-   (My own read before the manager's was a stale/absent store-or-model id, OpenFGA being in-memory
-   here — right neighbourhood, and the answer was simpler: never seeded.)
+- **live job, `order-lifecycle.spec.ts` 403 `requires viewer on store:undefined` — FIXED HERE.**
+  The synced spec reads `GET /store` with
+  `'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? ''` and never checks the response; CI
+  sets no such variable for the **Playwright process**, so it sent an empty key, took an unchecked
+  401, and asked the Admin API for `viewer on store:undefined`.
+  `next.config.mjs` has always defaulted the key for the **app**, which is why the gap stayed
+  invisible until a spec needed it, and why `journey.spec.ts` (own fallback) never hit it.
+  **Fix:** one line in brand A's `playwright.config.ts` beside the `SITE_URL ??=` line —
+  `process.env.STORE_PUBLISHABLE_KEY ??= <the dev publishable key, same as next.config.mjs>`. That
+  file is preserved, so the sync will not fight it; it fixes every spec, not one; the key is public
+  by design and already in the repo, and the gitleaks `regexes` allowlist covers its shape.
+  *The manager first ruled this window 3's and then reversed to mine — both are recorded because the
+  reasoning is worth keeping: a fallback alone would still leave a spec that does not validate its
+  own setup, which is the vacuous-success trap of [[#374]]. So BOTH happen — my line supplies the
+  value, and **#382** (window 3) hardens the spec to assert `ok()` with status and body on
+  `GET /store` and every admin call, so the next missing variable fails where it happens. #382 does
+  not block #379.*
+  **Keep `playwright.config.ts` and `next.config.mjs` in step on that key.**
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
