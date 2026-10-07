@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 merged (2b0bd4c); #353 = **PR #384** (Closes #353; head d755ba5 at opening; Fable review MERGE on the code), waiting for CI and the queue
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #353 merged (54284d1); #398 test-race fix = the PR "Closes #398" opened from admin/phase3 in the same turn as this commit (number in the next record)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,7 +441,14 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#353 Sign out (2026-10-07) — PR #384** (Closes #353; head d755ba5 at opening, this memory commit
+- **#398 (2026-10-07) — tests asserting a transition-set state synchronously.** Found by window 2
+  on #387's queue run (`settings.test.tsx:381`). Swept every test that mocks an action result and
+  reads the screen right after a click (scratchpad sweep script, then by hand): fixed 10 reads in 5
+  files (`findBy…`/`waitFor`); left synchronous UI reads (questions/forms opening, router.push).
+  The catalog-screens 5 s failure of 10-07 is a different class: CPU starvation during a concurrent
+  rebuild (normally 331 ms), not the race — left alone. Proof: 5 files 97/97; two full suites run in
+  parallel to load the machine, 651/651 each.
+- **#353 Sign out (2026-10-07) — PR #384 MERGED as 54284d1** (Closes #353; head d755ba5 at opening, this memory commit
   follows it; Fable static review MERGE on the code). Option (B) approved by the manager. Branch `admin/phase3`
   reset onto main 17b88f3. Root cause (repro on Prism + shared Keycloak, app :3200): cookies were
   already cleared; Keycloak still asked "Do you want to log out?" and an abandoned confirmation left
@@ -696,6 +703,10 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Testing a form/action result:** anything set after `await action(...)` inside
+  `startTransition(async …)` commits on a later macrotask — assert it with `findBy…`/`waitFor`,
+  never `getBy…` right after `await user.click(...)`. The action CALL itself is synchronous at the
+  start of the transition, so `toHaveBeenCalledWith` right after the click is fine.
 - **Port 3000 cannot bind on this machine** (EACCES with nothing listening): Windows reserves TCP
   2950–3049 (`netsh int ipv4 show excludedportrange protocol=tcp`). Run the app/e2e on `PORT=3200`
   (registered in the admin-app client). Do not change the reservation (system setting).
