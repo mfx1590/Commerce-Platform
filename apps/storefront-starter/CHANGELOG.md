@@ -1,5 +1,16 @@
 # Changelog — @platform/storefront-starter
 
+## 0.13.4 — 2026-10-07
+
+Issue #390 (REQUEST from window 10). Tooling only.
+
+- **The perf gate warms every measured URL before Lighthouse** (`scripts/warm-urls.mjs`, used by
+  `scripts/perf.mjs`): each URL in `lighthouserc.json` must answer under a second twice in a row —
+  the rule `scripts/e2e-server.mjs` already uses — within 120 s, or the gate fails rather than measure
+  a cold server. `/health` answering never meant the measured routes had been rendered, so run 1 paid
+  their first render (CI: PLP TBT 1125 ms on run 1 against ~75 ms on runs 2 and 3).
+- Tests: `test/warm-urls.test.ts` (streak, reset on a slow or failed answer, deadline).
+
 ## 0.13.2 — 2026-10-07
 
 Issue #382. Test-only; no app change.
