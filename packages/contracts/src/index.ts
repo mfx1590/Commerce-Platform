@@ -1,5 +1,5 @@
 // Public API of @platform/contracts. Types live in './store' and './admin' (generated from openapi/*.yaml).
-export const CONTRACTS_VERSION = '0.4.11' as const;
+export const CONTRACTS_VERSION = '0.4.12' as const;
 
 /** Header names every client and the core agree on. */
 export const HEADERS = {
@@ -26,6 +26,7 @@ export const ERROR_CODES = [
   'cart_completed',
   'price_changed',
   'last_live_key',
+  'provider_unsupported',
   'internal',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -1,3 +1,4 @@
+import { orderStatusMeaning } from '../src/lib/orders/lifecycle';
 import { expect, test } from '@playwright/test';
 
 /**
@@ -192,6 +193,18 @@ test.describe('store-admin', () => {
     await expect(page.getByRole('heading', { name: `Order ${number}` })).toBeVisible();
     await expect(page.getByRole('table', { name: 'Order lines' })).toBeVisible();
     await expect(page.getByRole('list', { name: 'Order timeline' })).toBeVisible();
+    // The status the core (or the example) reports, with its #350 meaning, and the payments card.
+    await expect(page.getByTestId('order-status-meaning')).not.toBeEmpty();
+    const payments = page.getByRole('list', { name: 'Payments' });
+    await expect(payments).toBeVisible();
+    if (!AGAINST_CORE) {
+      // The example's payment is already captured: nothing to capture.
+      await expect(page.getByTestId('order-status-meaning')).toHaveText(
+        orderStatusMeaning('confirmed'),
+      );
+      await expect(payments.getByText('captured')).toBeVisible();
+      await expect(payments.getByRole('button', { name: 'Capture' })).toHaveCount(0);
+    }
   });
 
   test('orders: a refund asks first and states the ceiling', async ({ page }) => {

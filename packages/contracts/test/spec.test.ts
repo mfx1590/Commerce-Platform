@@ -190,7 +190,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.9/);
+    expect(text).toMatch(/version: 0\.4\.10/);
     for (const tag of [
       'registry',
       'catalog',

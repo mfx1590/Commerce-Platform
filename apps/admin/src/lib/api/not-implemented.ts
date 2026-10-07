@@ -31,12 +31,25 @@ export const NOT_IMPLEMENTED = 'not_implemented';
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const ID_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+)$/i;
 
-/** `GET /admin/stores/{id}/orders` is a collection read; `GET …/orders/{id}` is not. */
+/**
+ * `GET /admin/stores/{id}/orders` is a collection read whose only parent is the store (which every
+ * store screen has already checked against the principal); `GET …/orders/{id}` is not a collection.
+ * A list nested under another record — `GET …/orders/{id}/shipments` — is not counted either: there
+ * a 404 `not_found` may mean that parent is missing, which must stay "not found". Those need the
+ * core's own unmounted marker (`saysNotImplemented`) to become "not available".
+ */
 export function isCollectionRead(method: string, path: string): boolean {
   if (method.toUpperCase() !== 'GET') return false;
   const [bare = path] = path.split('?');
-  const last = bare.replace(/\/+$/, '').split('/').pop() ?? '';
-  return last !== '' && !ID_SEGMENT.test(last);
+  const segments = bare
+    .replace(/\/+$/, '')
+    .split('/')
+    .filter((segment) => segment !== '');
+  const last = segments.at(-1) ?? '';
+  if (last === '' || ID_SEGMENT.test(last)) return false;
+  const ids = segments.flatMap((segment, index) => (ID_SEGMENT.test(segment) ? [index] : []));
+  // No parent id at all (`/admin/stores`), or exactly one: the store, right after `/admin/stores`.
+  return ids.length === 0 || (ids.length === 1 && segments[(ids[0] ?? 0) - 1] === 'stores');
 }
 
 /** The core's own 404 for a path no router answered (`adminNotFound`). */

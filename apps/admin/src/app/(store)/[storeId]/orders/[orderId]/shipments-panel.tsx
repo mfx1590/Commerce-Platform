@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { SelectField, TextField } from '@/components/form/fields';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import {
+  buyShipmentLabelAction,
   createShipmentAction,
   packShipmentAction,
   pickShipmentAction,
@@ -29,15 +30,18 @@ type Confirming =
   | { kind: 'fulfil' }
   | { kind: 'pick'; shipmentId: string }
   | { kind: 'pack'; shipmentId: string }
+  | { kind: 'label'; shipmentId: string }
   | { kind: 'update'; shipmentId: string }
   | { kind: 'receive'; returnId: string }
   | null;
 
 /**
  * Shipments and returns for one order, with the `operations` actions when the principal holds it:
- * plan a shipment (fulfil), pick, pack, advance status / attach tracking, receive a return. Each
- * asks first; the API re-checks `operations` on `organization:hq` and a refusal renders as the
- * panel. A principal without the relation sees the lists and no buttons.
+ * plan a shipment (fulfil), pick, pack, buy a carrier label, advance status / attach tracking,
+ * receive a return. Each asks first; the server action and the API both check `operations` on
+ * `organization:hq` and a refusal renders as the panel. A principal without the relation sees the
+ * lists and no buttons. A carrier that cannot buy labels (422 `provider_unsupported`, the manual
+ * carrier) is a neutral note pointing at Update, not an error.
  */
 export function FulfilmentPanel({
   storeId,
@@ -75,14 +79,21 @@ export function FulfilmentPanel({
   const [receiveWarehouseId, setReceiveWarehouseId] = useState(warehouses[0]?.id ?? '');
   const [conditions, setConditions] = useState<Record<string, Condition>>({});
 
+  const [unavailable, setUnavailable] = useState<string | null>(null);
+
   const run = <T,>(work: () => Promise<ActionResult<T>>) => {
     setError(null);
     setRefusal(undefined);
+    setUnavailable(null);
     startTransition(async () => {
       const result = await work();
       setConfirming(null);
       if (result.status === 'success') {
         router.refresh();
+        return;
+      }
+      if (result.unavailable === true) {
+        setUnavailable(result.formError ?? 'Not available for this carrier.');
         return;
       }
       setRefusal(result.refusal);
@@ -99,6 +110,15 @@ export function FulfilmentPanel({
   return (
     <div className="space-y-5">
       <ActionRefusal refusal={refusal} message={error} />
+      {unavailable !== null && (
+        <p
+          role="status"
+          data-testid="label-unavailable"
+          className="border-line text-muted rounded-md border px-3 py-2 text-sm"
+        >
+          {unavailable}
+        </p>
+      )}
 
       <section className="space-y-2">
         <div className="flex items-center gap-3">
@@ -230,6 +250,16 @@ export function FulfilmentPanel({
                       )}
                     </span>
                   )}
+                  {shipment.label_url !== null && (
+                    <a
+                      href={shipment.label_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent text-xs hover:underline"
+                    >
+                      Label
+                    </a>
+                  )}
                   {permissions.canFulfil && confirming === null && (
                     <span className="ml-auto inline-flex gap-2">
                       {shipment.status === 'pending' && (
@@ -250,6 +280,15 @@ export function FulfilmentPanel({
                           onClick={() => setConfirming({ kind: 'pack', shipmentId: shipment.id })}
                         >
                           Pack
+                        </Button>
+                      )}
+                      {shipment.status === 'packed' && permissions.canBuyLabel && (
+                        <Button
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => setConfirming({ kind: 'label', shipmentId: shipment.id })}
+                        >
+                          Buy label
                         </Button>
                       )}
                       {shipment.status !== 'delivered' && shipment.status !== 'cancelled' && (
@@ -280,6 +319,31 @@ export function FulfilmentPanel({
                       onClick={() => run(() => pickShipmentAction(storeId, order.id, shipment.id))}
                     >
                       Yes, start picking
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setConfirming(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+
+                {confirming?.kind === 'label' && confirming.shipmentId === shipment.id && (
+                  <div
+                    role="alertdialog"
+                    aria-label="Confirm buying a label"
+                    className="flex flex-wrap items-center gap-2"
+                  >
+                    <span>
+                      Buy a {shipment.carrier} label for this shipment? The carrier charges the
+                      store for it.
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={isPending}
+                      onClick={() =>
+                        run(() => buyShipmentLabelAction(storeId, order.id, shipment.id))
+                      }
+                    >
+                      Yes, buy label
                     </Button>
                     <Button size="sm" variant="secondary" onClick={() => setConfirming(null)}>
                       Cancel
