@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #353 merged (54284d1); #398 test-race fix = the PR "Closes #398" opened from admin/phase3 in the same turn as this commit (number in the next record)
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #353 merged (54284d1); #398 **MERGED as c2fb6d7** (PR #399); nothing assigned, quiet
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,10 +441,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#398 (2026-10-07) — tests asserting a transition-set state synchronously.** Found by window 2
+- **#398 (2026-10-07) — PR #399 MERGED as c2fb6d7** (Closes #398; head c24585c; manager review MERGE)
+  — tests asserting a transition-set state synchronously. Found by window 2
   on #387's queue run (`settings.test.tsx:381`). Swept every test that mocks an action result and
-  reads the screen right after a click (scratchpad sweep script, then by hand): fixed 10 reads in 5
-  files (`findBy…`/`waitFor`); left synchronous UI reads (questions/forms opening, router.push).
+  reads the screen right after a click (scratchpad sweep script, then by hand): fixed 12 assertion
+  sites in 5 files (first reported as 10 — a miscount, corrected in the PR body) (`findBy…`/`waitFor`); left synchronous UI reads (questions/forms opening, router.push).
   The catalog-screens 5 s failure of 10-07 is a different class: CPU starvation during a concurrent
   rebuild (normally 331 ms), not the race — left alone. Proof: 5 files 97/97; two full suites run in
   parallel to load the machine, 651/651 each.
