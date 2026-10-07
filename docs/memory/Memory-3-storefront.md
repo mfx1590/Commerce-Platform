@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done today: #382 (PR #383), **#389 (PR #392, `ad7cc5a`; lhci 0.15.1, PLP LCP element = `<h1>`)**, **#390 (PR #395, `d872a19`; scripts/warm-urls.mjs)**. **#330 rendering half → PR ("Closes #330")** on `storefront/phase3-330`: `HeroMedia` (server markup around the poster) + `HeroLoop` ('use client', memo) — after `load`, muted loop, pause control, never under reduced motion or in an e2e build; CSP `media-src 'self' https://res.cloudinary.com`. Bundle budget: home 131.1 kB (136), content/campaign 132.9 kB (145; +1.1 kB). **Still open: #358's live proof** (Stripe test keys). Never block on a question dialog: send the decision to the manager (root CLAUDE.md, 4451e7c).
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done today: #382 (PR #383), **#389 (PR #392, `ad7cc5a`; lhci 0.15.1, PLP LCP element = `<h1>`)**, **#390 (PR #395, `d872a19`; scripts/warm-urls.mjs)**. **#330 rendering half = PR #403 ("Closes #330"), reviewed head `7f195be` (Opus static review MERGE; the hero.tsx wrap and the cms README line recorded as manager exceptions, window 6 told on #330); this memory-only commit follows it** — on `storefront/phase3-330`: `HeroMedia` (server markup around the poster) + `HeroLoop` ('use client', memo) — after `load`, muted loop, pause control, never under reduced motion or in an e2e build; CSP `media-src 'self' https://res.cloudinary.com`. Bundle budget: home 131.1 kB (136), content/campaign 132.9 kB (145; +1.1 kB). **Still open: #358's live proof** (Stripe test keys). Never block on a question dialog: send the decision to the manager (root CLAUDE.md, 4451e7c).
 
 ## Identity (does not change)
 
@@ -375,6 +375,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 -->
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+
+- [ ] **Nit from the review of #403 ("not now"):** the hero's `<video>` could also carry `poster` (moot
+      while the server-rendered poster sits under the overlay).
 
 - [ ] **Nits from the review of #375 (manager: "not now"):** `e2e/order-lifecycle.spec.ts` falls back to
       the documented `operations` dev-fixture password — env-only (`E2E_STAFF_USERNAME` /
