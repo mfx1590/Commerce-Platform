@@ -174,17 +174,32 @@ detached to a file with bounded polls, say "machine free" after any core run.
    product image?) and is it prioritised, sized and served at the right width — because a genuine fix
    beats a threshold argument.
 
-## #379 status (2026-10-07) — pushed at head `77ab61e`; waiting on #381 only
+## #379 status (2026-10-07) — at head `c88df9f`; waiting on window 3's spec fix
 
 Merged `origin/main` `5b119ff` (the gitleaks allowlist), cited **PR #379** and reviewed head
 `771f35d` in the CHANGELOG and here, re-ran the gates, one push to `brands/phase3` — #379 updated in
 place at head **`77ab61e`**, no second PR. Static review was **MERGE on the code**; the manager
 confirmed two commits in one push is fine.
 
-**NEXT ACTION, and the only one outstanding on #379:** wait for the manager to say window 5's **PR
-#381** (fixes **#380**, the live job's missing OpenFGA seed) is on main — then **one more
-merge-main push**, and #379's live job becomes the proof of #372's assertion. Do not push before
-that; there is nothing else to change.
+**NEXT ACTION, and the only one outstanding on #379 (2026-10-07, after #381 landed):** wait for the
+manager to say **window 3's spec fix** is on main, then **re-sync that one file** into #379 — one
+push, carrying the local commits below. **Hold until they say.** Do not push before that.
+
+#381 (`7a4abb4`) landed and fixed the OpenFGA seed; #379 at `c88df9f` then went red twice again:
+
+- **secret scan — MY FAULT, fixed locally in `f3c2f4d`.** See the "never quote a secret-shaped
+  literal" gotcha below. The manager allowlisted my two paths on main (`ab16125`) because commit
+  messages cannot be rewritten; the replacements still ride in the next push, as asked.
+- **live job, `order-lifecycle.spec.ts` 403 `requires viewer on store:undefined` — the starter's
+  spec, NOT brand A's.** Manager's ruling, and it is the better call: the spec reads
+  `GET /store` with `X-Publishable-Key: process.env.STORE_PUBLISHABLE_KEY ?? ''` and **never checks
+  the response**, so when CI sets no key for the Playwright process it proceeds with
+  `store.id === undefined`. I had proposed a one-line `??=` fallback in brand A's
+  `playwright.config.ts` instead; that would have **hidden** a spec that does not validate its own
+  setup — the same vacuous-success trap as [[#374]] (a comparison with nothing on one side is
+  green). Window 3 fixes the spec; a REQUEST is filed. Brand A's leg is still the only place that
+  spec executes, which is why brand A found it. **Nothing of mine to change for it — take the fix by
+  re-syncing the one file.**
 
 **The two red checks on `771f35d`:**
 
