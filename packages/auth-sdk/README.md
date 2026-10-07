@@ -129,3 +129,13 @@ Everything throws `ApiError { status, code, message, details }` matching the con
 OpenFGA, Postgres via `pnpm dev`) skip per-service when unreachable. The suite includes the module tests of
 `apps/core/src/modules/hq-rbac` (vitest aliases + cross-package include) and the Phase 1 gate
 (`gate.test.ts`). A sweep asserts every `x-permission` in `admin-api.yaml` is resolvable by this package.
+
+**Signing seeded users in from a test** — `import { staffToken } from '@platform/auth-sdk/testing'` (dev/CI
+realms only: the `test-cli` password grant, password = username). `owner` is the one user enrolled with TOTP
+and Keycloak refuses a used one-time code, so the helper signs owner in once and shares the token between
+processes through `$RUNNER_TEMP/staff-owner-token.json` in CI and `~/.cache/platform/staff-owner-token.json`
+locally (`STAFF_OWNER_TOKEN_FILE` overrides; mode 0600; content `{ issuer, access_token }`); it is reused only
+while this stack's userinfo endpoint accepts it, so a Keycloak restart or realm reimport just costs one new
+grant. Every live suite that needs owner must go through it (#346) and call `forgetStaffToken()` in
+`afterAll` (deletes the file locally; in CI it stays for the next step); only a test of the TOTP challenge
+itself spends a code, with `totp` and `waitForNextTotpStep` from the same module.

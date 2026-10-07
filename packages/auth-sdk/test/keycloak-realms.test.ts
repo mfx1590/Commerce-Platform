@@ -1,12 +1,12 @@
 // Keycloak realm exports (infra/keycloak, issue #10).
 // Static part: always runs, validates the JSON files against the seed contract and the security rules.
 // Live part: runs only when the local Keycloak (KEYCLOAK_URL, default http://localhost:8180) answers.
-import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
+import { OWNER_DEV_TOTP_SECRET, totp, waitForNextTotpStep } from '../src/testing.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const realmDir = resolve(here, '../../../infra/keycloak');
@@ -335,18 +335,6 @@ function claims(jwt: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
 }
 
-/** Dev-only TOTP secret of the pre-enrolled `owner` user (infra/keycloak/README.md, issue #43). */
-const OWNER_DEV_TOTP_SECRET = 'owner-dev-totp-secret-20260905';
-
-/** RFC 6238 TOTP over the raw secret string (HmacSHA1, 6 digits, 30 s) — Keycloak's OTP policy. */
-function totp(secret: string, at = Date.now()): string {
-  const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
-  const h = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
-  const o = h[h.length - 1]! & 0xf;
-  return ((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
-}
-
 const authorizeUrl = (realm: string, clientId: string, redirectUri: string) =>
   `${KC}/realms/${realm}/protocol/openid-connect/auth?client_id=${clientId}&response_type=code&scope=openid` +
   `&redirect_uri=${encodeURIComponent(redirectUri)}` +
@@ -448,18 +436,27 @@ describe.runIf(live)('staff realm (live Keycloak)', () => {
       ?.replace(/&amp;/g, '&');
     expect(otpAction, 'otp form action').toBeDefined();
 
-    let done = await login.postForm(otpAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
-    if (done.status !== 302) {
-      // The current window's code was consumed elsewhere in this run (code reuse is off). The policy's
-      // look-ahead of 1 also accepts the next window's (different) code; the error page re-renders the form.
-      const retryHtml = await done.text();
-      const retryAction = retryHtml
+    // This test is the one place that must spend a code (the challenge is what it tests): the other suites
+    // reuse owner's shared token (#346). Code reuse is off, so a code spent elsewhere in this step is refused
+    // and the error page re-renders the form: try the current step, then the next (look-ahead 1), then wait
+    // for a fresh step nobody can have used yet.
+    const otpFormAction = (html: string) =>
+      html
         .match(/<form[^>]*action="([^"]+)"[^>]*>(?:(?!<\/form>)[\s\S])*name="otp"/)?.[1]
         ?.replace(/&amp;/g, '&');
+    let done = await login.postForm(otpAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
+    if (done.status !== 302) {
+      const retryAction = otpFormAction(await done.text());
       expect(retryAction, 'otp retry form action').toBeDefined();
       done = await login.postForm(retryAction!, {
         otp: totp(OWNER_DEV_TOTP_SECRET, Date.now() + 30_000),
       });
+    }
+    if (done.status !== 302) {
+      const retryAction = otpFormAction(await done.text());
+      expect(retryAction, 'otp second retry form action').toBeDefined();
+      await waitForNextTotpStep();
+      done = await login.postForm(retryAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
     }
     expect(done.status).toBe(302);
     const location = done.headers.get('location') ?? '';
