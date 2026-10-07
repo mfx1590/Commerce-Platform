@@ -1,12 +1,11 @@
 // The consumer against a seeded throwaway database (#360): exactly once, retries, stuck rows, isolation, auth,
 // and a PII sweep over every log line the whole file produced.
 //
-// Schema: `notification_delivery` is the PROPOSED migration in ../migrations, applied here on top of the real
-// migrations; `marketing_cursor` is 0170 (#244). The outbox rows are built with packages/events' own
+// Schema: `notification_delivery` is packages/db migration 0180 (landed in db 0.3.3, #393) — the real
+// migrations create it; `marketing_cursor` is 0170 (#244). The outbox rows are built with packages/events' own
 // `makeEvent`/`toOutboxRow` and validated against the `order.placed` / `shipment.shipped` schemas, so a payload
 // change upstream fails this file rather than the worker in production.
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { createOrganizationClient, SEED_IDS, seed, type ScopedClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { createValidator, makeEvent, toOutboxRow, type EventEnvelope } from '@platform/events';
@@ -291,9 +290,6 @@ async function deliveries(): Promise<DeliveryRow[]> {
 
 beforeAll(async () => {
   db = await createTestDatabase('platform_notif');
-  await db.owner.query(
-    readFileSync(new URL('../migrations/0180_notification_delivery.sql', import.meta.url), 'utf8'),
-  );
   await seed(db.owner);
   hq = createOrganizationClient(db.app, { organizationId: ORG, actorId: null });
   stores = await resolveStores(hq, ['brand-a']);
