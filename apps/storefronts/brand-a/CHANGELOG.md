@@ -1,5 +1,40 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-07 · brand A's two hero loops are placed (#386)
+
+Window 6's REQUEST, with the schema half on main as `@platform/cms` 0.5.0 (PR #385).
+
+- **Content.** Both heroes gain their loop, in **both locales**: `home.json`'s home hero takes
+  `home-hero-shirt-loop-8s`, `campaign.json`'s autumn hero takes `campaign-autumn-hero-loop-8s`.
+- **The home hero's still moved, and a block took its place.** A loop is only valid over the still
+  the manifest records as its `poster`, and `home-hero-shirt-loop-8s`'s poster is `home-hero-02`
+  while the hero showed `home-hero-01`. The poster wins — it is the video's real first frame, and
+  `media/manifest.json` mirrors media generated outside the repo, so correcting it there would
+  falsify the manifest rather than fix the content. Because `home-hero-02` was already used by the
+  `imageBlock` further down the page, the two stills were **swapped** rather than one moved onto the
+  other: the hero takes `home-hero-02`, the block takes `home-hero-01`, and neither still appears
+  twice. (A test now pins that no still is used twice on the home page.) The campaign hero already
+  showed its poster, so it did not move.
+- **`scripts/resolve-media.mjs` gains a `heroVideo` branch.** It resolves to a Cloudinary
+  `/video/upload/` URL, keeps every existing error, and adds three: a slot that is not a video, a
+  video anywhere but a hero, and a loop whose hero image is not its poster. The branch runs **before**
+  the image branch, because a `heroVideo` also carries a `mediaSlot` and would otherwise be rejected
+  as "is a video, not an image". `walk` now passes the parent object down, which is what lets the
+  pairing be checked at all.
+- **No alt text on a loop, by design.** The video is `aria-hidden` and the poster's alt is what the
+  hero says to a screen reader, so the resolver applies no alt rule to a video and the content test
+  exempts loops — and now asserts they carry **no** alt, so nobody writes alt text a screen reader
+  never reaches.
+- **The pairing is checked even with no cloud name set.** A mis-paired loop is an authoring mistake,
+  not a deployment one; it must not stay hidden wherever Cloudinary happens to be unconfigured.
+- Tests: 8 added (24 in `brand-media.test.ts`), **738 passed / 2 skipped** overall. The resolver
+  places 22 media now (18 stills + 4 loops) and drops all 22 without a cloud name, both still passing
+  `validateDocument` against cms 0.5.0.
+- **Not rendered yet.** Rendering is window 3's (#330); until it lands a placed loop simply is not
+  rendered and the poster is the hero. `DESIGN.md` §7 says so.
+- **Not hand-written here:** `src/lib/cms`'s `hero-video.ts` and the reader's two-line change are the
+  starter's and arrive on the next re-sync.
+
 ## Unreleased — 2026-10-07 · take the hardened order-lifecycle spec (#382)
 
 - **One-file re-sync** of `e2e/order-lifecycle.spec.ts` from the starter (#383, window 3's hardening

@@ -327,8 +327,20 @@ has to be checked against the first frame.
 - The poster is the LCP element and loads with high priority. The video starts only after it, so
   the loop never costs the §6 LCP budget.
 
-The loops are not on the site yet. The CMS hero has no video field, and adding one is window 6's
-(schema) and window 3's (rendering): REQUEST #330.
+**The loops are now placed, and not yet rendered.** The CMS hero gained an optional `video`
+(`@platform/cms` 0.5.0, PR #385, window 6's half of #330), and brand A's content places both loops
+beside their posters (#386): `home-hero-shirt-loop-8s` over `home-hero-02` on the home hero, and
+`campaign-autumn-hero-loop-8s` over `campaign-autumn-hero` on the campaign hero. The home hero moved
+from `home-hero-01` to `home-hero-02` for the pairing, and the imageBlock further down the page took
+`home-hero-01`, so neither still appears twice.
+
+The pairing is not decoration: `cms/brand-a/scripts/resolve-media.mjs` refuses a loop whose hero
+image is not the `poster` the manifest records for it, with or without a Cloudinary cloud name — a
+loop playing over a different still would flash a new image the moment the video takes over.
+
+**Rendering is still window 3's** (#330). Until it lands a placed loop is simply not rendered: the
+poster is the hero, which is also what the rules above require under `prefers-reduced-motion`. So
+nothing on this list is live yet except the poster behaviour, which was always the still.
 
 **Product images are not here.** The 36-image product matrix and the detail shots belong to the
 catalogue seed (`packages/db`). They reach brand A through the Store API like any other product

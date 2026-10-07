@@ -194,11 +194,15 @@ interface DeliveryRow {
   attempts: number;
 }
 
-/** A short, address-free label for a log line or `last_error`. */
+/**
+ * A short, address-free label for a log line or `last_error`. A `TransportError` is built to be a label (status
+ * + provider error name); any other error contributes its NAME only — a database or filesystem message is not
+ * guaranteed to be free of the recipient, so it never reaches a row or a log line (#396 review).
+ */
 export function errorLabel(err: unknown): string {
   if (err instanceof TransportError) return err.message;
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
+  if (err instanceof Error) return err.name;
+  return 'error';
 }
 
 function describe(meta: DeliveryMeta): string {

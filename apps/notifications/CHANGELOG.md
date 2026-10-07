@@ -1,5 +1,13 @@
 # Changelog — @platform/notifications
 
+## 0.2.1 — 2026-10-07 (window 17, Refs #360)
+
+- `notification_delivery` is now the real migration (packages/db 0180, db 0.3.3, #393 landed in #397); the
+  proposed copy and the test-side apply were removed in that landing. README, CLAUDE.md and the package `files`
+  list say so.
+- `errorLabel` is label-only everywhere (#396 review nit): a `TransportError` as built, any other error by its
+  name only — a database or filesystem message never reaches `last_error` or a log line.
+
 ## 0.2.0 — 2026-10-07 (window 17, Refs #360)
 
 - The scaffold becomes the transactional email worker: an outbox consumer for `order.placed` and

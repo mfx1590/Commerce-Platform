@@ -37,6 +37,20 @@ describe('every x-permission in admin-api.yaml is resolvable', () => {
     expect(permissions).toHaveLength((paths.match(/^\s+x-permission:/gm) ?? []).length);
   });
 
+  it('every operation under paths is guarded, except the allowlisted getMe (#402)', () => {
+    const paths = spec.slice(spec.indexOf('\npaths:'), spec.indexOf('\ncomponents:'));
+    const operations = [
+      ...paths.matchAll(/operationId: (\w+)\n([\s\S]*?)(?=\n\s+operationId: |$)/g),
+    ].map((m) => ({
+      operationId: m[1]!,
+      guarded: /x-permission:/.test(m[2]!),
+    }));
+    expect(operations).toHaveLength((paths.match(/^\s+operationId: /gm) ?? []).length);
+    const unguarded = operations.filter((o) => !o.guarded).map((o) => o.operationId);
+    expect(unguarded).toEqual(['getMe']);
+    expect(permissions).toHaveLength(operations.length - unguarded.length);
+  });
+
   it.each(
     [...new Set(permissions.map((p) => JSON.stringify(p)))].map(
       (p) => JSON.parse(p) as { relation: string; object: string },
