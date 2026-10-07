@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Controller } from 'react-hook-form';
@@ -131,13 +131,13 @@ describe('server errors land on the right control', () => {
 
     render(<StoreForm action={action} />);
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(screen.getByText('code already exists')).toBeInTheDocument();
+    expect(await screen.findByText('code already exists')).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText(/Code/));
     await user.type(screen.getByLabelText(/Code/), 'brand-e');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.queryByText('code already exists')).toBeNull();
+    await waitFor(() => expect(screen.queryByText('code already exists')).toBeNull());
   });
 
   it('calls onSuccess only when the server agreed', async () => {
