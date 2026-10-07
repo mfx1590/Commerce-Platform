@@ -31,8 +31,10 @@ describe('every x-permission in admin-api.yaml is resolvable', () => {
     ...spec.matchAll(/x-permission:\s*\{\s*relation:\s*(\w+),\s*object:\s*'([^']+)'\s*\}/g),
   ].map((m) => ({ relation: m[1]!, object: m[2]! }));
 
-  it('finds the permissions (sanity)', () => {
+  it('finds the permissions (sanity) — every x-permission line under paths, none skipped (#90)', () => {
     expect(permissions.length).toBeGreaterThanOrEqual(30);
+    const paths = spec.slice(spec.indexOf('\npaths:'), spec.indexOf('\ncomponents:'));
+    expect(permissions).toHaveLength((paths.match(/^\s+x-permission:/gm) ?? []).length);
   });
 
   it.each(
