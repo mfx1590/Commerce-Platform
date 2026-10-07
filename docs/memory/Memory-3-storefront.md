@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done: #351 (PR #362), #358 code (PR #365), #372 (PR #375), **#382 (PR #383, `e667d4e`; brand A's core run proved the lifecycle spec, 92 passed / 26 skipped)**. **Next (later today, the manager sends the block): #330's rendering half**, once window 6 lands the CMS half (the reader shape will be in window 6's PR body). **Still open: #358's live proof** (Stripe test keys). Branch `storefront/phase3` = main + memory, not pushed. **Quiet until the manager writes. Machine NOT mine.**
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done: #351, #358 code, #372, #382 (PR #383). **Now: #389** (`@lhci/cli` 0.14.0 → **0.15.1**, Lighthouse 12.6.1; local perf run PASS, the six TraceElements audits populate, PLP LCP element = `<h1>` "All products") on `storefront/phase3`; **then #390** (perf.mjs warms the measured URLs like e2e-server.mjs) on its own branch from main; one PR each; machine granted for these runs — report "machine free" after. **Then #330's rendering half** once window 6's #385 is on main. **Still open: #358's live proof** (Stripe test keys).
 
 ## Identity (does not change)
 
