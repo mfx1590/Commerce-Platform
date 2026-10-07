@@ -1,5 +1,25 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-07 · take the hardened order-lifecycle spec (#382)
+
+- **One-file re-sync** of `e2e/order-lifecycle.spec.ts` from the starter (#383, window 3's hardening
+  of the spec whose `store:undefined` 403 surfaced on #379). 202 copied, 1 merged, 10 preserved, 4
+  excluded; the only files that moved are that spec and `scripts/starter-manifest.json` (starter
+  0.13.1 → 0.13.2). `sync --check` reports the manifest current, and the 10 preserved files —
+  `playwright.config.ts` included — are untouched.
+- What the hardening adds, all of it worth having here:
+  - `GET /store` now goes through `json()`, so a non-ok response **fails at the call** instead of
+    yielding `undefined` three calls later as a misleading 403.
+  - `store.id` is asserted to be a UUID, so `store:undefined` cannot propagate again.
+  - The spec **skips with a stated reason** when `STORE_PUBLISHABLE_KEY` is absent, rather than
+    running with an empty key.
+  - `json()` no longer puts the raw error body in the assertion message — it extracts the contract's
+    `code` / `message`, so **an order's personal data cannot land in a CI log**.
+- **Brand A's half of the pair stays:** `playwright.config.ts` still sets `STORE_PUBLISHABLE_KEY` for
+  the test process (#382). The spec's new skip makes a missing key legible; it does not supply one.
+  Without brand A's line the spec would now **skip** rather than fail — which would quietly stop
+  proving #372. Keep both.
+
 ## Unreleased — 2026-10-07 · the specs get brand A's publishable key (#379)
 
 - **`playwright.config.ts` sets `STORE_PUBLISHABLE_KEY` for the test process**, beside the `SITE_URL`
