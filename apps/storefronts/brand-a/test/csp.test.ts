@@ -54,7 +54,7 @@ describe('frame-src', () => {
   it('lists the campaign embed hosts it is given', () => {
     const policy = contentSecurityPolicy({ keycloakUrl: undefined, frameHosts: FRAMES });
     expect(directives(policy).get('frame-src')).toBe(
-      "'self' https://builder.io https://*.framer.app",
+      "'self' https://js.stripe.com https://hooks.stripe.com https://builder.io https://*.framer.app",
     );
   });
 
@@ -63,15 +63,17 @@ describe('frame-src', () => {
       keycloakUrl: undefined,
       frameHosts: "https://builder.io http://plain.example * 'unsafe-inline'",
     });
-    expect(directives(policy).get('frame-src')).toBe("'self' https://builder.io");
+    expect(directives(policy).get('frame-src')).toBe(
+      "'self' https://js.stripe.com https://hooks.stripe.com https://builder.io",
+    );
   });
 
-  it('still frames only ourselves when no embed hosts are configured', () => {
+  it('frames only ourselves and Stripe’s card iframes when no embed hosts are configured', () => {
     expect(
       directives(contentSecurityPolicy({ keycloakUrl: undefined, frameHosts: undefined })).get(
         'frame-src',
       ),
-    ).toBe("'self'");
+    ).toBe("'self' https://js.stripe.com https://hooks.stripe.com");
   });
 });
 
@@ -87,8 +89,19 @@ describe('the fixed directives', () => {
     expect(policy.get('base-uri')).toBe("'self'");
   });
 
-  it('keeps the browser talking only to this origin', () => {
-    expect(policy.get('connect-src')).toBe("'self'");
+  it('lets the browser talk to this origin and to Stripe’s API only (#358)', () => {
+    expect(policy.get('connect-src')).toBe("'self' https://api.stripe.com");
     expect(policy.get('default-src')).toBe("'self'");
+  });
+
+  it('loads scripts from this origin and Stripe.js only — no wildcard, nothing wider (#358)', () => {
+    expect(policy.get('script-src')).toBe("'self' 'unsafe-inline' https://js.stripe.com");
+    const allowed = ['https://js.stripe.com', 'https://hooks.stripe.com', 'https://api.stripe.com'];
+    for (const name of ['script-src', 'connect-src', 'frame-src']) {
+      const stripeHosts = (policy.get(name) ?? '')
+        .split(' ')
+        .filter((host) => host.includes('stripe'));
+      for (const host of stripeHosts) expect(allowed, `${name}: ${host}`).toContain(host);
+    }
   });
 });
