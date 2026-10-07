@@ -109,10 +109,13 @@ RLS through the caller's own scope — organization scope sees everything includ
 `limit`. Snapshots come back redacted because they are redacted at write time (`@platform/auth-sdk`
 `redactPii`).
 
-## GET /admin/finance/ping (task 1.7 — NOT in the contract)
+## GET /admin/finance/ping (task 1.7 — NOT in the contract, never in production since #90)
 
 Phase 1 gate test double standing in for the Phase 4 accounting routes: guarded exactly like
-`GET /admin/legal-entities` (`finance` on `organization:hq`), answers `{ ok: true }`. Keep it — Phase 4 can
-replace it; it costs one routing-table row and proves the finance gate without accounting existing yet.
+`GET /admin/legal-entities` (`finance` on `organization:hq`), answers `{ ok: true }`. `HqRbacDeps.financePing`
+decides whether an instance serves it: default everywhere except `NODE_ENV=production` (every image sets it),
+so dev stacks and the live suites keep the route and production never has it; `financePing: true` under
+production throws at construction, `false` drops the row anywhere. `HQ_RBAC_ROUTES` is the contract table
+without it, `FINANCE_PING_ROUTE` the row. Phase 4 replaces it with a real finance operation and the row goes.
 The gate itself: `test/gate.test.ts` (real Keycloak tokens through the scope middleware; store-admin of two
 stores 403 on every finance-gated operation swept from the contract; analyst denied customer PII per Admin API 0.2.1 — `support` on the store, CONTRACT CHANGE #77 accepted).

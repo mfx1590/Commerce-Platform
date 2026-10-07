@@ -383,4 +383,73 @@ describe('row-level security (platform_app role)', () => {
     expect(r.rows[0]!.def).toContain("'packed'");
     expect(r.rows[0]!.def).not.toContain("'boxed'");
   });
+
+  it('notification_delivery (0180): rows stay per store; organization scope sees all; one row per event_id', async () => {
+    const EVENT_A = '10000000-0000-4000-8000-000000000181';
+    const EVENT_B = '10000000-0000-4000-8000-000000000182';
+    const AGG = '10000000-0000-4000-8000-000000000189';
+    const insert = `INSERT INTO notification_delivery
+       (organization_id, store_id, event_id, event_seq, topic, aggregate_id, kind)
+       VALUES ($1, $2, $3, $4, 'order.placed', $5, 'order_confirmation')`;
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    await a.query(insert, [ORG, STORE_A, EVENT_A, 1, AGG]);
+    await b.query(insert, [ORG, STORE_B, EVENT_B, 2, AGG]);
+    // same store: reads and updates its own row
+    expect((await a.query('SELECT store_id FROM notification_delivery')).rows).toEqual([
+      { store_id: STORE_A },
+    ]);
+    expect(
+      (
+        await a.query(`UPDATE notification_delivery SET attempts = 1 WHERE event_id = $1`, [
+          EVENT_A,
+        ])
+      ).rowCount,
+    ).toBe(1);
+    // cross store: B's row is invisible even when filtered for, cannot be updated, and A cannot insert or move into B
+    expect(
+      (await a.query('SELECT id FROM notification_delivery WHERE store_id = $1', [STORE_B]))
+        .rowCount,
+    ).toBe(0);
+    expect(
+      (
+        await a.query(`UPDATE notification_delivery SET attempts = 9 WHERE event_id = $1`, [
+          EVENT_B,
+        ])
+      ).rowCount,
+    ).toBe(0);
+    await expect(
+      a.query(insert, [ORG, STORE_B, '10000000-0000-4000-8000-000000000183', 3, AGG]),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      a.query('UPDATE notification_delivery SET store_id = $1 WHERE event_id = $2', [
+        STORE_B,
+        EVENT_A,
+      ]),
+    ).rejects.toThrow(/row-level security/);
+    // organization scope (the worker's client) sees both stores; a foreign organization sees nothing
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    expect((await hq.query('SELECT id FROM notification_delivery')).rowCount).toBe(2);
+    const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
+    expect((await other.query('SELECT id FROM notification_delivery')).rowCount).toBe(0);
+    // the replay guard: a re-delivered event conflicts (and the key is per event, not per store)
+    await expect(a.query(insert, [ORG, STORE_A, EVENT_A, 1, AGG])).rejects.toThrow(
+      /notification_delivery_event_id_key/,
+    );
+    // status 'sent' requires sent_at, and vice versa
+    await expect(
+      a.query(`UPDATE notification_delivery SET status = 'sent' WHERE event_id = $1`, [EVENT_A]),
+    ).rejects.toThrow(/notification_delivery_check/);
+  });
+
+  it('notification_delivery (0180): carries no recipient column', async () => {
+    const r = await db.owner.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'notification_delivery'`,
+    );
+    const cols = r.rows.map((x) => x.column_name);
+    expect(cols).toContain('event_id');
+    expect(cols).toContain('store_id');
+    expect(cols).toContain('organization_id');
+    expect(cols.filter((c) => /email|recipient|address|phone|name/.test(c))).toEqual([]);
+  });
 });

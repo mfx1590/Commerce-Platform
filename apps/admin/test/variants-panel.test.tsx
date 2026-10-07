@@ -157,7 +157,7 @@ describe('variants are created deliberately, not as a side effect of saving opti
     await user.click(screen.getByRole('button', { name: 'Create all 4' }));
 
     expect(createVariantAction).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('alert')).toHaveTextContent('store_staff');
+    expect(await screen.findByRole('alert')).toHaveTextContent('store_staff');
   });
 });
 
@@ -205,7 +205,7 @@ describe('editing a variant', () => {
     await user.click(screen.getByRole('button', { name: 'Edit' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('sku already exists');
+    expect(await screen.findByRole('alert')).toHaveTextContent('sku already exists');
     expect(screen.getByLabelText('SKU')).toBeInTheDocument();
   });
 });

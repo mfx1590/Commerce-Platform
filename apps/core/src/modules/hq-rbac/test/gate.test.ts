@@ -53,15 +53,42 @@ async function realToken(username: string): Promise<string> {
   return json.access_token;
 }
 
-/** Every x-permission of the frozen contract, parsed from the spec itself. */
+/**
+ * Every x-permission of the frozen contract, parsed from the spec itself: the `paths:` section is cut into
+ * operation blocks (from one `operationId:` to the next) and each block's `x-permission` is taken wherever it
+ * sits — after `summary`, a multi-line `description`, `tags`, anything. The earlier regex only matched an
+ * `x-permission` directly under `operationId` (one `summary` line allowed) and silently skipped four
+ * operations with longer descriptions (#90); the static test below now pins the count.
+ */
+const SPEC = readFileSync(
+  resolve(here, '../../../../../../packages/contracts/openapi/admin-api.yaml'),
+  'utf8',
+);
+const SPEC_PATHS = SPEC.slice(SPEC.indexOf('\npaths:'), SPEC.indexOf('\ncomponents:'));
 const SPEC_PERMISSIONS = [
-  ...readFileSync(
-    resolve(here, '../../../../../../packages/contracts/openapi/admin-api.yaml'),
-    'utf8',
-  ).matchAll(
-    /operationId: (\w+)\n\s+(?:summary: [^\n]+\n\s+)?x-permission:\s*\{\s*relation:\s*(\w+),\s*object:\s*'([^']+)'\s*\}/g,
-  ),
-].map((m) => ({ operationId: m[1]!, relation: m[2]!, object: m[3]! }));
+  ...SPEC_PATHS.matchAll(/operationId: (\w+)\n([\s\S]*?)(?=\n\s+operationId: |$)/g),
+].flatMap((m) => {
+  const xp = m[2]!.match(/x-permission:\s*\{\s*relation:\s*(\w+),\s*object:\s*'([^']+)'\s*\}/);
+  return xp ? [{ operationId: m[1]!, relation: xp[1]!, object: xp[2]! }] : [];
+});
+
+describe('x-permission sweep of admin-api.yaml is exhaustive (#90, static)', () => {
+  it('attributes every x-permission line under paths to exactly one operation', () => {
+    const lines = SPEC_PATHS.match(/^\s+x-permission:/gm) ?? [];
+    expect(SPEC_PATHS.length).toBeGreaterThan(0);
+    expect(lines.length).toBeGreaterThanOrEqual(100);
+    expect(SPEC_PERMISSIONS).toHaveLength(lines.length);
+    expect(new Set(SPEC_PERMISSIONS.map((p) => p.operationId)).size).toBe(SPEC_PERMISSIONS.length);
+    // The four the old regex skipped: a multi-line description sits between operationId and x-permission.
+    for (const id of ['updateDomain', 'revokeApiKey', 'capturePayment', 'buyShipmentLabel']) {
+      expect(
+        SPEC_PERMISSIONS.map((p) => p.operationId),
+        id,
+      ).toContain(id);
+    }
+    expect(SPEC_PERMISSIONS.filter((p) => p.relation === 'finance').length).toBeGreaterThan(0);
+  });
+});
 
 describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
   let db: TestDatabase;
@@ -82,7 +109,7 @@ describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
       organizationId: ORG,
       cache: new ScopeCache(0),
     });
-    rbac = createHqRbac({ pool: db.app, fga });
+    rbac = createHqRbac({ pool: db.app, fga, financePing: true }); // the test double, explicit (#90)
     for (const username of ['store-admin', 'finance', 'analyst', 'support']) {
       scopes.set(username, await mw.resolve(`Bearer ${await realToken(username)}`));
     }
@@ -132,7 +159,7 @@ describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
     }
   });
 
-  it('GATE: store-admin gets 403 on /admin/finance/ping (test double for Phase 4 accounting routes)', async () => {
+  it('GATE: store-admin gets 403 on /admin/finance/ping (test double for Phase 4 accounting routes; never in production, #90)', async () => {
     const scope = scopes.get('store-admin')!;
     const denied = await rbac.handle({
       method: 'GET',
