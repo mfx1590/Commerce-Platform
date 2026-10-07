@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 5b119ff) · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); working the manager's 2a docket (#374, then #372's brand A half, then #348).
+Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 54284d1) + `brands/348` · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); **DOCKET CLEAR** — #374 and #372 merged; #391 (spec re-sync) and #388 (#348) both reviewed MERGE and queued together after #385. Quiet.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -125,111 +125,35 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — Integration 2a, the manager's docket (opened 2026-10-06)
+## In progress — nothing. Integration 2a docket complete (2026-10-07)
 
-Branch `brands/phase3`, cut from `origin/main` 1280fe6 (≥ 4e03a81, contracts-v0.4.11), with the
-Phase 2 memory commit carried across by cherry-pick. Rules for 2a: merge main before pushing, one PR
-per task, **hold each push until the manager confirms the previous merge**, no docker, long runs
-detached to a file with bounded polls, say "machine free" after any core run.
+Everything the manager assigned is delivered. **Do not push either branch**; both PRs are reviewed
+MERGE and waiting on the queue behind #385.
 
-1. ~~**#374**~~ — **MERGED.** PR #377, reviewed MERGE by the manager, merged to main as `e1e515f`
-   (the queue merged main into the branch as `06b893e` first). Commits `54a8171` (the fix) and
-   `128542e` (prettier). See Done below.
+| item | state |
+| --- | --- |
+| **#374** order total vs. arithmetic | MERGED (PR #377 → `e1e515f`), issue closed |
+| **#372** brand A half (re-sync) | MERGED (PR #379 → `7f4f8fe`), issue closed |
+| **#382** hardened lifecycle spec | **PR #391** `0943198`, reviewed MERGE, queued |
+| **#348** perf gate N=5 | **PR #388** `eb71959`, reviewed MERGE, queued |
+| REQUESTs to window 3 | **#389** (gate's LCP audits all error), **#390** (no perf warm-up) |
 
-2. **#372, brand A's half — PR #379, updated 2026-10-07 after merging main.** See the #379 status section below for the two red checks and which is mine (only the secret scan was, and the merge fixes it).
-3. **#348 — NEXT, and not started: the owner's day ended before they gave the word.** The manager
-   says continue it locally and hold the push; the owner asked to be the one to start it, and a peer
-   does not override that, so it waits for them. Nothing is half-done — no files touched for #348.
-   **A DECISION from data that already exists, and it gets its OWN PR** (the manager
-   left the choice to me; riding it in a 36-file re-sync body would bury it).
-   The ask is explicit: ten runs' PLP + PDP LCP from the perf-leg logs, then **either** a real LCP
-   improvement on the listing page **or** a measured decision on the threshold — "do not loosen the
-   budget without the numbers". Acceptance also wants 30 consecutive green brand A perf legs.
-   Known so far: run 37301539904/job 111735243808 — PLP LCP 2815/2598/2571, asserted **2570.6** vs
-   `maxNumericValue: 2500` → **FAIL by 71 ms**; PDP passed at 2177 with a worst run of 2458 (42 ms
-   under). Runner CPU benchmark 2066–2463, and the slowest page run had the slowest benchmark —
-   simulated throttling scales LCP with runner speed, so this is runner variance, not a brand A
-   regression. Failure rate 1 in 20 on the brand A leg, 0 in 25 on the starter's.
-   The manager's 2026-10-06 datapoint: **PDP 2565/2648/2642**. Note that PDP is now *worse* than the
-   PLP numbers that failed — so the question may not be "fix the PLP" at all. Window 5's #283 leg
-   now prints per-run numbers, so the ten runs are recoverable from the perf-leg logs of recent PRs.
-   **Datapoints collected so far (all FAILING, and the pattern matters).** LHCI asserts the **best**
-   of three for a `max` assertion, so the asserted value is the *lowest* run:
+**#348 is NOT closed by #388, deliberately.** Its body and title say *Refs*, because acceptance also
+needs **30 consecutive green brand A perf legs** and no PR can demonstrate that about itself. **The
+manager counts those in CI after merge and closes #348.** The commit subject on `brands/348` still
+reads "Closes #348" and could not be rewritten — a note in the PR body asks whoever merges to reopen
+the issue if GitHub auto-closes it. If a future session finds #348 closed with no count recorded,
+that is why.
 
-   | when | page | three runs | asserted | vs 2500 |
-   | --- | --- | --- | --- | --- |
-   | run 37301539904 (PR #341, **infra-only** diff) | PLP | 2815 / 2598 / 2571 | 2570.6 | **+71 FAIL** |
-   | same run | PDP | — (passed) 2177, worst 2458 | 2177 | −42 pass |
-   | 2026-10-06 (manager) | PDP | 2565 / 2648 / 2642 | 2565 | **+65** |
-   | 2026-10-07 (manager, **docs-only** main commit) | PLP | 2529 / 2567 / 2563 | 2529 | **+29** |
+**Two things that must not be "tidied away" later:**
+1. Brand A's `process.env.STORE_PUBLISHABLE_KEY ??=` line in `playwright.config.ts` stays even though
+   #383 hardened the spec. The hardened spec **skips** when the key is absent, and brand A's core leg
+   is the only place it runs — so deleting the line would stop proving #372 **while the leg stayed
+   green**. My line supplies the value; #383 makes its absence legible. Both halves.
+2. `lighthouserc.json` keeps `maxNumericValue: 2500`. The flakiness was fixed by `numberOfRuns: 5`,
+   not by loosening the budget. If #390's warm-up lands, N can probably go back to 3 — re-measure
+   before changing either number, and never argue a threshold from the median.
 
-   **Two things to carry into the decision.**
-   - Two of the three failures are on diffs that **cannot** have touched the storefront (infra-only,
-     docs-only). That is runner variance around a budget the page genuinely sits on — not a brand A
-     regression. The CPU benchmark range (2066–2463) and the fact that the slowest page run had the
-     slowest benchmark both point the same way: simulated throttling scales LCP with runner speed.
-   - **But the assertion already takes the best of three, and even the best is over.** So the PLP
-     really is ~2.53–2.57 s on CI runners, not merely noisy. A threshold bump alone is unlikely to
-     reach the acceptance bar of **30 consecutive green legs** unless it is set well above the worst
-     observed run — which is a big ask to justify. And the PDP has drifted from 2177 to 2565, so
-     **both** brand A pages are now on the budget; "fix the PLP" is no longer the whole question.
-     Expect the honest answer to be a real LCP improvement (or a threshold set from the measured
-     distribution, argued with the worst case, not the median).
-
-   First real question to answer with the logs: **what is the LCP element on the PLP** (the first
-   product image?) and is it prioritised, sized and served at the right width — because a genuine fix
-   beats a threshold argument.
-
-## #379 (2026-10-07) — ALL GREEN at head `a116316`; #372's assertion is PROVEN
-
-Merged `origin/main` `5b119ff` (the gitleaks allowlist), cited **PR #379** and reviewed head
-`771f35d` in the CHANGELOG and here, re-ran the gates, one push to `brands/phase3` — #379 updated in
-place at head **`77ab61e`**, no second PR. Static review was **MERGE on the code**; the manager
-confirmed two commits in one push is fine.
-
-**RESULT (manager, 2026-10-07): #379 is all green at `a116316`.** Brand A's core leg:
-**92 passed / 26 skipped** — the 91 from before plus `order-lifecycle.spec.ts`, which now **passes
-against the real core**. So **#372's brand A assertion is proven**: place → ship → deliver, and the
-confirmation reads `processing` then `completed`, by the `data-order-status` hook and by the rendered
-text. The manager quoted the result on #372 and #382. #379 is queued behind **#383**.
-
-**NEXT ACTION — do not push until the manager confirms BOTH #379 and #383 merged.** Pushing to
-`brands/phase3` now would update #379 and knock it out of the queue. Then: one small follow-up PR
-re-syncing **#383's spec hardening** (window 3's `ok()` asserts with status and body on `GET /store`
-and every admin call) into brand A — `sync --check` should flag only that one file. Keep the
-publishable-key line in `playwright.config.ts`: #383 makes the failure legible, it does not supply
-the value.
-
-**What the whole #372 chain cost, worth remembering:** four pushes and three external blockers —
-the gitleaks allowlist for a synced fixture (main), the live job never seeding OpenFGA (#380/#381,
-window 5), and the spec's missing publishable key (mine) with its hardening (#382/#383, window 3).
-None was brand A's *code*. The pattern: **brand A's core leg is the first place several synced specs
-ever execute**, so brand A inherits the job of discovering what the starter's suite has never run.
-Budget for that on the next re-sync that brings a core-only spec.
-
-#381 (`7a4abb4`) landed and fixed the OpenFGA seed; #379 at `c88df9f` then went red twice again:
-
-- **secret scan — MY FAULT, fixed locally in `f3c2f4d`.** See the "never quote a secret-shaped
-  literal" gotcha below. The manager allowlisted my two paths on main (`ab16125`) because commit
-  messages cannot be rewritten; the replacements still ride in the next push, as asked.
-- **live job, `order-lifecycle.spec.ts` 403 `requires viewer on store:undefined` — FIXED HERE.**
-  The synced spec reads `GET /store` with
-  `'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? ''` and never checks the response; CI
-  sets no such variable for the **Playwright process**, so it sent an empty key, took an unchecked
-  401, and asked the Admin API for `viewer on store:undefined`.
-  `next.config.mjs` has always defaulted the key for the **app**, which is why the gap stayed
-  invisible until a spec needed it, and why `journey.spec.ts` (own fallback) never hit it.
-  **Fix:** one line in brand A's `playwright.config.ts` beside the `SITE_URL ??=` line —
-  `process.env.STORE_PUBLISHABLE_KEY ??= <the dev publishable key, same as next.config.mjs>`. That
-  file is preserved, so the sync will not fight it; it fixes every spec, not one; the key is public
-  by design and already in the repo, and the gitleaks `regexes` allowlist covers its shape.
-  *The manager first ruled this window 3's and then reversed to mine — both are recorded because the
-  reasoning is worth keeping: a fallback alone would still leave a spec that does not validate its
-  own setup, which is the vacuous-success trap of [[#374]]. So BOTH happen — my line supplies the
-  value, and **#382** (window 3) hardens the spec to assert `ok()` with status and body on
-  `GET /store` and every admin call, so the next missing variable fails where it happens. #382 does
-  not block #379.*
-  **Keep `playwright.config.ts` and `next.config.mjs` in step on that key.**
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
@@ -286,14 +210,13 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   rewritten, so the manager had to allowlist those files on main. Write "the secret-key and
   restricted-key fixtures in `test/payment-options.test.ts`" instead. The scanner reads prose, and
   an explanation of a false positive is indistinguishable from the real thing to a regex.
-- **`scripts/check-ownership.sh` false-positives when the MAIN CHECKOUT's `main` is stale.** It
-  prefers `merge-base main HEAD` over `origin/main`, and `main` is checked out in
-  `C:/Users/mehdi/Desktop/commerce-platform` — another session's tree, so **I must not move it**
-  (git refuses, and it would change files under them). When it reports a violation on another
-  window's file, re-run against the right base:
-  `OWNERSHIP_BRANCH=<branch> OWNERSHIP_FILES="$(git diff --name-only origin/main HEAD)" bash scripts/check-ownership.sh`.
-  CI uses `origin/main`, so it is green there. Mind that `git diff origin/main HEAD` covers only
-  **committed** work — commit first, or the check sees nothing.
+- **`scripts/check-ownership.sh` can false-positive on another window's files** when the MAIN
+  CHECKOUT's `main` is stale: it prefers `merge-base main HEAD`, and `main` lives in
+  `C:/Users/mehdi/Desktop/commerce-platform`. **Never move that ref** — it is another session's
+  working tree. *(Happened 2026-10-07 at `13c393d`; the manager pulled it and the check is correct
+  again. Kept because it will recur.)* Diagnose with:
+  `OWNERSHIP_BRANCH=<branch> OWNERSHIP_FILES="$(git diff --name-only origin/main HEAD)" bash scripts/check-ownership.sh`
+  — and remember that diff covers only **committed** work. CI uses `origin/main`, so CI is unaffected.
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app
