@@ -81,7 +81,8 @@ What the renderer (window 3, later) owes the field, per #330 and brand A's DESIG
 requested**; otherwise `<video muted playsinline loop autoplay preload="none" poster=…>` with
 `aria-hidden="true"`, started after the poster has loaded so the poster stays the LCP element, a
 visible pause/play control (WCAG 2.2.2: the loops run 8 s), and the URL through the shared
-Cloudinary loader with a capped width. `Hero` renders the image only until then.
+Cloudinary loader with a capped width. Rendered by `HeroMedia` (`src/components/hero-media.tsx`,
+window 3, #330), which wraps the hero's image.
 
 ## Content routes
 
@@ -104,16 +105,16 @@ webhook.
 
 ## Components (`components/`)
 
-| Component                 | Renders                                                                                                       |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image, up to two CTAs, three layouts; `video` not rendered yet |
-| `Blocks`                  | `richText`, `imageBlock` (figure + caption), `productStory`, `cta`, `hero`; unknown → nothing                 |
-| `PortableText`            | normal / h2 / h3 / blockquote, bullet and numbered lists, strong / em, links, inline images                   |
-| `ProductStory`            | CMS copy around a live product from `getProduct(handle)`; API failure → copy only                             |
-| `SanityImage`             | responsive `<img>` from either source: Cloudinary via the shared @platform/ui loader, or the Sanity asset ref |
-| `CmsHeader` / `CmsFooter` | navigation and footer documents, with the starter's static links / copyright as fallback                      |
-| `HomeContent`             | hero + blocks of the `home` page; nothing when unpublished                                                    |
-| `PreviewBanner`           | a `role="status"` strip with an exit link while the preview cookie is valid                                   |
+| Component                 | Renders                                                                                                                     |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image (+ optional video loop via `HeroMedia`), up to two CTAs, three layouts |
+| `Blocks`                  | `richText`, `imageBlock` (figure + caption), `productStory`, `cta`, `hero`; unknown → nothing                               |
+| `PortableText`            | normal / h2 / h3 / blockquote, bullet and numbered lists, strong / em, links, inline images                                 |
+| `ProductStory`            | CMS copy around a live product from `getProduct(handle)`; API failure → copy only                                           |
+| `SanityImage`             | responsive `<img>` from either source: Cloudinary via the shared @platform/ui loader, or the Sanity asset ref               |
+| `CmsHeader` / `CmsFooter` | navigation and footer documents, with the starter's static links / copyright as fallback                                    |
+| `HomeContent`             | hero + blocks of the `home` page; nothing when unpublished                                                                  |
+| `PreviewBanner`           | a `role="status"` strip with an exit link while the preview cookie is valid                                                 |
 
 **Mount points for window 3 (REQUEST #178):** `CmsHeader` / `CmsFooter` in `src/layouts/defaults.tsx`
 so the shop chrome follows the CMS, and `HomeContent` in `src/app/[locale]/(shop)/page.tsx`. A brand

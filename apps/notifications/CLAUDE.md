@@ -17,7 +17,7 @@ window 16's Phase 4 Novu worker — that scope (SMS/WhatsApp/Slack, consumer gro
 - `pnpm --filter @platform/notifications once` — one pass, prints the report, exits
 - `pnpm --filter @platform/notifications build` / `typecheck` (src and tests) / `lint`
 - `pnpm --filter @platform/notifications exec vitest run` — ~8 s; `consumer.test.ts` builds its own throwaway DB
-  through `@platform/db/testing` and applies `migrations/0180_notification_delivery.sql` itself
+  through `@platform/db/testing` (`notification_delivery` = packages/db migration 0180, db 0.3.3)
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/notifications` before finishing any task.
 
 ## Layout
@@ -28,7 +28,6 @@ window 16's Phase 4 Novu worker — that scope (SMS/WhatsApp/Slack, consumer gro
 - `src/brands.ts` — sender / legal footer per store code, env overrides `NOTIFICATIONS_<STORE>_<FIELD>`
 - `src/transport/` — `Transport` implementations: `dev-sink.ts`, `resend.ts`
 - `src/auth.ts`, `src/server.ts` — staff auth + `/health` + `/preview/*`; `src/config.ts`, `src/main.ts`
-- `migrations/` — the PROPOSED migration until the main window lands it (then delete the copy)
 
 ## Public API
 
