@@ -9,3 +9,6 @@ dist/
 
 # feed artifacts written by the core (FeedStorage local default); served by apps/feeds
 .feeds/
+
+# rendered emails written by apps/notifications' dev transport (NOTIFICATIONS_DIR local default); contain recipients
+.notifications/
