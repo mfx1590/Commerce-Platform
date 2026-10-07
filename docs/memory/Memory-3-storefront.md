@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 (end of day) · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **Integration 2a docket DONE:** #351 (PR #362, `384996f`), #358 code (PR #365, `c8fb6bd`), #372 (PR #375, `d5a8e89`). **Open: #358's live proof** — a test-mode card order through the UI on the core; the manager calls me when the owner's Stripe test keys are in this worktree's .env (never in chat), then: core run with `e2e/card-payment.spec.ts`, verify the Stripe frame selectors and the CSP live, three clean passes. Branch `storefront/phase3` = main + memory only, NOT pushed (nothing to push). **Quiet until the manager writes. Machine NOT mine.**
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Integration 2a docket done (#351, #358 code, #372). **#382 (small, now):** the lifecycle spec's `GET /store` used `process.env.STORE_PUBLISHABLE_KEY ?? ''` — CI's Playwright process sets none, so brand A's core leg got store.id undefined → admin 403. Fix: the key from the app's own `storeApiConfigFromEnv(e2eServerEnv(process.env))`; every call asserted ok() with status + error code/message (no raw body). Branch `storefront/phase3` = main `ab16125` + memory + the fix; PR "Closes #382"; no machine needed (brand A's run after window 10's re-sync is the proof). **Still open: #358's live proof** (Stripe test keys).
 
 ## Identity (does not change)
 

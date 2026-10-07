@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { e2eServerEnv } from '../scripts/e2e-env.mjs';
+import { storeApiConfigFromEnv } from '@/lib/store-api/config';
 
 /**
  * Which backend an e2e run talks to must not depend on what the shell exports (review of #316).
@@ -38,6 +39,13 @@ describe('e2eServerEnv', () => {
 
   it('sets no invoice switch: the store says whether invoices are allowed (#372)', () => {
     expect('STOREFRONT_ALLOW_INVOICE' in e2eServerEnv({})).toBe(false);
+  });
+
+  it('the app under test gets the run’s publishable key, else the starter default (#382)', () => {
+    const key = (env: Record<string, string | undefined>) =>
+      storeApiConfigFromEnv(e2eServerEnv(env)).publishableKey;
+    expect(key({ STORE_PUBLISHABLE_KEY: 'pk_test_runword' })).toBe('pk_test_runword');
+    expect(key({})).toBe('pk_test_storefront_starter');
   });
 
   it('does not touch the environment it was given', () => {

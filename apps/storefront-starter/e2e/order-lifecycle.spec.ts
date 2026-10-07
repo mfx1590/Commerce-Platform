@@ -15,6 +15,8 @@ import {
   clickWhenReady,
   openPurchasableProduct,
 } from './support/journey';
+import { e2eServerEnv } from '../scripts/e2e-env.mjs';
+import { storeApiConfigFromEnv } from '../src/lib/store-api/config';
 
 /**
  * #372: the customer sees the order's real status as the shop works on it. The run places an order
@@ -71,12 +73,36 @@ async function staffApi(): Promise<APIRequestContext> {
   });
 }
 
+/**
+ * The body of a successful call, or a failed assertion naming the call, the HTTP status and the
+ * contract's error `code` / `message` — never the raw body, which could carry an order's personal
+ * data (#382; PII-free assertion messages, review of #375).
+ */
 async function json<T>(
   response: Awaited<ReturnType<APIRequestContext['get']>>,
   what: string,
 ): Promise<T> {
-  expect(response.ok(), `${what}: ${response.status()} ${await response.text()}`).toBe(true);
+  if (!response.ok()) {
+    let reason = '';
+    try {
+      const body = (await response.json()) as { code?: unknown; message?: unknown };
+      reason = [body.code, body.message].filter((part) => typeof part === 'string').join(': ');
+    } catch {
+      reason = '(no JSON error body)';
+    }
+    expect(response.ok(), `${what}: HTTP ${response.status()} ${reason}`).toBe(true);
+  }
   return (await response.json()) as T;
+}
+
+/**
+ * The publishable key **the app under test uses**, resolved by the app's own code from the
+ * environment the e2e server hands it (#382): `STORE_PUBLISHABLE_KEY` when the run sets it, else the
+ * starter's default — which is what brand A's core leg runs with. Reading the variable directly sent
+ * an empty key whenever the run relied on the default, and the store id came back undefined.
+ */
+function appPublishableKey(): string {
+  return storeApiConfigFromEnv(e2eServerEnv(process.env)).publishableKey;
 }
 
 interface Warehouse {
@@ -119,11 +145,13 @@ test('the confirmation shows the order processing once shipped and completed onc
   );
 
   // ── The shop ships it, as the operations user, through the Admin API.
-  const store = (await (
+  const store = await json<{ id: string }>(
     await page.request.get(`${CORE_URL}/store`, {
-      headers: { 'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? '' },
-    })
-  ).json()) as { id: string };
+      headers: { 'X-Publishable-Key': appPublishableKey() },
+    }),
+    'GET /store',
+  );
+  expect(store.id, 'GET /store names the store the order belongs to').toMatch(/^[0-9a-f-]{36}$/i);
   const admin = await staffApi();
   const order = await json<{ items: { id: string; quantity: number }[] }>(
     await admin.get(`/admin/stores/${store.id}/orders/${orderId}`),
