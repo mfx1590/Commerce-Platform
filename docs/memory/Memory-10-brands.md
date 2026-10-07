@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 54284d1) + `brands/348` · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); **DOCKET CLEAR** — #374 and #372 merged; #391 (spec re-sync) and #388 (#348) both reviewed MERGE and queued together after #385. Quiet.
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main b5473ac) · Status: **INTEGRATION 2a, DOCKET CLEAR (end of 2026-10-07)** — merged: #374, #372, #382 (via #391), #348's change (via #388). **#408 (#386) green and IN THE QUEUE.** #348 itself is **reopened** for the manager's 30-leg count; REQUEST **#389** (the perf gate's six erroring audits) still unfixed. Quiet; no pushes.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -19,7 +19,11 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 ## Done
 - **#386 · brand A's two hero loops placed.** Content (both locales), the `heroVideo` branch in
   `cms/brand-a/scripts/resolve-media.mjs`, 9 tests, DESIGN.md §7, both READMEs.
-  **PR #408**, head **`916ff01`** → then `BLOCK` on static review → fixed and re-pushed (see below).
+  **PR #408**: head `916ff01` → `BLOCK` on static review (the missing test, see the gotcha) → fixed
+  and re-pushed as head **`c69d6b4`**, which I verified green myself — **14 pass / 0 fail / 0
+  pending**, the live job and brand A's perf leg included — and which was **in the merge queue at the
+  end of 2026-10-07**. GitHub had an outage during that run and recovered. *If a later session finds
+  #408 unmerged, the queue is where it stopped, not a failure.*
   Built on `brands/phase3`, merged with main `b5473ac`; cms is 0.5.0.
   - **The swap:** a loop is only valid over the still the manifest names as its `poster`.
     `home-hero-shirt-loop-8s`'s poster is `home-hero-02`, the hero showed `home-hero-01`, and
