@@ -1,5 +1,20 @@
 # Changelog — @platform/cms
 
+## 0.5.0 — 2026-10-07
+
+REQUEST #330, the CMS half: an optional video loop on the hero.
+
+- New object `heroVideo { cloudinaryUrl }` — required, a Cloudinary video delivery URL
+  (`CLOUDINARY_VIDEO_URL_PATTERN`, the `/video/upload/` half of `CLOUDINARY_URL_PATTERN`).
+- `hero.video?: heroVideo`. Optional; existing content is valid unchanged. The hero-level validator
+  `heroPoster` refuses a video without an `image` — the image is the poster, the reduced-motion
+  fallback and the LCP element.
+- Types: `HeroVideo`, `Hero.video`. The campaign fixture's hero carries a loop next to its
+  Cloudinary image so every path sees one. Tests in `test/hero-video.test.ts`.
+- Rendering (no request under `prefers-reduced-motion`, a visible pause control, poster first) is
+  the storefront's, later (window 3). Brand content places a loop as
+  `{ "_type": "heroVideo", "mediaSlot": "<video slot>" }` — the slot resolver change is window 10's.
+
 ## 0.4.0 — 2026-09-19
 
 Task [cms] 2.5 (issue #123): Cloudinary media for CMS content.

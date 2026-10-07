@@ -127,26 +127,53 @@
       "title": "Wie möchten Sie bezahlen?",
       "method": "Zahlungsart",
       "manual": "Auf Rechnung",
-      "manualBody": "Platzhalter für Phase 1 — der Anbieter „manual“. Kartenzahlung folgt mit Hosted Fields, Kartendaten erreichen diese App also nie.",
+      "manualBody": "Die Bestellung wird jetzt aufgegeben; die Zahlung wird separat mit dem Shop vereinbart.",
       "failed": "Die Zahlung wurde nicht autorisiert. Wählen Sie eine Zahlungsart und versuchen Sie es erneut.",
-      "submit": "Weiter zur Prüfung"
+      "submit": "Weiter zur Prüfung",
+      "card": "Karte",
+      "cardBody": "Sie geben Ihre Karte im nächsten Schritt ein. Kartendaten gehen direkt an unseren Zahlungsdienstleister Stripe — nie an diesen Shop.",
+      "none": "Für diesen Shop ist derzeit keine Zahlungsart verfügbar. Bitte kontaktieren Sie uns, um Ihre Bestellung abzuschließen."
     },
     "review": {
       "title": "Bestellung prüfen",
       "deliveryAddress": "Lieferadresse",
       "deliveryAndPayment": "Versand und Zahlung",
       "placeOrder": "Kostenpflichtig bestellen",
-      "idempotencyNote": "Beim Bestellen wird ein Idempotenzschlüssel gesendet, damit ein erneuter Versuch nach einem Netzwerkfehler keine zweite Bestellung anlegt."
+      "idempotencyNote": "Beim Bestellen wird ein Idempotenzschlüssel gesendet, damit ein erneuter Versuch nach einem Netzwerkfehler keine zweite Bestellung anlegt.",
+      "cardNote": "Beim Aufgeben der Bestellung wird Ihre Karte geprüft und der Betrag reserviert; belastet wird sie, sobald der Shop die Bestellung bestätigt. Kartendaten gehen direkt an Stripe — nie an diesen Shop.",
+      "cardFailed": "Ihre Karte wurde nicht autorisiert. Bitte prüfen Sie die Angaben oder verwenden Sie eine andere Karte.",
+      "cardUnavailable": "Kartenzahlung ist gerade nicht verfügbar.",
+      "choosePayment": "Andere Zahlungsart wählen",
+      "priceChanged": "Seit Ihrer Prüfung hat sich ein Preis geändert. Bitte prüfen Sie die neue Summe und geben Sie die Bestellung erneut auf.",
+      "threeDSecureAbandoned": "Die Kartenprüfung bei Ihrer Bank wurde nicht abgeschlossen. Es wurde nichts belastet und keine Bestellung aufgegeben. Ihr Warenkorb ist unverändert — Sie können es erneut versuchen."
     },
     "confirmation": {
       "badge": "Bestellung aufgegeben",
       "title": "Vielen Dank",
-      "body": "Bestellung #{order} ist bestätigt. Wir haben eine Bestätigung an {email} gesendet.",
       "delivery": "Versand",
       "unavailable": "Bestellung nicht verfügbar",
-      "unavailableBody": "Öffnen Sie den Link aus Ihrer Bestätigungs-E-Mail, um diese Bestellung zu sehen, oder melden Sie sich in Ihrem Konto an.",
+      "unavailableBody": "Diese Bestellung kann nur der Person angezeigt werden, die sie aufgegeben hat. Melden Sie sich an, um die Bestellungen in Ihrem Konto zu sehen.",
       "goToAccount": "Zu Ihrem Konto",
-      "deliveryAddress": "Lieferadresse"
+      "deliveryAddress": "Lieferadresse",
+      "followSignedIn": "Den Status sehen Sie in Ihrem Konto:",
+      "orderHistory": "Bestellübersicht",
+      "followGuest": "Bitte notieren Sie Ihre Bestellnummer #{order} — Sie benötigen sie, wenn Sie uns zu dieser Bestellung kontaktieren.",
+      "contactEmail": "E-Mail",
+      "bodyByStatus": {
+        "pending": "Bestellung #{order} wurde aufgegeben und wird bearbeitet.",
+        "confirmed": "Bestellung #{order} wurde aufgegeben und wird bearbeitet.",
+        "processing": "Bestellung #{order} ist unterwegs.",
+        "completed": "Bestellung #{order} wurde zugestellt.",
+        "cancelled": "Bestellung #{order} wurde storniert."
+      },
+      "statusLabel": "Bestellstatus:",
+      "status": {
+        "pending": "Eingegangen",
+        "confirmed": "Bestätigt",
+        "processing": "In Bearbeitung",
+        "completed": "Abgeschlossen",
+        "cancelled": "Storniert"
+      }
     },
     "errors": {
       "generic": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",

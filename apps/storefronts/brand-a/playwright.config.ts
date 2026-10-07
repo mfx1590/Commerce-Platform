@@ -23,6 +23,35 @@ const APP_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3101';
 process.env.SITE_URL ??= new URL(APP_URL).origin;
 const SITE_URL = process.env.SITE_URL;
 /**
+ * The store the **specs** talk to, set for the same reason as `SITE_URL` above: brand A's identity
+ * has to reach the test process, not only the server (#379).
+ *
+ * `next.config.mjs` defaults this for the app, so the server has always had it — but a spec runs in
+ * Playwright's process, where nothing set it and CI sets nothing either. The synced
+ * `e2e/order-lifecycle.spec.ts` reads `GET /store` with
+ * `'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? ''`, so against the core it sent an
+ * empty key, got a 401 it did not check, and asked the Admin API for `viewer on store:undefined` —
+ * a 403 that reads like a permissions bug and is really a missing variable. `journey.spec.ts`
+ * never hit it because it carries the same fallback itself.
+ *
+ * The same value as `next.config.mjs`, deliberately: a dev **publishable** key, which is public by
+ * design and already in this repo. Keep the two in step.
+ *
+ * Window 3 is hardening the spec separately (#382: assert `ok()` with status and body on
+ * `GET /store` and every admin call) so the next missing variable fails where it happens.
+ */
+process.env.STORE_PUBLISHABLE_KEY ??= 'pk_brand-a_dev_00000000000000000000';
+/**
+ * **Deliberate divergence from the starter, re-checked at every sync.** Since #375 the starter's
+ * config imports `RUNTIME_SITE_URL` from `e2e/support/build-origin` and passes that to the server.
+ * Brand A must NOT: that module reads `process.env.SITE_URL` in a module-level `const`, ES imports
+ * are evaluated before the importing module's body, and the `??=` above runs in that body — so the
+ * import would freeze the starter's `:3100` default before brand A ever set `:3101`, and every
+ * redirect would leave the brand. `SITE_URL` here is the same string `RUNTIME_SITE_URL` computes,
+ * only computed after the assignment instead of before it; the specs that import the module get the
+ * right value because the `??=` mutates `process.env` before the workers fork.
+ */
+/**
  * Where `scripts/e2e-server.mjs` says the app is ready — which it does only once a page and a static
  * chunk have each answered quickly twice in a row. Waiting on the app's own URL started the workers
  * on a cold server seconds after `next build`, and the first tests timed out on this laptop while
@@ -47,13 +76,22 @@ const browser = CHANNEL === undefined ? {} : { channel: CHANNEL };
 // ~25 Link prefetch renders. Playwright's default (half the cores: 11 on the 22-thread dev
 // machine) saturated it: in a full core run a listing took 17.7 s and a sign-in round trip over
 // 15 s (0.1 s alone), and three passes failed 1, 1 and 9 tests on deadlines. With 4 workers the
-// same suite passed 69/0 and finished faster (1.2 min against 1.6–2.3) — #327. CI keeps
-// Playwright's default (its runners have few cores); `E2E_WORKERS` overrides either.
-const WORKERS: number | undefined = process.env.E2E_WORKERS
-  ? Number(process.env.E2E_WORKERS)
-  : process.env.CI
-    ? undefined
-    : 4;
+// same suite passed 69/0 three times running, in about the same time (1.6–1.9 min against 1.6–2.3;
+// one diagnostic pass took 1.2) — #327. CI keeps Playwright's default (its runners have few cores);
+// `E2E_WORKERS` overrides either, and must be a positive integer.
+//
+// Ported by hand from the starter at #375: this file is PRESERVED, so the sync reports its drift
+// and never takes it. The validation is the starter's — `E2E_WORKERS=0` or `=two` used to mean
+// "Playwright's default" silently, which reads as a passing run on a setting that did nothing.
+function workersFromEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === '') return process.env.CI ? undefined : 4;
+  const workers = Number(raw);
+  if (!Number.isInteger(workers) || workers < 1) {
+    throw new Error(`E2E_WORKERS must be a positive integer, got "${raw}"`);
+  }
+  return workers;
+}
+const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
 
 export default defineConfig({
   testDir: './e2e',

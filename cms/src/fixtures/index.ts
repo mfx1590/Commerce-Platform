@@ -123,6 +123,12 @@ export const campaignLandingFixture: CampaignLandingDocument = {
       // Served from the brand's Cloudinary library (task 2.5); wins over the Sanity asset.
       cloudinaryUrl: 'https://res.cloudinary.com/brand-alpha/image/upload/cms/spring-shelf.jpg',
     },
+    // A silent loop behind the image (#330); the image above is its poster.
+    video: {
+      _type: 'heroVideo',
+      cloudinaryUrl:
+        'https://res.cloudinary.com/brand-alpha/video/upload/cms/spring-shelf-loop.mp4',
+    },
     ctas: [
       {
         _type: 'cta',

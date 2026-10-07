@@ -1,5 +1,25 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-07 · take the hardened order-lifecycle spec (#382)
+
+- **One-file re-sync** of `e2e/order-lifecycle.spec.ts` from the starter (#383, window 3's hardening
+  of the spec whose `store:undefined` 403 surfaced on #379). 202 copied, 1 merged, 10 preserved, 4
+  excluded; the only files that moved are that spec and `scripts/starter-manifest.json` (starter
+  0.13.1 → 0.13.2). `sync --check` reports the manifest current, and the 10 preserved files —
+  `playwright.config.ts` included — are untouched.
+- What the hardening adds, all of it worth having here:
+  - `GET /store` now goes through `json()`, so a non-ok response **fails at the call** instead of
+    yielding `undefined` three calls later as a misleading 403.
+  - `store.id` is asserted to be a UUID, so `store:undefined` cannot propagate again.
+  - The spec **skips with a stated reason** when `STORE_PUBLISHABLE_KEY` is absent, rather than
+    running with an empty key.
+  - `json()` no longer puts the raw error body in the assertion message — it extracts the contract's
+    `code` / `message`, so **an order's personal data cannot land in a CI log**.
+- **Brand A's half of the pair stays:** `playwright.config.ts` still sets `STORE_PUBLISHABLE_KEY` for
+  the test process (#382). The spec's new skip makes a missing key legible; it does not supply one.
+  Without brand A's line the spec would now **skip** rather than fail — which would quietly stop
+  proving #372. Keep both.
+
 ## Unreleased — 2026-10-07 · the perf gate measures five runs, not three (#348)
 
 **`lighthouserc.json`: `numberOfRuns` 3 → 5. The LCP budget is unchanged at 2500 ms.** Nothing is
@@ -64,6 +84,82 @@ The issue also asks for **30 consecutive green brand A perf legs**, counted from
 this lands — that cannot be shown in the PR that makes the change, and no laptop Lighthouse run
 substitutes for it. The 16 legs measured here were all green on the asserted value (0/16 above 2500);
 the three known failures (asserted 2570.6, 2565, 2529) predate this window.
+## Unreleased — 2026-10-07 · the specs get brand A's publishable key (#379)
+
+- **`playwright.config.ts` sets `STORE_PUBLISHABLE_KEY` for the test process**, beside the `SITE_URL`
+  line and for the same reason: brand A's identity has to reach Playwright's process, not only the
+  server. `next.config.mjs` has always defaulted it for the app, so this gap was invisible until a
+  spec needed it.
+- **What it fixes.** The synced `e2e/order-lifecycle.spec.ts` reads `GET /store` with
+  `'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? ''`. CI sets no such variable for the
+  Playwright process, so against the core it sent an **empty** key, received a 401 **it never
+  checked**, and then asked the Admin API for `viewer on store:undefined` — a 403 that reads like a
+  permissions bug and is really a missing variable. `journey.spec.ts` never hit it because it carries
+  the same fallback itself. Brand A's leg is the only place that spec runs, which is why brand A
+  found it.
+- The value is the same dev **publishable** key as `next.config.mjs` — public by design and already
+  in this repo. Keep the two in step.
+- Window 3 hardens the spec separately (**#382**: assert `ok()` with status and body on `GET /store`
+  and every admin call), so the next missing variable fails where it happens instead of three calls
+  later. Not blocking this.
+
+## Unreleased — 2026-10-06 · re-sync at main e7f2f3e: order status, card payment, invoice from the store (#372)
+
+**PR [#379](https://github.com/mfx1590/Commerce-Platform/pull/379)**, reviewed head `771f35d`
+(static review: MERGE on the code — the sync faithful across 16 compared blobs, the
+`RUNTIME_SITE_URL` reasoning verified, #372's assertions present). Merged `origin/main` `5b119ff`
+afterwards for the gitleaks allowlist, below.
+
+- **Re-sync**: 202 copied, 1 merged, 10 preserved, 4 excluded (from 217 tracked starter files).
+  Brings the starter's #372/#375 half and the card-payment work from #365/#367:
+  - **Order status on the confirmation (#372)** — `src/components/order-confirmation-header.tsx`,
+    `orderConfirmationHooks` gains `data-order-status`, and `confirmation.bodyByStatus` /
+    `confirmation.status` message groups in **both** locales. `e2e/order-lifecycle.spec.ts` arrives
+    with it: place an order, ship it, deliver it, and assert the confirmation says `processing` then
+    `completed` — by the hook _and_ by the rendered `Status: …` text.
+  - **Card payment** — `card-payment.tsx`, `card-payment-lazy.tsx`, `card-payment-messages.ts`,
+    `payment-choice.ts`, `payment-options.ts`, `checkout-email.ts`, the review step's Payment
+    Element and `price_changed` alert, CSP allowances for Stripe, and `e2e/card-payment.spec.ts`.
+    Dependencies `@stripe/react-stripe-js`, `@stripe/stripe-js` and `jsdom` came in with the
+    package.json merge.
+  - **`STOREFRONT_ALLOW_INVOICE` is gone (#372).** Which methods the checkout offers now comes from
+    `Store.payment.methods` (Store API 0.5.4); contracts are at **v0.4.12**.
+- **Preserved-file drift, ported by hand:** `~ playwright.config.ts` — took the starter's
+  `workersFromEnv()` validation (`E2E_WORKERS=0` or `=two` used to mean "Playwright's default"
+  silently). **Did not** take its new `import { RUNTIME_SITE_URL }`: that module reads
+  `process.env.SITE_URL` in a module-level `const` and ES imports run before the importing module's
+  body, so the import would freeze the starter's `:3100` before brand A's `??= :3101` ran and send
+  every redirect out of the brand. Documented in the README and in the file, because the sync will
+  report this file again next time.
+- The other 9 preserved files were clean; `sync --check` ends "manifest is current".
+- Verified: lint, `format:check` and typecheck clean; unit **730 passed / 2 skipped** (up from 687 —
+  the 43 synced tests all pass); mock e2e **83 passed / 35 skipped**, exit 0. `order-lifecycle.spec.ts`
+  and `card-payment.spec.ts` both skip without the core by design, so the **core leg on the PR is the
+  proof of the status assertion**.
+- **The two red checks on `771f35d`, and what they were.**
+  - _secret scan (gitleaks), 2 findings_ — the sync copies the starter's `payment-options.test.ts`
+    verbatim, and its two wrong-key fixtures (the secret-key and restricted-key shapes) live there to assert a
+    non-publishable key is **refused**. The file is byte-identical to the starter's and every literal
+    is a prefix plus a dictionary word, so nothing here is key material. Fixed on main in `5b119ff`
+    by widening the allowlist path to every brand clone — **not** by editing the literals, which would
+    diverge from the starter and be overwritten by the next sync. Merged in here.
+  - _live auth + end-to-end, 1 failed_ — `e2e/order-lifecycle.spec.ts:99`, and **not a storefront
+    fault**. The storefront half passes: the order is placed on the core, the confirmation renders,
+    and `data-order-status` is correctly neither `processing` nor `completed`. It fails on the test's
+    own admin setup, at the first Admin API call —
+    `GET /admin/stores/{id}/orders/{id}` → `503 {"code":"internal","message":"authorization service
+unavailable","details":{"reason":"FgaValidationError"}}` — i.e. the core's Admin API
+    authorization through OpenFGA. That spec is byte-identical to the starter's. Note that the
+    starter's own leg prints "order-lifecycle skipped: no core", so **brand A's leg is the first place
+    this spec has ever executed**; #372's assertion found a real failure on its first real run.
+    Raised with the manager; core/auth territory, not brand A's.
+
+- **Local-only gotcha, not a code problem:** the first mock run failed two checkout specs at
+  "Pay on invoice". Port 4010 on this laptop is held by a **Docker-published Prism from 2026-10-01**,
+  predating `Store.payment.methods`, and Playwright's `reuseExistingServer` adopted it — so the app
+  saw a store with no `payment` and correctly rendered "no payment method available". Re-running with
+  `MOCK_API_URL`/`MOCK_STORE_PORT`/`MOCK_ADMIN_PORT` on 4310/4311 is green. CI is unaffected:
+  `reuseExistingServer` is off there, so it always starts a fresh mock from the current spec.
 
 ## Unreleased — 2026-10-06 · the order total is compared with the review step, not with arithmetic (#374)
 
