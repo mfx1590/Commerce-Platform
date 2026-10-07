@@ -58,6 +58,39 @@ const page = (blocks: object[], hero?: object, seo?: object) => ({
   ...(seo === undefined ? {} : { seo }),
 });
 const ref = (slot: string, extra: object = {}) => ({ _type: 'image', mediaSlot: slot, ...extra });
+/** A hero loop reference, as authored: the resolver turns it into a `/video/upload/` URL (#386). */
+const loop = (slot: string) => ({ _type: 'heroVideo', mediaSlot: slot });
+/** A page whose hero pairs a still with a loop — the only shape a video is valid in. */
+const heroWithLoop = (image: object | undefined, video: object, extra: object = {}) => ({
+  ...page([]),
+  hero: {
+    _type: 'hero',
+    headline: 'Test',
+    ...(image === undefined ? {} : { image }),
+    video,
+    ...extra,
+  },
+});
+
+interface HeroShape {
+  _type: 'hero';
+  image?: unknown;
+  video?: { _type: string; cloudinaryUrl?: string; mediaSlot?: string };
+}
+
+/** Every hero in a set of documents, authored or resolved. */
+function heroesIn(documents: unknown[]): HeroShape[] {
+  const found: HeroShape[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) value.forEach(visit);
+    else if (value !== null && typeof value === 'object') {
+      if ((value as { _type?: unknown })._type === 'hero') found.push(value as HeroShape);
+      Object.values(value).forEach(visit);
+    }
+  };
+  documents.forEach(visit);
+  return found;
+}
 
 describe('the media manifest', () => {
   it('holds exactly the 19 premium stills and the 2 hero loops — nothing else', () => {
@@ -99,16 +132,26 @@ describe('the media manifest', () => {
 });
 
 describe('the authored content and the manifest agree', () => {
-  it('references only slots the manifest has, each with alt text in both locales', () => {
+  it('references only slots the manifest has, each still with alt text in both locales', () => {
     const referenced = referencedSlots(authored);
     expect(referenced.size).toBeGreaterThan(0);
     const bySlot = new Map(manifest.slots.map((s) => [s.slot, s]));
+    let stills = 0;
     for (const slot of referenced) {
       expect(bySlot.has(slot), `${slot} is not in the manifest`).toBe(true);
+      // A loop carries no alt text and must not: it is `aria-hidden`, and the poster's alt is what
+      // the hero says to a screen reader (#386, DESIGN.md §7). Requiring one here would invite
+      // someone to write alt text a screen reader never reaches.
+      if (bySlot.get(slot)!.kind === 'video') {
+        expect(bySlot.get(slot)!.alt, `${slot} is a loop and needs no alt`).toBeUndefined();
+        continue;
+      }
+      stills += 1;
       for (const locale of ['en-GB', 'de-DE']) {
         expect(bySlot.get(slot)!.alt?.[locale], `${slot} ${locale} alt`).toBeTruthy();
       }
     }
+    expect(stills, 'the content still places stills, not only loops').toBeGreaterThan(0);
   });
 
   it('resolves with a placeholder cloud name, leaves no slot behind, and passes the CMS validation', async () => {
@@ -117,7 +160,8 @@ describe('the authored content and the manifest agree', () => {
     });
     expect(errors).toEqual([]);
     expect(dropped).toBe(0);
-    expect(resolved).toBe(18);
+    // 18 stills + the 4 hero loops (two documents x two locales) since #386.
+    expect(resolved).toBe(22);
     expect(JSON.stringify(documents)).not.toContain('mediaSlot');
     expect(JSON.stringify(documents)).toContain(
       'https://res.cloudinary.com/placeholder-cloud/image/upload/brand-a/home-hero-01',
@@ -127,10 +171,71 @@ describe('the authored content and the manifest agree', () => {
     }
   });
 
+  it('places both hero loops over their posters, as Cloudinary video URLs', async () => {
+    const { documents, errors } = resolveMedia(authored, manifest, {
+      cloudName: 'placeholder-cloud',
+    });
+    expect(errors).toEqual([]);
+
+    const heroes = heroesIn(documents);
+    // Two documents carry a loop (home and campaign), in both locales.
+    const withVideo = heroes.filter((hero) => hero.video !== undefined);
+    expect(withVideo).toHaveLength(4);
+
+    for (const hero of withVideo) {
+      expect(hero.video).toEqual({
+        _type: 'heroVideo',
+        cloudinaryUrl: expect.stringMatching(
+          /^https:\/\/res\.cloudinary\.com\/placeholder-cloud\/video\/upload\/brand-a\//,
+        ),
+      });
+      // The poster is what makes the loop valid — never a loop on its own.
+      expect(hero.image, 'a loop always has its poster beside it').toBeDefined();
+    }
+
+    expect(withVideo.map((hero) => hero.video?.cloudinaryUrl).sort()).toEqual([
+      'https://res.cloudinary.com/placeholder-cloud/video/upload/brand-a/campaign-autumn-hero-loop-8s',
+      'https://res.cloudinary.com/placeholder-cloud/video/upload/brand-a/campaign-autumn-hero-loop-8s',
+      'https://res.cloudinary.com/placeholder-cloud/video/upload/brand-a/home-hero-shirt-loop-8s',
+      'https://res.cloudinary.com/placeholder-cloud/video/upload/brand-a/home-hero-shirt-loop-8s',
+    ]);
+
+    for (const doc of documents as { _id: string }[]) {
+      expect(await validateDocument(doc, schemaTypes), doc._id).toEqual([]);
+    }
+  });
+
+  it('each placed loop plays over the still the manifest names as its poster', () => {
+    const byLoop = new Map(
+      manifest.slots
+        .filter((slot) => slot.kind === 'video')
+        .map((slot) => [slot.slot, slot.poster]),
+    );
+    expect(byLoop.size).toBe(2);
+
+    for (const hero of heroesIn(authored)) {
+      const slot = (hero.video as { mediaSlot?: string } | undefined)?.mediaSlot;
+      if (slot === undefined) continue;
+      expect(byLoop.has(slot), `${slot} is a video slot`).toBe(true);
+      // Read from the authored content, so this fails if either side is edited alone.
+      expect((hero.image as { mediaSlot?: string } | undefined)?.mediaSlot).toBe(byLoop.get(slot));
+    }
+  });
+
+  it('without a cloud name, leaves both loops out and the heroes stay valid', async () => {
+    const { documents, errors } = resolveMedia(authored, manifest, {});
+    expect(errors).toEqual([]);
+    expect(JSON.stringify(documents)).not.toContain('heroVideo');
+    expect(JSON.stringify(documents)).not.toContain('/video/upload/');
+    for (const doc of documents as { _id: string }[]) {
+      expect(await validateDocument(doc, schemaTypes), doc._id).toEqual([]);
+    }
+  });
+
   it('without a cloud name, leaves the optional images out and still passes the CMS validation', async () => {
     const { documents, errors, dropped } = resolveMedia(authored, manifest, {});
     expect(errors).toEqual([]);
-    expect(dropped).toBe(18);
+    expect(dropped).toBe(22);
     expect(JSON.stringify(documents)).not.toContain('mediaSlot');
     expect(JSON.stringify(documents)).not.toContain('imageBlock');
     for (const doc of documents as { _id: string }[]) {
@@ -169,6 +274,52 @@ describe('the resolver refuses what it cannot place', () => {
       cloudName: 'c',
     });
     expect(errors.join('\n')).toMatch(/is a video, not an image/);
+  });
+
+  it('fails an image placed as a loop — the mirror of placing a loop as an image', () => {
+    const { errors } = resolveMedia(
+      [heroWithLoop(ref('home-hero-02'), loop('home-hero-01'))],
+      manifest,
+      { cloudName: 'c' },
+    );
+    expect(errors.join('\n')).toMatch(/"home-hero-01" is a image, not a video/);
+  });
+
+  it('fails a loop whose hero shows a still that is not its poster', () => {
+    const { errors } = resolveMedia(
+      [heroWithLoop(ref('home-hero-01'), loop('home-hero-shirt-loop-8s'))],
+      manifest,
+      { cloudName: 'c' },
+    );
+    expect(errors.join('\n')).toMatch(
+      /"home-hero-shirt-loop-8s" plays over "home-hero-02", but the hero image is "home-hero-01"/,
+    );
+  });
+
+  it('fails a loop on a hero with no still at all', () => {
+    const { errors } = resolveMedia(
+      [heroWithLoop(undefined, loop('home-hero-shirt-loop-8s'))],
+      manifest,
+      { cloudName: 'c' },
+    );
+    expect(errors.join('\n')).toMatch(/the hero image is "missing"/);
+  });
+
+  it('fails a loop placed anywhere but a hero', () => {
+    const doc = page([{ _type: 'imageBlock', _key: 'a', video: loop('home-hero-shirt-loop-8s') }]);
+    const { errors } = resolveMedia([doc], manifest, { cloudName: 'c' });
+    expect(errors.join('\n')).toMatch(/a video goes on a hero only/);
+  });
+
+  it('refuses a mis-paired loop even with no cloud name set', () => {
+    // The pairing is an authoring mistake, not a deployment one: it must not hide wherever
+    // Cloudinary happens to be unconfigured.
+    const { errors } = resolveMedia(
+      [heroWithLoop(ref('home-hero-01'), loop('home-hero-shirt-loop-8s'))],
+      manifest,
+      {},
+    );
+    expect(errors.join('\n')).toMatch(/plays over "home-hero-02"/);
   });
 
   it('fails a referenced slot that has no alt text for the locale', () => {
