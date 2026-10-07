@@ -174,17 +174,32 @@ detached to a file with bounded polls, say "machine free" after any core run.
    product image?) and is it prioritised, sized and served at the right width — because a genuine fix
    beats a threshold argument.
 
-## #379 status (2026-10-07) — at head `c88df9f`; both red checks fixed, pushing
+## #379 (2026-10-07) — ALL GREEN at head `a116316`; #372's assertion is PROVEN
 
 Merged `origin/main` `5b119ff` (the gitleaks allowlist), cited **PR #379** and reviewed head
 `771f35d` in the CHANGELOG and here, re-ran the gates, one push to `brands/phase3` — #379 updated in
 place at head **`77ab61e`**, no second PR. Static review was **MERGE on the code**; the manager
 confirmed two commits in one push is fine.
 
-**NEXT ACTION:** nothing held — both red checks on `c88df9f` are addressed and pushed (the literal
-replacements, and the publishable-key line). After that, #379's live job is the proof of #372's
-assertion: report the **brand A leg** specifically to the manager — counts plus the
-`order-lifecycle.spec.ts` line.
+**RESULT (manager, 2026-10-07): #379 is all green at `a116316`.** Brand A's core leg:
+**92 passed / 26 skipped** — the 91 from before plus `order-lifecycle.spec.ts`, which now **passes
+against the real core**. So **#372's brand A assertion is proven**: place → ship → deliver, and the
+confirmation reads `processing` then `completed`, by the `data-order-status` hook and by the rendered
+text. The manager quoted the result on #372 and #382. #379 is queued behind **#383**.
+
+**NEXT ACTION — do not push until the manager confirms BOTH #379 and #383 merged.** Pushing to
+`brands/phase3` now would update #379 and knock it out of the queue. Then: one small follow-up PR
+re-syncing **#383's spec hardening** (window 3's `ok()` asserts with status and body on `GET /store`
+and every admin call) into brand A — `sync --check` should flag only that one file. Keep the
+publishable-key line in `playwright.config.ts`: #383 makes the failure legible, it does not supply
+the value.
+
+**What the whole #372 chain cost, worth remembering:** four pushes and three external blockers —
+the gitleaks allowlist for a synced fixture (main), the live job never seeding OpenFGA (#380/#381,
+window 5), and the spec's missing publishable key (mine) with its hardening (#382/#383, window 3).
+None was brand A's *code*. The pattern: **brand A's core leg is the first place several synced specs
+ever execute**, so brand A inherits the job of discovering what the starter's suite has never run.
+Budget for that on the next re-sync that brings a core-only spec.
 
 #381 (`7a4abb4`) landed and fixed the OpenFGA seed; #379 at `c88df9f` then went red twice again:
 
