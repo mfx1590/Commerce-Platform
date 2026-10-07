@@ -36,6 +36,10 @@ describe('e2eServerEnv', () => {
     expect(e2eServerEnv({ E2E_STORE_API_URL: CORE }).E2E_LOCAL_IMAGES).toBe('1');
   });
 
+  it('sets no invoice switch: the store says whether invoices are allowed (#372)', () => {
+    expect('STOREFRONT_ALLOW_INVOICE' in e2eServerEnv({})).toBe(false);
+  });
+
   it('does not touch the environment it was given', () => {
     const shell = { STORE_API_URL: CORE };
     e2eServerEnv(shell);
