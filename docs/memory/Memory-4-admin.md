@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 merged (2b0bd4c); #353 = **PR #384** (Closes #353; head d755ba5 at opening; Fable review MERGE on the code), waiting for CI and the queue
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 merged (2b0bd4c); #353 **MERGED as 54284d1** (PR #384); nothing assigned, quiet
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,7 +441,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#353 Sign out (2026-10-07) — PR #384** (Closes #353; head d755ba5 at opening, this memory commit
+- **#353 Sign out (2026-10-07) — PR #384 MERGED as 54284d1** (Closes #353; head d755ba5 at opening, this memory commit
   follows it; Fable static review MERGE on the code). Option (B) approved by the manager. Branch `admin/phase3`
   reset onto main 17b88f3. Root cause (repro on Prism + shared Keycloak, app :3200): cookies were
   already cleared; Keycloak still asked "Do you want to log out?" and an abandoned confirmation left
