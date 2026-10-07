@@ -119,7 +119,7 @@ describe('publishing is confirmed, because it emits product.published', () => {
     await user.click(screen.getByRole('button', { name: 'Yes, publish' }));
 
     expect(publishProductAction).toHaveBeenCalledWith('s1', 'p1');
-    expect(screen.getByText('published')).toBeInTheDocument();
+    expect(await screen.findByText('published')).toBeInTheDocument();
     expect(screen.getByText(/2026-09-08 10:00/)).toBeInTheDocument();
   });
 
@@ -145,7 +145,7 @@ describe('publishing is confirmed, because it emits product.published', () => {
     await user.click(screen.getByRole('button', { name: 'Yes, publish' }));
 
     expect(
-      screen.getByRole('heading', { name: /do not have access to this/i }),
+      await screen.findByRole('heading', { name: /do not have access to this/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/You need the store_staff relation on store:brand-a/),
@@ -166,7 +166,9 @@ describe('publishing is confirmed, because it emits product.published', () => {
     await user.click(screen.getByRole('button', { name: 'Publish' }));
     await user.click(screen.getByRole('button', { name: 'Yes, publish' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('The catalog service is unavailable.');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The catalog service is unavailable.',
+    );
     expect(screen.queryByRole('heading', { name: /do not have access/i })).toBeNull();
   });
 
