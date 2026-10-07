@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Integration 2a docket done (#351, #358 code, #372). **#382 = PR #383** (first head `96347d8` resolved the key via the app's config; the manager NARROWED it): keep `process.env.STORE_PUBLISHABLE_KEY` (brand A's playwright.config supplies it, window 10), no key → one printed line + skip, every call asserted ok() with status + error code/message (no raw body). **Still open: #358's live proof** (Stripe test keys).
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done: #351, #358 code, #372, #382 (PR #383). **Now: #389** (`@lhci/cli` 0.14.0 → **0.15.1**, Lighthouse 12.6.1; local perf run PASS, the six TraceElements audits populate, PLP LCP element = `<h1>` "All products") on `storefront/phase3`; **then #390** (perf.mjs warms the measured URLs like e2e-server.mjs) on its own branch from main; one PR each; machine granted for these runs — report "machine free" after. **Then #330's rendering half** once window 6's #385 is on main. **Still open: #358's live proof** (Stripe test keys).
 
 ## Identity (does not change)
 

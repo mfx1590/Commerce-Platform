@@ -11,6 +11,17 @@ Issue #390 (REQUEST from window 10). Tooling only.
   their first render (CI: PLP TBT 1125 ms on run 1 against ~75 ms on runs 2 and 3).
 - Tests: `test/warm-urls.test.ts` (streak, reset on a slow or failed answer, deadline).
 
+## 0.13.3 — 2026-10-07
+
+Issue #389 (REQUEST from window 10). Tooling only.
+
+- **The perf gate's Lighthouse CI is pinned to `@lhci/cli` 0.15.1 (Lighthouse 12.6.1)**, in
+  `scripts/perf.mjs` and the `lighthouse` script. 0.14.0's Lighthouse crashed its `TraceElements`
+  gatherer against current Chrome, so six audits errored on every run — among them the three that
+  name the LCP element. Measured locally with the gate itself: all six populate, the assertions pass
+  unchanged, and the PLP's LCP element is its `<h1>` ("All products"), not a product image (PDP: the
+  product's `<h1>`).
+
 ## 0.13.2 — 2026-10-07
 
 Issue #382. Test-only; no app change.

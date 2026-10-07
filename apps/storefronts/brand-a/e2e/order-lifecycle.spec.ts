@@ -32,9 +32,19 @@ import {
  * `E2E_STAFF_USERNAME` / `E2E_STAFF_PASSWORD`.
  */
 
-const SKIP_REASON = AGAINST_CORE
-  ? null
-  : `no core (this run is against ${BACKEND}; set E2E_STORE_API_URL)`;
+/**
+ * The store's publishable key for `GET /store` (which names the store the admin calls act on). The
+ * run supplies it: brand A's `playwright.config` sets `STORE_PUBLISHABLE_KEY` for its core leg, as its
+ * journey spec does (#382). Without it the spec cannot know the store, so it says so and skips —
+ * an empty key used to reach the admin calls as `store:undefined` (403).
+ */
+const PUBLISHABLE_KEY = process.env.STORE_PUBLISHABLE_KEY ?? '';
+
+const SKIP_REASON = !AGAINST_CORE
+  ? `no core (this run is against ${BACKEND}; set E2E_STORE_API_URL)`
+  : PUBLISHABLE_KEY === ''
+    ? 'no STORE_PUBLISHABLE_KEY for the run (needed to read GET /store, which names the store)'
+    : null;
 
 const CORE_URL = (process.env.E2E_STORE_API_URL ?? '').replace(/\/$/, '');
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
@@ -71,11 +81,25 @@ async function staffApi(): Promise<APIRequestContext> {
   });
 }
 
+/**
+ * The body of a successful call, or a failed assertion naming the call, the HTTP status and the
+ * contract's error `code` / `message` — never the raw body, which could carry an order's personal
+ * data (#382; PII-free assertion messages, review of #375).
+ */
 async function json<T>(
   response: Awaited<ReturnType<APIRequestContext['get']>>,
   what: string,
 ): Promise<T> {
-  expect(response.ok(), `${what}: ${response.status()} ${await response.text()}`).toBe(true);
+  if (!response.ok()) {
+    let reason = '';
+    try {
+      const body = (await response.json()) as { code?: unknown; message?: unknown };
+      reason = [body.code, body.message].filter((part) => typeof part === 'string').join(': ');
+    } catch {
+      reason = '(no JSON error body)';
+    }
+    expect(response.ok(), `${what}: HTTP ${response.status()} ${reason}`).toBe(true);
+  }
   return (await response.json()) as T;
 }
 
@@ -119,11 +143,13 @@ test('the confirmation shows the order processing once shipped and completed onc
   );
 
   // ── The shop ships it, as the operations user, through the Admin API.
-  const store = (await (
+  const store = await json<{ id: string }>(
     await page.request.get(`${CORE_URL}/store`, {
-      headers: { 'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? '' },
-    })
-  ).json()) as { id: string };
+      headers: { 'X-Publishable-Key': PUBLISHABLE_KEY },
+    }),
+    'GET /store',
+  );
+  expect(store.id, 'GET /store names the store the order belongs to').toMatch(/^[0-9a-f-]{36}$/i);
   const admin = await staffApi();
   const order = await json<{ items: { id: string; quantity: number }[] }>(
     await admin.get(`/admin/stores/${store.id}/orders/${orderId}`),

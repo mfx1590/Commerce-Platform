@@ -37,7 +37,7 @@ const PORT = process.env.PERF_PORT ?? '3100';
 const MOCK_API_URL = process.env.MOCK_API_URL ?? 'http://127.0.0.1:4010';
 const APP_URL = `http://127.0.0.1:${PORT}`;
 const isWindows = process.platform === 'win32';
-const LHCI_VERSION = '0.14.0';
+const LHCI_VERSION = '0.15.1';
 
 /**
  * Next's own CLI, resolved from this package rather than looked up on `PATH`: `next` is only on
