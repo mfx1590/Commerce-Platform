@@ -1,5 +1,26 @@
 # Changelog — @platform/storefront-starter
 
+## 0.13.5 — 2026-10-07
+
+Issue #330, the rendering half (window 6's CMS half is #385, `@platform/cms` 0.5.0). No contract change.
+
+- **A hero can play a muted video loop over its poster** (`HeroMedia`, `src/components/hero-media.tsx`,
+  mounted around the hero image in `src/lib/cms/components/hero.tsx`) when the reader hands it a
+  `hero.video`:
+  - the poster renders as before, sizes the box (no layout shift) and stays the LCP candidate;
+  - no `<video>` exists until the page's `load` event, so nothing about it is requested before the
+    first paint; then `muted loop playsInline autoPlay preload="none" aria-hidden`, with a visible
+    pause / play control (WCAG 2.2.2);
+  - **`prefers-reduced-motion: reduce` → the poster alone, the video never requested**; switching the
+    preference on later removes the loop;
+  - the URL goes through the shared Cloudinary loader, width capped at 1600 (`c_limit`);
+  - never in an end-to-end build (`E2E_LOCAL_IMAGES`), so no e2e request leaves the machine.
+- **CSP:** `media-src 'self' https://res.cloudinary.com` — without it `default-src 'self'` would block
+  every loop.
+- Tests: `test/hero-media.test.ts` (jsdom): both motion settings, the late switch to reduce, the
+  control, no video / e2e build, the URL; red when the reduced-motion check is removed. CSP test for
+  `media-src`. Mock journeys unchanged (the e2e runs have no CMS).
+
 ## 0.13.4 — 2026-10-07
 
 Issue #390 (REQUEST from window 10). Tooling only.
