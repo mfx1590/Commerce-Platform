@@ -58,3 +58,8 @@
   restore them. The top-up raises `on_hand` on every seeded-store level whose `available` is below the floor and writes the same delta to
   `stock_movement` (`adjustment`, note `seed top-up`) in one transaction; reservations are untouched. The CLI refuses a non-loopback database host.
 - test/seed.test.ts: one case (drained level, ledger equals the raise, idempotent second run, invalid floor).
+
+## 0.3.3 — 2026-10-07 (CONTRACT CHANGE #393, notification delivery; window 17, #360)
+
+- Migration 0180: `notification_delivery` — one row per outbox event the notifications worker has claimed; `UNIQUE (event_id)` is the exactly-once guard (a re-delivered `order.placed` / `shipment.shipped`, a reset cursor or a re-run from an older position sends nothing). `event_seq` orders attempts; `kind` CHECK `order_confirmation | shipment_shipped`; `status` pending → sent | failed | skipped with `(status='sent') = (sent_at IS NOT NULL)`; `attempts >= 0`; `last_error` is a short provider label only. Deliberately NO recipient column: the address is read from `"order"` at send time and goes to the transport only. RLS kind `store` (forced, `tenant_isolation` policy via `app.apply_rls`, same as 0140/0170), `set_updated_at` trigger, grants from 0009's default privileges. The SQL is #393's proposal verbatim (only the header's first line changed from PROPOSED to landed); the worker's cursor stays a `marketing_cursor` row (0170) named `notifications`.
+- test/rls.test.ts: notification_delivery isolation (same-store read/update allowed, cross-store read/update/insert/move refused, organization scope sees both stores, foreign organization sees none, duplicate `event_id` conflicts, sent/sent_at CHECK) and a no-recipient-column pin (20 cases).
