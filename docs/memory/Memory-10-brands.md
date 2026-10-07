@@ -147,15 +147,44 @@ detached to a file with bounded polls, say "machine free" after any core run.
    The manager's 2026-10-06 datapoint: **PDP 2565/2648/2642**. Note that PDP is now *worse* than the
    PLP numbers that failed — so the question may not be "fix the PLP" at all. Window 5's #283 leg
    now prints per-run numbers, so the ten runs are recoverable from the perf-leg logs of recent PRs.
+   **Datapoints collected so far (all FAILING, and the pattern matters).** LHCI asserts the **best**
+   of three for a `max` assertion, so the asserted value is the *lowest* run:
+
+   | when | page | three runs | asserted | vs 2500 |
+   | --- | --- | --- | --- | --- |
+   | run 37301539904 (PR #341, **infra-only** diff) | PLP | 2815 / 2598 / 2571 | 2570.6 | **+71 FAIL** |
+   | same run | PDP | — (passed) 2177, worst 2458 | 2177 | −42 pass |
+   | 2026-10-06 (manager) | PDP | 2565 / 2648 / 2642 | 2565 | **+65** |
+   | 2026-10-07 (manager, **docs-only** main commit) | PLP | 2529 / 2567 / 2563 | 2529 | **+29** |
+
+   **Two things to carry into the decision.**
+   - Two of the three failures are on diffs that **cannot** have touched the storefront (infra-only,
+     docs-only). That is runner variance around a budget the page genuinely sits on — not a brand A
+     regression. The CPU benchmark range (2066–2463) and the fact that the slowest page run had the
+     slowest benchmark both point the same way: simulated throttling scales LCP with runner speed.
+   - **But the assertion already takes the best of three, and even the best is over.** So the PLP
+     really is ~2.53–2.57 s on CI runners, not merely noisy. A threshold bump alone is unlikely to
+     reach the acceptance bar of **30 consecutive green legs** unless it is set well above the worst
+     observed run — which is a big ask to justify. And the PDP has drifted from 2177 to 2565, so
+     **both** brand A pages are now on the budget; "fix the PLP" is no longer the whole question.
+     Expect the honest answer to be a real LCP improvement (or a threshold set from the measured
+     distribution, argued with the worst case, not the median).
+
    First real question to answer with the logs: **what is the LCP element on the PLP** (the first
    product image?) and is it prioritised, sized and served at the right width — because a genuine fix
    beats a threshold argument.
 
-## #379 status (2026-10-07) — the recorded first action is DONE
+## #379 status (2026-10-07) — pushed at head `77ab61e`; waiting on #381 only
 
 Merged `origin/main` `5b119ff` (the gitleaks allowlist), cited **PR #379** and reviewed head
 `771f35d` in the CHANGELOG and here, re-ran the gates, one push to `brands/phase3` — #379 updated in
-place, no second PR. Static review was **MERGE on the code**.
+place at head **`77ab61e`**, no second PR. Static review was **MERGE on the code**; the manager
+confirmed two commits in one push is fine.
+
+**NEXT ACTION, and the only one outstanding on #379:** wait for the manager to say window 5's **PR
+#381** (fixes **#380**, the live job's missing OpenFGA seed) is on main — then **one more
+merge-main push**, and #379's live job becomes the proof of #372's assertion. Do not push before
+that; there is nothing else to change.
 
 **The two red checks on `771f35d`:**
 
@@ -175,9 +204,13 @@ place, no second PR. Static review was **MERGE on the code**.
    only brand A's leg sets `E2E_STORE_API_URL` and reaches the admin path — **brand A's leg is the
    first place this spec has ever executed**, and #372's assertion caught a real Admin API failure on
    its first real run. Within the same job the two earlier legs were green (21, then 67 passed), so
-   FGA answered earlier in the run; OpenFGA is in-memory here, so a stale/absent store-or-model id by
-   the time brand A's leg runs is the first thing to look at. **Core/auth territory (windows 1/4) — do
-   not touch it, and do not "fix" the synced spec.** Reported to the manager with this evidence.
+   FGA answered earlier in the run. **Root cause confirmed by the manager: the live job never seeded
+   OpenFGA at all** (the admin advisory job does, which is why that one is green). Filed as **#380**,
+   fixed by **window 5's PR #381** — nothing for me to file, and nothing of mine to change.
+   **When #381 is on main: one more merge-main push, and #379's live job is then the proof of #372's
+   assertion.** That is the only thing #379 is still waiting on.
+   (My own read before the manager's was a stale/absent store-or-model id, OpenFGA being in-memory
+   here — right neighbourhood, and the answer was simpler: never seeded.)
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
