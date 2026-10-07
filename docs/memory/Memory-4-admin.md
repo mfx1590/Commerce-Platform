@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 merged (2b0bd4c); #353 Sign out built on admin/phase3 (PR next)
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 merged (2b0bd4c); #353 = **PR #384** (Closes #353; head d755ba5 at opening; Fable review MERGE on the code), waiting for CI and the queue
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,7 +441,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#353 Sign out (2026-10-07) — built, option (B) approved by the manager.** Branch `admin/phase3`
+- **#353 Sign out (2026-10-07) — PR #384** (Closes #353; head d755ba5 at opening, this memory commit
+  follows it; Fable static review MERGE on the code). Option (B) approved by the manager. Branch `admin/phase3`
   reset onto main 17b88f3. Root cause (repro on Prism + shared Keycloak, app :3200): cookies were
   already cleared; Keycloak still asked "Do you want to log out?" and an abandoned confirmation left
   the realm session live → silent SSO re-login. Fix: logout route = back-channel end-session
@@ -453,6 +454,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   Tests: unit 651 (logout 8 new, middleware +3), mock e2e 22 passed + 4 skipped (PORT=3200, my
   Prism :4311, shared Keycloak). Manager conditions: fail closed only for the admin session; never a
   Keycloak call on the core path; README states the replay reality.
+  - Parked nits (#384 review, next push): the "old cookie" unit test in `test/logout.test.ts` does
+    not exercise a cached-live entry (add: live → cached → Sign out → still cached on that process
+    → after 30 s redirected); `Clear-Site-Data` is ignored by browsers over plain http (local dev) —
+    say so in the README next to the header.
+  - Record lesson (#367 and #384 both): name the PR number and opening head in the memory file in
+    the same turn the PR opens — reviewers check it.
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
 - **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
