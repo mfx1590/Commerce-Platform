@@ -205,6 +205,37 @@ describe('the authored content and the manifest agree', () => {
     }
   });
 
+  it('shows no still twice on the home page, so the hero and the block below stay distinct', () => {
+    // This is the other half of the #386 swap, and the half a test has to hold.
+    //
+    // The hero had to move to `home-hero-02` because that is its loop's poster, and `home-hero-02`
+    // was already on the `imageBlock` below — so the two stills were swapped. The poster pairing is
+    // covered by the test below, but nothing stopped someone reverting only the imageBlock half:
+    // the hero would still match its loop, every other test would pass, and the page would quietly
+    // print one still twice. Hence this.
+    const homes = (authored as { _id: string }[]).filter((doc) => doc._id.endsWith('.home'));
+    expect(homes, 'both locales of the home page').toHaveLength(2);
+
+    for (const doc of homes) {
+      const slots: string[] = [];
+      const visit = (value: unknown): void => {
+        if (Array.isArray(value)) value.forEach(visit);
+        else if (value !== null && typeof value === 'object') {
+          const record = value as { _type?: unknown; mediaSlot?: unknown };
+          if (record._type === 'image' && typeof record.mediaSlot === 'string') {
+            slots.push(record.mediaSlot);
+          }
+          Object.values(value).forEach(visit);
+        }
+      };
+      visit(doc);
+
+      expect(slots.length, `${doc._id} places some stills`).toBeGreaterThan(1);
+      const twice = slots.filter((slot, i) => slots.indexOf(slot) !== i);
+      expect(twice, `${doc._id} shows a still more than once: ${twice.join(', ')}`).toEqual([]);
+    }
+  });
+
   it('each placed loop plays over the still the manifest names as its poster', () => {
     const byLoop = new Map(
       manifest.slots

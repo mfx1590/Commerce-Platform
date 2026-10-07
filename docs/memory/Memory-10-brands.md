@@ -18,12 +18,15 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 
 ## Done
 - **#386 · brand A's two hero loops placed.** Content (both locales), the `heroVideo` branch in
-  `cms/brand-a/scripts/resolve-media.mjs`, 8 tests, DESIGN.md §7, both READMEs. Built on
-  `brands/phase3` at main `0ff4d48`; cms is 0.5.0.
+  `cms/brand-a/scripts/resolve-media.mjs`, 9 tests, DESIGN.md §7, both READMEs.
+  **PR #408**, head **`916ff01`** → then `BLOCK` on static review → fixed and re-pushed (see below).
+  Built on `brands/phase3`, merged with main `b5473ac`; cms is 0.5.0.
   - **The swap:** a loop is only valid over the still the manifest names as its `poster`.
     `home-hero-shirt-loop-8s`'s poster is `home-hero-02`, the hero showed `home-hero-01`, and
     `home-hero-02` was already on an `imageBlock` below — so the two stills were **swapped**, not one
-    moved onto the other, and no still appears twice (a test pins that). The campaign hero already
+    moved onto the other, and no still appears twice — **pinned by
+    `shows no still twice on the home page`**, added after the review caught that it did not exist
+    (see the gotcha below). The campaign hero already
     showed its poster. **Never "fix" a poster in `media/manifest.json`** to match content: that file
     mirrors media generated outside the repo, so the poster is the video's real first frame.
   - **Resolver:** `resolveVideo` runs **before** the image branch, because a `heroVideo` also carries
@@ -285,6 +288,17 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   branch it lists files *other windows* changed and reads exactly like a violation. Three dots diff
   from the merge base, which is your side only and is what the script itself does.
   Either form covers only **committed** work, so commit first. CI uses `origin/main`, so CI is unaffected.
+- **A one-off verification script is NOT a test — and must never be described as one.** #408 was
+  BLOCKed for this. While writing #386's content I used a throwaway script in the scratchpad that
+  asserted "no still is used twice on the home page". It passed, once, at that moment. I then wrote
+  "a test pins that" into the PR body, the commit message (`a1c25eb`) **and** this file — three places
+  in the permanent record claiming a standing guarantee that existed nowhere in the repo. The
+  reviewer's failure mode was exact: reverting only the imageBlock half of the swap would have passed
+  every one of the 8 new tests and quietly printed one still twice. **Rule:** if a claim about
+  invariants goes into a PR body, a commit message or this file, the thing enforcing it must be in
+  the repo first. Before writing "a test pins X", grep for the test. And when a check is worth running
+  once, ask whether it is worth running always — it usually is, which is the whole point of putting it
+  in the suite. (Proved the new test fails on exactly that half-revert before trusting it.)
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app
