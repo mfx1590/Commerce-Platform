@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 **MERGED as 2b0bd4c** (PR #367, #357 closed); main merged locally; nothing assigned, quiet
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 merged (2b0bd4c); #353 Sign out built on admin/phase3 (PR next)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,6 +441,18 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#353 Sign out (2026-10-07) — built, option (B) approved by the manager.** Branch `admin/phase3`
+  reset onto main 17b88f3. Root cause (repro on Prism + shared Keycloak, app :3200): cookies were
+  already cleared; Keycloak still asked "Do you want to log out?" and an abandoned confirmation left
+  the realm session live → silent SSO re-login. Fix: logout route = back-channel end-session
+  (`endKeycloakSession`) → clear cookies + Clear-Site-Data + no-store → 303 to front-channel with
+  `post_logout_redirect_uri` `<app>/`; middleware liveness check (`sessionIsLive` userinfo, fail
+  closed, 30 s cache per `sid` per process, `src/lib/auth/liveness.ts`; refresh = live). The
+  middleware runs in its own runtime, so the route's `forgetSession` does not reach its cache — the
+  documented ≤30 s replay window. Core untouched. Design comment on #353 posted (manager condition).
+  Tests: unit 651 (logout 8 new, middleware +3), mock e2e 22 passed + 4 skipped (PORT=3200, my
+  Prism :4311, shared Keycloak). Manager conditions: fail closed only for the admin session; never a
+  Keycloak call on the core path; README states the replay reality.
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
 - **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
@@ -677,6 +689,9 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Port 3000 cannot bind on this machine** (EACCES with nothing listening): Windows reserves TCP
+  2950–3049 (`netsh int ipv4 show excludedportrange protocol=tcp`). Run the app/e2e on `PORT=3200`
+  (registered in the admin-app client). Do not change the reservation (system setting).
 - **Owner signs in with password + TOTP** — the dev secret and algorithm are in
   infra/keycloak/README.md (code example: packages/auth-sdk/test/keycloak-realms.test.ts). `test-cli` password
   grant gives real tokens (aud core-api) for every user without TOTP — handy for direct core checks.
