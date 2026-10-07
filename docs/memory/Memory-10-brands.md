@@ -188,8 +188,10 @@ that; there is nothing else to change.
 
 **The two red checks on `771f35d`:**
 
-1. **secret scan — fixed by the merge.** gitleaks found exactly 2: `sk_test_secretword` and
-   `rk_test_restrictedword` in `test/payment-options.test.ts`, which the sync copies from the starter
+1. **secret scan — fixed by the merge.** gitleaks found exactly 2, both in
+   `test/payment-options.test.ts`: its wrong-key fixtures in the **secret-key** and
+   **restricted-key** shapes (never quote them — see the rule below). The sync copies that file from
+   the starter
    verbatim and which exist to assert a non-publishable key is **refused**. Byte-identical to the
    starter; no key material. Main's `5b119ff` widened the allowlist path to
    `^apps/(storefront-starter|storefronts/[a-z0-9-]+)/test/payment-options\.test\.ts$`, which matches
@@ -258,6 +260,15 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   `process.env.SITE_URL ??= ':3101'` is in that body. Importing it would bake in the starter's port
   and send every redirect out of the brand. The sync flags this file whenever the starter touches it —
   port the change, keep the divergence.
+- **NEVER quote a secret-shaped literal in prose — describe it.** Memory files, CHANGELOGs, PR
+  bodies and commit messages must not contain a string that looks like a key, even when the whole
+  point of the sentence is that the string is a harmless fixture. I broke this in #379: while
+  recording *why* the starter's two wrong-key fixtures are benign I pasted both into
+  `CHANGELOG.md` and this file, which handed gitleaks two **new** findings in two **new** paths and
+  turned the secret scan red again on commits `77ab61e` and `d499ea9`. Commit messages cannot be
+  rewritten, so the manager had to allowlist those files on main. Write "the secret-key and
+  restricted-key fixtures in `test/payment-options.test.ts`" instead. The scanner reads prose, and
+  an explanation of a false positive is indistinguishable from the real thing to a regex.
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app

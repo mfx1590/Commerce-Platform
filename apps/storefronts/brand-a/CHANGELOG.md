@@ -35,7 +35,7 @@ afterwards for the gitleaks allowlist, below.
   proof of the status assertion**.
 - **The two red checks on `771f35d`, and what they were.**
   - _secret scan (gitleaks), 2 findings_ — the sync copies the starter's `payment-options.test.ts`
-    verbatim, and `sk_test_secretword` / `rk_test_restrictedword` live there to assert a
+    verbatim, and its two wrong-key fixtures (the secret-key and restricted-key shapes) live there to assert a
     non-publishable key is **refused**. The file is byte-identical to the starter's and every literal
     is a prefix plus a dictionary word, so nothing here is key material. Fixed on main in `5b119ff`
     by widening the allowlist path to every brand clone — **not** by editing the literals, which would
