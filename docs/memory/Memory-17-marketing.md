@@ -102,14 +102,10 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- **#360 · follow-up after db 0.3.3** — WAIT for the manager's confirmation that #397 (db 0.3.3 = #393) is on
-  main. **The manager folds the proposed-copy deletion into #397** (landing rule, #244 precedent): the file
-  `apps/notifications/migrations/0180_*.sql` and the `beforeAll` apply (+ the `readFileSync` import if lint
-  trips) are removed there — not by me. What is left for me, on `marketing/phase3` after merging main + `pnpm
-  install` + rebuild: the review nit below (`errorLabel` label-only in `last_error`), README "Schema" paragraph
-  and CLAUDE.md "migrations/" line (both still describe the proposed copy), CHANGELOG line; one small PR
-  "Refs #360", report number + head sha. QUIET until that confirmation (manager 2026-10-07). The live Resend
-  send at the 2b gate closes #360.
+- **#360 · docs + nit follow-up PR** (manager's go 2026-10-07 after #397 = 0eed019 landed db 0.3.3 with the
+  proposed copy and the test-side apply deleted in the landing). Merged main (9a33951), rebuilt; README "Schema",
+  CLAUDE.md layout line, package.json `files`, `errorLabel` label-only (+ unit test), CHANGELOG 0.2.1. One push,
+  PR "Refs #360", report number + head sha, then QUIET. The live Resend send at the 2b gate closes #360.
   Review 2026-10-07 (manager, Fable static): **MERGE**, queues on green after the running queue. Deferred nit for
   the follow-up PR, not before the merge: `errorLabel` forwards a generic `Error`'s message verbatim into
   `last_error` — make it label-only (name, or a fixed word) everywhere, keep the full message for the log only.
