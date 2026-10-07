@@ -265,6 +265,9 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   then fails the file; a node one-liner through Bash also mangled it. `new RegExp(String.fromCharCode(0xa0), 'g')`
   is the only form that survives every tool. `Intl` puts U+00A0 between number and `€` in de-DE — compare on a
   normalised string.
+- #360: **prettier formats an `html`-tagged template literal as embedded HTML, and that formatting is not
+  idempotent across nested tags** — `format:check` stayed red after one `--write` and converged only on the
+  third pass. The escaping tag is named `tpl`, so prettier leaves the markup alone; never name a tag `html`.
 - #360: `tsconfig.json` excludes `*.test.ts` from the build (feeds pattern), so tests were not typechecked at
   all — a `tsconfig.test.json` (`noEmit`, `rootDir: .`) run from the `typecheck` script closes that; it caught a
   literal-type default parameter (`storeId = A` infers the literal uuid).

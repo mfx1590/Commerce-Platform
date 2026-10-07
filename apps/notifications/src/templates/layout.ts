@@ -1,6 +1,6 @@
 // The frame both emails share: brand header, body, legal footer — as table-based HTML with inline styles (what
 // mail clients actually render) and as the plain-text alternative.
-import { escapeHtml, html, raw } from '../format.js';
+import { escapeHtml, tpl, raw } from '../format.js';
 import type { Address, RenderContext } from '../types.js';
 import { strings } from './strings.js';
 
@@ -54,17 +54,17 @@ function footerHtml(ctx: RenderContext): string {
     [s.imprint, safeUrl(l.imprintUrl)],
     [s.privacy, safeUrl(l.privacyUrl)],
   ] as const;
-  return html`<p style="margin:0 0 8px;">${s.automated}</p>
+  return tpl`<p style="margin:0 0 8px;">${s.automated}</p>
     <p style="margin:0 0 8px;">
-      ${l.company} · ${l.address}${l.vatNumber ? raw(html` · ${s.vat} ${l.vatNumber}`) : ''}
+      ${l.company} · ${l.address}${l.vatNumber ? raw(tpl` · ${s.vat} ${l.vatNumber}`) : ''}
     </p>
     <p style="margin:0;">
       ${raw(
         links
           .map(([label, url]) =>
             url
-              ? html`<a href="${url}" style="color:#71717a;">${label}</a>`
-              : html`<span>${label}</span>`,
+              ? tpl`<a href="${url}" style="color:#71717a;">${label}</a>`
+              : tpl`<span>${label}</span>`,
           )
           .join(' · '),
       )}
@@ -73,7 +73,7 @@ function footerHtml(ctx: RenderContext): string {
 
 export function layout(ctx: RenderContext, title: string, body: string): string {
   const s = strings[ctx.locale];
-  return html`<!doctype html>
+  return tpl`<!doctype html>
     <html lang="${s.lang}">
       <head>
         <meta charset="utf-8" />

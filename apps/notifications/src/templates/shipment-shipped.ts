@@ -1,5 +1,5 @@
 // The shipping notice (#360): the carrier has the parcel; here is how to follow it.
-import { formatDate, html, raw } from '../format.js';
+import { formatDate, tpl, raw } from '../format.js';
 import type { RenderContext, RenderedContent, ShipmentShippedData } from '../types.js';
 import { addressHtml, addressLines, firstName, footerLines, layout, safeUrl } from './layout.js';
 import { strings } from './strings.js';
@@ -40,33 +40,33 @@ export function renderShipmentShipped(
     '',
   ].join('\n');
 
-  const body = html`<p>${greeting}</p>
+  const body = tpl`<p>${greeting}</p>
     <p>${s.shipIntro}</p>
     <p>
       <strong>${s.orderNumber}:</strong> #${data.displayId}<br />
       <strong>${s.shippedOn}:</strong> ${shipped}<br />
       <strong>${s.carrier}:</strong> ${carrier}${
         data.trackingNumber
-          ? raw(html`<br /><strong>${s.trackingNumber}:</strong> ${data.trackingNumber}`)
+          ? raw(tpl`<br /><strong>${s.trackingNumber}:</strong> ${data.trackingNumber}`)
           : ''
       }
     </p>
     ${
-  trackingUrl
-    ? raw(
-        html`<p>
-          <a
-            href="${trackingUrl}"
-            style="display:inline-block;padding:10px 18px;background:#18181b;color:#ffffff;text-decoration:none;border-radius:6px;"
-            >${s.trackParcel}</a
-          >
-        </p>`,
-      )
-    : ''
-}
+      trackingUrl
+        ? raw(
+            tpl`<p>
+              <a
+                href="${trackingUrl}"
+                style="display:inline-block;padding:10px 18px;background:#18181b;color:#ffffff;text-decoration:none;border-radius:6px;"
+                >${s.trackParcel}</a
+              >
+            </p>`,
+          )
+        : ''
+    }
     <p><strong>${s.itemsInParcel}</strong></p>
     <ul style="margin:0 0 16px;padding-left:20px;">
-      ${raw(data.items.map((i) => html`<li>${i.quantity} × ${itemLabel(i)}</li>`).join('\n'))}
+      ${raw(data.items.map((i) => tpl`<li>${i.quantity} × ${itemLabel(i)}</li>`).join('\n'))}
     </ul>
     <p><strong>${s.deliveryAddress}</strong><br />${raw(addressHtml(data.shippingAddress))}</p>
     <p>${s.questions(ctx.brand.supportEmail)}</p>`;

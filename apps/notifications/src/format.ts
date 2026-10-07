@@ -28,8 +28,8 @@ export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }
 
-/** Template literal tag: interpolations are escaped, the literal parts are trusted markup. */
-export function html(strings: TemplateStringsArray, ...values: unknown[]): string {
+/** Template literal tag: interpolations are escaped, the literal parts are trusted markup. Named `tpl`, not `html`, so prettier does not reformat the markup as embedded HTML (that formatting is not idempotent across nested tags). */
+export function tpl(strings: TemplateStringsArray, ...values: unknown[]): string {
   let out = '';
   strings.forEach((s, i) => {
     out += s;
@@ -45,7 +45,7 @@ export class RawHtml {
   constructor(readonly value: string) {}
 }
 
-/** Marks a string as already-rendered markup (the output of another `html` call). */
+/** Marks a string as already-rendered markup (the output of another `tpl` call). */
 export function raw(value: string): RawHtml {
   return new RawHtml(value);
 }

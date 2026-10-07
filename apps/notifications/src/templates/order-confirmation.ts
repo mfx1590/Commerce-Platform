@@ -1,5 +1,5 @@
 // The order confirmation (#360): what was ordered, what it cost, where it goes.
-import { formatDate, formatMinor, html, raw } from '../format.js';
+import { formatDate, formatMinor, tpl, raw } from '../format.js';
 import type { OrderConfirmationData, RenderContext, RenderedContent } from '../types.js';
 import { addressHtml, addressLines, firstName, footerLines, layout } from './layout.js';
 import { strings } from './strings.js';
@@ -55,7 +55,7 @@ export function renderOrderConfirmation(
     '',
   ].join('\n');
 
-  const body = html`<p>${greeting}</p>
+  const body = tpl`<p>${greeting}</p>
     <p>${s.orderIntro}</p>
     <p>
       <strong>${s.orderNumber}:</strong> #${data.displayId}<br /><strong>${s.placedOn}:</strong>
@@ -77,23 +77,23 @@ export function renderOrderConfirmation(
       </thead>
       <tbody>
         ${raw(
-  data.lines
-    .map(
-      (l) =>
-        html`<tr>
-          <td style="${CELL}">
-            ${l.title}${
-              l.variantTitle && l.variantTitle !== l.title
-                ? raw(html`<br /><span style="color:#71717a;">${l.variantTitle}</span>`)
-                : ''
-            }
-          </td>
-          <td align="right" style="${CELL}">${l.quantity}</td>
-          <td align="right" style="${CELL}">${money(l.totalMinor)}</td>
-        </tr>`,
-    )
-    .join('\n'),
-)}
+          data.lines
+            .map(
+              (l) =>
+                tpl`<tr>
+                  <td style="${CELL}">
+                    ${l.title}${
+                      l.variantTitle && l.variantTitle !== l.title
+                        ? raw(tpl`<br /><span style="color:#71717a;">${l.variantTitle}</span>`)
+                        : ''
+                    }
+                  </td>
+                  <td align="right" style="${CELL}">${l.quantity}</td>
+                  <td align="right" style="${CELL}">${money(l.totalMinor)}</td>
+                </tr>`,
+            )
+            .join('\n'),
+        )}
       </tbody>
     </table>
     <table
@@ -104,21 +104,23 @@ export function renderOrderConfirmation(
       style="border-collapse:collapse;margin-top:8px;"
     >
       ${raw(
-  totals
-    .map(
-      ([k, v], i) =>
-        html`<tr>
-          <td style="padding:4px 0;${i === totals.length - 1 ? 'font-weight:bold;' : ''}">${k}</td>
-          <td
-            align="right"
-            style="padding:4px 0;${i === totals.length - 1 ? 'font-weight:bold;' : ''}"
-          >
-            ${v}
-          </td>
-        </tr>`,
-    )
-    .join('\n'),
-)}
+        totals
+          .map(
+            ([k, v], i) =>
+              tpl`<tr>
+                <td style="padding:4px 0;${i === totals.length - 1 ? 'font-weight:bold;' : ''}">
+                  ${k}
+                </td>
+                <td
+                  align="right"
+                  style="padding:4px 0;${i === totals.length - 1 ? 'font-weight:bold;' : ''}"
+                >
+                  ${v}
+                </td>
+              </tr>`,
+          )
+          .join('\n'),
+      )}
     </table>
     <p><strong>${s.deliveryAddress}</strong><br />${raw(addressHtml(data.shippingAddress))}</p>
     <p>${s.questions(ctx.brand.supportEmail)}</p>`;
