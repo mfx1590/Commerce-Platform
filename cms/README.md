@@ -92,7 +92,8 @@ Objects (the pieces a marketer composes with) and documents (what has a URL or a
 | `link`            | object   | **label**, **href** (storefront path `/…` or `https://…`), openInNewTab                                     |
 | `cta`             | object   | **label**, **href**, **variant** `primary` / `secondary`                                                    |
 | `seo`             | object   | metaTitle (≤70), metaDescription (≤160), ogImage, noIndex                                                   |
-| `hero`            | block    | eyebrow, **headline** (≤90), subheadline, image, ctas (≤2), layout                                          |
+| `heroVideo`       | object   | **cloudinaryUrl** (a Cloudinary `/video/upload/` URL). Only on a hero that also has an image.               |
+| `hero`            | block    | eyebrow, **headline** (≤90), subheadline, image, video (needs image), ctas (≤2), layout                     |
 | `richText`        | block    | **content**: portable text (normal, h2, h3, quote, bullets, numbers, bold, italic, links) and images        |
 | `imageBlock`      | block    | **image**, caption, width `content` / `wide`                                                                |
 | `productStory`    | block    | **productHandle** (kebab-case, e.g. `alpine-backpack`), **headline**, body, image, cta                      |
@@ -192,6 +193,22 @@ An image field accepts two sources, and alt text is required either way:
    image's "Cloudinary URL" field. The storefront then serves responsive renditions through the
    shared `@platform/ui` loader (`c_limit,w_<width>,q_auto,f_auto`), and the URL wins over any
    upload on the same field.
+
+### Hero video (#330)
+
+A hero may carry a short silent loop behind its image: `hero.video` is a `heroVideo` object whose
+`cloudinaryUrl` is a Cloudinary **video** delivery URL (`CLOUDINARY_VIDEO_URL_PATTERN`,
+`https://res.cloudinary.com/<cloud>/video/upload/…`). There is no Sanity upload for video — the
+brand library serves it. The field is optional and nothing existing changes; what the schema
+enforces (`heroPoster`) is that **a hero with a video also has an image**: the image is the poster,
+what visitors who prefer reduced motion see instead of the loop, and the element the page paints
+first. A video without an image fails validation at the hero.
+
+How it renders (reduced motion → the loop is never requested, a visible pause control, the poster
+first) is the storefront's, in `apps/storefront-starter/src/lib/cms/README.md`. Brand content that
+names media by slot (`cms/brand-a/media/manifest.json`) places a loop as
+`{ "_type": "heroVideo", "mediaSlot": "<video slot>" }` next to its poster image, and the brand's
+seed resolves the slot to the delivery URL.
 
 Per-brand Cloudinary configuration is environment only (`.env`, ADR 0006): `CLOUDINARY_CLOUD_NAME`
 with per-store overrides `CLOUDINARY_CLOUD_NAME_<CODE>` (`brand-a` → `BRAND_A`); API key/secret are
