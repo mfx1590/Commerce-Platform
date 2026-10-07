@@ -1,6 +1,6 @@
 # Memory 17 — Marketing
 Window: 17 · Key: `marketing` · Branch prefix: `marketing/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `marketing/phase3` (from main 13c393d) · Status: **Phase 3 — #360 built, PR pending** (Phase 2 complete: last merge PR #269 → fb2371c)
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `marketing/phase3` · Status: **Phase 3 — #360 worker MERGED (PR #396 → 035238d); QUIET until the manager confirms db 0.3.3 (#393) on main, then the one-line follow-up** (#360 itself stays open for the 2b live send)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -30,8 +30,8 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 
 ## Done
 - **#360 · order-confirmation email (`apps/notifications`)** — built 2026-10-07 on `marketing/phase3`, commits
-  `c001856` + `92cd163` (tpl tag), merge of main e64a7f5 = `95efa7f`, **PR #396** (Refs #360; closes at the 2b
-  gate). Scaffold → ESM worker: `consumer.ts` (CLAIM in one transaction:
+  `c001856` + `92cd163` (tpl tag), merge of main e64a7f5 = `95efa7f`, memory `593e8f7`, **PR #396 merged =
+  035238d** (Refs #360; the issue closes at the 2b gate). Scaffold → ESM worker: `consumer.ts` (CLAIM in one transaction:
   `marketing_cursor` name `notifications`, outbox `order.placed`/`shipment.shipped`, INSERT `notification_delivery`
   `ON CONFLICT (event_id) DO NOTHING`, cursor; DELIVER after commit: DB-rendered, stamp → send → mark; retries to
   `maxAttempts`; stuck = attempted with no outcome, reported, never resent; clock-free `lookback` of 500 rows
@@ -102,10 +102,15 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- **#360 · PR #396 in review** (pushed 2026-10-07 on the manager's go; manager applies #394 on main and lands
-  #393 from ../wt-contracts between PRs — this PR does not wait for either). Remaining: report to the manager
-  when checks finish; answer review; after #393 lands, delete `apps/notifications/migrations/0180_*.sql` and the
-  test's `readFileSync` of it (small follow-up); the live Resend send at the 2b gate closes #360.
+- **#360 · follow-up after db 0.3.3** — WAIT for the manager's confirmation that #393 (db 0.3.3, opened as a PR
+  from ../wt-contracts after #396 merged) is on main. Then, on `marketing/phase3` after merging main + `pnpm
+  install` + rebuild: delete `apps/notifications/migrations/0180_notification_delivery.sql` and the
+  `readFileSync` of it in `consumer.test.ts` (tests then run on the real migration), fold in the review nit
+  below, README "Schema" paragraph + CHANGELOG line, one PR "Refs #360", report number + head sha. Window is
+  QUIET until that confirmation (manager 2026-10-07). The live Resend send at the 2b gate closes #360.
+  Review 2026-10-07 (manager, Fable static): **MERGE**, queues on green after the running queue. Deferred nit for
+  the follow-up PR, not before the merge: `errorLabel` forwards a generic `Error`'s message verbatim into
+  `last_error` — make it label-only (name, or a fixed word) everywhere, keep the full message for the log only.
   The original plan, kept for the record:
   1. `apps/notifications` replaces the Phase 0 scaffold: ESM worker, Node `http` (`/health`, `/preview/*`) +
      an outbox poller; deps only `@platform/db`, `@platform/events`, `@platform/auth-sdk`. `start` script
