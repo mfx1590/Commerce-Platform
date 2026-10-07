@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     // Lets apps/core/src/modules/hq-rbac (tested from here, no deps of its own) resolve the workspace packages.
     alias: [
+      { find: '@platform/auth-sdk/testing', replacement: resolve(__dirname, 'src/testing.ts') },
       { find: '@platform/auth-sdk', replacement: resolve(__dirname, 'src/index.ts') },
       { find: '@platform/db/testing', replacement: pkg('db/src/testing.ts') },
       { find: '@platform/db', replacement: pkg('db/src/index.ts') },

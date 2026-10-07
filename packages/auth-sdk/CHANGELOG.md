@@ -113,3 +113,19 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   settings. Test hygiene: users this file
   registers are tracked by email prefix before the registration POST, and cleanup throws when the admin API
   refuses. `infra/keycloak/README.md`: the Google `trustEmail` sentence now says it is not measured live.
+
+## Unreleased — 2026-10-07 (auth/phase3)
+
+- REQUEST #346 (with window 1): new subpath export `@platform/auth-sdk/testing` — `staffToken(username)` /
+  `customerToken(username, password)` (dev-only `test-cli` password grant), `totp`, `OWNER_DEV_TOTP_SECRET`,
+  `waitForNextTotpStep`, `ownerTokenFile`, `forgetStaffToken` (for `afterAll`: deletes the file locally, keeps it in CI). `owner` is the one seeded user with TOTP and Keycloak refuses a
+  used code, so three live suites signing owner in seconds apart could need the same 30-second code (flaky
+  required CI job). `staffToken('owner')` now signs in once and shares the token across processes through
+  `$RUNNER_TEMP/staff-owner-token.json` in CI, `~/.cache/platform/staff-owner-token.json` locally
+  (override `STAFF_OWNER_TOKEN_FILE`; mode 0600; content
+  `{ issuer, access_token }`, written atomically), reused only when the issuer is this stack's, `exp` is at
+  least 60 s away and userinfo answers 200; the grant keeps the fallback previous step → current step →
+  wait for the next fresh step. `scope.test.ts` and `keycloak-realms.test.ts` use it (the browser
+  challenge, which must spend a code, gains the third fallback); the secret literal and the TOTP function
+  now live in one file. Tests: `test/staff-token.test.ts` — unit against a fake Keycloak (reuse without a
+  grant, other issuer, userinfo 401, refused steps, non-owner, malformed file) + live on the real stack.
