@@ -33,6 +33,14 @@ export const CLOUDINARY_URL_PATTERN =
   /^https:\/\/res\.cloudinary\.com\/[^/]+\/(?:image|video|raw)\/upload\//;
 
 /**
+ * The video half of `CLOUDINARY_URL_PATTERN`: a Cloudinary *video* delivery URL (`/video/upload/`).
+ * A hero loop is served from the brand library only — there is no Sanity upload for video — and an
+ * image URL on the video field would make the player fetch a still.
+ */
+export const CLOUDINARY_VIDEO_URL_PATTERN =
+  /^https:\/\/res\.cloudinary\.com\/[^/]+\/video\/upload\//;
+
+/**
  * An image, once present, needs a source: a Sanity upload or a Cloudinary delivery URL
  * (task 2.5). An absent optional image is the enclosing field's own concern, so it passes.
  */
@@ -189,6 +197,42 @@ export const portableTextBlock = defineArrayMember({
   },
 });
 
+/**
+ * A silent loop behind the hero image (#330). The image stays mandatory next to it: it is the
+ * poster, what `prefers-reduced-motion` visitors see instead of the loop, and the element the page
+ * paints first. Rendering (reduced motion → no request for the video; a visible pause control) is
+ * the storefront's.
+ */
+export const heroVideo = defineType({
+  name: 'heroVideo',
+  title: 'Hero video',
+  type: 'object',
+  fields: [
+    defineField({
+      name: 'cloudinaryUrl',
+      title: 'Cloudinary video URL',
+      type: 'string',
+      description:
+        'The delivery URL of a short silent loop from the brand Cloudinary library (…/video/upload/…). The hero image is its poster.',
+      validation: (rule) =>
+        rule.required().regex(CLOUDINARY_VIDEO_URL_PATTERN, {
+          name: 'a Cloudinary video delivery URL (https://res.cloudinary.com/<cloud>/video/upload/…)',
+        }),
+    }),
+  ],
+});
+
+/** A hero with a video must have an image: the poster, the reduced-motion fallback, the LCP element. */
+export const heroPoster: CustomValidator = (value) => {
+  if (value === undefined || value === null) return true;
+  const hero = value as { image?: unknown; video?: unknown };
+  if (hero.video === undefined || hero.video === null) return true;
+  if (hero.image === undefined || hero.image === null) {
+    return 'Add an image to go with the video: it is the poster and what visitors who prefer reduced motion see';
+  }
+  return true;
+};
+
 export const hero = defineType({
   name: 'hero',
   title: 'Hero',
@@ -216,6 +260,13 @@ export const hero = defineType({
     }),
     defineField({ name: 'image', title: 'Image', type: 'imageWithAlt' }),
     defineField({
+      name: 'video',
+      title: 'Video loop',
+      type: 'heroVideo',
+      description:
+        'Optional: a short silent loop played behind the image. The image is required with it (poster, reduced-motion fallback).',
+    }),
+    defineField({
       name: 'ctas',
       title: 'Buttons',
       type: 'array',
@@ -236,6 +287,7 @@ export const hero = defineType({
       initialValue: 'image-right',
     }),
   ],
+  validation: (rule) => rule.custom(heroPoster),
   preview: { select: { title: 'headline', subtitle: 'eyebrow', media: 'image' } },
 });
 
@@ -401,6 +453,7 @@ export const objectTypes = [
   link,
   cta,
   seo,
+  heroVideo,
   hero,
   richText,
   imageBlock,
