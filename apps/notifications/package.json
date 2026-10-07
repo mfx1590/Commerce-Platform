@@ -1,8 +1,9 @@
 {
   "name": "@platform/notifications",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "description": "Transactional email worker: consumes order.placed and shipment.shipped from the outbox and sends one email per event through a pluggable transport (#360)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -12,17 +13,28 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "node dist/main.js",
+    "once": "node dist/main.js --once",
     "test": "vitest run --passWithNoTests",
+    "lint": "eslint . --max-warnings 0",
     "clean": "rm -rf dist .turbo"
   },
+  "dependencies": {
+    "@platform/auth-sdk": "workspace:*",
+    "@platform/db": "workspace:*",
+    "@platform/events": "workspace:*"
+  },
   "devDependencies": {
+    "@types/node": "^20.19.0",
+    "tsx": "^4.23.13",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/node": "^20.19.0"
+    "vitest": "^3.2.0"
   }
 }
