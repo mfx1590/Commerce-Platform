@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-10-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
-Status: **Phase 3 / Integration 2a** (2026-10-06): **#359 → PR #364 reviewed MERGE**, ready for the queue (head after the review-fix push; the reviewed head was `5eccdf1`). Machine reported free. Phase 2 complete; #349 merged (`a0a6e02`).
+Last updated: 2026-10-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
+Status: **#380** (2026-10-07, urgent, small): seed OpenFGA in `auth-e2e` for the kept core. Before that: #359 done (PR #364 = `ec6b158`).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,9 +108,17 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#359 — k6 load test against the real core (Integration 2a). DONE pending the merge queue: PR #364, reviewed
-  MERGE on `5eccdf1`; review-fix push (report wording, 15-case count everywhere, README LOAD_SKIP_TARGET, this
-  header) then `gh pr ready 364`.** History below. Branch `infra/phase3` from main `c0e5202`.
+- **#380** — `auth-e2e` never seeded OpenFGA, so the kept core answered 503 FgaValidationError to the first real
+  staff token (brand A's order-lifecycle spec, #379). Fix: a seed-and-export step (same as admin-e2e-core) after the
+  live suites and the TOTP report, before "core boots for real"; ids masked (`::add-mask::`), asserted, `.env`
+  removed. Branch `infra/phase3` from main `5b119ff` (the old local branch is kept as `infra/phase3-old`).
+  Evidence: two consecutive green runs of the live job on the final head, URLs in the PR body. "Closes #380".
+
+- **#359 — k6 load test against the real core (Integration 2a). DONE: PR #364 merged as `ec6b158`** (final head
+  `0ba6a5b`, all 16 checks green). Report `infra/load/reports/2026-10-06.md`: target passes on laptop ×2 + runner;
+  pool knee 200–400 req/s of GET /store (ceiling ~380–390 req/s, DB_POOL_MAX=10); store lock ≥ 960/min. Laptop
+  ramps on AC never re-run (laptop stayed on battery) — offer stands: `LOAD_SKIP_TARGET=1 bash infra/load/run.sh`.
+  History below. Branch `infra/phase3` from main `c0e5202`.
   The laptop is MINE until I report "machine free" (manager, 2026-10-06). Target: 30 orders/min for 10 min while
   browsing at 50 rps; p95 < 500 ms for GET /store, product list, product detail; errors < 0.1%.
   Facts found: k6 is not installed locally → run the pinned `grafana/k6` image (same binary on the laptop and in
