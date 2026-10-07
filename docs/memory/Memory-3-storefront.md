@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done: #351, #358 code, #372, #382 (PR #383). **Now: #389** (`@lhci/cli` 0.14.0 → **0.15.1**, Lighthouse 12.6.1; local perf run PASS, the six TraceElements audits populate, PLP LCP element = `<h1>` "All products") on `storefront/phase3`; **then #390** (perf.mjs warms the measured URLs like e2e-server.mjs) on its own branch from main; one PR each; machine granted for these runs — report "machine free" after. **Then #330's rendering half** once window 6's #385 is on main. **Still open: #358's live proof** (Stripe test keys).
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done today: #382 (PR #383), **#389 (PR #392, `ad7cc5a`; lhci 0.15.1, PLP LCP element = `<h1>`)**, **#390 (PR #395, `d872a19`; scripts/warm-urls.mjs)**. **#330 rendering half → PR ("Closes #330")** on `storefront/phase3-330`: `HeroMedia` (server markup around the poster) + `HeroLoop` ('use client', memo) — after `load`, muted loop, pause control, never under reduced motion or in an e2e build; CSP `media-src 'self' https://res.cloudinary.com`. Bundle budget: home 131.1 kB (136), content/campaign 132.9 kB (145; +1.1 kB). **Still open: #358's live proof** (Stripe test keys). Never block on a question dialog: send the decision to the manager (root CLAUDE.md, 4451e7c).
 
 ## Identity (does not change)
 
@@ -766,6 +766,13 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`@platform/cms` lives in `cms/`, outside `packages/*`** — `pnpm --filter "./packages/*" build` skips it. After
+  merging a window-6 change, also `pnpm --filter @platform/cms build`, or `src/lib/cms/*` shows TS errors
+  for exports that exist (#385: `HeroVideo`, `CLOUDINARY_VIDEO_URL_PATTERN`).
+- **`test/cms-render.ts` (window 6) calls function components directly**, so a hook-using client
+  component inside a CMS tree crashes it (`useState` of null). Keep hooks in a `'use client'` island
+  exported through `memo(...)` — the renderer flattens object-typed elements (#330).
 
 - **Admin API 503 `authorization service unavailable` / `FgaValidationError` = this worktree's .env has
   no OpenFGA ids.** `pnpm --filter @platform/auth-sdk fga:seed` (reuses the shared store, writes the
