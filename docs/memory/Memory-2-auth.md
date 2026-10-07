@@ -35,7 +35,8 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## In progress
 
-- **#402 — PR #405 open (commit 23471f7 = head, on main f93911d), reported; quiet.** Decision sent to the manager on #406 (recommend: one small PR after #405 — 1.5 s gap between refused owner-grant attempts + local file deletion once per run via vitest globalSetup teardown; alternatives: fold into #405, or relax the dev realm's brute-force policy with a reimport). Act on the answer; otherwise the Phase 3 backlog waits for the manager's pick.
+- **#402 — PR #405 open (commit 23471f7 = head, on main f93911d), manager read MERGE, in the merge queue at the end of 2026-10-07 (GitHub outage delayed it).** First step next session: `gh pr view 405 --repo mfx1590/Commerce-Platform --json state,mergeCommit`; if MERGED → merge main into `auth/phase3`, `git cherry-pick cb5fb3c` (the #406 commit on the local side branch `auth/phase3-406`; its memory file carries the full #406 description), full suite, one push, PR "Closes #406", number + head to the manager; if not merged → wait, do not push to auth/phase3 (a push aborts the queue).
+- **#406 — built, NOT pushed**: side branch `auth/phase3-406` = cb5fb3c on top of 3077b89. Manager chose option (a) (own PR after #405; no realm change). Evidence already measured: full suite twice back to back 148/148, token file gone after each run; mutation-proved. Decision sent to the manager on #406 (recommend: one small PR after #405 — 1.5 s gap between refused owner-grant attempts + local file deletion once per run via vitest globalSetup teardown; alternatives: fold into #405, or relax the dev realm's brute-force policy with a reimport). Act on the answer; otherwise the Phase 3 backlog waits for the manager's pick.
 
 <!-- Done entries continue here as each queued task's PR opens. -->
 
