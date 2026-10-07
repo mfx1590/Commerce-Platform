@@ -138,3 +138,7 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   (`updateDomain`, `revokeApiKey`, `capturePayment`, `buyShipmentLabel`; none finance-gated, so the gate's
   claim held). A static test pins that every `x-permission` line under `paths` is attributed to exactly one
   operation; `test/guard.test.ts` pins the same count for the auth-sdk sweep.
+- #402 (nit from the #400 review): both x-permission sweeps (`gate.test.ts`, `guard.test.ts`) now assert that
+  every `operationId` under `paths` carries an `x-permission` unless allowlisted — `getMe` only, exact equality in
+  both directions, so an unguarded operation fails the gate loudly instead of vanishing from the sweep, and a
+  stale allowlist entry fails too. Measured: 113 operations, 112 guarded.
