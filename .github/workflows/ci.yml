@@ -452,6 +452,32 @@ jobs:
       - name: owner grants by TOTP step (barrier evidence)
         if: always() && needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/totp-barrier.sh report
+      # OpenFGA for the kept core (#380). Without OPENFGA_STORE_ID the core refuses every real staff token
+      # with 503 FgaValidationError, and brand A's order-lifecycle spec (#379) is the first journey here to
+      # send one. The same seed-and-export as `admin-e2e-core`, placed AFTER the live suites (they create
+      # their own stores and must run exactly as before) and before the core boots, so the ids reach only
+      # the kept core and the Playwright step. fga:seed prints the ids; its output goes to a file and the
+      # ids are masked, so the log says they were exported without showing them. The .env it writes is
+      # removed: this job runs without one.
+      - name: seed OpenFGA (model + staff tuples) for the kept core and export its ids
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          pnpm exec turbo run build --filter='@platform/auth-sdk^...'
+          if ! pnpm --filter @platform/auth-sdk fga:seed > "$RUNNER_TEMP/fga-seed.log" 2>&1; then
+            cat "$RUNNER_TEMP/fga-seed.log"
+            exit 1
+          fi
+          store="$(sed -n 's/^OPENFGA_STORE_ID=//p' .env)"
+          model="$(sed -n 's/^OPENFGA_MODEL_ID=//p' .env)"
+          if [ -z "$store" ] || [ -z "$model" ]; then
+            echo 'fga:seed wrote no OPENFGA_STORE_ID / OPENFGA_MODEL_ID to .env'
+            exit 1
+          fi
+          echo "::add-mask::$store"
+          echo "::add-mask::$model"
+          { echo "OPENFGA_STORE_ID=$store"; echo "OPENFGA_MODEL_ID=$model"; } >> "$GITHUB_ENV"
+          echo "exported OPENFGA_STORE_ID (${#store} chars) and OPENFGA_MODEL_ID (${#model} chars) to the job"
+          rm -f .env
       # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
       # `pnpm exec playwright` at the workspace root cannot find it.
       # Boot the real server. Everything else in this pipeline reasons about the code without

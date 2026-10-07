@@ -4,6 +4,13 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 3
 
+### Fixed (#380 — the live job's kept core had no OpenFGA)
+
+- `auth-e2e` now seeds OpenFGA (`fga:seed`) after the live suites and before the kept core boots, exporting
+  `OPENFGA_STORE_ID` / `OPENFGA_MODEL_ID` to the job (masked in the log, asserted present, `.env` removed) — the
+  same step `admin-e2e-core` has. Without it the core answered 503 `FgaValidationError` to the first real staff
+  token, brand A's order-lifecycle spec (#379).
+
 ### Added (#359 — load test against the real core, Integration 2a)
 
 - `infra/load/`: `k6/load.js` (browse 50 req/s + place 30 orders/min, 10 min, thresholds on the owner's target),
