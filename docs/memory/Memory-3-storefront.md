@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#358 = PR #365 ("Refs #358")** — CI red fixed: (1) Prism keeps no session → the payment choice is remembered per cart (httpOnly `checkout_payment` = `<cartId>:<provider>`, no PII), a missing/failed session is renewed only for an invoice the customer chose, never a card; (2) bundle budget: `CardPaymentLazy` (client, `next/dynamic`, `ssr: false`) — measured 139.6 → 140 (server-side dynamic, not enough) → **134.8 kB** (budget 139). Build + budget run on the machine with the manager's OK; machine released. Pushed once after merging main; report head + checks; no further pushes until the manager says. Machine NOT mine.
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Integration 2a docket done (#351, #358 code, #372). **#382 = PR #383** (first head `96347d8` resolved the key via the app's config; the manager NARROWED it): keep `process.env.STORE_PUBLISHABLE_KEY` (brand A's playwright.config supplies it, window 10), no key → one printed line + skip, every call asserted ok() with status + error code/message (no raw body). **Still open: #358's live proof** (Stripe test keys).
 
 ## Identity (does not change)
 
@@ -375,6 +375,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 -->
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+
+- [ ] **Nits from the review of #375 (manager: "not now"):** `e2e/order-lifecycle.spec.ts` falls back to
+      the documented `operations` dev-fixture password — env-only (`E2E_STAFF_USERNAME` /
+      `E2E_STAFF_PASSWORD`) would be cleaner; its `json()` helper puts the Admin API error body into
+      assertion messages — keep those PII-free (status + machine code only).
 
 - [ ] **#351 (Integration 2a) — `cb2fef0`, PR #362: 15/15 checks green, CLEAN, reported to the manager (old + "Project manager handoff" session).** Confirmation page: `OrderConfirmationHeader` —
       "Order #N has been placed and is being processed", follow it in Order history (signed in) or
@@ -761,6 +766,13 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **Admin API 503 `authorization service unavailable` / `FgaValidationError` = this worktree's .env has
+  no OpenFGA ids.** `pnpm --filter @platform/auth-sdk fga:seed` (reuses the shared store, writes the
+  ids into .env), then restart the core. Check the raw response before trusting a read: a dry run
+  printed `settings: {}` from an error body.
+- **The seeded `owner` has OTP** — the test-cli password grant answers `invalid_grant` for it. Use the
+  staff user that holds the operation's relation (e.g. `store-admin` for updateStore on brand-a).
 
 - **`next/dynamic` called from a SERVER page does not lazy-load a client component**: it still
   server-renders it and lists its chunk in the page's entry (`app-build-manifest.json`), so the bundle

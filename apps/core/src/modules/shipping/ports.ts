@@ -1,9 +1,10 @@
 // How shipping reaches the two core modules it leans on but does not own. Both are window 1's and both are on
 // main: the shapes were agreed on #191 and delivered by core 2.4 (inventory) and 2.6 (orders `…InTx` variants).
 //
-// **Orders:** `markShipmentCreatedInTx` when a shipment is planned, `markShippedInTx` with the quantities that
-// actually left, `markDeliveredInTx` when the carrier says so. Shipping encodes none of that state machine; it
-// reports facts and the orders module decides.
+// **Orders:** `markShipmentCreatedInTx` when a shipment is planned, `markShipmentStartedInTx` when a shipment
+// leaves `pending` (someone started picking it), `markShippedInTx` with the quantities that actually left,
+// `markDeliveredInTx` when the carrier says so. Shipping encodes none of that state machine; it reports facts
+// and the orders module decides — since #350 the order's `status` is derived from exactly these calls.
 //
 // **Inventory:** `consumeReservationsForShipment` when a shipment is planned, `releaseReservationsForShipment` when
 // a planned shipment is cancelled. Both are idempotent per shipment on window 1's side.
@@ -20,7 +21,12 @@ import type { Queryable } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { AppError } from '../../lib/errors';
 import { consumeReservationsForShipment, releaseReservationsForShipment } from '../inventory';
-import { markDeliveredInTx, markShipmentCreatedInTx, markShippedInTx } from '../orders';
+import {
+  markDeliveredInTx,
+  markShipmentCreatedInTx,
+  markShipmentStartedInTx,
+  markShippedInTx,
+} from '../orders';
 
 export interface ShipmentLineRef {
   orderLineItemId: string;
@@ -81,8 +87,10 @@ export interface OrdersOutcome {
 
 /** What shipping asks the orders module to record. Each call is advisory: a 409 is reported, never thrown. */
 export interface OrdersPort {
-  /** A shipment now exists for this order (`confirmed → processing`). */
+  /** A shipment now exists for this order. Since #350 planning alone moves nothing; the call still 404s. */
   shipmentCreated(input: OrdersCall): Promise<OrdersOutcome>;
+  /** Work on a shipment has started — it left `pending` (`confirmed → processing`, #350 / #366). */
+  shipmentStarted(input: OrdersCall): Promise<OrdersOutcome>;
   /** These quantities actually left the warehouse (`fulfilled_quantity`, then the fulfilment status). */
   shipped(input: OrdersCall & { items: ShipmentLineRef[] }): Promise<OrdersOutcome>;
   /** The carrier reported delivery (`processing → completed`, only once the order is fulfilled). */
@@ -121,6 +129,13 @@ export const coreOrdersPort: OrdersPort = {
     return advisory(
       tx,
       () => markShipmentCreatedInTx(tx, orderId, actor),
+      'order status not advanced',
+    );
+  },
+  async shipmentStarted({ tx, orderId, actor }) {
+    return advisory(
+      tx,
+      () => markShipmentStartedInTx(tx, orderId, actor),
       'order status not advanced',
     );
   },

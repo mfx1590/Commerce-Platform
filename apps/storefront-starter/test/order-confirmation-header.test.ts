@@ -26,7 +26,7 @@ vi.mock('@/i18n/navigation', () => ({
 
 const { OrderConfirmationHeader } = await import('@/components/order-confirmation-header');
 
-const ORDER = { id: 'order_word', display_id: 1136 };
+const ORDER = { id: 'order_word', display_id: 1136, status: 'pending' as const };
 
 function render(locale: 'en-GB' | 'de-DE', signedIn: boolean): string {
   const messages = locale === 'en-GB' ? enGB : deDE;
@@ -84,6 +84,60 @@ describe('OrderConfirmationHeader', () => {
     );
     expect(html).toContain('href="/account/orders"');
     expect(html).toContain('data-order-number="1136"');
+  });
+});
+
+describe('OrderConfirmationHeader — the order status (#372)', () => {
+  const at = (
+    status: 'processing' | 'completed' | 'cancelled',
+    locale: 'en-GB' | 'de-DE' = 'en-GB',
+  ) =>
+    renderToStaticMarkup(
+      createElement(NextIntlClientProvider, {
+        locale,
+        messages: locale === 'en-GB' ? enGB : deDE,
+        timeZone: 'Europe/London',
+        children: createElement(OrderConfirmationHeader, {
+          order: { ...ORDER, status },
+          signedIn: false,
+        }),
+      }),
+    );
+  const text = (html: string) =>
+    html
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  it('shows the status the API sent, as text and as data-order-status', () => {
+    const shipped = at('processing');
+    expect(shipped).toContain('data-order-status="processing"');
+    expect(text(shipped)).toContain('Status: Processing');
+    expect(text(shipped)).toContain('Order #1136 is on its way.');
+
+    const delivered = at('completed');
+    expect(delivered).toContain('data-order-status="completed"');
+    expect(text(delivered)).toContain('Status: Completed');
+    expect(text(delivered)).toContain('Order #1136 has been delivered.');
+  });
+
+  it('never calls a delivered or cancelled order "being processed"', () => {
+    for (const status of ['completed', 'cancelled'] as const) {
+      expect(text(at(status)), status).not.toContain('being processed');
+      expect(text(at(status, 'de-DE')), status).not.toContain('wird bearbeitet');
+    }
+  });
+
+  it('a pending order is received and being processed', () => {
+    const html = renderToStaticMarkup(
+      createElement(NextIntlClientProvider, {
+        locale: 'en-GB',
+        messages: enGB,
+        timeZone: 'Europe/London',
+        children: createElement(OrderConfirmationHeader, { order: ORDER, signedIn: false }),
+      }),
+    );
+    expect(text(html)).toContain('Status: Received');
   });
 });
 

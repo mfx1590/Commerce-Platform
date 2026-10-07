@@ -1,6 +1,6 @@
 # Memory 8 — Shipping & fulfillment
 Window: 8 · Key: `shipping` · Branch prefix: `shipping/` · Model: Sonnet
-Last updated: 2026-10-05 · Contracts: contracts-v0.4.10 (nothing changed for shipping since v0.4.3) (Admin API 0.4.3, events 0.3.0, db 0.3.0 incl. migrations 0140 `webhook_event` and 0160 pick/pack statuses) · Branch: `shipping/phase2` · **Status: PHASE 2 COMPLETE — 2.1–2.5 all merged; window quiet.**
+Last updated: 2026-10-06 · Contracts: **contracts-v0.4.12** (`provider_unsupported` is in `ERROR_CODES` and the core maps it to 422; Admin API 0.4.9 `buyShipmentLabel`; events 0.3.1 `shipment.label_created`; order status automatic since #350) · Branch: `shipping/phase3` · **Status: INTEGRATION 2a — #356 code merged as `cdbf611`; the cast-removal follow-up is the open PR. #356 itself stays open for the 2a gate (a real EasyPost test-mode label).**
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,7 +16,27 @@ Never touches:
 EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter interface with in-memory impl, pick/pack state machine, shipment events on the outbox. Wave B — starts when core 2.1–2.2 have merged.
 
 ## Done
-- **#255 — outbox-order flake in the module's database tests** · PR pending (2026-10-05)
+- **#356 · Integration 2a — buy-label route, `shipment.label_created`, lifecycle to `delivered`** · PR #369,
+  **merged as `cdbf611`** (2026-10-06) · branch `shipping/phase3` · **#356 itself is still OPEN**: the PR said
+  `Refs`, not `Closes`, because the real EasyPost round trip through the route is unproven until a test-mode
+  label prints at the Integration 2a gate. #366 closed with this PR.
+  `POST /admin/shipments/{shipmentId}/label` on `shippingAdminRouter` (permission from the spec: `operations` on
+  `organization:hq`, no request body, store resolved from the shipment). `buyShipmentLabel` now matches Admin API
+  0.4.9 instead of its old README: **409 unless the shipment is exactly `packed`** (an already-labelled shipment is
+  `label_created`, so a second call is a 409 and not the label it holds), **422 `provider_unsupported`** when the
+  store's carrier declares `canBuyLabels: false` (the manual carrier), and still **502** for a carrier that is
+  merely down. `shipment.label_created` (events 0.3.1) goes on the outbox in the same transaction as the move,
+  sharing one timestamp with `metadata.carrier_label.bought_at`. New `createTestCarrierProvider()` is the manual
+  implementation under another name — the carrier test double every label test now buys from. Module suites
+  187 passed, 2 skipped (the EasyPost live tests — no key in this worktree yet).
+- **#366 — the order's status stops depending on shipping's tests, and starts when work does** · part 1 merged
+  as `5e10724` (PR #370, the manager's one-time second branch), part 2 in PR #369 → `cdbf611`; #366 closed.
+  Part 1: the two `shipments-db.test.ts` planning cases assert the order's `fulfillment_status` and the planned
+  shipment instead of `order.status`, so they hold on both sides of #350. Part 2: `OrdersPort.shipmentStarted`
+  calls `markShipmentStartedInTx` from `applyTransition` the first time a shipment leaves `pending` — one call
+  site for pick, pack, label and a straight despatch; `cancelled` / `failed` excluded; a `pending → shipped`
+  jump reports the start first.
+- **#255 — outbox-order flake in the module's database tests** · commit `aaabf73` · PR #343, merged as `bc3a346` (2026-10-05); #255 closed
   `shipments-db.test.ts` ordered a shipment's outbox rows by `occurred_at, topic`; the skipped-scan test expected
   `delivered` before `shipped`, true only on an occurred_at tie (alphabetical). Every shipment/order stream query in
   shipping and fulfillment tests now orders by `seq` (outbox identity = write order), and the skipped-scan test
@@ -63,10 +83,18 @@ EasyPost/ShipEngine provider (rates, labels, tracking webhooks), 3PL adapter int
   EasyPost suite that skips without `EASYPOST_API_KEY`. README + CHANGELOG in the module folder.
 
 ## In progress
-- **Nothing. The window is quiet.** Phase 2 delivered 2.1–2.5; #235 merged as `7e02172` and closed #133.
+- **The cast-removal follow-up is an open PR** (`Refs #356`): contracts-v0.4.12 landed as `e3a8c0b`, so
+  `providerUnsupported()` now builds a plain `AppError('provider_unsupported', …)` — the cast, the exported
+  `PROVIDER_UNSUPPORTED` constant, the `ErrorCode` import and the explicit `422` are all gone, because
+  `errors.ts` maps the code to 422 itself. Nothing else is being written.
+- **Window 7 still has the same mock**, in `payments/capture.ts` (`PROVIDER_UNSUPPORTED`,
+  `PROVIDER_UNSUPPORTED_STATUS`, the cast, exported from `payments/index.ts`). Not my path — reported to the
+  manager, not touched.
+- **#356 closes at the 2a gate, not by me**: it needs `EASYPOST_API_KEY*` in this worktree's `.env` (OWNER #361)
+  and the manager's Integration 2a run printing a real test-mode label. Nothing to do until then.
 - Not mine, tracked elsewhere: window 1 mounts `fulfillmentAdminRouter()` with one `routers.push(...)` line in
-  `src/http/module-routers.ts` (their next PR). `shippingAdminRouter` and `shippingWebhookRouter` are already
-  mounted there, and `registerCarrierProviders()` runs from `src/wiring.ts`.
+  `src/http/module-routers.ts`. `shippingAdminRouter` and `shippingWebhookRouter` are already mounted there, and
+  `registerCarrierProviders()` runs from `src/wiring.ts`.
 
 ## Follow-ups for whoever reopens this window (none blocking, agreed with the manager)
 
@@ -81,8 +109,8 @@ Two are real behaviour, three are hygiene. In the order I would do them:
    transaction fails right after a successful void, a retry voids an already-voided label — harmless with
    EasyPost today, not guaranteed elsewhere. Fix: write `voided_at` in the cancel transaction and skip the call
    when it is set.
-3. **Stale comment in `shipping/shipments.ts`** still tells the reader that the tests apply
-   `../fulfillment/proposed/0160_shipment_pick_pack.sql`; that file is gone (migration 0160 is real).
+3. ~~**Stale comment in `shipping/shipments.ts`** about `../fulfillment/proposed/0160_shipment_pick_pack.sql`.~~
+   Fixed in #356 (same file, one comment).
 4. **`fulfillment/README.md` contradicts itself**: the "why they are not in the outbox yet" framing survives in
    one paragraph although the events have flowed since contracts-v0.4.3.
 5. **Document the emitter buffer as a guard, not a queue** (`fulfillment/lifecycle-events.ts`): it warns once per
@@ -97,6 +125,15 @@ Two are real behaviour, three are hygiene. In the order I would do them:
 - `cancelFulfillment` records a divergence instead of swallowing it when the provider cancels what we cannot.
 - `applyFulfillmentUpdate` moves the shipment before recording the provider state, so a retry still works.
 
+## Next — Integration 2a
+- [x] **#356** buy-label route + `shipment.label_created` + the tracking lifecycle to `delivered` — PR open.
+- [ ] **#366** (REQUEST, addressed to this window, NOT in #356's scope): report the first shipment leaving
+      `planned` to the orders module (`markShipmentStarted`) and update two tests to the automatic lifecycle
+      (#350). Raised with the manager; waiting for it to be scheduled.
+- [ ] The real EasyPost round trip through the route needs `EASYPOST_API_KEY*` in this worktree's `.env`
+      (OWNER issue #361) and the MACHINE, which belongs to window 5. Until then the route is covered against the
+      carrier test double and `easypost-live.test.ts` skips loudly.
+
 ## Next — Phase 2 (all delivered)
 - [x] **#129 · 2.1** Carrier provider interface + EasyPost (test mode) — PR #175
 - [x] **#130 · 2.2** Rate shopping at checkout — PR #186
@@ -109,6 +146,33 @@ Contract changes this window filed: **#187** `webhook_event` (with window 7, lan
 lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.md` rows).
 
 ## Decisions made (with reasons)
+- **The order starts when a shipment LEAVES `pending`, and a cancel is not a start** (#366 part 2): the call sits
+  in `applyTransition`, the single writer of a shipment's status, so picking, packing, buying a label and a
+  despatch that skipped all three each report it exactly once without four call sites. `cancelled` and `failed`
+  are excluded although both outrank `pending` — nothing was worked on. A jump from `pending` straight to
+  `shipped` reports the start first, the same filled-in-skipped-step rule as `shipment.shipped` before
+  `shipment.delivered`: an order must never reach its fulfilment without having passed through `processing`.
+- **An already-labelled shipment is a 409, not the label it holds** (#356): the old call was idempotent and
+  answered 200 with the existing label. Buying a label is real money, and an operator who repeats the call must
+  learn that the state changed under them. It also falls out of the contract's own rule — only `packed` is
+  labellable, and a labelled shipment is `label_created`. **This contradicts #356's own "idempotent" bullet**,
+  which predates Admin API 0.4.9; the contract and the manager's instruction win, and the PR body says so.
+- **A carrier outage stays a 502, it is not 422** (#356): 422 `provider_unsupported` says the carrier can *never*
+  do this (a permanent capability), so a client must not retry. An outage is the opposite — retrying is exactly
+  right. No operation in the spec documents any 5xx, so 502 is undocumented either way; mapping an outage to a
+  documented-but-wrong code would be worse than an undocumented-but-true one.
+- **Label capability is a property of the provider object, not a name check** (#356): `CarrierProvider.canBuyLabels`,
+  absent = capable, so only a carrier that genuinely cannot buy labels has to say so and no caller has to keep a
+  list of carrier names. `manual` declares `false`; `createTestCarrierProvider()` is the same implementation under
+  another name and refuses to be registered as `manual`, so the double can never impersonate the carrier whose
+  422 it exists to work around.
+- **The provider and the carrier are different names** (#356): the test double's provider name is `test-carrier`
+  while its labels still say `carrier: manual` (it keeps the manual pricing table). `shipment.carrier` and the
+  event carry the *carrier* that moves the parcel, not the integration that bought the label. The db tests assert
+  both separately.
+- **`provider_unsupported` is mocked in this module, not in the contract** (#356): admin-api.yaml 0.4.9 documents
+  it on `Error.code` but `ERROR_CODES` in `@platform/contracts` does not list it, and that package is the main
+  window's. `PROVIDER_UNSUPPORTED` in `shipments.ts` is one cast with the deletion condition written next to it.
 - **A failed label void refuses the cancel** (#235 fix): the carrier still holds a live label nobody will use, so
   the failure is written to `shipment.metadata.carrier_label` (`needs_reconciliation`) and raised, and the
   shipment stays put. Cancelling anyway would hide a paid label from everyone. Same rule as `cancelFulfillment`.
@@ -194,17 +258,35 @@ lines), **#191** (order and inventory port shapes), **#226** (`apps/core/CLAUDE.
   defaults. Every field falls back to a default rather than throwing.
 
 ## Blocked / waiting
-- **#366 part 1 (tests) is in review on `shipping/366-tests`** — a one-time second branch the manager allowed
-  while #356 sits on `shipping/phase3`. Test-only: the two `shipments-db.test.ts` cases that asserted
-  `order.status` now assert what shipping owns (the order's `fulfillment_status`, and the shipment planned), so
-  they hold both on today's main and after #350 changes the order lifecycle. **Part 2 of #366 — calling
-  `markShipmentStartedInTx` when a shipment leaves `pending` — waits for #350 to be on main**, because the
-  function does not exist there yet; it goes into #356's branch afterwards.
-- **One-line follow-up owed after contracts 0.4.12 lands**: drop the `PROVIDER_UNSUPPORTED` cast in
-  `shipping/shipments.ts` once `ERROR_CODES` carries `provider_unsupported` (the manager lands it after #368/#369
-  merge).
+- **contracts 0.4.12 (PR #376)** — the only thing this window waits on. See In progress for exactly what to
+  delete when it lands.
 
 ## Gotchas learned
+- **`pnpm install` after merging main, before trusting any gate** (2026-10-06): #358 added `@stripe/react-stripe-js`
+  to `apps/storefront-starter`, and `pnpm typecheck` failed there with TS2307 on a tree where nothing of mine was
+  wrong. A merge that touches `pnpm-lock.yaml` or any `package.json` means the worktree's `node_modules` is stale;
+  the failure looks like someone else's broken code until you install.
+- **Record the PR number and sha, not a placeholder** (2026-10-06): a `<!-- fill in on merge -->` in the Done
+  entry was caught in review as a record defect and cost a round trip. Write the number as soon as the PR exists
+  and the merge sha as soon as it merges.
+- **Two branches editing one test file collide in the merge queue, and the queue never resolves a conflict**
+  (2026-10-06): #370 (tests) and #369 (the label work) both inserted a helper above `orderState` in
+  `shipments-db.test.ts`, so #370 merged and #369 was SKIPPED. Resolution was to keep both helpers (`pack` and
+  `orderFulfillment`) — trivial, but it costs a merge, a full gate run and a queue slot. When a second branch is
+  unavoidable, keep each one's edits in different regions of a shared file, as I managed to for the memory file
+  (#370 touched only Blocked/waiting) and failed to for the test file.
+- `jsonb_set(settings, ARRAY['shipping','provider'], …, true)` **silently changes nothing** when `settings` has no
+  `shipping` key: create_missing creates only the LAST key of the path, and a missing intermediate makes the whole
+  call return the document unchanged. Build the object instead:
+  `settings || jsonb_build_object('shipping', coalesce(settings->'shipping','{}'::jsonb) || …)`. Cost one test
+  failure that looked like the capability check misfiring (#356).
+- A shipment event's timestamp is the carrier's string verbatim (`2026-10-07T10:15:00Z`) while the row's column is
+  the same instant after Postgres normalised it (`…:00.000Z`). Both are ISO-8601; assert the one the boundary
+  actually produces rather than assuming the two spellings match (#356).
+- Reporting to the manager (since 2026-10-05 via session messaging): send a message AS SOON AS the PR is up,
+  then a second one when every check has finished. On #343 I waited for CI and the manager found the PR in the
+  list first. A red check caused outside the diff (e.g. live suites sharing the owner's one-time code, fixed by
+  #347) is the manager's call, not a reason to push again.
 - Order outbox rows in tests by `seq` alone, never `occurred_at`: occurred_at is a wall clock per event (two events
   of one transition can tie or straddle a millisecond), `seq` is the identity column and the write order (#255).
 - After a contract lands, **rebuild the workspace packages** before judging anything: `@platform/events` generates

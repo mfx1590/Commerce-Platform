@@ -76,7 +76,7 @@ function ReadOnlyGeneral({ store }: { store: AdminComponents['Store'] }) {
  *
  * store_staff reads everything except the API keys (listing them is store_admin); each form and
  * button is offered only to the relation its operation needs, and otherwise names that relation.
- * The server actions refuse the same way before calling the API (`src/lib/settings/guard.ts`).
+ * The server actions refuse the same way before calling the API (`src/lib/permissions/guard.ts`).
  * General includes the enabled currency/locale sets; Domains moves the primary (owner on hq); API
  * keys revoke after a confirmation, never the last live publishable key (Admin API 0.4.8, #279).
  *

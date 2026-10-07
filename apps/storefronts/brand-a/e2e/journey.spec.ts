@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { hydrated } from './support/journey';
+import { captureOrder, hydrated, type CapturedOrder } from './support/journey';
 
 /**
  * Brand A's browse → buy journey, against the **core** (task 2.5, issue #143).
@@ -363,7 +363,7 @@ test.describe('buy', () => {
       .first()
       .click();
     await expect(page).toHaveURL(/\/checkout\//, { timeout: 30_000 });
-    await completeCheckout(page);
+    const reviewed = await completeCheckout(page);
 
     // A real order: the confirmation is /orders/{id} and the id is the one the core minted.
     await expect(page).toHaveURL(/\/orders\/[\w-]+$/, { timeout: 30_000 });
@@ -390,34 +390,52 @@ test.describe('buy', () => {
     // the cart, so the order carries a shipping line the cart never showed. Asserting equality was
     // wrong about the app and failed €40.54 vs €45.53 — exactly one delivery option apart.
     //
-    // What ties them is the arithmetic, against the SHIPPING ROW specifically. Matching the
-    // difference against "any price on the page" was too loose: with free shipping and a doubled
-    // quantity the difference equals the unit price, which is also on the page.
+    // **And the spec does not do the arithmetic either.** It used to assert
+    // `order == cart + delivery`, reading the delivery row and adding it here. That hard-coded a
+    // tax rule nobody had promised it: since #352 the core charges VAT on delivery at the goods'
+    // rate, the true sum grew a third term, and a correct app failed the spec by exactly that VAT
+    // (#374 — 2057 + 499 asserted, 2661 answered).
     //
-    // Money is compared as integer minor units. Float arithmetic on 40.54 + 4.99 is exactly the
-    // kind of thing that produces 45.529999999999994.
-    const shippingCell = page
-      .locator('dt')
-      .filter({ hasText: /^Delivery$/ })
-      .locator('xpath=following-sibling::dd[1]');
-    await expect(shippingCell, 'the confirmation shows no delivery row').toBeVisible();
-
-    const orderTotalMinor = minor((await page.getByTestId(PRICE).last().textContent()) ?? '');
-    const shippingMinor = minor((await shippingCell.textContent()) ?? '');
-
+    // What the test is actually for is that **placing the order charges what the customer agreed
+    // to**, so it compares the confirmation with the REVIEW STEP — the last page that states the
+    // price, and the first that states it with delivery chosen. Both sides are read off the page in
+    // minor units, so whatever the core decides delivery and tax are, the two carry it alike and
+    // this assertion needs no edit when that changes. (It is also how brand A's own
+    // `checkout.spec.ts` and the starter's have always done it.)
+    const placed = await captureOrder(page, 'the confirmation');
     expect(
-      orderTotalMinor,
-      `order ${orderTotalMinor} != cart ${cartTotalMinor} + delivery ${shippingMinor}`,
-    ).toBe(cartTotalMinor + shippingMinor);
+      placed.totalMinor,
+      `the order charged ${placed.totalMinor} where the review step showed ${reviewed.totalMinor}`,
+    ).toBe(reviewed.totalMinor);
+    expect(placed.lines, 'the order has the lines that were reviewed').toEqual(reviewed.lines);
+    expect(placed.currency, 'the order is in the currency that was reviewed').toBe(
+      reviewed.currency,
+    );
+
+    // The cart is still in the chain, but only as a bound: it was priced before delivery existed,
+    // so it can say the order is not CHEAPER than the goods, and nothing more exact than that.
+    expect(
+      placed.totalMinor,
+      `the order charged ${placed.totalMinor}, below the cart's ${cartTotalMinor} before delivery`,
+    ).toBeGreaterThanOrEqual(cartTotalMinor);
+
+    // Delivery was chosen, so the confirmation has to account for it — whatever it cost, and
+    // whatever tax rides on it.
+    await expect(
+      page
+        .locator('dt')
+        .filter({ hasText: /^Delivery$/ })
+        .locator('xpath=following-sibling::dd[1]'),
+      'the confirmation shows no delivery row',
+    ).toBeVisible();
 
     // Re-reading the order by its id returns the same order — the id is real, not a render artefact.
     // Compared in minor units, like every other money assertion here.
     await page.goto(`/en-GB/orders/${orderId}`);
-    await expect(page.getByTestId(PRICE).last()).toBeVisible();
-    expect(
-      minor((await page.getByTestId(PRICE).last().textContent()) ?? ''),
-      'the order re-read by id shows a different total',
-    ).toBe(orderTotalMinor);
+    const reread = await captureOrder(page, 'the order re-read by id');
+    expect(reread.totalMinor, 'the order re-read by id shows a different total').toBe(
+      placed.totalMinor,
+    );
   });
 });
 
@@ -537,11 +555,12 @@ const STEP_BUTTON: Record<string, RegExp> = {
   review: /Place order/i,
 };
 
-async function completeCheckout(page: Page, email?: string): Promise<string[]> {
+async function completeCheckout(page: Page, email?: string): Promise<CapturedOrder> {
   const visited: string[] = [];
+  let reviewed: CapturedOrder | null = null;
 
   for (let guard = 0; guard < 6; guard += 1) {
-    if (page.url().includes('/orders/')) return visited;
+    if (page.url().includes('/orders/')) break;
 
     const step = new URL(page.url()).pathname.split('/').pop() ?? '';
     const heading = STEP_HEADING[step];
@@ -552,6 +571,11 @@ async function completeCheckout(page: Page, email?: string): Promise<string[]> {
     await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
     await hydrated(page);
 
+    // The review step is the last page that states the price, and the first that states it with
+    // delivery chosen — so it is the binding one, and it is what the confirmation gets compared
+    // with. Captured before the click, because placing the order replaces the page.
+    if (step === 'review') reviewed = await captureOrder(page, 'the review step');
+
     if (step === 'address') await fillAddress(page, email);
     await page
       .getByRole('button', { name: STEP_BUTTON[step] as RegExp })
@@ -560,7 +584,15 @@ async function completeCheckout(page: Page, email?: string): Promise<string[]> {
     await page.waitForURL((url) => !url.pathname.endsWith(`/${step}`), { timeout: 30_000 });
   }
 
-  throw new Error(`checkout did not reach a confirmation; visited ${visited.join(' -> ')}`);
+  if (!page.url().includes('/orders/')) {
+    throw new Error(`checkout did not reach a confirmation; visited ${visited.join(' -> ')}`);
+  }
+  // Not a formality: a checkout that reached a confirmation without ever rendering the review step
+  // would leave the caller's total assertion with nothing to compare against, and it would pass.
+  if (reviewed === null) {
+    throw new Error(`checkout never showed the review step; visited ${visited.join(' -> ')}`);
+  }
+  return reviewed;
 }
 
 /** The address step's inputs are named, so fill them by name rather than by guessed label text. */

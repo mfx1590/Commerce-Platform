@@ -25,6 +25,7 @@ import { organizationClient, tenantClient } from '../../lib/db';
 import { AppError } from '../../lib/errors';
 import { easyPostWebhookSecretFor } from './config';
 import {
+  buyShipmentLabel,
   createShipment,
   updateShipment,
   type ShipmentItem,
@@ -37,6 +38,7 @@ export const EASYPOST_WEBHOOK_PATH = '/webhooks/easypost/:storeCode';
 export const EASYPOST_WEBHOOK_BODY_LIMIT = '512kb';
 export const CREATE_SHIPMENT_PATH = '/admin/stores/:storeId/orders/:orderId/shipments';
 export const UPDATE_SHIPMENT_PATH = '/admin/shipments/:shipmentId';
+export const BUY_SHIPMENT_LABEL_PATH = '/admin/shipments/:shipmentId/label';
 
 export interface ShippingWebhookRouterOptions {
   env?: NodeJS.ProcessEnv;
@@ -132,10 +134,11 @@ function body(operationId: string): RequestHandler {
 }
 
 /**
- * Admin API `createShipment` and `updateShipment`. Both carry `x-permission: operations` on the organization. The
- * store-scoped client still applies: `createShipment` takes the store from its path, and `updateShipment` — whose
- * path has no store — resolves the shipment's store and then asks for a client scoped to it, so RLS and the
- * principal's store scope both still hold.
+ * Admin API `createShipment`, `updateShipment` and `buyShipmentLabel`. All three carry
+ * `x-permission: operations` on `organization:hq`, like the pick/pack operations. The store-scoped client still
+ * applies: `createShipment` takes the store from its path, and the two operations whose path has no store
+ * resolve the shipment's store and then ask for a client scoped to it, so RLS and the principal's store scope
+ * both still hold.
  */
 export function shippingAdminRouter(): Router {
   const r = Router();
@@ -191,6 +194,20 @@ export function shippingAdminRouter(): Router {
           actor: p.actor,
         }),
       );
+    }),
+  );
+
+  // `buyShipmentLabel` has no request body in the spec, so there is nothing to validate: the shipment id and
+  // the store's carrier settings are the whole input. 409 unless the shipment is `packed`, 422
+  // `provider_unsupported` for a carrier that cannot buy labels — both from the service.
+  r.post(
+    BUY_SHIPMENT_LABEL_PATH,
+    permission('buyShipmentLabel'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const shipmentId = uuidParam(req.params, 'shipmentId');
+      const client = storeClientFor(p, await storeOfShipment(p, shipmentId));
+      res.json(await buyShipmentLabel(client, shipmentId, { actor: p.actor }));
     }),
   );
 

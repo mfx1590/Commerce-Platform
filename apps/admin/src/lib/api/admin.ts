@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.8.
+ * Contract: Admin API 0.4.9.
  */
 
 import 'server-only';
@@ -394,6 +394,27 @@ export async function createRefund(
   });
 }
 
+/**
+ * Captures an authorised payment, whole or `amount_minor` of it. 409 when it is not `authorized` or
+ * the amount exceeds the authorisation; 422 `provider_unsupported` when the provider cannot capture.
+ */
+export async function capturePayment(
+  storeId: string,
+  orderId: string,
+  paymentId: string,
+  body: { amount_minor?: number },
+): Promise<ApiResult<AdminResponse<'capturePayment'>>> {
+  return adminCall<'capturePayment'>({
+    path: buildPath('/admin/stores/{storeId}/orders/{orderId}/payments/{paymentId}/capture', {
+      storeId,
+      orderId,
+      paymentId,
+    }),
+    method: 'POST',
+    body,
+  });
+}
+
 export async function createReturn(
   storeId: string,
   orderId: string,
@@ -461,6 +482,16 @@ export async function updateShipment(
 }
 
 /** Starts picking a planned shipment (emits `fulfillment.picking`). */
+/** Buys the carrier label for a `packed` shipment; 422 `provider_unsupported` for the manual carrier. */
+export async function buyShipmentLabel(
+  shipmentId: string,
+): Promise<ApiResult<AdminResponse<'buyShipmentLabel'>>> {
+  return adminCall<'buyShipmentLabel'>({
+    path: buildPath('/admin/shipments/{shipmentId}/label', { shipmentId }),
+    method: 'POST',
+  });
+}
+
 export async function pickShipment(
   shipmentId: string,
 ): Promise<ApiResult<AdminResponse<'pickShipment'>>> {

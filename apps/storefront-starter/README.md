@@ -306,6 +306,16 @@ a stale cookie cannot attach an old key to a new order. Errors are mapped from t
 never from messages: `409 out_of_stock` offers the quantity actually left, `402 payment_failed`
 returns to the payment step, `409 cart_completed` forwards to the order that already exists.
 
+### The order's status (#372)
+
+The confirmation page shows the order's `status` exactly as the core reports it — `pending`,
+`confirmed`, `processing` (fulfilment started), `completed` (every shipment delivered),
+`cancelled` — as a translated `Status:` line, and its opening sentence follows the status. The core
+moves the order (#371); this app only renders it. `e2e/order-lifecycle.spec.ts` proves it against the
+core: it ships and delivers its own order through the Admin API as the seeded `operations` user (the
+staff realm's dev/CI-only `test-cli` client, password grant; `E2E_STAFF_USERNAME` /
+`E2E_STAFF_PASSWORD` override the fixture) and reads **Processing**, then **Completed**.
+
 ### Paying by card (#358)
 
 Card payment is Stripe's **Payment Element** — hosted fields in Stripe's iframes, so card data never
@@ -314,15 +324,15 @@ request, re-checked on submit). **The store decides** through `Store.payment.met
 (`'card' | 'invoice'`, Store API 0.5.4, optional on `GET /store`, derived by the core: `card` when
 the store has a Stripe key, `invoice` from its `settings.payment.invoice_allowed`):
 
-| Method         | `Store.payment.methods` present                          | absent (a core or mock before 0.5.4)           |
-| -------------- | -------------------------------------------------------- | ---------------------------------------------- |
-| Card           | `card` listed **and** a publishable key resolves here    | a publishable key resolves here                |
-| Pay on invoice | `invoice` listed (`STOREFRONT_ALLOW_INVOICE` is ignored) | `STOREFRONT_ALLOW_INVOICE=1` — **default off** |
+| Method         | `Store.payment.methods` present                       | absent (a core before 0.5.4)    |
+| -------------- | ----------------------------------------------------- | ------------------------------- |
+| Card           | `card` listed **and** a publishable key resolves here | a publishable key resolves here |
+| Pay on invoice | `invoice` listed (the store's `invoice_allowed`)      | never                           |
 
-`STOREFRONT_ALLOW_INVOICE` is the **interim** switch (manager ruling on #358): it keeps an invoice
-path for the mock and the e2e journeys until every core serves the property, and goes in a follow-up
-once #350/#354 are on main. The e2e server sets it. The publishable key is
-`STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else `STRIPE_PUBLISHABLE_KEY`.
+The seed allows invoices, and so does the contract's example store the mock serves, so every e2e run
+keeps an invoice path without any switch. (The interim `STOREFRONT_ALLOW_INVOICE` of #358 is gone,
+#372.) The publishable key is `STRIPE_PUBLISHABLE_KEY_<STORE CODE>` (e.g. `_BRAND_A`), else
+`STRIPE_PUBLISHABLE_KEY`.
 
 The key variable names follow the core's per-store secrets (`STRIPE_SECRET_KEY_<STORE CODE>`). Only a
 `pk_test_`/`pk_live_` value is used, so a secret key put in the wrong variable is never sent to a

@@ -10,6 +10,7 @@ const STATUS: Record<ErrorCode, number> = {
   cart_completed: 409,
   price_changed: 409,
   last_live_key: 409,
+  provider_unsupported: 422,
   payment_failed: 402,
   internal: 500,
 };

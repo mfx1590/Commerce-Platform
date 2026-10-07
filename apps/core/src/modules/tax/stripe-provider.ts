@@ -53,7 +53,11 @@ export function createStripeTaxProvider(opts: StripeTaxProviderOptions = {}): Ta
       const taxable = ctx.lines
         .map((l) => ({ id: l.lineItemId, amount: l.quantity * l.unitPriceMinor - l.discountMinor }))
         .filter((l) => l.amount > 0);
-      if (taxable.length === 0 && ctx.shippingMinor <= 0) {
+      // Shipping goes to Stripe Tax (it applies the destination's rule — in the EU the goods' rate) unless the
+      // store declared itself shipping-exempt with an explicit `shipping_taxable: false` (#352).
+      const shippingExempt = settings.shippingTaxableExplicit && !settings.shippingTaxable;
+      const shippingMinor = shippingExempt ? 0 : ctx.shippingMinor;
+      if (taxable.length === 0 && shippingMinor <= 0) {
         return {
           lines: ctx.lines.map((l) => ({ lineItemId: l.lineItemId, taxRateBp: 0, taxMinor: 0 })),
           shippingTaxMinor: 0,
@@ -88,8 +92,8 @@ export function createStripeTaxProvider(opts: StripeTaxProviderOptions = {}): Ta
               reference: l.id,
               tax_behavior: behavior,
             })),
-            ...(ctx.shippingMinor > 0
-              ? { shipping_cost: { amount: ctx.shippingMinor, tax_behavior: behavior } }
+            ...(shippingMinor > 0
+              ? { shipping_cost: { amount: shippingMinor, tax_behavior: behavior } }
               : {}),
             customer_details: { address, address_source: 'shipping' },
           },

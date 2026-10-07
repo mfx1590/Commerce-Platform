@@ -1,5 +1,34 @@
 # Changelog — @platform/storefront-starter
 
+## 0.13.2 — 2026-10-07
+
+Issue #382. Test-only; no app change.
+
+- **`e2e/order-lifecycle.spec.ts` fails loudly instead of acting on `store:undefined`.** `GET /store`
+  and every Admin API call are asserted `ok()`; a failure names the call, the HTTP status and the
+  contract's error `code` / `message` — never the raw body, which could carry personal data. The store
+  id must be a uuid before the admin calls start.
+- **No `STORE_PUBLISHABLE_KEY` → one printed line and a skip** (`[e2e] order-lifecycle skipped: no
+STORE_PUBLISHABLE_KEY …`). The run supplies the key: brand A's `playwright.config` sets it for its
+  core leg (window 10). An empty key used to reach the admin calls and come back 403.
+
+## 0.13.1 — 2026-10-06
+
+Issue #372 (#350 follow-up). Store API 0.5.4. No contract change.
+
+- **The confirmation page shows the order's status** — `Order.status` as the core reports it,
+  translated (en-GB / de-DE), never worked out in the browser: a `Status:` line (`data-testid="order-status"`)
+  and `data-order-status` on the confirmation header. The sentence above it follows the status, so a
+  delivered or cancelled order is no longer described as "being processed".
+- **New `e2e/order-lifecycle.spec.ts` (core only):** places an order by invoice, then ships and
+  delivers it through the Admin API as the seeded `operations` user (createShipment → pickShipment →
+  packShipment → updateShipment `shipped` → `delivered`; no label for the manual carrier) and asserts
+  the confirmation shows **Processing** after shipping and **Completed** after delivery. On the mock it
+  prints one line saying why and skips. Brand A runs it in its core leg after the sync.
+- **The interim `STOREFRONT_ALLOW_INVOICE` switch is gone** (#358's ruling): the core returns
+  `Store.payment.methods` now. Absent means card on the key alone, never invoice; every e2e run keeps
+  an invoice path through the store itself (the seed's `invoice_allowed`, the mock's example store).
+
 ## 0.13.0 — 2026-10-06
 
 Issue #358 (Integration 2a). Reads Store API 0.5.4's optional `Store.payment.methods` when present

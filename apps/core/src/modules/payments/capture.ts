@@ -22,21 +22,16 @@ import {
 } from './stripe-client';
 
 /**
- * Admin API 0.4.9's 422 code for "the store's provider cannot perform this operation" (contracts-v0.4.11 lists it
- * on `Error.code` and the shared `Unprocessable` response). It is NOT in `ERROR_CODES` yet — the manager lands it
- * in contracts 0.4.12 together with the core's status map (window 1) — so this module carries the code and the
- * status locally until then: drop `PROVIDER_UNSUPPORTED_STATUS` and the cast once `AppError` knows the code.
+ * Admin API 0.4.9's 422 code for "the store's provider cannot perform this operation" (the shared `Unprocessable`
+ * response). In `ERROR_CODES` and the core's status map since contracts 0.4.12 (manager landing 2026-10-06): the
+ * status comes from `AppError` like every other code.
  */
-export const PROVIDER_UNSUPPORTED = 'provider_unsupported';
-const PROVIDER_UNSUPPORTED_STATUS = 422;
+export const PROVIDER_UNSUPPORTED: ErrorCode = 'provider_unsupported';
 
 export function providerUnsupported(provider: string, operation = 'capture payments'): AppError {
-  return new AppError(
-    PROVIDER_UNSUPPORTED as ErrorCode,
-    `the ${provider} provider cannot ${operation}`,
-    { provider },
-    PROVIDER_UNSUPPORTED_STATUS,
-  );
+  return new AppError(PROVIDER_UNSUPPORTED, `the ${provider} provider cannot ${operation}`, {
+    provider,
+  });
 }
 
 export interface CapturePaymentOptions {

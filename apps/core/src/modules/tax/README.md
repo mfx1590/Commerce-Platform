@@ -7,15 +7,17 @@ and this module plugs in. Contracts: contracts-v0.4.1 (nothing in packages/\* ch
 
 ## Public API (`index.ts`)
 
-| Export                                                                          | Purpose                                                                                                                                                                   |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `registerTaxProvider(opts?)`                                                    | `setTaxCalculator(createTaxCalculator(opts))`; src/server.ts calls it at boot next to `registerPaymentProviders()` (REQUEST #221 / #176). Returns the previous calculator |
-| `createTaxCalculator(opts?)`                                                    | the dispatching calculator; `opts.apiFactory` / `opts.env` / `opts.log` are test seams                                                                                    |
-| `tableTaxProvider` / `createStripeTaxProvider(opts?)`                           | the two `TaxProvider`s                                                                                                                                                    |
-| `taxSettingsFrom(store.settings)` / `DEFAULT_TAX_SETTINGS` / `TAX_SETTINGS_KEY` | the store setting reader (window 1 can use it for #221)                                                                                                                   |
-| `taxFor(amount, bp, inclusive)`                                                 | the cart module's `taxOn(amount, bp, included)` — the platform's single rounding seam; this module has no rounding of its own                                             |
-| `rateBpOf(stripeLine)`                                                          | basis points of a Stripe Tax line                                                                                                                                         |
-| `TAX_FALLBACK_FLAG` / `taxFallbackEnabled(env)`                                 | the outage opt-in (non-production only)                                                                                                                                   |
+| Export                                                                                                    | Purpose                                                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `registerTaxProvider(opts?)`                                                                              | `setTaxCalculator(createTaxCalculator(opts))`; src/server.ts calls it at boot next to `registerPaymentProviders()` (REQUEST #221 / #176). Returns the previous calculator |
+| `createTaxCalculator(opts?)`                                                                              | the dispatching calculator; `opts.apiFactory` / `opts.env` / `opts.log` are test seams                                                                                    |
+| `tableTaxProvider` / `createStripeTaxProvider(opts?)`                                                     | the two `TaxProvider`s                                                                                                                                                    |
+| `taxSettingsFrom(store.settings, { legalEntityCountry })` / `DEFAULT_TAX_SETTINGS` / `TAX_SETTINGS_KEY`   | the store setting reader; the legal entity's country decides the `shipping_taxable` default (#352)                                                                        |
+| `EU_COUNTRIES` / `defaultShippingTaxable(country)`                                                        | the EU VAT area and the platform default for delivery VAT                                                                                                                 |
+| `shippingTaxAtGoodsRate(shipping, ratedBases, fallbackBp, inclusive)` / `allocateProRata(total, weights)` | delivery tax at the goods' rate(s): one rate → that rate, mixed → pro rata (largest remainder), no taxable goods → the store-wide rate                                    |
+| `taxFor(amount, bp, inclusive)`                                                                           | the cart module's `taxOn(amount, bp, included)` — the platform's single rounding seam; this module has no rounding of its own                                             |
+| `rateBpOf(stripeLine)`                                                                                    | basis points of a Stripe Tax line                                                                                                                                         |
+| `TAX_FALLBACK_FLAG` / `taxFallbackEnabled(env)`                                                           | the outage opt-in (non-production only)                                                                                                                                   |
 
 ## Store settings — `store.settings.tax`
 
@@ -26,12 +28,37 @@ and this module plugs in. Contracts: contracts-v0.4.1 (nothing in packages/\* ch
 - `provider`: `table` (default) or `stripe`.
 - `prices_include_tax`: catalogue prices are gross (EU/UK consumer pricing). Tax is EXTRACTED from the price
   instead of added on top. Default `false` — Phase 2's exclusive pricing (owner decision 2026-09-08).
-- `shipping_taxable`: the table provider taxes the shipping price at the destination's store-wide rate. Default
-  `false`, which is what the cart's built-in calculator does. Stripe Tax always decides shipping tax itself.
+- `shipping_taxable`: the delivery charge carries tax **at the rate of the goods delivered** (#352). **Default:
+  `true` when the store's legal entity is in the EU (`legal_entity.country` ∈ the 27 member states), `false`
+  elsewhere** — in the EU the shipping fee is part of the taxable amount of the supply (NL: €4.99 delivery on 21 %
+  goods carries €1.05 VAT; a mixed-rate cart apportions the fee pro rata to the goods). An explicit `false` makes
+  the store **shipping-exempt** (today's pre-#352 behaviour: no delivery tax from the table provider, and the
+  delivery charge is not sent to Stripe Tax either); an explicit `true` taxes delivery anywhere (UK, US stores
+  opt in). When the setting is absent and the provider is `stripe`, Stripe Tax decides shipping tax itself — it
+  knows the destination's rule — so the two providers agree for EU stores.
+  **Why the legal entity and not the destination** (manager decision 2026-10-06): it matches the existing
+  store-wide-rate model — the seller's establishment decides whether the delivery fee is part of its taxable
+  supply, and a store-level default must not flip per order; destination-based OSS rules are a later tax task.
+  **UK**: the UK rule also taxes delivery at the goods' rate; brand B (GB) stays opt-in for now and sets
+  `shipping_taxable: true` at go-live.
 
-Unknown or malformed values fall back to the defaults; reading settings never throws. **With default settings
-the registered calculator returns exactly what the cart's built-in `tableTaxCalculator` returns** (tested), so
-registering it changes nothing for a store until its settings say so.
+Unknown or malformed values fall back to the defaults; reading settings never throws. **With default settings the
+registered calculator returns exactly what the cart's built-in `tableTaxCalculator` returns for the LINES**
+(tested); the one platform default this module adds on top of the built-in is delivery VAT for EU stores. A store
+that must keep untaxed delivery sets `shipping_taxable: false`.
+
+### Delivery VAT — how the amount is computed (#352)
+
+Table provider, `shipping_taxable` on: the goods' rates come from the same lookup as the lines. One rate in the
+cart → the whole delivery charge at that rate (`taxOn(shipping, bp, mode)`). Several rates → the charge is split
+**pro rata to the lines' taxable bases** (`allocateProRata`: integer minor units, largest remainder, shares add up
+to the charge exactly — an allocation of a base amount, like a discount allocation, not a rounding of tax) and
+each share is taxed at its rate through `taxOn`; lines with no taxable base (free lines) carry no weight. No
+taxable goods at all (a free cart with a paid delivery) → the destination's store-wide rate. Tax-inclusive stores
+get the tax CONTAINED in the gross delivery price, same rule. The cart adds `shippingTaxMinor` to `tax_minor` and
+the order freezes it in its totals (`order.placed.tax_minor`); the Store API `Totals.tax` already includes it, so
+no contract field is needed — the storefront shows one tax line, the manager's example (€34.50 + €4.99 → tax €8.30,
+total €47.79) is what a shopper sees.
 
 ## Rounding (documented because money)
 
@@ -51,8 +78,9 @@ amounts frozen on order lines add up to the order's tax. This module calls it an
 
 Calls the cart's `tableTaxCalculator` for the rate of every line (category over store-wide, region over
 country-wide, no row → 0 bp: an untaxed destination, not an error) — called, not reimplemented — then computes
-the amount in the store's mode. Taxable shipping is priced by adding a synthetic category-less line to that same
-lookup. Seeded markets: EU/NL 21 %, UK/GB 20 %, US/NY 8.88 % (region `NY`; other states untaxed).
+the amount in the store's mode. Taxable shipping is priced at the goods' rate(s) — see "Delivery VAT" above; the
+synthetic category-less line in the same lookup yields the store-wide rate used when no line carries a taxable
+base. Seeded markets: EU/NL 21 %, UK/GB 20 %, US/NY 8.88 % (region `NY`; other states untaxed).
 
 ## The Stripe Tax provider
 
@@ -85,7 +113,7 @@ wiring PR). Order snapshots: the checkout freezes `tax_rate_bp` / `tax_minor` on
 ## Tests
 
 `tax.test.ts` (13; seeded throwaway database + FakeStripe): rounding (`taxFor` equals the cart's `taxOn` in both modes over a sweep, the half-cent tie), settings reader, the fallback flag incl. production refusal at registration, basis points;
-table provider for EU / UK / US in both modes, taxable shipping, region precedence, parity with the cart's
+table provider for EU / UK / US in both modes, delivery VAT (#352: EU default, the walk-through order, a mixed-rate cart pro rata, explicit exemption = the built-in's result, non-EU opt-in, checkout totals through the cart), region precedence, parity of the lines with the cart's
 built-in calculator; Stripe provider request shape (no PII), mapping, inclusive behaviour + `state`, fail-closed
 without a key, refusals, outage rethrow, opt-in fallback (one log line, refusals still fail); registered with
 the cart end to end (default store priced as before, `stripe` store priced by the fake). `tax-live.test.ts`:

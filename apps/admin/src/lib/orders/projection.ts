@@ -18,6 +18,11 @@ export type OrderForActions = ClientSafe<
 export const forActions = (order: Order): OrderForActions =>
   makeProjection(order, ['id', 'display_id', 'status', 'currency', 'items', 'payments', 'refunds']);
 
+/** The payments card with Capture: ids, provider, money, status — no PII. */
+export type OrderForPayments = ClientSafe<Pick<Order, 'id' | 'payments'>>;
+export const forPayments = (order: Order): OrderForPayments =>
+  makeProjection(order, ['id', 'payments']);
+
 /** The lines table with its pre-fulfilment edits. */
 export type OrderForLines = ClientSafe<Pick<Order, 'id' | 'items'>>;
 export const forLines = (order: Order): OrderForLines => makeProjection(order, ['id', 'items']);
