@@ -49,25 +49,25 @@ and its sales channel from it. `GET /health` answers 200 for the container HEALT
 
 Everything else is byte-identical to `apps/storefront-starter` at the commit of the last sync.
 
-| File                                              | Why                                                                                                                                                             |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`                                                                         |
-| `LAUNCH.md`                                       | new — the launch checklist (#144)                                                                                                                               |
-| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                                                                                      |
-| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                                                                                               |
-| `scripts/start.mjs`                               | default port 3101                                                                                                                                               |
-| `next.config.mjs`                                 | `STORE_PUBLISHABLE_KEY` default via `??=` (deliberately not `SITE_URL`); otherwise the starter, incl. #327's `E2E_LOCAL_IMAGES`                                 |
-| `playwright.config.ts`                            | `APP_URL` :3101 and `SITE_URL` from it; mock `cwd` one level deeper; platform-keyed snapshots; otherwise the starter, incl. #327's 4-worker cap (`E2E_WORKERS`) |
-| `lighthouserc.json`                               | none today — matches `scripts/perf.mjs`'s `127.0.0.1:3100` (the gate is vacuous, #283)                                                                          |
-| `src/brand/config.ts`                             | `name` and `description` only; the rest tracks the starter (fail-closed `siteUrl()`)                                                                            |
-| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                                                                                                 |
-| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                                                                                          |
-| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                                                                                  |
-| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                                                                                            |
-| `scripts/starter-manifest.json`                   | new — **generated**: the starter's package.json at the last sync                                                                                                |
-| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                                                                                                |
-| `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here                                                                          |
-| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)                                                                    |
+| File                                              | Why                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `package.json`                                    | **merged**, not preserved: name, version, dev port 3101, `sync`, `@axe-core/playwright`                                                                                                                                                                                             |
+| `LAUNCH.md`                                       | new — the launch checklist (#144)                                                                                                                                                                                                                                                   |
+| `e2e/a11y.spec.ts`, `e2e/visual.spec.ts`          | new — axe and visual regression for the brand theme (#140)                                                                                                                                                                                                                          |
+| `src/app/icon.svg`, `src/app/opengraph-image.tsx` | new — brand favicon and default share card (#140)                                                                                                                                                                                                                                   |
+| `scripts/start.mjs`                               | default port 3101                                                                                                                                                                                                                                                                   |
+| `next.config.mjs`                                 | `STORE_PUBLISHABLE_KEY` default via `??=` (deliberately not `SITE_URL`); otherwise the starter, incl. #327's `E2E_LOCAL_IMAGES`                                                                                                                                                     |
+| `playwright.config.ts`                            | `APP_URL` :3101, `SITE_URL` and `STORE_PUBLISHABLE_KEY` set for the test process; mock `cwd` one level deeper; platform-keyed snapshots; **does not import `RUNTIME_SITE_URL`** (see below); otherwise the starter, incl. #327's 4-worker cap (`E2E_WORKERS`, validated since #375) |
+| `lighthouserc.json`                               | none today — matches `scripts/perf.mjs`'s `127.0.0.1:3100` (the gate is vacuous, #283)                                                                                                                                                                                              |
+| `src/brand/config.ts`                             | `name` and `description` only; the rest tracks the starter (fail-closed `siteUrl()`)                                                                                                                                                                                                |
+| `tsconfig.json`                                   | `extends` path one level deeper (`../../../tsconfig.base.json`)                                                                                                                                                                                                                     |
+| `tailwind.config.ts`                              | kit-dist content glob one level deeper                                                                                                                                                                                                                                              |
+| `scripts/sync-from-starter.mjs`                   | new — the clone/re-sync script                                                                                                                                                                                                                                                      |
+| `scripts/merge-package-json.mjs`                  | new — the `package.json` merge rules                                                                                                                                                                                                                                                |
+| `scripts/starter-manifest.json`                   | new — **generated**: the starter's package.json at the last sync                                                                                                                                                                                                                    |
+| `README.md`, `CHANGELOG.md`, `CLAUDE.md`          | this app's own docs (not copied)                                                                                                                                                                                                                                                    |
+| `Dockerfile`                                      | window 5's file, delivered via REQUEST #197; excluded from the sync, not authored here                                                                                                                                                                                              |
+| `src/brand/**`                                    | the brand's design: `DESIGN.md`, `tokens.ts`, `fonts.ts`, `fonts/*.woff2`, `config.ts` (2.2)                                                                                                                                                                                        |
 
 ## Theme
 
@@ -191,10 +191,47 @@ in the catalogue, chosen by property at runtime, so no single product is drained
 iteration is tens of units; the shared seed is topped up to at least 25 available per variant
 (`packages/db` top-up-stock, the manager's).
 
+## Performance budget (#348)
+
+`lighthouserc.json` collects **5 runs per URL**, not 3, and asserts LCP at **2500 ms**. LHCI asserts
+the **best of N** for a `max` assertion, and N=3 was too few for the measured spread: a single PLP run
+exceeds 2500 ms about 29% of the time (16 CI legs, 48 runs per page; asserted values 1977–2452,
+individual runs 1977–2970), which made a leg fail 2.5% of the time — a 53% chance of at least one red
+leg in 30. At N=5 that is 0.21% per leg with the budget untouched. **Raise N before loosening the
+budget**, and if the budget ever does move, argue it from the worst observed run, never the median.
+
+**The LCP element here is the `<h1>`, not an image** — TTFB 471 ms, load 0, **render delay 2060 ms**.
+So image preloading and `fetchpriority` cannot help this page, and the one `<img>` on the PLP (a
+Cloudinary **demo** URL) does not even load. Expect the number to get **worse** when real imagery
+lands (#330) and to need re-measuring then.
+
+**Do not trust the perf gate's own LCP diagnostics.** The pinned `@lhci/cli` 0.14.0 errors six audits,
+including every audit that identifies the LCP element, on every run in CI and locally
+(`RootCauses` / `frame_sequence`). Use a standalone modern Lighthouse to diagnose:
+
+```bash
+npx -y lighthouse@12 http://127.0.0.1:3100/en-GB/products --only-categories=performance \
+  --chrome-flags="--headless=new" --output=json --output-path=lh.json
+```
+
+and read `audits["largest-contentful-paint-element"]`. REQUESTs are filed for the pinned version and
+for the missing page warm-up in `scripts/perf.mjs` (both the starter's).
+
 ## End-to-end against the core
 
 `e2e/journey.spec.ts` covers what the inherited `checkout.spec.ts` does not: **PDP variant
 selection**, and the cart→checkout hand-off, against the core.
+
+**`playwright.config.ts` must not import `RUNTIME_SITE_URL`** (re-checked at every sync). Since
+#375 the starter's config imports it from `e2e/support/build-origin` and hands it to the e2e server.
+Brand A cannot: that module computes `process.env.SITE_URL ?? 'http://localhost:3100'` in a
+module-level `const`, ES imports are evaluated before the importing module's body, and brand A's
+`process.env.SITE_URL ??= :3101` lives in that body — so the import would freeze the starter's port
+before brand A ever set its own, and every redirect (sign-in callback, sign-out) would leave the
+brand. The local `SITE_URL` is the same string, computed after the assignment instead of before it;
+specs that import the module still see `:3101`, because the `??=` mutates `process.env` before
+Playwright forks its workers. The sync reports this file as drifted every time the starter touches
+it — port the change, keep the divergence.
 
 **Money is never arithmetic the spec does** (#374). The buy test compares the confirmation's total
 with the **review step's** — captured by `completeCheckout()` before _Place order_, in minor units off

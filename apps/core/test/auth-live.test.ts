@@ -3,7 +3,6 @@
 // resolves the OpenFGA scope, `requirePermission` asks OpenFGA, hq-rbac answers its own routes. Throw-away
 // Postgres database + throw-away OpenFGA store per run; skipped when Keycloak or OpenFGA is unreachable (same
 // convention as packages/auth-sdk/test/guard.test.ts and src/modules/hq-rbac/test/gate.test.ts).
-import { createHmac } from 'node:crypto';
 import express from 'express';
 import request from 'supertest';
 import {
@@ -12,6 +11,7 @@ import {
   seedOpenFga,
   type OpenFgaClient,
 } from '@platform/auth-sdk';
+import { forgetStaffToken, staffToken } from '@platform/auth-sdk/testing';
 import { CONTRACTS_VERSION } from '@platform/contracts';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
@@ -40,47 +40,19 @@ const live =
   (await up(`${API}/healthz`)) &&
   Boolean(process.env.DATABASE_URL);
 
-/** Dev TOTP of the pre-enrolled `owner` (infra/keycloak/README.md). RFC 6238, HmacSHA1/6/30. */
-const OWNER_DEV_TOTP_SECRET = 'owner-dev-totp-secret-20260905';
-function totp(secret: string, at = Date.now()): string {
-  const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
-  const h = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
-  const o = h[h.length - 1]! & 0xf;
-  return ((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
-}
-
 const tokenCache = new Map<string, string>();
-/** Real staff-realm token via the test-cli password grant (password = username for the seeded users). */
+/**
+ * Real staff-realm token via the test-cli password grant (password = username for the seeded users).
+ * `owner` is pre-enrolled with TOTP (#43) and Keycloak refuses a used code: `staffToken` signs owner in once per
+ * machine and shares the token through a per-user file with every other live suite (#346), so this
+ * suite, hq-rbac's scope test and auth-sdk's realm test never need the same one-time code, in any order.
+ */
 async function realToken(username: string): Promise<string> {
   const cached = tokenCache.get(username);
   if (cached) return cached;
-  const grant = async (otpAt?: number) => {
-    const body = new URLSearchParams({
-      client_id: 'test-cli',
-      grant_type: 'password',
-      username,
-      password: username,
-    });
-    // `owner` is pre-enrolled with TOTP (#43): the direct grant must carry a code; the look-ahead of 1 accepts
-    // the previous window's code, leaving the current one for other suites (code reuse is refused).
-    if (username === 'owner') body.set('otp', totp(OWNER_DEV_TOTP_SECRET, otpAt));
-    const res = await fetch(`${KC}/realms/staff/protocol/openid-connect/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-    return (await res.json()) as { access_token?: string; error?: string };
-  };
-  let json = await grant(Date.now() - 30_000);
-  if (!json.access_token && username === 'owner') json = await grant(Date.now());
-  if (!json.access_token && username === 'owner') {
-    await new Promise((r) => setTimeout(r, 30_500 - (Date.now() % 30_000)));
-    json = await grant(Date.now());
-  }
-  if (!json.access_token) throw new Error(`token for ${username}: ${json.error}`);
-  tokenCache.set(username, json.access_token);
-  return json.access_token;
+  const token = await staffToken(username, { keycloakUrl: KC });
+  tokenCache.set(username, token);
+  return token;
 }
 
 describe.runIf(live)(
@@ -116,6 +88,7 @@ describe.runIf(live)(
     }, 180_000);
 
     afterAll(async () => {
+      await forgetStaffToken(); // the owner-token file is ours to remove when we created it (#346; kept in CI for the job)
       await closePool();
       await db?.drop();
       if (fgaStoreId) await createOpenFgaClient({ apiUrl: API, storeId: fgaStoreId }).deleteStore();

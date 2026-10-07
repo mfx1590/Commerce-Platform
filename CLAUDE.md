@@ -16,6 +16,7 @@
 
 - After every completed task and before every commit: update your memory file (Done with commit sha, In progress, Next, Decisions, Gotchas). Commit it together with the code.
 - Context getting long: update the memory file first, then run /compact. Prefer /compact after every finished task.
+- Never block on an interactive question dialog: the owner is not watching every window. Send the decision to the manager session as a message (options + your recommendation), continue with what does not depend on it, and act on the answer when it arrives.
 - Never edit another window's memory file. Only the main window edits Memory-main.md.
 
 ## Engineering rules
@@ -24,6 +25,7 @@
 - Every state change in apps/core writes to the outbox table in the same transaction. Never publish to the bus directly.
 - Permissions are checked server-side with packages/auth-sdk on every mutating route; UI gating is a convenience, not security.
 - Card data never touches our servers (hosted fields only). Secrets come from env/Vault. Never commit keys. Never log PII.
+- Never write a secret-SHAPED string anywhere git keeps it — tests, fixtures, memory files, CHANGELOGs, PR bodies, commit messages: CI scans every branch's whole history, one such literal reddens every open PR, and history cannot be rewritten. Describe it instead ("the sk_test wrong-key fixture"); test fixtures use shapes no scanner rule matches.
 - Every module exposes index.ts (public API), README.md, tests. No cross-module imports except through public APIs and packages/*.
 - Before finishing a task: `pnpm lint && pnpm typecheck && pnpm test --filter <your-package>`. Update your package README and CHANGELOG.
 

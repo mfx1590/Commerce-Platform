@@ -113,3 +113,28 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   settings. Test hygiene: users this file
   registers are tracked by email prefix before the registration POST, and cleanup throws when the admin API
   refuses. `infra/keycloak/README.md`: the Google `trustEmail` sentence now says it is not measured live.
+
+## Unreleased — 2026-10-07 (auth/phase3)
+
+- REQUEST #346 (with window 1): new subpath export `@platform/auth-sdk/testing` — `staffToken(username)` /
+  `customerToken(username, password)` (dev-only `test-cli` password grant), `totp`, `OWNER_DEV_TOTP_SECRET`,
+  `waitForNextTotpStep`, `ownerTokenFile`, `forgetStaffToken` (for `afterAll`: deletes the file locally, keeps it in CI). `owner` is the one seeded user with TOTP and Keycloak refuses a
+  used code, so three live suites signing owner in seconds apart could need the same 30-second code (flaky
+  required CI job). `staffToken('owner')` now signs in once and shares the token across processes through
+  `$RUNNER_TEMP/staff-owner-token.json` in CI, `~/.cache/platform/staff-owner-token.json` locally
+  (override `STAFF_OWNER_TOKEN_FILE`; mode 0600; content
+  `{ issuer, access_token }`, written atomically), reused only when the issuer is this stack's, `exp` is at
+  least 60 s away and userinfo answers 200; the grant keeps the fallback previous step → current step →
+  wait for the next fresh step. `scope.test.ts` and `keycloak-realms.test.ts` use it (the browser
+  challenge, which must spend a code, gains the third fallback); the secret literal and the TOTP function
+  now live in one file. Tests: `test/staff-token.test.ts` — unit against a fake Keycloak (reuse without a
+  grant, other issuer, userinfo 401, refused steps, non-owner, malformed file) + live on the real stack.
+- #90 (follow-up of the #89 review), hq-rbac: `GET /admin/finance/ping` left `HQ_RBAC_ROUTES` (now
+  `FINANCE_PING_ROUTE`); `createHqRbac` serves it by default everywhere except `NODE_ENV=production` (every
+  image sets it) and throws when `financePing: true` is passed under production — dev stacks and the core's
+  live suite keep the test double, production never has it. The gate's `x-permission` sweep now cuts the
+  spec's `paths:` section into operation blocks instead of matching `x-permission` directly under
+  `operationId`: the old regex silently skipped four operations whose description spans several lines
+  (`updateDomain`, `revokeApiKey`, `capturePayment`, `buyShipmentLabel`; none finance-gated, so the gate's
+  claim held). A static test pins that every `x-permission` line under `paths` is attributed to exactly one
+  operation; `test/guard.test.ts` pins the same count for the auth-sdk sweep.

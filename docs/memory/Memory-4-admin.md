@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #357 = **PR #367** (Refs #357; head 661b9a0 before this memory commit; Fable review MERGE on the code), waiting for CI and the queue
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #353 merged (54284d1); #398 test-race fix = the PR "Closes #398" opened from admin/phase3 in the same turn as this commit (number in the next record)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,11 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#357 (Integration 2a) — PR #367 MERGED as 2b0bd4c** (2026-10-06, Closes #357). Final head
+  a8a0cef (main cdbf611 merged: #350, #368, #369). Advisory "admin e2e against the core" green ×3
+  (run 37498562006 attempts 1–3): 22 passed + 3 skipped of 25 — both #357 journeys took the 422
+  provider_unsupported skip (CI store = manual provider/carrier), so real capture/label is unproven
+  until CI has a Stripe/EasyPost test-mode store. History of the PR:
 - **#357 (Integration 2a) — PR #367** · 2026-10-06 · code commit 7cbb70a, main 6160385 merged, head
   661b9a0 at opening (this memory commit follows it) · Fable static review MERGE on the code; memory
   record fixed on request (manager: push was held until window 3's #365 opened; "Refs #357" at opening; Closes only if the final head shows the
@@ -436,6 +441,32 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#398 (2026-10-07) — tests asserting a transition-set state synchronously.** Found by window 2
+  on #387's queue run (`settings.test.tsx:381`). Swept every test that mocks an action result and
+  reads the screen right after a click (scratchpad sweep script, then by hand): fixed 10 reads in 5
+  files (`findBy…`/`waitFor`); left synchronous UI reads (questions/forms opening, router.push).
+  The catalog-screens 5 s failure of 10-07 is a different class: CPU starvation during a concurrent
+  rebuild (normally 331 ms), not the race — left alone. Proof: 5 files 97/97; two full suites run in
+  parallel to load the machine, 651/651 each.
+- **#353 Sign out (2026-10-07) — PR #384 MERGED as 54284d1** (Closes #353; head d755ba5 at opening, this memory commit
+  follows it; Fable static review MERGE on the code). Option (B) approved by the manager. Branch `admin/phase3`
+  reset onto main 17b88f3. Root cause (repro on Prism + shared Keycloak, app :3200): cookies were
+  already cleared; Keycloak still asked "Do you want to log out?" and an abandoned confirmation left
+  the realm session live → silent SSO re-login. Fix: logout route = back-channel end-session
+  (`endKeycloakSession`) → clear cookies + Clear-Site-Data + no-store → 303 to front-channel with
+  `post_logout_redirect_uri` `<app>/`; middleware liveness check (`sessionIsLive` userinfo, fail
+  closed, 30 s cache per `sid` per process, `src/lib/auth/liveness.ts`; refresh = live). The
+  middleware runs in its own runtime, so the route's `forgetSession` does not reach its cache — the
+  documented ≤30 s replay window. Core untouched. Design comment on #353 posted (manager condition).
+  Tests: unit 651 (logout 8 new, middleware +3), mock e2e 22 passed + 4 skipped (PORT=3200, my
+  Prism :4311, shared Keycloak). Manager conditions: fail closed only for the admin session; never a
+  Keycloak call on the core path; README states the replay reality.
+  - Parked nits (#384 review, next push): the "old cookie" unit test in `test/logout.test.ts` does
+    not exercise a cached-live entry (add: live → cached → Sign out → still cached on that process
+    → after 30 s redirected); `Clear-Site-Data` is ignored by browsers over plain http (local dev) —
+    say so in the README next to the header.
+  - Record lesson (#367 and #384 both): name the PR number and opening head in the memory file in
+    the same turn the PR opens — reviewers check it.
 - **2.4 (#116) = PR #276, verdict MERGE** (2026-09-25), queued behind storefront #273; merge
   commit sha arrives from the manager. Head `6a0bc0f`.
 - **2.5 part one = PR #282 (Refs #117), in review** (2026-09-28, head `0c2d278`). #279 ACCEPTED as filed → 0.4.7
@@ -672,6 +703,13 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Testing a form/action result:** anything set after `await action(...)` inside
+  `startTransition(async …)` commits on a later macrotask — assert it with `findBy…`/`waitFor`,
+  never `getBy…` right after `await user.click(...)`. The action CALL itself is synchronous at the
+  start of the transition, so `toHaveBeenCalledWith` right after the click is fine.
+- **Port 3000 cannot bind on this machine** (EACCES with nothing listening): Windows reserves TCP
+  2950–3049 (`netsh int ipv4 show excludedportrange protocol=tcp`). Run the app/e2e on `PORT=3200`
+  (registered in the admin-app client). Do not change the reservation (system setting).
 - **Owner signs in with password + TOTP** — the dev secret and algorithm are in
   infra/keycloak/README.md (code example: packages/auth-sdk/test/keycloak-realms.test.ts). `test-cli` password
   grant gives real tokens (aud core-api) for every user without TOTP — handy for direct core checks.

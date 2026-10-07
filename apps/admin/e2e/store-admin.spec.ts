@@ -100,14 +100,45 @@ test.describe('store-admin', () => {
     expect(await sessionCookies(page)).not.toHaveLength(0);
 
     await page.getByRole('button', { name: 'Sign out' }).click();
-    // Sign-out is a chain: the app clears its cookies, then hands off to the realm's end-session
-    // endpoint, which returns to the app root. Wait for it to settle before asserting.
+    // Sign-out is a chain: the app ends the realm session server-side and clears its cookies, then
+    // hands off to the realm's end-session endpoint. Wait for it to settle before asserting.
     await page.waitForLoadState('load');
-
-    // What this pins is the part this app owns: its own session is gone. Whether the *realm* then
-    // re-authenticates silently is Keycloak's SSO policy, not this app's behaviour, so asserting on
-    // the landing URL would be testing someone else's decision — and flakily.
     expect(await sessionCookies(page)).toHaveLength(0);
+  });
+
+  test('sign out holds even when the Keycloak page is abandoned, and a copied cookie dies (#353)', async ({
+    page,
+    browser,
+  }) => {
+    // Waits out the per-process liveness cache (30 s) for the replay check below.
+    test.setTimeout(120_000);
+    await signIn(page, `/${BRAND_A}/catalog`);
+    await page.waitForURL(/\/catalog/);
+    const copied = await sessionCookies(page);
+    expect(copied).not.toHaveLength(0);
+
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await page.waitForLoadState('load');
+    expect(await sessionCookies(page)).toHaveLength(0);
+
+    // Abandon whatever Keycloak shows and open an admin URL directly: the realm session was ended
+    // server-side, so this is a real sign-in form — never a silent sign-in back into the store.
+    await page.goto(`/${BRAND_A}/orders`);
+    await page.waitForURL(/\/realms\/staff\/protocol\/openid-connect\/auth/);
+    await expect(page.getByRole('textbox', { name: 'Password', exact: true })).toBeVisible();
+    expect(await sessionCookies(page)).toHaveLength(0);
+
+    // A copy of the cookie from before Sign out, replayed in a fresh browser: once the liveness
+    // cache (30 s, per process, best effort) has lapsed, the realm answers 401 and the copy is sent
+    // to sign in instead of rendering the store.
+    await page.waitForTimeout(31_000);
+    const replay = await browser.newContext();
+    await replay.addCookies(copied);
+    const replayed = await replay.newPage();
+    await replayed.goto(`/${BRAND_A}/orders`);
+    await replayed.waitForURL(/\/realms\/staff\/protocol\/openid-connect\/auth/);
+    await expect(replayed.getByText(/Signed in as/)).toHaveCount(0);
+    await replay.close();
   });
 
   test('creates a product and lands on its editor', async ({ page }) => {

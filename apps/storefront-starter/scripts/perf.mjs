@@ -7,7 +7,9 @@
  *   1. `next build` against the mock (a production build — `next dev` is unoptimised and its scores
  *      mean nothing);
  *   2. the bundle budget (`scripts/bundle-budget.mjs` against `bundle-budget.json`);
- *   3. `next start`, then Lighthouse CI against `lighthouserc.json` (performance, accessibility,
+ *   3. `next start`, every URL in `lighthouserc.json` warmed (answering under a second twice in a
+ *      row, as `e2e-server.mjs` does, #390 — run 1 used to pay the routes' first render), then
+ *      Lighthouse CI against `lighthouserc.json` (performance, accessibility,
  *      SEO, LCP, CLS), three runs per URL. **Not a median:** LHCI's default aggregation is
  *      `optimistic`, so each assertion is checked against the *best* of the three — except SEO,
  *      which is set to `pessimistic` (the worst), because the defect it guards shows up on runs
@@ -23,9 +25,11 @@
  * nothing listens.
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { warmUrls } from './warm-urls.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Set(process.argv.slice(2));
@@ -33,7 +37,7 @@ const PORT = process.env.PERF_PORT ?? '3100';
 const MOCK_API_URL = process.env.MOCK_API_URL ?? 'http://127.0.0.1:4010';
 const APP_URL = `http://127.0.0.1:${PORT}`;
 const isWindows = process.platform === 'win32';
-const LHCI_VERSION = '0.14.0';
+const LHCI_VERSION = '0.15.1';
 
 /**
  * Next's own CLI, resolved from this package rather than looked up on `PATH`: `next` is only on
@@ -103,6 +107,22 @@ function stop(child) {
   else process.kill(-child.pid, 'SIGTERM');
 }
 
+/** The URLs Lighthouse will measure, straight from its own config. */
+function measuredUrls() {
+  const config = JSON.parse(readFileSync(join(root, 'lighthouserc.json'), 'utf8'));
+  return config.ci?.collect?.url ?? [];
+}
+
+/** Warm every measured URL; false if one never answered quickly (#390). */
+async function warmMeasuredUrls() {
+  console.log('\n── warming the measured URLs ──');
+  const results = await warmUrls(measuredUrls());
+  for (const result of results.filter((r) => !r.warm)) {
+    console.error(`perf: ${result.url} was not warm after ${result.attempts} requests.`);
+  }
+  return results.every((r) => r.warm);
+}
+
 async function main() {
   // Any HTTP answer means Prism is up; `/store` without a publishable key is a correct 401.
   if (!(await reachable(`${MOCK_API_URL}/store`))) {
@@ -138,6 +158,8 @@ async function main() {
   try {
     if (!(await waitFor(`${APP_URL}/health`, 90_000))) {
       console.error(`perf: the app did not answer ${APP_URL}/health within 90 s.`);
+    } else if (!(await warmMeasuredUrls())) {
+      console.error('perf: a measured URL never answered quickly; not measuring a cold server.');
     } else {
       // An exact pin fetched with npx rather than a devDependency: @lhci/cli brings ~950 lockfile
       // lines of transitive dependencies, and a devDependency would put them in every install of

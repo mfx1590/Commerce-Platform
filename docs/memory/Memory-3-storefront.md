@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-06 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** **#372 = PR #375 ("Closes #372"), reviewed head `290eaec` (Opus static review MERGE, 2026-10-06); this memory-only commit follows it**: confirmation shows `Order.status` (translated, `data-order-status`, sentence follows the status); `e2e/order-lifecycle.spec.ts` (core only, ships/delivers via the Admin API as `operations`, test-cli password grant); interim invoice switch removed. Core run 2026-10-06: lifecycle spec 1/1 (order 1137: Processing → Completed); full suite on the core 70 passed / 0 failed / 5 skipped (orders 1138–1141). **SHARED-STACK CHANGE (owner-approved via the manager):** brand-a `settings` `{support_refund_limit_minor:5000}` → `{support_refund_limit_minor:5000, payment:{invoice_allowed:true}}` through updateStore as `store-admin` (`owner` has OTP, the password grant cannot pass it; store-admin holds updateStore's store_admin) → `Store.payment.methods` = [invoice]. This worktree's .env had EMPTY OpenFGA ids → Admin API 503 FgaValidationError; `fga:seed` fixed it (store reused, 0 tuples written, repo files unchanged). Machine released.
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done today: #382 (PR #383), **#389 (PR #392, `ad7cc5a`; lhci 0.15.1, PLP LCP element = `<h1>`)**, **#390 (PR #395, `d872a19`; scripts/warm-urls.mjs)**. **#330 rendering half = PR #403 ("Closes #330"), reviewed head `7f195be` (Opus static review MERGE; the hero.tsx wrap and the cms README line recorded as manager exceptions, window 6 told on #330); this memory-only commit follows it** — on `storefront/phase3-330`: `HeroMedia` (server markup around the poster) + `HeroLoop` ('use client', memo) — after `load`, muted loop, pause control, never under reduced motion or in an e2e build; CSP `media-src 'self' https://res.cloudinary.com`. Bundle budget: home 131.1 kB (136), content/campaign 132.9 kB (145; +1.1 kB). **Still open: #358's live proof** (Stripe test keys). Never block on a question dialog: send the decision to the manager (root CLAUDE.md, 4451e7c).
 
 ## Identity (does not change)
 
@@ -376,9 +376,12 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **Nits from the review of #375 (manager: "not now"):** \`e2e/order-lifecycle.spec.ts\` falls back to
-      the documented \`operations\` dev-fixture password — env-only (\`E2E_STAFF_USERNAME\` /
-      \`E2E_STAFF_PASSWORD\`) would be cleaner; its \`json()\` helper puts the Admin API error body into
+- [ ] **Nit from the review of #403 ("not now"):** the hero's `<video>` could also carry `poster` (moot
+      while the server-rendered poster sits under the overlay).
+
+- [ ] **Nits from the review of #375 (manager: "not now"):** `e2e/order-lifecycle.spec.ts` falls back to
+      the documented `operations` dev-fixture password — env-only (`E2E_STAFF_USERNAME` /
+      `E2E_STAFF_PASSWORD`) would be cleaner; its `json()` helper puts the Admin API error body into
       assertion messages — keep those PII-free (status + machine code only).
 
 - [ ] **#351 (Integration 2a) — `cb2fef0`, PR #362: 15/15 checks green, CLEAN, reported to the manager (old + "Project manager handoff" session).** Confirmation page: `OrderConfirmationHeader` —
@@ -766,6 +769,13 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`@platform/cms` lives in `cms/`, outside `packages/*`** — `pnpm --filter "./packages/*" build` skips it. After
+  merging a window-6 change, also `pnpm --filter @platform/cms build`, or `src/lib/cms/*` shows TS errors
+  for exports that exist (#385: `HeroVideo`, `CLOUDINARY_VIDEO_URL_PATTERN`).
+- **`test/cms-render.ts` (window 6) calls function components directly**, so a hook-using client
+  component inside a CMS tree crashes it (`useState` of null). Keep hooks in a `'use client'` island
+  exported through `memo(...)` — the renderer flattens object-typed elements (#330).
 
 - **Admin API 503 `authorization service unavailable` / `FgaValidationError` = this worktree's .env has
   no OpenFGA ids.** `pnpm --filter @platform/auth-sdk fga:seed` (reuses the shared store, writes the

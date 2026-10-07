@@ -45,10 +45,13 @@ describe('test hooks', () => {
   });
 
   it('the confirmation carries the order id and the number the customer is told, as text', () => {
-    expect(orderConfirmationHooks({ id: 'order-uuid', display_id: 1000 })).toEqual({
+    expect(
+      orderConfirmationHooks({ id: 'order-uuid', display_id: 1000, status: 'processing' }),
+    ).toEqual({
       'data-testid': 'order-confirmation',
       'data-order-id': 'order-uuid',
       'data-order-number': '1000',
+      'data-order-status': 'processing',
     });
   });
 

@@ -145,8 +145,15 @@ that started sign-in.
    with `code_challenge_method=S256`.
 3. [`/api/auth/callback`](./src/app/api/auth/callback/route.ts) checks `state`, redeems the code
    with the verifier, and seals the token set into the session cookie.
-4. [`/api/auth/logout`](./src/app/api/auth/logout/route.ts) clears the cookies and ends the realm
-   SSO session, so the next sign-in really asks for credentials.
+4. [`/api/auth/logout`](./src/app/api/auth/logout/route.ts) signs out in a fixed order (#353):
+   it **ends the realm SSO session server-side** first (the refresh token posted to Keycloak's
+   end-session endpoint), then drops the local session (both cookie chunks, `Clear-Site-Data:
+"cookies"`, `no-store`), and only then sends the browser to Keycloak's end-session with
+   `id_token_hint` and the registered `post_logout_redirect_uri` (`<app>/`). Abandoning Keycloak's
+   "Do you want to log out?" page no longer matters: the next admin request meets a real sign-in
+   form. Before #353 the app already cleared its cookies, but the still-live realm session signed
+   the user straight back in on the next request. Keycloak unreachable: the local session is still
+   dropped.
 
 **Where the tokens live.** The whole token set is AES-GCM encrypted with `ADMIN_SESSION_SECRET` and
 stored in an httpOnly, `SameSite=Lax` cookie (`secure` in production). Keycloak tokens exceed the
@@ -162,6 +169,19 @@ leak. Client components reach the API through server actions and route handlers.
 place that refreshes: within 60 s of expiry it redeems the refresh token, updates both the incoming
 request and the response, and a failed refresh starts a clean sign-in rather than rendering with a
 token the API would reject.
+
+**Liveness (#353).** A sealed cookie cannot be revoked, so the middleware also asks Keycloak whether
+the session behind it still exists (`sessionIsLive`, the userinfo endpoint; `src/lib/auth/liveness.ts`). It fails **closed** — a 401, any other answer, or no answer sends the admin to
+sign-in, never a 500 — and a live answer is cached **30 s per Keycloak session id (`sid`), per
+process, best effort**; a successful refresh counts as live. This is the admin app checking its own
+session only: the core is not involved and keeps verifying access tokens offline against the
+realm's keys.
+
+**What a copied cookie can still do.** A copy of the session cookie taken before Sign out is
+accepted by this app for at most 30 s after Sign out (an instance that checked it just before), and
+then sent to sign-in. Its access token is a JWT the core verifies offline, so anything else that
+holds the raw access token can use it against the core until the token expires (`access.token.lifespan` 900 s on the admin-app client). Ending that window would need the core to check the
+session, which is the core's design decision, not this app's.
 
 ## Two views, one app
 
