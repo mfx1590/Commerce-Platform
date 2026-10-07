@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-10-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
-Status: **quiet** (2026-10-07). #380 done: PR #381 merged as `7a4abb4`. Before: #359 (PR #364 = `ec6b158`). Reopened only by the manager ("Project manager handoff").
+Status: **#346** (2026-10-07): remove the TOTP barrier now that #387 + #401 share an owner-token fixture. Before: #380 (PR #381 = `7a4abb4`).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -107,6 +107,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   the six-flow runbook index, and run-e2e.sh no longer grepping app configs for a browser channel.
 
 ## In progress
+
+- **#346 — remove the TOTP barrier.** Branch `infra/phase3` at main `c069172`. Built, as option (A) put to the
+  manager (removing the whole script would remove the witness the proof needs): the wait step and
+  `infra/ci/totp-barrier.sh` are deleted; the witness is kept as `infra/ci/owner-grants.sh` (report-only, flags two
+  successful owner logins in one TOTP step) with its step and the events overlay. **NOT pushed: waiting for the
+  manager's A/B/C answer.** Proof: push once, then the manager re-runs the live job twice on that head (three
+  consecutive green), with the witness quoted per run. No pushes after the first.
 
 - **#380 — DONE: PR #381 merged as `7a4abb4`** (head `acd73aa`; live job green twice: jobs 112664751867 and
   112667098011, seed step "exported … (26 chars)"; the brand-a perf leg was red once on PDP LCP 2554 vs 2500 (#348),

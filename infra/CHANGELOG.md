@@ -4,6 +4,13 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 3
 
+### Removed (#346 — the TOTP barrier, now that the suites share one owner-token fixture)
+
+- The 30–60 s `TOTP barrier` step and `infra/ci/totp-barrier.sh`: #387 (auth-sdk) and #401 (core) made each
+  live suite sign `owner` in once through a shared fixture, so they no longer collide on a one-time code or depend
+  on order. The barrier's witness half lives on as `infra/ci/owner-grants.sh` (report only, never fails the job):
+  every owner login in the job by TOTP step, with a warning if two successful ones share a step.
+
 ### Fixed (#380 — the live job's kept core had no OpenFGA)
 
 - `auth-e2e` now seeds OpenFGA (`fga:seed`) after the live suites and before the kept core boots, exporting
