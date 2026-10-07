@@ -1,6 +1,6 @@
 # Memory 17 — Marketing
 Window: 17 · Key: `marketing` · Branch prefix: `marketing/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-09-24 · Contracts: contracts-v0.4.5 · Branch: `marketing/phase2` · Status: **Phase 2 COMPLETE — QUIET** (last merge: PR #269 → fb2371c; all seven Phase 2 PRs merged, five contract changes landed)
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `marketing/phase3` (from main 13c393d) · Status: **Phase 3 — #360 built, PR pending** (Phase 2 complete: last merge PR #269 → fb2371c)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -8,6 +8,7 @@ Owned paths (write):
 - `apps/feeds/**`
 - `apps/admin/src/app/(store)/[storeId]/marketing/**`
 - `apps/admin/src/app/(hq)/marketing/**`
+- `apps/notifications/**` (since 2026-10-07, main 13c393d — transactional email, #360)
 Reads:
 - docs/marketing-scope.md (the scope and decisions)
 - packages/contracts (Admin API marketing paths, v0.3)
@@ -28,6 +29,22 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#360 · order-confirmation email (`apps/notifications`)** — built 2026-10-07 on `marketing/phase3`, commit
+  (see "In progress" until the PR is up). Scaffold → ESM worker: `consumer.ts` (CLAIM in one transaction:
+  `marketing_cursor` name `notifications`, outbox `order.placed`/`shipment.shipped`, INSERT `notification_delivery`
+  `ON CONFLICT (event_id) DO NOTHING`, cursor; DELIVER after commit: DB-rendered, stamp → send → mark; retries to
+  `maxAttempts`; stuck = attempted with no outcome, reported, never resent; clock-free `lookback` of 500 rows
+  below the cursor), `render-data.ts` (order/line items/shipment from the DB), templates en-GB/de-DE × two kinds
+  (TS functions, `Intl` money from minor units, store timezone, escaped), `brands.ts` (brand A profile, env
+  overrides `NOTIFICATIONS_BRAND_A_*`, legal entity from the DB), transports `dev` (files + PII-free log line)
+  and `resend` (built-in fetch, key env-only, idempotency key per event), `auth.ts` + `server.ts` (`/health`,
+  staff-only `/preview/*` on fixtures; JWT via auth-sdk or `dev:` tokens with `NOTIFICATIONS_DEV_TOKENS=1`,
+  subject must be an active `staff_user`), `config.ts` (production refuses empty stores / dev sink / dev tokens),
+  `main.ts` (`start`/`once`/`dev`; the Dockerfile switches over by itself). PROPOSED migration
+  `apps/notifications/migrations/0180_notification_delivery.sql` (#244 pattern) → CONTRACT CHANGE **#393**;
+  REQUEST **#394** (root `.gitignore` `.notifications/`, `.env.example` rows). README/CHANGELOG/CLAUDE.md.
+  Gates: eslint, typecheck (src + tests), vitest 40/40 (templates 13, transport+config 8, server 4, consumer 15
+  on a throwaway DB incl. the PII sweep), ownership OK.
 - **`getPromotionReport` route** (follow-up to #150, manager decision 2026-09-24) — commit `fe84b2d`, PR #269
   (merged fb2371c). `promotion-report.ts` + the route over window 9's `promotionReportData`; route tests incl.
   the 403; abandoned-cart route test now asserts the spec schema; e2e nits (recursive log scan, `city` key).
@@ -84,7 +101,41 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- (nothing — Phase 2 COMPLETE, window quiet; see the quiet-state contract above.)
+- **#360 · PR** — code done and green (see Done). Remaining: commit + merge main + push **after the manager confirms
+  the previous merge**, open the PR "Refs #360" (closes at the 2b gate when the live Resend send is proven),
+  report PR number + head sha to the manager, report again when checks finish. After #393 lands: delete
+  `apps/notifications/migrations/0180_*.sql` and the test's `readFileSync` of it (small follow-up).
+  The original plan, kept for the record:
+  1. `apps/notifications` replaces the Phase 0 scaffold: ESM worker, Node `http` (`/health`, `/preview/*`) +
+     an outbox poller; deps only `@platform/db`, `@platform/events`, `@platform/auth-sdk`. `start` script
+     switches window 5's Dockerfile over by itself (entrypoint contract).
+  2. Consumer (`consumer.ts`): per store code in `NOTIFICATIONS_STORE_CODES`, organization-scoped client
+     (one process = one organization, `NOTIFICATIONS_ORGANIZATION_ID`, default the seeded HQ). One
+     transaction: cursor from `marketing_cursor` (name `notifications`), outbox rows topic IN
+     (`order.placed`, `shipment.shipped`) `seq > cursor`, INSERT `notification_delivery` keyed by **event id**
+     (`UNIQUE (event_id)`, ON CONFLICT DO NOTHING = the replay guard), advance cursor, commit. Then deliver
+     pending rows outside the transaction: render from the **database** (order, line items, shipment, store,
+     legal entity — never the payload as record source), stamp the attempt, `transport.send`, mark sent/failed.
+     Failed rows retry on later runs up to 5 attempts; a row stamped but neither sent nor failed (crash
+     mid-send) is **stuck** and never auto-resent — surfaced on `/health` and a warn line.
+  3. Schema: PROPOSED `apps/notifications/migrations/0180_notification_delivery.sql` (the #244 pattern:
+     tests apply it to the throwaway DB; deleted when it lands) + CONTRACT CHANGE issue.
+  4. `Transport` interface; `DevSinkTransport` (writes `<event_id>.{html,txt,json}` under `NOTIFICATIONS_DIR`,
+     default `.notifications/`; log line carries store, topic, locale, event id, display id — never the
+     address) and `ResendTransport` (built-in `fetch` to api.resend.com, `RESEND_API_KEY` from env only,
+     refuses to construct without it; `NOTIFICATIONS_TRANSPORT=dev|resend`, production refuses `dev`).
+  5. Templates as TS functions (`templates/order-confirmation.ts`, `templates/shipment-shipped.ts`) × locales
+     en-GB/de-DE, HTML-escaped, money by `Intl.NumberFormat(locale, currency)` from minor units; brand profile
+     `brands/brand-a.ts` (sender from `NOTIFICATIONS_SENDER_BRAND_A` else a placeholder, legal footer
+     placeholders + the `legal_entity` row). Locale fallback: order → store default → en-GB.
+  6. Preview `GET /preview/{order-confirmation|shipment-shipped}?store=brand-a&locale=de-DE` on fixture data,
+     Bearer staff JWT via auth-sdk, or `dev:<subject>` of an active `staff_user` when `NOTIFICATIONS_DEV_TOKENS=1`
+     and not production (mirrors `CORE_DEV_TOKENS`).
+  7. Tests: templates (pure), transports (tmp dir; Resend with injected fetch), consumer on a throwaway DB
+     (real outbox rows via `makeEvent`/`toOutboxRow`, real `"order"` rows; replay → no second row; second run
+     → nothing; failed → retried; stuck → not resent; PII sweep of log lines), server (401/200/health).
+  8. README, CHANGELOG, CLAUDE.md; REQUEST for root `.gitignore` (`.notifications/`) + `.env.example` rows.
+  Storefront confirmation copy untouched (window 3 flips it, #351).
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08
@@ -95,6 +146,29 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - [x] **#150 · 2.6** READMEs, CLAUDE.md, tests green, Phase 3 handoff — PR #266 merged (132f3b0)
 
 ## Decisions made (with reasons)
+- 2026-10-07 (me, #360) · **Claim and deliver are two phases.** Claim is one transaction with no network (cursor,
+  outbox read, `notification_delivery` inserts, cursor advance); deliver runs after the commit, row by row, with
+  the send outside any transaction. A slow provider holds no lock and a crash leaves a row that says how far it
+  got. The unique constraint on the **event id** is the replay guard, the cursor is only an optimisation.
+- 2026-10-07 (me, #360) · **A stuck row is never resent automatically.** Attempted with no recorded outcome means
+  the email may already be in the inbox; a duplicate confirmation is worse than one the owner has to look at.
+  Stuck rows are counted on `/health` and warned about every run.
+- 2026-10-07 (me, #360) · **Lookback, not a time grace, for the seq-visibility gap.** `seq` is assigned at insert,
+  commit comes later, so a lower seq can appear after the cursor passed it. First cut was `occurred_at <= now() -
+  grace` — that compares the producer's Node clock with Postgres' and silently claimed nothing on the laptop
+  (every consumer test red). Re-reading N rows below the cursor is clock-free and the unique constraint makes it
+  free of duplicates. The search sync and the relay keep the gap; an email cannot.
+- 2026-10-07 (me, #360) · **Emails render from the database rows, never the payload** — same rule as the search
+  sync. The event carries `email_hash`, not the address; the `"order"` row is what the customer sees in their
+  account. The event only says which order to confirm.
+- 2026-10-07 (me, #360) · **Templates are TypeScript functions, copy in one `strings.ts` per locale**, no template
+  engine. Escaping is a tagged template, money is `Intl.NumberFormat` from minor units, a new locale is one object.
+- 2026-10-07 (me, #360) · **The preview renders fixtures, not real orders.** A staff user sees the brand's email
+  without the route ever touching a customer; auth is "active `staff_user`", no OpenFGA relation, because that is
+  the whole question for sample data.
+- 2026-10-07 (me, #360) · **Resend via built-in `fetch`, no SDK.** One request; the key lives in a closure and
+  never on the instance or in an error; `Idempotency-Key` per event so a retry after a timeout is not a second
+  email. The live send is the 2b gate — nothing is exercised against the real API before the owner has an account.
 - 2026-09-24 (me, 2.6) · **`getPromotionReport` is documented as a known gap, not built inside the docs PR.** The
   contract has the operation, window 9's `promotionReportData` is ready, the admin Overview calls it — but no
   route in `routes.ts` answers it, so it only works against Prism. Building it is a feature, not a docs change;
@@ -170,12 +244,35 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
-- Nothing. #266 (2.6) merged as 132f3b0, #269 (promotions route) as fb2371c.
+- **#393** CONTRACT CHANGE (db `0180_notification_delivery.sql`) — until it lands, the app's tests apply the
+  proposed copy; the shared stack's `platform` DB has no table yet, so "an order placed on the laptop produces one
+  email" can only be shown on a throwaway DB (the consumer test does exactly that).
+- **#394** REQUEST (root `.gitignore` `.notifications/`, `.env.example` rows) — cosmetic, nothing blocks.
+- **The live Resend send** (owner's account; 2b gate) — closes #360. `RESEND_API_KEY` must only ever be in the env.
+- Push of `marketing/phase3` — held until the manager confirms the previous merge.
+- #266 (2.6) merged as 132f3b0, #269 (promotions route) as fb2371c.
 - **REQUEST #247** (windows 3/10, the storefront recovery page) — still open; does not block the module.
 - Everything else from Phase 2 has landed: #181 (mount), #194 (0.4.1), #195 (infra #210), #239 (0.4.4),
   #244/#245 (0.4.5), #246 (window 1 route), #251 (admin 202 mapping, d3f7754).
 
 ## Gotchas learned
+- #360: **the cross-clock trap again, in a WHERE clause this time.** `occurred_at <= now() - grace` with an
+  app-written `occurred_at` claimed nothing on the laptop. Any predicate comparing a Node timestamp with a
+  Postgres `now()` is wrong by the skew; order by `seq`, never by time, and never gate on it.
+- #360: **rows inserted in one transaction share `created_at`** (`now()` is the transaction start), so
+  `ORDER BY created_at, id` is random order within a batch. Store the outbox `seq` (`event_seq`) and order by it.
+- #360: **the Edit/Write tools turn ` ` into a real no-break space** and ESLint's no-irregular-whitespace
+  then fails the file; a node one-liner through Bash also mangled it. `new RegExp(String.fromCharCode(0xa0), 'g')`
+  is the only form that survives every tool. `Intl` puts U+00A0 between number and `€` in de-DE — compare on a
+  normalised string.
+- #360: `tsconfig.json` excludes `*.test.ts` from the build (feeds pattern), so tests were not typechecked at
+  all — a `tsconfig.test.json` (`noEmit`, `rootDir: .`) run from the `typecheck` script closes that; it caught a
+  literal-type default parameter (`storeId = A` infers the literal uuid).
+- #360: `seed()` creates no orders, shipments or outbox rows for them — the consumer test builds the order, the
+  line items, the shipment and the envelopes (validated with `createValidator()` from packages/events) itself;
+  `makeEvent`/`toOutboxRow` keep the fixture honest against the real schema.
+- #360: `@platform/db`'s owner pool inserts rows without any tenant context (superuser in the compose stack);
+  the app pool + `createOrganizationClient` is what the worker uses and what RLS is tested against.
 - 2.6: **a Prism contract test proves the admin calls the right shape, not that the core answers it.**
   `getPromotionReport` passed every admin test for a whole phase with no core route behind it. When a screen
   calls an operation, check `routes.ts` (or the owning module's router) actually implements it.
@@ -247,6 +344,8 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 ```
 pnpm --filter @platform/core exec vitest run src/modules/marketing   # fast loop (~15 s, own throwaway DB)
 pnpm --filter @platform/feeds test                                   # the feed server, no DB at all (~2 s)
+pnpm --filter @platform/notifications exec vitest run                # the email worker (~8 s, own throwaway DB)
+pnpm --filter @platform/notifications typecheck                      # src AND tests (tsconfig.test.json)
 pnpm lint && pnpm typecheck && pnpm test --filter @platform/core     # the gates, before every PR
 pnpm exec prettier --write apps/core/src/modules/marketing/          # format:check is part of CI
 ```
