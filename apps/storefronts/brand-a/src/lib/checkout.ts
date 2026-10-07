@@ -218,6 +218,14 @@ export function mapCheckoutError(error: unknown): CheckoutError {
         ...(variantId === undefined ? {} : { variantId }),
       };
     }
+    case 'price_changed':
+      // A price moved between review and placement (#358): nothing was placed; show the new total.
+      return {
+        code,
+        message:
+          'A price changed since you reviewed your order. Please check the new total and place it again.',
+        step: 'review',
+      };
     case 'payment_failed':
       return {
         code,

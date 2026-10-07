@@ -56,6 +56,33 @@ landings with their `startsAt` / `endsAt` when set (a missing side is absent, ne
 - `[]` when there is nothing, when the CMS is unconfigured or the store unknown, and when the read
   fails (one warning, like every other read).
 
+### Hero video: `hero.video` (#330, the CMS half)
+
+```ts
+import type { Hero, HeroVideo } from '@platform/cms';
+import { heroVideo } from '@/lib/cms';
+
+// HeroVideo = { _type: 'heroVideo'; cloudinaryUrl: string }   // …/video/upload/…
+const page = await cms.page(locale, slug); // PageDocument | null
+const loop: HeroVideo | null = page?.hero ? heroVideo(page.hero) : null;
+```
+
+A hero (`page.hero`, `campaignLanding.hero`, and `hero` blocks inside `blocks`) may carry an
+optional `video`. The reader applies one policy before handing the document out, in
+`hero-video.ts` (`normalizeHeroVideo`, no `next/*`): **`hero.video` is present only when
+`hero.image` is present and `video.cloudinaryUrl` matches `CLOUDINARY_VIDEO_URL_PATTERN`**
+(`https://res.cloudinary.com/<cloud>/video/upload/…`). A stored hero that breaks either rule — the
+schema refuses both, but the renderer does not trust the dataset — comes through with the video
+removed and the image alone. `heroVideo(hero)` is the same check as a function, for a hero obtained
+some other way. Content without the field is unchanged: no `video` key appears.
+
+What the renderer (window 3, later) owes the field, per #330 and brand A's DESIGN.md §7: under
+`prefers-reduced-motion: reduce` the poster image renders alone and the video is **never
+requested**; otherwise `<video muted playsinline loop autoplay preload="none" poster=…>` with
+`aria-hidden="true"`, started after the poster has loaded so the poster stays the LCP element, a
+visible pause/play control (WCAG 2.2.2: the loops run 8 s), and the URL through the shared
+Cloudinary loader with a capped width. `Hero` renders the image only until then.
+
 ## Content routes
 
 | Route                      | Document                    | Empty CMS                              |
@@ -79,7 +106,7 @@ webhook.
 
 | Component                 | Renders                                                                                                       |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image, up to two CTAs, three layouts                           |
+| `Hero`                    | eyebrow, headline (`h1` or `h2`), subheadline, image, up to two CTAs, three layouts; `video` not rendered yet |
 | `Blocks`                  | `richText`, `imageBlock` (figure + caption), `productStory`, `cta`, `hero`; unknown → nothing                 |
 | `PortableText`            | normal / h2 / h3 / blockquote, bullet and numbered lists, strong / em, links, inline images                   |
 | `ProductStory`            | CMS copy around a live product from `getProduct(handle)`; API failure → copy only                             |
