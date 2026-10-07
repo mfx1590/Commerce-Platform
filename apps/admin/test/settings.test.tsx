@@ -336,13 +336,15 @@ describe('API keys: the value is shown once', () => {
       's1',
       expect.objectContaining({ name: 'checkout', type: 'publishable' }),
     );
-    expect(screen.getByTestId('revealed-api-key')).toHaveTextContent(
+    // Set by onSuccess inside the form's async transition: wait for the commit (#398).
+    expect(await screen.findByTestId('revealed-api-key')).toHaveTextContent(
       'pk_brand-a_live_onetimevalue',
     );
     expect(screen.getByRole('alert')).toHaveTextContent(/shown once and cannot be retrieved again/);
     await user.click(screen.getByRole('button', { name: 'Copy' }));
     expect(writeText).toHaveBeenCalledWith('pk_brand-a_live_onetimevalue');
-    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    // Set after the clipboard promise resolves.
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
     // Not in the URL.
     expect(window.location.href).not.toContain('onetimevalue');
   });
@@ -359,6 +361,7 @@ describe('API keys: the value is shown once', () => {
     );
     await user.type(screen.getByLabelText(/^Name/), 'checkout');
     await user.click(screen.getByRole('button', { name: 'Create key' }));
+    await screen.findByTestId('revealed-api-key');
     expect(container.innerHTML).toContain('pk_one_time_value');
 
     await user.click(screen.getByRole('button', { name: 'Done' }));
@@ -378,7 +381,9 @@ describe('API keys: the value is shown once', () => {
     await user.type(screen.getByLabelText(/^Name/), 'checkout');
     await user.click(screen.getByRole('button', { name: 'Create key' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('store_admin');
+    // The refusal is set inside the form's async transition (#398): wait for it, then check that
+    // nothing was revealed.
+    expect(await screen.findByRole('alert')).toHaveTextContent('store_admin');
     expect(screen.queryByTestId('revealed-api-key')).toBeNull();
   });
 

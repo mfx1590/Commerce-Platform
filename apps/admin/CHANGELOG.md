@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed — issue #398: tests no longer read a transition-set state synchronously
+
+- Assertions on state a server action's result sets inside `startTransition(async …)` (refusal
+  alerts, the one-time key reveal, PublishControls' result, server field errors, `router.refresh`)
+  now wait for the commit (`findBy…` / `waitFor`) — `test/settings.test.tsx`,
+  `catalog-refusals`, `contract-form`, `variants-panel`, `orders-capture-label`. Synchronous UI
+  (opening a question or a form) is still asserted synchronously.
+
 ### Fixed — issue #353: Sign out leaves nothing signed in, whatever happens on Keycloak's page
 
 - The logout route ends the realm SSO session **server-side** first (`endKeycloakSession`: the
