@@ -17,6 +17,12 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#382 · took the hardened order-lifecycle spec** — one-file re-sync of
+  `e2e/order-lifecycle.spec.ts` from #383, on `brands/phase3` after #379 merged (`7f4f8fe`) and #383
+  merged (`e667d4e`). Only that spec and `starter-manifest.json` moved. **Keep brand A's
+  `STORE_PUBLISHABLE_KEY ??=` line**: the hardened spec now *skips* with a reason when the key is
+  absent, so without brand A's line #372 would silently stop being proven instead of failing loudly.
+  The pair is the point — my line supplies the value, #383 makes its absence legible.
 - **#372 · brand A's half — the re-sync at main `e7f2f3e`.** 202 copied, 1 merged, 10 preserved, 4
   excluded. Brings the starter's #372/#375 half **and** the card-payment work from #365/#367:
   `order-confirmation-header.tsx` + `data-order-status` + `confirmation.bodyByStatus`/`status`
@@ -280,6 +286,14 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   rewritten, so the manager had to allowlist those files on main. Write "the secret-key and
   restricted-key fixtures in `test/payment-options.test.ts`" instead. The scanner reads prose, and
   an explanation of a false positive is indistinguishable from the real thing to a regex.
+- **`scripts/check-ownership.sh` false-positives when the MAIN CHECKOUT's `main` is stale.** It
+  prefers `merge-base main HEAD` over `origin/main`, and `main` is checked out in
+  `C:/Users/mehdi/Desktop/commerce-platform` — another session's tree, so **I must not move it**
+  (git refuses, and it would change files under them). When it reports a violation on another
+  window's file, re-run against the right base:
+  `OWNERSHIP_BRANCH=<branch> OWNERSHIP_FILES="$(git diff --name-only origin/main HEAD)" bash scripts/check-ownership.sh`.
+  CI uses `origin/main`, so it is green there. Mind that `git diff origin/main HEAD` covers only
+  **committed** work — commit first, or the check sees nothing.
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app
