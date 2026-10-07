@@ -62,6 +62,36 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
     43 synced tests pass); mock e2e **83 passed / 35 skipped**, exit 0. `order-lifecycle.spec.ts` and
     `card-payment.spec.ts` skip without the core by design — **the core leg on the PR is the proof**.
   - **Machine free** (no core, no Keycloak, no docker touched).
+- **#348 · the perf gate measures five runs, not three.** `lighthouserc.json`: `numberOfRuns` 3→5,
+  **LCP budget unchanged at 2500**. Branch `brands/348` off main (the stated exception while #379 sat
+  in the queue).
+  - **The issue's hypothesis was wrong.** The PLP's LCP element is the **`<h1>` text** "All products",
+    not a product image — TTFB 471 ms, Load Delay 0, Load Time 0, **Render Delay 2060 ms (81%)**. So
+    `fetchpriority`/preload/sizing cannot help this page. The PLP's one `<img>` is a Cloudinary
+    **demo** URL that returns 506 bytes with `naturalWidth: 0` — it does not load, so there is no
+    image to optimise, and **LCP will get WORSE when real imagery lands (#330)**; re-measure then.
+  - **Why the budget could never hold.** From the uploaded `.lighthouseci` artifacts of **16 CI legs
+    (48 runs/page)**: PLP asserted 1977–2452 (median 2168), individual runs 1977–**2970**; PDP
+    asserted 2115–2443, runs 2115–2621. A single PLP run exceeds 2500 **29%** of the time; LHCI
+    asserts **best of N**, so N=3 fails 2.5% per leg — **53% over 30 legs**. The acceptance bar was
+    unreachable because the estimator was noisy, not because the page is slow. **N=5 → 0.21%/leg,
+    6.1% over 30.** (2600 with N=3 gives 3.3% and would have cleared the worst asserted value ever
+    seen, 2570.6, below the worst run 2970 — rejected because N=5 reaches the same place without
+    weakening the budget. Owner chose N=5.)
+  - **Rejected on measurement:** `experimental.inlineCss` does not take effect in Next 15.5 +
+    webpack — served HTML still has `<link rel="stylesheet">`, zero inline `<style>`. The apparent
+    LCP gain was noise. **Check the artefact, not the metric, before believing a fix.**
+  - **Two REQUESTs filed to window 3** (both `scripts/perf.mjs`, the starter's): the pinned
+    `@lhci/cli` 0.14.0 **errors six audits on every run**, including every audit that names the LCP
+    element (`RootCauses`/`frame_sequence`, reproduced locally) — so nobody can diagnose LCP from the
+    gate's own output; and `perf.mjs` **never warms the measured URLs** (CI run 1: TBT 1125 ms vs
+    77/72, benchmarkIndex 1483 vs ~2400) while `e2e-server.mjs` warms twice — the likely root fix for
+    the variance.
+  - **Acceptance still open:** 30 consecutive green brand A perf legs, counted from CI after this
+    lands. Cannot be shown in the PR that makes the change; no laptop Lighthouse substitutes.
+  - **To diagnose LCP in future:** `npx -y lighthouse@12 <url> --only-categories=performance
+    --chrome-flags="--headless=new" --output=json` and read
+    `audits["largest-contentful-paint-element"]`. The gate's own reports cannot tell you.
 - **#374 · the buy test's order total** — `apps/storefronts/brand-a/e2e/journey.spec.ts`. It asserted
   `order total == cart total + delivery row`, which silently claimed delivery is untaxed; #352 (PR
   #373) taxes delivery at the goods' rate, so the core answered 2661 where the spec demanded

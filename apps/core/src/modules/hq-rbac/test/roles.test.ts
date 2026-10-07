@@ -12,7 +12,7 @@ import {
 import { createOrganizationClient, seed, SEED_IDS, type ScopedClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHqRbac, HQ_RBAC_ROUTES } from '../index.js';
+import { createHqRbac, FINANCE_PING_ROUTE, HQ_RBAC_ROUTES } from '../index.js';
 
 const ORG = SEED_IDS.organization;
 const U = SEED_IDS.users;
@@ -74,15 +74,31 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       'POST /admin/users/{userId}/roles',
       'DELETE /admin/users/{userId}/roles/{assignmentId}',
       'GET /admin/audit-log', // task 1.5; its permission is query-dependent (null here, checked in the handler)
-      'GET /admin/finance/ping', // task 1.7 gate test double (not in the contract): finance on organization:hq
     ]);
-    for (const r of HQ_RBAC_ROUTES.filter(
-      (x) => x.operationId !== 'listAuditLog' && x.operationId !== 'financePing',
-    ))
+    for (const r of HQ_RBAC_ROUTES.filter((x) => x.operationId !== 'listAuditLog'))
       expect(r.permission).toEqual({ relation: 'owner', object: 'organization:hq' });
-    expect(HQ_RBAC_ROUTES.find((x) => x.operationId === 'financePing')?.permission).toEqual({
-      relation: 'finance',
-      object: 'organization:hq',
+    // The Phase 1 gate's test double (#16) is NOT in the contract: served by default outside production (dev
+    // stacks and the core's live suite rely on it), never under NODE_ENV=production, where opting in throws (#90).
+    expect(rbac.routes).toEqual([...HQ_RBAC_ROUTES, FINANCE_PING_ROUTE]);
+    expect(createHqRbac({ pool: db.app, fga, financePing: false }).routes).toEqual(HQ_RBAC_ROUTES);
+    const env = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(createHqRbac({ pool: db.app, fga }).routes).toEqual(HQ_RBAC_ROUTES);
+      expect(createHqRbac({ pool: db.app, fga }).routes.map((r) => r.path)).not.toContain(
+        '/admin/finance/ping',
+      );
+      expect(() => createHqRbac({ pool: db.app, fga, financePing: true })).toThrow(
+        'financePing must not be set when NODE_ENV=production',
+      );
+    } finally {
+      process.env.NODE_ENV = env;
+    }
+    expect(FINANCE_PING_ROUTE).toEqual({
+      method: 'GET',
+      path: '/admin/finance/ping',
+      operationId: 'financePing',
+      permission: { relation: 'finance', object: 'organization:hq' },
     });
   });
 
