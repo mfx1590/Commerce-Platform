@@ -129,3 +129,12 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   challenge, which must spend a code, gains the third fallback); the secret literal and the TOTP function
   now live in one file. Tests: `test/staff-token.test.ts` — unit against a fake Keycloak (reuse without a
   grant, other issuer, userinfo 401, refused steps, non-owner, malformed file) + live on the real stack.
+- #90 (follow-up of the #89 review), hq-rbac: `GET /admin/finance/ping` left `HQ_RBAC_ROUTES` (now
+  `FINANCE_PING_ROUTE`); `createHqRbac` serves it by default everywhere except `NODE_ENV=production` (every
+  image sets it) and throws when `financePing: true` is passed under production — dev stacks and the core's
+  live suite keep the test double, production never has it. The gate's `x-permission` sweep now cuts the
+  spec's `paths:` section into operation blocks instead of matching `x-permission` directly under
+  `operationId`: the old regex silently skipped four operations whose description spans several lines
+  (`updateDomain`, `revokeApiKey`, `capturePayment`, `buyShipmentLabel`; none finance-gated, so the gate's
+  claim held). A static test pins that every `x-permission` line under `paths` is attributed to exactly one
+  operation; `test/guard.test.ts` pins the same count for the auth-sdk sweep.
