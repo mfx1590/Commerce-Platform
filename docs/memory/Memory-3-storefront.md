@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Integration 2a docket done (#351, #358 code, #372). **#382 (small, now):** the lifecycle spec's `GET /store` used `process.env.STORE_PUBLISHABLE_KEY ?? ''` — CI's Playwright process sets none, so brand A's core leg got store.id undefined → admin 403. Fix: the key from the app's own `storeApiConfigFromEnv(e2eServerEnv(process.env))`; every call asserted ok() with status + error code/message (no raw body). Branch `storefront/phase3` = main `ab16125` + memory + the fix; PR "Closes #382"; no machine needed (brand A's run after window 10's re-sync is the proof). **Still open: #358's live proof** (Stripe test keys).
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Integration 2a docket done (#351, #358 code, #372). **#382 = PR #383** (first head `96347d8` resolved the key via the app's config; the manager NARROWED it): keep `process.env.STORE_PUBLISHABLE_KEY` (brand A's playwright.config supplies it, window 10), no key → one printed line + skip, every call asserted ok() with status + error code/message (no raw body). **Still open: #358's live proof** (Stripe test keys).
 
 ## Identity (does not change)
 

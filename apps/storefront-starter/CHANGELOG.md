@@ -4,14 +4,13 @@
 
 Issue #382. Test-only; no app change.
 
-- **`e2e/order-lifecycle.spec.ts` reads `GET /store` with the key the app under test uses** — resolved
-  by the app's own `storeApiConfigFromEnv` from the environment the e2e server hands it
-  (`STORE_PUBLISHABLE_KEY`, else the starter's default). It read the variable directly and sent an
-  empty key when the run relied on the default (brand A's core leg), so the store id came back
-  undefined and every Admin API call was refused (`viewer on store:undefined`).
-- **Every call is checked:** `GET /store` and each Admin API call fail with the call's name, the HTTP
-  status and the contract's error `code` / `message` — never the raw body, which could carry personal
-  data. The store id must be a uuid before the admin calls start.
+- **`e2e/order-lifecycle.spec.ts` fails loudly instead of acting on `store:undefined`.** `GET /store`
+  and every Admin API call are asserted `ok()`; a failure names the call, the HTTP status and the
+  contract's error `code` / `message` — never the raw body, which could carry personal data. The store
+  id must be a uuid before the admin calls start.
+- **No `STORE_PUBLISHABLE_KEY` → one printed line and a skip** (`[e2e] order-lifecycle skipped: no
+STORE_PUBLISHABLE_KEY …`). The run supplies the key: brand A's `playwright.config` sets it for its
+  core leg (window 10). An empty key used to reach the admin calls and come back 403.
 
 ## 0.13.1 — 2026-10-06
 

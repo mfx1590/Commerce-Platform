@@ -15,8 +15,6 @@ import {
   clickWhenReady,
   openPurchasableProduct,
 } from './support/journey';
-import { e2eServerEnv } from '../scripts/e2e-env.mjs';
-import { storeApiConfigFromEnv } from '../src/lib/store-api/config';
 
 /**
  * #372: the customer sees the order's real status as the shop works on it. The run places an order
@@ -34,9 +32,19 @@ import { storeApiConfigFromEnv } from '../src/lib/store-api/config';
  * `E2E_STAFF_USERNAME` / `E2E_STAFF_PASSWORD`.
  */
 
-const SKIP_REASON = AGAINST_CORE
-  ? null
-  : `no core (this run is against ${BACKEND}; set E2E_STORE_API_URL)`;
+/**
+ * The store's publishable key for `GET /store` (which names the store the admin calls act on). The
+ * run supplies it: brand A's `playwright.config` sets `STORE_PUBLISHABLE_KEY` for its core leg, as its
+ * journey spec does (#382). Without it the spec cannot know the store, so it says so and skips —
+ * an empty key used to reach the admin calls as `store:undefined` (403).
+ */
+const PUBLISHABLE_KEY = process.env.STORE_PUBLISHABLE_KEY ?? '';
+
+const SKIP_REASON = !AGAINST_CORE
+  ? `no core (this run is against ${BACKEND}; set E2E_STORE_API_URL)`
+  : PUBLISHABLE_KEY === ''
+    ? 'no STORE_PUBLISHABLE_KEY for the run (needed to read GET /store, which names the store)'
+    : null;
 
 const CORE_URL = (process.env.E2E_STORE_API_URL ?? '').replace(/\/$/, '');
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
@@ -95,16 +103,6 @@ async function json<T>(
   return (await response.json()) as T;
 }
 
-/**
- * The publishable key **the app under test uses**, resolved by the app's own code from the
- * environment the e2e server hands it (#382): `STORE_PUBLISHABLE_KEY` when the run sets it, else the
- * starter's default — which is what brand A's core leg runs with. Reading the variable directly sent
- * an empty key whenever the run relied on the default, and the store id came back undefined.
- */
-function appPublishableKey(): string {
-  return storeApiConfigFromEnv(e2eServerEnv(process.env)).publishableKey;
-}
-
 interface Warehouse {
   id: string;
   country: string;
@@ -147,7 +145,7 @@ test('the confirmation shows the order processing once shipped and completed onc
   // ── The shop ships it, as the operations user, through the Admin API.
   const store = await json<{ id: string }>(
     await page.request.get(`${CORE_URL}/store`, {
-      headers: { 'X-Publishable-Key': appPublishableKey() },
+      headers: { 'X-Publishable-Key': PUBLISHABLE_KEY },
     }),
     'GET /store',
   );
