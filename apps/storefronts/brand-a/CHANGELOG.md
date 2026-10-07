@@ -84,6 +84,7 @@ The issue also asks for **30 consecutive green brand A perf legs**, counted from
 this lands — that cannot be shown in the PR that makes the change, and no laptop Lighthouse run
 substitutes for it. The 16 legs measured here were all green on the asserted value (0/16 above 2500);
 the three known failures (asserted 2570.6, 2565, 2529) predate this window.
+
 ## Unreleased — 2026-10-07 · the specs get brand A's publishable key (#379)
 
 - **`playwright.config.ts` sets `STORE_PUBLISHABLE_KEY` for the test process**, beside the `SITE_URL`
