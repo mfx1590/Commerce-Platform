@@ -191,6 +191,32 @@ in the catalogue, chosen by property at runtime, so no single product is drained
 iteration is tens of units; the shared seed is topped up to at least 25 available per variant
 (`packages/db` top-up-stock, the manager's).
 
+## Performance budget (#348)
+
+`lighthouserc.json` collects **5 runs per URL**, not 3, and asserts LCP at **2500 ms**. LHCI asserts
+the **best of N** for a `max` assertion, and N=3 was too few for the measured spread: a single PLP run
+exceeds 2500 ms about 29% of the time (16 CI legs, 48 runs per page; asserted values 1977–2452,
+individual runs 1977–2970), which made a leg fail 2.5% of the time — a 53% chance of at least one red
+leg in 30. At N=5 that is 0.21% per leg with the budget untouched. **Raise N before loosening the
+budget**, and if the budget ever does move, argue it from the worst observed run, never the median.
+
+**The LCP element here is the `<h1>`, not an image** — TTFB 471 ms, load 0, **render delay 2060 ms**.
+So image preloading and `fetchpriority` cannot help this page, and the one `<img>` on the PLP (a
+Cloudinary **demo** URL) does not even load. Expect the number to get **worse** when real imagery
+lands (#330) and to need re-measuring then.
+
+**Do not trust the perf gate's own LCP diagnostics.** The pinned `@lhci/cli` 0.14.0 errors six audits,
+including every audit that identifies the LCP element, on every run in CI and locally
+(`RootCauses` / `frame_sequence`). Use a standalone modern Lighthouse to diagnose:
+
+```bash
+npx -y lighthouse@12 http://127.0.0.1:3100/en-GB/products --only-categories=performance \
+  --chrome-flags="--headless=new" --output=json --output-path=lh.json
+```
+
+and read `audits["largest-contentful-paint-element"]`. REQUESTs are filed for the pinned version and
+for the missing page warm-up in `scripts/perf.mjs` (both the starter's).
+
 ## End-to-end against the core
 
 `e2e/journey.spec.ts` covers what the inherited `checkout.spec.ts` does not: **PDP variant

@@ -1,5 +1,70 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-07 · the perf gate measures five runs, not three (#348)
+
+**`lighthouserc.json`: `numberOfRuns` 3 → 5. The LCP budget is unchanged at 2500 ms.** Nothing is
+loosened; the gate is made able to meet its own acceptance bar.
+
+### What the gate was actually failing on
+
+Measured from the **uploaded `.lighthouseci` reports of 16 CI legs** (48 runs per page), not from the
+job logs:
+
+| page                          | asserted (best of 3)                  | individual runs |
+| ----------------------------- | ------------------------------------- | --------------- |
+| `/en-GB/products`             | min 1977 · median 2168 · **max 2452** | 1977 – **2970** |
+| `/en-GB/products/classic-tee` | min 2115 · median 2162 · max 2443     | 2115 – 2621     |
+
+A single PLP run exceeds 2500 ms **29% of the time**. LHCI asserts the **best of N** for a `max`
+assertion, so with N=3 a leg fails when all three draws land high: **2.5% per leg, which is a 53%
+chance of at least one failure in 30 consecutive legs.** The issue's acceptance criterion was
+therefore unreachable at the old setting — not because the page is slow, but because the estimator is
+too noisy: the run-to-run spread (~1000 ms) dwarfs the margin to the threshold (~50 ms).
+
+With **N=5** the same distribution gives **0.21% per leg — 6.1% over 30 legs**, with the 2500 ms
+budget untouched. Cost: two more Lighthouse runs per URL, about +1.8 min on the brand A perf leg.
+(For the record, the alternative of raising the threshold to 2600 — which would still clear the worst
+asserted value ever observed, 2570.6, and sit far below the worst observed run, 2970 — gives 3.3%.
+N=5 was chosen because it reaches the same place without weakening the budget.)
+
+### The LCP element is text, not an image — the issue's hypothesis does not hold
+
+Lighthouse 12.8.2 names it: `<h1 class="text-3xl font-bold leading-tight">All products</h1>`.
+Phases: **TTFB 471 ms · Load Delay 0 · Load Time 0 · Render Delay 2060 ms** — **81% is render
+delay**, and a text LCP has nothing to preload or prioritise. `font-display` passes, TBT is 90 ms,
+and the one render-blocking resource is a 4.9 KB Next stylesheet (est. 574 ms).
+
+**There is also no image to optimise.** The PLP carries exactly one `<img>`, pointing at Cloudinary's
+**demo** account; it answers with 506 bytes and `naturalWidth: 0` — it fails to load. So the gate
+measures a page with no working imagery, and **when real imagery lands (#330) the LCP will get worse,
+not better.** That is a further reason not to spend the margin on a threshold today.
+
+`experimental.inlineCss` was tried and **rejected on measurement**: in Next 15.5 with webpack it does
+not take effect — the served HTML still carries `<link rel="stylesheet">` and zero inline `<style>`,
+and the apparent LCP gain was run-to-run noise.
+
+### Two things that are not ours, filed as REQUESTs
+
+- **The perf gate's LCP diagnostics are broken on every run, everywhere.** The pinned `@lhci/cli`
+  0.14.0 errors six audits — `largest-contentful-paint-element`, `prioritize-lcp-image`,
+  `lcp-lazy-loaded`, `render-blocking-resources`, `layout-shifts`, `non-composited-animations` — with
+  `Required TraceElements gatherer ... Dependency "RootCauses" failed`. Reproduced locally, so it is
+  not a CI quirk. **Nobody can diagnose an LCP regression in any storefront until this is fixed**;
+  identifying the element above needed a separate Lighthouse 12 run. `LHCI_VERSION` lives in
+  `scripts/perf.mjs` (the starter's).
+- **The first Lighthouse run of every leg is cold.** `perf.mjs` waits only for `/health` and never
+  warms the measured URLs; CI run 1 showed TBT **1125 ms** against 77 and 72 for runs 2–3, with
+  `benchmarkIndex` 1483 against ~2400. The sibling `scripts/e2e-server.mjs` already warms a page and
+  a chunk twice before tests start. Warming the two measured URLs would attack this variance at its
+  source and might let N=3 stand.
+
+### Acceptance
+
+The issue also asks for **30 consecutive green brand A perf legs**, counted from CI across PRs after
+this lands — that cannot be shown in the PR that makes the change, and no laptop Lighthouse run
+substitutes for it. The 16 legs measured here were all green on the asserted value (0/16 above 2500);
+the three known failures (asserted 2570.6, 2565, 2529) predate this window.
+
 ## Unreleased — 2026-10-06 · the order total is compared with the review step, not with arithmetic (#374)
 
 - **`e2e/journey.spec.ts` no longer adds delivery by hand.** The buy test asserted
