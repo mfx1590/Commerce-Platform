@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Integration 2a docket done (#351, #358 code, #372). **#382 = PR #383** (first head `96347d8` resolved the key via the app's config; the manager NARROWED it): keep `process.env.STORE_PUBLISHABLE_KEY` (brand A's playwright.config supplies it, window 10), no key → one printed line + skip, every call asserted ok() with status + error code/message (no raw body). **Still open: #358's live proof** (Stripe test keys).
+Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done: #351 (PR #362), #358 code (PR #365), #372 (PR #375), **#382 (PR #383, `e667d4e`; brand A's core run proved the lifecycle spec, 92 passed / 26 skipped)**. **Next (later today, the manager sends the block): #330's rendering half**, once window 6 lands the CMS half (the reader shape will be in window 6's PR body). **Still open: #358's live proof** (Stripe test keys). Branch `storefront/phase3` = main + memory, not pushed. **Quiet until the manager writes. Machine NOT mine.**
 
 ## Identity (does not change)
 
