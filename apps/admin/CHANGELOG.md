@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Fixed — issue #353: Sign out leaves nothing signed in, whatever happens on Keycloak's page
+
+- The logout route ends the realm SSO session **server-side** first (`endKeycloakSession`: the
+  refresh token posted to the end-session endpoint), then drops the local session
+  (`Clear-Site-Data: "cookies"`, `no-store`, both chunks), then redirects (303) to Keycloak's
+  end-session with `id_token_hint` and `post_logout_redirect_uri` `<app>/` (trailing slash, the
+  registered `/*` pattern). Root cause, reproduced on Prism + the shared Keycloak: cookies were
+  already cleared, but an abandoned confirmation left the realm session live and the next request
+  signed the user back in silently.
+- The middleware checks the session against Keycloak's userinfo (`sessionIsLive`, fail closed,
+  cached 30 s per `sid` per process — `src/lib/auth/liveness.ts`): a copied pre-sign-out cookie is
+  sent to sign-in within 30 s; a Keycloak outage sends the user to sign-in, not a 500. The core is
+  untouched (offline JWT verification).
+- Tests: `test/logout.test.ts` (real OIDC helpers, stubbed Keycloak: order of operations, refusal
+  and outage still drop the local session, old cookie redirected, outage → sign-in),
+  `test/middleware.test.ts` (+3: not-live → sign-in, 30 s cache per session, refresh = live), e2e
+  "sign out holds even when the Keycloak page is abandoned, and a copied cookie dies" (Prism +
+  shared Keycloak, PORT=3200).
+
 ### Added — issue #357 (Integration 2a): Capture and Buy label; order status from the core (Admin API 0.4.9)
 
 - **Capture** (`capturePayment`, store_admin) on an `authorized` payment in a new **Payments** card:
