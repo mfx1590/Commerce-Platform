@@ -29,8 +29,9 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
-- **#360 · order-confirmation email (`apps/notifications`)** — built 2026-10-07 on `marketing/phase3`, commit
-  (see "In progress" until the PR is up). Scaffold → ESM worker: `consumer.ts` (CLAIM in one transaction:
+- **#360 · order-confirmation email (`apps/notifications`)** — built 2026-10-07 on `marketing/phase3`, commits
+  `c001856` + `92cd163` (tpl tag), merge of main e64a7f5 = `95efa7f`, **PR #396** (Refs #360; closes at the 2b
+  gate). Scaffold → ESM worker: `consumer.ts` (CLAIM in one transaction:
   `marketing_cursor` name `notifications`, outbox `order.placed`/`shipment.shipped`, INSERT `notification_delivery`
   `ON CONFLICT (event_id) DO NOTHING`, cursor; DELIVER after commit: DB-rendered, stamp → send → mark; retries to
   `maxAttempts`; stuck = attempted with no outcome, reported, never resent; clock-free `lookback` of 500 rows
@@ -101,10 +102,10 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- **#360 · PR** — code done and green (see Done). Remaining: commit + merge main + push **after the manager confirms
-  the previous merge**, open the PR "Refs #360" (closes at the 2b gate when the live Resend send is proven),
-  report PR number + head sha to the manager, report again when checks finish. After #393 lands: delete
-  `apps/notifications/migrations/0180_*.sql` and the test's `readFileSync` of it (small follow-up).
+- **#360 · PR #396 in review** (pushed 2026-10-07 on the manager's go; manager applies #394 on main and lands
+  #393 from ../wt-contracts between PRs — this PR does not wait for either). Remaining: report to the manager
+  when checks finish; answer review; after #393 lands, delete `apps/notifications/migrations/0180_*.sql` and the
+  test's `readFileSync` of it (small follow-up); the live Resend send at the 2b gate closes #360.
   The original plan, kept for the record:
   1. `apps/notifications` replaces the Phase 0 scaffold: ESM worker, Node `http` (`/health`, `/preview/*`) +
      an outbox poller; deps only `@platform/db`, `@platform/events`, `@platform/auth-sdk`. `start` script
