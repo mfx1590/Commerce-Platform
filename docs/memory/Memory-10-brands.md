@@ -237,8 +237,11 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   `C:/Users/mehdi/Desktop/commerce-platform`. **Never move that ref** — it is another session's
   working tree. *(Happened 2026-10-07 at `13c393d`; the manager pulled it and the check is correct
   again. Kept because it will recur.)* Diagnose with:
-  `OWNERSHIP_BRANCH=<branch> OWNERSHIP_FILES="$(git diff --name-only origin/main HEAD)" bash scripts/check-ownership.sh`
-  — and remember that diff covers only **committed** work. CI uses `origin/main`, so CI is unaffected.
+  `OWNERSHIP_BRANCH=<branch> OWNERSHIP_FILES="$(git diff --name-only origin/main...HEAD)" bash scripts/check-ownership.sh`
+  — **three dots, not two.** Two dots diff the two tips, so once `origin/main` moves ahead of your
+  branch it lists files *other windows* changed and reads exactly like a violation. Three dots diff
+  from the merge base, which is your side only and is what the script itself does.
+  Either form covers only **committed** work, so commit first. CI uses `origin/main`, so CI is unaffected.
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app
