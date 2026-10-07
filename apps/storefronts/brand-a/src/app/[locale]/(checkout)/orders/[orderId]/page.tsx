@@ -1,11 +1,13 @@
-import { Badge, Price, buttonVariants } from '@platform/ui';
-import { orderConfirmationHooks, orderLineHooks } from '@/lib/test-hooks';
+import { Price, buttonVariants } from '@platform/ui';
+import { orderLineHooks } from '@/lib/test-hooks';
 import type { Metadata } from 'next';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { cookies } from 'next/headers';
 import { Link } from '@/i18n/navigation';
 import { notFound } from 'next/navigation';
+import { OrderConfirmationHeader } from '@/components/order-confirmation-header';
 import { AddressCard, TotalsTable } from '@/components/order-summary';
+import { isSignedIn } from '@/lib/auth/session';
 import { isNotFound, storeApi } from '@/lib/store-api';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -20,7 +22,7 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
  * Order confirmation. `GET /store/orders/{id}` needs the email the order was placed with — it is
  * what authorises a guest to see it. `placeOrderAction` puts that email in a short-lived httpOnly
  * cookie, so the address never appears in a URL that could be shared or logged; a returning
- * customer can still pass `?email=` from the link in their confirmation mail.
+ * customer can still pass `?email=` (no email carries that link yet — nothing sends email, #351).
  */
 export default async function OrderConfirmationPage({
   params,
@@ -47,8 +49,9 @@ export default async function OrderConfirmationPage({
     );
   }
 
-  const [tCommon, order] = await Promise.all([
+  const [tCommon, signedIn, order] = await Promise.all([
     getTranslations('common'),
+    isSignedIn(),
     storeApi()
       .getOrder(orderId, { email }, { cache: 'no-store' })
       .catch((error: unknown) => {
@@ -60,13 +63,7 @@ export default async function OrderConfirmationPage({
 
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-col items-start gap-2" {...orderConfirmationHooks(order)}>
-        <Badge variant="success">{t('badge')}</Badge>
-        <h1 className="text-3xl font-bold">{t('title')}</h1>
-        <p className="text-muted-foreground">
-          {t('body', { order: order.display_id, email: order.email })}
-        </p>
-      </header>
+      <OrderConfirmationHeader order={order} signedIn={signedIn} />
 
       <ul className="flex flex-col divide-y divide-border">
         {order.items.map((item) => (
@@ -84,6 +81,10 @@ export default async function OrderConfirmationPage({
 
       <div className="grid gap-6 sm:grid-cols-2">
         <AddressCard title={t('deliveryAddress')} address={order.shipping_address} />
+        <div className="flex flex-col gap-1 text-sm" data-testid="order-contact">
+          <h3 className="font-medium">{t('contactEmail')}</h3>
+          <p className="text-muted-foreground">{order.email}</p>
+        </div>
         <div className="flex flex-col gap-1 text-sm">
           <h3 className="font-medium">{t('delivery')}</h3>
           <p className="text-muted-foreground">
