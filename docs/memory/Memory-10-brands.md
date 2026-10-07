@@ -172,7 +172,13 @@ that is why.
    #383 hardened the spec. The hardened spec **skips** when the key is absent, and brand A's core leg
    is the only place it runs — so deleting the line would stop proving #372 **while the leg stayed
    green**. My line supplies the value; #383 makes its absence legible. Both halves.
-2. `lighthouserc.json` keeps `maxNumericValue: 2500`. The flakiness was fixed by `numberOfRuns: 5`,
+2. **`numberOfRuns: 5` stays until the 30-leg count is finished**, and `maxNumericValue` stays at
+   2500. Manager's ruling 2026-10-07, and the reason is better than my suggestion: window 3's
+   warm-up (REQUEST #390, already on main as `warm-urls.test.ts`) probably *would* let N go back to
+   3 — but changing N mid-count **invalidates the 30-leg count**, because the legs either side of
+   the change are not measuring the same thing. So re-measuring with the warm-up is a **separate,
+   later PR with its own data**, after #348 is closed. Do not touch either number before then.
+3. `lighthouserc.json` keeps `maxNumericValue: 2500`. The flakiness was fixed by `numberOfRuns: 5`,
    not by loosening the budget. If #390's warm-up lands, N can probably go back to 3 — re-measure
    before changing either number, and never argue a threshold from the median.
 
