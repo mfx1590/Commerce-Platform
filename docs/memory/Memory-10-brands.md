@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main b5473ac) · Status: **INTEGRATION 2a, DOCKET CLEAR (end of 2026-10-07)** — merged: #374, #372, #382 (via #391), #348's change (via #388). **#408 (#386) green and IN THE QUEUE.** #348 itself is **reopened** for the manager's 30-leg count; REQUEST **#389** (the perf gate's six erroring audits) still unfixed. Quiet; no pushes.
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main b5473ac) · Status: **INTEGRATION 2a COMPLETE (2026-10-07) — every assigned task merged.** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`). **Nothing of mine is open.** Two things are NOT mine and still outstanding: #348 is **reopened** for the manager's 30-leg CI count, and REQUEST **#389** (the perf gate's six erroring audits) is unfixed. Quiet.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -20,10 +20,8 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 - **#386 · brand A's two hero loops placed.** Content (both locales), the `heroVideo` branch in
   `cms/brand-a/scripts/resolve-media.mjs`, 9 tests, DESIGN.md §7, both READMEs.
   **PR #408**: head `916ff01` → `BLOCK` on static review (the missing test, see the gotcha) → fixed
-  and re-pushed as head **`c69d6b4`**, which I verified green myself — **14 pass / 0 fail / 0
-  pending**, the live job and brand A's perf leg included — and which was **in the merge queue at the
-  end of 2026-10-07**. GitHub had an outage during that run and recovered. *If a later session finds
-  #408 unmerged, the queue is where it stopped, not a failure.*
+  and re-pushed as head `c69d6b4` (verified green myself: 14 pass / 0 fail / 0 pending, the live job
+  and brand A's perf leg included). **MERGED as `dea7575`; issue #386 CLOSED.** Verified on main.
   Built on `brands/phase3`, merged with main `b5473ac`; cms is 0.5.0.
   - **The swap:** a loop is only valid over the still the manifest names as its `poster`.
     `home-hero-shirt-loop-8s`'s poster is `home-hero-02`, the hero showed `home-hero-01`, and
@@ -184,40 +182,34 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — nothing. Integration 2a docket complete (2026-10-07)
+## In progress — nothing. Integration 2a complete (2026-10-07)
 
-Everything the manager assigned is delivered. **Do not push either branch**; both PRs are reviewed
-MERGE and waiting on the queue behind #385.
+Every task the manager assigned is **merged**. Nothing of mine is open, and there is nothing held or
+half-done; the one local commit left is this record.
 
-| item | state |
-| --- | --- |
-| **#374** order total vs. arithmetic | MERGED (PR #377 → `e1e515f`), issue closed |
-| **#372** brand A half (re-sync) | MERGED (PR #379 → `7f4f8fe`), issue closed |
-| **#382** hardened lifecycle spec | **PR #391** `0943198`, reviewed MERGE, queued |
-| **#348** perf gate N=5 | **PR #388** `eb71959`, reviewed MERGE, queued |
-| REQUESTs to window 3 | **#389** (gate's LCP audits all error), **#390** (no perf warm-up) |
+| task | PR | merged as |
+| --- | --- | --- |
+| **#374** order total compared to the review step, not arithmetic | #377 | `e1e515f` |
+| **#372** brand A half — order status, card payment, invoice from the store | #379 | `7f4f8fe` |
+| **#382** hardened order-lifecycle spec (one-file re-sync) | #391 | `4335c0c` |
+| **#348** perf gate at five runs, budget untouched | #388 | `79436fc` |
+| **#386** brand A's two hero loops placed | #408 | `dea7575` |
 
-**#348 is NOT closed by #388, deliberately.** Its body and title say *Refs*, because acceptance also
-needs **30 consecutive green brand A perf legs** and no PR can demonstrate that about itself. **The
-manager counts those in CI after merge and closes #348.** The commit subject on `brands/348` still
-reads "Closes #348" and could not be rewritten — a note in the PR body asks whoever merges to reopen
-the issue if GitHub auto-closes it. If a future session finds #348 closed with no count recorded,
-that is why.
+**Not mine, still outstanding — do not assume these are done:**
+- **#348 is reopened.** Its change merged, but acceptance needs **30 consecutive green brand A perf
+  legs**, which the manager counts in CI. `numberOfRuns: 5` and `maxNumericValue: 2500` must both
+  stay put until that count finishes — changing either mid-count invalidates it.
+- **REQUEST #389 is unfixed:** the perf gate's pinned `@lhci/cli` 0.14.0 errors six audits on every
+  run, including every audit that identifies the LCP element. **Until it is fixed, no LCP argument
+  taken from the gate's own output is worth anything** — that is exactly the trap #348 fell into, and
+  it will catch whoever hits a perf budget next. Diagnose with a standalone `lighthouse@12` instead.
+- REQUEST **#390** (perf warm-up) appears implemented on main (`warm-urls.test.ts`). If it holds,
+  `numberOfRuns` could likely return to 3 — but only **after** #348's count closes, as its own PR with
+  its own data.
 
-**Two things that must not be "tidied away" later:**
-1. Brand A's `process.env.STORE_PUBLISHABLE_KEY ??=` line in `playwright.config.ts` stays even though
-   #383 hardened the spec. The hardened spec **skips** when the key is absent, and brand A's core leg
-   is the only place it runs — so deleting the line would stop proving #372 **while the leg stayed
-   green**. My line supplies the value; #383 makes its absence legible. Both halves.
-2. **`numberOfRuns: 5` stays until the 30-leg count is finished**, and `maxNumericValue` stays at
-   2500. Manager's ruling 2026-10-07, and the reason is better than my suggestion: window 3's
-   warm-up (REQUEST #390, already on main as `warm-urls.test.ts`) probably *would* let N go back to
-   3 — but changing N mid-count **invalidates the 30-leg count**, because the legs either side of
-   the change are not measuring the same thing. So re-measuring with the warm-up is a **separate,
-   later PR with its own data**, after #348 is closed. Do not touch either number before then.
-3. `lighthouserc.json` keeps `maxNumericValue: 2500`. The flakiness was fixed by `numberOfRuns: 5`,
-   not by loosening the budget. If #390's warm-up lands, N can probably go back to 3 — re-measure
-   before changing either number, and never argue a threshold from the median.
+**Next session:** nothing queued. Expect Phase 3 proper (the gaps below and LAUNCH.md's owner
+actions), or window 3's `src/lib/cms` hero rendering (#403) arriving on the next re-sync, which is
+what finally makes the placed loops visible.
 
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
