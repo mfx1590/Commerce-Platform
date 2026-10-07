@@ -68,6 +68,17 @@ export interface Seo {
   noIndex?: boolean;
 }
 
+/**
+ * A silent loop behind the hero image (#330). Only valid next to an `image` — the poster, the
+ * reduced-motion fallback and the LCP element — which the schema enforces (`heroPoster`) and the
+ * storefront reader re-checks before exposing the field.
+ */
+export interface HeroVideo {
+  _type: 'heroVideo';
+  /** Cloudinary video delivery URL (`CLOUDINARY_VIDEO_URL_PATTERN`): `…/video/upload/…`. */
+  cloudinaryUrl: string;
+}
+
 export interface Hero {
   _type: 'hero';
   _key?: string;
@@ -75,6 +86,8 @@ export interface Hero {
   headline: string;
   subheadline?: string;
   image?: SanityImage;
+  /** Optional; never present without `image`. */
+  video?: HeroVideo;
   ctas?: Cta[];
   layout?: 'image-right' | 'image-left' | 'full-bleed';
 }
