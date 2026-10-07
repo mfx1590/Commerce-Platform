@@ -134,12 +134,12 @@ curl -H 'Authorization: Bearer dev:seed-owner' 'http://localhost:4030/preview/or
 
 ## Schema
 
-`notification_delivery` is **proposed** (`migrations/0180_notification_delivery.sql`, CONTRACT CHANGE issue to
-the main window; the #244 pattern): the tests apply the file to their throwaway database on top of the real
-migrations, so the worker is exercised against exactly the schema being proposed. When it lands in
-`packages/db/migrations` this copy is deleted. It carries no address — a report over it can say how many
-confirmations went out and how many are stuck without knowing who any of them went to. The cursor is a
-`marketing_cursor` row (migration 0170, #244), which this app may write because it is marketing's table.
+`notification_delivery` is `packages/db/migrations/0180_notification_delivery.sql` (db 0.3.3, CONTRACT CHANGE
+#393, landed in #397). It travelled the #244 way: proposed as a copy inside this app, applied by the tests to
+their throwaway database until the main window landed it, then deleted — the tests now run on the real
+migration. It carries no address — a report over it can say how many confirmations went out and how many are
+stuck without knowing who any of them went to. The cursor is a `marketing_cursor` row (migration 0170, #244),
+which this app may write because it is marketing's table.
 
 ## PII
 
