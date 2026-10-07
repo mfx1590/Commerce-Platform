@@ -34,7 +34,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## In progress
 
-- **#90 — PR #400 open (commit 91d2ac3 = head, on main 848e601), checks running, reported to the manager.** Next: report when every check has finished; hold until "merged"; then the Phase 3 backlog below (role admin endpoints first) — ask the manager which item before starting.
+- **#90 — PR #400 open (commit 91d2ac3; head 9d48d8f after the record push), Fable static review MERGE, queue pending.** Next: report when every check has finished; hold until "merged"; then the Phase 3 backlog below (role admin endpoints first) — ask the manager which item before starting.
 
 <!-- Done entries continue here as each queued task's PR opens. -->
 
@@ -91,6 +91,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 Role management UI support: APIs for listing users, assigning stores, finance gate; SSO for HQ.
 
+- [ ] #402 (nit from the #400 review, filed against me): both x-permission sweeps must assert every operationId under `paths` carries an `x-permission` unless allowlisted (`getMe` only) — next auth PR
 - [ ] Role admin endpoints
 - [ ] SSO config (`hq-sso` placeholder IdP already in the staff realm, disabled)
 - [ ] Session revocation on role change
