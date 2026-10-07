@@ -1,6 +1,6 @@
 {
   "name": "@platform/notifications",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Transactional email worker: consumes order.placed and shipment.shipped from the outbox and sends one email per event through a pluggable transport (#360)",
@@ -13,8 +13,7 @@
     }
   },
   "files": [
-    "dist",
-    "migrations"
+    "dist"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
