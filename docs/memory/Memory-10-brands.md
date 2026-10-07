@@ -125,6 +125,51 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
+## In progress — #386 brand A hero loops (assigned 2026-10-07, plan written, NOT started)
+
+Window 6's REQUEST, text complete with the exact diff. `#385` (`@platform/cms` 0.5.0) is on main as
+`e64a7f5`, so the schema half is available. **GATE: build on `brands/phase3` only AFTER #391 merges**
+(#391 and #388 are in the queue together behind #385), and **hold the push until the manager
+confirms**. One PR "Closes #386". No machine needed.
+
+**The one judgement the issue leaves to me, and my answer.** `resolveVideo` rejects a loop whose
+hero image is not the slot's `poster`. Today:
+
+| hero | image today | loop | loop's `poster` | verdict |
+| --- | --- | --- | --- | --- |
+| home | `home-hero-01` | `home-hero-shirt-loop-8s` | `home-hero-02` | **mismatch — must move** |
+| campaign | `campaign-autumn-hero` | `campaign-autumn-hero-loop-8s` | `campaign-autumn-hero` | matches, no change |
+
+The poster wins (it is the video's real first frame; `media/manifest.json` mirrors generated media
+from outside the repo, so **do not "fix" the poster there**). But `home-hero-02` is already used by
+the `imageBlock` keyed `img-home-hero-02` further down the same page, so moving the hero onto it
+would show one still twice. **Plan: swap the pair** — hero takes `home-hero-02`, that imageBlock
+takes `home-hero-01`. Each still then appears exactly once and the hero matches its loop.
+
+**Steps:**
+1. `cms/brand-a/content/home.json` × **both locales**: hero gains
+   `"video": { "_type": "heroVideo", "mediaSlot": "home-hero-shirt-loop-8s" }`; hero image
+   `home-hero-01` → `home-hero-02`; the `img-home-hero-02` block `home-hero-02` → `home-hero-01`.
+2. `cms/brand-a/content/campaign.json` × **both locales**: hero gains
+   `"video": { "_type": "heroVideo", "mediaSlot": "campaign-autumn-hero-loop-8s" }`. No image change.
+3. `cms/brand-a/scripts/resolve-media.mjs`: add `resolveVideo` exactly as the issue specifies, thread
+   `parent` through `walk` (one extra argument), branch on `_type === 'heroVideo'` **before** the
+   image branch, keep every existing error. No alt check for video (it is `aria-hidden`).
+4. `test/brand-media.test.ts`: the five cases — both loops resolve to a `/video/upload/` URL and the
+   docs pass `validateDocument`; without a cloud name both are left out and the heroes stay valid;
+   a `heroVideo` naming an image slot fails; a loop whose hero image is not its poster fails; a loop
+   outside a hero fails. (The existing "image naming a video slot fails" case stays.)
+5. `apps/storefronts/brand-a/src/brand/DESIGN.md` §7, the paragraph at ~line 330 ("The loops are not
+   on the site yet…"): the field now exists (cms 0.5.0, PR #385); **rendering is still window 3's**
+   (#330), so a placed loop is simply not rendered yet. Note DESIGN.md lives under `src/brand/**`,
+   which is **preserved** — the sync will not touch it.
+6. CHANGELOG + this file. Gates: `pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
+   --filter @platform/storefront-brand-a` (+ the cms package's own tests if the content is validated
+   there). No core, no mock, no docker.
+
+**Watch for:** `apps/storefronts/brand-a/src/lib/cms` is synced from the starter, so `hero-video.ts`
+and `reader.ts`'s two-line change arrive on the **next re-sync**, not here — do not hand-write them.
+
 ## In progress — nothing. Integration 2a docket complete (2026-10-07)
 
 Everything the manager assigned is delivered. **Do not push either branch**; both PRs are reviewed
