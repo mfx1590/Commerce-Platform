@@ -2,6 +2,11 @@
 
 ## Unreleased — 2026-10-06 · re-sync at main e7f2f3e: order status, card payment, invoice from the store (#372)
 
+**PR [#379](https://github.com/mfx1590/Commerce-Platform/pull/379)**, reviewed head `771f35d`
+(static review: MERGE on the code — the sync faithful across 16 compared blobs, the
+`RUNTIME_SITE_URL` reasoning verified, #372's assertions present). Merged `origin/main` `5b119ff`
+afterwards for the gitleaks allowlist, below.
+
 - **Re-sync**: 202 copied, 1 merged, 10 preserved, 4 excluded (from 217 tracked starter files).
   Brings the starter's #372/#375 half and the card-payment work from #365/#367:
   - **Order status on the confirmation (#372)** — `src/components/order-confirmation-header.tsx`,
@@ -28,6 +33,24 @@
   the 43 synced tests all pass); mock e2e **83 passed / 35 skipped**, exit 0. `order-lifecycle.spec.ts`
   and `card-payment.spec.ts` both skip without the core by design, so the **core leg on the PR is the
   proof of the status assertion**.
+- **The two red checks on `771f35d`, and what they were.**
+  - _secret scan (gitleaks), 2 findings_ — the sync copies the starter's `payment-options.test.ts`
+    verbatim, and `sk_test_secretword` / `rk_test_restrictedword` live there to assert a
+    non-publishable key is **refused**. The file is byte-identical to the starter's and every literal
+    is a prefix plus a dictionary word, so nothing here is key material. Fixed on main in `5b119ff`
+    by widening the allowlist path to every brand clone — **not** by editing the literals, which would
+    diverge from the starter and be overwritten by the next sync. Merged in here.
+  - _live auth + end-to-end, 1 failed_ — `e2e/order-lifecycle.spec.ts:99`, and **not a storefront
+    fault**. The storefront half passes: the order is placed on the core, the confirmation renders,
+    and `data-order-status` is correctly neither `processing` nor `completed`. It fails on the test's
+    own admin setup, at the first Admin API call —
+    `GET /admin/stores/{id}/orders/{id}` → `503 {"code":"internal","message":"authorization service
+unavailable","details":{"reason":"FgaValidationError"}}` — i.e. the core's Admin API
+    authorization through OpenFGA. That spec is byte-identical to the starter's. Note that the
+    starter's own leg prints "order-lifecycle skipped: no core", so **brand A's leg is the first place
+    this spec has ever executed**; #372's assertion found a real failure on its first real run.
+    Raised with the manager; core/auth territory, not brand A's.
+
 - **Local-only gotcha, not a code problem:** the first mock run failed two checkout specs at
   "Pay on invoice". Port 4010 on this laptop is held by a **Docker-published Prism from 2026-10-01**,
   predating `Store.payment.methods`, and Playwright's `reuseExistingServer` adopted it — so the app

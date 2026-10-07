@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main e7f2f3e) · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); working the manager's 2a docket (#374, then #372's brand A half, then #348).
+Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 5b119ff) · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); working the manager's 2a docket (#374, then #372's brand A half, then #348).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -130,19 +130,7 @@ detached to a file with bounded polls, say "machine free" after any core run.
    (the queue merged main into the branch as `06b893e` first). Commits `54a8171` (the fix) and
    `128542e` (prettier). See Done below.
 
-2. **#372, brand A's half — DONE. PR #379 is up, head `771f35d`, awaiting checks.** Manager
-   notified 2026-10-06 with the number, sha and the full preserved-drift report; **owed them a second
-   report once #379's checks finish.** CI monitor deliberately OFF, I do not poll — the owner relays.
-   See Done below.
-   Manager 2026-10-06 (late): #379 noted, **static review running, the queue is next session** — the
-   owner's day was over and no merges happened tonight. They called the `RUNTIME_SITE_URL` refusal
-   "the right call — well documented". **The stale Docker Prism on :4010 is an owner decision**; the
-   manager has asked for the OK to restart the mock containers and will pass the 4310/4311
-   workaround to the other windows. I did not touch the stack.
-   **NOTE for the next session: #379 is still OPEN on `brands/phase3`.** Anything pushed to that
-   branch lands in #379. Either wait for it to merge (the manager's instruction: hold #348's push
-   until they confirm #379 MERGED) or cut a separate `brands/` branch for #348.
-
+2. **#372, brand A's half — PR #379, updated 2026-10-07 after merging main.** See the #379 status section below for the two red checks and which is mine (only the secret scan was, and the merge fixes it).
 3. **#348 — NEXT, and not started: the owner's day ended before they gave the word.** The manager
    says continue it locally and hold the push; the owner asked to be the one to start it, and a peer
    does not override that, so it waits for them. Nothing is half-done — no files touched for #348.
@@ -163,36 +151,33 @@ detached to a file with bounded polls, say "machine free" after any core run.
    product image?) and is it prioritised, sized and served at the right width — because a genuine fix
    beats a threshold argument.
 
-## DO THIS FIRST NEXT SESSION (manager, late 2026-10-06) — one push, then #379 queues
+## #379 status (2026-10-07) — the recorded first action is DONE
 
-#379's static review is **MERGE on the code**: the sync was faithful across 16 compared blobs, the
-`RUNTIME_SITE_URL` reasoning was verified, and #372's assertions are present. Only the **secret scan**
-is red, and the cause is not mine to fix in the file:
+Merged `origin/main` `5b119ff` (the gitleaks allowlist), cited **PR #379** and reviewed head
+`771f35d` in the CHANGELOG and here, re-ran the gates, one push to `brands/phase3` — #379 updated in
+place, no second PR. Static review was **MERGE on the code**.
 
-- The sync copied the starter's Stripe-**shaped test literals** into `test/payment-options.test.ts`
-  (`pk_test_storeword`, `pk_test_globalword`, and `sk_test_secretword` / `rk_test_restrictedword` /
-  `whsec_word` in the case that asserts a non-publishable key is **refused**). I verified them: the
-  file is **byte-identical to the starter's**, every literal is `prefix_` + a dictionary word, and
-  none is key material. The test that proves secrets never reach the browser is what trips the
-  scanner.
-- **Do not "fix" the literals.** Editing them would diverge from the starter and the next sync would
-  overwrite it. The manager extended the **allowlist path on main** to cover every storefront clone
-  and has pushed that commit; merging main clears the check.
+**The two red checks on `771f35d`:**
 
-**The one push, exactly as the manager framed it:**
-1. `git fetch origin` and **merge `origin/main`** (it carries the allowlist fix).
-2. **In the same commit**, add **PR #379 and head sha `771f35d`** to `CHANGELOG.md` and to this file —
-   both currently cite only the sync base (`e7f2f3e`) and no PR number.
-3. `pnpm install` + rebuild the workspace packages, then the full gate:
-   `pnpm lint && pnpm format:check && pnpm typecheck --filter @platform/storefront-brand-a &&
-   pnpm test --filter @platform/storefront-brand-a`, plus the mock e2e **on private ports**
-   (`MOCK_API_URL=http://127.0.0.1:4310 MOCK_STORE_PORT=4310 MOCK_ADMIN_PORT=4311`) — see the Docker
-   gotcha below.
-4. **One push** to `brands/phase3` (this updates #379 in place; do not open a second PR). Then message
-   the manager the new head sha. It queues after that.
-5. Local commit `2c96716` is **not yet pushed** and rides along with this.
-
-Only then #348, and only on the owner's word.
+1. **secret scan — fixed by the merge.** gitleaks found exactly 2: `sk_test_secretword` and
+   `rk_test_restrictedword` in `test/payment-options.test.ts`, which the sync copies from the starter
+   verbatim and which exist to assert a non-publishable key is **refused**. Byte-identical to the
+   starter; no key material. Main's `5b119ff` widened the allowlist path to
+   `^apps/(storefront-starter|storefronts/[a-z0-9-]+)/test/payment-options\.test\.ts$`, which matches
+   brand A. **Never edit those literals** — it would diverge from the starter and be overwritten.
+2. **live auth + end-to-end — NOT mine, and it will recur.** `e2e/order-lifecycle.spec.ts:99` fails
+   at the first Admin API call, `GET /admin/stores/{id}/orders/{id}` → **503 `FgaValidationError`,
+   "authorization service unavailable"** — the core's Admin API authorization through OpenFGA, reached
+   with a `staffApi()` token. The storefront half passes (order placed on the core, confirmation
+   rendered, `data-order-status` correctly not yet `processing`/`completed`). The spec is
+   byte-identical to the starter's. Main has no FGA change, so merging main does not fix it.
+   **The find that matters:** the starter's own leg prints "order-lifecycle skipped: no core", so
+   only brand A's leg sets `E2E_STORE_API_URL` and reaches the admin path — **brand A's leg is the
+   first place this spec has ever executed**, and #372's assertion caught a real Admin API failure on
+   its first real run. Within the same job the two earlier legs were green (21, then 67 passed), so
+   FGA answered earlier in the run; OpenFGA is in-memory here, so a stale/absent store-or-model id by
+   the time brand A's leg runs is the first thing to look at. **Core/auth territory (windows 1/4) — do
+   not touch it, and do not "fix" the synced spec.** Reported to the manager with this evidence.
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
