@@ -1,5 +1,17 @@
 # Changelog — @platform/storefront-starter
 
+## 0.13.2 — 2026-10-07
+
+Issue #382. Test-only; no app change.
+
+- **`e2e/order-lifecycle.spec.ts` fails loudly instead of acting on `store:undefined`.** `GET /store`
+  and every Admin API call are asserted `ok()`; a failure names the call, the HTTP status and the
+  contract's error `code` / `message` — never the raw body, which could carry personal data. The store
+  id must be a uuid before the admin calls start.
+- **No `STORE_PUBLISHABLE_KEY` → one printed line and a skip** (`[e2e] order-lifecycle skipped: no
+STORE_PUBLISHABLE_KEY …`). The run supplies the key: brand A's `playwright.config` sets it for its
+  core leg (window 10). An empty key used to reach the admin calls and come back 403.
+
 ## 0.13.1 — 2026-10-06
 
 Issue #372 (#350 follow-up). Store API 0.5.4. No contract change.
