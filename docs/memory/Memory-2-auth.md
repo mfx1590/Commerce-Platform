@@ -33,7 +33,7 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 ## In progress
 
-- **#346 — PR #387 open (commit 3e9f534, head 5fe56d8 = main 13c393d merged in), checks running** (window 1's half is theirs: `apps/core/test/auth-live.test.ts`). Next: PR number + head sha to the manager and to window 1; hold until the manager confirms the merge; then #90 (remove/flag `/admin/finance/ping`, exhaustive `x-permission` sweep count in `gate.test.ts`).
+- **#346 — PR #387 open (commit 3e9f534, head 5fe56d8 = main 13c393d merged in), every check green (14 pass, run 37618511669; witness: 3 owner logins, the sdk's two test files shared ONE test-cli grant via RUNNER_TEMP), reported to the manager 2026-10-07, waiting for the verdict** (window 1's half is theirs: `apps/core/test/auth-live.test.ts`). Next: PR number + head sha to the manager and to window 1; hold until the manager confirms the merge; then #90 (remove/flag `/admin/finance/ping`, exhaustive `x-permission` sweep count in `gate.test.ts`).
 
 <!-- Done entries continue here as each queued task's PR opens. -->
 
