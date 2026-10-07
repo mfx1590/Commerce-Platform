@@ -253,6 +253,13 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   (set the admin port too: `mock.mjs` kills both servers if either fails to bind). CI is unaffected —
   `reuseExistingServer` is off there. **Symptom to recognise:** a mock run failing on a feature the
   contract gained recently, with no error in the app's own log.
+  **The same port also makes a UNIT test flake here.** `test/brand-i18n-seo.test.ts`'s "renders
+  `<html lang>` through the real layout" renders the real locale layout, which fetches `GET /store`
+  from `MOCK_API_URL` (default `localhost:4010`) — and `localhost` tries `::1` first on this laptop
+  ([[docker-ipv6-loopback-reset]]). It took 1630 ms on a good run and failed once in about five
+  full-suite runs on 2026-10-07, while passing on its own every time. **Not a code defect and green
+  in CI**, which starts its own mock: if it reddens a local run, re-run before believing it, and do
+  not "fix" the test.
 - **`playwright.config.ts` must never import `RUNTIME_SITE_URL`** from `e2e/support/build-origin`,
   however the starter writes it. The module computes `process.env.SITE_URL ?? ':3100'` in a
   module-level `const`; ES imports evaluate before the importing module's body; brand A's
