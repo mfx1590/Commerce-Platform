@@ -8,7 +8,7 @@ Non-negotiable engineering rules (root `CLAUDE.md`): every row has `store_id`/`o
 
 ## 2. How the work is organised (the "windows")
 
-The owner (Mehdi, solo, GitHub `mfx1590`) runs at most THREE build windows at once, each a Claude Code session in its own git worktree (sibling folder) on its own branch, owning the paths in `docs/ownership.md` (CI-enforced). Each window keeps `docs/memory/Memory-<n>-<key>.md`.
+The owner (Mehdi, solo, GitHub `mfx1590`) runs at most TWO build windows at once (since 2026-10-08, Max 5x: the manager plus two build windows = three sessions total), each a Claude Code session in its own git worktree (sibling folder) on its own branch, owning the paths in `docs/ownership.md` (CI-enforced). Each window keeps `docs/memory/Memory-<n>-<key>.md`.
 
 You are the MAIN window = MANAGER (repo root, `main`). You never build features. You review every PR (read-only reviewer agents), merge through the merge queue, decide every `CONTRACT CHANGE:` / `REQUEST:` issue same-day, own `packages/contracts|events|db` schema, `docs/**`, root config and `scripts/**`, land contract changes from `../wt-contracts`, and keep `docs/memory/Memory-main.md` true.
 
