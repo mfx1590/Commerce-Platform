@@ -33,11 +33,15 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
     `E2E_LOCAL_IMAGES` refusal.
   - Gates: lint, `format:check`, typecheck clean; unit **764 passed / 2 skipped** (739 before);
     mock e2e **83 passed / 35 skipped**, exit 0. **Machine free.**
-  - **RAISED WITH THE MANAGER:** the #389 LHCI bump (0.14.0 → 0.15.1) changes the measuring tool
-    **in the middle of #348's 30-leg count**. The ruling that `numberOfRuns` and `maxNumericValue`
-    must not move mid-count applies to the Lighthouse version for the same reason — legs either side
-    of it are not measuring the same thing. The count probably has to restart from whatever commit
-    carries 0.15.1. Their call, not mine, but it should not pass unnoticed.
+  - **#348's count RESTARTS at #411's merge — manager's ruling 2026-10-08, accepting the point I
+    raised.** The #389 LHCI bump (0.14.0 → 0.15.1) changes the measuring tool, and legs either side
+    of it are not measuring the same thing, so the same logic that freezes `numberOfRuns` and
+    `maxNumericValue` mid-count applies to the Lighthouse version. The commit that carries 0.15.1
+    into brand A is **#411's merge**; the manager records the restart on the issue at merge and
+    counts from there. **`numberOfRuns: 5` and `maxNumericValue: 2500` still do not move** until that
+    count completes; re-measuring N is a later PR with its own data. *Generalise it: any change to
+    the measuring tool, the budget, or the run count invalidates an in-flight count — check for one
+    before touching the perf gate.*
 - **#386 · brand A's two hero loops placed.** Content (both locales), the `heroVideo` branch in
   `cms/brand-a/scripts/resolve-media.mjs`, 9 tests, DESIGN.md §7, both READMEs.
   **PR #408**: head `916ff01` → `BLOCK` on static review (the missing test, see the gotcha) → fixed
