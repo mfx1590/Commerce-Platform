@@ -129,3 +129,68 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   challenge, which must spend a code, gains the third fallback); the secret literal and the TOTP function
   now live in one file. Tests: `test/staff-token.test.ts` — unit against a fake Keycloak (reuse without a
   grant, other issuer, userinfo 401, refused steps, non-owner, malformed file) + live on the real stack.
+- #90 (follow-up of the #89 review), hq-rbac: `GET /admin/finance/ping` left `HQ_RBAC_ROUTES` (now
+  `FINANCE_PING_ROUTE`); `createHqRbac` serves it by default everywhere except `NODE_ENV=production` (every
+  image sets it) and throws when `financePing: true` is passed under production — dev stacks and the core's
+  live suite keep the test double, production never has it. The gate's `x-permission` sweep now cuts the
+  spec's `paths:` section into operation blocks instead of matching `x-permission` directly under
+  `operationId`: the old regex silently skipped four operations whose description spans several lines
+  (`updateDomain`, `revokeApiKey`, `capturePayment`, `buyShipmentLabel`; none finance-gated, so the gate's
+  claim held). A static test pins that every `x-permission` line under `paths` is attributed to exactly one
+  operation; `test/guard.test.ts` pins the same count for the auth-sdk sweep.
+- #402 (nit from the #400 review): both x-permission sweeps (`gate.test.ts`, `guard.test.ts`) now assert that
+  every `operationId` under `paths` carries an `x-permission` unless allowlisted — `getMe` only, exact equality in
+  both directions, so an unguarded operation fails the gate loudly instead of vanishing from the sweep, and a
+  stale allowlist entry fails too. Measured: 113 operations, 112 guarded.
+- #406 (follow-up of #346): a refused owner grant now waits `RETRY_GAP_MS` (1.5 s) before the next attempt — the
+  staff realm's brute-force protection blocks a user for 60 s after two refused logins within one second, so the
+  back-to-back previous/current attempts could make the fresh-step fallback useless (seen locally, 146/147). The
+  shared file is deleted once at the end of a local run that created it (`test/global-setup.ts`, vitest
+  `globalSetup`) instead of after every test file, so scope.test.ts, the browser challenge and
+  staff-token.test.ts spend one grant per run between them instead of three cold grants; `forgetStaffToken()`
+  keeps its semantics for a single-file consumer. The fake Keycloak in `test/staff-token.test.ts` enforces the
+  quick-login rule and the unit tests pin the gaps and that no block ever forms.
+
+## Unreleased — 2026-10-08 (auth/phase3, task 3.1)
+
+- #415 (a) store object registration: `ensureStoreObject(storeId, { fga?, organization })` writes the
+  `organization:<slug>#organization@store:<id>` tuple idempotently (duplicate-tolerant, uuid check 400, OpenFGA
+  down 503; no DB, no mirror, no audit); `reconcileStoreObjects` + `pnpm --filter @platform/auth-sdk
+fga:reconcile [--fix]` list and repair stores without it. Tests: `test/store-object.test.ts` (unit on a
+  scripted client; live on a throw-away store + database).
+- #415 (b) `inviteUser` as the contract documents it, behind the new `createKeycloakAdmin()` — the confidential
+  service-account client `core-admin` of the staff realm (client-credentials; realm-management manage-users /
+  view-users / query-users only; env `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`, REQUEST #418 for
+  .env.example): Keycloak user (email = username, `UPDATE_PASSWORD` + `CONFIGURE_TOTP`, no password) → `staff_user`
+  row + `staff_user.create` audit in one transaction (Keycloak user deleted again on failure) → optional first
+  role; 409 on an existing email. The dev staff realm export gains the client and its service-account user
+  (`dev-only-core-admin-secret`, allowlisted shape; production strips it in #416). hq-rbac serves
+  `POST /admin/users` (owner on organization:hq → 201 StaffUser). Tests: `test/keycloak-admin.test.ts` (unit,
+  fake Keycloak), `apps/core/src/modules/hq-rbac/test/invite.test.ts` (live, throwaway user deleted loudly).
+- #415 (c) session revocation: `assignRole` / `revokeRole` end the user's Keycloak sessions after the committed
+  change (`RolesDeps.keycloak`) and drop the cached scope; a failed logout answers 503 with the change applied.
+  Live test: the same store-admin token is refused on the next request, the sessions endpoint is empty, a
+  fresh assignment + token works again.
+
+## Unreleased — 2026-10-08 (auth/phase3, task 3.2)
+
+- #416: derived production realm exports. `node infra/keycloak/derive-production.mjs <realm>` derives
+  `infra/keycloak/production/<realm>-realm.json` deterministically from the dev export +
+  `production/production-profile.json` (public Keycloak URL, one origin + callback per OIDC client, password policy per
+  realm): seeded users and `test-cli` removed (client service accounts kept, no credentials), `sslRequired:
+all`, `verifyEmail: true`, brute force on, no client secret, exact https callbacks and origins, post-logout
+  `<origin>/`, `frontendUrl`, the staff OTP step REQUIRED. `test/production-realms.test.ts` (33 static tests)
+  re-derives and compares byte for byte (a hand edit fails), proves determinism and asserts each invariant
+  separately. Dev files, `reimport.mjs` and the live CI job are unchanged. README: what still needs a cluster.
+- #422 (review follow-up of #421): the role-change logout now runs after the tuple change and BEFORE the
+  mirror transaction — a refused logout compensates the tuple and answers 503 with nothing changed, so a
+  retry re-runs the whole change including the logout (before: applied first, 503 after, and the retry
+  answered 404 / `created: false` without re-attempting the logout). The revocation live test uses a
+  throwaway invited user (bootstrap admin sets a dev-only password and clears the required actions) instead
+  of logging the shared seeded `store-admin` out; the realm test pins no realm roles / groups on the
+  service-account user; `infra/keycloak/README.md` no longer claims there is no confidential client;
+  CONTRACT CHANGE #423 adds the `400` response to `inviteUser`.
+- Found by the throwaway-user revocation test: an invited user with an empty `lastName` is "not fully set up"
+  for Keycloak (the realm's user profile requires both names) and gets no token, not even through the
+  direct grant. `createUser` now splits the display name into `firstName` / `lastName` (a one-word name is
+  stored as both); `KeycloakStaffUser.lastName` added.

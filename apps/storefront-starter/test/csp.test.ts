@@ -89,6 +89,10 @@ describe('the fixed directives', () => {
     expect(policy.get('base-uri')).toBe("'self'");
   });
 
+  it('plays media from this origin and Cloudinary only — the hero loops (#330)', () => {
+    expect(policy.get('media-src')).toBe("'self' https://res.cloudinary.com");
+  });
+
   it('lets the browser talk to this origin and to Stripe’s API only (#358)', () => {
     expect(policy.get('connect-src')).toBe("'self' https://api.stripe.com");
     expect(policy.get('default-src')).toBe("'self'");

@@ -28,6 +28,7 @@ import {
   markShipmentCreated,
   markShipped,
 } from '../src/modules/orders';
+import { inMemoryStoreRegistrar } from '../src/modules/registry';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -38,6 +39,7 @@ const spec = specValidator('admin-api.yaml');
 
 let db: TestDatabase;
 let app: express.Express;
+const registrar = inMemoryStoreRegistrar(); // #413: the OpenFGA side of onboarding, faked (no OpenFGA here)
 
 const as = (subject: string) => ({
   get: (path: string) => request(app).get(path).set('Authorization', `Bearer dev:${subject}`),
@@ -62,6 +64,7 @@ beforeAll(async () => {
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier(), {
+    storeRegistrar: registrar,
     moduleRouters: moduleAdminRouters(),
     webhookRouters: moduleWebhookRouters(),
   });
@@ -246,12 +249,16 @@ describe('registry routes', () => {
     const fetched = await owner.get(`/admin/stores/${storeX}`);
     expect(fetched.status).toBe(200);
     expect(fetched.body.code).toBe('brand-x');
-    const patched = await owner.patch(`/admin/stores/${storeX}`, {
-      name: 'Brand X!',
-      status: 'active',
-    });
+    const patched = await owner.patch(`/admin/stores/${storeX}`, { name: 'Brand X!' });
     expect(patched.status).toBe(200);
-    expect(patched.body).toMatchObject({ name: 'Brand X!', status: 'active' });
+    expect(patched.body).toMatchObject({ name: 'Brand X!', status: 'draft' });
+    // #413: a status patch to `active` is activation — a bare store has no domain, key or OpenFGA object
+    const activated = await owner.patch(`/admin/stores/${storeX}`, { status: 'active' });
+    expect(activated.status).toBe(409);
+    expect(activated.body).toMatchObject({
+      code: 'conflict',
+      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+    });
 
     const events = await db.owner.query(
       `SELECT topic FROM outbox WHERE aggregate_id = $1 ORDER BY seq`,
@@ -1037,5 +1044,118 @@ describe('returns (task 2.5): createReturn, receiveReturn', () => {
     const order = await storeStaff.get(`/admin/stores/${A}/orders/${orderId}`);
     expect(order.body.returns.map((r: { id: string }) => r.id)).toContain(returnId);
     expect(order.body.items[0].returned_quantity).toBe(1);
+  });
+});
+
+describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore', () => {
+  const input = {
+    legal_entity: { code: 'brand-z-bv', name: 'Brand Z B.V.', country: 'NL', currency: 'EUR' },
+    code: 'brand-z',
+    name: 'Brand Z',
+    default_currency: 'EUR',
+    default_locale: 'en-GB',
+    default_country: 'NL',
+    currencies: ['EUR', 'GBP'],
+    locales: ['en-GB', 'nl-NL'],
+    domain: { hostname: 'brand-z.localhost' },
+    settings: { payment: { invoice_allowed: true } },
+  };
+
+  it('owner only: store-admin and finance get 403, a missing domain is a 400 from the contract schema', async () => {
+    expect((await storeAdmin.post('/admin/onboarding/stores', input)).status).toBe(403);
+    expect((await finance.post('/admin/onboarding/stores', input)).status).toBe(403);
+    const { domain: _omit, ...noDomain } = input;
+    const bad = await owner.post('/admin/onboarding/stores', noDomain);
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe('validation_error');
+    expect(Object.keys(bad.body.details)).toContain('domain');
+  });
+
+  it('201 with the key shown once; the same input again is 200 with publishable_key null; the key works on the Store API', async () => {
+    const created = await owner.post('/admin/onboarding/stores', input);
+    expect(created.status).toBe(201);
+    spec.assertSchema('StoreOnboarded', created.body);
+    expect(created.body.store).toMatchObject({
+      code: 'brand-z',
+      status: 'draft',
+      content_space_id: 'brand-z',
+      search_index: 'brand-z_products',
+      currencies: ['EUR', 'GBP'],
+      locales: ['en-GB', 'nl-NL'],
+    });
+    const key = created.body.publishable_key.key as string;
+    expect(key).toMatch(/^pk_brand-z_/);
+    expect(registrar.registered.has(created.body.store.id)).toBe(true);
+
+    const again = await owner.post('/admin/onboarding/stores', input);
+    expect(again.status).toBe(200);
+    spec.assertSchema('StoreOnboarded', again.body);
+    expect(again.body.store.id).toBe(created.body.store.id);
+    expect(again.body.publishable_key).toBeNull();
+
+    const differs = await owner.post('/admin/onboarding/stores', { ...input, name: 'Brand Z!' });
+    expect(differs.status).toBe(409);
+    expect(differs.body.details).toMatchObject({ field: 'code', differs: ['name'] });
+
+    // the publishable key works immediately: the Store API answers the new store, its payment methods from its settings
+    const storeApi = await request(app).get('/store').set('X-Publishable-Key', key);
+    expect(storeApi.status).toBe(200);
+    expect(storeApi.body.code).toBe('brand-z');
+    expect(storeApi.body.payment.methods).toContain('invoice');
+  });
+
+  it('wrong-shape settings are a 422 on onboarding and on updateStore', async () => {
+    const bad = await owner.post('/admin/onboarding/stores', {
+      ...input,
+      code: 'brand-d',
+      domain: { hostname: 'brand-d.localhost' },
+      legal_entity: { ...input.legal_entity, code: 'brand-d-bv' },
+      settings: { payment: { invoice_allowed: 'yes' } },
+    });
+    expect(bad.status).toBe(422);
+    expect(bad.body).toMatchObject({
+      code: 'validation_error',
+      details: { settings: { 'payment.invoice_allowed': 'boolean' } },
+    });
+    const patched = await owner.patch(`/admin/stores/${A}`, {
+      settings: { tax: { provider: 'odoo' } },
+    });
+    expect(patched.status).toBe(422);
+    expect(patched.body.details).toEqual({ settings: { 'tax.provider': 'one of table, stripe' } });
+  });
+
+  it('activateStore: 200 for a complete, registered store (idempotent), 409 listing what a bare store lacks, 404 unknown', async () => {
+    const onboarded = await owner.post('/admin/onboarding/stores', {
+      ...input,
+      code: 'brand-e',
+      domain: { hostname: 'brand-e.localhost' },
+      legal_entity: { ...input.legal_entity, code: 'brand-e-bv' },
+    });
+    expect(onboarded.status).toBe(201);
+    const id = onboarded.body.store.id as string;
+    expect((await storeAdmin.post(`/admin/stores/${id}/activate`)).status).toBe(403);
+    const active = await owner.post(`/admin/stores/${id}/activate`);
+    expect(active.status).toBe(200);
+    spec.assertSchema('Store', active.body);
+    expect(active.body.status).toBe('active');
+    expect((await owner.post(`/admin/stores/${id}/activate`)).body.status).toBe('active');
+
+    const bare = await owner.post('/admin/stores', {
+      legal_entity_id: LE_A,
+      code: 'brand-f',
+      name: 'Brand F',
+      default_currency: 'EUR',
+      default_locale: 'en-GB',
+      default_country: 'NL',
+    });
+    const refused = await owner.post(`/admin/stores/${bare.body.id}/activate`);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({
+      code: 'conflict',
+      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+    });
+    expect(
+      (await owner.post('/admin/stores/00000000-0000-4000-8000-00000000ffff/activate')).status,
+    ).toBe(404);
   });
 });

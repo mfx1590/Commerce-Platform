@@ -36,4 +36,6 @@ foreign organization and a context-less connection see nothing; and that per-sto
 Since 0.2.0 it also covers the marketing tables (0120): campaign and attribution rows stay per store, and segment
 templates (`store_id NULL`) are visible only in organization scope. Since 0.2.1 it covers `merchandising_rule` (0130):
 rules stay per store and one rule per store + scope is enforced. Since 0.2.2 it covers migration 0150: `promotion.type`
-accepts `buy_x_get_y` and still refuses unknown types.
+accepts `buy_x_get_y` and still refuses unknown types. Since 0.3.3 it covers `notification_delivery` (0180): rows
+stay per store, organization scope sees every store, a re-delivered `event_id` conflicts, and the table has no
+recipient column.

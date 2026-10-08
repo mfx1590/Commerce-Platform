@@ -8,7 +8,7 @@ Non-negotiable engineering rules (root `CLAUDE.md`): every row has `store_id`/`o
 
 ## 2. How the work is organised (the "windows")
 
-The owner (Mehdi, solo, GitHub `mfx1590`) runs at most THREE build windows at once, each a Claude Code session in its own git worktree (sibling folder) on its own branch, owning the paths in `docs/ownership.md` (CI-enforced). Each window keeps `docs/memory/Memory-<n>-<key>.md`.
+The owner (Mehdi, solo, GitHub `mfx1590`) runs at most TWO build windows at once (since 2026-10-08, Max 5x: the manager plus two build windows = three sessions total), each a Claude Code session in its own git worktree (sibling folder) on its own branch, owning the paths in `docs/ownership.md` (CI-enforced). Each window keeps `docs/memory/Memory-<n>-<key>.md`.
 
 You are the MAIN window = MANAGER (repo root, `main`). You never build features. You review every PR (read-only reviewer agents), merge through the merge queue, decide every `CONTRACT CHANGE:` / `REQUEST:` issue same-day, own `packages/contracts|events|db` schema, `docs/**`, root config and `scripts/**`, land contract changes from `../wt-contracts`, and keep `docs/memory/Memory-main.md` true.
 
@@ -25,9 +25,9 @@ Worktrees (folder → branch): `wt-core` core/phase2 (1) · `wt-auth` auth/phase
 
 After reading, give the owner a six-line summary (merged; open PRs and verdicts; contract changes waiting; windows active/quiet; what the owner must do; your first three actions).
 
-## 4. Where the project stands (2026-10-05 evening; Memory-main's first bullet wins if they differ)
+## 4. Where the project stands (2026-10-07 end of day; Memory-main's first bullet wins if they differ — it is the authoritative state; the paragraphs below are the 10-05 baseline plus the 10-07 delta)
 
-* **Phase 2 is CLOSED.** Contracts tag **contracts-v0.4.10** (Store API 0.5.3, Admin API 0.4.8, events 0.3.0, db 0.3.2). No open Phase 2 issue. Every window is quiet with a local, unpushed memory commit that rides in its next PR.
+* **Phase 2 is CLOSED; Integration 2a code is COMPLETE (10-06/10-07, ~40 merges).** Contracts tag **contracts-v0.4.12** (Store API 0.5.4, Admin API 0.4.10, events 0.3.1), db 0.3.3. What exists now: capturePayment + buyShipmentLabel routes, the order lifecycle (pending → confirmed → processing → completed), Stripe Payment Element in the checkout, admin Capture/Buy-label actions, the order-confirmation email worker (apps/notifications, dev sink + Resend), k6 load test with a three-datapoint report, the live CI job seeds OpenFGA, the TOTP barrier is gone (#346). What remains is PROOF: the 2a gate (test-card order → capture → label → refund) needs the owner's Stripe + EasyPost TEST keys (#361). Every window is quiet with a local, unpushed memory commit that rides in its next PR. Standing rule since 10-07: windows never block on an interactive dialog — they ask the manager by message.
 * **CI now proves much more than before:** brand A's full browse → buy → account journey against a real core (91 tests), the core's live auth suites, the admin suite against a real core (advisory job), and a performance budget per storefront. The required checks are: ownership, lint + typecheck, unit, contract, secret scan, live auth + end-to-end, storefront performance budget.
 * **Known CI hazards (do not "fix" by loosening):**
   * **#346** — two live suites sign `owner` in with the same one-time code; `infra/ci/totp-barrier.sh` separates them by a 30–60 s wait. The real cure is in the test helpers (windows 1 and 2); then remove the barrier.

@@ -53,15 +53,65 @@ async function realToken(username: string): Promise<string> {
   return json.access_token;
 }
 
-/** Every x-permission of the frozen contract, parsed from the spec itself. */
-const SPEC_PERMISSIONS = [
-  ...readFileSync(
-    resolve(here, '../../../../../../packages/contracts/openapi/admin-api.yaml'),
-    'utf8',
-  ).matchAll(
-    /operationId: (\w+)\n\s+(?:summary: [^\n]+\n\s+)?x-permission:\s*\{\s*relation:\s*(\w+),\s*object:\s*'([^']+)'\s*\}/g,
-  ),
-].map((m) => ({ operationId: m[1]!, relation: m[2]!, object: m[3]! }));
+/**
+ * Every x-permission of the frozen contract, parsed from the spec itself: the `paths:` section is cut into
+ * operation blocks (from one `operationId:` to the next) and each block's `x-permission` is taken wherever it
+ * sits — after `summary`, a multi-line `description`, `tags`, anything. The earlier regex only matched an
+ * `x-permission` directly under `operationId` (one `summary` line allowed) and silently skipped four
+ * operations with longer descriptions (#90); the static test below now pins the count.
+ */
+const SPEC = readFileSync(
+  resolve(here, '../../../../../../packages/contracts/openapi/admin-api.yaml'),
+  'utf8',
+);
+const SPEC_PATHS = SPEC.slice(SPEC.indexOf('\npaths:'), SPEC.indexOf('\ncomponents:'));
+/** Every operation under paths, with its permission or null when it declares none. */
+const SPEC_OPERATIONS = [
+  ...SPEC_PATHS.matchAll(/operationId: (\w+)\n([\s\S]*?)(?=\n\s+operationId: |$)/g),
+].map((m) => {
+  const xp = m[2]!.match(/x-permission:\s*\{\s*relation:\s*(\w+),\s*object:\s*'([^']+)'\s*\}/);
+  return { operationId: m[1]!, permission: xp ? { relation: xp[1]!, object: xp[2]! } : null };
+});
+const SPEC_PERMISSIONS = SPEC_OPERATIONS.flatMap((o) =>
+  o.permission ? [{ operationId: o.operationId, ...o.permission }] : [],
+);
+/**
+ * Operations that legitimately carry no x-permission (#402). Only the caller's own identity today; adding a
+ * name here is a deliberate review decision, and a stale entry (an operation that gained a permission, or
+ * left the spec) fails the test too.
+ */
+const UNGUARDED_OPERATIONS = ['getMe'];
+
+describe('x-permission sweep of admin-api.yaml is exhaustive (#90, static)', () => {
+  it('attributes every x-permission line under paths to exactly one operation', () => {
+    const lines = SPEC_PATHS.match(/^\s+x-permission:/gm) ?? [];
+    expect(SPEC_PATHS.length).toBeGreaterThan(0);
+    expect(lines.length).toBeGreaterThanOrEqual(100);
+    expect(SPEC_PERMISSIONS).toHaveLength(lines.length);
+    expect(new Set(SPEC_PERMISSIONS.map((p) => p.operationId)).size).toBe(SPEC_PERMISSIONS.length);
+    // The four the old regex skipped: a multi-line description sits between operationId and x-permission.
+    for (const id of ['updateDomain', 'revokeApiKey', 'capturePayment', 'buyShipmentLabel']) {
+      expect(
+        SPEC_PERMISSIONS.map((p) => p.operationId),
+        id,
+      ).toContain(id);
+    }
+    expect(SPEC_PERMISSIONS.filter((p) => p.relation === 'finance').length).toBeGreaterThan(0);
+  });
+
+  it('every operation under paths carries an x-permission unless allowlisted (#402)', () => {
+    const ids = SPEC_OPERATIONS.map((o) => o.operationId);
+    expect(ids).toHaveLength((SPEC_PATHS.match(/^\s+operationId: /gm) ?? []).length);
+    expect(new Set(ids).size).toBe(ids.length);
+    const unguarded = SPEC_OPERATIONS.filter((o) => o.permission === null).map(
+      (o) => o.operationId,
+    );
+    // Exact equality in both directions: an unguarded operation outside the allowlist fails, and so does an
+    // allowlist entry that is guarded after all or no longer exists.
+    expect(unguarded.sort()).toEqual([...UNGUARDED_OPERATIONS].sort());
+    expect(SPEC_PERMISSIONS).toHaveLength(ids.length - UNGUARDED_OPERATIONS.length);
+  });
+});
 
 describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
   let db: TestDatabase;
@@ -82,7 +132,7 @@ describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
       organizationId: ORG,
       cache: new ScopeCache(0),
     });
-    rbac = createHqRbac({ pool: db.app, fga });
+    rbac = createHqRbac({ pool: db.app, fga, financePing: true }); // the test double, explicit (#90)
     for (const username of ['store-admin', 'finance', 'analyst', 'support']) {
       scopes.set(username, await mw.resolve(`Bearer ${await realToken(username)}`));
     }
@@ -132,7 +182,7 @@ describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
     }
   });
 
-  it('GATE: store-admin gets 403 on /admin/finance/ping (test double for Phase 4 accounting routes)', async () => {
+  it('GATE: store-admin gets 403 on /admin/finance/ping (test double for Phase 4 accounting routes; never in production, #90)', async () => {
     const scope = scopes.get('store-admin')!;
     const denied = await rbac.handle({
       method: 'GET',

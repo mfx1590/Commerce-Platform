@@ -20,6 +20,19 @@ export { createOpenFgaClient, DEFAULT_OPENFGA_API_URL } from './fga/client.js';
 export type { OpenFgaClientOptions } from './fga/client.js';
 export { seedOpenFga, DEFAULT_OPENFGA_STORE_NAME } from './fga/seed.js';
 export type { SeedOpenFgaOptions, SeedOpenFgaResult } from './fga/seed.js';
+// Store object registration + reconciliation (#415): the organization tuple every store needs.
+export {
+  ensureStoreObject,
+  reconcileStoreObjects,
+  storeObjectTuple,
+  resetStoreObjectClient,
+} from './fga/store-object.js';
+export type {
+  EnsureStoreObjectOptions,
+  EnsureStoreObjectResult,
+  ReconcileStoreObjectsOptions,
+  ReconcileStoreObjectsReport,
+} from './fga/store-object.js';
 
 // Audit writer (append-only, same transaction as the change).
 export { audit } from './audit/write.js';
@@ -43,6 +56,18 @@ export type {
   StaffUser,
   ObjectType,
 } from './roles/service.js';
+
+// inviteUser (#415) and the Keycloak admin service-account client it and the session revocation use.
+export { inviteUser } from './roles/invite.js';
+export type { InviteUserInput, InviteUserDeps, InviteUserResult } from './roles/invite.js';
+export { createKeycloakAdmin, INVITE_REQUIRED_ACTIONS } from './keycloak/admin.js';
+export type {
+  KeycloakAdmin,
+  KeycloakAdminOptions,
+  KeycloakStaffUser,
+  KeycloakUserSession,
+  CreateStaffUserInput,
+} from './keycloak/admin.js';
 
 // JWT verification + scope resolution (ADR 0002 §4).
 export { createStaffTokenVerifier, bearerToken } from './jwt/verify.js';

@@ -3,7 +3,9 @@
 import {
   ApiError,
   assignRole,
+  createKeycloakAdmin,
   forbidden,
+  inviteUser,
   isApiError,
   isUuid,
   listAuditLog,
@@ -11,6 +13,7 @@ import {
   listStaffUsers,
   revokeRole,
   toTenantContext,
+  type KeycloakAdmin,
   type OpenFgaClient,
   type Relation,
   type RolesDeps,
@@ -28,6 +31,18 @@ export interface HqRbacDeps {
   fga: OpenFgaClient;
   /** Scope-cache invalidation hook (task 1.4). */
   onRoleChange?: (staffUserId: string) => void;
+  /**
+   * Serves `GET /admin/finance/ping`, the Phase 1 gate's test double for the Phase 4 accounting routes (#16).
+   * Not in the contract. Default: everywhere except `NODE_ENV=production` (every image sets it), so dev and
+   * test keep the route and production never has it; `true` under production throws at construction (#90).
+   */
+  financePing?: boolean;
+  /**
+   * Keycloak admin service-account client (#415): `inviteUser` creates the staff user with it and every role
+   * change ends the user's sessions through it. Default: `createKeycloakAdmin()` from the environment
+   * (KEYCLOAK_URL, KEYCLOAK_REALM_STAFF, KEYCLOAK_ADMIN_CLIENT_ID, KEYCLOAK_ADMIN_CLIENT_SECRET).
+   */
+  keycloak?: KeycloakAdmin;
 }
 
 export interface HqRbacRequest {
@@ -58,7 +73,13 @@ export interface HqRbacRoute {
   /** Contract path, `{param}` placeholders as in admin-api.yaml. */
   path: string;
   operationId:
-    'listUsers' | 'listUserRoles' | 'assignRole' | 'revokeRole' | 'listAuditLog' | 'financePing';
+    | 'listUsers'
+    | 'inviteUser'
+    | 'listUserRoles'
+    | 'assignRole'
+    | 'revokeRole'
+    | 'listAuditLog'
+    | 'financePing';
   /** null = the handler checks dynamically (listAuditLog: viewer on store:{store_id} when given). */
   permission: Permission | null;
 }
@@ -69,6 +90,12 @@ export const HQ_RBAC_ROUTES: readonly HqRbacRoute[] = [
     method: 'GET',
     path: '/admin/users',
     operationId: 'listUsers',
+    permission: { relation: 'owner', object: 'organization:hq' },
+  },
+  {
+    method: 'POST',
+    path: '/admin/users',
+    operationId: 'inviteUser',
     permission: { relation: 'owner', object: 'organization:hq' },
   },
   {
@@ -95,15 +122,19 @@ export const HQ_RBAC_ROUTES: readonly HqRbacRoute[] = [
     operationId: 'listAuditLog',
     permission: null, // x-permission: viewer on store:{store_id} — checked in the handler (query-dependent)
   },
-  {
-    // NOT in the contract: Phase 1 gate test double (#16) standing in for the Phase 4 accounting routes.
-    // Guarded exactly like GET /admin/legal-entities: finance on organization:hq.
-    method: 'GET',
-    path: '/admin/finance/ping',
-    operationId: 'financePing',
-    permission: { relation: 'finance', object: 'organization:hq' },
-  },
 ];
+
+/**
+ * NOT in the contract: the Phase 1 gate's test double (#16) standing in for the Phase 4 accounting routes,
+ * guarded exactly like GET /admin/legal-entities (finance on organization:hq). Never served under
+ * `NODE_ENV=production` (`HqRbacDeps.financePing`, #90); Phase 4 replaces it with a real finance operation.
+ */
+export const FINANCE_PING_ROUTE: HqRbacRoute = {
+  method: 'GET',
+  path: '/admin/finance/ping',
+  operationId: 'financePing',
+  permission: { relation: 'finance', object: 'organization:hq' },
+};
 
 const error = (e: ApiError): HqRbacResponse => ({ status: e.status, body: e.toBody() });
 
@@ -142,8 +173,17 @@ function pathParams(routePath: string, actual: string): Record<string, string> |
 }
 
 export function createHqRbac(deps: HqRbacDeps) {
+  const production = process.env.NODE_ENV === 'production';
+  if (deps.financePing && production) {
+    throw new Error('financePing must not be set when NODE_ENV=production');
+  }
+  const routes: readonly HqRbacRoute[] =
+    (deps.financePing ?? !production) ? [...HQ_RBAC_ROUTES, FINANCE_PING_ROUTE] : HQ_RBAC_ROUTES;
+  let keycloak: KeycloakAdmin | undefined = deps.keycloak;
+  const keycloakOf = () => (keycloak ??= createKeycloakAdmin());
   const rolesDeps = (principal: StaffPrincipal, requestId?: string): RolesDeps => ({
     fga: deps.fga,
+    keycloak: keycloakOf(),
     db: createOrganizationClient(deps.pool, {
       organizationId: principal.organizationId,
       actorId: principal.userId,
@@ -153,6 +193,20 @@ export function createHqRbac(deps: HqRbacDeps) {
   });
 
   const handlers = {
+    async inviteUser(req: HqRbacRequest & { principal: StaffPrincipal }): Promise<HqRbacResponse> {
+      const body = (req.body ?? {}) as { email?: unknown; display_name?: unknown };
+      if (typeof body.email !== 'string' || typeof body.display_name !== 'string') {
+        throw new ApiError(400, 'validation_error', 'email and display_name are required', {
+          fields: ['email', 'display_name'],
+        });
+      }
+      const { user } = await inviteUser(
+        { ...rolesDeps(req.principal, req.requestId), keycloak: keycloakOf() },
+        { email: body.email, displayName: body.display_name },
+      );
+      return { status: 201, body: user };
+    },
+
     async listUsers(req: HqRbacRequest & { principal: StaffPrincipal }): Promise<HqRbacResponse> {
       const q = req.query ?? {};
       const num = (v: string | undefined) => (v === undefined ? undefined : Number(v));
@@ -272,7 +326,7 @@ export function createHqRbac(deps: HqRbacDeps) {
   async function handle(req: HqRbacRequest): Promise<HqRbacResponse | null> {
     let matched: { route: HqRbacRoute; params: Record<string, string> } | undefined;
     let pathKnown = false;
-    for (const route of HQ_RBAC_ROUTES) {
+    for (const route of routes) {
       const params = pathParams(route.path, req.path);
       if (!params) continue;
       pathKnown = true;
@@ -302,6 +356,8 @@ export function createHqRbac(deps: HqRbacDeps) {
       switch (matched.route.operationId) {
         case 'listUsers':
           return await handlers.listUsers({ ...req, principal: p });
+        case 'inviteUser':
+          return await handlers.inviteUser({ ...req, principal: p });
         case 'listUserRoles':
           return await handlers.listUserRoles({
             ...req,
@@ -331,5 +387,5 @@ export function createHqRbac(deps: HqRbacDeps) {
     }
   }
 
-  return { handle, handlers, routes: HQ_RBAC_ROUTES };
+  return { handle, handlers, routes };
 }

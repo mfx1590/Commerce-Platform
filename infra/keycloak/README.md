@@ -40,6 +40,15 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
     mint real tokens for the seeded users (`grant_type=password&client_id=test-cli&username=…&password=…`).
     The direct-grant flow does not run the browser MFA step, which is what makes this usable in CI. Delete this
     client from any export that is not local.
+  - `core-admin` — **confidential service account** the core uses for Keycloak's admin API (#415:
+    `inviteUser`, ending a user's sessions on a role change). Standard, implicit and direct flows off, no
+    redirects, `fullScopeAllowed: true` (with `false` the service account's roles never reach its token and
+    every admin call is 403 — measured); its service-account user `service-account-core-admin` holds the
+    realm-management roles `manage-users`, `view-users`, `query-users` and nothing else (`view-users` is a
+    Keycloak composite that also grants `query-groups`). Credentials for the
+    core: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`; the dev export carries the dev-only
+    secret `dev-only-core-admin-secret` (the `dev-only-` shape infra/gitleaks.toml allowlists). Production
+    replaces it from Vault (#416).
 - **Users** mirror `packages/db` `SEED_IDS.users`: `owner`, `finance`, `operations`, `store-admin`,
   `store-staff`, `support`, `analyst` (email `<username>@example.com`, password = username). Each user's
   Keycloak id is `seed-<username>`, which is exactly the `staff_user.keycloak_subject` the db seed writes, so the
@@ -88,23 +97,60 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 
 ## Dev-only settings (must change outside local)
 
-| Setting                                  | Local value                | Elsewhere                               |
-| ---------------------------------------- | -------------------------- | --------------------------------------- |
-| `sslRequired`                            | `external`                 | `all` behind TLS                        |
-| OTP step in `browser-mfa forms` (#43)    | CONDITIONAL                | REQUIRED (forced enrolment)             |
-| `owner` pre-enrolled TOTP credential     | documented secret above    | remove; no committed OTP secrets        |
-| Seeded users with password = username    | present                    | remove the `users` array                |
-| `test-cli` client (password grant)       | present                    | remove                                  |
-| Password policy                          | none (seed passwords)      | e.g. `length(12) and notUsername and …` |
-| `verifyEmail` (customers)                | `false`                    | `true` with SMTP configured             |
-| `attributes.frontendUrl`                 | `http://localhost:8180`    | the public Keycloak URL                 |
-| Redirect URIs / web origins              | `http://localhost:*`       | the real app origins                    |
-| `hq-sso` / `google` identity providers   | disabled placeholders      | real client ids from the environment    |
-| `admin-app` second redirect (:3200, #82) | registered                 | exactly one redirect URI per app        |
-| `storefront-brand-a` redirects (#212)    | localhost + dev + staging  | only that environment's own callback    |
-| Keycloak `KC_DB=dev-file` + volume       | one-shot import, persisted | Postgres                                |
+| Setting                                  | Local value                  | Elsewhere                               |
+| ---------------------------------------- | ---------------------------- | --------------------------------------- |
+| `sslRequired`                            | `external`                   | `all` behind TLS                        |
+| OTP step in `browser-mfa forms` (#43)    | CONDITIONAL                  | REQUIRED (forced enrolment)             |
+| `owner` pre-enrolled TOTP credential     | documented secret above      | remove; no committed OTP secrets        |
+| Seeded users with password = username    | present                      | remove the `users` array                |
+| `test-cli` client (password grant)       | present                      | remove                                  |
+| `core-admin` client secret (#415)        | `dev-only-core-admin-secret` | generated, from Vault                   |
+| Password policy                          | none (seed passwords)        | e.g. `length(12) and notUsername and …` |
+| `verifyEmail` (customers)                | `false`                      | `true` with SMTP configured             |
+| `attributes.frontendUrl`                 | `http://localhost:8180`      | the public Keycloak URL                 |
+| Redirect URIs / web origins              | `http://localhost:*`         | the real app origins                    |
+| `hq-sso` / `google` identity providers   | disabled placeholders        | real client ids from the environment    |
+| `admin-app` second redirect (:3200, #82) | registered                   | exactly one redirect URI per app        |
+| `storefront-brand-a` redirects (#212)    | localhost + dev + staging    | only that environment's own callback    |
+| Keycloak `KC_DB=dev-file` + volume       | one-shot import, persisted   | Postgres                                |
 
-Secrets: no confidential client is defined, so no client secret is committed. Identity-provider secrets are
+## Production profile (#416, LAUNCH.md section 3.2)
+
+The production realms are DERIVED, never written by hand:
+
+```bash
+node infra/keycloak/derive-production.mjs staff
+node infra/keycloak/derive-production.mjs customers
+```
+
+reads the dev export and `production/production-profile.json` (the public Keycloak URL, exactly one origin + callback
+per OIDC client, the password policy per realm) and writes `production/<realm>-realm.json` through the
+repo's prettier, so two runs give identical bytes. `packages/auth-sdk/test/production-realms.test.ts`
+re-derives and compares byte for byte — a hand edit of a derived file fails CI — and asserts every row of
+the table above as its own assertion: no seeded user (only client service accounts, without credentials
+or email), no `test-cli`, no `http://localhost` and no wildcard in any redirect, origin, root or post-logout
+URI, `sslRequired: all`, `verifyEmail: true`, the password policy, brute-force protection, no client secret
+in the file, the staff OTP step REQUIRED, the customers realm with exactly the three storefront clients and
+their production callbacks, the identity providers still environment placeholders. Dev behaviour is
+untouched: `reimport.mjs` and the docker startup import read only the dev files in this directory (the
+startup import is not recursive; `production/` is a subdirectory of the mounted import folder).
+
+**Still needs a running cluster (#342) before these files can be imported:**
+
+- the real hostnames in `production/production-profile.json` (today the `<sub>.example.com` convention of infra/helm:
+  `auth`, `admin`, `shop`, `shop-b`, `shop-c`), then re-derive and commit;
+- SMTP (`smtpServer`, set in the admin console or by the deploy) — `verifyEmail: true`, password resets and
+  the invitation mails of `inviteUser` all send mail; without it nobody can finish a first login;
+- the `core-admin` client secret: Keycloak generates it at import; the operator copies it into Vault and
+  the core's `KEYCLOAK_ADMIN_CLIENT_SECRET` comes from there (never the dev value);
+- the identity providers: `hq-sso` / `google` stay disabled placeholders until `HQ_SSO_CLIENT_*` /
+  `GOOGLE_CLIENT_*` exist in the environment of the import;
+- a Postgres-backed Keycloak (`KC_DB`), TLS termination in front (`sslRequired: all`), and the first HQ
+  owner created through the admin console (there are no seeded users; `inviteUser` needs an owner).
+
+Secrets: the only confidential client is the `core-admin` service account (#415); its dev-only secret is
+committed by design (the allowlisted `dev-only-` shape, dev-only table above) and the production export drops it
+(#416, generated at import, kept in Vault). Identity-provider secrets are
 `${ENV_VAR:unset}` placeholders resolved by Keycloak at import time.
 
 ## How to change a realm

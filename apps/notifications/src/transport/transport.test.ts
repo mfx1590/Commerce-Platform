@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { resolveConfig } from '../config.js';
+import { errorLabel } from '../consumer.js';
 import { TransportError, type DeliveryMeta, type RenderedEmail } from '../types.js';
 import { DevSinkTransport } from './dev-sink.js';
 import { createTransport } from './index.js';
@@ -176,5 +177,17 @@ describe('resolveConfig', () => {
     );
     expect(() => resolveConfig({ NOTIFICATIONS_TRANSPORT: 'smtp' })).toThrow(/dev.*resend/);
     expect(() => resolveConfig({ NOTIFICATIONS_POLL_MS: 'soon' })).toThrow(/NOTIFICATIONS_POLL_MS/);
+  });
+});
+
+describe('errorLabel', () => {
+  it('is label-only: a transport error as built, any other error by name, never a message', () => {
+    expect(errorLabel(new TransportError('resend: HTTP 422 validation_error', false))).toBe(
+      'resend: HTTP 422 validation_error',
+    );
+    expect(errorLabel(new TypeError('fetch failed: ada@example.test'))).toBe('TypeError');
+    expect(errorLabel(new Error('duplicate key value violates unique constraint'))).toBe('Error');
+    expect(errorLabel('ada@example.test')).toBe('error');
+    expect(errorLabel(undefined)).toBe('error');
   });
 });
