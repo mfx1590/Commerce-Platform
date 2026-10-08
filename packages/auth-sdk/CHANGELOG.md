@@ -176,7 +176,7 @@ fga:reconcile [--fix]` list and repair stores without it. Tests: `test/store-obj
 
 - #416: derived production realm exports. `node infra/keycloak/derive-production.mjs <realm>` derives
   `infra/keycloak/production/<realm>-realm.json` deterministically from the dev export +
-  `production.config.json` (public Keycloak URL, one origin + callback per OIDC client, password policy per
+  `production/production-profile.json` (public Keycloak URL, one origin + callback per OIDC client, password policy per
   realm): seeded users and `test-cli` removed (client service accounts kept, no credentials), `sslRequired:
 all`, `verifyEmail: true`, brute force on, no client secret, exact https callbacks and origins, post-logout
   `<origin>/`, `frontendUrl`, the staff OTP step REQUIRED. `test/production-realms.test.ts` (33 static tests)

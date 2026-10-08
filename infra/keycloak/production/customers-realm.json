@@ -299,7 +299,7 @@
   ],
   "users": [],
   "attributes": {
-    "_comment": "PRODUCTION profile of the customers realm, DERIVED by infra/keycloak/derive-production.mjs from customers-realm.json + production.config.json — never edit by hand (the invariants test re-derives and compares). Needs at import time: SMTP (smtpServer), the identity providers' secrets from the environment, and the core-admin client secret stored in Vault after Keycloak generated it.",
+    "_comment": "PRODUCTION profile of the customers realm, DERIVED by infra/keycloak/derive-production.mjs from customers-realm.json + production/production-profile.json — never edit by hand (the invariants test re-derives and compares). Needs at import time: SMTP (smtpServer), the identity providers' secrets from the environment, and the core-admin client secret stored in Vault after Keycloak generated it.",
     "frontendUrl": "https://auth.example.com"
   },
   "passwordPolicy": "length(10) and notUsername and notEmail"

@@ -39,7 +39,7 @@ window 2 (auth).
   the same TOTP code (#346); this package deletes the file once per local run (`test/global-setup.ts`), a
   single-file consumer may call `forgetStaffToken()` in `afterAll`; a refused grant waits 1.5 s (#406).
 - Production realm exports (#416): `infra/keycloak/production/*.json` are DERIVED by
-  `infra/keycloak/derive-production.mjs` from the dev export + `production.config.json`; never edit them
+  `infra/keycloak/derive-production.mjs` from the dev export + `production/production-profile.json`; never edit them
   by hand — `test/production-realms.test.ts` re-derives and compares.
 - Subjects are a `StaffScope`/`StaffPrincipal` or the bare `staff_user.id`. Relation names are frozen in
   `infra/openfga/model.fga`; full reference in README.md.

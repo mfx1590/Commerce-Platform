@@ -2,7 +2,7 @@
 // production file from the dev export + production.config.json and compares byte for byte (a hand edit of
 // infra/keycloak/production/*.json fails here), proves the derivation is deterministic, and asserts every
 // invariant of the "Dev-only settings" table as its own assertion.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -81,6 +81,28 @@ describe('production realm exports are derived, not written (#416)', () => {
     const edited = fresh.replace('"sslRequired": "all"', '"sslRequired": "external"');
     expect(edited).not.toBe(fresh);
     expect(readFileSync(outputPath('staff'), 'utf8')).not.toBe(edited);
+  });
+
+  it('nothing but realm exports at the top level of infra/keycloak (the docker startup import treats every top-level *.json as a realm)', () => {
+    const topLevel = readdirSync(devDir).filter((f) => f.endsWith('.json'));
+    expect(topLevel.sort()).toEqual(['customers-realm.json', 'staff-realm.json']);
+    for (const f of topLevel) {
+      const parsed = JSON.parse(readFileSync(resolve(devDir, f), 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      expect(typeof parsed.realm, f).toBe('string');
+      expect(
+        parsed._comment,
+        `${f}: a root _comment is an unrecognized field for Keycloak`,
+      ).toBeUndefined();
+    }
+    // The derived files and the profile live one level down, which the startup import does not scan.
+    expect(readdirSync(resolve(devDir, 'production')).sort()).toEqual([
+      'customers-realm.json',
+      'production-profile.json',
+      'staff-realm.json',
+    ]);
   });
 
   it('the dev exports are untouched: still localhost, test-cli, seeded users', () => {

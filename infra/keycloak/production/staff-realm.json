@@ -284,7 +284,7 @@
     }
   ],
   "attributes": {
-    "_comment": "PRODUCTION profile of the staff realm, DERIVED by infra/keycloak/derive-production.mjs from staff-realm.json + production.config.json — never edit by hand (the invariants test re-derives and compares). Needs at import time: SMTP (smtpServer), the identity providers' secrets from the environment, and the core-admin client secret stored in Vault after Keycloak generated it.",
+    "_comment": "PRODUCTION profile of the staff realm, DERIVED by infra/keycloak/derive-production.mjs from staff-realm.json + production/production-profile.json — never edit by hand (the invariants test re-derives and compares). Needs at import time: SMTP (smtpServer), the identity providers' secrets from the environment, and the core-admin client secret stored in Vault after Keycloak generated it.",
     "frontendUrl": "https://auth.example.com"
   },
   "passwordPolicy": "length(12) and notUsername and notEmail and upperCase(1) and lowerCase(1) and digits(1) and passwordHistory(5)"

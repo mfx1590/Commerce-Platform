@@ -2,9 +2,12 @@
 // Derives the PRODUCTION profile of a realm from its dev export (issue #416, LAUNCH.md section 3.2):
 //   node infra/keycloak/derive-production.mjs staff|customers      → infra/keycloak/production/<realm>-realm.json
 // Deterministic (same inputs → identical bytes); packages/auth-sdk/test/production-realms.test.ts re-derives
-// and compares, so a hand edit of a derived file fails CI. Inputs: the dev export and production.config.json.
-// Dev behaviour is untouched: reimport.mjs and the docker startup import read only the dev files in this
-// directory (the startup import is not recursive; `production/` is a subdirectory).
+// and compares, so a hand edit of a derived file fails CI. Inputs: the dev export and
+// production/production-profile.json. Dev behaviour is untouched: reimport.mjs reads only the dev files in
+// this directory, and the docker startup import (`--import-realm` over the mounted infra/keycloak/) treats
+// EVERY top-level *.json here as a realm — which is why nothing but realm exports may sit at this level
+// (measured in CI: a config file with a root `_comment` killed the Keycloak boot) and why `production/` is a
+// subdirectory, which the startup import does not scan.
 //
 // What changes (the "Dev-only settings" table of README.md, row by row):
 //   sslRequired external → all · verifyEmail → true · a password policy · brute force stays on
@@ -34,7 +37,7 @@ export function loadDevRealm(realm) {
   return JSON.parse(readFileSync(resolve(here, `${realm}-realm.json`), 'utf8'));
 }
 export function loadConfig() {
-  return JSON.parse(readFileSync(resolve(here, 'production.config.json'), 'utf8'));
+  return JSON.parse(readFileSync(resolve(here, 'production', 'production-profile.json'), 'utf8'));
 }
 
 /**
@@ -43,7 +46,7 @@ export function loadConfig() {
  */
 export function deriveProductionRealm(realm, dev, config) {
   const cfg = config.realms?.[realm];
-  if (!cfg) throw new Error(`production.config.json has no realm "${realm}"`);
+  if (!cfg) throw new Error(`production/production-profile.json has no realm "${realm}"`);
   if (!/^https:\/\/[^/]+$/.test(config.keycloakUrl)) {
     throw new Error('keycloakUrl must be an https origin without a path');
   }
@@ -56,7 +59,7 @@ export function deriveProductionRealm(realm, dev, config) {
   out.passwordPolicy = cfg.passwordPolicy;
   out.attributes = {
     ...out.attributes,
-    _comment: `PRODUCTION profile of the ${realm} realm, DERIVED by infra/keycloak/derive-production.mjs from ${realm}-realm.json + production.config.json — never edit by hand (the invariants test re-derives and compares). Needs at import time: SMTP (smtpServer), the identity providers' secrets from the environment, and the core-admin client secret stored in Vault after Keycloak generated it.`,
+    _comment: `PRODUCTION profile of the ${realm} realm, DERIVED by infra/keycloak/derive-production.mjs from ${realm}-realm.json + production/production-profile.json — never edit by hand (the invariants test re-derives and compares). Needs at import time: SMTP (smtpServer), the identity providers' secrets from the environment, and the core-admin client secret stored in Vault after Keycloak generated it.`,
     frontendUrl: config.keycloakUrl,
   };
 
@@ -76,7 +79,7 @@ export function deriveProductionRealm(realm, dev, config) {
     const target = cfg.clients?.[c.clientId];
     if (!target)
       throw new Error(
-        `production.config.json: realms.${realm}.clients has no entry for "${c.clientId}"`,
+        `production/production-profile.json: realms.${realm}.clients has no entry for "${c.clientId}"`,
       );
     for (const [k, v] of Object.entries(target)) {
       if (!/^https:\/\/[^/]+(\/[^*?#]*)?$/.test(v))
@@ -100,7 +103,7 @@ export function deriveProductionRealm(realm, dev, config) {
   for (const id of configured) {
     if (!present.includes(id))
       throw new Error(
-        `production.config.json configures "${id}" which the ${realm} dev export does not have`,
+        `production/production-profile.json configures "${id}" which the ${realm} dev export does not have`,
       );
   }
 

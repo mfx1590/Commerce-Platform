@@ -123,7 +123,7 @@ node infra/keycloak/derive-production.mjs staff
 node infra/keycloak/derive-production.mjs customers
 ```
 
-reads the dev export and `production.config.json` (the public Keycloak URL, exactly one origin + callback
+reads the dev export and `production/production-profile.json` (the public Keycloak URL, exactly one origin + callback
 per OIDC client, the password policy per realm) and writes `production/<realm>-realm.json` through the
 repo's prettier, so two runs give identical bytes. `packages/auth-sdk/test/production-realms.test.ts`
 re-derives and compares byte for byte — a hand edit of a derived file fails CI — and asserts every row of
@@ -137,7 +137,7 @@ startup import is not recursive; `production/` is a subdirectory of the mounted 
 
 **Still needs a running cluster (#342) before these files can be imported:**
 
-- the real hostnames in `production.config.json` (today the `<sub>.example.com` convention of infra/helm:
+- the real hostnames in `production/production-profile.json` (today the `<sub>.example.com` convention of infra/helm:
   `auth`, `admin`, `shop`, `shop-b`, `shop-c`), then re-derive and commit;
 - SMTP (`smtpServer`, set in the admin console or by the deploy) — `verifyEmail: true`, password resets and
   the invitation mails of `inviteUser` all send mail; without it nobody can finish a first login;

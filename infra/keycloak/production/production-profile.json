@@ -1,5 +1,5 @@
 {
-  "_comment": "Production profile inputs for derive-production.mjs (issue #416): the public Keycloak URL, exactly one origin + callback per OIDC client and the password policy per realm. Hostnames follow the <sub>.example.com convention of infra/helm until the cluster exists (#342); edit them with the real hosts, re-derive, commit — the invariants test fails on a hand edit of the derived files.",
+  "_comment": "Production profile inputs for derive-production.mjs (issue #416): the public Keycloak URL, exactly one origin + callback per OIDC client and the password policy per realm. Lives under production/ because the docker startup import treats every top-level *.json of infra/keycloak as a realm (a config there kills the Keycloak boot). Hostnames follow the <sub>.example.com convention of infra/helm until the cluster exists (#342); edit them with the real hosts, re-derive, commit — the invariants test fails on a hand edit of the derived files.",
   "keycloakUrl": "https://auth.example.com",
   "realms": {
     "staff": {
