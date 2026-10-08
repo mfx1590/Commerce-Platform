@@ -13,7 +13,7 @@
 //
 // EXPORT (`buildCustomerExport`): everything held about the customer in this store — the record, the addresses,
 // the consent object and the customer's orders with their lines. `exportCustomer` (the 202 + the
-// `customer.export_requested` hand-over event) wires to it once events 0.3.2 is on main (#425).
+// `customer.export_requested` hand-over event, events 0.3.2 / #425) is `requestCustomerExport` below.
 import type { Queryable, ScopedClient } from '@platform/db';
 import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError } from '../../lib/errors';
@@ -295,5 +295,54 @@ export async function buildCustomerExport(
           })),
       })),
     };
+  });
+}
+
+/**
+ * `exportCustomer` (store_admin, 202): records the request — one audit row and one `customer.export_requested`
+ * outbox row PER REQUEST (no dedupe: each request is its own delivery), ids only. The delivery job of Integration
+ * 2b consumes the event and calls `buildCustomerExport`. 404 for an unknown, another store's or an erased customer.
+ */
+export async function requestCustomerExport(
+  client: ScopedClient,
+  storeId: string,
+  customerId: string,
+  actor: Actor,
+): Promise<void> {
+  const requestedBy = actor.id;
+  // `requested_by` is a staff user by contract: an export is never requested by the system actor.
+  if (!requestedBy) throw new AppError('forbidden', 'an export must be requested by a staff user');
+  const organizationId = client.context.organizationId;
+  await client.transaction(async (tx) => {
+    const r = await tx.query<{ status: string }>(
+      'SELECT status FROM customer WHERE id = $1 AND store_id = $2',
+      [customerId, storeId],
+    );
+    if (!r.rows[0] || r.rows[0].status === 'erased') throw notFound(customerId);
+    const requestedAt = new Date();
+    await writeAudit(tx, {
+      organizationId,
+      storeId,
+      actor,
+      action: 'customer.export_request',
+      entityType: 'customer',
+      entityId: customerId,
+      after: { requested_at: requestedAt.toISOString() },
+    });
+    await withEvents(tx, [
+      await buildEvent({
+        topic: 'customer.export_requested',
+        organizationId,
+        storeId,
+        aggregateType: 'customer',
+        aggregateId: customerId,
+        actor: eventActor(actor),
+        payload: {
+          customer_id: customerId,
+          requested_by: requestedBy,
+          requested_at: requestedAt.toISOString(),
+        },
+      }),
+    ]);
   });
 }

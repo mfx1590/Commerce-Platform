@@ -68,6 +68,7 @@ import {
   CUSTOMER_SORT_FIELDS,
   eraseCustomer,
   listCustomerGroups,
+  requestCustomerExport,
 } from '../modules/customers';
 import { loadSpec } from './openapi';
 import { requirePermission, resolveObject } from './permissions';
@@ -465,6 +466,16 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
       await eraseCustomer(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
+    }),
+  );
+  // GDPR export: 202 + one `customer.export_requested` per request; the bundle is built by the delivery job.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/export',
+    permission('exportCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await requestCustomerExport(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
       res.status(202).end();
     }),
   );

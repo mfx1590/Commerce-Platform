@@ -11,7 +11,8 @@
 - `eraseCustomer` (`gdpr.ts`, 202): status `erased`, email → `erased+<customer_id>@invalid`, names / phone /
   subject null, consent / metadata `{}`, addresses deleted, identity unlinked and deleted when orphaned, orders kept
   (legal retention), one `customer.erased`; a replay is a no-op. `buildCustomerExport` builds the
-  `customer-export/v1` bundle; `exportCustomer`'s 202 + `customer.export_requested` lands with events 0.3.2 (#425).
+  `customer-export/v1` bundle; `exportCustomer` (store_admin, 202) writes one `customer.export_requested` (events
+  0.3.2, contracts-v0.4.14) per request — the hand-over to Integration 2b's delivery job; erased / unknown → 404.
 - The #265 unmounted-path test probes `/admin/stores/{id}/unmounted-probe` (the customers list is mounted now).
 - Review nit from #424: a hostname another store has answers onboarding's 409 with `details.field = 'domain.hostname'`.
 

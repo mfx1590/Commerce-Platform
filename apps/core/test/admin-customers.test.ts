@@ -433,3 +433,80 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
     expect(untouched.rows[0].status).toBe('registered');
   });
 });
+
+describe('exportCustomer (#414, events 0.3.2 customer.export_requested)', () => {
+  const KIM = '50000000-0000-4000-8000-000000000021'; // brand-a, registered
+  const post = (subject: string, path: string) =>
+    request(app).post(path).set('Authorization', `Bearer dev:${subject}`).send({});
+  const exportEvents = async (id: string) =>
+    (
+      await db.owner.query<{ topic: string; payload: Record<string, unknown> }>(
+        `SELECT topic, payload FROM outbox WHERE aggregate_id = $1 AND topic = 'customer.export_requested' ORDER BY seq`,
+        [id],
+      )
+    ).rows;
+
+  beforeAll(async () => {
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, email, first_name, last_name, status)
+       VALUES ($1, $2, $3, 'kim@example.com', 'Kim', 'Lee', 'registered')`,
+      [KIM, ORG, A],
+    );
+  });
+
+  it('store_admin: 202, no body; one customer.export_requested per request (no dedupe), ids only', async () => {
+    const first = await post('seed-store-admin', `/admin/stores/${A}/customers/${KIM}/export`);
+    expect(first.status).toBe(202);
+    expect(first.text).toBe('');
+    expect(
+      (await post('seed-store-admin', `/admin/stores/${A}/customers/${KIM}/export`)).status,
+    ).toBe(202);
+
+    const ev = await exportEvents(KIM);
+    expect(ev).toHaveLength(2);
+    const staff = await db.owner.query<{ id: string }>(
+      `SELECT id FROM staff_user WHERE keycloak_subject = 'seed-store-admin'`,
+    );
+    expect(ev[0]!.payload).toEqual({
+      customer_id: KIM,
+      requested_by: staff.rows[0]!.id,
+      requested_at: expect.any(String),
+    });
+    expect(JSON.stringify(ev)).not.toContain('kim@example.com');
+    const audit = await db.owner.query(
+      `SELECT action FROM audit_log WHERE entity_id = $1 AND action = 'customer.export_request'`,
+      [KIM],
+    );
+    expect(audit.rowCount).toBe(2);
+  });
+
+  it('support 403; a brand-a admin cannot export in brand-b; unknown / another store / erased → 404, nothing written', async () => {
+    expect((await post('seed-support', `/admin/stores/${A}/customers/${KIM}/export`)).status).toBe(
+      403,
+    );
+    expect(
+      (await post('test-a-only-admin', `/admin/stores/${B}/customers/${BOB}/export`)).status,
+    ).toBe(403);
+    expect(
+      (await post('seed-store-admin', `/admin/stores/${A}/customers/${BOB}/export`)).status,
+    ).toBe(404);
+    expect(
+      (
+        await post(
+          'seed-store-admin',
+          `/admin/stores/${A}/customers/50000000-0000-4000-8000-0000000000ee/export`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(await exportEvents(BOB)).toEqual([]);
+
+    expect(
+      (await post('seed-store-admin', `/admin/stores/${A}/customers/${KIM}/erase`)).status,
+    ).toBe(202);
+    const before = (await exportEvents(KIM)).length;
+    expect(
+      (await post('seed-store-admin', `/admin/stores/${A}/customers/${KIM}/export`)).status,
+    ).toBe(404);
+    expect(await exportEvents(KIM)).toHaveLength(before);
+  });
+});
