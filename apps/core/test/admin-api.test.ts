@@ -129,15 +129,16 @@ describe('X-Contracts-Version (#284)', () => {
 
 describe('unmounted /admin paths (#265)', () => {
   it('answer the contract 404 to any authenticated staff user and 401 to everyone else; mounted routes keep their auth', async () => {
-    // Window 4's exact request: customers is window 13's module, not mounted in the core.
-    const path = `/admin/stores/${A}/customers`;
+    // Window 4's original request was the customers list; since #414 that route is mounted, so a store-scoped path
+    // that no router handles stands in for it (same shape: store id in the path, query string).
+    const path = `/admin/stores/${A}/unmounted-probe`;
     const query = '?page=1&limit=20&sort=created_at&order=desc';
     // No permission is checked for a route that does not exist: every role gets the same 404, never a 403 —
     // store staff asking through a store they cannot see (brand-b) included.
     for (const res of [
       await storeAdmin.get(path + query),
       await analyst.get(path + query),
-      await storeStaff.get(`/admin/stores/${B}/customers`),
+      await storeStaff.get(`/admin/stores/${B}/unmounted-probe`),
     ]) {
       expect(res.status).toBe(404);
       spec.assertSchema('Error', res.body);
@@ -147,7 +148,7 @@ describe('unmounted /admin paths (#265)', () => {
     }
     // The message names method and path, never the query string.
     expect((await storeAdmin.get(path + query)).body.message).toBe(
-      `GET /admin/stores/${A}/customers is not implemented`,
+      `GET /admin/stores/${A}/unmounted-probe is not implemented`,
     );
     const posted = await owner.post('/admin/nothing-here', { any: 'body' });
     expect(posted.status).toBe(404);

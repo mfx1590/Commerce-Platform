@@ -292,7 +292,15 @@ export async function onboardStore(
          RETURNING id, hostname, is_primary, verified_at`,
         [organizationId, storeId, wanted.hostname],
       )
-      .catch((e) => mapPgError(e, `domain "${wanted.hostname}"`));
+      .catch((e: unknown) => {
+        // #417 decision 1: a hostname another store has is a 409 naming the field (review of #424)
+        if ((e as { code?: string }).code === '23505') {
+          throw conflict(`hostname "${wanted.hostname}" is already in use`, {
+            field: 'domain.hostname',
+          });
+        }
+        return mapPgError(e, `domain "${wanted.hostname}"`);
+      });
     const domain = toDomain(dom.rows[0]!);
 
     // ---- 5. the web sales channel
