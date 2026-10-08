@@ -37,3 +37,11 @@ export type {
   CustomerListQuery,
   CustomerSortField,
 } from './admin';
+// GDPR erasure and export (#414)
+export { buildCustomerExport, eraseCustomer, erasedEmail } from './gdpr';
+export type {
+  CustomerExport,
+  CustomerExportOrder,
+  CustomerExportOrderLine,
+  EraseResult,
+} from './gdpr';

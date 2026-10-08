@@ -280,7 +280,11 @@ describe('onboardStore (#413)', () => {
         registrar,
         actor,
       ),
-    ).rejects.toMatchObject({ code: 'conflict', status: 409 });
+    ).rejects.toMatchObject({
+      code: 'conflict',
+      status: 409,
+      details: { field: 'domain.hostname' },
+    });
     await expect(
       onboardStore(
         hq,

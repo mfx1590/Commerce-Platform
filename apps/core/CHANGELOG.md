@@ -2,6 +2,19 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-08 · admin customer routes + GDPR erasure (#414, Admin API 0.4.11)
+
+- `listCustomers` / `getCustomer` / `updateCustomer` / `listCustomerAddresses` / `listCustomerGroups` are real
+  (customers module `admin.ts`): search by email or name, group filter, contract sort and paging; update of names,
+  phone, the customer group (same store only) and registered ↔ disabled, one `customer.updated` per change, no
+  personal data in audit or event.
+- `eraseCustomer` (`gdpr.ts`, 202): status `erased`, email → `erased+<customer_id>@invalid`, names / phone /
+  subject null, consent / metadata `{}`, addresses deleted, identity unlinked and deleted when orphaned, orders kept
+  (legal retention), one `customer.erased`; a replay is a no-op. `buildCustomerExport` builds the
+  `customer-export/v1` bundle; `exportCustomer`'s 202 + `customer.export_requested` lands with events 0.3.2 (#425).
+- The #265 unmounted-path test probes `/admin/stores/{id}/unmounted-probe` (the customers list is mounted now).
+- Review nit from #424: a hostname another store has answers onboarding's 409 with `details.field = 'domain.hostname'`.
+
 ### 2026-10-08 · store onboarding workflow (#413, Admin API 0.4.11 / CONTRACT CHANGE #417)
 
 - `onboardStore` (`POST /admin/onboarding/stores`, owner on `organization:hq`): legal entity (inline or

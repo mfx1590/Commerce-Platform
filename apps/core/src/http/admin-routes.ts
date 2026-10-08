@@ -66,6 +66,7 @@ import {
   adminListCustomers,
   adminUpdateCustomer,
   CUSTOMER_SORT_FIELDS,
+  eraseCustomer,
   listCustomerGroups,
 } from '../modules/customers';
 import { loadSpec } from './openapi';
@@ -454,6 +455,17 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
           uuidParam(req.params, 'customerId'),
         ),
       });
+    }),
+  );
+  // GDPR erasure: 202 both for the erasure and for the replay on an erased customer (the contract's
+  // "scheduled"; it runs synchronously, one transaction) — no body.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/erase',
+    permission('eraseCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await eraseCustomer(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
     }),
   );
   r.get(

@@ -6,8 +6,8 @@ import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminNotFound, coreErrorHandler, DevTokenVerifier } from '../src/http';
-import { closePool, initDb } from '../src/lib/db';
-import { customerEmailHash } from '../src/modules/customers';
+import { closePool, initDb, tenantClient } from '../src/lib/db';
+import { buildCustomerExport, customerEmailHash } from '../src/modules/customers';
 import { inMemoryStoreRegistrar } from '../src/modules/registry';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -235,5 +235,201 @@ describe('updateCustomer (#414)', () => {
       (await analyst.patch(`/admin/stores/${A}/customers/${JOHN}`, { first_name: 'X' })).status,
     ).toBe(403);
     expect(await events(JOHN)).toEqual([]);
+  });
+});
+
+describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
+  const ERIN = '50000000-0000-4000-8000-000000000011'; // brand-a, identity shared with brand-b's Erin
+  const ERIN_B = '50000000-0000-4000-8000-000000000012'; // brand-b, same person
+  const OLLIE = '50000000-0000-4000-8000-000000000013'; // brand-a, identity only here
+  const SHARED_ID = '50000000-0000-4000-8000-000000000301';
+  const OWN_ID = '50000000-0000-4000-8000-000000000302';
+  const post = (subject: string, path: string) =>
+    request(app).post(path).set('Authorization', `Bearer dev:${subject}`).send({});
+  const clientFor = (storeId: string) => tenantClient({ organizationId: ORG, storeIds: [storeId] });
+
+  /** One placed order for a customer, with one line (a fixture: money columns only, no checkout). */
+  async function order(storeId: string, customerId: string, email: string): Promise<string> {
+    const channel = await db.owner.query<{ id: string }>(
+      'SELECT id FROM sales_channel WHERE store_id = $1 ORDER BY code LIMIT 1',
+      [storeId],
+    );
+    const addr = JSON.stringify({
+      first_name: 'E',
+      last_name: 'R',
+      line1: 'Main 1',
+      city: 'Amsterdam',
+      postal_code: '1011AA',
+      country: 'NL',
+    });
+    const o = await db.owner.query<{ id: string }>(
+      `INSERT INTO "order" (organization_id, store_id, sales_channel_id, customer_id, email, currency, locale,
+                            shipping_address, billing_address, subtotal_minor, total_minor)
+       VALUES ($1, $2, $3, $4, $5, 'EUR', 'en-GB', $6, $6, 2500, 2500) RETURNING id`,
+      [ORG, storeId, channel.rows[0]!.id, customerId, email, addr],
+    );
+    await db.owner.query(
+      `INSERT INTO order_line_item (organization_id, store_id, order_id, sku, title, variant_title, quantity,
+                                    unit_price_minor, total_minor)
+       VALUES ($1, $2, $3, 'TEE-M', 'Tee', 'M', 1, 2500, 2500)`,
+      [ORG, storeId, o.rows[0]!.id],
+    );
+    return o.rows[0]!.id;
+  }
+
+  beforeAll(async () => {
+    await db.owner.query(
+      'INSERT INTO customer_identity (id, organization_id, email_hash) VALUES ($1, $3, $4), ($2, $3, $5)',
+      [
+        SHARED_ID,
+        OWN_ID,
+        ORG,
+        customerEmailHash('erin@example.com'),
+        customerEmailHash('ollie@example.com'),
+      ],
+    );
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, identity_id, keycloak_subject, email, first_name,
+                             last_name, phone, status, consent, metadata)
+       VALUES ($1, $4, $5, $7, 'kc-erin', 'erin@example.com', 'Erin', 'Rae', '+31611111111', 'registered',
+               '{"marketing_email": {"granted": true}}', '{"tags": ["vip"]}'),
+              ($2, $4, $6, $7, 'kc-erin', 'erin@example.com', 'Erin', 'Rae', NULL, 'registered', '{}', '{}'),
+              ($3, $4, $5, $8, NULL, 'ollie@example.com', 'Ollie', 'Oak', NULL, 'guest', '{}', '{}')`,
+      [ERIN, ERIN_B, OLLIE, ORG, A, B, SHARED_ID, OWN_ID],
+    );
+    await db.owner.query(
+      `INSERT INTO customer_address (organization_id, store_id, customer_id, first_name, last_name, line1, city,
+                                     postal_code, country, is_default_shipping, is_default_billing)
+       VALUES ($1, $2, $3, 'Erin', 'Rae', 'Canal 9', 'Amsterdam', '1015AA', 'NL', true, true),
+              ($1, $4, $5, 'Erin', 'Rae', 'Other 3', 'Rotterdam', '3011AA', 'NL', true, true)`,
+      [ORG, A, ERIN, B, ERIN_B],
+    );
+  });
+
+  it('export: only that customer in that store — the record, addresses, consent and orders with lines', async () => {
+    const mine = await order(A, ERIN, 'erin@example.com');
+    await order(B, ERIN_B, 'erin@example.com'); // the same person in brand-b: never in brand-a's export
+    await order(A, OLLIE, 'ollie@example.com'); // another customer of the same store: never in Erin's export
+    const bundle = await buildCustomerExport(clientFor(A), A, ERIN);
+    expect(bundle).toMatchObject({
+      format: 'customer-export/v1',
+      store_id: A,
+      customer: { id: ERIN, email: 'erin@example.com', first_name: 'Erin', phone: '+31611111111' },
+      consent: { marketing_email: { granted: true } },
+    });
+    expect(bundle.addresses.map((a) => a.line1)).toEqual(['Canal 9']);
+    expect(bundle.orders.map((o) => o.id)).toEqual([mine]);
+    expect(bundle.orders[0]).toMatchObject({
+      total_minor: 2500,
+      lines: [{ sku: 'TEE-M', quantity: 1, total_minor: 2500 }],
+    });
+    const text = JSON.stringify(bundle);
+    expect(text).not.toContain('Other 3');
+    expect(text).not.toContain('ollie@example.com');
+    // through brand-b's client the brand-a customer does not exist
+    await expect(buildCustomerExport(clientFor(B), B, ERIN)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
+  it('erase (store_admin, 202): no PII left; orders kept; one customer.erased; replay is a no-op', async () => {
+    expect((await post('seed-support', `/admin/stores/${A}/customers/${ERIN}/erase`)).status).toBe(
+      403,
+    );
+    const res = await post('seed-store-admin', `/admin/stores/${A}/customers/${ERIN}/erase`);
+    expect(res.status).toBe(202);
+    expect(res.text).toBe('');
+
+    const row = (await db.owner.query('SELECT * FROM customer WHERE id = $1', [ERIN])).rows[0];
+    expect(row).toMatchObject({
+      status: 'erased',
+      email: `erased+${ERIN}@invalid`,
+      first_name: null,
+      last_name: null,
+      phone: null,
+      keycloak_subject: null,
+      identity_id: null,
+      consent: {},
+      metadata: {},
+    });
+    const addresses = await db.owner.query(
+      'SELECT 1 FROM customer_address WHERE customer_id = $1',
+      [ERIN],
+    );
+    expect(addresses.rowCount).toBe(0);
+    // the identity is still used by brand-b's Erin: unlinked here, kept there
+    const shared = await db.owner.query('SELECT 1 FROM customer_identity WHERE id = $1', [
+      SHARED_ID,
+    ]);
+    expect(shared.rowCount).toBe(1);
+    const other = await db.owner.query('SELECT identity_id FROM customer WHERE id = $1', [ERIN_B]);
+    expect(other.rows[0].identity_id).toBe(SHARED_ID);
+    // orders untouched and still linked by customer id (legal retention, decision A)
+    const orders = await db.owner.query(
+      'SELECT email, total_minor FROM "order" WHERE customer_id = $1',
+      [ERIN],
+    );
+    expect(orders.rows).toEqual([{ email: 'erin@example.com', total_minor: '2500' }]);
+
+    const ev = await db.owner.query<{ topic: string; payload: Record<string, unknown> }>(
+      'SELECT topic, payload FROM outbox WHERE aggregate_id = $1 ORDER BY seq',
+      [ERIN],
+    );
+    expect(ev.rows.map((e) => e.topic)).toEqual(['customer.erased']);
+    expect(ev.rows[0]!.payload).toMatchObject({ customer_id: ERIN, identity_id: SHARED_ID });
+    const audit = await db.owner.query('SELECT action, after FROM audit_log WHERE entity_id = $1', [
+      ERIN,
+    ]);
+    expect(audit.rows).toEqual([
+      {
+        action: 'customer.erase',
+        after: {
+          status: 'erased',
+          addresses_deleted: 1,
+          identity_unlinked: true,
+          identity_deleted: false,
+        },
+      },
+    ]);
+    const written = JSON.stringify(audit.rows) + JSON.stringify(ev.rows);
+    for (const pii of ['erin@example.com', 'Erin', 'Rae', '+31611111111'])
+      expect(written).not.toContain(pii);
+
+    // replay: 202, nothing more written; the erased record stays readable, not updatable, not exportable
+    expect(
+      (await post('seed-store-admin', `/admin/stores/${A}/customers/${ERIN}/erase`)).status,
+    ).toBe(202);
+    const events = await db.owner.query('SELECT 1 FROM outbox WHERE aggregate_id = $1', [ERIN]);
+    expect(events.rowCount).toBe(1);
+    const read = await support.get(`/admin/stores/${A}/customers/${ERIN}`);
+    expect(read.status).toBe(200);
+    spec.assertSchema('Customer', read.body);
+    expect(read.body).toMatchObject({
+      status: 'erased',
+      email: `erased+${ERIN}@invalid`,
+      first_name: null,
+    });
+    expect(
+      (await support.patch(`/admin/stores/${A}/customers/${ERIN}`, { first_name: 'X' })).status,
+    ).toBe(404);
+    await expect(buildCustomerExport(clientFor(A), A, ERIN)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
+  it('erase deletes an identity nothing else references; a brand-a admin cannot erase in brand-b; unknown → 404', async () => {
+    expect(
+      (await post('seed-store-admin', `/admin/stores/${A}/customers/${OLLIE}/erase`)).status,
+    ).toBe(202);
+    const own = await db.owner.query('SELECT 1 FROM customer_identity WHERE id = $1', [OWN_ID]);
+    expect(own.rowCount).toBe(0);
+    expect(
+      (await post('test-a-only-admin', `/admin/stores/${B}/customers/${ERIN_B}/erase`)).status,
+    ).toBe(403);
+    expect(
+      (await post('seed-store-admin', `/admin/stores/${A}/customers/${ERIN_B}/erase`)).status,
+    ).toBe(404);
+    const untouched = await db.owner.query('SELECT status FROM customer WHERE id = $1', [ERIN_B]);
+    expect(untouched.rows[0].status).toBe('registered');
   });
 });
