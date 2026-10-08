@@ -7,15 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { parse } from 'yaml';
-import { withLocalOverlays } from '../../src/http/openapi';
 
 function loadSpec(file: 'store-api.yaml' | 'admin-api.yaml'): Record<string, unknown> {
   // @platform/contracts does not export package.json (export map), so resolve the workspace path directly.
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-  const doc = parse(
+  return parse(
     readFileSync(join(root, 'packages', 'contracts', 'openapi', file), 'utf8'),
   ) as Record<string, unknown>;
-  return withLocalOverlays(doc, file); // the #417 operations until the contract lands (src/http/openapi.ts)
 }
 
 export interface SpecValidator {

@@ -101,9 +101,7 @@ assertion (the seeded owner sees an onboarded store through scope resolution; a 
 `test/auth-live.test.ts` once #415 has landed (`it.todo` until then).
 
 Routes (`src/http/admin-routes.ts`): `POST /admin/onboarding/stores` (`onboardStore`, 201 / 200 / 400 / 409 / 422) and `POST /admin/stores/{storeId}/activate` (`activateStore`, 200 / 404 / 409), both `owner` on
-`organization:hq`; `updateStore` gains 404 / 409 / 422. Until contracts 0.4.11 is on main the two operations
-come from the local overlay `apps/core/test/fixtures/admin-api.0.4.11.overlay.yaml` (merged by
-`src/http/openapi.ts` only while the base document is older) — deleted with the merge that brings 0.4.11.
+`organization:hq`; `updateStore` gains 404 / 409 / 422 (Admin API 0.4.11, contracts-v0.4.13).
 
 ### Store settings the core reads (`settings-schema.ts`)
 

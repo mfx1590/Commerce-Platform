@@ -20,9 +20,8 @@
 - `StoreRegistrar`: `src/http/store-registrar.ts` is the interim OpenFGA adapter until `@platform/auth-sdk`'s
   `ensureStoreObject` (#415) is on main; `inMemoryStoreRegistrar()` for tests; `mountCoreMiddleware` takes
   `storeRegistrar`. The live visibility assertion is an `it.todo` naming #415 until both are merged.
-- Until contracts 0.4.11 lands: the two operations come from the local overlay
-  `test/fixtures/admin-api.0.4.11.overlay.yaml` (`src/http/openapi.ts` merges it only while the base document is
-  older); removed with the merge that brings 0.4.11.
+- Built against contracts-v0.4.13 (Admin API 0.4.11, #419 = `d11ace5`); the local overlay used while the
+  contract was in review is gone.
 - Decision recorded (manager, 2026-10-08): carts are excluded from the outbox rule by design (checkout README).
 - Folded review nits (manager, 2026-10-08): a no-op `addLocale` / `addCurrency` writes no audit row any more (#318); the foreign-key-refused set removal (409 naming the constraint) has its test (#308).
 

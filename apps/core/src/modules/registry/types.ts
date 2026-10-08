@@ -94,44 +94,10 @@ export interface DomainUpdate {
 export type Warehouse = AdminComponents['schemas']['Warehouse'];
 export type LegalEntity = AdminComponents['schemas']['LegalEntity'];
 
-// ---- onboarding (#413, CONTRACT CHANGE #417 — Admin API 0.4.11) ----------------------------------------------
-// Local mirrors of the 0.4.11 schemas until the contract lands on main; then they become
-// `AdminComponents['schemas'][...]` like the types above.
-
-export interface LegalEntityInput {
-  code: string;
-  name: string;
-  country: string;
-  currency: string;
-  vat_number?: string | null;
-}
-
-export interface StoreOnboardingInput {
-  /** An existing legal entity — exactly one of this and `legal_entity`. */
-  legal_entity_id?: string;
-  /** Created in the same transaction — exactly one of this and `legal_entity_id`. */
-  legal_entity?: LegalEntityInput;
-  code: string;
-  name: string;
-  default_currency: string;
-  default_locale: string;
-  default_country: string;
-  timezone?: string;
-  currencies?: string[];
-  locales?: string[];
-  domain: { hostname: string };
-  theme?: Record<string, unknown>;
-  settings?: Record<string, unknown>;
-}
-
-export interface StoreOnboarded {
-  store: Store;
-  legal_entity: LegalEntity;
-  domain: Domain;
-  sales_channel: SalesChannel;
-  /** Shown once (201); null when the call repeated an onboarding already done (200). */
-  publishable_key: ApiKeyCreated | null;
-}
+// ---- onboarding (#413, Admin API 0.4.11 / contracts-v0.4.13) ---------------------------------------------
+export type LegalEntityInput = AdminComponents['schemas']['LegalEntityInput'];
+export type StoreOnboardingInput = AdminComponents['schemas']['StoreOnboardingInput'];
+export type StoreOnboarded = AdminComponents['schemas']['StoreOnboarded'];
 
 /**
  * The OpenFGA side of a store (#413 / #415): the `store:<id>#organization@organization:hq` tuple that makes a

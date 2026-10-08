@@ -71,78 +71,11 @@ function details(errors: ErrorObject[] | null | undefined): Record<string, strin
   return out;
 }
 
-/**
- * LOCAL OVERLAYS (#413 / CONTRACT CHANGE #417): a yaml under apps/core/test/fixtures carrying the operations the
- * core already implements ahead of the contract landing. Applied only while the base document's `info.version` is
- * below the overlay's; once main carries that version the file is deleted (same PR as the merge). `paths` and
- * `components.*` are deep-merged (overlay keys added or replaced, everything else kept).
- */
-const LOCAL_OVERLAYS: Record<SpecFile, { file: string; version: string }[]> = {
-  'admin-api.yaml': [{ file: 'admin-api.0.4.11.overlay.yaml', version: '0.4.11' }],
-  'store-api.yaml': [],
-};
-
-function overlayDir(): string | null {
-  let dir = __dirname;
-  for (let i = 0; i < 6; i++) {
-    const candidate = join(dir, 'test', 'fixtures');
-    if (existsSync(join(dir, 'package.json')) && existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
-
-const semverBelow = (a: string, b: string): boolean => {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0);
-  }
-  return false;
-};
-
-function deepMerge(base: unknown, over: unknown): unknown {
-  if (
-    base !== null &&
-    typeof base === 'object' &&
-    !Array.isArray(base) &&
-    over !== null &&
-    typeof over === 'object' &&
-    !Array.isArray(over)
-  ) {
-    const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
-    for (const [k, v] of Object.entries(over as Record<string, unknown>))
-      out[k] = deepMerge(out[k], v);
-    return out;
-  }
-  return over;
-}
-
-/** The base document with every applicable local overlay merged in (none when the base is current). */
-export function withLocalOverlays<T extends object>(doc: T, file: SpecFile): T {
-  const dir = overlayDir();
-  if (!dir) return doc;
-  let out = doc;
-  for (const overlay of LOCAL_OVERLAYS[file]) {
-    const path = join(dir, overlay.file);
-    const version = (out as { info?: { version?: string } }).info?.version ?? '0.0.0';
-    if (!existsSync(path) || !semverBelow(version, overlay.version)) continue;
-    const extra = parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
-    out = deepMerge(out, extra) as T;
-  }
-  return out;
-}
-
 export function loadSpec(file: SpecFile): Spec {
   const cached = specs.get(file);
   if (cached) return cached;
 
-  const doc = withLocalOverlays(
-    parse(readFileSync(join(openApiDir(), file), 'utf8')) as OpenApiDoc,
-    file,
-  );
+  const doc = parse(readFileSync(join(openApiDir(), file), 'utf8')) as OpenApiDoc;
   const id = `https://contracts.local/${file}`;
   const ajv = new Ajv2020({
     strict: false,
