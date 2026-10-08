@@ -8,8 +8,10 @@
 # 37293071865, 126/129), which infra/ci/totp-barrier.sh papered over with a 30–60 s wait between them. #387
 # (auth-sdk) and #401 (core) replaced that with one shared owner-token fixture per suite, so no suite depends on
 # running before or after another, and the wait is gone. This prints what actually happened, so every run is
-# its own evidence: the owner logins, the TOTP step each fell in, and a warning if two SUCCESSFUL logins shared a
-# step (a code that could have been needed twice). It reads Keycloak's event log, which the CI-only overlay
+# its own evidence: the owner logins, the TOTP step each fell in, and a warning for every REFUSED owner login.
+# Keycloak refuses a code that was already used, so a collision shows up as a refused login (LOGIN_ERROR) — not as
+# two successes: two successful logins in one 30 s step mean two DIFFERENT codes were accepted, which is exactly
+# what the shared fixture is for (#407 first warned on that, wrongly). It reads Keycloak's event log, which the CI-only overlay
 # infra/ci/compose.keycloak-events.yml enables; it is a witness, not a gate, and always exits 0.
 #
 # OWNER_GRANTS_LOG=<file> reads a saved `docker compose logs --timestamps` output instead of the container
@@ -46,11 +48,12 @@ done
 
 ok="$(printf '%s\n' "$rows" | awk '$3 == "LOGIN"' | wc -l | tr -d ' ')"
 failed="$(printf '%s\n' "$rows" | awk '$3 == "LOGIN_ERROR"' | wc -l | tr -d ' ')"
-shared="$(printf '%s\n' "$rows" | awk '$3 == "LOGIN" { print $2 }' | sort | uniq -d | tr '\n' ' ')"
 echo "   successful owner logins: $ok; refused: $failed"
-if [ -n "$shared" ]; then
-  echo "   ⚠ two successful owner logins in the same TOTP step: $shared— a code that could have been needed twice"
+if [ "$failed" -gt 0 ]; then
+  # A refused owner login is what a one-time-code collision looks like (or a wrong password / expired code); the
+  # error column above says which. The live suites' own result decides the job — this only names what happened.
+  echo "   ⚠ $failed refused owner login(s) — the error column says why (a reused one-time code is refused)"
 else
-  echo "   no TOTP step had two successful owner logins"
+  echo "   no owner login was refused"
 fi
 exit 0

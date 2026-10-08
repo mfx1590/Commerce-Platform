@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-10-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
-Status: **quiet** (2026-10-07). #346 done: PR #407 merged as `322c6f6`, TOTP barrier gone. Next (tomorrow, small PR from main): owner-grants.sh warns on REFUSED owner logins, not on two successes in one TOTP step.
+Last updated: 2026-10-08 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
+Status: **owner-grants follow-up** (Refs #346, 2026-10-08): the witness warns on REFUSED owner logins, not on two successes in one step. One push, its own live run is the proof (the step cannot fail the job).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
