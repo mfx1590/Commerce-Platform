@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.10
+  version: 0.4.11
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -189,6 +189,35 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActivationBlocked' }
+        '422': { $ref: '#/components/responses/InvalidSettings' }
+
+  /admin/stores/{storeId}/activate:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    post:
+      tags: [registry]
+      operationId: activateStore
+      summary: Move a draft or paused store to active once every prerequisite is present
+      description: >-
+        Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live
+        publishable key and the store's OpenFGA object. Missing ones are listed in the 409's
+        `details.missing`. An active store answers 200 unchanged; an archived store answers 409 with
+        `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
+      x-permission: { relation: owner, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK (status active)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Store' }
+              examples:
+                brandA: { $ref: '#/components/examples/StoreBrandA' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/ActivationBlocked' }
 
   /admin/stores/{storeId}/domains:
     parameters:
@@ -472,6 +501,64 @@ paths:
                   details: { key_id: 40000000-0000-4000-8000-000000000101 },
                 }
         '400': { $ref: '#/components/responses/BadRequest' }
+
+  /admin/onboarding/stores:
+    post:
+      tags: [registry]
+      operationId: onboardStore
+      summary: Onboard a brand in one transaction (legal entity, store, domain, locales, currencies, web channel, publishable key)
+      description: >-
+        Creates the legal entity (inline) or uses an existing one, the store in `draft` with
+        `content_space_id = <code>` and `search_index = <code>_products`, its primary domain, the
+        locales and currencies (the defaults first), one `web` sales channel and one publishable key
+        bound to it — all in one transaction, with the audit row and the `store.created` event — then
+        registers the store's OpenFGA object. Idempotent by `code`: the same input again answers 200
+        with the same store and `publishable_key: null` (it is shown once, on 201); the same `code`
+        with a different input answers 409. No `Idempotency-Key` header. Activation is a separate
+        step (`activateStore`).
+      x-permission: { relation: owner, object: 'organization:hq' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StoreOnboardingInput' }
+            example:
+              legal_entity:
+                {
+                  code: brand-c-bv,
+                  name: Brand C B.V.,
+                  country: NL,
+                  currency: EUR,
+                  vat_number: null,
+                }
+              code: brand-c
+              name: Brand C
+              default_currency: EUR
+              default_locale: en-GB
+              default_country: NL
+              timezone: Europe/Amsterdam
+              currencies: [EUR, GBP]
+              locales: [en-GB, nl-NL]
+              domain: { hostname: brand-c.localhost }
+              settings: { payment: { invoice_allowed: false } }
+      responses:
+        '201':
+          description: Created — the publishable key is shown once
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreOnboarded' }
+              examples:
+                brandC: { $ref: '#/components/examples/StoreOnboardedBrandC' }
+        '200':
+          description: Already onboarded with the same input — the same store, `publishable_key` null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreOnboarded' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/InvalidSettings' }
 
   /admin/warehouses:
     get:
@@ -3824,6 +3911,35 @@ components:
               message: the manual provider cannot capture payments,
               details: { provider: manual },
             }
+    ActivationBlocked:
+      description: The store cannot become active — `details.missing` lists the prerequisites that are absent (or `details.status` is `archived`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: conflict,
+              message: store is not ready to activate,
+              details: { missing: [primary_domain, publishable_key] },
+            }
+    InvalidSettings:
+      description: A `store.settings` value has the wrong shape — `details.settings` maps each offending key to what was expected
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: validation_error,
+              message: invalid store settings,
+              details:
+                {
+                  settings:
+                    {
+                      'payment.invoice_allowed': boolean,
+                      support_refund_limit_minor: 'integer >= 0',
+                    },
+                },
+            }
 
   schemas:
     Error:
@@ -3927,7 +4043,12 @@ components:
         content_space_id: { type: [string, 'null'] }
         search_index: { type: [string, 'null'] }
         theme: { type: object, additionalProperties: true }
-        settings: { type: object, additionalProperties: true }
+        settings:
+          {
+            type: object,
+            additionalProperties: true,
+            description: 'Free-form, but every key the core reads (listed in apps/core/src/modules/registry/README.md) is checked by shape: a wrong type answers 422 validation_error with details.settings naming the key. Unknown keys are preserved.',
+          }
     Store:
       type: object
       required:
@@ -4035,6 +4156,76 @@ components:
         country: { type: string }
         currency: { type: string }
         vat_number: { type: [string, 'null'] }
+    LegalEntityInput:
+      type: object
+      required: [code, name, country, currency]
+      properties:
+        code: { type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$' }
+        name: { type: string }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        vat_number: { type: [string, 'null'] }
+    StoreOnboardingInput:
+      type: object
+      required: [code, name, default_currency, default_locale, default_country, domain]
+      description: >-
+        Exactly one of `legal_entity_id` (existing) and `legal_entity` (created in the same transaction);
+        neither or both is a 400. `content_space_id`, `search_index` and `status` are server-owned
+        (`<code>`, `<code>_products`, `draft`).
+      properties:
+        legal_entity_id: { type: string, format: uuid }
+        legal_entity: { $ref: '#/components/schemas/LegalEntityInput' }
+        code: { type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$' }
+        name: { type: string }
+        default_currency: { type: string, pattern: '^[A-Z]{3}$' }
+        default_locale: { type: string }
+        default_country: { type: string, pattern: '^[A-Z]{2}$' }
+        timezone: { type: string, default: UTC }
+        currencies:
+          {
+            type: array,
+            items: { type: string },
+            description: 'Enabled set; the default is always included first. Omitted = the default only.',
+          }
+        locales:
+          {
+            type: array,
+            items: { type: string },
+            description: 'Enabled set; the default is always included first. Omitted = the default only.',
+          }
+        domain:
+          type: object
+          required: [hostname]
+          description: The primary domain (unverified; `verified_at` null)
+          properties:
+            hostname: { type: string }
+        theme: { type: object, additionalProperties: true }
+        settings:
+          {
+            type: object,
+            additionalProperties: true,
+            description: 'Same shape check as StoreInput.settings (422 on a wrong type); unknown keys preserved.',
+          }
+    ApiKeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/ApiKey'
+        - type: object
+          required: [key]
+          properties:
+            key: { type: string, description: Shown once }
+    StoreOnboarded:
+      type: object
+      required: [store, legal_entity, domain, sales_channel, publishable_key]
+      properties:
+        store: { $ref: '#/components/schemas/Store' }
+        legal_entity: { $ref: '#/components/schemas/LegalEntity' }
+        domain: { $ref: '#/components/schemas/Domain' }
+        sales_channel: { $ref: '#/components/schemas/SalesChannel' }
+        publishable_key:
+          description: The plain key, shown once on 201; null when the call repeated an onboarding already done
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/ApiKeyCreated'
 
     CategoryInput:
       type: object
@@ -5412,6 +5603,54 @@ components:
         settings: { support_refund_limit_minor: 5000 }
         created_at: '2026-09-04T00:00:00Z'
         updated_at: '2026-09-04T00:00:00Z'
+    StoreOnboardedBrandC:
+      value:
+        store:
+          id: 00000000-0000-4000-8000-000000000033
+          legal_entity_id: 00000000-0000-4000-8000-000000000013
+          code: brand-c
+          name: Brand C
+          status: draft
+          default_currency: EUR
+          default_locale: en-GB
+          default_country: NL
+          timezone: Europe/Amsterdam
+          currencies: [EUR, GBP]
+          locales: [en-GB, nl-NL]
+          content_space_id: brand-c
+          search_index: brand-c_products
+          psp_account_id: null
+          theme: {}
+          settings: { payment: { invoice_allowed: false } }
+          created_at: '2026-10-08T00:00:00Z'
+          updated_at: '2026-10-08T00:00:00Z'
+        legal_entity:
+          id: 00000000-0000-4000-8000-000000000013
+          code: brand-c-bv
+          name: Brand C B.V.
+          country: NL
+          currency: EUR
+          vat_number: null
+        domain:
+          id: 20000000-0000-4000-8000-000000000033
+          hostname: brand-c.localhost
+          is_primary: true
+          verified_at: null
+        sales_channel:
+          id: 30000000-0000-4000-8000-000000000033
+          code: web
+          name: Brand C
+          type: web
+          is_active: true
+        publishable_key:
+          id: 40000000-0000-4000-8000-000000000133
+          name: storefront
+          type: publishable
+          key_prefix: pk_brand
+          sales_channel_id: 30000000-0000-4000-8000-000000000033
+          revoked_at: null
+          created_at: '2026-10-08T00:00:00Z'
+          key: pk_brandc_mock_0000000000000000
     VariantMRed:
       value:
         id: 30000000-0000-4000-8000-000000000301

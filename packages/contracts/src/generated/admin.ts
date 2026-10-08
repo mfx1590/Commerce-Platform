@@ -57,6 +57,28 @@ export interface paths {
         patch: operations["updateStore"];
         trace?: never;
     };
+    "/admin/stores/{storeId}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a draft or paused store to active once every prerequisite is present
+         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key and the store's OpenFGA object. Missing ones are listed in the 409's `details.missing`. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
+         */
+        post: operations["activateStore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/domains": {
         parameters: {
             query?: never;
@@ -154,6 +176,26 @@ export interface paths {
          *     `revoked_at: null` — the storefront would lose its only credential.
          */
         post: operations["revokeApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/onboarding/stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Onboard a brand in one transaction (legal entity, store, domain, locales, currencies, web channel, publishable key)
+         * @description Creates the legal entity (inline) or uses an existing one, the store in `draft` with `content_space_id = <code>` and `search_index = <code>_products`, its primary domain, the locales and currencies (the defaults first), one `web` sales channel and one publishable key bound to it — all in one transaction, with the audit row and the `store.created` event — then registers the store's OpenFGA object. Idempotent by `code`: the same input again answers 200 with the same store and `publishable_key: null` (it is shown once, on 201); the same `code` with a different input answers 409. No `Idempotency-Key` header. Activation is a separate step (`activateStore`).
+         */
+        post: operations["onboardStore"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1550,6 +1592,7 @@ export interface components {
             theme?: {
                 [key: string]: unknown;
             };
+            /** @description Free-form, but every key the core reads (listed in apps/core/src/modules/registry/README.md) is checked by shape: a wrong type answers 422 validation_error with details.settings naming the key. Unknown keys are preserved. */
             settings?: {
                 [key: string]: unknown;
             };
@@ -1636,6 +1679,53 @@ export interface components {
             country: string;
             currency: string;
             vat_number: string | null;
+        };
+        LegalEntityInput: {
+            code: string;
+            name: string;
+            country: string;
+            currency: string;
+            vat_number?: string | null;
+        };
+        /** @description Exactly one of `legal_entity_id` (existing) and `legal_entity` (created in the same transaction); neither or both is a 400. `content_space_id`, `search_index` and `status` are server-owned (`<code>`, `<code>_products`, `draft`). */
+        StoreOnboardingInput: {
+            /** Format: uuid */
+            legal_entity_id?: string;
+            legal_entity?: components["schemas"]["LegalEntityInput"];
+            code: string;
+            name: string;
+            default_currency: string;
+            default_locale: string;
+            default_country: string;
+            /** @default UTC */
+            timezone: string;
+            /** @description Enabled set; the default is always included first. Omitted = the default only. */
+            currencies?: string[];
+            /** @description Enabled set; the default is always included first. Omitted = the default only. */
+            locales?: string[];
+            /** @description The primary domain (unverified; `verified_at` null) */
+            domain: {
+                hostname: string;
+            };
+            theme?: {
+                [key: string]: unknown;
+            };
+            /** @description Same shape check as StoreInput.settings (422 on a wrong type); unknown keys preserved. */
+            settings?: {
+                [key: string]: unknown;
+            };
+        };
+        ApiKeyCreated: components["schemas"]["ApiKey"] & {
+            /** @description Shown once */
+            key: string;
+        };
+        StoreOnboarded: {
+            store: components["schemas"]["Store"];
+            legal_entity: components["schemas"]["LegalEntity"];
+            domain: components["schemas"]["Domain"];
+            sales_channel: components["schemas"]["SalesChannel"];
+            /** @description The plain key, shown once on 201; null when the call repeated an onboarding already done */
+            publishable_key: null | components["schemas"]["ApiKeyCreated"];
         };
         CategoryInput: {
             handle: string;
@@ -2777,6 +2867,48 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The store cannot become active — `details.missing` lists the prerequisites that are absent (or `details.status` is `archived`) */
+        ActivationBlocked: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "conflict",
+                 *       "message": "store is not ready to activate",
+                 *       "details": {
+                 *         "missing": [
+                 *           "primary_domain",
+                 *           "publishable_key"
+                 *         ]
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description A `store.settings` value has the wrong shape — `details.settings` maps each offending key to what was expected */
+        InvalidSettings: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "validation_error",
+                 *       "message": "invalid store settings",
+                 *       "details": {
+                 *         "settings": {
+                 *           "payment.invoice_allowed": "boolean",
+                 *           "support_refund_limit_minor": "integer >= 0"
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         StoreId: string;
@@ -2990,6 +3122,35 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ActivationBlocked"];
+            422: components["responses"]["InvalidSettings"];
+        };
+    };
+    activateStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK (status active) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Store"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ActivationBlocked"];
         };
     };
     listDomains: {
@@ -3337,6 +3498,77 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    onboardStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "legal_entity": {
+                 *         "code": "brand-c-bv",
+                 *         "name": "Brand C B.V.",
+                 *         "country": "NL",
+                 *         "currency": "EUR",
+                 *         "vat_number": null
+                 *       },
+                 *       "code": "brand-c",
+                 *       "name": "Brand C",
+                 *       "default_currency": "EUR",
+                 *       "default_locale": "en-GB",
+                 *       "default_country": "NL",
+                 *       "timezone": "Europe/Amsterdam",
+                 *       "currencies": [
+                 *         "EUR",
+                 *         "GBP"
+                 *       ],
+                 *       "locales": [
+                 *         "en-GB",
+                 *         "nl-NL"
+                 *       ],
+                 *       "domain": {
+                 *         "hostname": "brand-c.localhost"
+                 *       },
+                 *       "settings": {
+                 *         "payment": {
+                 *           "invoice_allowed": false
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["StoreOnboardingInput"];
+            };
+        };
+        responses: {
+            /** @description Already onboarded with the same input — the same store, `publishable_key` null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreOnboarded"];
+                };
+            };
+            /** @description Created — the publishable key is shown once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreOnboarded"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidSettings"];
         };
     };
     listWarehouses: {
