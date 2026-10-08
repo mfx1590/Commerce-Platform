@@ -155,3 +155,24 @@
   `provider_unsupported: 422`), as 0.4.7 did for `last_live_key`. The local `as ErrorCode` casts in the payments
   (and, once merged, shipping) modules are removed by windows 7 and 8 in their own follow-ups.
 - Store API 0.5.4, events 0.3.1, db 0.3.2 unchanged. `CONTRACTS_VERSION = '0.4.12'`; types regenerated.
+
+## 0.4.13 — 2026-10-08 (store onboarding, CONTRACT CHANGE #417 for core 3.1 #413; contracts-v0.4.13)
+
+- Admin API 0.4.11 (115 operations, +2): `onboardStore` (`POST /admin/onboarding/stores`, `owner` on `organization:hq`) creates
+  the legal entity (inline `LegalEntityInput`, or an existing `legal_entity_id` — exactly one, else 400), the store in `draft`
+  with the server-owned conventions (`content_space_id = <code>`, `search_index = <code>_products`), its primary domain, the
+  locales and currencies (defaults first), one `web` sales channel and one publishable key, all in one transaction with the
+  audit row and `store.created`, then registers the store's OpenFGA object; 201 `StoreOnboarded` with the plain key shown
+  once, 200 with `publishable_key: null` when the same input is repeated (idempotent by `code`, no `Idempotency-Key`), 409 for
+  the same `code` with different input or a hostname already taken. `activateStore` (`POST /admin/stores/{storeId}/activate`,
+  `owner` on hq): `draft`/`paused` → `active` when every prerequisite is present, else 409 `ActivationBlocked` with the closed
+  list `details.missing[]` (`legal_entity`, `locale`, `currency`, `primary_domain`, `publishable_key`, `fga_object`); `active`
+  again is a 200 no-op; `archived` → 409 `details.status`. `updateStore` gains 404, the same 409 when `status: active` is
+  requested, and 422 `InvalidSettings`.
+- `StoreInput.settings` stays `additionalProperties: true`; the keys the core reads (listed in the registry README, not here)
+  are checked by shape on `onboardStore` and `updateStore`: a wrong type answers 422 `validation_error` with
+  `details.settings` naming the key; unknown keys are preserved. New components: responses `ActivationBlocked`,
+  `InvalidSettings`; schemas `LegalEntityInput`, `StoreOnboardingInput`, `ApiKeyCreated`, `StoreOnboarded`; example
+  `StoreOnboardedBrandC`.
+- No `ERROR_CODES`, events or db change (`store.created` / `store.updated` as today; events 0.3.1, db 0.3.3, Store API 0.5.4).
+  `CONTRACTS_VERSION = '0.4.13'`; types regenerated. Producer: window 1 (#413). Consumer: window 4 (onboarding wizard, later).
