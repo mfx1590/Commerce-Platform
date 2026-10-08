@@ -98,6 +98,8 @@ Tasks are GitHub issues #10–#16 ([auth] 1.1–1.7); their acceptance criteria 
 
 Role management UI support: APIs for listing users, assigning stores, finance gate; SSO for HQ.
 
+- [ ] Nits from the #427 review (manager, 2026-10-08; not blocking, next auth PR): (1) the `.catch(() => undefined)` on the tuple compensation in roles/service.ts (assign ~210, revoke ~266) can make the 503 "nothing changed" claim false when OpenFGA fails DURING the compensation (pre-existing pattern) — document or handle (e.g. surface a distinct 503 detail `compensation_failed` and point at fga:reconcile / the mirror); (2) production-realms.test.ts line 2 comment still says production.config.json → production/production-profile.json; (3) the tuple exists for an instant before a refused logout — document in the README (permission briefly granted at OpenFGA, no token could have used it: sessions were being revoked).
+- [ ] Owner-token reuse margin 60 s → 5 min: parked on the local branch `auth/phase3-margin` (one commit on top of #427's pre-fix head; rebase before use); its own small PR ONLY when the manager asks, with three consecutive green live CI runs on one head and the owner-grants witness quoted.
 - [ ] Role admin endpoints
 - [ ] SSO config (`hq-sso` placeholder IdP already in the staff realm, disabled)
 - [ ] Session revocation on role change
