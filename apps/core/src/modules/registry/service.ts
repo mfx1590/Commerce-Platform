@@ -14,6 +14,8 @@ import {
   validationError,
 } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
+import { storeReadiness } from './readiness';
+import { validateStoreSettings } from './settings-schema';
 import type {
   ApiKey,
   ApiKeyCreated,
@@ -34,11 +36,12 @@ import type {
   StoreRow,
   Warehouse,
   LegalEntity,
+  StoreRegistrar,
 } from './types';
 
-const CODE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const CURRENCY = /^[A-Z]{3}$/;
-const COUNTRY = /^[A-Z]{2}$/;
+/* module-internal (onboarding.ts); not part of the public API in index.ts */ export const CODE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const CURRENCY = /^[A-Z]{3}$/;
+export const COUNTRY = /^[A-Z]{2}$/;
 const STORE_STATUSES = ['draft', 'active', 'paused', 'archived'] as const;
 const CHANNEL_TYPES = ['web', 'app', 'marketplace', 'pos'] as const;
 const KEY_TYPES = ['publishable', 'secret'] as const;
@@ -59,14 +62,14 @@ const STORE_COLUMNS = [
   'settings',
 ] as const;
 
-const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-const iso = (d: Date | string) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
+export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
+export const iso = (d: Date | string) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
 
-function organizationOf(client: ScopedClient): string {
+export function organizationOf(client: ScopedClient): string {
   return client.context.organizationId;
 }
 
-function requireOrganizationScope(client: ScopedClient, what: string): void {
+export function requireOrganizationScope(client: ScopedClient, what: string): void {
   if (client.scope !== 'organization') throw forbidden(`${what} requires organization scope`);
 }
 
@@ -110,7 +113,7 @@ export function toStore(r: StoreRow): Store {
   };
 }
 
-function validateStoreInput(input: StoreInput, mode: 'create' | 'update'): void {
+export function validateStoreInput(input: StoreInput, mode: 'create' | 'update'): void {
   const problems: Record<string, string> = {};
   if (mode === 'create') {
     for (const k of [
@@ -133,9 +136,10 @@ function validateStoreInput(input: StoreInput, mode: 'create' | 'update'): void 
     problems.status = `one of ${STORE_STATUSES.join(', ')}`;
   for (const c of input.currencies ?? []) if (!CURRENCY.test(c)) problems.currencies = 'ISO-4217';
   if (Object.keys(problems).length) throw validationError('invalid store input', problems);
+  validateStoreSettings(input.settings); // 422, after the 400s: a well-formed body whose values cannot be used
 }
 
-async function loadStore(tx: Queryable, id: string): Promise<StoreRow> {
+export async function loadStore(tx: Queryable, id: string): Promise<StoreRow> {
   const r = await tx.query<StoreRow>(`${STORE_SELECT} WHERE s.id = $1`, [id]);
   const row = r.rows[0];
   if (!row) throw notFound('store', id);
@@ -152,7 +156,7 @@ async function loadStore(tx: Queryable, id: string): Promise<StoreRow> {
  * `FOR NO KEY UPDATE` is the lock an ordinary UPDATE of the row takes: writers of the store queue, while
  * inserts that reference the store (carts, orders — `FOR KEY SHARE` on this row) are not held up.
  */
-async function lockStore(tx: Queryable, id: string): Promise<StoreRow> {
+export async function lockStore(tx: Queryable, id: string): Promise<StoreRow> {
   const locked = await tx.query('SELECT id FROM store WHERE id = $1 FOR NO KEY UPDATE', [id]);
   if (!locked.rows[0]) throw notFound('store', id);
   return loadStore(tx, id);
@@ -209,7 +213,7 @@ async function syncStoreSet(
   );
 }
 
-async function syncStoreSets(
+export async function syncStoreSets(
   tx: Queryable,
   organizationId: string,
   storeId: string,
@@ -357,12 +361,18 @@ export async function updateStore(
   id: string,
   patch: StoreInput,
   actor: Actor = SYSTEM_ACTOR,
+  opts: { registrar?: StoreRegistrar } = {},
 ): Promise<Store> {
   validateStoreInput(patch, 'update');
   const organizationId = organizationOf(client);
 
   return client.transaction(async (tx) => {
     const before = await lockStore(tx, id);
+    // A move to `active` is activation (#413): same prerequisites as `activateStore`, same 409. Checked on the
+    // rows as they are BEFORE this patch; an archived store cannot be revived through a status patch either.
+    if (patch.status === 'active' && before.status !== 'active') {
+      await refuseUnlessReady(tx, before, opts.registrar);
+    }
     const sets: string[] = [];
     const params: unknown[] = [id];
     for (const col of STORE_COLUMNS) {
@@ -429,12 +439,35 @@ export async function updateStore(
 }
 
 /**
+ * Activation gate shared by `activateStore` and `updateStore` (#413, #417): archived stores stay archived
+ * (409 `details.status`), anything missing is listed (409 `details.missing`). Without a registrar the
+ * OpenFGA object cannot be confirmed, so it counts as missing — never assumed present.
+ */
+export async function refuseUnlessReady(
+  tx: Queryable,
+  store: StoreRow,
+  registrar: StoreRegistrar | undefined,
+): Promise<void> {
+  if (store.status === 'archived') {
+    throw conflict('an archived store cannot be activated', { status: 'archived' });
+  }
+  const { missing } = await storeReadiness(tx, store, registrar ?? UNKNOWN_REGISTRAR);
+  if (missing.length) throw conflict('store is not ready to activate', { missing });
+}
+
+/** No registrar given: the OpenFGA object is unknown, so it is reported missing and never written. */
+const UNKNOWN_REGISTRAR: StoreRegistrar = {
+  ensureStoreObject: () => Promise.resolve(),
+  hasStoreObject: () => Promise.resolve(false),
+};
+
+/**
  * `store.updated` for a change to something the store owns besides its own row (domains, sales channels, API
  * keys, a locale or currency added on its own): the payload names the area in `changed_fields` and carries no
  * key material, no hostname and no other value. Every registry mutation writes the outbox in its transaction —
  * audit alone is not enough (manager ruling, #308 review).
  */
-function storeUpdatedEvent(
+export function storeUpdatedEvent(
   store: StoreRow,
   organizationId: string,
   actor: Actor,
@@ -458,14 +491,14 @@ function storeUpdatedEvent(
 
 // --------------------------------------------------------------------------------------------------- domains
 
-interface DomainRow {
+export interface DomainRow {
   id: string;
   hostname: string;
   is_primary: boolean;
   verified_at: Date | null;
 }
 
-const toDomain = (r: DomainRow): Domain => ({
+export const toDomain = (r: DomainRow): Domain => ({
   id: r.id,
   hostname: r.hostname,
   is_primary: r.is_primary,
@@ -710,7 +743,7 @@ export async function addCurrency(
 
 // ---------------------------------------------------------------------------------------------- sales channels
 
-interface ChannelRow {
+export interface ChannelRow {
   id: string;
   code: string;
   name: string;
@@ -718,7 +751,7 @@ interface ChannelRow {
   is_active: boolean;
 }
 
-const toChannel = (r: ChannelRow): SalesChannel => ({
+export const toChannel = (r: ChannelRow): SalesChannel => ({
   id: r.id,
   code: r.code,
   name: r.name,
@@ -781,7 +814,7 @@ export async function createSalesChannel(
 
 // --------------------------------------------------------------------------------------------------- api keys
 
-interface ApiKeyRow {
+export interface ApiKeyRow {
   id: string;
   name: string;
   type: ApiKey['type'];
@@ -791,7 +824,7 @@ interface ApiKeyRow {
   created_at: Date;
 }
 
-const toApiKey = (r: ApiKeyRow): ApiKey => ({
+export const toApiKey = (r: ApiKeyRow): ApiKey => ({
   id: r.id,
   name: r.name,
   type: r.type,
