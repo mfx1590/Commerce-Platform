@@ -194,6 +194,3 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   for Keycloak (the realm's user profile requires both names) and gets no token, not even through the
   direct grant. `createUser` now splits the display name into `firstName` / `lastName` (a one-word name is
   stored as both); `KeycloakStaffUser.lastName` added.
-- `staffToken` reuses a shared owner token only with at least 5 minutes left (was 60 s): a run must fit
-  before the token expires, and a stale file from another window's run otherwise hands a suite a token
-  that dies halfway through.
