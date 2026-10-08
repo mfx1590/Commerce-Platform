@@ -23,7 +23,11 @@ export interface KeycloakAdminOptions {
 export interface CreateStaffUserInput {
   /** Also the username (the staff realm keeps `email = username`). */
   email: string;
-  /** Stored as Keycloak `firstName`; the token's `name` claim shows it. */
+  /**
+   * Split into Keycloak `firstName` (first word) and `lastName` (the rest; a one-word name is stored as both):
+   * the realm's user profile requires both, and an account missing one is "not fully set up" — no token,
+   * not even through the direct grant (measured 2026-10-08). The token's `name` claim shows both.
+   */
   displayName: string;
 }
 
@@ -35,6 +39,7 @@ export interface KeycloakStaffUser {
   enabled: boolean;
   emailVerified: boolean;
   firstName: string;
+  lastName: string;
   requiredActions: string[];
 }
 
@@ -146,6 +151,7 @@ export function createKeycloakAdmin(opts: KeycloakAdminOptions = {}): KeycloakAd
     enabled: u.enabled === true,
     emailVerified: u.emailVerified === true,
     firstName: String(u.firstName ?? ''),
+    lastName: String(u.lastName ?? ''),
     requiredActions: Array.isArray(u.requiredActions) ? (u.requiredActions as string[]) : [],
   });
 
@@ -169,13 +175,15 @@ export function createKeycloakAdmin(opts: KeycloakAdminOptions = {}): KeycloakAd
           field: 'display_name',
         });
       }
+      const [firstName, ...rest] = displayName.split(/\s+/);
+      const lastName = rest.length > 0 ? rest.join(' ') : firstName!;
       const res = await call('create user', 'POST', '/users', {
         username: email,
         email,
         enabled: true,
         emailVerified: false,
-        firstName: displayName,
-        lastName: '',
+        firstName,
+        lastName,
         requiredActions: [...INVITE_REQUIRED_ACTIONS],
       });
       if (res.status === 409) {

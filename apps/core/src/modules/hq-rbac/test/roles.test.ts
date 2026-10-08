@@ -1,10 +1,12 @@
 // Role management through the hq-rbac HTTP layer, against docker Postgres (throw-away db) + docker OpenFGA
 // (throw-away store). Issue #12.
 import {
+  ApiError,
   assignRole,
   createOpenFgaClient,
   revokeRole,
   seedOpenFga,
+  type KeycloakAdmin,
   type OpenFgaClient,
   type RolesDeps,
   type StaffPrincipal,
@@ -65,6 +67,81 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
   afterAll(async () => {
     await db?.drop();
     if (fgaStoreId) await createOpenFgaClient({ apiUrl: API, storeId: fgaStoreId }).deleteStore();
+  });
+
+  it('session revocation runs after the tuple and before the mirror: a refused logout compensates and answers 503 with nothing changed; a retry re-runs it (#422)', async () => {
+    const loggedOut: string[] = [];
+    const refusing = {
+      logoutUser: async () => {
+        throw new ApiError(503, 'internal', 'identity provider unavailable', {
+          what: 'logout user',
+        });
+      },
+    } as unknown as KeycloakAdmin;
+    const working = {
+      logoutUser: async (subject: string) => {
+        loggedOut.push(subject);
+      },
+    } as unknown as KeycloakAdmin;
+    const body = { relation: 'store_staff', object_type: 'store', object_id: S.brandA };
+    const tuple = {
+      user: `user:${U.analyst}`,
+      relation: 'store_staff',
+      object: `store:${S.brandA}`,
+    };
+    const rowCount = async () =>
+      (
+        await hq.query(
+          'SELECT 1 FROM role_assignment WHERE staff_user_id = $1 AND relation = $2 AND object_id = $3',
+          [U.analyst, 'store_staff', S.brandA],
+        )
+      ).rowCount;
+    const tupleCount = async () => (await fga.read(tuple)).tuples.length;
+
+    // Keycloak refuses: 503, the tuple written a moment earlier is gone again, no mirror row.
+    const refused = createHqRbac({ pool: db.app, fga, keycloak: refusing });
+    const first = await refused.handle({
+      method: 'POST',
+      path: `/admin/users/${U.analyst}/roles`,
+      principal: owner,
+      body,
+    });
+    expect(first).toMatchObject({ status: 503, body: { code: 'internal' } });
+    expect(await rowCount()).toBe(0);
+    expect(await tupleCount()).toBe(0);
+
+    // The retry (Keycloak back): the whole change including the logout.
+    const ok = createHqRbac({ pool: db.app, fga, keycloak: working });
+    const second = await ok.handle({
+      method: 'POST',
+      path: `/admin/users/${U.analyst}/roles`,
+      principal: owner,
+      body,
+    });
+    expect(second?.status).toBe(201);
+    expect(loggedOut).toEqual(['seed-analyst']);
+    expect(await rowCount()).toBe(1);
+    expect(await tupleCount()).toBe(1);
+    const assignmentId = (second?.body as { id: string }).id;
+
+    // Revoke with Keycloak refusing: 503, the tuple is restored, the row stays.
+    const revokeRefused = await refused.handle({
+      method: 'DELETE',
+      path: `/admin/users/${U.analyst}/roles/${assignmentId}`,
+      principal: owner,
+    });
+    expect(revokeRefused).toMatchObject({ status: 503, body: { code: 'internal' } });
+    expect(await rowCount()).toBe(1);
+    expect(await tupleCount()).toBe(1);
+    const revoked = await ok.handle({
+      method: 'DELETE',
+      path: `/admin/users/${U.analyst}/roles/${assignmentId}`,
+      principal: owner,
+    });
+    expect(revoked).toEqual({ status: 204 });
+    expect(loggedOut).toEqual(['seed-analyst', 'seed-analyst']);
+    expect(await rowCount()).toBe(0);
+    expect(await tupleCount()).toBe(0);
   });
 
   it('exposes exactly the contract routes with owner on organization:hq', () => {
