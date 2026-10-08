@@ -24,6 +24,9 @@ export default defineConfig({
     env: {
       DATABASE_URL:
         process.env.DATABASE_URL ?? 'postgres://platform:platform@localhost:5433/platform',
+      // The dev staff realm's core-admin service-account secret (#415); CI runs without a .env.
+      KEYCLOAK_ADMIN_CLIENT_SECRET:
+        process.env.KEYCLOAK_ADMIN_CLIENT_SECRET ?? 'dev-only-core-admin-secret',
       DATABASE_URL_APP:
         process.env.DATABASE_URL_APP ??
         'postgres://platform_app:platform_app@localhost:5433/platform',
