@@ -87,7 +87,10 @@ one body; `e2e/api-mode.ts` holds the few things that differ (display name, doma
 which routes the core does not mount). **Core-mode journeys write into the shared local
 database**: everything they create is stamped with the run (product handles, promotion codes, key
 names), so reruns never collide, and nothing irreversible is confirmed on seeded data.
-Core mode creates what it reads (#285): the orders journeys place their own guest order through
+Core mode creates what it reads (#285, #430): the customers journey first links the seeded
+customers-realm user (`jane@example.com`) to brand-a through the Store API (`e2e/core-customer.ts`,
+idempotent) and reads that row back; against a core without the admin customer routes it asserts
+the not-available panel instead. The orders journeys place their own guest order through
 the Store API (`e2e/core-order.ts`) — one order per journey that needs one (the orders list, and
 since #357 capture → refund and buy label), each taking **one unit** of the first in-stock variant
 among the first 20 brand-a products by ascending price, so every run lowers that variant's
