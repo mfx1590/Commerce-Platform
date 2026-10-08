@@ -19,6 +19,13 @@ export const OWNER_DEV_TOTP_SECRET = 'owner-dev-totp-secret-20260905';
 /** The staff realm's OTP policy period (`otpPolicyPeriod`), in milliseconds. */
 export const TOTP_STEP_MS = 30_000;
 
+/**
+ * Pause after a refused owner grant before the next attempt (#406). The staff realm's brute-force protection
+ * treats two refused logins within `quickLoginCheckMilliSeconds` (1000) as a quick login and blocks the user
+ * for `minimumQuickLoginWaitSeconds` (60) — every code would then be refused, the fresh step's included.
+ */
+export const RETRY_GAP_MS = 1_500;
+
 /** RFC 6238 TOTP over the raw secret string (HmacSHA1, 6 digits, 30 s) — the staff realm's OTP policy. */
 export function totp(secret: string, at = Date.now()): string {
   const counter = Buffer.alloc(8);
@@ -185,11 +192,14 @@ async function grant(
   }
   // The look-ahead of 1 accepts the previous step's code; using it first leaves the current step's code to a
   // browser challenge running at the same moment. Refused (already used) → the current step → a fresh step
-  // nobody can have spent yet.
+  // nobody can have spent yet. Never two attempts within a second: a refusal costs RETRY_GAP_MS first.
   let json = await post(now() - TOTP_STEP_MS);
-  if (!json.access_token) json = await post(now());
   if (!json.access_token) {
-    await sleep(msUntilNextTotpStep(now()));
+    await sleep(RETRY_GAP_MS);
+    json = await post(now());
+  }
+  if (!json.access_token) {
+    await sleep(Math.max(msUntilNextTotpStep(now()), RETRY_GAP_MS));
     json = await post(now());
   }
   if (!json.access_token)

@@ -32,7 +32,8 @@ window 2 (auth).
   write time) and `listAuditLog(db, filters)`; `seedOpenFga` + `createOpenFgaClient`.
 - `@platform/auth-sdk/testing` (tests only): `staffToken(username)` — real dev-realm tokens; owner's one
   grant is shared between processes through a per-user file (`RUNNER_TEMP` in CI) so live suites never spend
-  the same TOTP code (#346); suites call `forgetStaffToken()` in `afterAll`.
+  the same TOTP code (#346); this package deletes the file once per local run (`test/global-setup.ts`), a
+  single-file consumer may call `forgetStaffToken()` in `afterAll`; a refused grant waits 1.5 s (#406).
 - Subjects are a `StaffScope`/`StaffPrincipal` or the bare `staff_user.id`. Relation names are frozen in
   `infra/openfga/model.fga`; full reference in README.md.
 

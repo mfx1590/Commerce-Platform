@@ -1,5 +1,37 @@
 # Changelog — @platform/storefront-starter
 
+## 0.13.5 — 2026-10-07
+
+Issue #330, the rendering half (window 6's CMS half is #385, `@platform/cms` 0.5.0). No contract change.
+
+- **A hero can play a muted video loop over its poster** (`HeroMedia`, `src/components/hero-media.tsx`,
+  mounted around the hero image in `src/lib/cms/components/hero.tsx`) when the reader hands it a
+  `hero.video`:
+  - the poster renders as before, sizes the box (no layout shift) and stays the LCP candidate;
+  - no `<video>` exists until the page's `load` event, so nothing about it is requested before the
+    first paint; then `muted loop playsInline autoPlay preload="none" aria-hidden`, with a visible
+    pause / play control (WCAG 2.2.2);
+  - **`prefers-reduced-motion: reduce` → the poster alone, the video never requested**; switching the
+    preference on later removes the loop;
+  - the URL goes through the shared Cloudinary loader, width capped at 1600 (`c_limit`);
+  - never in an end-to-end build (`E2E_LOCAL_IMAGES`), so no e2e request leaves the machine.
+- **CSP:** `media-src 'self' https://res.cloudinary.com` — without it `default-src 'self'` would block
+  every loop.
+- Tests: `test/hero-media.test.ts` (jsdom): both motion settings, the late switch to reduce, the
+  control, no video / e2e build, the URL; red when the reduced-motion check is removed. CSP test for
+  `media-src`. Mock journeys unchanged (the e2e runs have no CMS).
+
+## 0.13.4 — 2026-10-07
+
+Issue #390 (REQUEST from window 10). Tooling only.
+
+- **The perf gate warms every measured URL before Lighthouse** (`scripts/warm-urls.mjs`, used by
+  `scripts/perf.mjs`): each URL in `lighthouserc.json` must answer under a second twice in a row —
+  the rule `scripts/e2e-server.mjs` already uses — within 120 s, or the gate fails rather than measure
+  a cold server. `/health` answering never meant the measured routes had been rendered, so run 1 paid
+  their first render (CI: PLP TBT 1125 ms on run 1 against ~75 ms on runs 2 and 3).
+- Tests: `test/warm-urls.test.ts` (streak, reset on a slow or failed answer, deadline).
+
 ## 0.13.3 — 2026-10-07
 
 Issue #389 (REQUEST from window 10). Tooling only.

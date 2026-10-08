@@ -1,4 +1,4 @@
--- PROPOSED (CONTRACT CHANGE, window 17, #360): packages/db/migrations/0180_notification_delivery.sql.
+-- LANDED in @platform/db 0.3.3 (CONTRACT CHANGE #393, window 17, #360): 0180 notification_delivery, proposal verbatim.
 --
 -- Kept here verbatim until the main window applies it, the way 0170_cart_recovery.sql travelled (#244): the
 -- notifications tests apply this file to their own throwaway database, so the worker is exercised against

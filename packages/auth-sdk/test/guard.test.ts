@@ -31,8 +31,24 @@ describe('every x-permission in admin-api.yaml is resolvable', () => {
     ...spec.matchAll(/x-permission:\s*\{\s*relation:\s*(\w+),\s*object:\s*'([^']+)'\s*\}/g),
   ].map((m) => ({ relation: m[1]!, object: m[2]! }));
 
-  it('finds the permissions (sanity)', () => {
+  it('finds the permissions (sanity) — every x-permission line under paths, none skipped (#90)', () => {
     expect(permissions.length).toBeGreaterThanOrEqual(30);
+    const paths = spec.slice(spec.indexOf('\npaths:'), spec.indexOf('\ncomponents:'));
+    expect(permissions).toHaveLength((paths.match(/^\s+x-permission:/gm) ?? []).length);
+  });
+
+  it('every operation under paths is guarded, except the allowlisted getMe (#402)', () => {
+    const paths = spec.slice(spec.indexOf('\npaths:'), spec.indexOf('\ncomponents:'));
+    const operations = [
+      ...paths.matchAll(/operationId: (\w+)\n([\s\S]*?)(?=\n\s+operationId: |$)/g),
+    ].map((m) => ({
+      operationId: m[1]!,
+      guarded: /x-permission:/.test(m[2]!),
+    }));
+    expect(operations).toHaveLength((paths.match(/^\s+operationId: /gm) ?? []).length);
+    const unguarded = operations.filter((o) => !o.guarded).map((o) => o.operationId);
+    expect(unguarded).toEqual(['getMe']);
+    expect(permissions).toHaveLength(operations.length - unguarded.length);
   });
 
   it.each(

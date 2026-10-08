@@ -129,3 +129,24 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   challenge, which must spend a code, gains the third fallback); the secret literal and the TOTP function
   now live in one file. Tests: `test/staff-token.test.ts` — unit against a fake Keycloak (reuse without a
   grant, other issuer, userinfo 401, refused steps, non-owner, malformed file) + live on the real stack.
+- #90 (follow-up of the #89 review), hq-rbac: `GET /admin/finance/ping` left `HQ_RBAC_ROUTES` (now
+  `FINANCE_PING_ROUTE`); `createHqRbac` serves it by default everywhere except `NODE_ENV=production` (every
+  image sets it) and throws when `financePing: true` is passed under production — dev stacks and the core's
+  live suite keep the test double, production never has it. The gate's `x-permission` sweep now cuts the
+  spec's `paths:` section into operation blocks instead of matching `x-permission` directly under
+  `operationId`: the old regex silently skipped four operations whose description spans several lines
+  (`updateDomain`, `revokeApiKey`, `capturePayment`, `buyShipmentLabel`; none finance-gated, so the gate's
+  claim held). A static test pins that every `x-permission` line under `paths` is attributed to exactly one
+  operation; `test/guard.test.ts` pins the same count for the auth-sdk sweep.
+- #402 (nit from the #400 review): both x-permission sweeps (`gate.test.ts`, `guard.test.ts`) now assert that
+  every `operationId` under `paths` carries an `x-permission` unless allowlisted — `getMe` only, exact equality in
+  both directions, so an unguarded operation fails the gate loudly instead of vanishing from the sweep, and a
+  stale allowlist entry fails too. Measured: 113 operations, 112 guarded.
+- #406 (follow-up of #346): a refused owner grant now waits `RETRY_GAP_MS` (1.5 s) before the next attempt — the
+  staff realm's brute-force protection blocks a user for 60 s after two refused logins within one second, so the
+  back-to-back previous/current attempts could make the fresh-step fallback useless (seen locally, 146/147). The
+  shared file is deleted once at the end of a local run that created it (`test/global-setup.ts`, vitest
+  `globalSetup`) instead of after every test file, so scope.test.ts, the browser challenge and
+  staff-token.test.ts spend one grant per run between them instead of three cold grants; `forgetStaffToken()`
+  keeps its semantics for a single-file consumer. The fake Keycloak in `test/staff-token.test.ts` enforces the
+  quick-login rule and the unit tests pin the gaps and that no block ever forms.
