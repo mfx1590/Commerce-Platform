@@ -1,5 +1,45 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-10-08 · re-sync at main 2e35674: brand A takes the hero rendering (#330)
+
+- **Re-sync**: 209 copied, 1 merged, 10 preserved, 4 excluded (from 224 tracked starter files).
+  **Zero preserved-file drift** — `sync --check` reported one package.json key before the run and
+  "manifest is current" after, so nothing needed porting by hand this time.
+- **#403, the hero rendering (window 3's half of #330).** `src/lib/cms/components/hero.tsx` wraps the
+  poster in `HeroMedia`; `src/components/hero-media.tsx` and `src/components/hero-loop.tsx` are the
+  island; `src/lib/cms/hero-video.ts` is the reader-side policy (a stored `video` without an image,
+  or with a URL that is not a Cloudinary video URL, is exposed **without** the video); `src/lib/csp.ts`
+  gains `media-src 'self' https://res.cloudinary.com`; plus the loop's messages in both locales.
+  **So #386's placed loops now have something that renders them.**
+- **Both of brand A's REQUESTs to the starter arrived in the same sync.** Worth noting because both
+  came out of #348:
+  - **#389 — `@lhci/cli` 0.14.0 → 0.15.1.** The pinned version errored six audits on every run,
+    including every audit that identifies the LCP element.
+  - **#390 — `scripts/perf.mjs` now warms every measured URL** (`scripts/warm-urls.mjs`) before
+    Lighthouse, instead of waiting only on `/health`.
+- Verified: lint, `format:check`, typecheck clean; unit **764 passed / 2 skipped** (739 before — the
+  25 synced tests all pass); mock e2e **83 passed / 35 skipped**, exit 0.
+
+### Why the mock run cannot show the loop — three reasons, the first by design
+
+1. **The island refuses to mount under `E2E_LOCAL_IMAGES`** (`hero-media.tsx`, #327), and brand A's
+   `scripts/e2e-env.mjs` sets that on **every** e2e run so no request leaves the machine. A mock e2e
+   run therefore can **never** show the loop, deliberately — there is a test for exactly that
+   (`hero-media.test.ts`: "never mounts the loop under E2E_LOCAL_IMAGES").
+2. **No Sanity project locally**, so there is no CMS content to carry a hero at all. The run logs
+   `[cms] SANITY_PROJECT_ID is not set: rendering without CMS content`.
+3. **No Cloudinary cloud name**, so `resolve-media.mjs` drops the video at seed time anyway (proved in
+   #386: 22 media placed with a cloud name, all 22 dropped without one).
+
+**What is proved locally** is the island's behaviour, by unit test rather than by eye:
+`hero-media.test.ts` covers poster-first, mounting only after `load`, the visible pause/play control,
+removal when reduced motion is switched on _later_, the poster alone under
+`prefers-reduced-motion: reduce` with the video never created, and the `E2E_LOCAL_IMAGES` refusal;
+`cms-hero-video.test.ts` covers the reader policy in 12 cases. All of them pass in the 764.
+
+**Seeing a loop actually play needs a Sanity project and a Cloudinary account** — both owner actions
+already on `LAUNCH.md`, neither of which this PR can supply.
+
 ## Unreleased — 2026-10-07 · brand A's two hero loops are placed (#386)
 
 Window 6's REQUEST, with the schema half on main as `@platform/cms` 0.5.0 (PR #385).

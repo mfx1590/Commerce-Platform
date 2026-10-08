@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 54284d1) + `brands/348` · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); **DOCKET CLEAR** — #374 and #372 merged; #391 (spec re-sync) and #388 (#348) both reviewed MERGE and queued together after #385. Quiet.
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **PR #411 OPEN** — the hero-rendering re-sync (head `1884b65`), reviewed MERGE on the code, queueing with #409/#410. Merged before it: #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`). **#348 is reopened and its 30-leg count restarts at #411's merge** (the manager counts it). My REQUESTs **#389 and #390 are both FIXED** by window 3 and arrived in #411's sync.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,9 +17,38 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#330 · brand A took the hero rendering** — **PR #411**, head **`1884b65`**, reviewed **MERGE** on
+  the code (18 blobs compared equal, 10 preserved untouched, counts add up); queueing with #409/#410.
+  Re-sync at main `2e35674`, 209 copied / 1 merged / 10 preserved / 4 excluded, **zero
+  preserved-file drift**. Brings #403: `hero.tsx` wrapping the poster
+  in `HeroMedia`, the `hero-loop` island, `hero-video.ts`'s reader policy, `media-src` in the CSP, and
+  the loop's messages in both locales. **#386's placed loops now have a renderer.**
+  - **Both of my REQUESTs landed in the same sync:** **#389** (`@lhci/cli` 0.14.0 → **0.15.1**, the
+    six erroring audits) and **#390** (`perf.mjs` warms every measured URL via `warm-urls.mjs`).
+  - **A mock run cannot show the loop, and the first reason is by design:** the island **refuses to
+    mount under `E2E_LOCAL_IMAGES`**, which `scripts/e2e-env.mjs` sets on every e2e run so no request
+    leaves the machine — there is a test for it. Then: no Sanity project locally (the run logs
+    `SANITY_PROJECT_ID is not set`), and no Cloudinary cloud name (the video is dropped at seed time).
+    **Do not go looking for the loop in an e2e or mock run — it is not supposed to be there.**
+    What *is* proved is the island's behaviour by unit test: poster-first, mount after `load`, the
+    pause control, removal when reduced motion turns on later, poster-alone under `reduce`, and the
+    `E2E_LOCAL_IMAGES` refusal.
+  - Gates: lint, `format:check`, typecheck clean; unit **764 passed / 2 skipped** (739 before);
+    mock e2e **83 passed / 35 skipped**, exit 0. **Machine free.**
+  - **#348's count RESTARTS at #411's merge — manager's ruling 2026-10-08, accepting the point I
+    raised.** The #389 LHCI bump (0.14.0 → 0.15.1) changes the measuring tool, and legs either side
+    of it are not measuring the same thing, so the same logic that freezes `numberOfRuns` and
+    `maxNumericValue` mid-count applies to the Lighthouse version. The commit that carries 0.15.1
+    into brand A is **#411's merge**; the manager records the restart on the issue at merge and
+    counts from there. **`numberOfRuns: 5` and `maxNumericValue: 2500` still do not move** until that
+    count completes; re-measuring N is a later PR with its own data. *Generalise it: any change to
+    the measuring tool, the budget, or the run count invalidates an in-flight count — check for one
+    before touching the perf gate.*
 - **#386 · brand A's two hero loops placed.** Content (both locales), the `heroVideo` branch in
   `cms/brand-a/scripts/resolve-media.mjs`, 9 tests, DESIGN.md §7, both READMEs.
-  **PR #408**, head **`916ff01`** → then `BLOCK` on static review → fixed and re-pushed (see below).
+  **PR #408**: head `916ff01` → `BLOCK` on static review (the missing test, see the gotcha) → fixed
+  and re-pushed as head `c69d6b4` (verified green myself: 14 pass / 0 fail / 0 pending, the live job
+  and brand A's perf leg included). **MERGED as `dea7575`; issue #386 CLOSED.** Verified on main.
   Built on `brands/phase3`, merged with main `b5473ac`; cms is 0.5.0.
   - **The swap:** a loop is only valid over the still the manifest names as its `poster`.
     `home-hero-shirt-loop-8s`'s poster is `home-hero-02`, the hero showed `home-hero-01`, and
@@ -180,40 +209,33 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — nothing. Integration 2a docket complete (2026-10-07)
+## In progress — **PR #411 is OPEN** (2026-10-08)
 
-Everything the manager assigned is delivered. **Do not push either branch**; both PRs are reviewed
-MERGE and waiting on the queue behind #385.
+`brands/phase3` head **`1884b65`**: the hero-rendering re-sync. Reviewed **MERGE** on the code,
+queueing with #409/#410. **Do not push to `brands/phase3` until it merges** — a push updates #411 and
+knocks it out of the queue. Nothing else of mine is open, held or half-done.
 
-| item | state |
-| --- | --- |
-| **#374** order total vs. arithmetic | MERGED (PR #377 → `e1e515f`), issue closed |
-| **#372** brand A half (re-sync) | MERGED (PR #379 → `7f4f8fe`), issue closed |
-| **#382** hardened lifecycle spec | **PR #391** `0943198`, reviewed MERGE, queued |
-| **#348** perf gate N=5 | **PR #388** `eb71959`, reviewed MERGE, queued |
-| REQUESTs to window 3 | **#389** (gate's LCP audits all error), **#390** (no perf warm-up) |
+Merged before it:
 
-**#348 is NOT closed by #388, deliberately.** Its body and title say *Refs*, because acceptance also
-needs **30 consecutive green brand A perf legs** and no PR can demonstrate that about itself. **The
-manager counts those in CI after merge and closes #348.** The commit subject on `brands/348` still
-reads "Closes #348" and could not be rewritten — a note in the PR body asks whoever merges to reopen
-the issue if GitHub auto-closes it. If a future session finds #348 closed with no count recorded,
-that is why.
+| task | PR | merged as |
+| --- | --- | --- |
+| **#374** order total compared to the review step, not arithmetic | #377 | `e1e515f` |
+| **#372** brand A half — order status, card payment, invoice from the store | #379 | `7f4f8fe` |
+| **#382** hardened order-lifecycle spec (one-file re-sync) | #391 | `4335c0c` |
+| **#348** perf gate at five runs, budget untouched | #388 | `79436fc` |
+| **#386** brand A's two hero loops placed | #408 | `dea7575` |
 
-**Two things that must not be "tidied away" later:**
-1. Brand A's `process.env.STORE_PUBLISHABLE_KEY ??=` line in `playwright.config.ts` stays even though
-   #383 hardened the spec. The hardened spec **skips** when the key is absent, and brand A's core leg
-   is the only place it runs — so deleting the line would stop proving #372 **while the leg stayed
-   green**. My line supplies the value; #383 makes its absence legible. Both halves.
-2. **`numberOfRuns: 5` stays until the 30-leg count is finished**, and `maxNumericValue` stays at
-   2500. Manager's ruling 2026-10-07, and the reason is better than my suggestion: window 3's
-   warm-up (REQUEST #390, already on main as `warm-urls.test.ts`) probably *would* let N go back to
-   3 — but changing N mid-count **invalidates the 30-leg count**, because the legs either side of
-   the change are not measuring the same thing. So re-measuring with the warm-up is a **separate,
-   later PR with its own data**, after #348 is closed. Do not touch either number before then.
-3. `lighthouserc.json` keeps `maxNumericValue: 2500`. The flakiness was fixed by `numberOfRuns: 5`,
-   not by loosening the budget. If #390's warm-up lands, N can probably go back to 3 — re-measure
-   before changing either number, and never argue a threshold from the median.
+**Outstanding, and not mine to close:**
+- **#348 is reopened**, and its 30-leg count **restarts at #411's merge** — the manager counts it and
+  records the restart on the issue. `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until
+  it completes.
+- My REQUESTs **#389** (the pinned LHCI erroring six audits) and **#390** (no perf warm-up) are both
+  **FIXED** by window 3 and arrive in #411's sync. Nothing owed there.
+
+**Next session:** nothing queued. Likely Phase 3 proper — the gaps below and LAUNCH.md's owner
+actions. Note the hero loops still cannot be *seen* anywhere until a Sanity project and a Cloudinary
+account exist, both owner actions; the rendering is in place and unit-tested, and the island refuses
+to mount in an e2e build on purpose.
 
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2

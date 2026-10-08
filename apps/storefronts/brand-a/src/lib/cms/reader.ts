@@ -9,6 +9,7 @@ import { BRAND_DATASETS, datasetForStore } from '@platform/cms';
 import { CmsClient, CmsError, type GroqQuery, type GroqParams } from './client';
 import type { CmsConfig } from './config';
 import { isCmsConfigured } from './config';
+import { normalizeHeroVideo } from './hero-video';
 import { HOME_SLUG, queries, type RoutedDocumentRow } from './queries';
 import { CMS_REVALIDATE_SECONDS, cmsTags } from './tags';
 
@@ -186,11 +187,17 @@ export function createReader(options: ReaderOptions): CmsReader {
         null,
       );
 
+  // Documents are returned whole, with one policy applied: a hero's `video` survives only next to
+  // an image and with a Cloudinary video URL (`hero-video.ts`), so the renderer can rely on it.
+  const page = bySlug('page', queries.page);
+  const campaignLanding = bySlug('campaignLanding', queries.campaignLanding);
+
   return {
     preview,
     dataset,
-    page: bySlug('page', queries.page),
-    campaignLanding: bySlug('campaignLanding', queries.campaignLanding),
+    page: async (locale, slug) => normalizeHeroVideo(await page(locale, slug)),
+    campaignLanding: async (locale, slug) =>
+      normalizeHeroVideo(await campaignLanding(locale, slug)),
     legal: bySlug('legal', queries.legal),
     navigation: (locale, key = 'main') =>
       read(

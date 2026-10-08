@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-10-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
-Status: **#346** (2026-10-07): remove the TOTP barrier now that #387 + #401 share an owner-token fixture. Before: #380 (PR #381 = `7a4abb4`).
+Last updated: 2026-10-08 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
+Status: **owner-grants follow-up** (Refs #346, 2026-10-08): the witness warns on REFUSED owner logins, not on two successes in one step. One push, its own live run is the proof (the step cannot fail the job).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,7 +108,10 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#346 — remove the TOTP barrier.** Branch `infra/phase3` at main `c069172`. Built, as option (A) put to the
+- **#346 — DONE: PR #407 merged as `322c6f6`** (head `87347bb`, live job green ×3 on run 37641014232 attempts 1–3;
+  each witness 2 successful / 0 refused owner logins). **Follow-up owed (manager: tomorrow):** `infra/ci/owner-grants.sh`
+  warns when two SUCCESSFUL owner logins share a TOTP step — wrong: Keycloak refuses a reused code, so a collision is a
+  REFUSED login (LOGIN_ERROR). Make it warn on refused owner logins; "0 refused" is the evidence. Original note: Branch `infra/phase3` at main `c069172`. Built, as option (A) put to the
   manager (removing the whole script would remove the witness the proof needs): the wait step and
   `infra/ci/totp-barrier.sh` are deleted; the witness is kept as `infra/ci/owner-grants.sh` (report-only, flags two
   successful owner logins in one TOTP step) with its step and the events overlay. **NOT pushed: waiting for the
