@@ -17,6 +17,8 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts', '../../apps/core/src/modules/hq-rbac/test/**/*.test.ts'],
     fileParallelism: false,
+    // Deletes the shared owner-token file once at the end of a local run that created it (#406).
+    globalSetup: ['test/global-setup.ts'],
     testTimeout: 30_000,
     hookTimeout: 120_000,
     env: {
