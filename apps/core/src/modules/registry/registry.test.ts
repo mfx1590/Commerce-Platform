@@ -147,8 +147,13 @@ describe('registry: stores', () => {
 
   it('updates a store and emits store.updated with the sorted changed fields; no event when nothing changed', async () => {
     const [store] = (await listStores(hq)).items;
-    const updated = await updateStore(hq, store!.id, { name: 'Brand A!', status: 'active' }, actor);
-    expect(updated).toMatchObject({ name: 'Brand A!', status: 'active' });
+    // #413: `active` is activation (readiness gate, onboarding.test.ts); a bare store is refused, nothing written
+    await expect(updateStore(hq, store!.id, { status: 'active' }, actor)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+    });
+    const updated = await updateStore(hq, store!.id, { name: 'Brand A!', status: 'paused' }, actor);
+    expect(updated).toMatchObject({ name: 'Brand A!', status: 'paused' });
 
     const same = await updateStore(hq, store!.id, { name: 'Brand A!' }, actor);
     expect(same.name).toBe('Brand A!');
@@ -391,6 +396,35 @@ describe('registry settings (Admin API 0.4.7, #279)', () => {
     expect(fks.rows).toEqual([]);
   });
 
+  it('a foreign key that refuses a set removal answers 409 naming the constraint, and nothing changes (#308 nit)', async () => {
+    const store = await brand('brand-a');
+    const before = (await getStore(hq, store.id)).currencies;
+    const chf = await db.owner.query<{ id: string }>(
+      `SELECT id FROM store_currency WHERE store_id = $1 AND currency = 'CHF'`,
+      [store.id],
+    );
+    // A throw-away table that references the CHF row: the shape a future price list or tax table would have.
+    await db.owner.query(
+      `CREATE TABLE test_currency_ref (id serial PRIMARY KEY,
+         currency_id uuid NOT NULL CONSTRAINT test_currency_ref_fk REFERENCES store_currency(id))`,
+    );
+    try {
+      await db.owner.query(`INSERT INTO test_currency_ref (currency_id) VALUES ($1)`, [
+        chf.rows[0]!.id,
+      ]);
+      await expect(updateStore(hq, store.id, { currencies: ['EUR'] }, actor)).rejects.toMatchObject(
+        {
+          code: 'conflict',
+          status: 409,
+          details: { constraint: 'test_currency_ref_fk' },
+        },
+      );
+      expect((await getStore(hq, store.id)).currencies).toEqual(before);
+    } finally {
+      await db.owner.query(`DROP TABLE test_currency_ref`);
+    }
+  });
+
   it('revokeApiKey: idempotent, never the last live publishable key, store.updated without key material', async () => {
     const store = await brand('brand-a');
     const [web] = await listSalesChannels(hq, store.id);
@@ -421,7 +455,7 @@ describe('registry settings (Admin API 0.4.7, #279)', () => {
     expect(audit.rows).toHaveLength(1);
     const emitted = (await storeUpdates(store.id)).slice(before);
     expect(emitted).toEqual([
-      { store_id: store.id, code: 'brand-a', status: 'active', changed_fields: ['api_keys'] },
+      { store_id: store.id, code: 'brand-a', status: 'paused', changed_fields: ['api_keys'] },
     ]);
     expect(JSON.stringify(emitted)).not.toContain(first!.key_prefix);
 
@@ -496,7 +530,7 @@ describe('registry settings (Admin API 0.4.7, #279)', () => {
 
     const emitted = (await storeUpdates(store.id)).slice(before);
     expect(emitted).toEqual([
-      { store_id: store.id, code: 'brand-a', status: 'active', changed_fields: ['domains'] },
+      { store_id: store.id, code: 'brand-a', status: 'paused', changed_fields: ['domains'] },
     ]);
     expect(JSON.stringify(emitted)).not.toContain(other.hostname);
     const audit = await hq.query<{ was: boolean; is: boolean }>(
@@ -723,6 +757,16 @@ describe('registry: every mutation writes store.updated (outbox completeness)', 
     expect(all).not.toContain('www.outbox-complete.example');
     expect(all).not.toContain(key.key);
     expect(all).not.toContain(key.key_prefix);
+    // #318 review nit (folded into #413): an addition that changes nothing writes no audit row either
+    const audits = await hq.query<{ action: string; after: Record<string, string> }>(
+      `SELECT action, after FROM audit_log
+       WHERE entity_id = $1 AND action IN ('store_locale.create', 'store_currency.create') ORDER BY created_at`,
+      [store.id],
+    );
+    expect(audits.rows).toEqual([
+      { action: 'store_locale.create', after: { locale: 'fr-FR' } },
+      { action: 'store_currency.create', after: { currency: 'CHF' } },
+    ]);
   });
 
   it('a refused mutation emits nothing (the event is in the same transaction)', async () => {
