@@ -8,7 +8,7 @@ import {
   seedOpenFga,
   type OpenFgaClient,
 } from '@platform/auth-sdk';
-import { customerToken, forgetStaffToken, staffToken } from '@platform/auth-sdk/testing';
+import { customerToken, staffToken } from '@platform/auth-sdk/testing';
 import { createOrganizationClient, seed, SEED_IDS } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -34,7 +34,7 @@ const live =
 
 // Tokens come from the shared test-cli helper (#346): owner's one grant per 15 minutes is shared through a
 // per-user file (RUNNER_TEMP in CI) and reused by every live suite, so no two of them spend the same one-time
-// TOTP code; afterAll forgets it.
+// TOTP code; the auth-sdk run's globalSetup teardown deletes the file locally when the run created it.
 describe.runIf(live)('staff scope middleware (live Keycloak + Postgres + OpenFGA)', () => {
   let db: TestDatabase;
   let fga: OpenFgaClient;
@@ -71,7 +71,8 @@ describe.runIf(live)('staff scope middleware (live Keycloak + Postgres + OpenFGA
   }, 120_000);
 
   afterAll(async () => {
-    await forgetStaffToken();
+    // The shared owner token is NOT deleted per file (#406): test/global-setup.ts of @platform/auth-sdk deletes it
+    // once at the end of a local run that created it.
     await db?.drop();
     if (fgaStoreId) await createOpenFgaClient({ apiUrl: API, storeId: fgaStoreId }).deleteStore();
   });

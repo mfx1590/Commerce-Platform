@@ -4,6 +4,13 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 3
 
+### Fixed (Refs #346 — the owner-logins witness warned on the wrong thing)
+
+- `infra/ci/owner-grants.sh` warned when two SUCCESSFUL owner logins fell in one TOTP step. Keycloak refuses a reused
+  code, so two successes in one step mean two different codes were accepted — the shared fixture working. It now
+  warns on REFUSED owner logins (`LOGIN_ERROR`), which is what a collision looks like; "0 refused" is the evidence.
+  Still report-only: it never fails the job.
+
 ### Removed (#346 — the TOTP barrier, now that the suites share one owner-token fixture)
 
 - The 30–60 s `TOTP barrier` step and `infra/ci/totp-barrier.sh`: #387 (auth-sdk) and #401 (core) made each

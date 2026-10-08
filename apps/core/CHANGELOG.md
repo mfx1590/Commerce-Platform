@@ -2,6 +2,46 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-08 · admin customer routes + GDPR erasure (#414, Admin API 0.4.11)
+
+- `listCustomers` / `getCustomer` / `updateCustomer` / `listCustomerAddresses` / `listCustomerGroups` are real
+  (customers module `admin.ts`): search by email or name, group filter, contract sort and paging; update of names,
+  phone, the customer group (same store only) and registered ↔ disabled, one `customer.updated` per change, no
+  personal data in audit or event.
+- `eraseCustomer` (`gdpr.ts`, 202): status `erased`, email → `erased+<customer_id>@invalid`, names / phone /
+  subject null, consent / metadata `{}`, addresses deleted, identity unlinked and deleted when orphaned, orders kept
+  (legal retention), one `customer.erased`; a replay is a no-op. `buildCustomerExport` builds the
+  `customer-export/v1` bundle; `exportCustomer` (store_admin, 202) writes one `customer.export_requested` (events
+  0.3.2, contracts-v0.4.14) per request — the hand-over to Integration 2b's delivery job; erased / unknown → 404.
+- The #265 unmounted-path test probes `/admin/stores/{id}/unmounted-probe` (the customers list is mounted now).
+- Review nit from #424: a hostname another store has answers onboarding's 409 with `details.field = 'domain.hostname'`.
+- #413's live half: `src/http/store-registrar.ts` writes through auth-sdk's `ensureStoreObject` (#421) and reads the
+  tuple for `hasStoreObject`; `test/auth-live.test.ts` proves an onboarded store is visible to the seeded owner
+  through OpenFGA, refused to a store admin of other brands, and activatable (the `it.todo` is gone).
+
+### 2026-10-08 · store onboarding workflow (#413, Admin API 0.4.11 / CONTRACT CHANGE #417)
+
+- `onboardStore` (`POST /admin/onboarding/stores`, owner on `organization:hq`): legal entity (inline or
+  existing), the store in `draft` with `content_space_id = <code>` / `search_index = <code>_products`, locales
+  and currencies, the primary domain, the `web` sales channel and one publishable key (shown once) — one
+  transaction with the audit row and `store.created`; then the store's OpenFGA object through the
+  `StoreRegistrar` seam. Idempotent by `code` (same input → 200 with `publishable_key: null`; a different
+  definition → 409 naming what differs).
+- `activateStore` (`POST /admin/stores/{storeId}/activate`): `draft` / `paused` → `active` only when a legal
+  entity, a locale, a currency, a primary domain, a live publishable key and the OpenFGA object are present —
+  409 `details.missing` otherwise, `archived` → 409 `details.status`. `updateStore` with `status: active` runs
+  the same gate (new 404 / 409 / 422 answers).
+- Store settings are checked by shape on create / update / onboarding (registry README "Store settings the core
+  reads"): a wrong type is 422 `validation_error` with `details.settings`; unknown keys preserved;
+  `payment.methods` is derived and refused when written. The seed and every existing writer pass unchanged.
+- `StoreRegistrar`: `src/http/store-registrar.ts` is the interim OpenFGA adapter until `@platform/auth-sdk`'s
+  `ensureStoreObject` (#415) is on main; `inMemoryStoreRegistrar()` for tests; `mountCoreMiddleware` takes
+  `storeRegistrar`. The live visibility assertion is an `it.todo` naming #415 until both are merged.
+- Built against contracts-v0.4.13 (Admin API 0.4.11, #419 = `d11ace5`); the local overlay used while the
+  contract was in review is gone.
+- Decision recorded (manager, 2026-10-08): carts are excluded from the outbox rule by design (checkout README).
+- Folded review nits (manager, 2026-10-08): a no-op `addLocale` / `addCurrency` writes no audit row any more (#318); the foreign-key-refused set removal (409 naming the constraint) has its test (#308).
+
 ### 2026-10-07 · the live suite shares the owner's sign-in (#346)
 
 - `test/auth-live.test.ts` signed the TOTP-enrolled `owner` in with its own copy of the dev secret, and Keycloak

@@ -5,6 +5,7 @@ import { RELATIONS, type Relation } from '@platform/contracts';
 import type { ScopedClient } from '@platform/db';
 import { audit, type AuditActorType } from '../audit/write.js';
 import { loadAuthorizationModel } from '../fga/model.js';
+import type { KeycloakAdmin } from '../keycloak/admin.js';
 import { ApiError } from '../types.js';
 
 export type ObjectType = 'organization' | 'store';
@@ -33,6 +34,12 @@ export interface RolesDeps {
   db: ScopedClient;
   /** Called after every successful change (scope-cache invalidation, task 1.4). */
   onChange?: (staffUserId: string) => void;
+  /**
+   * Ends the user's Keycloak sessions on every change (#415): after the tuple, before the mirror — a refused
+   * logout compensates the tuple and answers 503, so nothing changed and a retry re-runs it (#422). The next
+   * request is evaluated against the new relations and no refresh token survives. Absent → no revocation.
+   */
+  keycloak?: Pick<KeycloakAdmin, 'logoutUser'>;
   requestId?: string | null;
 }
 
@@ -151,10 +158,24 @@ async function removeTuple(fga: OpenFgaClient, t: TupleKey): Promise<boolean> {
   return true;
 }
 
-async function requireUser(db: ScopedClient, staffUserId: string): Promise<void> {
+/** The user's row, or 404. Returns the Keycloak subject for the session revocation. */
+async function requireUser(db: ScopedClient, staffUserId: string): Promise<{ subject: string }> {
   if (!isUuid(staffUserId)) throw new ApiError(404, 'not_found', 'staff user not found');
-  const u = await db.query('SELECT id FROM staff_user WHERE id = $1', [staffUserId]);
+  const u = await db.query<{ keycloak_subject: string }>(
+    'SELECT keycloak_subject FROM staff_user WHERE id = $1',
+    [staffUserId],
+  );
   if (u.rowCount === 0) throw new ApiError(404, 'not_found', 'staff user not found');
+  return { subject: u.rows[0]!.keycloak_subject };
+}
+
+/**
+ * Session revocation (#415, #422): runs AFTER the tuple change and BEFORE the mirror transaction. If Keycloak
+ * refuses, the caller compensates the tuple and answers 503 — nothing has changed, so a retry re-runs the
+ * whole change including this logout. Absent `deps.keycloak` → no revocation (unit tests, CLI).
+ */
+async function revokeSessions(deps: RolesDeps, subject: string): Promise<void> {
+  if (deps.keycloak) await deps.keycloak.logoutUser(subject);
 }
 
 const SELECT_ROW = 'SELECT id, relation, object_type, object_id, created_at FROM role_assignment';
@@ -169,7 +190,7 @@ export async function assignRole(
 ): Promise<{ assignment: RoleAssignment; created: boolean }> {
   validateAssignment(input);
   const { db, fga } = deps;
-  await requireUser(db, input.staffUserId);
+  const { subject } = await requireUser(db, input.staffUserId);
   const object = await fgaObject(db, input.objectType, input.objectId);
   const tuple: TupleKey = { user: `user:${input.staffUserId}`, relation: input.relation, object };
 
@@ -183,6 +204,12 @@ export async function assignRole(
   }
 
   const wroteTuple = await ensureTuple(fga, tuple);
+  try {
+    await revokeSessions(deps, subject);
+  } catch (err) {
+    if (wroteTuple) await removeTuple(fga, tuple).catch(() => undefined);
+    throw err;
+  }
   let row: Row;
   try {
     row = await db.transaction(async (tx) => {
@@ -220,7 +247,7 @@ export async function revokeRole(
   input: { staffUserId: string; assignmentId: string },
 ): Promise<void> {
   const { db, fga } = deps;
-  await requireUser(db, input.staffUserId);
+  const { subject } = await requireUser(db, input.staffUserId);
   if (!isUuid(input.assignmentId))
     throw new ApiError(404, 'not_found', 'role assignment not found');
   const found = await db.query<Row>(`${SELECT_ROW} WHERE id = $1 AND staff_user_id = $2`, [
@@ -233,6 +260,12 @@ export async function revokeRole(
   const tuple: TupleKey = { user: `user:${input.staffUserId}`, relation: row.relation, object };
 
   const deletedTuple = await removeTuple(fga, tuple);
+  try {
+    await revokeSessions(deps, subject);
+  } catch (err) {
+    if (deletedTuple) await ensureTuple(fga, tuple).catch(() => undefined);
+    throw err;
+  }
   try {
     await db.transaction(async (tx) => {
       await tx.query('DELETE FROM role_assignment WHERE id = $1', [row.id]);
