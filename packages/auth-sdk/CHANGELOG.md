@@ -171,3 +171,14 @@ fga:reconcile [--fix]` list and repair stores without it. Tests: `test/store-obj
   change (`RolesDeps.keycloak`) and drop the cached scope; a failed logout answers 503 with the change applied.
   Live test: the same store-admin token is refused on the next request, the sessions endpoint is empty, a
   fresh assignment + token works again.
+
+## Unreleased — 2026-10-08 (auth/phase3, task 3.2)
+
+- #416: derived production realm exports. `node infra/keycloak/derive-production.mjs <realm>` derives
+  `infra/keycloak/production/<realm>-realm.json` deterministically from the dev export +
+  `production.config.json` (public Keycloak URL, one origin + callback per OIDC client, password policy per
+  realm): seeded users and `test-cli` removed (client service accounts kept, no credentials), `sslRequired:
+all`, `verifyEmail: true`, brute force on, no client secret, exact https callbacks and origins, post-logout
+  `<origin>/`, `frontendUrl`, the staff OTP step REQUIRED. `test/production-realms.test.ts` (33 static tests)
+  re-derives and compares byte for byte (a hand edit fails), proves determinism and asserts each invariant
+  separately. Dev files, `reimport.mjs` and the live CI job are unchanged. README: what still needs a cluster.

@@ -114,6 +114,40 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 | `storefront-brand-a` redirects (#212)    | localhost + dev + staging    | only that environment's own callback    |
 | Keycloak `KC_DB=dev-file` + volume       | one-shot import, persisted   | Postgres                                |
 
+## Production profile (#416, LAUNCH.md section 3.2)
+
+The production realms are DERIVED, never written by hand:
+
+```bash
+node infra/keycloak/derive-production.mjs staff
+node infra/keycloak/derive-production.mjs customers
+```
+
+reads the dev export and `production.config.json` (the public Keycloak URL, exactly one origin + callback
+per OIDC client, the password policy per realm) and writes `production/<realm>-realm.json` through the
+repo's prettier, so two runs give identical bytes. `packages/auth-sdk/test/production-realms.test.ts`
+re-derives and compares byte for byte — a hand edit of a derived file fails CI — and asserts every row of
+the table above as its own assertion: no seeded user (only client service accounts, without credentials
+or email), no `test-cli`, no `http://localhost` and no wildcard in any redirect, origin, root or post-logout
+URI, `sslRequired: all`, `verifyEmail: true`, the password policy, brute-force protection, no client secret
+in the file, the staff OTP step REQUIRED, the customers realm with exactly the three storefront clients and
+their production callbacks, the identity providers still environment placeholders. Dev behaviour is
+untouched: `reimport.mjs` and the docker startup import read only the dev files in this directory (the
+startup import is not recursive; `production/` is a subdirectory of the mounted import folder).
+
+**Still needs a running cluster (#342) before these files can be imported:**
+
+- the real hostnames in `production.config.json` (today the `<sub>.example.com` convention of infra/helm:
+  `auth`, `admin`, `shop`, `shop-b`, `shop-c`), then re-derive and commit;
+- SMTP (`smtpServer`, set in the admin console or by the deploy) — `verifyEmail: true`, password resets and
+  the invitation mails of `inviteUser` all send mail; without it nobody can finish a first login;
+- the `core-admin` client secret: Keycloak generates it at import; the operator copies it into Vault and
+  the core's `KEYCLOAK_ADMIN_CLIENT_SECRET` comes from there (never the dev value);
+- the identity providers: `hq-sso` / `google` stay disabled placeholders until `HQ_SSO_CLIENT_*` /
+  `GOOGLE_CLIENT_*` exist in the environment of the import;
+- a Postgres-backed Keycloak (`KC_DB`), TLS termination in front (`sslRequired: all`), and the first HQ
+  owner created through the admin console (there are no seeded users; `inviteUser` needs an owner).
+
 Secrets: no confidential client is defined, so no client secret is committed. Identity-provider secrets are
 `${ENV_VAR:unset}` placeholders resolved by Keycloak at import time.
 
