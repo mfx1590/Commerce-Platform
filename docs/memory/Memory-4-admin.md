@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #353 merged (54284d1); #398 **MERGED as c2fb6d7** (PR #399); nothing assigned, quiet
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: session "Manager session five" (repo root; report there — "Project manager handoff" retired) · Status: Phase 3 — #430 built, push held for the manager
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,6 +441,13 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#430 (2026-10-08, urgent) — customers e2e expected the not-available placeholder.** #429
+  (core admin customer routes) is OPEN, so main's core still 404s them: a real-detail-only spec
+  would be red on my PR. Built: core mode registers the seeded customers-realm user via the Store
+  API (`e2e/core-customer.ts`; test-cli token carries store_code brand-a) and the journey asserts
+  the real detail when the core serves the list, else the placeholder (dead once #429 is on main).
+  Asked the manager for the machine (mock e2e + one core run of the customers test). Next: #428
+  (roles UI, onboarding wizard; #420 folds in) — two PRs.
 - **#398 (2026-10-07) — PR #399 MERGED as c2fb6d7** (Closes #398; head c24585c; manager review MERGE)
   — tests asserting a transition-set state synchronously. Found by window 2
   on #387's queue run (`settings.test.tsx:381`). Swept every test that mocks an action result and

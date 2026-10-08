@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed — issue #430: the customers e2e journey reads the core's real customer
+
+- Core mode links the seeded customers-realm user to brand-a through the Store API first
+  (`e2e/core-customer.ts`: `test-cli` customers-realm token + seeded publishable key,
+  `POST /store/customers`, idempotent), then asserts the real list, detail ("Jane Doe"), consent and
+  the gated erase. A core without the admin customer routes (main before #429) still gets the
+  not-available assertions; the placeholder itself stays covered by `test/api-mode.test.tsx`.
+
 ### Fixed — issue #398: tests no longer read a transition-set state synchronously
 
 - Assertions on state a server action's result sets inside `startTransition(async …)` (refusal
