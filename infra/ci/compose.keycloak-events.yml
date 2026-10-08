@@ -1,5 +1,5 @@
 # CI-only overlay for infra/docker/docker-compose.yml: makes Keycloak log every login event, success
-# included, so infra/ci/totp-barrier.sh can show when each suite signed `owner` in (#344 follow-up).
+# included, so infra/ci/owner-grants.sh can show when the live suites signed `owner` in (#346's witness).
 #
 #   docker compose -f infra/docker/docker-compose.yml -f infra/ci/compose.keycloak-events.yml up -d …
 #
