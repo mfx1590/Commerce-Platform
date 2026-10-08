@@ -12,10 +12,13 @@ import { signIn } from './staff';
  * there; against the core, the seeded owner signs in (password + TOTP) and reads the real users.
  */
 test.describe('HQ roles', () => {
-  test('a store admin is refused the roles screen, the relation named', async ({ page }) => {
+  test('a store admin is refused the roles screen', async ({ page }) => {
     await signIn(page, '/roles');
     await page.waitForURL(/\/roles$/);
-    await expect(page.getByText(/You need the owner relation on organization:hq/)).toBeVisible();
+    // A principal with store relations only is refused by the HQ layout itself, before the
+    // section's own owner check (the per-relation wording is pinned in test/roles-screens.test.tsx).
+    await expect(page.getByRole('heading', { name: /do not have access/i })).toBeVisible();
+    await expect(page.getByText(/This is an HQ section/)).toBeVisible();
     await expect(page.getByRole('table', { name: 'Staff users' })).toHaveCount(0);
   });
 
