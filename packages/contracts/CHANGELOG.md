@@ -176,3 +176,13 @@
   `StoreOnboardedBrandC`.
 - No `ERROR_CODES`, events or db change (`store.created` / `store.updated` as today; events 0.3.1, db 0.3.3, Store API 0.5.4).
   `CONTRACTS_VERSION = '0.4.13'`; types regenerated. Producer: window 1 (#413). Consumer: window 4 (onboarding wizard, later).
+
+## 0.4.14 — 2026-10-08 (inviteUser 400 #423 + events 0.3.2 #425; contracts-v0.4.14)
+
+- Admin API 0.4.12 (115 operations, unchanged): `inviteUser` lists the `400` `BadRequest` response it already answers for an
+  invalid body (`email` not an address, empty `display_name`), like `assignRole`; `createStore` lists the `422` `InvalidSettings`
+  response the settings shape check (0.4.13 decision 4) also produces there — found by the #424 review, recorded on #417. No schema change.
+- Events 0.3.2: `customer.export_requested` v1 (ids only: `customer_id`, `requested_by`, `requested_at`) — the topic
+  `exportCustomer`'s description has promised since 0.4.x; the outbox can now carry it. Producer: the core's customers
+  module (#414). Consumer: the GDPR export delivery (Integration 2b).
+- Store API 0.5.4, db 0.3.3 unchanged. `CONTRACTS_VERSION = '0.4.14'`; types regenerated.
