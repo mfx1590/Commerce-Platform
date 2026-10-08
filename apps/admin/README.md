@@ -639,7 +639,8 @@ step 1) redirects here.
 
 **Readiness** (`/onboarding/{storeId}`): the store's status and **Activate** (`activateStore`). What
 is missing is exactly the 409's `details.missing`, in words (`MISSING_LABELS`); an empty list is an
-activation. **#420:** the same 409 from `updateStore` with `status: active` is said the same way under
+activation. **Activation from the Store view goes through `updateStore` by design; `activateStore` is the HQ
+path.** #420: the same 409 from `updateStore` with `status: active` is said the same way under
 the Status field of the Store view's General form (store_admin cannot call `activateStore`, which is
 owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
 other fields first and then calls `activateStore`.

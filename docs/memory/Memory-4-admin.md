@@ -16,6 +16,8 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#428 A — PR #433 MERGED as d535c27** (2026-10-08; Refs #428, Closes #431; manager review MERGE).
+  HQ roles screen + #431 (customers journey real detail only).
 - **#357 (Integration 2a) — PR #367 MERGED as 2b0bd4c** (2026-10-06, Closes #357). Final head
   a8a0cef (main cdbf611 merged: #350, #368, #369). Advisory "admin e2e against the core" green ×3
   (run 37498562006 attempts 1–3): 22 passed + 3 skipped of 25 — both #357 journeys took the 422
@@ -461,7 +463,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     136ae62 + tests/docs): wizard, readiness panel, `/stores/new` redirect, #420 mapping. Decision:
     the Store view keeps `updateStore` for status → active (store_admin can't call `activateStore`,
     owner on hq; the core runs the same readiness check) — only the HQ form uses `activateStore`.
-    Machine runs pending (mock + core hq-onboarding).
+    Manager CONFIRMED B (2026-10-08): the Store view keeps `updateStore` by design (building to the
+    contract — said in README/PR); the core journey activating a stamped `e2e-` brand is Phase 3's
+    gate. Fast-forwarded admin/phase3 to the B branch, merged main d535c27.
   - **PR B — onboarding wizard + #420**: steps legal entity (existing/inline) → store basics →
     primary domain → review → `onboardStore`; 201 shows the key once (CreateApiKey pattern: state
     only, gone on Done/reload, never in URL/log); 200 = "already exists", no key; 409
