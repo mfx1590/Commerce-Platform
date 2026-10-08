@@ -142,3 +142,11 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   every `operationId` under `paths` carries an `x-permission` unless allowlisted — `getMe` only, exact equality in
   both directions, so an unguarded operation fails the gate loudly instead of vanishing from the sweep, and a
   stale allowlist entry fails too. Measured: 113 operations, 112 guarded.
+- #406 (follow-up of #346): a refused owner grant now waits `RETRY_GAP_MS` (1.5 s) before the next attempt — the
+  staff realm's brute-force protection blocks a user for 60 s after two refused logins within one second, so the
+  back-to-back previous/current attempts could make the fresh-step fallback useless (seen locally, 146/147). The
+  shared file is deleted once at the end of a local run that created it (`test/global-setup.ts`, vitest
+  `globalSetup`) instead of after every test file, so scope.test.ts, the browser challenge and
+  staff-token.test.ts spend one grant per run between them instead of three cold grants; `forgetStaffToken()`
+  keeps its semantics for a single-file consumer. The fake Keycloak in `test/staff-token.test.ts` enforces the
+  quick-login rule and the unit tests pin the gaps and that no block ever forms.

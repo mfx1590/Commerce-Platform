@@ -437,8 +437,8 @@ jobs:
       - name: live auth suites (packages/auth-sdk + apps/core hq-rbac)
         if: needs.changes.outputs.e2e == 'true'
         run: pnpm exec turbo run test --filter=@platform/auth-sdk
-      # The witness for #346: every owner login Keycloak logged, by TOTP step, and a warning if two
-      # successful ones shared a step. Runs on failure too (that is when it matters) and never fails the job.
+      # The witness for #346: every owner login Keycloak logged, by TOTP step, and a warning for every refused
+      # one (a reused code is refused). Runs on failure too (that is when it matters) and never fails the job.
       # Nothing later in this job signs `owner` in: admin's Prism journeys use store-admin and finance,
       # the storefronts use the customers realm, and admin-e2e-core runs in its own job and stack.
       - name: owner logins by TOTP step (#346 witness)
