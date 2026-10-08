@@ -70,6 +70,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
   it('exposes exactly the contract routes with owner on organization:hq', () => {
     expect(HQ_RBAC_ROUTES.map((r) => `${r.method} ${r.path}`)).toEqual([
       'GET /admin/users',
+      'POST /admin/users', // inviteUser (#415)
       'GET /admin/users/{userId}/roles',
       'POST /admin/users/{userId}/roles',
       'DELETE /admin/users/{userId}/roles/{assignmentId}',

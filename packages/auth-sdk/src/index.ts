@@ -57,6 +57,18 @@ export type {
   ObjectType,
 } from './roles/service.js';
 
+// inviteUser (#415) and the Keycloak admin service-account client it and the session revocation use.
+export { inviteUser } from './roles/invite.js';
+export type { InviteUserInput, InviteUserDeps, InviteUserResult } from './roles/invite.js';
+export { createKeycloakAdmin, INVITE_REQUIRED_ACTIONS } from './keycloak/admin.js';
+export type {
+  KeycloakAdmin,
+  KeycloakAdminOptions,
+  KeycloakStaffUser,
+  KeycloakUserSession,
+  CreateStaffUserInput,
+} from './keycloak/admin.js';
+
 // JWT verification + scope resolution (ADR 0002 §4).
 export { createStaffTokenVerifier, bearerToken } from './jwt/verify.js';
 export type { StaffTokenVerifier, StaffTokenVerifierOptions, StaffClaims } from './jwt/verify.js';

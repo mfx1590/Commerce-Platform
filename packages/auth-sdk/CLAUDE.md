@@ -30,6 +30,10 @@ window 2 (auth).
   (`{ code: forbidden, details: { relation, object } }`), 503 fail closed when OpenFGA is unreachable.
 - `assignRole` / `revokeRole` / `listRoleAssignments` / `listStaffUsers`; `audit(tx, entry)` (PII-redacted at
   write time) and `listAuditLog(db, filters)`; `seedOpenFga` + `createOpenFgaClient`.
+- `ensureStoreObject(storeId)` / `reconcileStoreObjects` + `fga:reconcile` (#415): the organization tuple a
+  store needs to exist for OpenFGA; `inviteUser(deps, input)` and `createKeycloakAdmin()` (service-account
+  client `core-admin`, env `KEYCLOAK_ADMIN_CLIENT_*`); a role change ends the user's Keycloak sessions when
+  `RolesDeps.keycloak` is set.
 - `@platform/auth-sdk/testing` (tests only): `staffToken(username)` — real dev-realm tokens; owner's one
   grant is shared between processes through a per-user file (`RUNNER_TEMP` in CI) so live suites never spend
   the same TOTP code (#346); this package deletes the file once per local run (`test/global-setup.ts`), a

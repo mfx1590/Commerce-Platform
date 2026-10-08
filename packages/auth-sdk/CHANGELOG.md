@@ -150,3 +150,24 @@ storeCode)` binds by store **code** (not id), plus the roles/audit/bootstrap ent
   staff-token.test.ts spend one grant per run between them instead of three cold grants; `forgetStaffToken()`
   keeps its semantics for a single-file consumer. The fake Keycloak in `test/staff-token.test.ts` enforces the
   quick-login rule and the unit tests pin the gaps and that no block ever forms.
+
+## Unreleased — 2026-10-08 (auth/phase3, task 3.1)
+
+- #415 (a) store object registration: `ensureStoreObject(storeId, { fga?, organization })` writes the
+  `organization:<slug>#organization@store:<id>` tuple idempotently (duplicate-tolerant, uuid check 400, OpenFGA
+  down 503; no DB, no mirror, no audit); `reconcileStoreObjects` + `pnpm --filter @platform/auth-sdk
+fga:reconcile [--fix]` list and repair stores without it. Tests: `test/store-object.test.ts` (unit on a
+  scripted client; live on a throw-away store + database).
+- #415 (b) `inviteUser` as the contract documents it, behind the new `createKeycloakAdmin()` — the confidential
+  service-account client `core-admin` of the staff realm (client-credentials; realm-management manage-users /
+  view-users / query-users only; env `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`, REQUEST #418 for
+  .env.example): Keycloak user (email = username, `UPDATE_PASSWORD` + `CONFIGURE_TOTP`, no password) → `staff_user`
+  row + `staff_user.create` audit in one transaction (Keycloak user deleted again on failure) → optional first
+  role; 409 on an existing email. The dev staff realm export gains the client and its service-account user
+  (`dev-only-core-admin-secret`, allowlisted shape; production strips it in #416). hq-rbac serves
+  `POST /admin/users` (owner on organization:hq → 201 StaffUser). Tests: `test/keycloak-admin.test.ts` (unit,
+  fake Keycloak), `apps/core/src/modules/hq-rbac/test/invite.test.ts` (live, throwaway user deleted loudly).
+- #415 (c) session revocation: `assignRole` / `revokeRole` end the user's Keycloak sessions after the committed
+  change (`RolesDeps.keycloak`) and drop the cached scope; a failed logout answers 503 with the change applied.
+  Live test: the same store-admin token is refused on the next request, the sessions endpoint is empty, a
+  fresh assignment + token works again.

@@ -19,6 +19,9 @@ interface Mapper {
 interface Client {
   clientId: string;
   publicClient?: boolean;
+  serviceAccountsEnabled?: boolean;
+  implicitFlowEnabled?: boolean;
+  fullScopeAllowed?: boolean;
   secret?: string;
   standardFlowEnabled?: boolean;
   directAccessGrantsEnabled?: boolean;
@@ -40,9 +43,13 @@ interface Flow {
   authenticationExecutions: Execution[];
 }
 interface User {
-  id: string;
+  id?: string;
   username: string;
-  email: string;
+  email?: string;
+  enabled?: boolean;
+  /** Set on the one service-account user (core-admin, #415); such a user is no staff user. */
+  serviceAccountClientId?: string;
+  clientRoles?: Record<string, string[]>;
   requiredActions?: string[];
   credentials?: { type: string; value?: string; secretData?: string; credentialData?: string }[];
 }
@@ -84,10 +91,13 @@ const kebab = (s: string) => s.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`)
 const seededUsernames = Object.keys(SEED_IDS.users).map(kebab).sort();
 
 describe('staff realm export (static)', () => {
+  /** The staff users: every export user that is not a client's service account (#415). */
+  const staffUsers = staff.users.filter((u) => !u.serviceAccountClientId);
+
   it('mirrors SEED_IDS.users: username, email and id == staff_user.keycloak_subject', () => {
-    const usernames = staff.users.map((u) => u.username).sort();
+    const usernames = staffUsers.map((u) => u.username).sort();
     expect(usernames).toEqual(seededUsernames);
-    for (const u of staff.users) {
+    for (const u of staffUsers) {
       expect(u.id).toBe(`seed-${u.username}`);
       expect(u.email).toBe(`${u.username}@example.com`);
       expect(u.requiredActions ?? []).toEqual([]);
@@ -144,6 +154,30 @@ describe('staff realm export (static)', () => {
     );
     const aud = app.protocolMappers?.find((m) => m.protocolMapper === 'oidc-audience-mapper');
     expect(aud?.config['included.custom.audience']).toBe('core-api');
+  });
+
+  it('core-admin is the one service account: confidential, no user flow, realm-management user roles only (#415)', () => {
+    const sa = client(staff, 'core-admin');
+    expect(sa.publicClient).toBe(false);
+    expect(sa.serviceAccountsEnabled).toBe(true);
+    expect(sa.standardFlowEnabled).toBe(false);
+    expect(sa.implicitFlowEnabled).toBe(false);
+    expect(sa.directAccessGrantsEnabled).toBe(false);
+    expect(sa.fullScopeAllowed).toBe(false);
+    expect(sa.redirectUris).toEqual([]);
+    expect(sa.webOrigins).toEqual([]);
+    // The dev-only secret (infra/gitleaks.toml allowlists this shape; production replaces it, #416).
+    expect(sa.secret).toMatch(/^dev-only-[a-z-]+$/);
+    expect(staff.clients.filter((c) => c.serviceAccountsEnabled).map((c) => c.clientId)).toEqual([
+      'core-admin',
+    ]);
+    const saUsers = staff.users.filter((u) => u.serviceAccountClientId);
+    expect(saUsers.map((u) => u.serviceAccountClientId)).toEqual(['core-admin']);
+    expect(saUsers[0]!.clientRoles).toEqual({
+      'realm-management': ['manage-users', 'view-users', 'query-users'],
+    });
+    expect(saUsers[0]!.email).toBeUndefined(); // never a staff_user mirror
+    expect(saUsers[0]!.credentials).toBeUndefined();
   });
 
   it('test-cli is the only client with the password grant', () => {
