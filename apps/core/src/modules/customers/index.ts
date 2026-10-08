@@ -19,3 +19,21 @@ export type {
   CustomerStatus,
   RegisterCustomerInput,
 } from './types';
+// Admin API customer operations (#414)
+export {
+  adminGetCustomer,
+  adminListCustomerAddresses,
+  adminListCustomers,
+  adminUpdateCustomer,
+  CUSTOMER_SORT_FIELDS,
+  listCustomerGroups,
+  toAdminCustomer,
+} from './admin';
+export type {
+  AdminCustomer,
+  AdminCustomerAddress,
+  AdminCustomerPatch,
+  CustomerGroup,
+  CustomerListQuery,
+  CustomerSortField,
+} from './admin';
