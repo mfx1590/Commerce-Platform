@@ -42,8 +42,10 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
     client from any export that is not local.
   - `core-admin` — **confidential service account** the core uses for Keycloak's admin API (#415:
     `inviteUser`, ending a user's sessions on a role change). Standard, implicit and direct flows off, no
-    redirects, `fullScopeAllowed: false`; its service-account user `service-account-core-admin` holds the
-    realm-management roles `manage-users`, `view-users`, `query-users` and nothing else. Credentials for the
+    redirects, `fullScopeAllowed: true` (with `false` the service account's roles never reach its token and
+    every admin call is 403 — measured); its service-account user `service-account-core-admin` holds the
+    realm-management roles `manage-users`, `view-users`, `query-users` and nothing else (`view-users` is a
+    Keycloak composite that also grants `query-groups`). Credentials for the
     core: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`; the dev export carries the dev-only
     secret `dev-only-core-admin-secret` (the `dev-only-` shape infra/gitleaks.toml allowlists). Production
     replaces it from Vault (#416).

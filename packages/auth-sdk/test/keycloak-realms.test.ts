@@ -18,6 +18,7 @@ interface Mapper {
 }
 interface Client {
   clientId: string;
+  description?: string;
   publicClient?: boolean;
   serviceAccountsEnabled?: boolean;
   implicitFlowEnabled?: boolean;
@@ -163,7 +164,9 @@ describe('staff realm export (static)', () => {
     expect(sa.standardFlowEnabled).toBe(false);
     expect(sa.implicitFlowEnabled).toBe(false);
     expect(sa.directAccessGrantsEnabled).toBe(false);
-    expect(sa.fullScopeAllowed).toBe(false);
+    // Full scope: the service account's client roles reach its token only this way (false → 403 on every
+    // admin call, measured 2026-10-08); the roles themselves are the three below and nothing else.
+    expect(sa.fullScopeAllowed).toBe(true);
     expect(sa.redirectUris).toEqual([]);
     expect(sa.webOrigins).toEqual([]);
     // The dev-only secret (infra/gitleaks.toml allowlists this shape; production replaces it, #416).
@@ -324,11 +327,32 @@ describe('customers realm export (static)', () => {
   });
 });
 
+describe('import limits (measured 2026-10-08, #415)', () => {
+  it.each([staff, customers])(
+    '$realm: every client description fits Keycloak\x27s 255-character column',
+    (realm) => {
+      // A longer one makes the realm create answer 400 "Database operation failed" — after reimport.mjs has
+      // already deleted the realm, which then stays absent until a good file is imported.
+      for (const c of realm.clients) {
+        expect((c.description ?? '').length, c.clientId).toBeLessThanOrEqual(255);
+      }
+    },
+  );
+});
+
 describe('no secrets in any realm export', () => {
   it.each([staff, customers])(
     '$realm: no confidential client secrets, no literal idp secrets',
     (realm) => {
       for (const c of realm.clients) {
+        if (c.serviceAccountsEnabled) {
+          // The one service account (core-admin, #415): confidential by nature; its dev-only secret is the
+          // allowlisted local-development shape (infra/gitleaks.toml) and is replaced from Vault in
+          // production (#416). Any other shape here is a committed secret.
+          expect(c.clientId).toBe('core-admin');
+          expect(c.secret).toMatch(/^dev-only-[a-z-]+$/);
+          continue;
+        }
         expect(c.publicClient, `${c.clientId} must be public`).toBe(true);
         expect(c.secret, `${c.clientId} must not carry a secret`).toBeUndefined();
       }

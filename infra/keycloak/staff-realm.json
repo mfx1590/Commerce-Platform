@@ -318,7 +318,7 @@
     {
       "clientId": "core-admin",
       "name": "Core admin service account",
-      "description": "Confidential client the core uses for Keycloak's admin API (inviteUser, session revocation on role change; issue #415). Service account only: no browser or password flow. The dev-only secret below is replaced from Vault in the production export (#416).",
+      "description": "Confidential service account for the core's Keycloak admin calls (inviteUser, session revocation; #415). No browser or password flow. fullScopeAllowed stays true so its realm-management roles reach the token. Dev-only secret; production: Vault (#416).",
       "enabled": true,
       "publicClient": false,
       "secret": "dev-only-core-admin-secret",
@@ -328,7 +328,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
       "consentRequired": false,
-      "fullScopeAllowed": false,
+      "fullScopeAllowed": true,
       "redirectUris": [],
       "webOrigins": [],
       "attributes": {

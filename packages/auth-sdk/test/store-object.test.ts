@@ -132,7 +132,13 @@ describe.runIf(fgaUp)('ensureStoreObject (live OpenFGA, throw-away store)', () =
     expect(first.created).toBe(true);
     expect(second.created).toBe(false);
     const tuples = await fga.read({ object: `store:${storeId}` });
-    expect(tuples.tuples.map((t) => t.key)).toEqual([storeObjectTuple(storeId)]);
+    expect(
+      tuples.tuples.map((t) => ({
+        user: t.key.user,
+        relation: t.key.relation,
+        object: t.key.object,
+      })),
+    ).toEqual([storeObjectTuple(storeId)]);
 
     const after = await fga.check({
       user: `user:${SEED_IDS.users.owner}`,
