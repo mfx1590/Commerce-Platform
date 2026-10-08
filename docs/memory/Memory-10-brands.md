@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main b5473ac) · Status: **INTEGRATION 2a COMPLETE (2026-10-07) — every assigned task merged.** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`). **Nothing of mine is open.** Two things are NOT mine and still outstanding: #348 is **reopened** for the manager's 30-leg CI count, and REQUEST **#389** (the perf gate's six erroring audits) is unfixed. Quiet.
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **PR #411 OPEN** — the hero-rendering re-sync (head `1884b65`), reviewed MERGE on the code, queueing with #409/#410. Merged before it: #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`). **#348 is reopened and its 30-leg count restarts at #411's merge** (the manager counts it). My REQUESTs **#389 and #390 are both FIXED** by window 3 and arrived in #411's sync.
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,8 +17,10 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **#330 · brand A took the hero rendering** — re-sync at main `2e35674`, 209 copied / 1 merged / 10
-  preserved / 4 excluded, **zero preserved-file drift**. Brings #403: `hero.tsx` wrapping the poster
+- **#330 · brand A took the hero rendering** — **PR #411**, head **`1884b65`**, reviewed **MERGE** on
+  the code (18 blobs compared equal, 10 preserved untouched, counts add up); queueing with #409/#410.
+  Re-sync at main `2e35674`, 209 copied / 1 merged / 10 preserved / 4 excluded, **zero
+  preserved-file drift**. Brings #403: `hero.tsx` wrapping the poster
   in `HeroMedia`, the `hero-loop` island, `hero-video.ts`'s reader policy, `media-src` in the CSP, and
   the loop's messages in both locales. **#386's placed loops now have a renderer.**
   - **Both of my REQUESTs landed in the same sync:** **#389** (`@lhci/cli` 0.14.0 → **0.15.1**, the
@@ -207,10 +209,13 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — nothing. Integration 2a complete (2026-10-07)
+## In progress — **PR #411 is OPEN** (2026-10-08)
 
-Every task the manager assigned is **merged**. Nothing of mine is open, and there is nothing held or
-half-done; the one local commit left is this record.
+`brands/phase3` head **`1884b65`**: the hero-rendering re-sync. Reviewed **MERGE** on the code,
+queueing with #409/#410. **Do not push to `brands/phase3` until it merges** — a push updates #411 and
+knocks it out of the queue. Nothing else of mine is open, held or half-done.
+
+Merged before it:
 
 | task | PR | merged as |
 | --- | --- | --- |
@@ -220,21 +225,17 @@ half-done; the one local commit left is this record.
 | **#348** perf gate at five runs, budget untouched | #388 | `79436fc` |
 | **#386** brand A's two hero loops placed | #408 | `dea7575` |
 
-**Not mine, still outstanding — do not assume these are done:**
-- **#348 is reopened.** Its change merged, but acceptance needs **30 consecutive green brand A perf
-  legs**, which the manager counts in CI. `numberOfRuns: 5` and `maxNumericValue: 2500` must both
-  stay put until that count finishes — changing either mid-count invalidates it.
-- **REQUEST #389 is unfixed:** the perf gate's pinned `@lhci/cli` 0.14.0 errors six audits on every
-  run, including every audit that identifies the LCP element. **Until it is fixed, no LCP argument
-  taken from the gate's own output is worth anything** — that is exactly the trap #348 fell into, and
-  it will catch whoever hits a perf budget next. Diagnose with a standalone `lighthouse@12` instead.
-- REQUEST **#390** (perf warm-up) appears implemented on main (`warm-urls.test.ts`). If it holds,
-  `numberOfRuns` could likely return to 3 — but only **after** #348's count closes, as its own PR with
-  its own data.
+**Outstanding, and not mine to close:**
+- **#348 is reopened**, and its 30-leg count **restarts at #411's merge** — the manager counts it and
+  records the restart on the issue. `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until
+  it completes.
+- My REQUESTs **#389** (the pinned LHCI erroring six audits) and **#390** (no perf warm-up) are both
+  **FIXED** by window 3 and arrive in #411's sync. Nothing owed there.
 
-**Next session:** nothing queued. Expect Phase 3 proper (the gaps below and LAUNCH.md's owner
-actions), or window 3's `src/lib/cms` hero rendering (#403) arriving on the next re-sync, which is
-what finally makes the placed loops visible.
+**Next session:** nothing queued. Likely Phase 3 proper — the gaps below and LAUNCH.md's owner
+actions. Note the hero loops still cannot be *seen* anywhere until a Sanity project and a Cloudinary
+account exist, both owner actions; the rendering is in place and unit-tested, and the island refuses
+to mount in an e2e build on purpose.
 
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
