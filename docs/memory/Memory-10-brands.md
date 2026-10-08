@@ -17,6 +17,27 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#330 · brand A took the hero rendering** — re-sync at main `2e35674`, 209 copied / 1 merged / 10
+  preserved / 4 excluded, **zero preserved-file drift**. Brings #403: `hero.tsx` wrapping the poster
+  in `HeroMedia`, the `hero-loop` island, `hero-video.ts`'s reader policy, `media-src` in the CSP, and
+  the loop's messages in both locales. **#386's placed loops now have a renderer.**
+  - **Both of my REQUESTs landed in the same sync:** **#389** (`@lhci/cli` 0.14.0 → **0.15.1**, the
+    six erroring audits) and **#390** (`perf.mjs` warms every measured URL via `warm-urls.mjs`).
+  - **A mock run cannot show the loop, and the first reason is by design:** the island **refuses to
+    mount under `E2E_LOCAL_IMAGES`**, which `scripts/e2e-env.mjs` sets on every e2e run so no request
+    leaves the machine — there is a test for it. Then: no Sanity project locally (the run logs
+    `SANITY_PROJECT_ID is not set`), and no Cloudinary cloud name (the video is dropped at seed time).
+    **Do not go looking for the loop in an e2e or mock run — it is not supposed to be there.**
+    What *is* proved is the island's behaviour by unit test: poster-first, mount after `load`, the
+    pause control, removal when reduced motion turns on later, poster-alone under `reduce`, and the
+    `E2E_LOCAL_IMAGES` refusal.
+  - Gates: lint, `format:check`, typecheck clean; unit **764 passed / 2 skipped** (739 before);
+    mock e2e **83 passed / 35 skipped**, exit 0. **Machine free.**
+  - **RAISED WITH THE MANAGER:** the #389 LHCI bump (0.14.0 → 0.15.1) changes the measuring tool
+    **in the middle of #348's 30-leg count**. The ruling that `numberOfRuns` and `maxNumericValue`
+    must not move mid-count applies to the Lighthouse version for the same reason — legs either side
+    of it are not measuring the same thing. The count probably has to restart from whatever commit
+    carries 0.15.1. Their call, not mine, but it should not pass unnoticed.
 - **#386 · brand A's two hero loops placed.** Content (both locales), the `heroVideo` branch in
   `cms/brand-a/scripts/resolve-media.mjs`, 9 tests, DESIGN.md §7, both READMEs.
   **PR #408**: head `916ff01` → `BLOCK` on static review (the missing test, see the gotcha) → fixed
