@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #430 merged (#432, 971c7c1); #428 A + #431 = PR next (push now)
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #430 merged (#432, 971c7c1); #428 A + #431 = PR #433 (code commit 8b3be94; head = this memory commit), waiting for CI
 
 ## Identity (does not change)
 Owned paths (write):
@@ -445,7 +445,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
   #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles
   refusal is the HQ layout's, not the section guard's) → hq-roles 1 + 1 skipped; core-mode
-  hq-roles 2 passed (owner password + TOTP read from the README). PR A = Refs #428, Closes #431.
+  hq-roles 2 passed (owner password + TOTP read from the README). **PR #433** (Refs #428, Closes
+  #431; code commit 8b3be94, main merged at 94ca8cb; head = this memory commit).
   - **PR A — HQ roles** (owner on hq): wrappers `listUsers`, `inviteUser`, `listUserRoles`,
     `assignRole`, `revokeRole`, `listAuditLog` (NB its x-permission is `viewer` on
     `store:{store_id}`, not owner on hq as the issue says — filter per user/store). Guard table rows
