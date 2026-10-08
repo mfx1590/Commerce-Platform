@@ -60,6 +60,16 @@ import {
   ORDER_STATUSES,
   PAYMENT_STATUSES,
 } from '../modules/orders';
+import {
+  adminGetCustomer,
+  adminListCustomerAddresses,
+  adminListCustomers,
+  adminUpdateCustomer,
+  CUSTOMER_SORT_FIELDS,
+  eraseCustomer,
+  listCustomerGroups,
+  requestCustomerExport,
+} from '../modules/customers';
 import { loadSpec } from './openapi';
 import { requirePermission, resolveObject } from './permissions';
 import {
@@ -387,6 +397,97 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
       );
     }),
   );
+  // ---- customers (#414, Admin API 0.4.11): support reads and updates, store_admin erases and exports -------
+  r.get(
+    '/admin/stores/:storeId/customers',
+    permission('listCustomers'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const sort = sortParams(req.query, CUSTOMER_SORT_FIELDS, problems);
+      const groupId = one(req.query.group_id);
+      if (groupId !== undefined && !UUID_RE.test(groupId)) problems.group_id = 'uuid';
+      throwIfProblems(problems);
+      res.json(
+        await adminListCustomers(client, storeId, {
+          ...page,
+          ...sort,
+          ...(one(req.query.q) !== undefined ? { q: one(req.query.q)! } : {}),
+          ...(groupId !== undefined ? { group_id: groupId } : {}),
+        }),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customers/:customerId',
+    permission('getCustomer'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(await adminGetCustomer(client, storeId, uuidParam(req.params, 'customerId')));
+    }),
+  );
+  r.patch(
+    '/admin/stores/:storeId/customers/:customerId',
+    permission('updateCustomer'),
+    body('updateCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      res.json(
+        await adminUpdateCustomer(
+          client,
+          storeId,
+          uuidParam(req.params, 'customerId'),
+          req.body,
+          p.actor,
+        ),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customers/:customerId/addresses',
+    permission('listCustomerAddresses'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json({
+        items: await adminListCustomerAddresses(
+          client,
+          storeId,
+          uuidParam(req.params, 'customerId'),
+        ),
+      });
+    }),
+  );
+  // GDPR erasure: 202 both for the erasure and for the replay on an erased customer (the contract's
+  // "scheduled"; it runs synchronously, one transaction) — no body.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/erase',
+    permission('eraseCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await eraseCustomer(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
+    }),
+  );
+  // GDPR export: 202 + one `customer.export_requested` per request; the bundle is built by the delivery job.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/export',
+    permission('exportCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await requestCustomerExport(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customer-groups',
+    permission('listCustomerGroups'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listCustomerGroups(client, storeId) });
+    }),
+  );
+
   // ---- registry: onboarding (#413, Admin API 0.4.11) ------------------------------------------------------
   r.post(
     '/admin/stores/:storeId/activate',
