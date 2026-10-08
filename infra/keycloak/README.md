@@ -40,6 +40,15 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
     mint real tokens for the seeded users (`grant_type=password&client_id=test-cli&username=…&password=…`).
     The direct-grant flow does not run the browser MFA step, which is what makes this usable in CI. Delete this
     client from any export that is not local.
+  - `core-admin` — **confidential service account** the core uses for Keycloak's admin API (#415:
+    `inviteUser`, ending a user's sessions on a role change). Standard, implicit and direct flows off, no
+    redirects, `fullScopeAllowed: true` (with `false` the service account's roles never reach its token and
+    every admin call is 403 — measured); its service-account user `service-account-core-admin` holds the
+    realm-management roles `manage-users`, `view-users`, `query-users` and nothing else (`view-users` is a
+    Keycloak composite that also grants `query-groups`). Credentials for the
+    core: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`; the dev export carries the dev-only
+    secret `dev-only-core-admin-secret` (the `dev-only-` shape infra/gitleaks.toml allowlists). Production
+    replaces it from Vault (#416).
 - **Users** mirror `packages/db` `SEED_IDS.users`: `owner`, `finance`, `operations`, `store-admin`,
   `store-staff`, `support`, `analyst` (email `<username>@example.com`, password = username). Each user's
   Keycloak id is `seed-<username>`, which is exactly the `staff_user.keycloak_subject` the db seed writes, so the
@@ -88,21 +97,22 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 
 ## Dev-only settings (must change outside local)
 
-| Setting                                  | Local value                | Elsewhere                               |
-| ---------------------------------------- | -------------------------- | --------------------------------------- |
-| `sslRequired`                            | `external`                 | `all` behind TLS                        |
-| OTP step in `browser-mfa forms` (#43)    | CONDITIONAL                | REQUIRED (forced enrolment)             |
-| `owner` pre-enrolled TOTP credential     | documented secret above    | remove; no committed OTP secrets        |
-| Seeded users with password = username    | present                    | remove the `users` array                |
-| `test-cli` client (password grant)       | present                    | remove                                  |
-| Password policy                          | none (seed passwords)      | e.g. `length(12) and notUsername and …` |
-| `verifyEmail` (customers)                | `false`                    | `true` with SMTP configured             |
-| `attributes.frontendUrl`                 | `http://localhost:8180`    | the public Keycloak URL                 |
-| Redirect URIs / web origins              | `http://localhost:*`       | the real app origins                    |
-| `hq-sso` / `google` identity providers   | disabled placeholders      | real client ids from the environment    |
-| `admin-app` second redirect (:3200, #82) | registered                 | exactly one redirect URI per app        |
-| `storefront-brand-a` redirects (#212)    | localhost + dev + staging  | only that environment's own callback    |
-| Keycloak `KC_DB=dev-file` + volume       | one-shot import, persisted | Postgres                                |
+| Setting                                  | Local value                  | Elsewhere                               |
+| ---------------------------------------- | ---------------------------- | --------------------------------------- |
+| `sslRequired`                            | `external`                   | `all` behind TLS                        |
+| OTP step in `browser-mfa forms` (#43)    | CONDITIONAL                  | REQUIRED (forced enrolment)             |
+| `owner` pre-enrolled TOTP credential     | documented secret above      | remove; no committed OTP secrets        |
+| Seeded users with password = username    | present                      | remove the `users` array                |
+| `test-cli` client (password grant)       | present                      | remove                                  |
+| `core-admin` client secret (#415)        | `dev-only-core-admin-secret` | generated, from Vault                   |
+| Password policy                          | none (seed passwords)        | e.g. `length(12) and notUsername and …` |
+| `verifyEmail` (customers)                | `false`                      | `true` with SMTP configured             |
+| `attributes.frontendUrl`                 | `http://localhost:8180`      | the public Keycloak URL                 |
+| Redirect URIs / web origins              | `http://localhost:*`         | the real app origins                    |
+| `hq-sso` / `google` identity providers   | disabled placeholders        | real client ids from the environment    |
+| `admin-app` second redirect (:3200, #82) | registered                   | exactly one redirect URI per app        |
+| `storefront-brand-a` redirects (#212)    | localhost + dev + staging    | only that environment's own callback    |
+| Keycloak `KC_DB=dev-file` + volume       | one-shot import, persisted   | Postgres                                |
 
 Secrets: no confidential client is defined, so no client secret is committed. Identity-provider secrets are
 `${ENV_VAR:unset}` placeholders resolved by Keycloak at import time.
