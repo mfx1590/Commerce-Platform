@@ -89,8 +89,8 @@ database**: everything they create is stamped with the run (product handles, pro
 names), so reruns never collide, and nothing irreversible is confirmed on seeded data.
 Core mode creates what it reads (#285, #430): the customers journey first links the seeded
 customers-realm user (`jane@example.com`) to brand-a through the Store API (`e2e/core-customer.ts`,
-idempotent) and reads that row back; against a core without the admin customer routes it asserts
-the not-available panel instead. The orders journeys place their own guest order through
+idempotent) and reads that row back (#431: every core serves the admin customer routes since
+#429; the placeholder branch is gone). The orders journeys place their own guest order through
 the Store API (`e2e/core-order.ts`) — one order per journey that needs one (the orders list, and
 since #357 capture → refund and buy label), each taking **one unit** of the first in-stock variant
 among the first 20 brand-a products by ascending price, so every run lowers that variant's

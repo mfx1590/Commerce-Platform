@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed — issue #431: the customers journey asserts the real detail only
+
+- The core serves the admin customer routes since #429, so the not-available branch of the
+  customers e2e journey (and `EXPECT.customersRoute`) is gone; the placeholder itself stays covered
+  by `test/api-mode.test.tsx`.
+
 ### Added — issue #428 A: HQ roles (Admin API 0.4.12)
 
 - `/roles` (owner on hq): staff users; per person relations with Assign (model-grantable pairs only)

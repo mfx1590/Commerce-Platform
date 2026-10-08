@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: session "Manager session five" (repo root; report there — "Project manager handoff" retired) · Status: Phase 3 — #430 = PR #432 (code commit 41771e7; head = this memory commit), waiting for CI
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #430 merged (#432, 971c7c1); #428 A + #431 = PR next (push now)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,7 +441,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#428 (Phase 3 task 3.1) — PLAN, awaiting the manager's confirmation** (2026-10-08). Two PRs.
+- **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
+  local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
+  #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles
+  refusal is the HQ layout's, not the section guard's) → hq-roles 1 + 1 skipped; core-mode
+  hq-roles 2 passed (owner password + TOTP read from the README). PR A = Refs #428, Closes #431.
   - **PR A — HQ roles** (owner on hq): wrappers `listUsers`, `inviteUser`, `listUserRoles`,
     `assignRole`, `revokeRole`, `listAuditLog` (NB its x-permission is `viewer` on
     `store:{store_id}`, not owner on hq as the issue says — filter per user/store). Guard table rows
