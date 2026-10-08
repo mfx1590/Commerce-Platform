@@ -742,6 +742,14 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Windows' reserved TCP ranges move** (WinNAT, re-chosen at boot): on 10-08 evening 4179–4278
+  was reserved, which covers EVERY contract suite's Prism port (4211–4218) — locally they die with
+  "listen EACCES" while CI (Linux) is fine. Verify a suite through a temporary copy on a free port
+  (`sed` the BASE to e.g. 4391, run, delete the copy); check with `netsh int ipv4 show
+  excludedportrange protocol=tcp`.
+- **Local unit runs time out at Vitest's 5 s on long-typing tests** (catalog-screens, capture
+  amount) on most full runs since 10-08 — local only: CI unit jobs on #432 and main were green. The
+  manager's rule: a per-test timeout only with per-run CI evidence.
 - **Testing a form/action result:** anything set after `await action(...)` inside
   `startTransition(async …)` commits on a later macrotask — assert it with `findBy…`/`waitFor`,
   never `getBy…` right after `await user.click(...)`. The action CALL itself is synchronous at the
