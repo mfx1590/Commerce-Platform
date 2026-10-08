@@ -190,3 +190,10 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   of logging the shared seeded `store-admin` out; the realm test pins no realm roles / groups on the
   service-account user; `infra/keycloak/README.md` no longer claims there is no confidential client;
   CONTRACT CHANGE #423 adds the `400` response to `inviteUser`.
+- Found by the throwaway-user revocation test: an invited user with an empty `lastName` is "not fully set up"
+  for Keycloak (the realm's user profile requires both names) and gets no token, not even through the
+  direct grant. `createUser` now splits the display name into `firstName` / `lastName` (a one-word name is
+  stored as both); `KeycloakStaffUser.lastName` added.
+- `staffToken` reuses a shared owner token only with at least 5 minutes left (was 60 s): a run must fit
+  before the token expires, and a stale file from another window's run otherwise hands a suite a token
+  that dies halfway through.

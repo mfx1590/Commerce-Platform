@@ -104,7 +104,9 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
   changed, so re-issuing the call re-runs the whole change including the logout (#422).
 - `inviteUser(deps, { email, displayName, initialRole? })` (#415) — `POST /admin/users` as the contract
   documents it: the Keycloak staff user (email = username, required actions `UPDATE_PASSWORD` +
-  `CONFIGURE_TOTP`, no password), then the `staff_user` row with `keycloak_subject` and the
+  `CONFIGURE_TOTP`, no password; `firstName` = the first word of the display name, `lastName` = the rest or
+  the same word — the realm's user profile requires both, or the account is "not fully set up" and gets no
+  token), then the `staff_user` row with `keycloak_subject` and the
   `staff_user.create` audit row in one transaction (the Keycloak user is deleted again if that fails), then
   the optional first role through `assignRole`. 409 `conflict` when the email exists (here or in Keycloak),
   400 for a malformed email / empty name. The invitation EMAIL is out of scope until SMTP exists
@@ -171,8 +173,8 @@ realms only: the `test-cli` password grant, password = username). `owner` is the
 and Keycloak refuses a used one-time code, so the helper signs owner in once and shares the token between
 processes through `$RUNNER_TEMP/staff-owner-token.json` in CI and `~/.cache/platform/staff-owner-token.json`
 locally (`STAFF_OWNER_TOKEN_FILE` overrides; mode 0600; content `{ issuer, access_token }`); it is reused only
-while this stack's userinfo endpoint accepts it, so a Keycloak restart or realm reimport just costs one new
-grant. Every live suite that needs owner must go through it (#346). In this package the file is deleted once at
+while this stack's userinfo endpoint accepts it and at least 5 minutes of its lifetime remain, so a Keycloak
+restart, a realm reimport or a stale file from another window just costs one new grant. Every live suite that needs owner must go through it (#346). In this package the file is deleted once at
 the end of a local run that created it (`test/global-setup.ts`, vitest `globalSetup`), never per test file —
 per-file deletion made every file grant cold again (#406); a package with a single live file may call
 `forgetStaffToken()` in its `afterAll` instead (same rule: deletes only what this process wrote, never in CI).

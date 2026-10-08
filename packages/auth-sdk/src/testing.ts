@@ -72,7 +72,10 @@ export interface StaffTokenOptions {
   password?: string;
   /** Shared owner-token file; default `ownerTokenFile()`. */
   file?: string;
-  /** A cached token with less than this left on its `exp` is not reused (default 60 s). */
+  /**
+   * A cached token with less than this left on its `exp` is not reused (default 5 min): a whole run must fit
+   * before it expires, and a cold grant costs only one code (#422 follow-up: a stale file from another window).
+   */
   minRemainingMs?: number;
   /** Tests of this helper only: a fake clock so the "next fresh step" fallback does not really sleep. */
   clock?: { now(): number; sleep(ms: number): Promise<void> };
@@ -126,7 +129,7 @@ export async function staffToken(username: string, opts: StaffTokenOptions = {})
     const shared = await readSharedOwnerToken(
       file,
       issuer,
-      opts.minRemainingMs ?? 60_000,
+      opts.minRemainingMs ?? 5 * 60_000,
       opts.clock ? opts.clock.now() : Date.now(),
     );
     if (shared) {

@@ -225,9 +225,9 @@ describe('staffToken (unit, fake Keycloak)', () => {
     expect(JSON.parse(await readFile(file, 'utf8'))).toMatchObject({ access_token: second });
   });
 
-  it('a cached token with less than 60 s left is not reused', async () => {
+  it('a cached token with less than 5 min left is not reused (a run must fit before it expires)', async () => {
     const payload = Buffer.from(
-      JSON.stringify({ sub: 'seed-owner', exp: Math.floor(clock.now() / 1000) + 30 }),
+      JSON.stringify({ sub: 'seed-owner', exp: Math.floor(clock.now() / 1000) + 4 * 60 }),
     ).toString('base64url');
     await writeFile(file, JSON.stringify({ issuer: issuer(), access_token: `eyJ.${payload}.sig` }));
     await staffToken('owner', opts());
