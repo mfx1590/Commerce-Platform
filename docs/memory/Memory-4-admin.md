@@ -441,6 +441,34 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#428 (Phase 3 task 3.1) — PLAN, awaiting the manager's confirmation** (2026-10-08). Two PRs.
+  - **PR A — HQ roles** (owner on hq): wrappers `listUsers`, `inviteUser`, `listUserRoles`,
+    `assignRole`, `revokeRole`, `listAuditLog` (NB its x-permission is `viewer` on
+    `store:{store_id}`, not owner on hq as the issue says — filter per user/store). Guard table rows
+    for every mutation (same `refuseUnlessPermitted`). `/roles`: users table with assignments per
+    store/organization; invite form (email, display name, optional initial relation + object; the
+    invited state + "first sign-in is set up in Keycloak until the invitation email exists");
+    per-user assign (relations from contracts `RELATIONS`; finance only on organization:hq) and
+    revoke (asks first: it ends that user's sessions); that user's audit entries. 400 → field
+    errors, 409 duplicate email → the email field, 403 → refusal panel. Folds #431 if #429 is on main.
+  - **PR B — onboarding wizard + #420**: steps legal entity (existing/inline) → store basics →
+    primary domain → review → `onboardStore`; 201 shows the key once (CreateApiKey pattern: state
+    only, gone on Done/reload, never in URL/log); 200 = "already exists", no key; 409
+    `details.differs`/hostname and 422 `details.settings` → the step owning the field. Readiness
+    panel from `getStore` + `activateStore`'s 409 `details.missing` → Activate. `/stores/new` →
+    redirect to the wizard. #420: settings status → active goes through `activateStore`; 409
+    `details.missing` as a readable list, `details.status: archived` said.
+  - Tests per PR: unit (guard per action, forms, error mapping), Prism contract, mock e2e (owner via
+    password+TOTP; store-admin/finance get the 403 guard). Core e2e: one HQ path if the advisory
+    harness signs in an owner; otherwise stated in the PR.
+  - Built while waiting (local commit, not pushed — push held until the manager sends #432's merge
+    sha and confirms the plan): wrappers listUsers/inviteUser/listUserRoles/assignRole/revokeRole/
+    listAuditLog (`RoleAssignmentBody` from the generated operation); `src/lib/roles` (GRANTABLE:
+    organization owner/finance/operations/analyst/support, store store_admin/store_staff/support;
+    zod schemas); `ROLES_PERMISSIONS` in the guard (organization-scoped ops may pass storeId '');
+    `src/app/actions/roles.ts` (invite → optional assignRole: the contract's inviteUser takes no
+    initial role; 409 → email field); `test/roles-actions.test.ts` 14. listAuditLog HAS `actor_id`
+    → decision (a) needs no REQUEST.
 - **#430 (2026-10-08, urgent) — PR #432 (code commit 41771e7; head = this memory commit).** Customers
   e2e expected the not-available placeholder. #429
   (core admin customer routes) is OPEN, so main's core still 404s them: a real-detail-only spec
