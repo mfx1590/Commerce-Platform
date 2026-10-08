@@ -24,7 +24,7 @@ test.describe('HQ onboarding', () => {
     await page.waitForURL(/\/onboarding$/);
 
     // 1. A new legal entity for this brand.
-    await page.getByLabel('Legal entity', { exact: true }).selectOption('inline');
+    await page.getByRole('combobox', { name: 'Legal entity' }).selectOption('inline');
     await page.getByLabel('Entity code').fill(`${code}-bv`);
     await page.getByLabel('Registered name').fill(`E2E ${code} B.V.`);
     await page.getByRole('button', { name: 'Next' }).click();
