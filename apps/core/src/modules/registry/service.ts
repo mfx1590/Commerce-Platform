@@ -39,7 +39,8 @@ import type {
   StoreRegistrar,
 } from './types';
 
-/* module-internal (onboarding.ts); not part of the public API in index.ts */ export const CODE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/* module-internal (onboarding.ts); not part of the public API in index.ts */ export const CODE =
+  /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const CURRENCY = /^[A-Z]{3}$/;
 export const COUNTRY = /^[A-Z]{2}$/;
 const STORE_STATUSES = ['draft', 'active', 'paused', 'archived'] as const;
@@ -63,7 +64,8 @@ const STORE_COLUMNS = [
 ] as const;
 
 export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-export const iso = (d: Date | string) => (d instanceof Date ? d.toISOString() : new Date(d).toISOString());
+export const iso = (d: Date | string) =>
+  d instanceof Date ? d.toISOString() : new Date(d).toISOString();
 
 export function organizationOf(client: ScopedClient): string {
   return client.context.organizationId;
@@ -674,17 +676,17 @@ export async function addLocale(
         undefined,
         store.default_currency,
       );
-      await writeAudit(tx, {
-        organizationId: store.organization_id,
-        storeId,
-        actor,
-        action: 'store_locale.create',
-        entityType: 'store',
-        entityId: storeId,
-        after: { locale },
-      });
-      // A locale that was already enabled changes nothing: no event.
+      // A locale that was already enabled changes nothing: no audit row, no event (#318 review nit, folded into #413).
       if (!(store.locales ?? []).includes(locale)) {
+        await writeAudit(tx, {
+          organizationId: store.organization_id,
+          storeId,
+          actor,
+          action: 'store_locale.create',
+          entityType: 'store',
+          entityId: storeId,
+          after: { locale },
+        });
         await withEvents(tx, [
           await storeUpdatedEvent(store, store.organization_id, actor, ['locales']),
         ]);
@@ -721,17 +723,17 @@ export async function addCurrency(
         [...(store.currencies ?? []), currency],
         store.default_currency,
       );
-      await writeAudit(tx, {
-        organizationId: store.organization_id,
-        storeId,
-        actor,
-        action: 'store_currency.create',
-        entityType: 'store',
-        entityId: storeId,
-        after: { currency },
-      });
-      // A currency that was already enabled changes nothing: no event.
+      // A currency that was already enabled changes nothing: no audit row, no event (#318 review nit, folded into #413).
       if (!(store.currencies ?? []).includes(currency)) {
+        await writeAudit(tx, {
+          organizationId: store.organization_id,
+          storeId,
+          actor,
+          action: 'store_currency.create',
+          entityType: 'store',
+          entityId: storeId,
+          after: { currency },
+        });
         await withEvents(tx, [
           await storeUpdatedEvent(store, store.organization_id, actor, ['currencies']),
         ]);
