@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added — issue #428 B: brand onboarding wizard and readiness panel; #420 activation 409
+
+- `/onboarding`: legal entity → store basics → primary domain → review → `onboardStore`; the 201's
+  publishable key shown once (state only, gone on Done); the 200 repeat says so with no key;
+  400/409/422 `details` mapped onto the owning step. `/onboarding/{storeId}`: status + Activate
+  listing exactly `details.missing`. `/stores/new` redirects to the wizard.
+- #420: `activateStore`/`updateStore` 409 `details.missing` / `details.status: archived` said in
+  words under Status (`activationBlocked`, `ActionResult.missing`); the HQ store form activates via
+  `activateStore` after saving the other fields; the Store view keeps `updateStore` (store_admin).
+- Wrappers `onboardStore`, `activateStore`; guard rows (owner on hq). Tests: `test/onboarding.test.ts`
+  (23), `test/onboarding-screens.test.tsx` (9), settings #420 case, Prism contract
+  `test-contract/onboarding.test.tsx` (6, port 4219), e2e `e2e/hq-onboarding.spec.ts`.
+
 ### Changed — issue #431: the customers journey asserts the real detail only
 
 - The core serves the admin customer routes since #429, so the not-available branch of the

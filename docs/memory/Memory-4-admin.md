@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #430 merged (#432, 971c7c1); #428 A + #431 = PR #433 (code commit 8b3be94; head = this memory commit), waiting for CI
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #428 B = PR #434 (code commit f9dd637; head = this memory commit), waiting for CI
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,8 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#428 A — PR #433 MERGED as d535c27** (2026-10-08; Refs #428, Closes #431; manager review MERGE).
+  HQ roles screen + #431 (customers journey real detail only).
 - **#357 (Integration 2a) — PR #367 MERGED as 2b0bd4c** (2026-10-06, Closes #357). Final head
   a8a0cef (main cdbf611 merged: #350, #368, #369). Advisory "admin e2e against the core" green ×3
   (run 37498562006 attempts 1–3): 22 passed + 3 skipped of 25 — both #357 journeys took the 422
@@ -456,6 +458,19 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     per-user assign (relations from contracts `RELATIONS`; finance only on organization:hq) and
     revoke (asks first: it ends that user's sessions); that user's audit entries. 400 → field
     errors, 409 duplicate email → the email field, 403 → refusal panel. Folds #431 if #429 is on main.
+  - **#433 (PR A) MERGED as d535c27** (2026-10-08; manager review MERGE; #431 closed with it).
+  - **PR B built on the local side branch `admin/phase3-b`** (from 4dc39cc; commits 9f5caff,
+    136ae62 + tests/docs): wizard, readiness panel, `/stores/new` redirect, #420 mapping. Decision:
+    the Store view keeps `updateStore` for status → active (store_admin can't call `activateStore`,
+    owner on hq; the core runs the same readiness check) — only the HQ form uses `activateStore`.
+    Manager CONFIRMED B (2026-10-08): the Store view keeps `updateStore` by design (building to the
+    contract — said in README/PR); the core journey activating a stamped `e2e-` brand is Phase 3's
+    gate. Fast-forwarded admin/phase3 to the B branch, merged main d535c27.
+    **PR #434** (Closes #428, Closes #420; code commit f9dd637, main merged at 6c72c52; head = this
+    memory commit). Machine runs: mock e2e 24 passed + 6 skipped; core hq-onboarding 2 passed (after
+    the combobox-role fix); unit 713/713 single run (+ orders-screens refund retry #398-class fix).
+    Outbound session messages were paused by the app (10 in a row without the owner typing) — the
+    "PR up" to the manager waits for the owner's next message here.
   - **PR B — onboarding wizard + #420**: steps legal entity (existing/inline) → store basics →
     primary domain → review → `onboardStore`; 201 shows the key once (CreateApiKey pattern: state
     only, gone on Done/reload, never in URL/log); 200 = "already exists", no key; 409

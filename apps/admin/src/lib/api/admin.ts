@@ -177,6 +177,27 @@ export async function revokeApiKey(
   });
 }
 
+/**
+ * One-transaction brand onboarding (owner on hq): 201 with the publishable key shown ONCE; 200 with
+ * `publishable_key: null` on an identical repeat; 409 `details.differs` / `details.field`; 422
+ * `details.settings`.
+ */
+export async function onboardStore(
+  body: AdminComponents['StoreOnboardingInput'],
+): Promise<ApiResult<AdminResponse<'onboardStore'>>> {
+  return adminCall<'onboardStore'>({ path: '/admin/onboarding/stores', method: 'POST', body });
+}
+
+/** Draft/paused → active once every prerequisite exists; 409 `details.missing` / `status`. */
+export async function activateStore(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'activateStore'>>> {
+  return adminCall<'activateStore'>({
+    path: buildPath('/admin/stores/{storeId}/activate', { storeId }),
+    method: 'POST',
+  });
+}
+
 export async function listLegalEntities(): Promise<ApiResult<AdminResponse<'listLegalEntities'>>> {
   return adminCall<'listLegalEntities'>({ path: '/admin/legal-entities' });
 }
