@@ -182,3 +182,11 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   `<origin>/`, `frontendUrl`, the staff OTP step REQUIRED. `test/production-realms.test.ts` (33 static tests)
   re-derives and compares byte for byte (a hand edit fails), proves determinism and asserts each invariant
   separately. Dev files, `reimport.mjs` and the live CI job are unchanged. README: what still needs a cluster.
+- #422 (review follow-up of #421): the role-change logout now runs after the tuple change and BEFORE the
+  mirror transaction — a refused logout compensates the tuple and answers 503 with nothing changed, so a
+  retry re-runs the whole change including the logout (before: applied first, 503 after, and the retry
+  answered 404 / `created: false` without re-attempting the logout). The revocation live test uses a
+  throwaway invited user (bootstrap admin sets a dev-only password and clears the required actions) instead
+  of logging the shared seeded `store-admin` out; the realm test pins no realm roles / groups on the
+  service-account user; `infra/keycloak/README.md` no longer claims there is no confidential client;
+  CONTRACT CHANGE #423 adds the `400` response to `inviteUser`.

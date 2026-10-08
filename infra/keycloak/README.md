@@ -148,7 +148,9 @@ startup import is not recursive; `production/` is a subdirectory of the mounted 
 - a Postgres-backed Keycloak (`KC_DB`), TLS termination in front (`sslRequired: all`), and the first HQ
   owner created through the admin console (there are no seeded users; `inviteUser` needs an owner).
 
-Secrets: no confidential client is defined, so no client secret is committed. Identity-provider secrets are
+Secrets: the only confidential client is the `core-admin` service account (#415); its dev-only secret is
+committed by design (the allowlisted `dev-only-` shape, dev-only table above) and the production export drops it
+(#416, generated at import, kept in Vault). Identity-provider secrets are
 `${ENV_VAR:unset}` placeholders resolved by Keycloak at import time.
 
 ## How to change a realm

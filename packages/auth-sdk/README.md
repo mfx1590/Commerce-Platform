@@ -97,11 +97,11 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
   accepted (`ASSIGNABLE_RELATIONS`); everything else is 400.
 - `listRoleAssignments(deps, staffUserId)`, `listStaffUsers(deps, { q, page, limit })`.
 - **Session revocation on role change (#415):** with `RolesDeps.keycloak` set (`createKeycloakAdmin()`),
-  every successful assign/revoke first drops the cached scope (`onChange`) and then ends the user's Keycloak
-  sessions (admin `logout`): the very next request is evaluated against the new relations and no refresh
-  token survives; the access token itself expires by `exp` (15 min) but is already refused by OpenFGA. A
-  failed logout answers 503 AFTER the change is applied and audited — the operator retries (idempotent)
-  rather than believing the sessions are gone.
+  every assign/revoke ends the user's Keycloak sessions (admin `logout`) right after the tuple change and
+  BEFORE the mirror transaction, then drops the cached scope (`onChange`): the very next request is evaluated
+  against the new relations and no refresh token survives; the access token itself expires by `exp` (15 min)
+  but is already refused by OpenFGA. A refused logout compensates the tuple and answers 503 — nothing has
+  changed, so re-issuing the call re-runs the whole change including the logout (#422).
 - `inviteUser(deps, { email, displayName, initialRole? })` (#415) — `POST /admin/users` as the contract
   documents it: the Keycloak staff user (email = username, required actions `UPDATE_PASSWORD` +
   `CONFIGURE_TOTP`, no password), then the `staff_user` row with `keycloak_subject` and the
