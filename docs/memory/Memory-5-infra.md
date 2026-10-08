@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-10-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
-Status: **#380** (2026-10-07, urgent, small): seed OpenFGA in `auth-e2e` for the kept core. Before that: #359 done (PR #364 = `ec6b158`).
+Status: **#346** (2026-10-07): remove the TOTP barrier now that #387 + #401 share an owner-token fixture. Before: #380 (PR #381 = `7a4abb4`).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,7 +108,16 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#380** — `auth-e2e` never seeded OpenFGA, so the kept core answered 503 FgaValidationError to the first real
+- **#346 — remove the TOTP barrier.** Branch `infra/phase3` at main `c069172`. Built, as option (A) put to the
+  manager (removing the whole script would remove the witness the proof needs): the wait step and
+  `infra/ci/totp-barrier.sh` are deleted; the witness is kept as `infra/ci/owner-grants.sh` (report-only, flags two
+  successful owner logins in one TOTP step) with its step and the events overlay. **NOT pushed: waiting for the
+  manager's A/B/C answer.** Proof: push once, then the manager re-runs the live job twice on that head (three
+  consecutive green), with the witness quoted per run. No pushes after the first.
+
+- **#380 — DONE: PR #381 merged as `7a4abb4`** (head `acd73aa`; live job green twice: jobs 112664751867 and
+  112667098011, seed step "exported … (26 chars)"; the brand-a perf leg was red once on PDP LCP 2554 vs 2500 (#348),
+  and the manager's re-run passed). Original note: `auth-e2e` never seeded OpenFGA, so the kept core answered 503 FgaValidationError to the first real
   staff token (brand A's order-lifecycle spec, #379). Fix: a seed-and-export step (same as admin-e2e-core) after the
   live suites and the TOTP report, before "core boots for real"; ids masked (`::add-mask::`), asserted, `.env`
   removed. Branch `infra/phase3` from main `5b119ff` (the old local branch is kept as `infra/phase3-old`).

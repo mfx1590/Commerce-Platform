@@ -106,7 +106,9 @@ ahead of Medusa's own `/store` publishable-key gate and `/admin` authentication:
 
 `mountCoreMiddleware(app, verifier?, { fga?, onRoleChange?, storeApiFallbackUrl? })` exports exactly this chain
 so tests run it on a bare Express app (`test/tenant-http.test.ts` with dev tokens, `test/auth-live.test.ts` with
-real Keycloak tokens and a throw-away OpenFGA store).
+real Keycloak tokens and a throw-away OpenFGA store; its staff tokens come from `staffToken` in
+`@platform/auth-sdk/testing`, which signs the TOTP-enrolled `owner` in once per machine and shares the token through a
+per-user file with the other live suites, #346).
 
 `pnpm build` (`medusa build`) compiles to `.medusa/server` and works on a clean checkout (`ts-node` dev dependency,
 #60; `medusa-config.ts` tolerates missing connection settings at build time); `pnpm start` runs the compiled entry.

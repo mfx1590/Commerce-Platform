@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-07 · the live suite shares the owner's sign-in (#346)
+
+- `test/auth-live.test.ts` signed the TOTP-enrolled `owner` in with its own copy of the dev secret, and Keycloak
+  refuses a one-time code that another suite (hq-rbac's scope test, auth-sdk's realm test) already spent: the
+  required CI job needed a 30–60 s barrier between the two live steps. The suite now takes its staff tokens from
+  `staffToken` in `@platform/auth-sdk/testing`, which signs owner in once per machine and shares the token through
+  a per-user file, 0600 (reused only while Keycloak's `userinfo` accepts it; removed at the end of the run that created
+  it, kept for the job in CI). The local `totp`, the secret and
+  the grant fallbacks leave this package; no production code changes.
+
 ### 2026-10-06 · the order status lifecycle is automatic (#350, Integration 2a)
 
 - Every order stayed `pending` since September: `confirmOrder` had no caller. Now the trigger performs the move
