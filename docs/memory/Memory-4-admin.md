@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: session "Manager session five" (repo root; report there — "Project manager handoff" retired) · Status: Phase 3 — #430 built, push held for the manager
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: session "Manager session five" (repo root; report there — "Project manager handoff" retired) · Status: Phase 3 — #430 = PR #432 (code commit 41771e7; head = this memory commit), waiting for CI
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,12 +441,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#430 (2026-10-08, urgent) — customers e2e expected the not-available placeholder.** #429
+- **#430 (2026-10-08, urgent) — PR #432 (code commit 41771e7; head = this memory commit).** Customers
+  e2e expected the not-available placeholder. #429
   (core admin customer routes) is OPEN, so main's core still 404s them: a real-detail-only spec
   would be red on my PR. Built: core mode registers the seeded customers-realm user via the Store
   API (`e2e/core-customer.ts`; test-cli token carries store_code brand-a) and the journey asserts
   the real detail when the core serves the list, else the placeholder (dead once #429 is on main).
-  Asked the manager for the machine (mock e2e + one core run of the customers test). Next: #428
+  Manager approved (dual path; follow-up #431 deletes the placeholder branch after #429). Local:
+  mock e2e 22 + 4 skipped; core run of the customers test 1 passed (main core → placeholder branch;
+  Store API registration ok); core stopped, machine freed. Next: #428
   (roles UI, onboarding wizard; #420 folds in) — two PRs.
 - **#398 (2026-10-07) — PR #399 MERGED as c2fb6d7** (Closes #398; head c24585c; manager review MERGE)
   — tests asserting a transition-set state synchronously. Found by window 2
