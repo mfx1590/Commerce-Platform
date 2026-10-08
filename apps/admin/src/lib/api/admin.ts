@@ -685,3 +685,63 @@ export async function getPromotionReport(
     query: range,
   });
 }
+
+// ---------------------------------------------------------------------------- roles (task 3.1, #428)
+
+/** Staff users (HQ, owner on organization:hq). `q` matches email or display name. */
+export async function listUsers(query: Query = {}): Promise<ApiResult<AdminResponse<'listUsers'>>> {
+  return adminCall<'listUsers'>({ path: '/admin/users', query });
+}
+
+/**
+ * Creates the Keycloak user and its staff mirror (owner on hq). 409 when the email is taken. The
+ * contract takes no initial role: the form assigns one with `assignRole` after a 201.
+ */
+export async function inviteUser(body: {
+  email: string;
+  display_name: string;
+}): Promise<ApiResult<AdminResponse<'inviteUser'>>> {
+  return adminCall<'inviteUser'>({ path: '/admin/users', method: 'POST', body });
+}
+
+export async function listUserRoles(
+  userId: string,
+): Promise<ApiResult<AdminResponse<'listUserRoles'>>> {
+  return adminCall<'listUserRoles'>({
+    path: buildPath('/admin/users/{userId}/roles', { userId }),
+  });
+}
+
+/** `assignRole`'s inline request body, straight from the generated operation. */
+export type RoleAssignmentBody =
+  operations['assignRole']['requestBody']['content']['application/json'];
+
+/** Grants a relation on a store or on the organization; ends the user's sessions in the core. */
+export async function assignRole(
+  userId: string,
+  body: RoleAssignmentBody,
+): Promise<ApiResult<AdminResponse<'assignRole'>>> {
+  return adminCall<'assignRole'>({
+    path: buildPath('/admin/users/{userId}/roles', { userId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Revokes one assignment; ends the user's sessions in the core. */
+export async function revokeRole(
+  userId: string,
+  assignmentId: string,
+): Promise<ApiResult<AdminResponse<'revokeRole'>>> {
+  return adminCall<'revokeRole'>({
+    path: buildPath('/admin/users/{userId}/roles/{assignmentId}', { userId, assignmentId }),
+    method: 'DELETE',
+  });
+}
+
+/** Audit entries, filtered by actor and/or store (`viewer` on the store; HQ roles see all). */
+export async function listAuditLog(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listAuditLog'>>> {
+  return adminCall<'listAuditLog'>({ path: '/admin/audit-log', query });
+}

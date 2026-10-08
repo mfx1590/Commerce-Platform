@@ -279,20 +279,10 @@ test.describe('store-admin', () => {
     await signIn(page, `/${BRAND_A}/customers`);
     await page.waitForURL(new RegExp(`/${BRAND_A}/customers`));
 
+    // The core serves the admin customer routes since #429 (#431 dropped the placeholder branch;
+    // the not-available panel itself stays covered by test/api-mode.test.tsx).
     const table = page.getByRole('table', { name: 'Customers' });
-    const notAvailable = page.getByRole('heading', { name: 'Not available on this API yet' });
-    await expect(table.or(notAvailable)).toBeVisible();
-
-    if (AGAINST_CORE && (await notAvailable.isVisible())) {
-      // A core without the admin customer routes (before #429 is on main): the screen says so,
-      // names the route, and does not pretend the session ended. Once every core serves them this
-      // branch is dead; the placeholder itself stays covered by test/api-mode.test.tsx.
-      await expect(
-        page.getByText(`The core does not serve ${EXPECT.customersRoute} yet.`),
-      ).toBeVisible();
-      await expect(page.getByRole('heading', { name: /session/i })).toHaveCount(0);
-      return;
-    }
+    await expect(table).toBeVisible();
 
     // The real list and detail — Prism's example, or the core's own row for the customer above.
     await table.getByRole('link', { name: CORE_CUSTOMER.email }).first().click();

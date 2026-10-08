@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Changed — issue #431: the customers journey asserts the real detail only
+
+- The core serves the admin customer routes since #429, so the not-available branch of the
+  customers e2e journey (and `EXPECT.customersRoute`) is gone; the placeholder itself stays covered
+  by `test/api-mode.test.tsx`.
+
+### Added — issue #428 A: HQ roles (Admin API 0.4.12)
+
+- `/roles` (owner on hq): staff users; per person relations with Assign (model-grantable pairs only)
+  and Revoke (asks first; ends their sessions); their audit entries per store (`actor_id`); Invite
+  (`inviteUser`, then `assignRole` for the optional initial relation — the contract's invite takes
+  no role; a failed grant is reported with the user shown).
+- Wrappers `listUsers`, `inviteUser`, `listUserRoles`, `assignRole`, `revokeRole`, `listAuditLog`;
+  `src/lib/roles` (grantable pairs, schemas); `ROLES_PERMISSIONS` in the shared guard
+  (organization-scoped operations pass no store id).
+- Tests: `test/roles-actions.test.ts` (14), `test/roles-screens.test.tsx` (12), Prism contract
+  `test-contract/roles.test.tsx` (7, port 4218), e2e `e2e/hq-roles.spec.ts` (+ `e2e/owner.ts`).
+
 ### Fixed — issue #430: the customers e2e journey reads the core's real customer
 
 - Core mode links the seeded customers-realm user to brand-a through the Store API first

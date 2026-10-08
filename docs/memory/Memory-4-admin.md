@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: session "Manager session five" (repo root; report there — "Project manager handoff" retired) · Status: Phase 3 — #430 = PR #432 (code commit 41771e7; head = this memory commit), waiting for CI
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #430 merged (#432, 971c7c1); #428 A + #431 = PR #433 (code commit 8b3be94; head = this memory commit), waiting for CI
 
 ## Identity (does not change)
 Owned paths (write):
@@ -441,6 +441,39 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
+  local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
+  #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles
+  refusal is the HQ layout's, not the section guard's) → hq-roles 1 + 1 skipped; core-mode
+  hq-roles 2 passed (owner password + TOTP read from the README). **PR #433** (Refs #428, Closes
+  #431; code commit 8b3be94, main merged at 94ca8cb; head = this memory commit).
+  - **PR A — HQ roles** (owner on hq): wrappers `listUsers`, `inviteUser`, `listUserRoles`,
+    `assignRole`, `revokeRole`, `listAuditLog` (NB its x-permission is `viewer` on
+    `store:{store_id}`, not owner on hq as the issue says — filter per user/store). Guard table rows
+    for every mutation (same `refuseUnlessPermitted`). `/roles`: users table with assignments per
+    store/organization; invite form (email, display name, optional initial relation + object; the
+    invited state + "first sign-in is set up in Keycloak until the invitation email exists");
+    per-user assign (relations from contracts `RELATIONS`; finance only on organization:hq) and
+    revoke (asks first: it ends that user's sessions); that user's audit entries. 400 → field
+    errors, 409 duplicate email → the email field, 403 → refusal panel. Folds #431 if #429 is on main.
+  - **PR B — onboarding wizard + #420**: steps legal entity (existing/inline) → store basics →
+    primary domain → review → `onboardStore`; 201 shows the key once (CreateApiKey pattern: state
+    only, gone on Done/reload, never in URL/log); 200 = "already exists", no key; 409
+    `details.differs`/hostname and 422 `details.settings` → the step owning the field. Readiness
+    panel from `getStore` + `activateStore`'s 409 `details.missing` → Activate. `/stores/new` →
+    redirect to the wizard. #420: settings status → active goes through `activateStore`; 409
+    `details.missing` as a readable list, `details.status: archived` said.
+  - Tests per PR: unit (guard per action, forms, error mapping), Prism contract, mock e2e (owner via
+    password+TOTP; store-admin/finance get the 403 guard). Core e2e: one HQ path if the advisory
+    harness signs in an owner; otherwise stated in the PR.
+  - Built while waiting (local commit, not pushed — push held until the manager sends #432's merge
+    sha and confirms the plan): wrappers listUsers/inviteUser/listUserRoles/assignRole/revokeRole/
+    listAuditLog (`RoleAssignmentBody` from the generated operation); `src/lib/roles` (GRANTABLE:
+    organization owner/finance/operations/analyst/support, store store_admin/store_staff/support;
+    zod schemas); `ROLES_PERMISSIONS` in the guard (organization-scoped ops may pass storeId '');
+    `src/app/actions/roles.ts` (invite → optional assignRole: the contract's inviteUser takes no
+    initial role; 409 → email field); `test/roles-actions.test.ts` 14. listAuditLog HAS `actor_id`
+    → decision (a) needs no REQUEST.
 - **#430 (2026-10-08, urgent) — PR #432 (code commit 41771e7; head = this memory commit).** Customers
   e2e expected the not-available placeholder. #429
   (core admin customer routes) is OPEN, so main's core still 404s them: a real-detail-only spec
@@ -714,6 +747,14 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Windows' reserved TCP ranges move** (WinNAT, re-chosen at boot): on 10-08 evening 4179–4278
+  was reserved, which covers EVERY contract suite's Prism port (4211–4218) — locally they die with
+  "listen EACCES" while CI (Linux) is fine. Verify a suite through a temporary copy on a free port
+  (`sed` the BASE to e.g. 4391, run, delete the copy); check with `netsh int ipv4 show
+  excludedportrange protocol=tcp`.
+- **Local unit runs time out at Vitest's 5 s on long-typing tests** (catalog-screens, capture
+  amount) on most full runs since 10-08 — local only: CI unit jobs on #432 and main were green. The
+  manager's rule: a per-test timeout only with per-run CI evidence.
 - **Testing a form/action result:** anything set after `await action(...)` inside
   `startTransition(async …)` commits on a later macrotask — assert it with `findBy…`/`waitFor`,
   never `getBy…` right after `await user.click(...)`. The action CALL itself is synchronous at the
