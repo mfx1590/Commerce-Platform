@@ -483,7 +483,6 @@ describe('activateStore and the readiness gate (#413)', () => {
     expect(ok.settings).toEqual({ tax: { provider: 'stripe' }, custom: { x: 1 } });
   });
 
-  it.todo(
-    'live (#415): the onboarded store is visible to the seeded owner through scope resolution and 403/404 to store-admin — runs in test/auth-live.test.ts once ensureStoreObject is on main',
-  );
+  // The live half (#415 / #421): test/auth-live.test.ts "#413 onboarding (live)" — the onboarded store is visible to
+  // the seeded owner through OpenFGA scope resolution and refused to a store admin.
 });
