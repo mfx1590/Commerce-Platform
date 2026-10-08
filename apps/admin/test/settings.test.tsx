@@ -264,6 +264,29 @@ describe('store status changes that take the storefront offline ask first', () =
     expect(statusChangeQuestion(from, to) !== null).toBe(asks);
   });
 
+  it('#420: a draft store that cannot activate shows what is missing under Status and stays editable', async () => {
+    const user = userEvent.setup();
+    const draft = { ...store, status: 'draft' as const };
+    actions.updateStoreSettingsAction.mockResolvedValue({
+      status: 'error',
+      fieldErrors: { status: 'Cannot activate: a primary domain, a live publishable key missing.' },
+      formError: 'Cannot activate: a primary domain, a live publishable key missing.',
+      missing: ['primary_domain', 'publishable_key'],
+    });
+    render(<GeneralSettingsForm storeId={STORE_ID} current={forStoreSettings(draft)} />);
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'active');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(
+      await screen.findAllByText(
+        'Cannot activate: a primary domain, a live publishable key missing.',
+      ),
+    ).not.toHaveLength(0);
+    // Still editable: the fields are there and enabled.
+    expect(screen.getByLabelText(/^Name/)).toBeEnabled();
+    // The transition's pending state clears on a later commit than the error text (#398 class).
+    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
   it('Save on a move to paused asks, and only the confirmation sends', async () => {
     const user = userEvent.setup();
     actions.updateStoreSettingsAction.mockResolvedValue({ status: 'success', data: store });

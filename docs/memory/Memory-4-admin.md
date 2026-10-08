@@ -456,6 +456,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     per-user assign (relations from contracts `RELATIONS`; finance only on organization:hq) and
     revoke (asks first: it ends that user's sessions); that user's audit entries. 400 → field
     errors, 409 duplicate email → the email field, 403 → refusal panel. Folds #431 if #429 is on main.
+  - **#433 (PR A) MERGED as d535c27** (2026-10-08; manager review MERGE; #431 closed with it).
+  - **PR B built on the local side branch `admin/phase3-b`** (from 4dc39cc; commits 9f5caff,
+    136ae62 + tests/docs): wizard, readiness panel, `/stores/new` redirect, #420 mapping. Decision:
+    the Store view keeps `updateStore` for status → active (store_admin can't call `activateStore`,
+    owner on hq; the core runs the same readiness check) — only the HQ form uses `activateStore`.
+    Machine runs pending (mock + core hq-onboarding).
   - **PR B — onboarding wizard + #420**: steps legal entity (existing/inline) → store basics →
     primary domain → review → `onboardStore`; 201 shows the key once (CreateApiKey pattern: state
     only, gone on Done/reload, never in URL/log); 200 = "already exists", no key; 409

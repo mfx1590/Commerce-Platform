@@ -622,6 +622,28 @@ refusal in both modes; in core mode the owner signs in (password + the dev TOTP 
 `infra/keycloak/README.md` at run time, `e2e/owner.ts`) and reads the users and one person's
 relations.
 
+## HQ onboarding (task 3.1 B, issues #428 and #420; Admin API 0.4.12)
+
+**HQ · Onboarding** (`/onboarding`, owner on `organization:hq`) is a four-step wizard — legal entity
+(existing, or a new one inline) → store basics (code, name, defaults, timezone, enabled currencies
+and locales, optional settings JSON) → primary domain → review — and one `onboardStore` call that
+creates it all in one transaction as a **draft**. Each step checks its own fields before Next; the
+server re-validates, and its answers go back to the step that owns the field (`src/lib/onboarding`):
+a 400's field keys, a 409's `details.differs` (a different definition for the same code) or
+`details.field: domain.hostname` (a hostname another store has), a 422's `details.settings`.
+
+**The key is shown once.** The 201 carries the store's first publishable key; it lives in the
+wizard's state only — never the URL, storage or a log — and "Done" drops it on the way to the
+readiness panel. A 200 is the identical repeat: "already exists", no key. `/stores/new` (the old
+step 1) redirects here.
+
+**Readiness** (`/onboarding/{storeId}`): the store's status and **Activate** (`activateStore`). What
+is missing is exactly the 409's `details.missing`, in words (`MISSING_LABELS`); an empty list is an
+activation. **#420:** the same 409 from `updateStore` with `status: active` is said the same way under
+the Status field of the Store view's General form (store_admin cannot call `activateStore`, which is
+owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
+other fields first and then calls `activateStore`.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:
