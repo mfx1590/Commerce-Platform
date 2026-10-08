@@ -25,6 +25,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ../../apps/core/src/modules/hq-rbac/tsconfig.json",
     "test": "vitest run",
     "fga:seed": "tsx scripts/fga-seed.ts",
+    "fga:reconcile": "tsx scripts/fga-reconcile.ts",
     "roles": "tsx scripts/roles.ts",
     "clean": "rm -rf dist .turbo"
   },

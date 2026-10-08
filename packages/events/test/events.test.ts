@@ -86,7 +86,7 @@ describe('event schemas', () => {
     ]) {
       expect(EVENT_TOPICS).toContain(t);
     }
-    expect(EVENT_TOPICS).toHaveLength(35);
+    expect(EVENT_TOPICS).toHaveLength(36);
   });
 
   it('compiles every schema and has a v1 for every topic', () => {
@@ -302,6 +302,34 @@ describe('event schemas', () => {
         captured_at: '2026-09-04T10:00:00.000Z',
       }),
     ).toEqual({ ok: true, errors: [] });
+  });
+
+  it('customer.export_requested (0.3.2, #425) validates an ids-only envelope and refuses personal data', () => {
+    const exportRequested = {
+      customer_id: ID,
+      requested_by: '00000000-0000-4000-8000-000000000101',
+      requested_at: '2026-10-08T12:00:00.000Z',
+    };
+    const e = makeEvent({
+      topic: 'customer.export_requested',
+      organizationId: ORG,
+      storeId: STORE,
+      aggregateType: 'customer',
+      aggregateId: ID,
+      payload: exportRequested,
+    });
+    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+    expect(LATEST_VERSION['customer.export_requested']).toBe(1);
+    const { requested_by: _drop, ...noRequester } = exportRequested;
+    expect(v.validatePayload('customer.export_requested', 1, noRequester).ok).toBe(false);
+    expect(
+      v
+        .validatePayload('customer.export_requested', 1, {
+          ...exportRequested,
+          email: 'someone@example.com',
+        })
+        .errors.join(),
+    ).toMatch(/additional properties/);
   });
 
   it('shipment.label_created (0.3.1, #354) validates an envelope and refuses a missing label or an address', () => {
