@@ -3068,6 +3068,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidSettings"];
         };
     };
     getStore: {
@@ -5949,6 +5950,7 @@ export interface operations {
                     "application/json": components["schemas"]["StaffUser"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];

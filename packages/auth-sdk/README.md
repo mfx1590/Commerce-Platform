@@ -96,6 +96,26 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
   fails. Idempotent on the mirror's unique key. Only relations `model.fga` lets a `user` hold directly are
   accepted (`ASSIGNABLE_RELATIONS`); everything else is 400.
 - `listRoleAssignments(deps, staffUserId)`, `listStaffUsers(deps, { q, page, limit })`.
+- **Session revocation on role change (#415):** with `RolesDeps.keycloak` set (`createKeycloakAdmin()`),
+  every successful assign/revoke first drops the cached scope (`onChange`) and then ends the user's Keycloak
+  sessions (admin `logout`): the very next request is evaluated against the new relations and no refresh
+  token survives; the access token itself expires by `exp` (15 min) but is already refused by OpenFGA. A
+  failed logout answers 503 AFTER the change is applied and audited — the operator retries (idempotent)
+  rather than believing the sessions are gone.
+- `inviteUser(deps, { email, displayName, initialRole? })` (#415) — `POST /admin/users` as the contract
+  documents it: the Keycloak staff user (email = username, required actions `UPDATE_PASSWORD` +
+  `CONFIGURE_TOTP`, no password), then the `staff_user` row with `keycloak_subject` and the
+  `staff_user.create` audit row in one transaction (the Keycloak user is deleted again if that fails), then
+  the optional first role through `assignRole`. 409 `conflict` when the email exists (here or in Keycloak),
+  400 for a malformed email / empty name. The invitation EMAIL is out of scope until SMTP exists
+  (Integration 2b): in dev, send it from the Keycloak admin console or `execute-actions-email`.
+- `createKeycloakAdmin(opts?)` — the admin API client behind both: the confidential service-account client
+  `core-admin` of the staff realm (client-credentials grant; realm-management roles `manage-users`,
+  `view-users`, `query-users` and nothing else — never a user password). Env: `KEYCLOAK_URL`,
+  `KEYCLOAK_REALM_STAFF`, `KEYCLOAK_ADMIN_CLIENT_ID` (default `core-admin`), `KEYCLOAK_ADMIN_CLIENT_SECRET`
+  (no fallback: unset → 503 `identity provider unavailable`; the dev realm export carries the dev-only value,
+  production gets its own from Vault, #416). Methods: `createUser`, `getUser`, `logoutUser`,
+  `listUserSessions`, `deleteUser` (tests only — the core disables staff users, never deletes them).
 - CLI: `pnpm --filter @platform/auth-sdk roles assign|revoke <email> <relation> <store-code|hq>`,
   `roles list <email>`.
 
@@ -116,6 +136,22 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
   `infra/openfga/model.fga` and the missing seed tuples, records `OPENFGA_STORE_ID`/`OPENFGA_MODEL_ID` in the
   root `.env`. Idempotent; run after an OpenFGA restart (memory datastore).
 - `loadAuthorizationModel`, `loadSeedTuples`, `modelFromDsl`, `createOpenFgaClient`.
+
+### Store objects (#415)
+
+A store exists for OpenFGA only once `organization:<slug>#organization@store:<id>` is written — every store
+relation derived from the organization (`owner from organization`, `analyst from organization`, …) and so
+every HQ user's scope hangs on it. The seed writes it for the three seeded stores; a store created through
+the API needs:
+
+- `ensureStoreObject(storeId, { fga?, organization = 'hq' })` → `{ object, organization, created }` — reads
+  first, writes only when missing, tolerates a concurrent duplicate write (`created: false`); `storeId` must be
+  a uuid (400); OpenFGA unreachable → 503. No DB access, no `role_assignment` mirror, no audit row: call it
+  AFTER the store's transaction commits (window 1's onboarding workflow, #413).
+- `reconcileStoreObjects(db, { fga?, organization?, fix? })` / `pnpm --filter @platform/auth-sdk fga:reconcile
+[--fix]` — lists the stores in the database with no such tuple and writes them with `--fix` (then prints
+  the report again: empty on success, exit 1 otherwise; without `--fix` a non-empty report exits 2). Repairs
+  any store created before #415.
 
 ## Errors
 
