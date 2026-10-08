@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #428 B = PR #434 (code commit f9dd637; head = this memory commit), waiting for CI
+Last updated: 2026-10-09 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 docket COMPLETE — next admin task comes with the warehouse/HQ dashboard work; quiet
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,9 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#428 B + #420 — PR #434 MERGED as bc5bac9** (2026-10-09; Closes #428, Closes #420). Onboarding
+  wizard, readiness panel, `/stores/new` redirect, activation 409 in words. With PR A (#433,
+  d535c27) #428 is closed. Also done this phase: #430 (PR #432, 971c7c1), #431 (folded into #433).
 - **#428 A — PR #433 MERGED as d535c27** (2026-10-08; Refs #428, Closes #431; manager review MERGE).
   HQ roles screen + #431 (customers journey real detail only).
 - **#357 (Integration 2a) — PR #367 MERGED as 2b0bd4c** (2026-10-06, Closes #357). Final head
