@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **PR #411 OPEN** — the hero-rendering re-sync (head `1884b65`), reviewed MERGE on the code, queueing with #409/#410. Merged before it: #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`). **#348 is reopened and its 30-leg count restarts at #411's merge** (the manager counts it). My REQUESTs **#389 and #390 are both FIXED** by window 3 and arrived in #411's sync.
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **ALL MERGED, nothing open (2026-10-08).** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`), #330's rendering (#411 = `f83073e`). **#348 remains reopened: its 30-leg count restarts at `f83073e`**, recorded on the issue, counted by the manager — `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until it completes. REQUESTs **#389 and #390 are FIXED** (window 3). **Budget from 2026-10-08: manager + TWO build windows at a time** (was one).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,8 +17,9 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
-- **#330 · brand A took the hero rendering** — **PR #411**, head **`1884b65`**, reviewed **MERGE** on
-  the code (18 blobs compared equal, 10 preserved untouched, counts add up); queueing with #409/#410.
+- **#330 · brand A took the hero rendering** — **PR #411 MERGED as `f83073e`** (head `28d83a1` after
+  a memory-only fix; reviewed MERGE on the code — 18 blobs equal, 10 preserved untouched, counts add
+  up). Verified on main: `hero-loop.tsx` and `hero-video.ts` are there.
   Re-sync at main `2e35674`, 209 copied / 1 merged / 10 preserved / 4 excluded, **zero
   preserved-file drift**. Brings #403: `hero.tsx` wrapping the poster
   in `HeroMedia`, the `hero-loop` island, `hero-video.ts`'s reader policy, `media-src` in the CSP, and
@@ -209,13 +210,9 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — **PR #411 is OPEN** (2026-10-08)
+## In progress — nothing. Every assigned task merged (2026-10-08)
 
-`brands/phase3` head **`1884b65`**: the hero-rendering re-sync. Reviewed **MERGE** on the code,
-queueing with #409/#410. **Do not push to `brands/phase3` until it merges** — a push updates #411 and
-knocks it out of the queue. Nothing else of mine is open, held or half-done.
-
-Merged before it:
+Nothing of mine is open, held or half-done. The only local commit is this record.
 
 | task | PR | merged as |
 | --- | --- | --- |
@@ -224,18 +221,28 @@ Merged before it:
 | **#382** hardened order-lifecycle spec (one-file re-sync) | #391 | `4335c0c` |
 | **#348** perf gate at five runs, budget untouched | #388 | `79436fc` |
 | **#386** brand A's two hero loops placed | #408 | `dea7575` |
+| **#330** brand A takes the hero rendering | #411 | `f83073e` |
 
-**Outstanding, and not mine to close:**
-- **#348 is reopened**, and its 30-leg count **restarts at #411's merge** — the manager counts it and
-  records the restart on the issue. `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until
-  it completes.
-- My REQUESTs **#389** (the pinned LHCI erroring six audits) and **#390** (no perf warm-up) are both
-  **FIXED** by window 3 and arrive in #411's sync. Nothing owed there.
+**Outstanding, not mine to close:**
+- **#348 is reopened.** Its 30-leg count **restarts at `f83073e`** (recorded on the issue, counted by
+  the manager). **Do not touch `numberOfRuns: 5` or `maxNumericValue: 2500` until it completes** — and
+  see the generalised rule in the #330 entry: any change to the measuring tool, the budget or the run
+  count invalidates an in-flight count.
+- REQUESTs **#389** and **#390** are **FIXED** by window 3 and merged. Nothing owed.
+
+**The loops are placed and rendered, and still cannot be SEEN anywhere.** Two owner actions stand
+between here and a visible loop, both already on `LAUNCH.md`: a **Sanity project** (without
+`SANITY_PROJECT_ID` there is no CMS content at all) and a **Cloudinary account** (without a cloud name
+`resolve-media.mjs` drops the video at seed time). A third thing is deliberate, not a gap: the island
+**refuses to mount in an e2e build** (`E2E_LOCAL_IMAGES`), so it will never appear in a mock or e2e
+run. Do not treat any of these three as a bug.
+
+**Operating budget changed 2026-10-08:** the owner now runs the **manager plus two build windows**,
+where CLAUDE.md's rule says one. CLAUDE.md is the main window's file, so it may still read "one";
+the owner's instruction is the current one. The ~20-tool-call check-in rule is unchanged.
 
 **Next session:** nothing queued. Likely Phase 3 proper — the gaps below and LAUNCH.md's owner
-actions. Note the hero loops still cannot be *seen* anywhere until a Sanity project and a Cloudinary
-account exist, both owner actions; the rendering is in place and unit-tested, and the island refuses
-to mount in an e2e build on purpose.
+actions.
 
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
