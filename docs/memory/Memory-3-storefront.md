@@ -260,7 +260,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
   3. **DONE locally: part 1** (list: 75 tests default, 51 with SUPPORTED_LOCALES=en-GB): `seo-head.spec.ts` + `checkout.spec.ts` derive the locale list from routing; the
      hreflang count = locales + 1 (x-default); the German test runs only when `de-DE` is configured
      (skip with the reason otherwise).
-  4. **part 3:** `completeAddressStep` takes the address from `E2E_SHIP_ADDRESS_JSON` (validated),
+  4. **DONE locally: part 3** (`e2e/support/ship-address.ts`): `completeAddressStep` takes the address from `E2E_SHIP_ADDRESS_JSON` (validated),
      default the NL address; the four funnel tests unchanged for the starter.
   5. **part 5 + #440:** `test/i18n.test.ts` expects one catalogue per configured locale (and one
      exists for each); `vitest.config.ts` passes `SUPPORTED_LOCALES` / `DEFAULT_LOCALE` from the env

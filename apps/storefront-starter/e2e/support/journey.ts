@@ -1,5 +1,9 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { localePath } from './locale';
+import { shippingAddressFromEnv } from './ship-address';
+
+/** Read once: a value that cannot be used fails the run at the start, naming why. */
+const SHIP_ADDRESS = shippingAddressFromEnv();
 
 /**
  * The journey's building blocks, shared by `checkout.spec.ts` and `account.spec.ts` (#304, #312).
@@ -52,15 +56,13 @@ export async function hydrated(page: Page): Promise<void> {
   });
 }
 
-/** Fill the address step. The values are ours, not the dataset's, so they are safe to assert on. */
+/** Fill the address step. The values are ours (see `ship-address.ts`), safe to assert on. */
 export async function completeAddressStep(page: Page, email: string): Promise<void> {
   await page.locator('input[name="email"]').fill(email);
-  await page.locator('input[name="first_name"]').fill('Ada');
-  await page.locator('input[name="last_name"]').fill('Lovelace');
-  await page.locator('input[name="line1"]').fill('Keizersgracht 1');
-  await page.locator('input[name="postal_code"]').fill('1015 CJ');
-  await page.locator('input[name="city"]').fill('Amsterdam');
-  await page.locator('input[name="country"]').fill('NL');
+  // The brand's market, not the starter's (#441 part 3): E2E_SHIP_ADDRESS_JSON, default NL.
+  for (const [field, value] of Object.entries(SHIP_ADDRESS)) {
+    await page.locator(`input[name="${field}"]`).fill(value);
+  }
   await page.getByRole('button', { name: 'Continue to delivery' }).click();
 }
 
