@@ -125,11 +125,22 @@ pk_brand-c_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
 C's `/en-US/...` routes is a **correct 404**, and `/health` still answers 200 — which is how you
 tell this apart from a dead server. Nothing is broken; nothing can be rendered either.
 
-**So brand C has no mock render check and no mock e2e run, and cannot have one.** Its e2e has to run
-against the core, which has brand C's real store (`locales: ['en-US']` in the seed). CI already runs
-the brand legs that way. This is the fifth thing brand B hid by selling a locale the starter and the
-contract example both happen to serve. A REQUEST asks window 3 to take the locale prefix from `src/i18n/routing.ts`, which already
-reads `SUPPORTED_LOCALES` — the same shape as #441 parts 1 and 3 for the locale list and the address.
+**So brand C has no mock render check and no local e2e run, and cannot have one.** Its e2e has to
+run against the core, which holds brand C's real store (`locales: ['en-US']` in the seed).
+
+**CI already does that** — the live job runs `apps/*` on Prism but brand storefronts on the kept
+core (default since #295: "a brand that cannot reach the core fails here rather than quietly
+testing the mock"). So this does **not** block brand C in CI; brand C's CI leg fails on the warm-up
+alone. What it blocks is local work — do not go looking for a way to render brand C against
+`pnpm mock`, because there is not one.
+
+This is the fifth thing brand B hid by selling a locale the starter and the contract example both
+happen to serve.
+
+**REQUEST #441 part 4** asks window 3 to take the locale prefix from `src/i18n/routing.ts`, which
+already reads `SUPPORTED_LOCALES` — the same shape as parts 1 and 3 for the locale list and the
+address — and to treat a **3xx as not warm**, so the warm-up fails on the first redirect with the
+reason instead of on the hundred-and-twentieth with a sentence about latency.
 
 ## Media
 

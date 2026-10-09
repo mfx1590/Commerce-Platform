@@ -287,6 +287,13 @@ would reproduce three solved bugs.
     CI already runs brand legs that way. Plan for it rather than discovering it: #437 recorded a
     "mock render check" as a routine step, and for brand C that step does not exist.
 
+    **In CI this is already handled, and that matters for reading the red leg.** The live job runs
+    `apps/* against Prism, brand storefronts on the kept core` (on by default since #295 — "a brand
+    that cannot reach the core fails here rather than quietly testing the mock"). So a brand on a new
+    locale fails its CI leg on the **warm-up** alone, not on this. **Trap 20 is a local-development
+    blocker**: it is why there is no mock render check and no local e2e run for such a brand, and why
+    nobody should go looking for one.
+
 ## 4. What needed NOTHING, which is the good news
 
 Two acceptance criteria were already satisfied by existing CI, and a generator should not try to wire

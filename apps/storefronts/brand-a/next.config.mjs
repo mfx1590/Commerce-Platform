@@ -21,6 +21,24 @@ import createNextIntlPlugin from 'next-intl/plugin';
 process.env.STORE_PUBLISHABLE_KEY ??= 'pk_brand-a_dev_00000000000000000000';
 
 /**
+ * **Brand A's own Keycloak client, stated rather than inherited** — added ahead of REQUEST #441
+ * part 2, not because brand A is broken today.
+ *
+ * Today `src/lib/auth/oidc.ts` reads `env.KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a'`, so brand A
+ * is the one brand the default happens to be right for, and it has never needed this line. That
+ * default is the trap #441 part 2 asks window 3 to remove: a brand that stays quiet signs its
+ * customers in through **brand A's** client, and because the `store_code` claim is stamped per
+ * client it mints sessions scoped to `brand-a`, which the core's `verifyCustomerToken` is right to
+ * refuse. Brand B found it as Keycloak answering "Invalid parameter: redirect_uri" (#437).
+ *
+ * When part 2 lands, the fallback **fails closed outside development** — and brand A, having
+ * relied on it, would be the app that throws on sign-in under `next start`. So the line goes in
+ * now, before brand A's next sync, rather than becoming a regression discovered after it.
+ * Brands B and C have carried theirs since #437 and #438.
+ */
+process.env.KEYCLOAK_CLIENT_ID ??= 'storefront-brand-a';
+
+/**
  * Plain ESM on purpose, not TypeScript: `next start` loads this file at **runtime**, and loading a
  * `.ts` config needs the `typescript` package. That is a devDependency, so the production image
  * (built with `pnpm deploy --prod`) does not have it and the container fails to boot (REQUEST #68).

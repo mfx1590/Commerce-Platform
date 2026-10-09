@@ -230,15 +230,15 @@ brand B's was (PR #443). Brand B hit the identical wall; `ONBOARDING-GAPS.md` tr
 Brand C is the first brand whose locale is **not one the starter serves** (`en-GB`, `de-DE`), and
 that breaks things brand B never exposed. None of it is fixable from inside this app.
 
-| #    | Item                                                         | Owner | Verify                                                                 | Now |
-| ---- | ------------------------------------------------------------ | ----- | ---------------------------------------------------------------------- | --- |
-| 12.1 | A `messages/en-US.json` exists, so pages render at all       | 10    | `test/i18n.test.ts` "for the locale next.config.mjs actually declares" | ✅  |
-| 12.2 | That catalogue is reviewed for US English, not just copied   | owner | 139 strings, copied from `en-GB.json`                                  | ⛔  |
-| 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`          | 10    | its two `collect.url` entries                                          | ✅  |
-| 12.4 | The synced e2e specs address a locale brand C serves         | 3     | REQUEST: take the prefix from `src/i18n/routing.ts`                    | ⛔  |
-| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves          | 3     | same REQUEST                                                           | ⛔  |
-| 12.6 | `test/i18n.test.ts` derives its expected set from the config | 3     | same REQUEST; PRESERVED in brand C meanwhile                           | ⛔  |
-| 12.7 | A backend that serves brand C's OWN store, so pages render   | 1 / 5 | the mock is single-store; needs the core                               | ⛔  |
+| #    | Item                                                                        | Owner | Verify                                                                            | Now              |
+| ---- | --------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------- | ---------------- |
+| 12.1 | A `messages/en-US.json` exists, so pages render at all                      | 10    | `test/i18n.test.ts` "for the locale next.config.mjs actually declares"            | ✅               |
+| 12.2 | That catalogue is reviewed for US English, not just copied                  | owner | 139 strings, copied from `en-GB.json`                                             | ⛔               |
+| 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`                         | 10    | its two `collect.url` entries                                                     | ✅               |
+| 12.4 | The synced e2e specs address a locale brand C serves                        | 3     | REQUEST: take the prefix from `src/i18n/routing.ts`                               | ⛔               |
+| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves                         | 3     | same REQUEST                                                                      | ⛔               |
+| 12.6 | `test/i18n.test.ts` derives its expected set from the config                | 3     | same REQUEST; PRESERVED in brand C meanwhile                                      | ⛔               |
+| 12.7 | A backend serving brand C's OWN store — **CI already does**; local does not | 10    | CI runs brand storefronts on the kept core (#295); the Prism mock is single-store | ✅ CI / ⛔ local |
 
 12.1 is the one that mattered most: `src/i18n/request.ts` imports `messages/${locale}.json`
 **unguarded**, so before that file existed brand C threw on **every page**, in dev, in `next build`
@@ -278,8 +278,16 @@ pk_brand-c_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
 `src/lib/i18n.ts`'s `assertStoreOffersLocale` runs in the root `[locale]/layout.tsx` and calls
 `notFound()` when the **store** does not offer the locale — so brand C's `/en-US/...` returns 404
 against the mock, correctly. `/health` answers 200 throughout, which is how this is told apart from
-a dead server. **Brand C's e2e must be a core leg**, as CI runs the brand legs. Both of these are
-decisions for the manager, not things this app can work around.
+a dead server.
+
+**CI is unaffected by 12.7, and that is how to read the red leg.** The live job runs `apps/*` on
+Prism but **brand storefronts on the kept core** (default since #295 — "a brand that cannot reach
+the core fails here rather than quietly testing the mock"), and the core holds brand C's real store
+(`locales: ['en-US']`). So **brand C's CI leg fails on 12.4 alone**; 12.7 is why there is no _local_
+mock render check or local e2e run, and why nobody should go looking for one.
+
+Neither is something this app can work around: 12.4 is window 3's file, and 12.7 is the shape of
+the mock.
 
 ---
 
