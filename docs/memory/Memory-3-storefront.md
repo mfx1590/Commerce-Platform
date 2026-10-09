@@ -257,7 +257,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
      (SUPPORTED_LOCALES / DEFAULT_LOCALE through a tiny plain module both can import, or the env with
      the same default); a **3xx is NOT warm** — fail at once naming the `location`. Synced specs take
      the prefix from one `e2e/support/locale.ts` helper (43 literals in 8 files).
-  3. **part 1:** `seo-head.spec.ts` + `checkout.spec.ts` derive the locale list from routing; the
+  3. **DONE locally: part 1** (list: 75 tests default, 51 with SUPPORTED_LOCALES=en-GB): `seo-head.spec.ts` + `checkout.spec.ts` derive the locale list from routing; the
      hreflang count = locales + 1 (x-default); the German test runs only when `de-DE` is configured
      (skip with the reason otherwise).
   4. **part 3:** `completeAddressStep` takes the address from `E2E_SHIP_ADDRESS_JSON` (validated),

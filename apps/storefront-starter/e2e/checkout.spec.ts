@@ -14,7 +14,7 @@ import {
   readCards,
   type CapturedOrder,
 } from './support/journey';
-import { localePath, localeUrl } from './support/locale';
+import { LOCALES, localePath, localeUrl } from './support/locale';
 
 /**
  * The journey the storefront exists to support, end to end — against **either** backend.
@@ -318,6 +318,10 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
 test('the same page in German is translated and prices are formatted for de-DE', async ({
   page,
 }) => {
+  test.skip(
+    !LOCALES.includes('de-DE'),
+    "de-DE is not one of this app's locales (SUPPORTED_LOCALES) — nothing German to check",
+  );
   await page.goto('/de-DE/products');
   await expect(page.getByRole('heading', { level: 1, name: 'Alle Produkte' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Preis: aufsteigend' })).toBeVisible();
@@ -332,7 +336,8 @@ test('the root redirects to the default locale and offers hreflang alternates', 
   await page.goto('/');
   await expect(page).toHaveURL(localeUrl('$'));
 
-  for (const locale of ['en-GB', 'de-DE']) {
+  // One alternate per locale the app routes (#441 part 1).
+  for (const locale of LOCALES) {
     await expect(page.locator(`link[hreflang="${locale}"]`)).toHaveCount(1);
   }
 });
