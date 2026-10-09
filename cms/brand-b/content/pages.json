@@ -1,0 +1,155 @@
+[
+  {
+    "_id": "page.en-GB.about",
+    "_type": "page",
+    "locale": "en-GB",
+    "title": "About Stonecrop",
+    "slug": {
+      "_type": "slug",
+      "current": "about"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "A small list, made properly",
+      "subheadline": "Who we are and what we will not do.",
+      "layout": "full-bleed",
+      "image": {
+        "_type": "image",
+        "mediaSlot": "about-workshop"
+      }
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "about-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "about-h",
+            "style": "h2",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "about-h-span",
+                "text": "Why the list is short"
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "about-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "about-p1-span",
+                "text": "Every extra style is another pattern, another fabric order and another thing to get wrong. We would rather make eleven things we can answer questions about."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "about-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "about-p2-span",
+                "text": "We do not run sales. The price is the price we need to pay the workshop and keep the lights on, and discounting it in January would mean it was wrong in June."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaTitle": "About — Stonecrop",
+      "metaDescription": "A short list of everyday clothes, made in small runs in Britain.",
+      "ogImage": {
+        "_type": "image",
+        "mediaSlot": "og-default"
+      }
+    }
+  },
+  {
+    "_id": "page.en-GB.made",
+    "_type": "page",
+    "locale": "en-GB",
+    "title": "How it is made",
+    "slug": {
+      "_type": "slug",
+      "current": "made"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "Cloth, cutting, and who did it",
+      "subheadline": "Where each part of a Stonecrop piece comes from.",
+      "layout": "image-left",
+      "image": {
+        "_type": "image",
+        "mediaSlot": "made-cloth-roll"
+      }
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "made-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "made-h",
+            "style": "h2",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "made-h-span",
+                "text": "Three places, named"
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "made-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "made-p1-span",
+                "text": "Cotton drill and moleskin from a mill in Lancashire that has been weaving since the 1890s. Wool from a spinner in the Scottish Borders. Cutting and making in one workshop in Leicester."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "made-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "made-p2-span",
+                "text": "We publish the mill and the workshop because a supply chain you cannot name is one you cannot check."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-made-detail",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "made-seam-detail"
+        },
+        "width": "narrow"
+      }
+    ],
+    "seo": {
+      "metaTitle": "How it is made — Stonecrop",
+      "metaDescription": "The mill, the spinner and the workshop behind each Stonecrop piece.",
+      "ogImage": {
+        "_type": "image",
+        "mediaSlot": "og-default"
+      }
+    }
+  }
+]

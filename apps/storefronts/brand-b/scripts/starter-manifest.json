@@ -1,0 +1,42 @@
+{
+  "name": "@platform/storefront-starter",
+  "version": "0.13.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3100",
+    "build": "next build",
+    "start": "node scripts/start.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf .next dist .turbo",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "lighthouse": "npx -y @lhci/cli@0.15.1 autorun --config=lighthouserc.json",
+    "bundle-budget": "node scripts/bundle-budget.mjs",
+    "perf": "node scripts/perf.mjs"
+  },
+  "dependencies": {
+    "@platform/cms": "workspace:*",
+    "@platform/contracts": "workspace:*",
+    "@platform/ui": "workspace:*",
+    "@stripe/react-stripe-js": "7.0.0",
+    "@stripe/stripe-js": "10.0.0",
+    "next": "^15.5.4",
+    "next-intl": "^4.14.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "autoprefixer": "^10.4.21",
+    "jsdom": "26.1.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
