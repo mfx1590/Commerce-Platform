@@ -246,7 +246,25 @@ POINT AT** — the script stops at the app and the content and points at the onb
 store, rather than duplicating `onboardStore` and bypassing its permission checks (manager agreed).
 
 **Steps:**
-1. `new-brand.mjs`, with its own unit tests. **Derive from an existing BRAND, not the starter**
+1. **PART DONE (not pushed): `apps/storefronts/scripts/new-brand-plan.mjs` + 43 unit tests, all
+   green on the first run.** The rules live in a module with **no filesystem access** so they can be
+   tested directly — the arrangement `merge-package-json.mjs` already uses. Tests live in brand B's
+   suite (`test/new-brand-plan.test.ts`) because B is the template and there is no package at
+   `apps/storefronts/`; the same reach-across as `brand-media.test.ts`. Brand B is now
+   **625 passed / 3 skipped** (582 + 43).
+   What the module settles: `parseArgs` **refuses to default** the name, currency, locale list, port
+   or jurisdiction and names ONBOARDING-GAPS § 2 when it does; `substitutions` is ordered
+   **longest-source-first** so `pk_brand-b_dev_…` is rewritten whole rather than via the `brand-b`
+   inside it (tested — that ordering bug would have made the key depend on iteration order);
+   `runtimeDefaults` always emits **`KEYCLOAK_CLIENT_ID`** so no brand inherits brand A's client;
+   `e2eExclusions` emits the locale-plural and NL-address exclusions **with their reasons and the
+   #441 pointer**, states that the locale-plural one **loses** the `<head>` assertion, and says there
+   are **four** NL-address tests; `manualSteps` points the store at the **onboarding wizard** and, for
+   a jurisdiction no brand has been written for, **admits it does not know the law** rather than
+   inventing instruments (tested: it must not emit anything matching `Act <year>` for US).
+   **Still to do on the script:** the CLI half (`new-brand.mjs`) that runs the sync, writes the files
+   and refuses a second run.
+2. (was 1) `new-brand.mjs` CLI, with its own unit tests. **Derive from an existing BRAND, not the starter**
    (gaps § 1): the brand copies carry `numberOfRuns: 5` (#348), the `STORE_PUBLISHABLE_KEY ??=` line
    (#382), platform-keyed snapshots and the refusal to import `RUNTIME_SITE_URL` (#379). A generator
    seeded from the starter would reproduce three solved bugs.
