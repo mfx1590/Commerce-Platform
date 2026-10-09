@@ -253,7 +253,10 @@ when every check has finished.
 ### STATE: steps 1, 2 and the generator are DONE and green. Nothing pushed.
 
 **Now on `brands/phase3`** (merged `origin/main` `088d997`, then `brands/438` as `35844e2`), not on
-the side branch. The generator commit is `1da91b6`.
+the side branch. Commits: `1da91b6` generator, `07c78bc` memory, `1de15cb` content + the generator
+move, `66e83c8` C's docs + gaps 13-19. **Still unpushed** — one push when the machine work is done.
+Gate at `66e83c8`: lint, format:check, typecheck **23/23**, brand B **660 passed / 3 skipped**,
+brand C **583 passed / 3 skipped**.
 
 Gate on `brands/438`, all green together: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`
 (**23/23**), brand B **659 passed / 3 skipped**, brand C **583 passed / 3 skipped**,
@@ -366,15 +369,79 @@ New tests for all of it; brand B is now **653 passed** (was 582 before the gener
 pre-existing tests were **wrong** and were corrected, not deleted: one pinned `lighthouserc.json` to
 `verbatim`, one pinned the wizard for a seeded brand.
 
+### Two MORE findings, from the docs half (2026-10-09, later)
+
+**The perf gate would have been red for a reason that is not about performance, twice over.**
+
+1. **Where the generator lived broke the perf job.** `infra/ci/changes.sh` reduces every changed
+   path under `apps/storefronts/` to its first two segments and reports any that is not a measurable
+   storefront as `perf_unmeasured`; `ci.yml` then does `exit 1` on a non-empty list. So
+   `apps/storefronts/scripts/` was reported as "storefront changed with no perf script", with advice
+   to add a `lighthouserc.json` to a directory that is not a storefront. It was also **outside this
+   window's documented paths** (`apps/storefronts/<brand>/**`) — `check-ownership.sh` passed, so its
+   glob is looser than `docs/ownership.md` intends.
+   Moved to **`apps/storefronts/brand-b/scripts/`** (the template brand, whose suite already held the
+   tests). The CLI resolved the storefronts directory from its own location, so that needed fixing
+   too, and the moved CLI was re-verified end to end on a throwaway `brand-d`. After the move:
+   `perf_unmeasured=[]`, `perf_apps` includes brand C. Verified with
+   `bash infra/ci/changes.sh origin/main`.
+2. **A generated brand starts with a red perf leg no matter what.** `README.md` is one of the four
+   files the sync EXCLUDES, so a generated brand has no README — and
+   `scripts/bundle-budget.mjs --verify` needs a `<!-- bundle-budget:start -->` block whose route list
+   and budget column match `bundle-budget.json`. The table can only be written by `--sync-readme`
+   **after a completed `next build`**. So C's README carries the markers with an explicit "not
+   measured yet" instead of numbers copied from brand B. **Fill it during the machine run.**
+
+### Also corrected while in there
+
+A stale cross-reference in BOTH brands' `playwright.config.ts`: the locale/`<head>` coverage gap is
+ONBOARDING-GAPS **§ 3.12**, not § 3.9 — the numbering drifted when #442 inserted three traps above
+it. Brand C's hand-written blocks cite **§ 3.13** (the new locale trap), which is correct.
+
+### The content half — DONE (commits 1de15cb, 66e83c8)
+
+- **`cms/brand-c/content`**: home page + four US legal drafts. **All five validate** against the
+  shared schemas (`seed-content.mjs --dry-run` → _5 documents valid (1 page, 4 legal)_) — no repeat
+  of #437's three wrong schema guesses. `LAUNCH_GATE=1` fails on **23 placeholders (19 distinct)**,
+  naming each.
+  **The US drafts are NOT brand B's translated, and three differences would be stated wrongly by a
+  port:** there is **no federal right to cancel an online order** (the FTC Cooling-Off Rule is
+  door-to-door, not websites — so C's thirty days is OUR promise, where B's fourteen come from the
+  Consumer Contracts Regulations 2013); prices are quoted **without** sales tax, not VAT-inclusive;
+  privacy is **state** law (CCPA/CPRA, NY SHIELD) not one statute. `US` is now a
+  `KNOWN_JURISDICTIONS` entry pointing at brand C, so the next US brand knows where to copy from.
+  The "unwritten jurisdiction" test moved to **JP** — the test is that the script never invents
+  instruments, not that any particular country is missing.
+- **C has no NAME**, deliberately. B got a working name ("Stonecrop"); C's is the command-line
+  string "Brand C", because inventing a second fictional name gives the owner one more thing to
+  notice and undo. LAUNCH.md 0.1 is the owner action.
+- **Four docs**: `LAUNCH.md` (with a **§ 12** brand B does not have — the locale gap, six rows,
+  three of them window 3's), `README.md`, `CHANGELOG.md`, `CLAUDE.md`.
+- **ONBOARDING-GAPS traps 13-19** plus a warning on top of § 1, which was written before #438 and
+  proved optimistic: "mechanical" meant "mechanical for a brand shaped like brand B".
+
 ### Still to do on #438
 
-- `cms/brand-c/content/*.json` — still **13 placeholders** (5 home, 8 legal), en-US, US instruments.
-- C's `LAUNCH.md` (with § 0 owner actions), README, CHANGELOG, CLAUDE.md.
-- `ONBOARDING-GAPS.md`: the locale trap as **§ 3.13** (both config files already cite that number),
-  the prose/data trap, and the CLI-adapter lesson.
-- The REQUEST to window 3 for the locale prefix; append C's lines to #439.
-- **Machine on request**: build, mock render, one core run — and the e2e warm-up prediction in (2)
-  above is the thing to confirm.
+**Nothing machine-free is left.** What remains:
+
+- **THREE REQUESTs, worded but not filed** — asked Manager session five whether to word them
+  differently or fold them into #441, and have not heard back:
+  (a) window 3: take the locale **PREFIX** from `src/i18n/routing.ts` in the synced e2e specs and in
+  `scripts/e2e-server.mjs`'s warm-up path, instead of the `en-GB` literal.
+  (b) window 3: make `test/i18n.test.ts` derive its expected catalogue set from the configured
+  locales. Brand C PRESERVES that file until this lands.
+  (c) `infra/ci/changes.sh`: ignore a directory with no `package.json` when computing
+  `perf_unmeasured` (it already computes `measurable` that way), or give cross-brand tooling a home
+  outside `apps/storefronts/`.
+  Plus **append brand C's lines to #439** for window 5: C's Dockerfile, bake target, compose service
+  and the `COPY apps/storefronts/brand-c/package.json` line that **nine** Dockerfiles are missing
+  (measured with `bash infra/ci/check-image-manifests.sh`).
+- **MACHINE, asked for and waiting**: brand C's `next build`, one mock render, one core e2e run,
+  `bundle-budget.mjs --sync-readme` to fill the README block, and **the one claim in this work I
+  have not run** — that `e2e-server.mjs` warming `/en-GB` makes `warmUp()` throw after 120 s so e2e
+  fails before the first test. Read from the code. Do not report it as measured.
+- Then: one push, PR **"Closes #438"**, record the PR, tell the manager "PR up", and again when the
+  checks finish. **`app images` will be red** (nine Dockerfiles) — say so in the PR body.
 
 ### Budget note
 
