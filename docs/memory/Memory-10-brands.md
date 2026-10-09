@@ -228,6 +228,49 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
+## In progress — #438 · 3.2 Brand C by script (plan written 2026-10-09, NOT started)
+
+**Side branch `brands/438`**, cut from `brands/phase3` head `6c312c3` — it must include brand B,
+because B is the template the script copies from. **`brands/phase3` is HELD** until the manager sends
+#442's merge sha; nothing is pushed from either branch meanwhile.
+
+**Brand C's seeded facts** (`packages/db/src/seed/index.ts`, read not assumed): `brand-c`,
+**Brand C Inc.**, US, **USD**, **`en-US` only**, `America/New_York`, **NY sales tax 8.875%**
+(`rateBp: 888`, `region: 'NY'`), ships **US only**, key `pk_brand-c_dev_` + twenty zeros, Keycloak
+client `storefront-brand-c`, dataset `brand-c`, port **3103**.
+
+**The script:** `apps/storefronts/scripts/new-brand.mjs <code> --currency USD --locale en-US
+--port 3103`. Its specification is `apps/storefronts/brand-b/ONBOARDING-GAPS.md`, and the division
+is already decided there: **§ 1 is what it does, § 2 is what it must ASK, § 6 is what it must only
+POINT AT** — the script stops at the app and the content and points at the onboarding wizard for the
+store, rather than duplicating `onboardStore` and bypassing its permission checks (manager agreed).
+
+**Steps:**
+1. `new-brand.mjs`, with its own unit tests. **Derive from an existing BRAND, not the starter**
+   (gaps § 1): the brand copies carry `numberOfRuns: 5` (#348), the `STORE_PUBLISHABLE_KEY ??=` line
+   (#382), platform-keyed snapshots and the refusal to import `RUNTIME_SITE_URL` (#379). A generator
+   seeded from the starter would reproduce three solved bugs.
+   It must also write the two levers brand B needed and brand A never did —
+   **`SUPPORTED_LOCALES`** and **`KEYCLOAK_CLIENT_ID`** — or brand C silently inherits brand A's
+   Keycloak client and the starter's two locales.
+   **A second run must refuse, not overwrite** (acceptance criterion). Test that.
+2. Run it for brand C; review every generated file by hand before believing it.
+3. `cms/brand-c/` content in B's voice-independent shape, **en-US only**, with US legal instruments
+   (not B's UK ones and not A's German ones) — the gaps report calls the jurisdiction the one thing a
+   generator can never supply.
+4. C's placeholder gate; C's `LAUNCH.md` (with section 0's owner actions, as B has); append C's lines
+   to REQUEST **#439** if it is still open, else file a new one.
+5. Update `ONBOARDING-GAPS.md` with what the script could **not** do — the point of the exercise.
+6. README / CHANGELOG / CLAUDE.md for C; then the machine (build, mock render, one core run) **on
+   request**, and the gate: `pnpm lint && pnpm format:check && pnpm typecheck && pnpm test --filter
+   @platform/storefront-brand-c`.
+
+**Expect, from brand B's experience:** C ships US only, so the **NL-address four** will fail for C
+too (#441 part 3 unfixed), and the **two locale-plural specs** likewise — the script should emit
+those exclusions, not leave each brand to rediscover them. And C's store may have the same
+`payment.methods: []` staleness on this laptop; the funnel spec's up-front `GET /store` skip handles
+it the same way.
+
 ## In progress — nothing. #437 is PUSHED (2026-10-09)
 
 **PR #442 (code commit `8576ff0`; head = this memory commit)** — "Closes #437", branch
