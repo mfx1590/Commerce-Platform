@@ -420,6 +420,60 @@ it. Brand C's hand-written blocks cite **§ 3.13** (the new locale trap), which 
 - **ONBOARDING-GAPS traps 13-19** plus a warning on top of § 1, which was written before #438 and
   proved optimistic: "mechanical" meant "mechanical for a brand shaped like brand B".
 
+### THE MACHINE RUN (2026-10-09, commit `5df7d56`) — and I was wrong about the mechanism
+
+Manager gave me the machine and said "report it measured, whichever way it goes". It went a
+different way.
+
+**1. The warm-up DOES fail before the first test — but not for the reason I documented.**
+I had written: `/en-GB` 404s, and `e2e-server.mjs`'s `timed()` returns null for status >= 400, so the
+page never counts as warm. **Wrong.** `GET /en-GB` answers **307** with
+`location: /en-US/en-GB` — next-intl treats an unknown locale as a path segment under the default
+one. 307 is under 400, so the page counts as a **success**, and the log reads `page 5 ms` on all 120
+attempts. What never succeeds is the **chunk**: the warm-up discovers its path by regex out of the
+page body, and a **12-byte** redirect body has no `/_next/static/chunks/`. `chunkPath` stays null,
+`chunk` is null forever, `warmUp()` throws after 120 s:
+
+```
+[e2e-server] warm-up 120: page 5 ms, chunk failed — not yet
+[e2e-server] the app on http://127.0.0.1:3103 did not answer a page and a static chunk under
+1000 ms 2 times in a row within 120 s
+Error: Process from config.webServer was not able to start. Exit code: 1
+```
+
+The error is **misleading**: the page was never slow. Corrected in `localeMismatch`, gaps trap 13,
+C's README, LAUNCH § 12 and `playwright.config.ts`, with a test that pins the measured mechanism
+**and asserts the old wrong sentence is gone**. #441 part 4 gains a second ask: **treat a 3xx as NOT
+warm**, so this fails on attempt 1 with the reason.
+
+**2. NEW — the Prism mock is SINGLE-STORE (gaps trap 20).** Every publishable key, A's and B's and
+C's, answers `code=brand-a, locales=['en-GB','de-DE']`. And `src/lib/i18n.ts`'s
+`assertStoreOffersLocale` runs in the **root `[locale]/layout.tsx`** and calls `notFound()` when the
+**store** does not offer the locale. So every one of brand C's `/en-US/...` routes is a **correct
+404** against the mock, while `/health` stays 200 — that contrast is how to tell it from a dead
+server. Nothing is broken; nothing can be rendered either.
+**So: no mock render check for brand C, and no mock e2e run, ever — not even once #441 part 4 lands.
+Its e2e has to be a CORE leg.** A named exclusion does not help: the warm-up runs before any spec.
+**The fifth thing brand B hid** by selling a locale the starter AND the contract example both serve.
+
+**3. The catalogue is load-bearing for the BUILD, confirmed.** With `messages/en-US.json` moved
+away, `next build` **fails**: `Cannot find module './en-US.json'`, `MODULE_NOT_FOUND`, prerender
+error on `/en-US/products`, exit 1. Not just a test-level claim.
+
+**What passed:** build clean, **10 `/en-US` routes, zero `/de-DE`, zero `/en-GB`**;
+`bundle-budget --sync-readme` filled README's block from a real build and `--verify` passes (17
+routes, all within budget) — so **trap 17's red perf leg is closed for brand C**; `/health` 200
+under `next start`.
+
+**Gotcha worth keeping:** `next start` on an e2e build refuses to boot — `E2E_LOCAL_IMAGES` is
+inlined and the guard demands a loopback `SITE_URL`. Pass `SITE_URL=http://127.0.0.1:3103`. And
+`node scripts/start.mjs` directly fails with "'next' is not recognized" — run it through
+`pnpm --filter ... start` so `node_modules/.bin` is on PATH.
+
+**The core is NOT running** (nothing on our core port; `:8080` is another project's). Bringing up the
+shared stack is a stack intervention needing owner/manager OK, so I did not. **`machine free`** for
+everything except the core question.
+
 ### Still to do on #438
 
 **Nothing machine-free is left.** What remains:
@@ -430,16 +484,18 @@ it. Brand C's hand-written blocks cite **§ 3.13** (the new locale trap), which 
   `scripts/e2e-server.mjs`'s warm-up path, instead of the `en-GB` literal.
   (b) window 3: make `test/i18n.test.ts` derive its expected catalogue set from the configured
   locales. Brand C PRESERVES that file until this lands.
-  (c) `infra/ci/changes.sh`: ignore a directory with no `package.json` when computing
+  **Manager decided: (a) and (b) go onto #441 as parts 4 and 5**, as one locale-neutrality issue for
+  window 3 rather than three separate ones, appended by me as a comment. Part 4 now also asks for
+  the warm-up to treat a **3xx as not warm** (from the measurement).
+  (c) stays separate — `infra/ci/changes.sh`: ignore a directory with no `package.json` when computing
   `perf_unmeasured` (it already computes `measurable` that way), or give cross-brand tooling a home
   outside `apps/storefronts/`.
   Plus **append brand C's lines to #439** for window 5: C's Dockerfile, bake target, compose service
   and the `COPY apps/storefronts/brand-c/package.json` line that **nine** Dockerfiles are missing
   (measured with `bash infra/ci/check-image-manifests.sh`).
-- **MACHINE, asked for and waiting**: brand C's `next build`, one mock render, one core e2e run,
-  `bundle-budget.mjs --sync-readme` to fill the README block, and **the one claim in this work I
-  have not run** — that `e2e-server.mjs` warming `/en-GB` makes `warmUp()` throw after 120 s so e2e
-  fails before the first test. Read from the code. Do not report it as measured.
+- **MACHINE: done** — see the section above. Build, budget block and the warm-up measurement are
+  finished; the mock render is impossible and the core run is blocked on a backend that serves brand
+  C's own store. **Reported "machine free" apart from the core question.**
 - Then: one push, PR **"Closes #438"**, record the PR, tell the manager "PR up", and again when the
   checks finish. **`app images` will be red** (nine Dockerfiles) — say so in the PR body.
 
