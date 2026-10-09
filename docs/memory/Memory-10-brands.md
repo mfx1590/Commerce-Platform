@@ -17,6 +17,26 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#437 · 3.1 brand B, and #442 its review fixes — ON MAIN.** PR #442's commits landed through the
+  manager's **PR #443 = `933d484`** (`integration/brand-b-images` = my `9ae927a` plus one manager
+  commit `0ca819c`: the eight Dockerfile `COPY` lines, brand B's own Dockerfile on port 3102, the
+  bake target and the compose build service — REQUEST **#439 items 1 and 2**). GitHub marked **#442
+  merged and #437 closed**. Main's record is `088d997`.
+  - **The proof is in CI, which is the whole point of #442's review fix.** The brand-b leg printed
+    the funnel **RAN** line: order placed, **GBP 8719 minor**, → processing → completed, address
+    country GB. That line exists because the review caught me reporting "the lifecycle spec RAN"
+    from a local log, where Playwright's github reporter names no skipped test and a `test.skip()`
+    reason never reaches the output. A proof has to be legible to the person reading the leg.
+  - **`app images` went red on #442 exactly as predicted** (ONBOARDING-GAPS trap 10): a new
+    workspace package must be `COPY`ed in every existing Dockerfile's deps stage, all eight of which
+    are window 5's. A brands window cannot fix it; it is a manager integration landing. **Expect the
+    same on #438's PR for brand C**, and say so in the PR body.
+  - **`brands/phase3` was held from 2026-10-09 until that sha arrived** and is now unblocked:
+    `git merge origin/main` **fast-forwarded** it to `088d997` (phase3 was already an ancestor of
+    main), `pnpm install --frozen-lockfile` → "Already up to date", `packages/*` rebuilt **6/6**.
+    Then `brands/438` merged in as **`35844e2`**, no conflicts, lockfile clean.
+    Gate on the merged branch: lint, `format:check`, typecheck **23/23**, brand B **659 passed / 3
+    skipped**, brand C **583 passed / 3 skipped**. #438 continues here.
 - **#330 · brand A took the hero rendering** — **PR #411 MERGED as `f83073e`** (head `28d83a1` after
   a memory-only fix; reviewed MERGE on the code — 18 blobs equal, 10 preserved untouched, counts add
   up). Verified on main: `hero-loop.tsx` and `hero-video.ts` are there.
@@ -231,6 +251,9 @@ when every check has finished.
 ## In progress — #438 · 3.2 Brand C by script (generator + brand C generated, 2026-10-09)
 
 ### STATE: steps 1, 2 and the generator are DONE and green. Nothing pushed.
+
+**Now on `brands/phase3`** (merged `origin/main` `088d997`, then `brands/438` as `35844e2`), not on
+the side branch. The generator commit is `1da91b6`.
 
 Gate on `brands/438`, all green together: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`
 (**23/23**), brand B **659 passed / 3 skipped**, brand C **583 passed / 3 skipped**,
