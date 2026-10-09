@@ -291,9 +291,28 @@ it the same way.
 
 ## In progress — nothing. #437 is PUSHED (2026-10-09)
 
-**PR #442 (code commit `8576ff0`; head = this memory commit)** — "Closes #437", branch
+**PR #442 (code commit `81ea1d4`; head = this memory commit)** — was `8576ff0`, re-pushed after the
+review. — "Closes #437", branch
 `brands/phase3` merged with `origin/main` `27733cc`. 245 files. Awaiting checks; **owed the manager a
 report when every check finishes**.
+
+**Review round (2026-10-09), four BLOCK points — two mine, both fixed in `81ea1d4`:**
+- **The perf leg was red for one mechanical reason:** `perf.mjs` exits 1 without a bundle-budget
+  block in `README.md`, and B's README had none. Every route was inside budget and Lighthouse passed
+  with margin (LCP best **1704 ms** against 2500). **`--sync-readme` does nothing without the markers
+  already present** — it replaces *between* them — so the section had to be added first.
+- **CI could not tell "the funnel ran" from "the funnel skipped".** Playwright's github reporter does
+  not name skipped tests and a `test.skip()` reason never reaches the log, so the load-bearing proof
+  was illegible. `journey.spec.ts` now prints on **both** paths — the reason on skip (**before**
+  `test.skip()`, which throws) and the order id, currency, total and status transitions on success.
+  **A proof has to be legible, not merely present.** The reviewer found this, not me.
+- Nits fixed: "three" → four in two files (keeping the history of how they were counted);
+  **LAUNCH.md 2.2 un-ticked** — the app defaults the locale list but that column asks about a
+  deployed environment, and none exists.
+- **NOT mine:** `app images` is red because a new workspace package must be `COPY`ed in all eight
+  existing Dockerfiles (`infra/ci/check-image-manifests.sh`, window 5's paths). The manager lands it
+  with B's Dockerfile and bake target. Recorded as ONBOARDING-GAPS trap 10, with traps 11 (stale
+  shared DB) and 12 (invisible skips).
 
 **Runs, all stopped afterwards (machine free, Docker untouched):** build clean with **10 `/en-GB`
 routes and 0 `/de-DE`**; mock e2e **19 passed / 9 skipped**; **core e2e 19 passed / 0 failed / 6

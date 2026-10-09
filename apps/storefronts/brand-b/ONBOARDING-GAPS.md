@@ -105,19 +105,47 @@ would reproduce three solved bugs.
    `SUPPORTED_LOCALES` from the environment so a brand can set it in one place. **Not filed yet** —
    it needs the shape agreed with window 3 first.
 
-9. **Two inherited e2e specs hard-code the starter's two locales, and excluding them costs real
-   coverage.** `e2e/seo-head.spec.ts` declares `const LOCALES = ['en-GB', 'de-DE']` and derives both
-   its page matrix and its `hreflang` count (`LOCALES.length + 1`) from it; `e2e/checkout.spec.ts`
-   navigates to `/de-DE/products` and asserts the alternates of a two-locale site. Brand B emits two
-   alternates (`en-GB` + `x-default`) and does not serve `/de-DE`, so 14 tests fail against a correct
-   app. Both files are synced, so brand B excludes them in its own `playwright.config.ts`.
+9. **A new workspace package must be `COPY`ed in EVERY existing Dockerfile's deps stage.**
+   `infra/ci/check-image-manifests.sh` requires each image's deps stage to copy every workspace
+   `package.json`, so adding `apps/storefronts/brand-b` turned the **`app images`** CI job red
+   across all eight existing Dockerfiles — none of which brand B touches, and all of which are
+   window 5's (`**/Dockerfile`). A brands window cannot fix this and should not try: it is a
+   manager integration landing, alongside the new brand's own Dockerfile and bake target (#439).
+   **Expect `app images` to be red on the PR that creates a brand**, and say so in the PR body
+   rather than leaving a reviewer to wonder.
 
-   **Say the cost out loud: brand B has no `<head>` metadata assertion at all.** That is the one
-   exclusion in #437 that loses coverage rather than relocating it — the NL-address three were
-   replaced by brand B's own funnel spec, these were not. `e2e/journey.spec.ts` covers the locale
-   behaviour that matters (`en-GB` served with `lang="en-GB"`, `/de-DE` not served as de-DE), which
-   is not the same as asserting the tags are inside `<head>`. **#441 part 1** asks window 3 to derive
-   the list from the app's own routing; the exclusion comes out the day it lands.
+10. **The shared local database can be stale in a way that silently disables checkout.**
+    `packages/db`'s seed sets `payment.invoice_allowed` for every store (0.3.2), but `seed` is
+    **`ON CONFLICT DO NOTHING`** — so a long-lived local database keeps its old `store.settings` and
+    `GET /store` answers `payment.methods: []`. The storefront then renders "No payment method is
+    available for this shop right now" and **no order can be placed locally**, while CI, which seeds
+    fresh, is fine. Brand B hit exactly this: brand A's row had been updated by hand during #358 and
+    brand B's never was.
+    The remedy is the `UPDATE` recorded in `packages/db/CHANGELOG.md` 0.3.2 — but it writes to the
+    database **every window shares**, and nothing would tell the others, so it is an owner/manager
+    action, not a brands-window one. **What a brand should do instead:** read `GET /store` at the top
+    of any spec that places an order and **skip with the cause and the remedy**, which is what
+    `e2e/journey.spec.ts` does — and print it, see trap 12.
+
+11. **A skipped test is invisible in CI unless the spec prints why.** Playwright's github reporter
+    does not name skipped tests, and a reason handed to `test.skip()` never reaches the log. So a leg
+    where the load-bearing proof quietly did not run looks exactly like one where it passed. Caught
+    in review of #442, not by me. Print a line on **both** paths — one naming the order on success,
+    one naming the reason on skip — and print the skip line **before** `test.skip()`, which throws.
+
+12. **Two inherited e2e specs hard-code the starter's two locales, and excluding them costs real
+    coverage.** `e2e/seo-head.spec.ts` declares `const LOCALES = ['en-GB', 'de-DE']` and derives both
+    its page matrix and its `hreflang` count (`LOCALES.length + 1`) from it; `e2e/checkout.spec.ts`
+    navigates to `/de-DE/products` and asserts the alternates of a two-locale site. Brand B emits two
+    alternates (`en-GB` + `x-default`) and does not serve `/de-DE`, so 14 tests fail against a correct
+    app. Both files are synced, so brand B excludes them in its own `playwright.config.ts`.
+
+    **Say the cost out loud: brand B has no `<head>` metadata assertion at all.** That is the one
+    exclusion in #437 that loses coverage rather than relocating it — the NL-address three were
+    replaced by brand B's own funnel spec, these were not. `e2e/journey.spec.ts` covers the locale
+    behaviour that matters (`en-GB` served with `lang="en-GB"`, `/de-DE` not served as de-DE), which
+    is not the same as asserting the tags are inside `<head>`. **#441 part 1** asks window 3 to derive
+    the list from the app's own routing; the exclusion comes out the day it lands.
 
 ---
 
