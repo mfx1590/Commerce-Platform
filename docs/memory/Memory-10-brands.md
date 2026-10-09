@@ -496,8 +496,14 @@ everything except the core question.
 - **MACHINE: done** — see the section above. Build, budget block and the warm-up measurement are
   finished; the mock render is impossible and the core run is blocked on a backend that serves brand
   C's own store. **Reported "machine free" apart from the core question.**
-- Then: one push, PR **"Closes #438"**, record the PR, tell the manager "PR up", and again when the
-  checks finish. **`app images` will be red** (nine Dockerfiles) — say so in the PR body.
+- **DONE: PR #444** (code commit `ba8a7e4`; head = this memory commit), `brands/phase3` -> `main`,
+  "Closes #438". 244 files, +25.5k. Pushed `9ae927a..ba8a7e4`.
+  **#441 parts 4 and 5 appended** (comment 6076967115) with the 3xx-not-warm ask the measurement
+  added, and a correction to part 3 (four funnel tests, not three). **#439 items 6-8 appended**
+  (comment 6076983753) with the exact nine Dockerfiles.
+  **`app images` WILL be red** — said so in the PR body, with all nine named. The perf leg is green.
+  Still to do: tell the manager when the checks finish. The owner's CI monitor stays OFF (their
+  choice), so the check results come from them or the manager, not from me polling.
 
 ### Budget note
 
