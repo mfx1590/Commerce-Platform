@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SHIP_ADDRESS, shippingAddressFromEnv } from '../e2e/support/ship-address';
+import {
+  DEFAULT_SHIP_ADDRESS,
+  MOCK_CART_LINE1,
+  reviewAddressLine1,
+  shippingAddressFromEnv,
+} from '../e2e/support/ship-address';
 
 /**
  * #441 part 3: the funnel's shipping address comes from the brand (`E2E_SHIP_ADDRESS_JSON`), with
@@ -37,5 +42,25 @@ describe('shippingAddressFromEnv', () => {
         E2E_SHIP_ADDRESS_JSON: JSON.stringify({ ...DEFAULT_SHIP_ADDRESS, country: 'Britain' }),
       }),
     ).toThrow(/country must be a two-letter code/);
+  });
+});
+
+describe('reviewAddressLine1 (#449)', () => {
+  const GB = JSON.stringify({
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    line1: '10 Downing Street',
+    postal_code: 'SW1A 2AA',
+    city: 'London',
+    country: 'GB',
+  });
+
+  it('is the configured street when the journey typed the address — the brand’s, not the NL default', () => {
+    expect(reviewAddressLine1(true, { E2E_SHIP_ADDRESS_JSON: GB })).toBe('10 Downing Street');
+    expect(reviewAddressLine1(true, {})).toBe(DEFAULT_SHIP_ADDRESS.line1);
+  });
+
+  it('is the contract example cart’s street when the backend already had one (the mock)', () => {
+    expect(reviewAddressLine1(false, { E2E_SHIP_ADDRESS_JSON: GB })).toBe(MOCK_CART_LINE1);
   });
 });
