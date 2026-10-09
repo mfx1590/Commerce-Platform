@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** Done: #441 + #440 (PR #445 = `d67349a`), **#447 (PR #448 merged = `0ec34d1`, code commit `084bea8`)**. Branch `storefront/phase3` = main + this memory commit, NOT pushed. **Next (my next active stint, NOT now): #446** — four synced unit tests hard-code en-GB. Still open: #358's live proof (Stripe keys). Quiet until the manager writes. Machine NOT mine.
+Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`). **#449 = PR #450 (code commit `0267a04`; head = this memory commit)** — the review assertion and the card postcode follow E2E_SHIP_ADDRESS_JSON; checks pending, quote the starter's live-job counts (expect 75 = 67 / 8) when they finish. **Next (next active stint, NOT now): #446.** Still open: #358's live proof (Stripe keys). Then quiet. Machine NOT mine.
 
 ## Identity (does not change)
 
