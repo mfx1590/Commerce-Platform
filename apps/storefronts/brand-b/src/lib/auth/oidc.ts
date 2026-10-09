@@ -5,8 +5,8 @@ import { createHash, randomBytes } from 'node:crypto';
 /**
  * OIDC authorization-code flow with PKCE against the Keycloak **customers** realm.
  *
- * `storefront-brand-a` is a public client (no secret), so PKCE is what binds the authorization code
- * to this browser. The code exchange still happens on the server, and the tokens never reach the
+ * Each storefront's client (`KEYCLOAK_CLIENT_ID`, e.g. `storefront-brand-a`) is a public client
+ * (no secret), so PKCE is what binds the authorization code to this browser. The code exchange still happens on the server, and the tokens never reach the
  * page: they live in an httpOnly cookie and are attached by the Store API client.
  *
  * Window 13 takes the account area over in Phase 3; this is deliberately the smallest thing that is
@@ -23,6 +23,44 @@ export interface OidcConfig {
 /** The identity provider and this app's client in it — everything that does not depend on where the site lives. */
 export type OidcProvider = Pick<OidcConfig, 'issuer' | 'clientId'>;
 
+/** This app's client was needed and nothing says which it is. */
+export class OidcConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OidcConfigError';
+  }
+}
+
+/**
+ * What the client id defaults to on a developer's machine: the dev realm's client for the starter
+ * and brand A. **Development only** — see `oidcClientId`.
+ */
+export const LOCAL_DEVELOPMENT_CLIENT_ID = 'storefront-brand-a';
+
+/**
+ * The Keycloak client this storefront signs customers in through — `KEYCLOAK_CLIENT_ID`.
+ *
+ * **Fails closed** (#441), with the same allow-list as `siteUrl()` (#298/#320): the documented
+ * default applies only under `next dev` / unit tests (`NODE_ENV` development or test) and while
+ * `next build` runs; anywhere else an unset id throws. A default here is not cosmetic: a customer
+ * token is bound to a store by the `store_code` claim **each storefront client stamps**, so a brand
+ * that forgot the variable would sign its customers in through brand A's client and mint sessions
+ * scoped to `brand-a` (measured on brand B: Keycloak refused its callback as an invalid
+ * redirect_uri, which looked like a realm problem and was a wrong client).
+ */
+export function oidcClientId(env: Record<string, string | undefined> = process.env): string {
+  const configured = (env.KEYCLOAK_CLIENT_ID ?? '').trim();
+  if (configured !== '') return configured;
+
+  const local = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+  if (local || env.NEXT_PHASE === 'phase-production-build') return LOCAL_DEVELOPMENT_CLIENT_ID;
+  throw new OidcConfigError(
+    'KEYCLOAK_CLIENT_ID is not set. A production server must name its own Keycloak client ' +
+      '(for example KEYCLOAK_CLIENT_ID=storefront-brand-c): customer sessions are bound to the ' +
+      "store that client stamps, so borrowing another brand's client would bind them to that brand.",
+  );
+}
+
 export function oidcProviderFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): OidcProvider {
@@ -31,7 +69,7 @@ export function oidcProviderFromEnv(
 
   return {
     issuer: `${keycloakUrl.replace(/\/+$/, '')}/realms/${realm}`,
-    clientId: env.KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a',
+    clientId: oidcClientId(env),
   };
 }
 
@@ -44,11 +82,9 @@ export function oidcProviderFromEnv(
 export function oidcConfigFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): OidcConfig {
-  return {
-    ...oidcProviderFromEnv(env),
-    redirectUri: `${siteUrl(env)}/auth/callback`,
-    scope: 'openid profile email',
-  };
+  // The callback first: with nothing configured, "SITE_URL is not set" is the first thing to fix.
+  const redirectUri = `${siteUrl(env)}/auth/callback`;
+  return { ...oidcProviderFromEnv(env), redirectUri, scope: 'openid profile email' };
 }
 
 export function authorizationEndpoint(config: OidcConfig): string {

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { BACKEND, hydrated, readCards } from './support/journey';
+import { localePath } from './support/locale';
 
 /**
  * #327: an e2e run never leaves the machine for an image. `scripts/e2e-server.mjs` builds with
@@ -35,14 +36,14 @@ async function expectOnlyPlaceholders(page: Page, where: string): Promise<void> 
 test('no image request leaves the machine — listing and product page', async ({ page }) => {
   const requests = watchRequests(page);
 
-  await page.goto('/en-GB/products');
+  await page.goto(localePath('/products'));
   await expect(page.getByRole('heading', { level: 1, name: 'All products' })).toBeVisible();
   await hydrated(page);
   await expectOnlyPlaceholders(page, 'the listing');
 
   const [first] = await readCards(page);
   expect(first, 'the listing has a product to open').toBeDefined();
-  await page.goto(`/en-GB/products/${first!.handle}`);
+  await page.goto(localePath(`/products/${first!.handle}`));
   await hydrated(page);
   await expectOnlyPlaceholders(page, 'the product page');
 

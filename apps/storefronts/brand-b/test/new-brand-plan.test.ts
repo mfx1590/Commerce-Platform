@@ -21,7 +21,7 @@ import {
   runtimeDefaults,
   substitutions,
 } from '../scripts/new-brand-plan.mjs';
-import { locales as starterRoutingLocales } from '../src/i18n/routing';
+import { localeConfigFromEnv } from '../src/i18n/locale-config.mjs';
 
 /**
  * `apps/storefronts/brand-b/scripts/new-brand-plan.mjs` — the rules behind `new-brand.mjs` (#438).
@@ -423,9 +423,17 @@ describe("the lighthouse config's locale", () => {
 });
 
 describe('localeMismatch', () => {
-  it("pins STARTER_LOCALES against the starter's own routing default, so it cannot drift", () => {
+  it("pins STARTER_LOCALES against the starter's own default, so it cannot drift", () => {
     // If window 3 changes the starter's locales this fails here, not inside a generated brand.
-    expect(STARTER_LOCALES).toEqual(starterRoutingLocales);
+    //
+    // Against `localeConfigFromEnv({})` — an EMPTY env — rather than this app's `routing.locales`,
+    // which is what it used to read. Since #441 part 5 routing reflects whatever `SUPPORTED_LOCALES`
+    // says, so reading it here asked "what does this brand serve?" while the name promised "what
+    // does the starter default to?". The two agree only while the brand happens to be brand A, and
+    // the test went red the moment brand B's own locale reached vitest. The same mistake this file
+    // is full of findings about: a test whose name describes one invariant and whose body checks
+    // another.
+    expect(STARTER_LOCALES).toEqual(localeConfigFromEnv({}).locales);
   });
 
   it('is null for a brand on a locale the starter already serves -- brand B', () => {

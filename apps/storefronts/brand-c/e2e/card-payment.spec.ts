@@ -11,6 +11,7 @@ import {
   clickWhenReady,
   openPurchasableProduct,
 } from './support/journey';
+import { localeUrl } from './support/locale';
 
 /**
  * #358: a card order through Stripe's Payment Element, in Stripe TEST mode, against the core.
@@ -59,7 +60,7 @@ const CARDS = {
 async function toCardReview(page: Page): Promise<void> {
   await openPurchasableProduct(page);
   await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
-  await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: SERVER_ACTION_TIMEOUT });
   await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
   await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
   await advanceToReview(page, `e2e-card+${Date.now().toString(36)}@example.com`, 'card');
@@ -87,7 +88,7 @@ async function placeOrder(page: Page): Promise<void> {
 }
 
 async function expectPlaced(page: Page, label: string): Promise<string> {
-  await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/orders/[^/]+$'), { timeout: SERVER_ACTION_TIMEOUT });
   await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
   const placed = await captureOrder(page, 'the confirmation');
   expect(placed.lines.length, 'the order has lines').toBeGreaterThan(0);

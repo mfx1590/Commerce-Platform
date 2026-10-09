@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { locales } from '@/i18n/routing';
 import { resolveCurrency } from '@/lib/i18n';
 import type { Store } from '@/lib/store-api';
 import { DIRECTIVE_FIXTURES } from './fixtures/directives';
@@ -34,31 +35,10 @@ function leaves(value: unknown, prefix = ''): [string, string][] {
 
 describe('message catalogues', () => {
   it('ships one per configured locale', () => {
-    // Brand C's own locale is `en-US`, which the starter does not ship, so there are THREE: the
-    // starter's two (synced, and still the reference for key and placeholder parity below) plus
-    // brand C's.
-    expect(catalogues.sort()).toEqual(['de-DE.json', 'en-GB.json', 'en-US.json']);
-  });
-
-  /**
-   * The test the starter's version could not be: `src/i18n/request.ts` imports
-   * `messages/${locale}.json` UNGUARDED, so a brand with no catalogue for the locale it actually
-   * sells throws on **every page**. The starter's version asserts a hard-coded set of two, which
-   * is vacuously true in a brand app — vitest sets no `SUPPORTED_LOCALES`, so `routing.locales`
-   * falls back to the starter's default and never mentions the brand's locale at all.
-   *
-   * So read the locale from where the brand really declares it: the runtime default in
-   * `next.config.mjs`, which `next build`, `next dev` and `next start` all honour.
-   */
-  it('ships one for the locale next.config.mjs actually declares', () => {
-    const config = readFileSync(join(process.cwd(), 'next.config.mjs'), 'utf8');
-    const declared = /SUPPORTED_LOCALES\s*\?\?=\s*'([^']+)'/.exec(config)?.[1];
-    expect(declared, 'next.config.mjs must declare SUPPORTED_LOCALES').toBeDefined();
-    for (const locale of declared!.split(',').map((l) => l.trim())) {
-      expect(catalogues, `messages/${locale}.json is missing — every page would throw`).toContain(
-        `${locale}.json`,
-      );
-    }
+    // The configured locales — SUPPORTED_LOCALES, as the app routes them — not a literal pair: in a
+    // brand that sells en-US this used to pass with no en-US catalogue at all (#441 part 5).
+    const missing = locales.filter((locale) => !catalogues.includes(`${locale}.json`));
+    expect(missing, `catalogues in messages/: ${catalogues.join(', ')}`).toEqual([]);
   });
 
   it('define exactly the same keys, so no locale silently falls back', () => {

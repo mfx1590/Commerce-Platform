@@ -77,6 +77,8 @@ function unconfigure(): void {
   vi.stubEnv('SITE_URL', '');
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('NEXT_PHASE', 'phase-production-server');
+  // A production server that names its client (#441): only the origin is missing here.
+  vi.stubEnv('KEYCLOAK_CLIENT_ID', 'storefront-brand-a');
 }
 
 beforeEach(() => {
@@ -128,6 +130,15 @@ describe('POST /auth/sign-out', () => {
     expect(logout.searchParams.get('id_token_hint')).toBe('id-token');
     expect(clearSession).toHaveBeenCalledOnce();
     expect(logged).toHaveBeenCalledOnce();
+  });
+
+  it('drops the local session even when the client id is not configured, then fails loudly (#441)', async () => {
+    unconfigure();
+    vi.stubEnv('KEYCLOAK_CLIENT_ID', '');
+
+    await expect(signOut.POST()).rejects.toThrow(/KEYCLOAK_CLIENT_ID is not set/);
+    // The cookie is gone first: a misconfigured client must never keep a customer signed in here.
+    expect(clearSession).toHaveBeenCalledOnce();
   });
 });
 
