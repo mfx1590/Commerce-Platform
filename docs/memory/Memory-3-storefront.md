@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** **#441 + #440 = PR #445 (code commit `c5386d1`; head = this memory commit)** — "Closes #441, Closes #440"; checks pending, report when they finish; no further pushes until the manager says. Mock e2e 2026-10-09 (machine granted, released): default 75 = 67 / 8 (== main CI baseline 75 = 67 / 8); SUPPORTED_LOCALES=en-GB 51 = 42 / 9. Brand follow-ups (window 10): brand A `KEYCLOAK_CLIENT_ID ??= 'storefront-brand-a'` (routed into #438); every brand sets SUPPORTED_LOCALES in next.config AND its preserved playwright.config.ts, E2E_SHIP_ADDRESS_JSON there, KEYCLOAK_CLIENT_ID in next.config. Still open: #358's live proof (Stripe keys).
+Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** **#441 + #440 DONE: PR #445 merged = `d67349a`** (code commit `c5386d1`; both issues closed; CI legs identical to main). Branch `storefront/phase3` = main + this memory commit, NOT pushed (nothing to push). **Nothing on my docket**; the brand re-syncs and follow-ups (brand A KEYCLOAK_CLIENT_ID line, SUPPORTED_LOCALES in playwright.config, E2E_SHIP_ADDRESS_JSON) are window 10's. Still open: #358's live proof (Stripe keys). Quiet until the manager writes. Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -246,7 +246,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
-- **#441 + #440 (2026-10-09) — ALL PARTS DONE → PR #445 (code commit `c5386d1`).** Plan as confirmed: Each part with
+- [x] **#441 + #440 (2026-10-09) — DONE, PR #445 merged = `d67349a` (code commit `c5386d1`).** Plan as confirmed: Each part with
   a test that fails first; brand A + starter behaviour byte-identical (same suite counts).
   1. **DONE locally (this commit): #441 part 2 (security, FIRST):** `src/lib/auth/oidc.ts` — `KEYCLOAK_CLIENT_ID` unset → the
      documented dev default `storefront-brand-a` ONLY where `siteUrl()` allows its default
