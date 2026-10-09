@@ -228,7 +228,22 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — #437 · 3.1 Brand B (plan written 2026-10-09, sent to the manager, NOT started)
+## In progress — nothing. #437 is PUSHED (2026-10-09)
+
+**PR #442 (code commit `8576ff0`; head = this memory commit)** — "Closes #437", branch
+`brands/phase3` merged with `origin/main` `27733cc`. 245 files. Awaiting checks; **owed the manager a
+report when every check finishes**.
+
+**Runs, all stopped afterwards (machine free, Docker untouched):** build clean with **10 `/en-GB`
+routes and 0 `/de-DE`**; mock e2e **19 passed / 9 skipped**; **core e2e 19 passed / 0 failed / 6
+skipped**, the core resolving B's store from its key as `brand-b`, GBP, `['en-GB']`. Brand B unit
+**582 / 3 skipped**; brand A unchanged **765 / 3 skipped**.
+
+**Next:** #438 — brand C by script (`apps/storefronts/scripts/new-brand.mjs`), with
+`apps/storefronts/brand-b/ONBOARDING-GAPS.md` as its specification. Hold the push until the manager
+confirms #442 merged.
+
+## (the plan, kept for the trail) #437 · 3.1 Brand B
 
 Branch `brands/phase3` at main **`bc5bac9`**, contracts **v0.4.14**; `pnpm install` clean, all
 `packages/*` + `@platform/cms` rebuilt, Keycloak admin dev placeholders appended to the (git-ignored)
