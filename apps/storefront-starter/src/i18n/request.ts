@@ -1,11 +1,12 @@
 import { hasLocale } from 'next-intl';
 import { getRequestConfig } from 'next-intl/server';
+import { catalogueFor } from './catalogue';
 import { routing } from './routing';
 
 /**
  * Loads the message catalogue for the request. An unknown locale falls back to the default rather
- * than throwing: the middleware should never let one through, and a missing catalogue is not a
- * reason to fail a page.
+ * than throwing: the middleware should never let one through. The locale's own catalogue is
+ * required (`catalogue.ts` fails loudly without it); the CMS one below is optional.
  */
 export default getRequestConfig(async ({ requestLocale }) => {
   const requested = await requestLocale;
@@ -14,7 +15,8 @@ export default getRequestConfig(async ({ requestLocale }) => {
   return {
     locale,
     messages: {
-      ...(await import(`../../messages/${locale}.json`)).default,
+      // Required, and a missing one fails naming the file and the variable (#441 part 5).
+      ...(await catalogueFor(locale)),
       // Window 6 owns the `content` namespace — CMS pages, legal pages, campaign landings —
       // and ships it inside its own path (REQUEST #178), so it can add strings in every CMS task
       // without a request to this window for each one. `messages/*.json` keep their namespaces.

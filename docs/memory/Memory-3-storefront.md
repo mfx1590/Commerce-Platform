@@ -262,7 +262,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
      (skip with the reason otherwise).
   4. **DONE locally: part 3** (`e2e/support/ship-address.ts`): `completeAddressStep` takes the address from `E2E_SHIP_ADDRESS_JSON` (validated),
      default the NL address; the four funnel tests unchanged for the starter.
-  5. **part 5 + #440:** `test/i18n.test.ts` expects one catalogue per configured locale (and one
+  5. **DONE locally: part 5 + #440** (`src/i18n/catalogue.ts`; plus sign-out clears the cookie BEFORE resolving the provider, so an unset client id never keeps a customer signed in): `test/i18n.test.ts` expects one catalogue per configured locale (and one
      exists for each); `vitest.config.ts` passes `SUPPORTED_LOCALES` / `DEFAULT_LOCALE` from the env
      with today's defaults; `src/i18n/request.ts` fails loudly naming the missing catalogue (not a
      bare MODULE_NOT_FOUND 500).
