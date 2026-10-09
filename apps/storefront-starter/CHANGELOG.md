@@ -1,5 +1,19 @@
 # Changelog — @platform/storefront-starter
 
+## 0.14.1 — 2026-10-09
+
+Issue #447. Tooling only. New dev dependencies, exact and already in the lockfile: `yaml` 2.9.0,
+`ajv` 8.20.0, `ajv-formats` 3.0.1.
+
+- **The perf gate measures a brand against its own store.** With `perf/store.example.json` present,
+  `scripts/perf.mjs` validates it against the Store API spec's `Store` schema, starts Prism on
+  `PERF_MOCK_PORT` (4012) from a temporary spec copy whose `GET /store` example is that file, and
+  runs the build and Lighthouse against it; every exit stops that Prism. Brand C's `/en-US` routes
+  404'd against brand A's example, so its warm-up never succeeded. Without the file nothing changes
+  (the starter and brand A).
+- Tests: `test/perf-store-example.test.ts` — present (the copy carries the example, one line differs),
+  absent (`null`), invalid (not JSON; schema violations named).
+
 ## 0.14.0 — 2026-10-09
 
 Issues #441 (parts 1–5) and #440. No contract change. **A production server must now name its
