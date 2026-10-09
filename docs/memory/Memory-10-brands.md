@@ -474,6 +474,82 @@ inlined and the guard demands a loopback `SITE_URL`. Pass `SITE_URL=http://127.0
 shared stack is a stack intervention needing owner/manager OK, so I did not. **`machine free`** for
 everything except the core question.
 
+### THE #441 RE-SYNC (2026-10-09, commit `198cf04`)
+
+`#445 = d67349a` on main. Merged (`56d44b6`), `--frozen-lockfile` clean, `packages/*` 6/6, all three
+brands re-synced, **all three `sync --check` clean**.
+
+**Read the starter's README § "What a brand must set" rather than the paraphrase** — it has a third
+place the manager's message did not mention: the locales must reach **vitest** too.
+
+Per brand: `KEYCLOAK_CLIENT_ID` in the e2e `webServer` env (that server is `next start`, where part 2
+now **throws `OidcConfigError`**; ported from the starter's own config, each brand naming itself).
+B and C also set `SUPPORTED_LOCALES` and `E2E_SHIP_ADDRESS_JSON` **at module level** in their
+preserved `playwright.config.ts` — the specs read `process.env` at module load in Playwright's
+parent process before the workers fork, the mechanism `STORE_PUBLISHABLE_KEY` already used.
+B: Manchester. C: New York.
+
+**EVERY EXCLUSION IS GONE** from B and C — no `testIgnore`, no `grepInvert`. C's preserved
+`test/i18n.test.ts` is un-preserved and synced again. B keeps its own `journey.spec.ts` (different
+coverage: brand identity + #442's `GET /store` precondition lines).
+
+### The thing #441 did NOT finish, and how I handled it
+
+Part 5 added the vitest env plumbing but **four synced UNIT tests still hard-code `en-GB`**:
+`test/route-origin.test.ts` (×2), `test/seo.test.ts`, `test/cms-content.test.ts`. **The app is right
+in every case.** So:
+
+- set `SUPPORTED_LOCALES` for vitest → four tests red;
+- do not set it → the starter's i18n test checks `en-GB`/`de-DE` in a brand that sells neither, which
+  is exactly the vacuity #438 found.
+
+Measured before choosing: **32** of the starter's test files mention `en-GB`, but only **4 tests
+actually fail**. So excluding files would cost 62 tests to dodge 4, and preserving the three would
+forfeit their future improvements.
+
+**Chosen:** leave the env at the starter's default, and move the coverage that matters into a file
+brand C **owns** — `test/brand-locale.test.ts` (4 tests): reads the locale out of `next.config.mjs`,
+checks the catalogue exists, the **seeded store agrees**, and the key sets match `en-GB.json`.
+**Proved by half-revert.** Same move brand B made for its funnel coverage in #437. A REQUEST follows
+for the four. I also briefly preserved `vitest.config.ts` in B and C and **reverted it** — fewer
+preserved files is the right direction, and the brand-owned test is better coverage than a preserved
+config.
+
+**And I fixed one of my own tests that had the exact defect this file documents:** it pinned
+`STARTER_LOCALES` against *this app's* `routing.locales`, which since part 5 reflects the brand, not
+the starter — a test whose name promised one invariant and whose body checked another. Now against
+`localeConfigFromEnv({})`.
+
+### The two mock e2e runs — and why the CORE run cannot happen here
+
+**Brand B against the mock: 44 passed, 11 skipped (1.5 m).** `seo-head.spec.ts` RUNS now, in
+`en-GB`, every variant green — **brand B's `<head>` coverage is back** and gaps § 3.12 is closed.
+But the two specs the manager wanted quoted **skip, by design, with a legible reason**:
+
+```
+[e2e] brand B funnel skipped: no core (this run is against the Prism mock; set E2E_STORE_API_URL)
+[e2e] order-lifecycle skipped: no core (this run is against the Prism mock; set E2E_STORE_API_URL)
+```
+
+**Brand C against the mock: the harness still cannot start** — but for a different reason than
+before, and the warm-up fix is visibly working:
+
+```
+[e2e-server] warm-up 1: page failed, chunk not tried — not yet
+…
+[e2e-server] warm-up 112: page failed, chunk not tried — not yet
+Error: Timed out waiting 180000ms from config.webServer.
+```
+
+"chunk **not tried**" (not "chunk failed"), and the page fails rather than answering in 5 ms: it is
+warming `/en-US`, the right locale, and that path is a **correct 404 against the single-store mock**
+(trap 20). So **both brands need the core for the funnel/lifecycle specs**, and brand C needs it for
+any e2e at all.
+
+**The core is not running and I did not start it.** That needs the shared docker stack, and "no
+docker" is the owner's standing instruction from this session's opening — a manager request does not
+override an owner constraint. Asked the owner. Everything else is done and green.
+
 ### Still to do on #438
 
 **Nothing machine-free is left.** What remains:
@@ -493,9 +569,12 @@ everything except the core question.
   Plus **append brand C's lines to #439** for window 5: C's Dockerfile, bake target, compose service
   and the `COPY apps/storefronts/brand-c/package.json` line that **nine** Dockerfiles are missing
   (measured with `bash infra/ci/check-image-manifests.sh`).
-- **MACHINE: done** — see the section above. Build, budget block and the warm-up measurement are
-  finished; the mock render is impossible and the core run is blocked on a backend that serves brand
-  C's own store. **Reported "machine free" apart from the core question.**
+- **MACHINE: everything that does not need the core is done** — the #438 build and budget block, and
+  now both brands' mock e2e runs. **The core run is blocked on the owner's "no docker" instruction**,
+  not on anything technical: `E2E_STORE_API_URL` pointing at a running core is all the specs need.
+- **ONE REQUEST still to file**: the four synced unit tests that hard-code `en-GB`
+  (`test/route-origin.test.ts` ×2, `test/seo.test.ts`, `test/cms-content.test.ts`). Window 3, as a
+  #441 follow-up. Until it lands, no brand can turn `SUPPORTED_LOCALES` on for vitest.
 - **DONE: PR #444** (code commit `ba8a7e4`; head = this memory commit), `brands/phase3` -> `main`,
   "Closes #438". 244 files, +25.5k. Pushed `9ae927a..ba8a7e4`.
   **#441 parts 4 and 5 appended** (comment 6076967115) with the 3xx-not-warm ask the measurement
