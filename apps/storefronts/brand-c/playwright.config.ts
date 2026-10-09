@@ -106,10 +106,13 @@ const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
  * **But for brand C that is not the whole of it, and this file cannot fix the rest.** Brand B sells
  * `en-GB`, one of the starter's own two, so every other inherited spec addressed a locale B really
  * served. Brand C sells `en-US`. Every synced spec navigates to `/en-GB/…` and asserts that URL
- * back, and `scripts/e2e-server.mjs` warms `/en-GB` before it will declare the app ready — and its
- * `timed()` treats any status >= 400 as a failure, so **the warm-up never succeeds and the harness
- * throws before the first test runs**. Excluding those specs would delete the suite rather than
- * port it, so they are left in place, failing honestly, and recorded instead.
+ * back, and `scripts/e2e-server.mjs` warms `/en-GB` before it will declare the app ready, so **the
+ * harness throws before the first test runs**. Measured 2026-10-09, and not by the obvious
+ * mechanism: `/en-GB` answers **307** with `location: /en-US/en-GB`, which is under 400, so the
+ * page counts as warm in 5 ms. It is the chunk that is never found — the warm-up reads its path out
+ * of the page body by regex, and a 12-byte redirect has none. 120 attempts, then a timeout error
+ * about a page that was never slow. Excluding those specs would delete the suite rather than port
+ * it, so they are left in place and recorded instead.
  *
  * Both are SYNCED files; editing them here would be drift the next sync undoes. **REQUEST #441
  * asks window 3 to take the locale list from the environment**; `ONBOARDING-GAPS.md` § 3.13 names

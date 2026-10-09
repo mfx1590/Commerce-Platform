@@ -165,9 +165,17 @@ would reproduce three solved bugs.
     - **`lighthouserc.json`** is the brand's (PRESERVED), so it can be fixed: it was measuring two
       `/en-GB` 404s and reporting the result as a performance score. The generator now SUBSTITUTES
       this file rather than copying it byte for byte.
-    - **`scripts/e2e-server.mjs`** warms `/en-GB` before declaring the app ready, and its `timed()`
-      returns null for any status >= 400 — so the warm-up never succeeds and `warmUp()` throws after
-      120 s. **e2e fails BEFORE the first test**, which looks nothing like a failing test.
+    - **`scripts/e2e-server.mjs`** warms `/en-GB` before declaring the app ready, and **e2e fails
+      BEFORE the first test** — which looks nothing like a failing test. **Measured on brand C**
+      (2026-10-09), and not by the mechanism anyone would guess. `GET /en-GB` on brand C answers **307** with `location: /en-US/en-GB` — next-intl treats the unknown locale as a path segment under the default one. 307 is under 400, so the warm-up's `timed()` counts the page as a **success**: the log reads `page 5 ms` on every one of 120 attempts. What never succeeds is the **chunk**, because the warm-up discovers its path by regex out of the page body and a **12-byte** redirect body contains no `/_next/static/chunks/…`. So `chunkPath` stays null, `chunk` is null forever, and `warmUp()` throws after 120 s.
+      The error it prints is actively misleading:
+      ```
+      [e2e-server] the app on http://127.0.0.1:3103 did not answer a page and a static chunk under 1000 ms 2 times in a row within 120 s
+      ```
+      The page was never slow. It answered in single-digit milliseconds, correctly, 120 times. Ask
+      for the warm-up to treat a **3xx as not warm**, as well as for the locale to come from the
+      config — a redirect that answers fast and carries no chunk should fail on the first attempt
+      with the reason, not on the hundred-and-twentieth with a sentence about latency.
     - **The 8 specs** navigate to `/en-GB/...` and assert that URL back. **Excluding them would
       delete the suite rather than port it**, so they are left in place and reported.
       The last two are window 3's files and the sync replaces them, so a brand cannot fix them. **The
@@ -246,6 +254,38 @@ would reproduce three solved bugs.
     Following the advice would have created a **second store for the same brand**. `SEEDED_BRANDS`
     now splits it: a seeded brand is told to CHECK the seeded store against the command line, and
     only a brand that is genuinely new goes to the wizard (section 6 below).
+
+20. **The Prism mock is SINGLE-STORE, so a brand whose locale is not the contract example's
+    cannot be rendered or e2e'd against the mock at all.** Measured on brand C, 2026-10-09:
+
+    ```
+    pk_brand-a_dev_…  ->  code=brand-a  locales=['en-GB', 'de-DE']
+    pk_brand-b_dev_…  ->  code=brand-a  locales=['en-GB', 'de-DE']
+    pk_brand-c_dev_…  ->  code=brand-a  locales=['en-GB', 'de-DE']
+    ```
+
+    Prism serves the contract's example store for **every** publishable key. And
+    `src/lib/i18n.ts` has, correctly:
+
+    ```ts
+    export function assertStoreOffersLocale(store: Store | null, locale: string): void {
+      if (store === null) return; // an outage is not a 404
+      if (!store.locales.includes(locale)) notFound();
+    }
+    ```
+
+    which runs in the **root `[locale]/layout.tsx`**, so it gates every localised route. Against the
+    mock, brand C's `/en-US/...` therefore returns Next's own 404 — **correctly**. The app is
+    fail-closed and the mock has one store; nothing is broken, and nothing can be rendered either.
+    `/health` answers 200 throughout, which is how you tell this apart from a dead server.
+
+    **This is the same accident as trap 13, a fifth time.** Brand B sells `en-GB`, which IS in the
+    example store's locales, so B's mock render and B's mock e2e both worked and told us nothing.
+    **Consequences for any brand on a new locale:** a mock render check is impossible; a mock e2e run
+    is impossible even after #441 part 4 lands (the warm-up would start, and then every page would
+    404); so **its e2e has to be a CORE leg**, against a backend that has the brand's real store.
+    CI already runs brand legs that way. Plan for it rather than discovering it: #437 recorded a
+    "mock render check" as a routine step, and for brand C that step does not exist.
 
 ## 4. What needed NOTHING, which is the good news
 

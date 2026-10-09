@@ -432,12 +432,13 @@ describe('localeMismatch', () => {
     expect(localeMismatch({ locales: ['en-GB'] })).toBeNull();
   });
 
-  it('reports the two files it refuses to rewrite, for a brand on another locale', () => {
+  it('reports the three things it refuses to touch, for a brand on another locale', () => {
     const gap = localeMismatch({ locales: ['en-US'] });
     expect(gap).not.toBeNull();
     expect(gap!.locales).toEqual(['en-US']);
     expect(gap!.files.map((file) => file.path)).toEqual([
       'scripts/e2e-server.mjs',
+      'the Prism mock itself',
       'e2e/*.spec.ts',
     ]);
   });
@@ -449,10 +450,36 @@ describe('localeMismatch', () => {
     expect(warmUp.effect).toContain('120 s');
   });
 
+  it('describes the mechanism that was MEASURED, not the one that was guessed', () => {
+    // The first version of this text said the path 404s and `timed()` rejects it for status >= 400.
+    // Running it on brand C showed otherwise: next-intl answers 307 with
+    // `location: /en-US/en-GB`, the page counts as warm in 5 ms, and it is the chunk — discovered
+    // by regex out of the page body — that is never found in a 12-byte redirect. Same outcome,
+    // different cause, and the difference is what a reader needs to recognise the log.
+    const warmUp = localeMismatch({ locales: ['en-US'] })!.files[0]!;
+    expect(warmUp.effect).toContain('307');
+    expect(warmUp.effect).toMatch(/MEASURED/);
+    expect(warmUp.effect).toMatch(/page 5 ms/);
+    expect(warmUp.effect).not.toMatch(/returns null for any status/);
+  });
+
   it('does not propose excluding the specs, which would delete the suite', () => {
-    const specs = localeMismatch({ locales: ['en-US'] })!.files[1]!;
+    const specs = localeMismatch({ locales: ['en-US'] })!.files[2]!;
     expect(specs.effect).toMatch(/rather than port it/);
-    expect(localeMismatch({ locales: ['en-US'] })!.remedy).toMatch(/REQUEST to window 3/);
+    expect(localeMismatch({ locales: ['en-US'] })!.remedy).toMatch(/#441 part 4/);
+    // And the remedy carries what the measurement added: a redirect must not count as warm.
+    expect(localeMismatch({ locales: ['en-US'] })!.remedy).toMatch(/3xx as NOT warm/);
+  });
+
+  it('reports that the Prism mock cannot serve such a brand at all', () => {
+    // Measured: every publishable key answers code=brand-a, locales=[en-GB, de-DE], and
+    // assertStoreOffersLocale 404s a locale the STORE does not offer. So there is no mock render
+    // check and no mock e2e run for a brand on a new locale -- its e2e has to be a core leg.
+    const mock = localeMismatch({ locales: ['en-US'] })!.files[1]!;
+    expect(mock.path).toBe('the Prism mock itself');
+    expect(mock.effect).toMatch(/MEASURED/);
+    expect(mock.effect).toMatch(/fail-closed/);
+    expect(mock.effect).toMatch(/CORE leg/);
   });
 
   it('names the mismatching locale only, not every locale the brand sells', () => {

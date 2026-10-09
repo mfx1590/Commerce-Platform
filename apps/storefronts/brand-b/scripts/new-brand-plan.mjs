@@ -508,9 +508,27 @@ export function localeMismatch(target, starterLocales = STARTER_LOCALES) {
         path: 'scripts/e2e-server.mjs',
         what: `warms \`/${starterLocales[0]}\` before declaring the app ready`,
         effect:
-          'its `timed()` returns null for any status >= 400, so a locale the app does not serve ' +
-          'never counts as warm and `warmUp()` throws after 120 s. e2e does not start at all — ' +
-          'it does not fail a test, it fails before the first one.',
+          'MEASURED on brand C, and not by the mechanism one would guess. That path does not 404: ' +
+          'next-intl answers `307` with `location: /<brand locale>/<starter locale>`, treating the ' +
+          'unknown locale as a path segment. 307 is under 400, so `timed()` counts the page as a ' +
+          'success — the log really does read `page 5 ms` every attempt. But the warm-up ' +
+          '**discovers the chunk path by regex out of the page body**, and a 12-byte redirect body ' +
+          'contains no `/_next/static/chunks/…`, so `chunkPath` stays null, `chunk` is null ' +
+          'forever, and `warmUp()` throws after 120 s and 120 attempts. e2e does not start at all ' +
+          '— it does not fail a test, it fails before the first one. The error it prints is ' +
+          'misleading: "did not answer a page and a static chunk under 1000 ms", when the page ' +
+          'answered in 5 ms every time.',
+      },
+      {
+        path: 'the Prism mock itself',
+        what: 'serves the contract example store for every publishable key',
+        effect:
+          'MEASURED: every key answers `code=brand-a, locales=[en-GB, de-DE]`, and ' +
+          '`assertStoreOffersLocale` in the root `[locale]/layout.tsx` calls `notFound()` for a ' +
+          'locale the STORE does not offer. So a brand on a new locale 404s every localised route ' +
+          'against the mock — correctly; the app is fail-closed and the mock has one store. A mock ' +
+          'render check is therefore impossible for such a brand, and so is a mock e2e run even ' +
+          'once the warm-up is fixed. Its e2e has to be a CORE leg.',
       },
       {
         path: 'e2e/*.spec.ts',
@@ -522,10 +540,14 @@ export function localeMismatch(target, starterLocales = STARTER_LOCALES) {
       },
     ],
     remedy:
-      'a REQUEST to window 3: take the locale from `src/i18n/routing.ts` (which already reads ' +
+      '#441 part 4 (window 3): take the locale from `src/i18n/routing.ts` (which already reads ' +
       '`SUPPORTED_LOCALES`) in the specs and in the warm-up path, instead of a literal. #441 ' +
-      'parts 1 and 3 ask for the neighbouring version of this for the locale LIST and the ' +
-      'address; this is the same shape for the locale PREFIX.',
+      'parts 1 and 3 are the neighbouring version of this for the locale LIST and the address; ' +
+      'this is the same shape for the locale PREFIX. **And one thing more, from the measurement ' +
+      'above: the warm-up should treat a 3xx as NOT warm.** A redirect answers fast and carries ' +
+      'no chunk, so today it produces 120 identical attempts and an error message about a page ' +
+      'that was never slow. Failing on the first redirect would have said what was wrong in one ' +
+      'line.',
   };
 }
 

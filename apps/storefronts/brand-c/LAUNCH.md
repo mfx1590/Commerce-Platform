@@ -238,17 +238,48 @@ that breaks things brand B never exposed. None of it is fixable from inside this
 | 12.4 | The synced e2e specs address a locale brand C serves         | 3     | REQUEST: take the prefix from `src/i18n/routing.ts`                    | ⛔  |
 | 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves          | 3     | same REQUEST                                                           | ⛔  |
 | 12.6 | `test/i18n.test.ts` derives its expected set from the config | 3     | same REQUEST; PRESERVED in brand C meanwhile                           | ⛔  |
+| 12.7 | A backend that serves brand C's OWN store, so pages render   | 1 / 5 | the mock is single-store; needs the core                               | ⛔  |
 
 12.1 is the one that mattered most: `src/i18n/request.ts` imports `messages/${locale}.json`
 **unguarded**, so before that file existed brand C threw on **every page**, in dev, in `next build`
 and in production alike. The test that should have caught it asserted a hard-coded set of two
 catalogues and never read the configured locales, so it passed on an app that could not serve a page.
 
-12.4 and 12.5 are why **brand C's e2e suite cannot be believed yet**: every synced spec navigates to
-`/en-GB/…` and asserts that URL back, and `e2e-server.mjs` warms `/en-GB` before declaring the app
-ready, treating any status ≥ 400 as a failure — so the warm-up should throw after 120 s and the
-harness should fail _before the first test_. **That last sentence is read from the code and has not
-been run.** Do not quote it as measured until it is.
+12.4 and 12.5 are why **brand C has no e2e coverage at all today**, and this is measured rather than
+predicted. Every synced spec navigates to `/en-GB/…` and asserts that URL back, and
+`scripts/e2e-server.mjs` warms `/en-GB` before it will declare the app ready.
+
+**Run on 2026-10-09, `pnpm --filter @platform/storefront-brand-c e2e`:**
+
+```
+[e2e-server] warm-up 1: page failed, chunk failed — not yet
+[e2e-server] warm-up 2: page 212 ms, chunk failed — not yet
+…
+[e2e-server] warm-up 120: page 5 ms, chunk failed — not yet
+[e2e-server] the app on http://127.0.0.1:3103 did not answer a page and a static chunk under 1000 ms 2 times in a row within 120 s
+Error: Process from config.webServer was not able to start. Exit code: 1
+```
+
+`GET /en-GB` on brand C answers **307** with `location: /en-US/en-GB` — next-intl treats the unknown locale as a path segment under the default one. 307 is under 400, so the warm-up's `timed()` counts the page as a **success**: the log reads `page 5 ms` on every one of 120 attempts. What never succeeds is the **chunk**, because the warm-up discovers its path by regex out of the page body and a **12-byte** redirect body contains no `/_next/static/chunks/…`. So `chunkPath` stays null, `chunk` is null forever, and `warmUp()` throws after 120 s.
+
+**The failure is backend-independent** — the 307 comes from the i18n middleware before any data
+fetch — so no amount of mock or core setup makes brand C's harness start. A **named exclusion would
+not help either**: the warm-up runs before any spec, so there is nothing to exclude.
+
+**And there is a second, independent blocker underneath it (12.7).** Even with the warm-up fixed,
+brand C cannot be exercised against the Prism mock at all, because the mock is single-store:
+
+```
+pk_brand-a_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
+pk_brand-b_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
+pk_brand-c_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
+```
+
+`src/lib/i18n.ts`'s `assertStoreOffersLocale` runs in the root `[locale]/layout.tsx` and calls
+`notFound()` when the **store** does not offer the locale — so brand C's `/en-US/...` returns 404
+against the mock, correctly. `/health` answers 200 throughout, which is how this is told apart from
+a dead server. **Brand C's e2e must be a core leg**, as CI runs the brand legs. Both of these are
+decisions for the manager, not things this app can work around.
 
 ---
 
@@ -270,8 +301,19 @@ been run.** Do not quote it as measured until it is.
 | `infra/ci/changes.sh` lists brand C in `perf_apps`, `perf_unmeasured=[]`  | pass                     |
 | `check-image-manifests.sh` — fails for brand C on nine Dockerfiles        | **expected fail** (11.3) |
 
-**Not yet run, and needing the shared machine:** brand C's `next build`, the mock render check, one
-core e2e run, and the § 12 warm-up prediction. One window measures at a time.
+**On the shared machine, 2026-10-09** — the run this section used to list as pending:
+
+| Check                                                                            | Result                                                                                                                           |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `next build` — 10 `/en-US` routes, zero `/de-DE`, zero `/en-GB`                  | pass                                                                                                                             |
+| the same build with `messages/en-US.json` moved away                             | **fails**, as 12.1 claims: `Cannot find module './en-US.json'`, `MODULE_NOT_FOUND`, prerender error on `/en-US/products`, exit 1 |
+| `bundle-budget.mjs --sync-readme` then `--verify` — 17 routes, all within budget | pass                                                                                                                             |
+| `/health` under `next start`                                                     | pass (200)                                                                                                                       |
+| **mock render check**                                                            | **impossible** — 12.7; every `/en-US/...` is a correct 404                                                                       |
+| **one core e2e run**                                                             | **not run** — blocked twice, by 12.4 and 12.7                                                                                    |
+
+The one claim this file used to hedge is now measured, and the mechanism was **not** the one
+predicted — see § 12.
 
 ---
 

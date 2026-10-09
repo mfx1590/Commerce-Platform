@@ -102,12 +102,33 @@ had **no US-English review** (`LAUNCH.md` 12.2).
 What is **not** fixed, because it is window 3's and the sync replaces it:
 
 - **Every synced e2e spec** navigates to `/en-GB/…` and asserts that URL back.
-- **`scripts/e2e-server.mjs`** warms `/en-GB` before declaring the app ready, and its `timed()`
-  returns null for any status ≥ 400 — so the warm-up never succeeds and it throws after 120 s. e2e
-  fails **before the first test**, not as a failing test. _Read from the code; not yet run._
+- **`scripts/e2e-server.mjs`** warms `/en-GB` before declaring the app ready, so **`pnpm e2e`
+  fails before the first test** rather than failing a test. **Measured, 2026-10-09:** `GET /en-GB` on brand C answers **307** with `location: /en-US/en-GB` — next-intl treats the unknown locale as a path segment under the default one. 307 is under 400, so the warm-up's `timed()` counts the page as a **success**: the log reads `page 5 ms` on every one of 120 attempts. What never succeeds is the **chunk**, because the warm-up discovers its path by regex out of the page body and a **12-byte** redirect body contains no `/_next/static/chunks/…`. So `chunkPath` stays null, `chunk` is null forever, and `warmUp()` throws after 120 s.
+  The printed error — _"did not answer a page and a static chunk under 1000 ms"_ — is misleading:
+  the page answered in 5 ms every time.
 
 Excluding those specs would delete the suite rather than port it, so they are left in place and
-reported. A REQUEST asks window 3 to take the locale prefix from `src/i18n/routing.ts`, which already
+reported. **A named exclusion would not help anyway** — the warm-up runs before any spec, so there
+is nothing to exclude.
+
+**And underneath that, a second blocker: the Prism mock is single-store.** Measured, 2026-10-09 —
+every publishable key answers with the contract's example store:
+
+```
+pk_brand-a_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
+pk_brand-b_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
+pk_brand-c_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
+```
+
+`src/lib/i18n.ts`'s `assertStoreOffersLocale` runs in the root `[locale]/layout.tsx` and calls
+`notFound()` when the **store** does not offer the locale. So against the mock every one of brand
+C's `/en-US/...` routes is a **correct 404**, and `/health` still answers 200 — which is how you
+tell this apart from a dead server. Nothing is broken; nothing can be rendered either.
+
+**So brand C has no mock render check and no mock e2e run, and cannot have one.** Its e2e has to run
+against the core, which has brand C's real store (`locales: ['en-US']` in the seed). CI already runs
+the brand legs that way. This is the fifth thing brand B hid by selling a locale the starter and the
+contract example both happen to serve. A REQUEST asks window 3 to take the locale prefix from `src/i18n/routing.ts`, which already
 reads `SUPPORTED_LOCALES` — the same shape as #441 parts 1 and 3 for the locale list and the address.
 
 ## Media
@@ -124,16 +145,27 @@ command, so do not edit it by hand. **`scripts/perf.mjs` exits 1 if this block i
 
 <!-- bundle-budget:start -->
 
-**Not measured yet.** This table is written by `node scripts/bundle-budget.mjs --sync-readme`, which
-needs a completed `next build`, and brand C has not been built on the shared machine yet (one window
-measures at a time). Until it is run, `scripts/bundle-budget.mjs --verify` fails with _"README.md
-lists different routes or budgets"_ and brand C's perf leg is red for that reason.
+| Route                                         | First load (gzipped) | Budget             |
+| --------------------------------------------- | -------------------- | ------------------ |
+| `/[locale]/(account)/account/orders/page`     | 130.5 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/page`            | 133 kB               | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 139.7 kB             | 145 kB             |
+| `/[locale]/(checkout)/checkout/address/page`  | 133.7 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/page`          | 129.3 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/payment/page`  | 133.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/review/page`   | 134.7 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/shipping/page` | 133.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/orders/[orderId]/page`  | 130.5 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/campaign/[slug]/page`    | 132.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/legal/[slug]/page`       | 132.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/pages/[slug]/page`       | 132.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(shop)/categories/[handle]/page`   | 136.2 kB             | 141 kB             |
+| `/[locale]/(shop)/page`                       | 131.1 kB             | 136 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 139.2 kB             | 144 kB             |
+| `/[locale]/(shop)/products/page`              | 136.2 kB             | 141 kB             |
+| `/_not-found/page`                            | 102.9 kB             | 145 kB _(default)_ |
 
-This is a gap the generator cannot close: `README.md` is one of the four files the sync **excludes**,
-so a generated brand has no README at all and therefore no block — which means **every brand created
-by script starts with a red perf leg** until someone builds it and runs `--sync-readme`. Recorded in
-`ONBOARDING-GAPS.md`.
-
+_Generated by `pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`; budgets live in `bundle-budget.json`._
 <!-- bundle-budget:end -->
 
 ## Performance
