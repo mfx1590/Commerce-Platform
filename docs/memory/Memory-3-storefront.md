@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** Done: #441 + #440 (PR #445 = `d67349a`). **#447 = PR #448 (code commit `084bea8`; head = this memory commit)** — perf.mjs overlays the Prism mock's GET /store with the brand's `perf/store.example.json` (validated, Prism on PERF_MOCK_PORT 4012; absent → unchanged); checks pending, report when they finish. Window 10 then writes brand C's and B's example. Still open: #358's live proof (Stripe keys). Machine NOT mine.
+Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** Done: #441 + #440 (PR #445 = `d67349a`), **#447 (PR #448 merged = `0ec34d1`, code commit `084bea8`)**. Branch `storefront/phase3` = main + this memory commit, NOT pushed. **Next (my next active stint, NOT now): #446** — four synced unit tests hard-code en-GB. Still open: #358's live proof (Stripe keys). Quiet until the manager writes. Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -398,6 +398,9 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 -->
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+
+- [ ] **#446 (next active stint, manager 2026-10-09):** four synced unit tests hard-code `en-GB` —
+      make them read the configured locales (`src/i18n/locale-config.mjs` / routing), like #441 did for e2e.
 
 - [ ] **Nit from the review of #403 ("not now"):** the hero's `<video>` could also carry `poster` (moot
       while the server-rendered poster sits under the overlay).
