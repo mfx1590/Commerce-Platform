@@ -124,7 +124,7 @@ const LOCALE_PLURAL_TESTS = /in German is translated|offers hreflang alternates/
  * `e2e/journey.spec.ts` replaces them with brand B's own walk on a **GB** address, including the
  * place-order → ship → deliver assertions, so the coverage is not lost — only moved to a file this
  * brand owns. **#441 part 3** asks window 3 to take the address from the brand or the environment;
- * when it lands, these three come back and brand B's copy shrinks.
+ * when it lands, all four come back and brand B's copy shrinks.
  */
 const NL_ADDRESS_TESTS = new RegExp(
   [

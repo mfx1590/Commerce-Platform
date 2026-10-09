@@ -126,9 +126,11 @@ test.describe('brand B is brand B', () => {
  * **Netherlands** address — `Keizersgracht 1, 1015 CJ, Amsterdam, NL` — with no override, and brand
  * B ships to **GB only** (`shippingCountries: ['GB']` in the seed). So the inherited funnel specs
  * reach B's delivery step and are told, correctly, "No delivery options are available for this
- * address". Measured, not assumed: that is exactly how brand B's first core run failed three tests.
+ * address". Measured, not assumed: brand B's first core run failed three tests this way, and the
+ * next run turned up a **fourth** (`account.spec.ts`'s stale-session buy, which also places an
+ * order) — count them by running, not by reading.
  *
- * Those three are excluded in `playwright.config.ts` and this replaces them, with a GB address and
+ * All four are excluded in `playwright.config.ts` and this replaces them, with a GB address and
  * the same place-order → ship → deliver assertions `order-lifecycle.spec.ts` makes for the starter.
  * **The duplication is deliberate and temporary:** #441 part 3 asks window 3 to take the address
  * from the brand or the environment, and when it lands this spec should shrink to brand B's own
@@ -290,6 +292,17 @@ test.describe('brand B takes an order, ships it and delivers it', () => {
     );
     expect(store.id, 'GET /store names the store the order belongs to').toMatch(/^[0-9a-f-]{36}$/i);
     const methods = store.payment?.methods ?? [];
+    // Printed BEFORE `test.skip`, which throws: nothing after it runs. Playwright's github reporter
+    // does not name skipped tests, and an in-test skip reason never reaches the log — so without
+    // this line a CI leg cannot be told apart from one where the funnel quietly did not run. The
+    // whole point of this spec is to be the proof, and a proof has to be legible (#442 review).
+    if (!methods.includes('invoice')) {
+      console.info(
+        `[e2e] brand B funnel SKIPPED: GET /store payment.methods = [${methods.join(', ')}], ` +
+          'so no order can be placed. See packages/db CHANGELOG 0.3.2 (seed is ON CONFLICT DO ' +
+          'NOTHING, so an existing database keeps its old store.settings).',
+      );
+    }
     test.skip(
       !methods.includes('invoice'),
       "brand B's store offers no invoice payment (GET /store payment.methods = " +
@@ -379,6 +392,14 @@ test.describe('brand B takes an order, ships it and delivers it', () => {
     await page.reload();
     await expect(confirmation).toHaveAttribute('data-order-status', 'completed');
     await expect(page.getByTestId('order-status')).toHaveText('Status: Completed');
+
+    // The other half of the proof: a line a CI leg can be read for. "ok" in the reporter says the
+    // test did not fail; this says it actually placed, shipped and delivered an order.
+    console.info(
+      `[e2e] brand B funnel RAN: order ${orderId} placed (${placed.currency} ` +
+        `${placed.totalMinor} minor), shipped \u2192 processing, delivered \u2192 completed, ` +
+        `address country ${DESTINATION_COUNTRY}`,
+    );
 
     await admin.dispose();
   });

@@ -51,15 +51,17 @@ Brand B reads at runtime: `STORE_API_URL`, `STORE_PUBLISHABLE_KEY`, `SITE_URL`,
 `SUPPORTED_LOCALES`, `DEFAULT_LOCALE`, `KEYCLOAK_*` (customer sign-in), `SANITY_PROJECT_ID` /
 `CMS_DATASET`, `ROBOTS_ALLOW_INDEXING`. No Stripe, Cloudinary or analytics secret reaches it.
 
-| #   | Item                                                                     | Owner | Verify                                             | Now |
-| --- | ------------------------------------------------------------------------ | ----- | -------------------------------------------------- | --- |
-| 2.1 | A **production** publishable key exists; the `_dev_` key is not deployed | owner | `infra/helm/check-values.sh` rejects a `_dev_` key | ⛔  |
-| 2.2 | `SUPPORTED_LOCALES=en-GB` in the deployed environment                    | 5     | the running app routes `/en-GB` and not `/de-DE`   | ✅  |
-| 2.3 | `CMS_DATASET=brand-b`                                                    | 5     | content routes render brand B's documents          | ⛔  |
-| 2.4 | Brand B is in the deploy matrix, the ECR list and the Helm values        | 5     | REQUEST #439                                       | ❌  |
+| #   | Item                                                                            | Owner | Verify                                             | Now |
+| --- | ------------------------------------------------------------------------------- | ----- | -------------------------------------------------- | --- |
+| 2.1 | A **production** publishable key exists; the `_dev_` key is not deployed        | owner | `infra/helm/check-values.sh` rejects a `_dev_` key | ⛔  |
+| 2.2 | `SUPPORTED_LOCALES=en-GB` set explicitly where it deploys (the app defaults it) | 5     | the running app routes `/en-GB` and not `/de-DE`   | ⛔  |
+| 2.3 | `CMS_DATASET=brand-b`                                                           | 5     | content routes render brand B's documents          | ⛔  |
+| 2.4 | Brand B is in the deploy matrix, the ECR list and the Helm values               | 5     | REQUEST #439                                       | ❌  |
 
-2.2 is ✅ **in this app** — `next.config.mjs` defaults it, so a deployment that forgets the variable
-still serves one locale. It is listed because the deployed value should be explicit, not inherited.
+2.2 is **⛔, not ✅**, and the distinction is the point of this column. `next.config.mjs` defaults
+it, so the **app** is right and `next build` bakes ten `/en-GB` routes and zero `/de-DE`. But the
+column asks about the **deployed environment**, and no brand has one yet (§ Dry run). A tick here
+would have claimed a deployment that does not exist.
 
 ---
 
