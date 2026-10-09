@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** **#441 + #440 DONE: PR #445 merged = `d67349a`** (code commit `c5386d1`; both issues closed; CI legs identical to main). Branch `storefront/phase3` = main + this memory commit, NOT pushed (nothing to push). **Nothing on my docket**; the brand re-syncs and follow-ups (brand A KEYCLOAK_CLIENT_ID line, SUPPORTED_LOCALES in playwright.config, E2E_SHIP_ADDRESS_JSON) are window 10's. Still open: #358's live proof (Stripe keys). Quiet until the manager writes. Machine NOT mine.
+Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** Done: #441 + #440 (PR #445 = `d67349a`). **#447 = PR #448 (code commit `084bea8`; head = this memory commit)** — perf.mjs overlays the Prism mock's GET /store with the brand's `perf/store.example.json` (validated, Prism on PERF_MOCK_PORT 4012; absent → unchanged); checks pending, report when they finish. Window 10 then writes brand C's and B's example. Still open: #358's live proof (Stripe keys). Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -792,6 +792,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`pnpm add` in this monorepo re-resolves unrelated peer suffixes** (Medusa, Vitest) in the lockfile
+  — three times now. Revert the lockfile and hand-add only the importer entries, then prove it with
+  `pnpm install --frozen-lockfile` (#358, #445, #448).
 
 - **`@platform/cms` lives in `cms/`, outside `packages/*`** — `pnpm --filter "./packages/*" build` skips it. After
   merging a window-6 change, also `pnpm --filter @platform/cms build`, or `src/lib/cms/*` shows TS errors
