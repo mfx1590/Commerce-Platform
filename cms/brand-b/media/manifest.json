@@ -1,0 +1,79 @@
+{
+  "brand": "brand-b",
+  "source": "commerce-platform-media/brand-b/manifest.json (outside the repo) — NOT YET GENERATED",
+  "generator": "pending: brand B's stills have not been produced. See ONBOARDING-GAPS.md.",
+  "licence": "to be recorded when the media is generated, as brand A's is",
+  "delivery": "Cloudinary: https://res.cloudinary.com/<cloud>/<image|video>/upload/<publicId>",
+  "slots": [
+    {
+      "slot": "home-hero-01",
+      "kind": "image",
+      "publicId": "brand-b/home-hero-01",
+      "source": "premium-4k/home-hero-01-3x2.png",
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A canvas overshirt on a workbench, sleeves pushed back."
+      }
+    },
+    {
+      "slot": "home-hero-02",
+      "kind": "image",
+      "publicId": "brand-b/home-hero-02",
+      "source": "premium-4k/home-hero-02-3x2.png",
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "Two folded pairs of drill trousers, seen from above."
+      }
+    },
+    {
+      "slot": "about-workshop",
+      "kind": "image",
+      "publicId": "brand-b/about-workshop",
+      "source": "premium-4k/about-workshop-3x2.png",
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A cutting table with a pattern weighted down at one corner."
+      }
+    },
+    {
+      "slot": "made-cloth-roll",
+      "kind": "image",
+      "publicId": "brand-b/made-cloth-roll",
+      "source": "premium-4k/made-cloth-roll-3x2.png",
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A part-unrolled bolt of cotton drill against a pale wall."
+      }
+    },
+    {
+      "slot": "made-seam-detail",
+      "kind": "image",
+      "publicId": "brand-b/made-seam-detail",
+      "source": "premium-4k/made-seam-detail-3x4.png",
+      "aspect": "3:4",
+      "alt": {
+        "en-GB": "A felled seam photographed close, the stitching visible."
+      }
+    },
+    {
+      "slot": "campaign-winter-hero",
+      "kind": "image",
+      "publicId": "brand-b/campaign-winter-hero",
+      "source": "premium-4k/campaign-winter-hero-3x2.png",
+      "aspect": "3:2",
+      "alt": {
+        "en-GB": "A moleskin jacket hanging on a peg by a door."
+      }
+    },
+    {
+      "slot": "og-default",
+      "kind": "image",
+      "publicId": "brand-b/og-default",
+      "source": "premium-4k/og-default-16x9.png",
+      "aspect": "16:9",
+      "alt": {
+        "en-GB": "The Stonecrop wordmark on a chalk background."
+      }
+    }
+  ]
+}

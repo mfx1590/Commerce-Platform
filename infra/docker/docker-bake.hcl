@@ -91,3 +91,8 @@ target "storefront-brand-a" {
   cache-from = cache_from("storefront-brand-a")
   cache-to   = cache_to("storefront-brand-a")
 }
+
+target "storefront-brand-b" {
+  cache-from = cache_from("storefront-brand-b")
+  cache-to   = cache_to("storefront-brand-b")
+}

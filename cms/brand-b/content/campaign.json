@@ -1,0 +1,63 @@
+[
+  {
+    "_id": "campaignLanding.en-GB.winter-weight",
+    "_type": "campaignLanding",
+    "locale": "en-GB",
+    "title": "Winter weight",
+    "slug": {
+      "_type": "slug",
+      "current": "winter-weight"
+    },
+    "campaignId": "winter-weight-2026",
+    "startsAt": "2026-10-01T00:00:00.000Z",
+    "endsAt": "2027-02-28T23:59:59.000Z",
+    "hero": {
+      "_type": "hero",
+      "eyebrow": "Winter weight",
+      "headline": "The heavy end of the list",
+      "subheadline": "Moleskin, drill and wool, in the weights that earn their keep between October and March.",
+      "layout": "full-bleed",
+      "ctas": [
+        {
+          "_type": "cta",
+          "_key": "campaign-cta",
+          "label": "See the winter pieces",
+          "href": "/products",
+          "variant": "primary"
+        }
+      ],
+      "image": {
+        "_type": "image",
+        "mediaSlot": "campaign-winter-hero"
+      }
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "campaign-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "campaign-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "campaign-p-span",
+                "text": "Nothing in this group is new this year. They are the same four pieces we made last winter, in the same cloth, because they were right."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaTitle": "Winter weight — Stonecrop",
+      "metaDescription": "Moleskin, drill and wool in winter weights. Made in small runs in Britain.",
+      "ogImage": {
+        "_type": "image",
+        "mediaSlot": "og-default"
+      }
+    }
+  }
+]
