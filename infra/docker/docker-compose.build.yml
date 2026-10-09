@@ -79,3 +79,9 @@ services:
     build:
       <<: *app-build
       dockerfile: apps/storefronts/brand-a/Dockerfile
+
+  storefront-brand-b:
+    image: commerce-platform/storefront-brand-b:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/storefronts/brand-b/Dockerfile
