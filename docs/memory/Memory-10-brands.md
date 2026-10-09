@@ -502,8 +502,25 @@ everything except the core question.
   added, and a correction to part 3 (four funnel tests, not three). **#439 items 6-8 appended**
   (comment 6076983753) with the exact nine Dockerfiles.
   **`app images` WILL be red** — said so in the PR body, with all nine named. The perf leg is green.
-  Still to do: tell the manager when the checks finish. The owner's CI monitor stays OFF (their
-  choice), so the check results come from them or the manager, not from me polling.
+  **Head is now `84c9c90`** after one more commit the manager asked for, and the PR body was
+  re-edited to carry what they named: trap numbers **13 and 20**, the warm-up log, and an explicit
+  "the live job WILL be red on brand C's leg until #441 lands".
+  That commit: brand A's `KEYCLOAK_CLIENT_ID ??= 'storefront-brand-a'` in its preserved
+  `next.config.mjs`, ahead of #441 part 2 — brand A is the one brand the starter's default is right
+  for, so it has never needed the line, and when part 2 fails closed brand A would be the app that
+  throws. Plus a **correction**: the live CI job runs `apps/*` on Prism but **brand storefronts on
+  the kept core** (#295), so the single-store mock (trap 20) does **not** block brand C in CI — its
+  CI leg fails on the warm-up alone. **Trap 20 is a LOCAL blocker.** LAUNCH 12.7 now reads
+  "✅ CI / ⛔ local".
+  **HOLDING `brands/phase3`** per the manager: #438 waits for window 3's #441, then I merge main and
+  the review runs; the nine COPY lines + C's Dockerfile/bake/compose come as the manager's
+  integration commit on top of my final head. The owner's CI monitor stays OFF (their choice), so
+  check results come from the manager, not from me polling.
+
+**Flake worth remembering:** brand A's `test/brand-i18n-seo.test.ts` "en-GB renders `<html lang>`
+through the real layout" failed once and passed twice, at **1329 ms**, while a `next build` and two
+dev servers were running. It renders the real layout. Not caused by my change; a slow test that
+flakes under machine load.
 
 ### Budget note
 
