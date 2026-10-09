@@ -118,7 +118,7 @@ const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
  *
  * The `<head>` gap is real either way: brand C has **no** `<head>` metadata assertion.
  * `e2e/journey.spec.ts` covers the locale behaviour that matters (en-US served with
- * `lang="en-US"`, `/de-DE` not served as de-DE) — see `ONBOARDING-GAPS.md` § 3.9.
+ * `lang="en-US"`, `/de-DE` not served as de-DE) — see `ONBOARDING-GAPS.md` § 3.12.
  */
 const LOCALE_PLURAL_SPECS = ['**/seo-head.spec.ts'];
 const LOCALE_PLURAL_TESTS = /in German is translated|offers hreflang alternates/;

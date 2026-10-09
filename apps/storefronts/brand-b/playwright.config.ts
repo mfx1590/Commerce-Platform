@@ -109,7 +109,7 @@ const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
  * This is a real coverage gap, not a tidy-up: brand B currently has **no** `<head>` metadata
  * assertion. `e2e/journey.spec.ts` covers the locale behaviour that matters (en-GB served with
  * `lang="en-GB"`, `/de-DE` not served as de-DE), and `apps/storefronts/brand-b/ONBOARDING-GAPS.md`
- * § 3.9 records what is missing so the next brand's author is not surprised.
+ * § 3.12 records what is missing so the next brand's author is not surprised.
  */
 const LOCALE_PLURAL_SPECS = ['**/seo-head.spec.ts'];
 const LOCALE_PLURAL_TESTS = /in German is translated|offers hreflang alternates/;

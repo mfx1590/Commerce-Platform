@@ -16,6 +16,12 @@ brand that is _not_ in the seed still needs.
 
 ## 1. Mechanical — a script can do all of this (#438's target)
 
+> **Written before #438, and #438 proved it optimistic.** The script does do all of this, and brand
+> C exists. But generating a brand whose locale the starter does not serve turned up five defects
+> this list does not mention (traps 13-17), one of which meant the generated app could not render a
+> single page. "Mechanical" meant "mechanical for a brand shaped like brand B". Read section 3
+> before trusting this one.
+
 | Step                          | File                                                                 | Why it is mechanical                                                                                                                                                                                                               |
 | ----------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Copy the three sync scripts   | `scripts/{sync-from-starter,merge-package-json,preserved-drift}.mjs` | Byte-identical from any existing brand. **Do not copy `starter-manifest.json` or `starter-preserved.json`** — those are the _other_ brand's records, and a new brand's first sync would read them and think the starter had moved. |
@@ -148,6 +154,98 @@ would reproduce three solved bugs.
     the list from the app's own routing; the exclusion comes out the day it lands.
 
 ---
+
+13. **THE BIG ONE: brand B proved nothing about cloning, because B's locale is one of the
+    starter's.** The starter serves `en-GB` and `de-DE` and writes those into its synced files as
+    literals. Brand B sells `en-GB`, so every literal B inherited happened to be right and the clone
+    looked clean. **Brand C sells `en-US` and nothing inherited is right** — measured by grep, not
+    guessed: **8 synced spec files, 43 `en-GB` occurrences**, plus `scripts/e2e-server.mjs`'s
+    warm-up path and `lighthouserc.json`'s two collect URLs.
+    Three consequences, which need three different answers:
+    - **`lighthouserc.json`** is the brand's (PRESERVED), so it can be fixed: it was measuring two
+      `/en-GB` 404s and reporting the result as a performance score. The generator now SUBSTITUTES
+      this file rather than copying it byte for byte.
+    - **`scripts/e2e-server.mjs`** warms `/en-GB` before declaring the app ready, and its `timed()`
+      returns null for any status >= 400 — so the warm-up never succeeds and `warmUp()` throws after
+      120 s. **e2e fails BEFORE the first test**, which looks nothing like a failing test.
+    - **The 8 specs** navigate to `/en-GB/...` and assert that URL back. **Excluding them would
+      delete the suite rather than port it**, so they are left in place and reported.
+      The last two are window 3's files and the sync replaces them, so a brand cannot fix them. **The
+      REQUEST**: take the locale PREFIX from `src/i18n/routing.ts`, which already reads
+      `SUPPORTED_LOCALES`, in the specs and in the warm-up path. Same shape as #441 parts 1 and 3 for
+      the locale LIST and the address.
+
+14. **The sharpest edge of 13, and the only part that stops the APP rather than the tests: no
+    message catalogue.** `src/i18n/request.ts` spreads
+    `(await import(...)).default` over the path `../../messages/<locale>.json` — **unguarded**;
+    the try/catch beside it covers only window 6's optional `content` catalogue. The locale it
+    resolves comes from `routing.locales`, i.e. `SUPPORTED_LOCALES`. So **a brand that correctly
+    declares its own locale and ships no catalogue for it throws on every page**, in dev, in
+    `next build` and in production alike. `messages/` holds only the starter's two.
+    **And the one test for it was vacuous.** `test/i18n.test.ts` has
+    `it('ships one per configured locale')`, which asserts the hard-coded set
+    `['de-DE.json', 'en-GB.json']` and never reads the configured locales — in a brand app vitest
+    sets no `SUPPORTED_LOCALES`, so `routing.locales` falls back to the starter's default and the
+    brand's own locale is never mentioned. **It passed on a brand C that could not serve a page.**
+    A test whose name describes an invariant it does not check is worse than no test: it answers the
+    question you would otherwise have gone and looked at.
+    The generator now writes `messages/<locale>.json` from the starter catalogue in the same
+    language, or from its first locale marked **UNTRANSLATED** when there is none — because copying
+    English into an `fr-FR` catalogue produces an app that renders, and an app that renders reports
+    nothing. Brand C PRESERVES `test/i18n.test.ts` so it can expect three catalogues and read the
+    locale out of `next.config.mjs`; that preservation comes out when window 3 fixes the starter's.
+
+15. **A substitution table cannot read prose, and will turn true sentences false.** Rewriting
+    `en-GB` to `en-US` everywhere produced two **false statements about the starter** in brand C's
+    generated files: that the starter defaults `SUPPORTED_LOCALES` to `'en-US,de-DE'`, and that
+    `seo-head.spec.ts` declares `['en-US', 'de-DE']`. Both were next to a file where the identical
+    rewrite was correct.
+    A locale literal is **data** in `lighthouserc.json` and **prose** everywhere else, and prose
+    distinguishes "the locale this brand sells" (rewrite it) from "the locale the starter serves"
+    (must not) — which a table cannot. The generator now computes pairs **per file** against
+    `LOCALE_DATA_FILES`, and `localeProse()` reports the blocks a human has to write. The same is
+    true of brand prose generally: "B is the first brand where the locale list is genuinely the
+    brand's own" cannot be mechanically retargeted at C, and `brand B` -> `brand C` makes it a lie.
+
+16. **A pure module's unit tests do not cover the CLI's adapter layer, and that is where the bug
+    was.** `new-brand-plan.mjs` touches no filesystem so it can be tested directly — the right
+    design, and it is why 45 tests were cheap. But `readTemplateMeta` in the CLI builds the template
+    object by reading the template's files, and it had no `locales` field. **Every unit test passed**
+    (the fixtures supplied one) and the real path threw `Cannot read properties of undefined`.
+    The lesson is the same shape as #408's: verify the thing that will actually run. The catalogue
+    writing in trap 14 was therefore proved by generating a throwaway `brand-d` with `fr-FR` and
+    checking the file on disk, not by a fixture.
+
+17. **A generated brand starts with a RED perf leg, and the generator cannot prevent it.**
+    `README.md` is one of the four files `sync-from-starter.mjs` **excludes**, so a generated brand
+    has no README — and `scripts/bundle-budget.mjs --verify` requires a
+    `<!-- bundle-budget:start --> ... <!-- bundle-budget:end -->` block in it whose route list and
+    budget column match `bundle-budget.json`. Without it: _"no block in README.md — run
+    --sync-readme"_. The table can only be written by `--sync-readme` **after a completed
+    `next build`**, which needs the shared machine. So writing the README is a manual step, and
+    until someone builds the brand its perf leg is red for a reason that has nothing to do with its
+    performance. (Brand B met the same gate from the other direction in #442: a **stale** block.)
+
+18. **Where cross-brand tooling lives is load-bearing, because `apps/storefronts/*` means "a
+    storefront".** `infra/ci/changes.sh` reduces every changed path under `apps/storefronts/` to its
+    first two segments and reports any that is not a measurable storefront as `perf_unmeasured`;
+    `.github/workflows/ci.yml` then does `exit 1` on a non-empty list. Putting the generator in
+    `apps/storefronts/scripts/` therefore turned the **perf** job red with _"storefront changed with
+    no perf script: apps/storefronts/scripts"_ and advice to add a `lighthouserc.json` to a
+    directory that is not a storefront. It also sits outside the brands window's documented paths
+    (`apps/storefronts/<brand>/**`).
+    It now lives in `apps/storefronts/brand-b/scripts/` — the template brand, whose suite already
+    holds its tests. A REQUEST proposes the real fix: let `changes.sh` ignore a directory with no
+    `package.json` (it already computes `measurable` that way), or give cross-brand tooling a home
+    outside `apps/storefronts/`.
+
+19. **A brand already in the seed must NOT be sent to the onboarding wizard.** The generator's
+    manual steps told brand C's author to create the store with `onboardStore` (#428) — but
+    `brand-c`'s store, legal entity, tax rate, shipping countries and publishable key are **already
+    in `packages/db`'s seed** (`SEED_IDS.*.brandC`; `packages/db/CLAUDE.md` says brand-a/b/c).
+    Following the advice would have created a **second store for the same brand**. `SEEDED_BRANDS`
+    now splits it: a seeded brand is told to CHECK the seeded store against the command line, and
+    only a brand that is genuinely new goes to the wizard (section 6 below).
 
 ## 4. What needed NOTHING, which is the good news
 
