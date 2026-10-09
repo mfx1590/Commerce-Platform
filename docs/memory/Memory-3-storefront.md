@@ -253,7 +253,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
      (NODE_ENV development/test, `next build`); anywhere else throw (`OidcConfigError`, the
      `SiteUrlError` shape). The starter's own e2e runs `next start` → `playwright.config.ts` webServer
      env passes `KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a'` explicitly (brands set their own).
-  2. **part 4:** `scripts/e2e-server.mjs` warm-up path = `/${defaultLocale}` from the app's routing
+  2. **DONE locally: part 4** (`src/i18n/locale-config.mjs` = the one definition; `scripts/e2e-warm.mjs` warms `/${defaultLocale}`, a 3xx fails at once naming `location`; `e2e/support/locale.ts` `localePath`/`localeUrl` replace every en-GB prefix literal; a brand must set `SUPPORTED_LOCALES` in its PRESERVED playwright.config.ts — the Playwright process never loads next.config): `scripts/e2e-server.mjs` warm-up path = `/${defaultLocale}` from the app's routing
      (SUPPORTED_LOCALES / DEFAULT_LOCALE through a tiny plain module both can import, or the env with
      the same default); a **3xx is NOT warm** — fail at once naming the `location`. Synced specs take
      the prefix from one `e2e/support/locale.ts` helper (43 literals in 8 files).

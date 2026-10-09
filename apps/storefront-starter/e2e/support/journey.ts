@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { localePath } from './locale';
 
 /**
  * The journey's building blocks, shared by `checkout.spec.ts` and `account.spec.ts` (#304, #312).
@@ -248,7 +249,7 @@ export const PURCHASABLE_SEARCH_LIMIT = 12;
  * spreads the cost; and when *nothing* is left, the failure says so.
  */
 export async function openPurchasableProduct(page: Page): Promise<{ handle: string; sku: string }> {
-  await page.goto('/en-GB/products');
+  await page.goto(localePath('/products'));
   await expect(page.getByRole('heading', { level: 1, name: 'All products' })).toBeVisible();
 
   const handles = [...new Set((await readCards(page)).map((card) => card.handle))].slice(
@@ -259,7 +260,7 @@ export async function openPurchasableProduct(page: Page): Promise<{ handle: stri
 
   const rejected: string[] = [];
   for (const handle of handles) {
-    await page.goto(`/en-GB/products/${handle}`);
+    await page.goto(localePath(`/products/${handle}`));
     const form = page.getByTestId('add-to-cart');
     await expect(form, `${handle} renders an add-to-cart form`).toHaveCount(1);
 

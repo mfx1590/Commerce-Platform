@@ -10,6 +10,7 @@ import {
   clickWhenReady,
   openPurchasableProduct,
 } from './support/journey';
+import { localePath, localeUrl } from './support/locale';
 
 /**
  * Account area against the Keycloak **customers** realm.
@@ -96,27 +97,27 @@ async function signIn(page: Page): Promise<void> {
 test('an unauthenticated visitor is sent to sign-in and back to the page they asked for', async ({
   page,
 }) => {
-  await page.goto('/en-GB/account/orders');
+  await page.goto(localePath('/account/orders'));
 
   // Off to Keycloak, carrying no session of ours.
   await expect(page).toHaveURL(new RegExp(`^${KEYCLOAK_URL}/realms/${REALM}/`));
   await signIn(page);
 
   // ...and back to the order history, not to a generic account home.
-  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/);
+  await expect(page).toHaveURL(localeUrl('/account/orders$'));
   await expect(page.getByRole('heading', { level: 1, name: 'Order history' })).toBeVisible();
 });
 
 test('a signed-in customer reaches the account home and the order history', async ({ page }) => {
   // Ours and Keycloak's, so real against either backend: the session, the two routes, the copy.
-  await page.goto('/en-GB/account');
+  await page.goto(localePath('/account'));
   await signIn(page);
 
-  await expect(page).toHaveURL(/\/en-GB\/account$/);
+  await expect(page).toHaveURL(localeUrl('/account$'));
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Order history' }).click();
-  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/, { timeout: NAVIGATION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/account/orders$'), { timeout: NAVIGATION_TIMEOUT });
   await expect(page.getByRole('heading', { level: 1, name: 'Order history' })).toBeVisible();
 });
 
@@ -130,9 +131,9 @@ test('mock-only: the profile and the order history render the contract examples'
       'core works. The core-backed version waits for #303.',
   );
 
-  await page.goto('/en-GB/account');
+  await page.goto(localePath('/account'));
   await signIn(page);
-  await expect(page).toHaveURL(/\/en-GB\/account$/);
+  await expect(page).toHaveURL(localeUrl('/account$'));
 
   // The two values below are **Prism's examples**, not ours and not the seed's: the example
   // customer of `GET /store/customers/me` and the example order of the order list. Naming a
@@ -141,20 +142,20 @@ test('mock-only: the profile and the order history render the contract examples'
   await expect(page.getByText('jane@example.com')).toBeVisible();
 
   await page.getByRole('link', { name: 'Order history' }).click();
-  await expect(page).toHaveURL(/\/en-GB\/account\/orders$/, { timeout: NAVIGATION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/account/orders$'), { timeout: NAVIGATION_TIMEOUT });
   await expect(page.getByRole('link', { name: /Order #1000/ })).toBeVisible();
   await expect(page.getByTestId('price-value').first()).toBeVisible();
 });
 
 test('signing out drops the session', async ({ page }) => {
-  await page.goto('/en-GB/account');
+  await page.goto(localePath('/account'));
   await signIn(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Sign out' }).click();
 
   // Back on the storefront, and the account area asks for sign-in again.
-  await page.goto('/en-GB/account');
+  await page.goto(localePath('/account'));
   await expect(page).toHaveURL(new RegExp(`^${KEYCLOAK_URL}/realms/${REALM}/`));
 });
 
@@ -176,7 +177,7 @@ test('a signed-in customer can buy — linked when the core takes the token, as 
 }) => {
   test.setTimeout(JOURNEY_TIMEOUT);
 
-  await page.goto('/en-GB/account');
+  await page.goto(localePath('/account'));
   await signIn(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
 
@@ -203,7 +204,7 @@ test('a stale session still buys — the token is refused, the session dropped, 
   );
   test.setTimeout(JOURNEY_TIMEOUT);
 
-  await page.goto('/en-GB/account');
+  await page.goto(localePath('/account'));
   await signIn(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Your account' })).toBeVisible();
 
@@ -226,7 +227,7 @@ test('a stale session still buys — the token is refused, the session dropped, 
 async function buy(page: Page, label: string): Promise<void> {
   const chosen = await openPurchasableProduct(page);
   await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
-  await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: SERVER_ACTION_TIMEOUT });
   const cart = await captureOrder(page, 'the cart');
   expect(cart.lines.map((line) => line.sku)).toContain(chosen.sku);
 
@@ -237,7 +238,7 @@ async function buy(page: Page, label: string): Promise<void> {
   const reviewed = await captureOrder(page, 'the review step');
 
   await clickWhenReady(page, page.getByRole('button', { name: 'Place order' }));
-  await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/orders/[^/]+$'), { timeout: SERVER_ACTION_TIMEOUT });
   await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
 
   const placed = await captureOrder(page, 'the confirmation');
