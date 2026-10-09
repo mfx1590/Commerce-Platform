@@ -20,14 +20,17 @@ import {
   rewrite,
   runtimeDefaults,
   substitutions,
-} from '../../scripts/new-brand-plan.mjs';
+} from '../scripts/new-brand-plan.mjs';
 import { locales as starterRoutingLocales } from '../src/i18n/routing';
 
 /**
- * `apps/storefronts/scripts/new-brand-plan.mjs` — the rules behind `new-brand.mjs` (#438).
+ * `apps/storefronts/brand-b/scripts/new-brand-plan.mjs` — the rules behind `new-brand.mjs` (#438).
  *
- * It lives in brand B's suite because brand B is the generator's template and there is no package at
- * `apps/storefronts/`; the same arrangement as `brand-media.test.ts`, which reaches into
+ * It lives in brand B's suite because brand B is the generator's template, and the generator lives
+ * there too: `apps/storefronts/*` must keep meaning "a storefront", because `infra/ci/changes.sh`
+ * reduces every changed path under it to a storefront directory and the perf gate fails on one with
+ * no `perf` script (#438 — `apps/storefronts/scripts` was reported as an unmeasurable storefront).
+ * It is also outside this window's documented paths (`apps/storefronts/<brand>/**`); the same arrangement as `brand-media.test.ts`, which reaches into
  * `cms/brand-a/scripts/`. The module touches no filesystem, so these are ordinary unit tests.
  *
  * Note for whoever runs the generator: this test file is brand B's and is **not** copied into a new
@@ -267,11 +270,26 @@ describe('manualSteps — what the script could not do', () => {
   });
 
   it('for an unwritten jurisdiction, admits it does not know the law', () => {
-    const us = manualSteps(target).find((s) => s.step.includes('legal documents'));
-    expect(us?.why).toMatch(/no brand has been written for US yet/);
-    expect(us?.why).toMatch(/from scratch/);
+    // US used to be the example here. #438 wrote brand C's US drafts, so US is now KNOWN and the
+    // honest example is a jurisdiction nobody has written: the point of the test is that the
+    // script never invents instruments, not that any particular country is missing.
+    const jp = manualSteps({ ...target, jurisdiction: 'JP' }).find((s) =>
+      s.step.includes('legal documents'),
+    );
+    expect(jp?.why).toMatch(/no brand has been written for JP yet/);
+    expect(jp?.why).toMatch(/from scratch/);
     // It must not invent instruments it has never been given.
-    expect(us?.why).not.toMatch(/Act \d{4}/);
+    expect(jp?.why).not.toMatch(/Act \d{4}/);
+    expect(jp?.why).not.toMatch(/UCC|CCPA|GDPR/);
+  });
+
+  it('for US, cites brand C and the fact that makes US different', () => {
+    const us = manualSteps(target).find((s) => s.step.includes('legal documents'));
+    expect(us?.why).toContain('cms/brand-c/content/legal.json');
+    // The trap a brand porting A's or B's returns document would fall into: promising a statutory
+    // cancellation right that does not exist in the US.
+    expect(us?.why).toMatch(/Cooling-Off Rule, which does not cover online sales/);
+    expect(us?.why).toMatch(/Still needs a lawyer/);
   });
 });
 

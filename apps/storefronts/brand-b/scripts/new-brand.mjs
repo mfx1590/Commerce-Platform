@@ -2,7 +2,7 @@
 /**
  * Create a new brand storefront from an existing one (#438).
  *
- *   node apps/storefronts/scripts/new-brand.mjs brand-c \
+ *   node apps/storefronts/brand-b/scripts/new-brand.mjs brand-c \
  *     --name "Brand C" --currency USD --locale en-US --port 3103 --jurisdiction US
  *
  * Add `--dry-run` to print the plan and write nothing.
@@ -52,7 +52,11 @@ import {
 } from './new-brand-plan.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const storefronts = path.resolve(here, '..');
+// This script lives in the TEMPLATE BRAND's scripts/ — `apps/storefronts/<template>/scripts/` —
+// not in `apps/storefronts/scripts/`, because `infra/ci/changes.sh` reduces every changed path
+// under `apps/storefronts/` to a storefront directory and the perf gate exits 1 on one with no
+// `perf` script. So `..` is the brand, and `../..` is the storefronts directory.
+const storefronts = path.resolve(here, '..', '..');
 const repo = path.resolve(storefronts, '..', '..');
 
 const log = (message) => console.log(message);

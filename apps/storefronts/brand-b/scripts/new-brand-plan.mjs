@@ -55,6 +55,24 @@ export const KNOWN_JURISDICTIONS = {
       'UK GDPR / Data Protection Act 2018 (ICO)',
     ],
   },
+  /**
+   * Added by #438, from brand C's drafts. The instruments are the shape of the difference, not a
+   * translation of the European ones: there is **no federal right to cancel an online order** in
+   * the US (the FTC's Cooling-Off Rule is for door-to-door and other off-premises sales), prices
+   * are quoted WITHOUT sales tax rather than inclusive of VAT, and privacy is state law rather
+   * than one statute. A returns document ported from brand A or B would promise a statutory right
+   * that does not exist and quote a tax-inclusive price that is wrong at checkout.
+   */
+  US: {
+    label: 'United States',
+    reference: 'cms/brand-c/content/legal.json',
+    instruments: [
+      'UCC Article 2 as adopted by the state',
+      'FTC Mail, Internet, or Telephone Order Merchandise Rule (the 30-day rule — and NOT the Cooling-Off Rule, which does not cover online sales)',
+      'CCPA/CPRA for California residents, plus the state data-security law (NY SHIELD for brand C)',
+      'COPPA and CAN-SPAM',
+    ],
+  },
 };
 
 export class NewBrandError extends Error {
@@ -66,7 +84,7 @@ export class NewBrandError extends Error {
 
 export const USAGE = `
 Usage:
-  node apps/storefronts/scripts/new-brand.mjs <code> \\
+  node apps/storefronts/brand-b/scripts/new-brand.mjs <code> \\
     --name "<Brand name>" --currency <ISO> --locale <xx-XX>[,<xx-XX>] \\
     --port <number> --jurisdiction <ISO-3166-alpha-2> [--template <brand-code>] [--dry-run]
 
