@@ -14,6 +14,7 @@ import {
   readCards,
   type CapturedOrder,
 } from './support/journey';
+import { LOCALES, localePath, localeUrl } from './support/locale';
 
 /**
  * The journey the storefront exists to support, end to end — against **either** backend.
@@ -67,14 +68,14 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
     chosen = await openPurchasableProduct(page);
 
     // Back to the listing and in through its own link: the card and the page it leads to agree.
-    await page.goto('/en-GB/products');
+    await page.goto(localePath('/products'));
     const card = page
       .locator(`[data-testid="product-card"][data-handle="${chosen.handle}"]`)
       .first();
     const cardTitle = (await card.getByRole('heading').innerText()).trim();
     await clickWhenReady(page, card.getByRole('heading').getByRole('link'));
 
-    await expect(page).toHaveURL(new RegExp(`/en-GB/products/${chosen.handle}$`), {
+    await expect(page).toHaveURL(localeUrl(`/products/${chosen.handle}$`), {
       timeout: NAVIGATION_TIMEOUT,
     });
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(cardTitle);
@@ -90,7 +91,7 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
 
   await test.step('cart: the variant that was added is the line in the cart', async () => {
     // The add-to-cart action answers when the core has: its own deadline, not the 5 s default.
-    await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
+    await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: SERVER_ACTION_TIMEOUT });
     await expect(page.getByRole('heading', { level: 1, name: 'Cart' })).toBeVisible();
 
     const cart = await captureOrder(page, 'the cart');
@@ -112,7 +113,7 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
       expect(enteredAddress, 'against the core the journey fills in the address step').toBe(true);
     }
 
-    await expect(page).toHaveURL(/\/en-GB\/checkout\/review$/);
+    await expect(page).toHaveURL(localeUrl('/checkout/review$'));
     await expect(page.getByRole('heading', { level: 1, name: 'Review your order' })).toBeVisible();
     // Whichever steps this backend required, the address on the review page is the one entered —
     // either by this spec, or by the fixture the mock returns.
@@ -128,7 +129,7 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
   });
 
   await test.step('confirmation: the order is the one that was reviewed', async () => {
-    await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
+    await expect(page).toHaveURL(localeUrl('/orders/[^/]+$'), { timeout: SERVER_ACTION_TIMEOUT });
     await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
     await expect(page.getByText('Order placed')).toBeVisible();
 
@@ -171,7 +172,7 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
   await test.step('afterwards: the cart that was ordered is gone', async () => {
     // The second tie to this run, and the only one the mock can show: placing the order consumed
     // the cart. A journey that landed on some other order's page would still have its cart.
-    await page.goto('/en-GB/cart');
+    await page.goto(localePath('/cart'));
     await expect(page.getByRole('heading', { name: 'Your cart is empty' })).toBeVisible();
     await expect(page.getByTestId('order-line')).toHaveCount(0);
   });
@@ -179,8 +180,8 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
 
 test('checkout steps cannot be skipped', async ({ page }) => {
   // No cart at all: every checkout URL sends the customer back to the cart.
-  await page.goto('/en-GB/checkout/review');
-  await expect(page).toHaveURL(/\/en-GB\/cart$/);
+  await page.goto(localePath('/checkout/review'));
+  await expect(page).toHaveURL(localeUrl('/cart$'));
   await expect(page.getByRole('heading', { name: 'Your cart is empty' })).toBeVisible();
 });
 
@@ -193,7 +194,7 @@ test('an unknown product handle is a 404 against the core', async ({ page }) => 
     'Prism answers every handle with the contract example; only the core can 404.',
   );
 
-  const response = await page.goto('/en-GB/products/no-such-product-handle-exists');
+  const response = await page.goto(localePath('/products/no-such-product-handle-exists'));
   expect(response?.status()).toBe(404);
 });
 
@@ -206,7 +207,7 @@ test('the sort control puts its choice in the URL and marks it current', async (
   test.setTimeout(LISTING_TIMEOUT);
   // What can be checked against either backend: the control itself. Whether the *results* follow
   // is the next test's business.
-  await page.goto('/en-GB/products');
+  await page.goto(localePath('/products'));
   await clickWhenReady(page, page.getByRole('link', { name: 'Price: low to high' }));
 
   await expect(page).toHaveURL(/sort=price_asc/, { timeout: NAVIGATION_TIMEOUT });
@@ -234,7 +235,7 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
 
   test.setTimeout(LISTING_TIMEOUT);
 
-  await page.goto('/en-GB/products');
+  await page.goto(localePath('/products'));
   const all = await readCards(page);
   // Against the core this is a failure, not a skip: with fewer than two products nothing here can
   // be observed, and a store seeded that thin should not report a green listing test.
@@ -265,7 +266,7 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
   });
 
   await test.step('a category shows that category and nothing else', async () => {
-    await page.goto('/en-GB/products');
+    await page.goto(localePath('/products'));
     const target = all.find((card) => card.category !== '');
     expect(target, 'at least one listed product has a category').toBeDefined();
 
@@ -281,7 +282,7 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
       .evaluateAll((elements) => elements.map((element) => element.getAttribute('data-category')));
 
     await clickWhenReady(page, link);
-    await expect(page).toHaveURL(new RegExp(`/en-GB/categories/${target!.category}$`), {
+    await expect(page).toHaveURL(localeUrl(`/categories/${target!.category}$`), {
       timeout: NAVIGATION_TIMEOUT,
     });
     await expect(
@@ -317,6 +318,10 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
 test('the same page in German is translated and prices are formatted for de-DE', async ({
   page,
 }) => {
+  test.skip(
+    !LOCALES.includes('de-DE'),
+    "de-DE is not one of this app's locales (SUPPORTED_LOCALES) — nothing German to check",
+  );
   await page.goto('/de-DE/products');
   await expect(page.getByRole('heading', { level: 1, name: 'Alle Produkte' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Preis: aufsteigend' })).toBeVisible();
@@ -329,9 +334,10 @@ test('the root redirects to the default locale and offers hreflang alternates', 
   page,
 }) => {
   await page.goto('/');
-  await expect(page).toHaveURL(/\/en-GB$/);
+  await expect(page).toHaveURL(localeUrl('$'));
 
-  for (const locale of ['en-GB', 'de-DE']) {
+  // One alternate per locale the app routes (#441 part 1).
+  for (const locale of LOCALES) {
     await expect(page.locator(`link[hreflang="${locale}"]`)).toHaveCount(1);
   }
 });

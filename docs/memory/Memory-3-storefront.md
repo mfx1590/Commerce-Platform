@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done today: #382 (PR #383), **#389 (PR #392, `ad7cc5a`; lhci 0.15.1, PLP LCP element = `<h1>`)**, **#390 (PR #395, `d872a19`; scripts/warm-urls.mjs)**. **#330 rendering half = PR #403 ("Closes #330"), reviewed head `7f195be` (Opus static review MERGE; the hero.tsx wrap and the cms README line recorded as manager exceptions, window 6 told on #330); this memory-only commit follows it** — on `storefront/phase3-330`: `HeroMedia` (server markup around the poster) + `HeroLoop` ('use client', memo) — after `load`, muted loop, pause control, never under reduced motion or in an e2e build; CSP `media-src 'self' https://res.cloudinary.com`. Bundle budget: home 131.1 kB (136), content/campaign 132.9 kB (145; +1.1 kB). **Still open: #358's live proof** (Stripe test keys). Never block on a question dialog: send the decision to the manager (root CLAUDE.md, 4451e7c).
+Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** **#441 + #440 = PR #445 (code commit `c5386d1`; head = this memory commit)** — "Closes #441, Closes #440"; checks pending, report when they finish; no further pushes until the manager says. Mock e2e 2026-10-09 (machine granted, released): default 75 = 67 / 8 (== main CI baseline 75 = 67 / 8); SUPPORTED_LOCALES=en-GB 51 = 42 / 9. Brand follow-ups (window 10): brand A `KEYCLOAK_CLIENT_ID ??= 'storefront-brand-a'` (routed into #438); every brand sets SUPPORTED_LOCALES in next.config AND its preserved playwright.config.ts, E2E_SHIP_ADDRESS_JSON there, KEYCLOAK_CLIENT_ID in next.config. Still open: #358's live proof (Stripe keys).
 
 ## Identity (does not change)
 
@@ -245,6 +245,29 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       empty-in-empty-out test; the `SLUG` regex drops a slug with a dot.
 
 ## In progress
+
+- **#441 + #440 (2026-10-09) — ALL PARTS DONE → PR #445 (code commit `c5386d1`).** Plan as confirmed: Each part with
+  a test that fails first; brand A + starter behaviour byte-identical (same suite counts).
+  1. **DONE locally (this commit): #441 part 2 (security, FIRST):** `src/lib/auth/oidc.ts` — `KEYCLOAK_CLIENT_ID` unset → the
+     documented dev default `storefront-brand-a` ONLY where `siteUrl()` allows its default
+     (NODE_ENV development/test, `next build`); anywhere else throw (`OidcConfigError`, the
+     `SiteUrlError` shape). The starter's own e2e runs `next start` → `playwright.config.ts` webServer
+     env passes `KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a'` explicitly (brands set their own).
+  2. **DONE locally: part 4** (`src/i18n/locale-config.mjs` = the one definition; `scripts/e2e-warm.mjs` warms `/${defaultLocale}`, a 3xx fails at once naming `location`; `e2e/support/locale.ts` `localePath`/`localeUrl` replace every en-GB prefix literal; a brand must set `SUPPORTED_LOCALES` in its PRESERVED playwright.config.ts — the Playwright process never loads next.config): `scripts/e2e-server.mjs` warm-up path = `/${defaultLocale}` from the app's routing
+     (SUPPORTED_LOCALES / DEFAULT_LOCALE through a tiny plain module both can import, or the env with
+     the same default); a **3xx is NOT warm** — fail at once naming the `location`. Synced specs take
+     the prefix from one `e2e/support/locale.ts` helper (43 literals in 8 files).
+  3. **DONE locally: part 1** (list: 75 tests default, 51 with SUPPORTED_LOCALES=en-GB): `seo-head.spec.ts` + `checkout.spec.ts` derive the locale list from routing; the
+     hreflang count = locales + 1 (x-default); the German test runs only when `de-DE` is configured
+     (skip with the reason otherwise).
+  4. **DONE locally: part 3** (`e2e/support/ship-address.ts`): `completeAddressStep` takes the address from `E2E_SHIP_ADDRESS_JSON` (validated),
+     default the NL address; the four funnel tests unchanged for the starter.
+  5. **DONE locally: part 5 + #440** (`src/i18n/catalogue.ts`; plus sign-out clears the cookie BEFORE resolving the provider, so an unset client id never keeps a customer signed in): `test/i18n.test.ts` expects one catalogue per configured locale (and one
+     exists for each); `vitest.config.ts` passes `SUPPORTED_LOCALES` / `DEFAULT_LOCALE` from the env
+     with today's defaults; `src/i18n/request.ts` fails loudly naming the missing catalogue (not a
+     bare MODULE_NOT_FOUND 500).
+  Gates per part (lint, format, typecheck, unit); one mock e2e run at the end with the machine
+  granted (starter counts unchanged).
 
 - **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
   #303 PR C; the `refreshTokens` / `tokenEndpoint` narrowing to the provider half rides with it).**

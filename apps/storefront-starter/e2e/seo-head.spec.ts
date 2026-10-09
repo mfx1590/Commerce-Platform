@@ -1,5 +1,7 @@
 import http from 'node:http';
 import { expect, test } from '@playwright/test';
+// The app's own locales (#441 part 1): a one-locale brand emits one alternate plus x-default.
+import { LOCALES } from './support/locale';
 
 /**
  * Where the metadata is in the HTML the server sends (#274).
@@ -37,8 +39,6 @@ const BROWSER_AGENTS = {
   // both as "no user agent" and streams, so the middleware has to catch both.
   'empty user-agent header': '',
 } as const satisfies Record<string, string | null>;
-
-const LOCALES = ['en-GB', 'de-DE'] as const;
 
 /** Every one of these must sit before `</head>`; `count` is how many the route must carry. */
 const HEAD_TAGS = [
