@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 (end of day) · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done today: #382 (PR #383), #389 (PR #392, `ad7cc5a`), #390 (PR #395, `d872a19`), **#330 rendering half (PR #403, `b86a42a`; #330 closed, both halves in)**. Branch `storefront/phase3` = main `b86a42a` + this memory commit, NOT pushed (nothing to push); side branches `storefront/phase3-330` / `-390` are merged and can go. **Nothing assigned next.** **Still open: #358's live proof** (Stripe test keys). Quiet until the manager writes; never block on a question dialog — message the manager. Machine NOT mine.
+Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · main `088d997` merged · **Manager = "Manager session five"** (repo root; "Project manager handoff" retired). **CRITICAL PATH: #441 + #440, ONE PR "Closes #441, Closes #440"** (brand C #438 cannot run e2e until the starter stops assuming brand A). Build slot is mine; the MACHINE is not — ask before any e2e/build/Lighthouse. Still open: #358's live proof (Stripe keys).
 
 ## Identity (does not change)
 
@@ -245,6 +245,29 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       empty-in-empty-out test; the `SLUG` regex drops a slug with a dot.
 
 ## In progress
+
+- **#441 + #440 (2026-10-09) — PLAN, sent to the manager for confirmation (> ~20 calls).** Each part with
+  a test that fails first; brand A + starter behaviour byte-identical (same suite counts).
+  1. **DONE locally (this commit): #441 part 2 (security, FIRST):** `src/lib/auth/oidc.ts` — `KEYCLOAK_CLIENT_ID` unset → the
+     documented dev default `storefront-brand-a` ONLY where `siteUrl()` allows its default
+     (NODE_ENV development/test, `next build`); anywhere else throw (`OidcConfigError`, the
+     `SiteUrlError` shape). The starter's own e2e runs `next start` → `playwright.config.ts` webServer
+     env passes `KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a'` explicitly (brands set their own).
+  2. **part 4:** `scripts/e2e-server.mjs` warm-up path = `/${defaultLocale}` from the app's routing
+     (SUPPORTED_LOCALES / DEFAULT_LOCALE through a tiny plain module both can import, or the env with
+     the same default); a **3xx is NOT warm** — fail at once naming the `location`. Synced specs take
+     the prefix from one `e2e/support/locale.ts` helper (43 literals in 8 files).
+  3. **part 1:** `seo-head.spec.ts` + `checkout.spec.ts` derive the locale list from routing; the
+     hreflang count = locales + 1 (x-default); the German test runs only when `de-DE` is configured
+     (skip with the reason otherwise).
+  4. **part 3:** `completeAddressStep` takes the address from `E2E_SHIP_ADDRESS_JSON` (validated),
+     default the NL address; the four funnel tests unchanged for the starter.
+  5. **part 5 + #440:** `test/i18n.test.ts` expects one catalogue per configured locale (and one
+     exists for each); `vitest.config.ts` passes `SUPPORTED_LOCALES` / `DEFAULT_LOCALE` from the env
+     with today's defaults; `src/i18n/request.ts` fails loudly naming the missing catalogue (not a
+     bare MODULE_NOT_FOUND 500).
+  Gates per part (lint, format, typecheck, unit); one mock e2e run at the end with the machine
+  granted (starter counts unchanged).
 
 - **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
   #303 PR C; the `refreshTokens` / `tokenEndpoint` narrowing to the provider half rides with it).**
