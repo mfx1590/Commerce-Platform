@@ -1,0 +1,185 @@
+{
+  "nav": {
+    "shop": "Shop",
+    "about": "About",
+    "account": "Account",
+    "cart": "Cart",
+    "main": "Main",
+    "shipsTo": "Ships to {country} · Prices in {currency}",
+    "copyright": "© {year} {store}"
+  },
+  "common": {
+    "noImage": "No image",
+    "sale": "Sale",
+    "change": "Change",
+    "continueShopping": "Continue shopping",
+    "locale": "Language",
+    "currency": "Currency",
+    "pauseVideo": "Pause video",
+    "playVideo": "Play video"
+  },
+  "home": {
+    "intro": "A starter storefront rendering live data from the Store API. Every brand app is generated from this template and overrides tokens, slots and route files — never the shared kit.",
+    "shopAll": "Shop all products",
+    "thisStore": "This store",
+    "code": "Code",
+    "shipsTo": "Ships to",
+    "currencies": "Currencies",
+    "locales": "Locales",
+    "default": "default {value}",
+    "offline": {
+      "title": "Store API not reachable",
+      "body": "The storefront could not load GET /store. Start the Prism mock with `pnpm mock` (or the whole stack with `pnpm dev`) and reload.",
+      "config": "The client reads STORE_API_URL, falling back to MOCK_API_URL and then http://localhost:4010."
+    }
+  },
+  "plp": {
+    "allProducts": "All products",
+    "count": "{count, plural, one {# product} other {# products}}",
+    "matching": " matching “{query}”",
+    "empty": "No products match these filters. Try clearing the search or choosing another category.",
+    "sort": "Sort",
+    "sortOptions": {
+      "relevance": "Relevance",
+      "price_asc": "Price: low to high",
+      "price_desc": "Price: high to low",
+      "newest": "Newest"
+    },
+    "search": "Search products",
+    "searchAction": "Search",
+    "categories": "Categories",
+    "pagination": "Pagination",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {page}",
+    "metaDescription": "Browse the full catalogue: filter by category, search, and sort by price or newest."
+  },
+  "pdp": {
+    "breadcrumb": "Breadcrumb",
+    "products": "Products",
+    "description": "Description",
+    "addToCart": "Add to cart",
+    "unavailable": "Unavailable",
+    "sku": "SKU {sku}",
+    "originalPrice": "Original price",
+    "stock": {
+      "in_stock": "In stock",
+      "low_stock": "Only {quantity} left",
+      "backorder": "On backorder — ships when restocked",
+      "out_of_stock": "Out of stock"
+    },
+    "chooseOption": "Choose an option before adding to the cart.",
+    "reviews": {
+      "title": "Customer reviews",
+      "summary": "{average} out of 5, from {count, plural, one {# review} other {# reviews}}",
+      "rating": "{rating} out of 5",
+      "verified": "Verified purchase"
+    }
+  },
+  "cart": {
+    "title": "Cart",
+    "empty": {
+      "title": "Your cart is empty",
+      "body": "Nothing here yet — have a look at what is in stock.",
+      "action": "Browse products"
+    },
+    "quantity": "Quantity",
+    "update": "Update",
+    "remove": "Remove",
+    "checkout": "Checkout",
+    "expired": "Your cart has expired. Please start again."
+  },
+  "totals": {
+    "subtotal": "Subtotal",
+    "discount": "Discount",
+    "shipping": "Delivery",
+    "tax": "Tax",
+    "total": "Total"
+  },
+  "checkout": {
+    "progress": "Checkout progress",
+    "steps": {
+      "address": "Address",
+      "shipping": "Delivery",
+      "payment": "Payment",
+      "review": "Review"
+    },
+    "address": {
+      "title": "Where should it go?",
+      "email": "Email",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "company": "Company (optional)",
+      "line1": "Address",
+      "line2": "Apartment, suite (optional)",
+      "postalCode": "Postal code",
+      "city": "City",
+      "region": "Region (optional)",
+      "country": "Country code",
+      "phone": "Phone (optional)",
+      "submit": "Continue to delivery"
+    },
+    "shipping": {
+      "title": "How should it get there?",
+      "legend": "Delivery option",
+      "none": "No delivery options are available for this address. Go back and check the address.",
+      "submit": "Continue to payment"
+    },
+    "payment": {
+      "title": "How would you like to pay?",
+      "method": "Payment method",
+      "manual": "Pay on invoice",
+      "manualBody": "The order is placed now; payment is arranged separately with the shop.",
+      "failed": "Payment was not authorised. Choose a payment method and try again.",
+      "submit": "Continue to review",
+      "card": "Card",
+      "cardBody": "Enter your card on the next step. Card details go straight to our payment provider, Stripe — never to this shop.",
+      "none": "No payment method is available for this shop right now. Please contact us to complete your order."
+    },
+    "review": {
+      "title": "Review your order",
+      "deliveryAddress": "Delivery address",
+      "deliveryAndPayment": "Delivery and payment",
+      "placeOrder": "Place order",
+      "idempotencyNote": "Placing the order sends an idempotency key, so a retry after a network error cannot create a second order.",
+      "cardNote": "Placing the order checks your card and reserves the amount; your card is charged once the shop confirms the order. Card details go straight to Stripe — never to this shop.",
+      "cardFailed": "Your card was not authorised. Please check the details or try another card.",
+      "cardUnavailable": "Card payment is not available right now.",
+      "choosePayment": "Choose another payment method",
+      "priceChanged": "A price changed since you reviewed your order. Please check the new total and place it again.",
+      "threeDSecureAbandoned": "The card check with your bank was not completed, so nothing was charged and your order was not placed. Your cart is unchanged — you can try again."
+    },
+    "confirmation": {
+      "badge": "Order placed",
+      "title": "Thank you",
+      "delivery": "Delivery",
+      "unavailable": "Order not available",
+      "unavailableBody": "This order can only be shown to whoever placed it. Sign in to see the orders in your account.",
+      "goToAccount": "Go to your account",
+      "deliveryAddress": "Delivery address",
+      "followSignedIn": "You can follow its status in your account:",
+      "orderHistory": "Order history",
+      "followGuest": "Please keep your order number, #{order} — you will need it if you contact us about this order.",
+      "contactEmail": "Email",
+      "bodyByStatus": {
+        "pending": "Order #{order} has been placed and is being processed.",
+        "confirmed": "Order #{order} has been placed and is being processed.",
+        "processing": "Order #{order} is on its way.",
+        "completed": "Order #{order} has been delivered.",
+        "cancelled": "Order #{order} has been cancelled."
+      },
+      "statusLabel": "Status:",
+      "status": {
+        "pending": "Received",
+        "confirmed": "Confirmed",
+        "processing": "Processing",
+        "completed": "Completed",
+        "cancelled": "Cancelled"
+      }
+    },
+    "errors": {
+      "generic": "Something went wrong. Please try again.",
+      "correctFields": "Please correct the highlighted fields."
+    }
+  }
+}

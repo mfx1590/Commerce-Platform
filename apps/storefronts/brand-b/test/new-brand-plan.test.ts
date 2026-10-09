@@ -3,15 +3,25 @@ import {
   BRAND_CODE,
   KNOWN_JURISDICTIONS,
   NewBrandError,
+  STARTER_LOCALES,
   TEMPLATE_FILES,
+  camelForm,
   devPublishableKey,
   e2eExclusions,
+  LOCALE_DATA_FILES,
+  SEEDED_BRANDS,
+  localeMismatch,
+  localePairs,
+  localeProse,
   manualSteps,
+  messageCatalogues,
   parseArgs,
+  proseForms,
   rewrite,
   runtimeDefaults,
   substitutions,
 } from '../../scripts/new-brand-plan.mjs';
+import { locales as starterRoutingLocales } from '../src/i18n/routing';
 
 /**
  * `apps/storefronts/scripts/new-brand-plan.mjs` — the rules behind `new-brand.mjs` (#438).
@@ -109,8 +119,8 @@ describe('parseArgs — a generator that guesses is worse than one that stops', 
 });
 
 describe('substitutions', () => {
-  const template = { code: 'brand-b', name: 'Stonecrop', port: 3102 };
-  const target = { code: 'brand-c', name: 'Brand C', port: 3103 };
+  const template = { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] };
+  const target = { code: 'brand-c', name: 'Brand C', port: 3103, locales: ['en-US'] };
 
   it('rewrites the publishable key WHOLE, not by rewriting the code inside it', () => {
     // The trap this ordering exists for: `brand-b` is a substring of `pk_brand-b_dev_…`, so a
@@ -145,6 +155,23 @@ describe('substitutions', () => {
     expect(out).not.toContain('brand-b');
     expect(out).not.toContain('3102');
     expect(out).toContain(devPublishableKey('brand-c'));
+  });
+
+  it('rewrites the PROSE form too, not only the code', () => {
+    // How this was found: brand C's generated launch gate reported "brand B still has 13
+    // placeholders". The code was right and the sentences were not.
+    const pairs = substitutions(template, target);
+    expect(rewrite('brand B still has 13 placeholders', pairs)).toBe(
+      'brand C still has 13 placeholders',
+    );
+    expect(rewrite("Brand B's legal content", pairs)).toBe("Brand C's legal content");
+    expect(rewrite('cms/brand-b/content', pairs)).toBe('cms/brand-c/content');
+  });
+
+  it('has no prose form for a code that is not brand-<letter>', () => {
+    expect(proseForms('acme')).toEqual([]);
+    expect(proseForms('brand-ab')).toEqual([]);
+    expect(proseForms('brand-c')).toEqual(['brand C', 'Brand C']);
   });
 
   it('drops a pair whose source and target are identical', () => {
@@ -203,7 +230,9 @@ describe('e2eExclusions — emitted by the script so #441 has one place to undo'
 });
 
 describe('manualSteps — what the script could not do', () => {
-  const target = { code: 'brand-c', name: 'Brand C', jurisdiction: 'US' };
+  // `locales` is part of every plan object (`parseArgs` always sets it) and `manualSteps` reads it
+  // for the message-catalogue steps.
+  const target = { code: 'brand-c', name: 'Brand C', jurisdiction: 'US', locales: ['en-US'] };
 
   it('names the brand name, the theme, the prose, the legals, the media and the store', () => {
     const steps = manualSteps(target)
@@ -218,7 +247,12 @@ describe('manualSteps — what the script could not do', () => {
   });
 
   it('points the store step at the onboarding wizard, never at itself', () => {
-    const store = manualSteps(target).find((s) => s.step.includes('store, legal entity'));
+    // For a brand with no seeded store. brand-a/b/c already have one, and this step says so
+    // instead — see "the seeded brands" below. The invariant either way: the script never
+    // creates a store itself.
+    const store = manualSteps({ ...target, code: 'brand-d' }).find((s) =>
+      s.step.includes('store, legal entity'),
+    );
     expect(store?.where).toMatch(/onboarding wizard/);
     expect(store?.why).toMatch(/bypass its permission checks/);
   });
@@ -244,7 +278,11 @@ describe('manualSteps — what the script could not do', () => {
 describe('TEMPLATE_FILES', () => {
   it('takes lighthouserc.json from the template, not the starter', () => {
     // The starter is still numberOfRuns: 3. Copying it would re-introduce #348's flaky gate.
-    expect(TEMPLATE_FILES.verbatim).toContain('lighthouserc.json');
+    // It is in `substituted` rather than `verbatim` because its collect URLs carry the locale —
+    // see "the lighthouse config's locale" below. Either list means "from the template".
+    expect([...TEMPLATE_FILES.verbatim, ...TEMPLATE_FILES.substituted]).toContain(
+      'lighthouserc.json',
+    );
   });
 
   it('substitutes the files that carry a port, a key or a package name', () => {
@@ -274,5 +312,280 @@ describe('the brand code pattern', () => {
 
   it.each(['Brand-A', 'brand_a', 'brand-', '-brand', 'brand--a', ''])('refuses %s', (code) => {
     expect(BRAND_CODE.test(code)).toBe(false);
+  });
+});
+
+describe('camelForm', () => {
+  it('matches how SEED_IDS spells a brand, so prose citing a seed id is rewritten too', () => {
+    // The bug this fixes: brand C's generated next.config.mjs cited
+    // `SEED_IDS.publishableKeys.brandB` -- brand B's store -- because the table knew only
+    // `brand-b` and `brand B`.
+    expect(camelForm('brand-b')).toBe('brandB');
+    expect(camelForm('brand-c')).toBe('brandC');
+  });
+
+  it('is null for a code it cannot spell, rather than guessing one', () => {
+    expect(camelForm('storefront-starter')).toBeNull();
+  });
+
+  it('is applied AFTER the hyphenated code, which is longer', () => {
+    const pairs = substitutions(
+      { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] },
+      { code: 'brand-c', name: 'Brand C', port: 3103, locales: ['en-US'] },
+    );
+    const hyphen = pairs.findIndex(([from]) => from === 'brand-b');
+    const camel = pairs.findIndex(([from]) => from === 'brandB');
+    expect(hyphen).toBeGreaterThanOrEqual(0);
+    expect(camel).toBeGreaterThan(hyphen);
+  });
+
+  it('rewrites a seed-id citation whole', () => {
+    const pairs = substitutions(
+      { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] },
+      { code: 'brand-c', name: 'Brand C', port: 3103, locales: ['en-US'] },
+    );
+    expect(rewrite('SEED_IDS.publishableKeys.brandB', pairs)).toBe(
+      'SEED_IDS.publishableKeys.brandC',
+    );
+  });
+});
+
+describe('localePairs', () => {
+  it('rewrites one locale to one locale', () => {
+    expect(localePairs({ locales: ['en-GB'] }, { locales: ['en-US'] })).toEqual([
+      ['en-GB', 'en-US'],
+    ]);
+  });
+
+  it('emits nothing when either side has more than one, because there is no single mapping', () => {
+    expect(localePairs({ locales: ['en-GB', 'de-DE'] }, { locales: ['en-US'] })).toEqual([]);
+    expect(localePairs({ locales: ['en-GB'] }, { locales: ['en-US', 'es-US'] })).toEqual([]);
+  });
+
+  it('emits nothing when the locale does not change', () => {
+    expect(localePairs({ locales: ['en-GB'] }, { locales: ['en-GB'] })).toEqual([]);
+  });
+});
+
+describe("the lighthouse config's locale", () => {
+  it('is SUBSTITUTED, not verbatim: a 404 is not a performance score', () => {
+    // It was verbatim, for #348's numberOfRuns: 5. Brand C's first generated copy therefore
+    // measured `/en-GB/products` -- a locale brand C does not serve.
+    expect(TEMPLATE_FILES.substituted).toContain('lighthouserc.json');
+    expect(TEMPLATE_FILES.verbatim).not.toContain('lighthouserc.json');
+  });
+
+  it('keeps numberOfRuns and the LCP budget while rewriting the collect URLs', () => {
+    const config = JSON.stringify({
+      ci: {
+        collect: {
+          url: ['http://127.0.0.1:3100/en-GB/products'],
+          numberOfRuns: 5,
+        },
+        assert: {
+          assertions: { 'largest-contentful-paint': ['error', { maxNumericValue: 2500 }] },
+        },
+      },
+    });
+    const out = JSON.parse(
+      rewrite(
+        config,
+        substitutions(
+          { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] },
+          { code: 'brand-c', name: 'Brand C', port: 3103, locales: ['en-US'] },
+          'lighthouserc.json',
+        ),
+      ),
+    );
+    // The port stays 3100 for every brand: scripts/perf.mjs starts its own server there.
+    expect(out.ci.collect.url).toEqual(['http://127.0.0.1:3100/en-US/products']);
+    expect(out.ci.collect.numberOfRuns).toBe(5);
+    expect(out.ci.assert.assertions['largest-contentful-paint'][1].maxNumericValue).toBe(2500);
+  });
+});
+
+describe('localeMismatch', () => {
+  it("pins STARTER_LOCALES against the starter's own routing default, so it cannot drift", () => {
+    // If window 3 changes the starter's locales this fails here, not inside a generated brand.
+    expect(STARTER_LOCALES).toEqual(starterRoutingLocales);
+  });
+
+  it('is null for a brand on a locale the starter already serves -- brand B', () => {
+    expect(localeMismatch({ locales: ['en-GB'] })).toBeNull();
+  });
+
+  it('reports the two files it refuses to rewrite, for a brand on another locale', () => {
+    const gap = localeMismatch({ locales: ['en-US'] });
+    expect(gap).not.toBeNull();
+    expect(gap!.locales).toEqual(['en-US']);
+    expect(gap!.files.map((file) => file.path)).toEqual([
+      'scripts/e2e-server.mjs',
+      'e2e/*.spec.ts',
+    ]);
+  });
+
+  it('says e2e fails BEFORE the first test, not that a test fails', () => {
+    // The distinction a reader needs: the warm-up throws, so there is no test result to read.
+    const warmUp = localeMismatch({ locales: ['en-US'] })!.files[0]!;
+    expect(warmUp.effect).toMatch(/does not start/);
+    expect(warmUp.effect).toContain('120 s');
+  });
+
+  it('does not propose excluding the specs, which would delete the suite', () => {
+    const specs = localeMismatch({ locales: ['en-US'] })!.files[1]!;
+    expect(specs.effect).toMatch(/rather than port it/);
+    expect(localeMismatch({ locales: ['en-US'] })!.remedy).toMatch(/REQUEST to window 3/);
+  });
+
+  it('names the mismatching locale only, not every locale the brand sells', () => {
+    expect(localeMismatch({ locales: ['en-GB', 'en-US'] })!.locales).toEqual(['en-US']);
+  });
+
+  it('is reported as a manual step, so a generated brand cannot miss it', () => {
+    // Specific: there are two locale steps now, and the other one is about prose.
+    const step = manualSteps(parseArgs(ARGS)).find((entry) => entry.step.includes('synced e2e'));
+    expect(step).toBeDefined();
+    expect(step?.where).toContain('e2e-server.mjs');
+    expect(step?.why).toMatch(/does not run against this brand/);
+  });
+});
+
+describe('a locale literal in prose is not the brand’s', () => {
+  const template = { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] };
+  const target = { code: 'brand-c', name: 'Brand C', port: 3103, locales: ['en-US'] };
+
+  it('rewrites the locale only in the files where it is data', () => {
+    expect(LOCALE_DATA_FILES).toEqual(['lighthouserc.json']);
+    const inData = substitutions(template, target, 'lighthouserc.json').map(([from]) => from);
+    const inProse = substitutions(template, target, 'next.config.mjs').map(([from]) => from);
+    expect(inData).toContain('en-GB');
+    expect(inProse).not.toContain('en-GB');
+  });
+
+  it('leaves the locale alone when no file is named, so a caller must opt in', () => {
+    expect(substitutions(template, target).map(([from]) => from)).not.toContain('en-GB');
+  });
+
+  it('does not turn a true sentence about the STARTER into a false one', () => {
+    // Both of these were produced by the first, unscoped version, and both are false:
+    // the starter defaults to 'en-GB,de-DE' and seo-head.spec.ts declares ['en-GB','de-DE'].
+    const aboutTheStarter =
+      "the starter's `src/i18n/routing.ts` defaults `SUPPORTED_LOCALES` to `'en-GB,de-DE'`";
+    expect(rewrite(aboutTheStarter, substitutions(template, target, 'next.config.mjs'))).toContain(
+      "'en-GB,de-DE'",
+    );
+    const quote = "seo-head.spec.ts declares `const LOCALES = ['en-GB', 'de-DE']`";
+    expect(rewrite(quote, substitutions(template, target, 'playwright.config.ts'))).toContain(
+      "'en-GB', 'de-DE'",
+    );
+  });
+
+  it('still rewrites the brand-specific parts of those same files', () => {
+    const pairs = substitutions(template, target, 'next.config.mjs');
+    expect(rewrite("pk = '" + devPublishableKey('brand-b') + "';", pairs)).toContain(
+      devPublishableKey('brand-c'),
+    );
+    expect(rewrite('client storefront-brand-b', pairs)).toBe('client storefront-brand-c');
+  });
+
+  it('reports the two prose blocks a human has to rewrite', () => {
+    expect(localeProse(template, target).map((entry) => entry.path)).toEqual([
+      'next.config.mjs',
+      'playwright.config.ts',
+    ]);
+  });
+
+  it('reports nothing when the brand sells the template’s locale', () => {
+    expect(localeProse(template, { ...target, locales: ['en-GB'] })).toEqual([]);
+  });
+
+  it('is named as a manual step, with both files', () => {
+    const step = manualSteps(parseArgs(ARGS)).find((entry) =>
+      entry.step.includes('locale reasoning'),
+    );
+    expect(step).toBeDefined();
+    expect(step?.where).toContain('next.config.mjs');
+    expect(step?.where).toContain('playwright.config.ts');
+  });
+});
+
+describe('the seeded brands', () => {
+  it('lists exactly the brands packages/db SEED_IDS creates a store for', () => {
+    expect(SEEDED_BRANDS).toEqual(['brand-a', 'brand-b', 'brand-c']);
+  });
+
+  it('tells a seeded brand to CHECK the seeded store, not to run the wizard', () => {
+    // Brand C's store, legal entity, USD/en-US, shippingCountries ['US'] and publishable key are
+    // all in packages/db already. Sending its author to the onboarding wizard would have them
+    // create a second store for the same brand.
+    const step = manualSteps(parseArgs(ARGS)).find((entry) => entry.step.startsWith('the store'));
+    expect(step?.where).toContain('SEED_IDS');
+    expect(step?.where).toContain('brandC');
+    expect(step?.why).toMatch(/CHECK THEM/);
+    expect(step?.why).not.toMatch(/onboarding wizard/);
+  });
+
+  it('sends a brand that is NOT seeded to the onboarding wizard', () => {
+    const fourth = parseArgs([
+      'brand-d',
+      '--name',
+      'Brand D',
+      '--currency',
+      'eur',
+      '--locale',
+      'fr-FR',
+      '--port',
+      '3104',
+      '--jurisdiction',
+      'de',
+    ]);
+    const step = manualSteps(fourth).find((entry) => entry.step.startsWith('the store'));
+    expect(step?.where).toContain('onboarding wizard');
+    expect(step?.why).toMatch(/section 6/);
+  });
+});
+
+describe('messageCatalogues', () => {
+  it('asks for nothing when the brand sells a locale the starter ships', () => {
+    // Brand B. This is why #437 never met the bug.
+    expect(messageCatalogues({ locales: ['en-GB'] })).toEqual([]);
+    expect(messageCatalogues({ locales: ['en-GB', 'de-DE'] })).toEqual([]);
+  });
+
+  it('bases a new catalogue on the starter catalogue in the SAME language', () => {
+    const [catalogue] = messageCatalogues({ locales: ['en-US'] });
+    expect(catalogue?.file).toBe('messages/en-US.json');
+    expect(catalogue?.basedOn).toBe('messages/en-GB.json');
+    expect(catalogue?.needsTranslation).toBe(false);
+  });
+
+  it('marks a catalogue in a language the starter does not ship as UNTRANSLATED', () => {
+    // Copying English into fr-FR gives an app that renders, which is worse than one that fails:
+    // nothing then reports that no translation was done.
+    const [catalogue] = messageCatalogues({ locales: ['fr-FR'] });
+    expect(catalogue?.needsTranslation).toBe(true);
+    expect(catalogue?.why).toMatch(/untranslated/i);
+  });
+
+  it('asks for one catalogue per missing locale, and only the missing ones', () => {
+    expect(messageCatalogues({ locales: ['en-GB', 'en-US', 'fr-FR'] }).map((c) => c.file)).toEqual([
+      'messages/en-US.json',
+      'messages/fr-FR.json',
+    ]);
+  });
+
+  it('is a manual step that says the app does not render without it', () => {
+    // The sharpest edge of the locale gap: src/i18n/request.ts imports the catalogue unguarded,
+    // so this is not a missing-string problem, it is an every-page-throws problem.
+    const step = manualSteps(parseArgs(ARGS)).find((entry) => entry.step.includes('catalogue'));
+    expect(step).toBeDefined();
+    expect(step?.where).toContain('messages/en-US.json');
+    expect(step?.where).toContain('messages/en-GB.json');
+    expect(step?.why).toMatch(/does not render AT ALL/);
+  });
+
+  it('does not add a catalogue step for a brand that needs none', () => {
+    const brandB = { ...parseArgs(ARGS), locales: ['en-GB'] };
+    expect(manualSteps(brandB).filter((entry) => entry.step.includes('catalogue'))).toEqual([]);
   });
 });

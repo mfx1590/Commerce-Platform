@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * Colours, fonts, radii and shadows are NOT declared here: `ThemeProvider` writes them as
+   * `--ui-*` custom properties on <body>, so a brand restyles at runtime from API data.
+   */
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--ui-color-background);
+    color: var(--ui-color-foreground);
+    line-height: var(--ui-line-height-normal);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ui-color-ring);
+    outline-offset: 2px;
+  }
+}

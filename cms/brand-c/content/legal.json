@@ -1,0 +1,118 @@
+[
+  {
+    "_id": "legal.en-US.imprint",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "[[LEGAL_IMPRINT_TITLE]]",
+    "slug": {
+      "_type": "slug",
+      "current": "imprint"
+    },
+    "kind": "imprint",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "imprint-p",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imprint-p-span",
+              "text": "[[LEGAL_IMPRINT_BODY]] — written for US law by a lawyer, not by this script."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_id": "legal.en-US.privacy",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "[[LEGAL_PRIVACY_TITLE]]",
+    "slug": {
+      "_type": "slug",
+      "current": "privacy"
+    },
+    "kind": "privacy",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "privacy-p",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "privacy-p-span",
+              "text": "[[LEGAL_PRIVACY_BODY]] — written for US law by a lawyer, not by this script."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_id": "legal.en-US.terms",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "[[LEGAL_TERMS_TITLE]]",
+    "slug": {
+      "_type": "slug",
+      "current": "terms"
+    },
+    "kind": "terms",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "terms-p",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-p-span",
+              "text": "[[LEGAL_TERMS_BODY]] — written for US law by a lawyer, not by this script."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_id": "legal.en-US.returns",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "[[LEGAL_RETURNS_TITLE]]",
+    "slug": {
+      "_type": "slug",
+      "current": "returns"
+    },
+    "kind": "returns",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "returns-p",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "returns-p-span",
+              "text": "[[LEGAL_RETURNS_BODY]] — written for US law by a lawyer, not by this script."
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

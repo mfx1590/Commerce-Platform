@@ -228,7 +228,148 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — #438 · 3.2 Brand C by script (plan written 2026-10-09, NOT started)
+## In progress — #438 · 3.2 Brand C by script (generator + brand C generated, 2026-10-09)
+
+### STATE: steps 1, 2 and the generator are DONE and green. Nothing pushed.
+
+Gate on `brands/438`, all green together: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`
+(**23/23**), brand B **659 passed / 3 skipped**, brand C **583 passed / 3 skipped**,
+`sync-from-starter --check` → "manifest is current".
+
+`new-brand.mjs` works and all three refusals are verified (no args; missing `--jurisdiction`, naming
+ONBOARDING-GAPS § 2; refusing to overwrite an existing brand). Brand C is generated and reviewed by
+hand.
+
+### THE FINDING — the one thing #438 was for
+
+**Brand B proved nothing about cloning, because brand B's locale is one of the starter's.** The
+starter serves `en-GB` and `de-DE`. Brand B sells `en-GB`, so every `en-GB` literal B inherited
+happened to be right. **Brand C sells `en-US` and nothing inherited is right.** Measured by grep,
+not guessed: **8 synced spec files, 43 `en-GB` occurrences**, plus
+`scripts/e2e-server.mjs`'s warm-up and `lighthouserc.json`'s two collect URLs.
+
+Three distinct consequences, and they need different answers:
+
+1. **`lighthouserc.json`** (PRESERVED → the brand's) measured `/en-GB/products` — a URL brand C does
+   not serve. A perf score computed over two 404s. **Fixed**: the file moved from
+   `TEMPLATE_FILES.verbatim` to `substituted`, with a locale pair. `numberOfRuns: 5` and the 2500 ms
+   LCP budget (#348) survive — tested. The port stays **3100 for every brand** because
+   `scripts/perf.mjs` starts its own `next start --port ${PERF_PORT ?? 3100}`; that is not a bug.
+2. **`scripts/e2e-server.mjs`** (SYNCED → window 3's) warms `/en-GB` before declaring the app ready,
+   and its `timed()` returns null for any status >= 400. So the warm-up never succeeds and
+   `warmUp()` **throws after 120 s — e2e fails before the first test, rather than failing a test**.
+   Read from the code, **NOT yet run**: confirming it needs the machine. Do not claim it as measured.
+3. **The 8 specs** (SYNCED) navigate to `/en-GB/…` and assert that URL back. Excluding them would
+   **delete the suite rather than port it**, so they are left in place and reported. `localeMismatch`
+   in the plan module names both files, both effects and the remedy.
+
+**A REQUEST to window 3 is the real fix** (not filed yet — step 4): take the locale PREFIX from
+`src/i18n/routing.ts`, which already reads `SUPPORTED_LOCALES`, in the synced specs and in the
+warm-up path. #441 parts 1 and 3 are the same shape for the locale LIST and the address.
+
+### THE FINDING THAT ACTUALLY STOPS THE APP — no message catalogue
+
+The worst consequence of the locale gap is not a test, it is that **brand C could not render a single
+page**. `src/i18n/request.ts` does
+
+    messages: { ...(await import(`../../messages/${locale}.json`)).default, ... }
+
+**unguarded** — the try/catch beside it covers only window 6's optional `content` catalogue. The
+locale it resolves comes from `routing.locales`, i.e. `SUPPORTED_LOCALES`. So a brand that correctly
+declares its own locale and ships no catalogue for it throws on **every page**, in dev, in
+`next build` and in production. `messages/` holds only the starter's `en-GB.json` and `de-DE.json`.
+Brand B sells `en-GB`, so it never met this.
+
+**And the one test that should have caught it was vacuous.** `test/i18n.test.ts` has
+`it('ships one per configured locale')` — which asserts the hard-coded set
+`['de-DE.json', 'en-GB.json']` and never looks at the configured locales at all. In a brand app
+vitest sets no `SUPPORTED_LOCALES`, so `routing.locales` falls back to the starter's default and the
+brand's own locale is never mentioned. It passed on a brand C that could not render.
+
+**Fixed, and the fix is proved:**
+
+- `messageCatalogues(target)` in the plan module names the file to write and the starter catalogue to
+  base it on — same language where there is one (`en-US` from `en-GB`), otherwise the starter's first
+  locale with **`needsTranslation: true`**, because copying English into an `fr-FR` catalogue
+  produces an app that renders and therefore reports nothing.
+- The CLI writes it. **Verified on the real CLI path, not on fixtures** — a throwaway `brand-d`
+  (`fr-FR`) really got `messages/fr-FR.json` and the UNTRANSLATED marker; a `--dry-run` `brand-e`
+  wrote nothing. Both throwaways deleted. This mattered because the previous bug in this area
+  (`readTemplateMeta` with no `locales`) passed every unit test and threw on the real path.
+- Brand C's `messages/en-US.json`: 139 keys, same key set as `en-GB.json`, two strings Americanised
+  ("was not authorised" → "authorized"). Those were the only two GB-flavoured strings in 139.
+- `test/i18n.test.ts` is now **PRESERVED** for brand C (added to `PRESERVE` in its own
+  `sync-from-starter.mjs` — note the three sync scripts are **not** starter-tracked, so that set is
+  the brand's to edit; `vitest.config.ts` IS starter-tracked). Its hard-coded assertion now expects
+  three catalogues, and a **new** test reads `SUPPORTED_LOCALES` out of `next.config.mjs` — where
+  the brand really declares it — and fails if a catalogue is missing.
+  **Proved by half-revert**: with `en-US.json` moved away the new test fails with
+  "messages/en-US.json is missing — every page would throw". Not a claim.
+- The sync's preserved-drift report flagged the new preservation on the next run, which is the
+  mechanism working; `starter-preserved.json` now records it and `--check` is clean again.
+
+The REQUEST to window 3 should cover this too: make that test derive its expected set from the
+configured locales, after which brand C's preservation of the file can be dropped.
+
+### THE SECOND FINDING — a substitution table cannot read prose
+
+Rewriting `en-GB` → `en-US` everywhere produced **two false statements about the starter** in brand
+C's generated files: that the starter defaults `SUPPORTED_LOCALES` to `'en-US,de-DE'`, and that
+`seo-head.spec.ts` declares `['en-US', 'de-DE']`. Both false; both next to a file where the identical
+rewrite was correct. A locale literal is **data** in `lighthouserc.json` and **prose** everywhere
+else, and prose distinguishes "the locale this brand sells" (rewrite) from "the locale the starter
+serves" (must not) — which a table cannot.
+
+**Fixed**: `substitutions(template, target, file)` takes the file, and locale pairs apply only to
+`LOCALE_DATA_FILES` (`['lighthouserc.json']`). `localeProse()` reports the two prose blocks a human
+must write, and `manualSteps` names them. I hand-wrote both in brand C.
+
+### Three smaller generator bugs, all found by reading the generated files
+
+- `SEED_IDS.publishableKeys.brandB` survived into brand C's `next.config.mjs`: the table knew
+  `brand-b` and `brand B` but not the **camelCase** form. → `camelForm()`, applied after the
+  hyphenated code (longer first).
+- **`readTemplateMeta` had no `locales`**, so `localePairs` threw on the real path while the unit
+  tests passed on fixtures that supplied it. *A pure module's unit tests do not cover the CLI's
+  adapter layer — that is exactly where this bug lived.* It now reads the template's
+  `SUPPORTED_LOCALES ??=` from `next.config.mjs` and **refuses** a template that declares none.
+- `manualSteps` sent brand C's author to the **onboarding wizard** for a store that is **already in
+  the seed** (`SEED_IDS.*.brandC`, verified in `packages/db/src/seed/index.ts`, and
+  `packages/db/CLAUDE.md` says brand-a/b/c). Following it would have created a second store for the
+  same brand. → `SEEDED_BRANDS`; a seeded brand is told to CHECK the seeded store's currency and
+  locale against the command line, a fourth brand is sent to the wizard.
+
+New tests for all of it; brand B is now **653 passed** (was 582 before the generator). Two
+pre-existing tests were **wrong** and were corrected, not deleted: one pinned `lighthouserc.json` to
+`verbatim`, one pinned the wizard for a seeded brand.
+
+### Still to do on #438
+
+- `cms/brand-c/content/*.json` — still **13 placeholders** (5 home, 8 legal), en-US, US instruments.
+- C's `LAUNCH.md` (with § 0 owner actions), README, CHANGELOG, CLAUDE.md.
+- `ONBOARDING-GAPS.md`: the locale trap as **§ 3.13** (both config files already cite that number),
+  the prose/data trap, and the CLI-adapter lesson.
+- The REQUEST to window 3 for the locale prefix; append C's lines to #439.
+- **Machine on request**: build, mock render, one core run — and the e2e warm-up prediction in (2)
+  above is the thing to confirm.
+
+### Budget note
+
+This grew well past the ~20-tool-call bound mid-task: the locale discovery was not in the plan. The
+generator work is finished and green; the content and docs are not started. Reported to the owner
+rather than silently continuing.
+
+---
+
+## (the original plan, kept for the trail) #438 · 3.2 Brand C by script
+
+**#442 LANDS VIA PR #443**, not on its own: `integration/brand-b-images` = my `9ae927a` plus one
+manager commit (the eight Dockerfile `COPY` lines, brand B's Dockerfile on port 3102, the bake target
+and the compose service — #439 items 1 and 2). The queue merges #443; my "Closes #437" commit reaches
+main through it, and #442 is closed afterwards as landed-via-#443. **Do not push `brands/phase3`
+until the manager sends the merge sha.** After it merges, `brands/phase3` is an ancestor of main:
+merge main into it and continue #438 there (so `brands/438` gets merged into `phase3`, and #438's PR
+comes off `phase3` as usual).
 
 **Side branch `brands/438`**, cut from `brands/phase3` head `6c312c3` — it must include brand B,
 because B is the template the script copies from. **`brands/phase3` is HELD** until the manager sends

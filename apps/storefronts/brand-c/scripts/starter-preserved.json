@@ -1,0 +1,13 @@
+{
+  "lighthouserc.json": "9c19e6598450478a87f5cb35527fe640ff3f9bab",
+  "next.config.mjs": "344656b76011a82241f3ce49c76898d330f0c26d",
+  "playwright.config.ts": "222089bc573aa39e989b9a50e494d553897218b7",
+  "scripts/start.mjs": "7553b64f3c896650d19f2bcdd32ad8b5092e5edf",
+  "src/brand/components/index.ts": "1235fdbcd8a20cd5e09c0f3cf0e16e2a6ba40890",
+  "src/brand/config.ts": "3c5e9799f4889f61b08d00be56ab44487782378a",
+  "src/brand/layouts/index.ts": "9b2e7d62fbf92db64f7b93c6279dc82e066f1248",
+  "src/brand/tokens.ts": "64bf61693e70efc136de2f5eca08838b6f575ca1",
+  "tailwind.config.ts": "83beaff093ee6610ed68ef2c2e263311e75197c6",
+  "test/i18n.test.ts": "2b51fa52b0ec529748e8c263b6895346e46d1383",
+  "tsconfig.json": "2d4498a0123964f2db916877742224d18c92fb84"
+}

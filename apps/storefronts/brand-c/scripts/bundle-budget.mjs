@@ -1,0 +1,230 @@
+#!/usr/bin/env node
+/**
+ * Bundle budget: first-load JavaScript per route, gzipped, against committed thresholds.
+ *
+ *   node scripts/bundle-budget.mjs              # check every route, exit 1 on a breach
+ *   node scripts/bundle-budget.mjs --report     # print every route, check nothing
+ *   node scripts/bundle-budget.mjs --markdown   # the README table, from the same numbers
+ *   node scripts/bundle-budget.mjs --sync-readme  # write that table into README.md
+ *
+ * **Every route is checked**, not only the budgeted ones: a route added without a budget entry
+ * falls back to `routes.default` in `bundle-budget.json`. An unlisted route used to be silently
+ * unchecked, which is the one way a budget quietly stops protecting anything — and windows 6 and 13
+ * add routes to this app but cannot edit `bundle-budget.json`, so requiring an entry per route would
+ * fail their PRs with a fix they are not allowed to make.
+ *
+ * Reads the manifests `next build` writes, so it needs a build first and no running server.
+ *
+ * "First load" is what a visitor downloads before the route is interactive: the root main chunks
+ * plus the chunks of the page **and every layout above it**, deduplicated, gzipped at level 9, with
+ * polyfills excluded because modern browsers never fetch them.
+ *
+ * This deliberately reads **higher than the "First Load JS" column `next build` prints** — by
+ * ~1.6 kB on every `[locale]` route today. Next counts only the page's own entry, which already
+ * holds the shared chunks but not the layouts' entry chunks (`app/[locale]/layout-*.js`,
+ * `app/[locale]/(shop)/layout-*.js`). The browser downloads those on first load all the same, so a
+ * budget on Next's figure would under-count exactly the code a brand is most likely to grow: its
+ * header and footer. Checked file by file against the manifests, not assumed.
+ *
+ * No dependency on purpose: size-limit and the bundle analyzer both answer a different question
+ * (package entry points, or an interactive treemap), and the manifests already say exactly which
+ * files each route loads.
+ */
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const nextDir = join(root, '.next');
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+/** Parent layouts of a page key, outermost first: `/a/(g)/b/page` → `/a/layout`, `/a/(g)/layout`, … */
+export function layoutKeys(pageKey, available) {
+  const segments = pageKey.split('/').filter(Boolean);
+  segments.pop(); // `page`
+  const keys = [];
+  for (let i = 1; i <= segments.length; i += 1) {
+    const key = `/${segments.slice(0, i).join('/')}/layout`;
+    if (available.has(key)) keys.push(key);
+  }
+  return keys;
+}
+
+const gzipCache = new Map();
+function gzipBytes(file) {
+  if (!gzipCache.has(file)) {
+    gzipCache.set(file, gzipSync(readFileSync(join(nextDir, file)), { level: 9 }).length);
+  }
+  return gzipCache.get(file);
+}
+
+export function firstLoadBytes(pageKey, appManifest, rootMainFiles) {
+  const available = new Set(Object.keys(appManifest.pages));
+  const files = new Set(rootMainFiles);
+  for (const key of [...layoutKeys(pageKey, available), pageKey]) {
+    for (const file of appManifest.pages[key] ?? []) files.add(file);
+  }
+  let total = 0;
+  for (const file of files) if (file.endsWith('.js')) total += gzipBytes(file);
+  return total;
+}
+
+function kb(bytes) {
+  return Math.round((bytes / 1000) * 10) / 10;
+}
+
+/** Every page route in the build, with the budget that applies to it. */
+export function measure(pages, budget, appManifest, rootMainFiles) {
+  const fallback = budget.routes.default;
+  if (typeof fallback !== 'number') {
+    console.error('bundle-budget: bundle-budget.json needs a numeric `routes.default`.');
+    process.exit(2);
+  }
+  return pages.sort().map((route) => {
+    const explicit = typeof budget.routes[route] === 'number';
+    return {
+      route,
+      actual: kb(firstLoadBytes(route, appManifest, rootMainFiles)),
+      limit: explicit ? budget.routes[route] : fallback,
+      explicit,
+    };
+  });
+}
+
+const README = join(root, 'README.md');
+const START = '<!-- bundle-budget:start -->';
+const END = '<!-- bundle-budget:end -->';
+
+/**
+ * The README's table, rendered from the measurement — so the numbers a reader sees have exactly one
+ * source. Before this, the README carried a hand-copied second copy of every budget, free to drift
+ * from `bundle-budget.json` without anything noticing.
+ */
+export function markdownTable(measured) {
+  const lines = [
+    START,
+    '',
+    '| Route | First load (gzipped) | Budget |',
+    '| --- | --- | --- |',
+    ...measured.map(
+      (row) =>
+        `| \`${row.route}\` | ${row.actual} kB | ${row.limit} kB${row.explicit ? '' : ' _(default)_'} |`,
+    ),
+    '',
+    `_Generated by \`pnpm --filter @platform/storefront-starter bundle-budget --sync-readme\`; budgets live in \`bundle-budget.json\`._`,
+    END,
+  ];
+  return lines.join('\n');
+}
+
+function readmeBlock() {
+  const readme = readFileSync(README, 'utf8');
+  const from = readme.indexOf(START);
+  const to = readme.indexOf(END);
+  return from === -1 || to === -1 ? null : { readme, from, to: to + END.length };
+}
+
+function syncReadme(table) {
+  const block = readmeBlock();
+  if (block === null) {
+    console.error(`bundle-budget: no ${START} … ${END} block in README.md.`);
+    process.exit(2);
+  }
+  writeFileSync(README, block.readme.slice(0, block.from) + table + block.readme.slice(block.to));
+}
+
+/**
+ * The README block must match the budgets in force. Only the **budget** column and the route list
+ * are enforced; a first-load figure moving by a few bytes on a dependency bump is not a reason to
+ * fail a build, but a budget the README states and the gate does not is exactly the drift the nit
+ * was about.
+ */
+function checkReadme(table) {
+  const block = readmeBlock();
+  if (block === null) {
+    console.error(`bundle-budget: no ${START} … ${END} block in README.md — run --sync-readme.`);
+    return 1;
+  }
+  const budgets = (text) =>
+    text
+      .split('\n')
+      .filter((line) => line.startsWith('| `/'))
+      .map((line) => {
+        const cells = line.split('|').map((cell) => cell.trim());
+        return `${cells[1]} ${cells[3]}`;
+      })
+      .join('\n');
+
+  if (budgets(block.readme.slice(block.from, block.to)) !== budgets(table)) {
+    console.error(
+      'bundle-budget: README.md lists different routes or budgets — run --sync-readme.',
+    );
+    return 1;
+  }
+  return 0;
+}
+
+function main() {
+  const appManifestPath = join(nextDir, 'app-build-manifest.json');
+  if (!existsSync(appManifestPath)) {
+    console.error('bundle-budget: no build found — run `next build` first.');
+    process.exit(2);
+  }
+
+  const appManifest = readJson(appManifestPath);
+  const { rootMainFiles } = readJson(join(nextDir, 'build-manifest.json'));
+  const pages = Object.keys(appManifest.pages).filter((key) => key.endsWith('/page'));
+
+  if (process.argv.includes('--report')) {
+    for (const key of pages.sort()) {
+      console.log(
+        `${String(kb(firstLoadBytes(key, appManifest, rootMainFiles))).padStart(7)} kB  ${key}`,
+      );
+    }
+    return;
+  }
+
+  const budget = readJson(join(root, 'bundle-budget.json'));
+  const measured = measure(pages, budget, appManifest, rootMainFiles);
+
+  if (process.argv.includes('--markdown')) {
+    console.log(markdownTable(measured));
+    return;
+  }
+  if (process.argv.includes('--sync-readme')) {
+    syncReadme(markdownTable(measured));
+    console.log('bundle-budget: README table updated.');
+    return;
+  }
+
+  let failed = 0;
+  for (const row of measured) {
+    const ok = row.actual <= row.limit;
+    const note = row.explicit ? '' : ' (default)';
+    console.log(
+      `${ok ? '✓' : '✗'} ${row.route} — ${row.actual} kB (budget ${row.limit} kB${note})`,
+    );
+    if (!ok) failed += 1;
+  }
+
+  // A budgeted route that no longer exists is a stale budget, and a stale budget is a gate that has
+  // quietly stopped checking something.
+  for (const route of Object.keys(budget.routes)) {
+    if (route === 'default' || appManifest.pages[route]) continue;
+    console.error(`✗ ${route} — budgeted but not in this build; update bundle-budget.json`);
+    failed += 1;
+  }
+
+  failed += checkReadme(markdownTable(measured));
+
+  if (failed > 0) {
+    console.error(`bundle-budget: ${failed} problem(s).`);
+    process.exit(1);
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main();

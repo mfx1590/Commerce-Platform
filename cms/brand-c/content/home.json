@@ -1,0 +1,23 @@
+[
+  {
+    "_id": "page.en-US.home",
+    "_type": "page",
+    "locale": "en-US",
+    "title": "[[BRAND_NAME]]",
+    "slug": {
+      "_type": "slug",
+      "current": "home"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "[[HOME_HEADLINE]]",
+      "subheadline": "[[HOME_SUBHEADLINE]]",
+      "layout": "image-right"
+    },
+    "blocks": [],
+    "seo": {
+      "metaTitle": "[[HOME_META_TITLE]]",
+      "metaDescription": "[[HOME_META_DESCRIPTION]]"
+    }
+  }
+]
