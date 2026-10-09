@@ -246,6 +246,17 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
+- **HAND-OVER (2026-10-09, context full) — #449 = PR #450, code commit `0267a04`, pushed head
+  `d4a364f` (memory record).** Done and pushed: `reviewAddressLine1()` + `MOCK_CART_LINE1` in
+  `e2e/support/ship-address.ts` (tested), `checkout.spec.ts` asserts it, `card-payment.spec.ts` fills
+  the configured postcode; CHANGELOG 0.14.2; lint/format/typecheck/609 unit green. **Nothing
+  uncommitted on disk** (this note is a local commit, not pushed). **Next step for the fresh
+  session:** wait for PR #450's CI; when every check has finished, message "Manager session five"
+  with the results and quote the starter's live-job counts (expect 75 = 67 passed / 8 skipped);
+  hold pushes until the manager confirms the merge; then record the merge sha here (Done) and stay
+  quiet. Next task after that, only when the manager says: #446 (four synced unit tests hard-code
+  en-GB).
+
 - [x] **#441 + #440 (2026-10-09) — DONE, PR #445 merged = `d67349a` (code commit `c5386d1`).** Plan as confirmed: Each part with
   a test that fails first; brand A + starter behaviour byte-identical (same suite counts).
   1. **DONE locally (this commit): #441 part 2 (security, FIRST):** `src/lib/auth/oidc.ts` — `KEYCLOAK_CLIENT_ID` unset → the
