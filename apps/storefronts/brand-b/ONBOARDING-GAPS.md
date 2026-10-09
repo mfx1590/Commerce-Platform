@@ -287,12 +287,24 @@ would reproduce three solved bugs.
     CI already runs brand legs that way. Plan for it rather than discovering it: #437 recorded a
     "mock render check" as a routine step, and for brand C that step does not exist.
 
-    **In CI this is already handled, and that matters for reading the red leg.** The live job runs
-    `apps/* against Prism, brand storefronts on the kept core` (on by default since #295 — "a brand
-    that cannot reach the core fails here rather than quietly testing the mock"). So a brand on a new
-    locale fails its CI leg on the **warm-up** alone, not on this. **Trap 20 is a local-development
-    blocker**: it is why there is no mock render check and no local e2e run for such a brand, and why
-    nobody should go looking for one.
+    **It reaches CI through the PERF job, not the e2e one** — and I got this wrong first time, so the
+    distinction is worth stating carefully:
+
+    - **The live/e2e job is fine.** It runs `apps/*` on Prism but **brand storefronts on the kept core**
+      (default since #295 — _"a brand that cannot reach the core fails here rather than quietly testing
+      the mock"_), and the core holds the brand's real store.
+    - **The perf job is not, and cannot be.** `scripts/perf.mjs` measures **always against the mock**, on
+      purpose — _"always the mock, so runs are comparable"_, with `delete appEnv.STORE_API_URL`. So a
+      brand whose locale the contract example does not offer measures 404s and its warm-up never
+      succeeds: `#451: failed — not yet`, then a Lighthouse FAIL. The bundle budget passes, because it
+      reads a build rather than a running server.
+
+    So trap 20 is **not** a local-development-only finding, which is what I wrote after checking only the
+    live job. It is a local finding **and** a red perf leg for every brand on a new locale.
+    **REQUEST #447** asks window 3 for the fix: `perf.mjs` starts Prism from a spec copy whose
+    `GET /store` example is replaced by the brand's own `perf/store.example.json` when it exists. The
+    brands then each commit one, and a brand's measurement stops depending on `en-GB` being in the
+    shared example.
 
 ## 4. What needed NOTHING, which is the good news
 

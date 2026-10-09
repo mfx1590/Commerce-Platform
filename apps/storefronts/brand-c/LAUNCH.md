@@ -230,15 +230,16 @@ brand B's was (PR #443). Brand B hit the identical wall; `ONBOARDING-GAPS.md` tr
 Brand C is the first brand whose locale is **not one the starter serves** (`en-GB`, `de-DE`), and
 that breaks things brand B never exposed. None of it is fixable from inside this app.
 
-| #    | Item                                                                        | Owner | Verify                                                                            | Now              |
-| ---- | --------------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------- | ---------------- |
-| 12.1 | A `messages/en-US.json` exists, so pages render at all                      | 10    | `test/i18n.test.ts` "for the locale next.config.mjs actually declares"            | ✅               |
-| 12.2 | That catalogue is reviewed for US English, not just copied                  | owner | 139 strings, copied from `en-GB.json`                                             | ⛔               |
-| 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`                         | 10    | its two `collect.url` entries                                                     | ✅               |
-| 12.4 | The synced e2e specs address a locale brand C serves                        | 3     | REQUEST: take the prefix from `src/i18n/routing.ts`                               | ⛔               |
-| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves                         | 3     | same REQUEST                                                                      | ⛔               |
-| 12.6 | `test/i18n.test.ts` derives its expected set from the config                | 3     | same REQUEST; PRESERVED in brand C meanwhile                                      | ⛔               |
-| 12.7 | A backend serving brand C's OWN store — **CI already does**; local does not | 10    | CI runs brand storefronts on the kept core (#295); the Prism mock is single-store | ✅ CI / ⛔ local |
+| #    | Item                                                              | Owner  | Verify                                                                 | Now              |
+| ---- | ----------------------------------------------------------------- | ------ | ---------------------------------------------------------------------- | ---------------- |
+| 12.1 | A `messages/en-US.json` exists, so pages render at all            | 10     | `test/i18n.test.ts` "for the locale next.config.mjs actually declares" | ✅               |
+| 12.2 | That catalogue is reviewed for US English, not just copied        | owner  | 139 strings, copied from `en-GB.json`                                  | ⛔               |
+| 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`               | 10     | its two `collect.url` entries                                          | ✅               |
+| 12.4 | The synced e2e specs address a locale brand C serves              | 3      | REQUEST: take the prefix from `src/i18n/routing.ts`                    | ⛔               |
+| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves               | 3      | same REQUEST                                                           | ⛔               |
+| 12.6 | `test/i18n.test.ts` derives its expected set from the config      | 3      | same REQUEST; PRESERVED in brand C meanwhile                           | ⛔               |
+| 12.7 | A backend serving brand C's OWN store — e2e yes, **perf no**      | 10 / 3 | the live job uses the kept core; `perf.mjs` is always on the mock      | ✅ e2e / ⛔ perf |
+| 12.8 | `perf/store.example.json` so the perf mock serves brand C's store | 10     | needs REQUEST #447 in the starter first                                | ⛔               |
 
 12.1 is the one that mattered most: `src/i18n/request.ts` imports `messages/${locale}.json`
 **unguarded**, so before that file existed brand C threw on **every page**, in dev, in `next build`
@@ -280,14 +281,27 @@ pk_brand-c_dev_...  ->  code=brand-a  locales=['en-GB', 'de-DE']
 against the mock, correctly. `/health` answers 200 throughout, which is how this is told apart from
 a dead server.
 
-**CI is unaffected by 12.7, and that is how to read the red leg.** The live job runs `apps/*` on
-Prism but **brand storefronts on the kept core** (default since #295 — "a brand that cannot reach
-the core fails here rather than quietly testing the mock"), and the core holds brand C's real store
-(`locales: ['en-US']`). So **brand C's CI leg fails on 12.4 alone**; 12.7 is why there is no _local_
-mock render check or local e2e run, and why nobody should go looking for one.
+**12.7 reaches CI through the PERF job — I first wrote that it did not, and that was wrong.** The
+distinction, stated carefully this time:
 
-Neither is something this app can work around: 12.4 is window 3's file, and 12.7 is the shape of
-the mock.
+- **The live/e2e job is fine.** It runs `apps/*` on Prism but **brand storefronts on the kept core**
+  (default since #295 — "a brand that cannot reach the core fails here rather than quietly testing
+  the mock"), and the core holds brand C's real store (`locales: ['en-US']`). So brand C's **e2e**
+  leg fails on 12.4 alone.
+- **The perf job cannot be fine until #447 lands.** `scripts/perf.mjs` measures **always against the
+  mock**, on purpose — _"always the mock, so runs are comparable"_, with
+  `delete appEnv.STORE_API_URL`. So brand C's perf leg measures `/en-US/products/classic-tee`
+  against a mock serving brand A's store, gets 404s, and never warms: `#451: failed — not yet`, then
+  a Lighthouse FAIL. **The bundle budget still passes**, because it reads a build rather than a
+  running server — which is why the leg looks half-broken rather than broken.
+
+What I did wrong: I checked the live job, found it ran brand storefronts on the core, and generalised
+"CI" from one job. The lesson is the one this file keeps relearning — check the thing that actually
+runs, not the neighbouring thing that resembles it.
+
+None of it is something this app can work around: 12.4 is window 3's file, 12.7 is the shape of the
+mock, and **REQUEST #447** is the fix — `perf.mjs` serving a brand's own `GET /store` example from
+`perf/store.example.json`. Brand C commits one when #447 is on main; row 12.8.
 
 ---
 

@@ -128,11 +128,20 @@ tell this apart from a dead server. Nothing is broken; nothing can be rendered e
 **So brand C has no mock render check and no local e2e run, and cannot have one.** Its e2e has to
 run against the core, which holds brand C's real store (`locales: ['en-US']` in the seed).
 
-**CI already does that** — the live job runs `apps/*` on Prism but brand storefronts on the kept
-core (default since #295: "a brand that cannot reach the core fails here rather than quietly
-testing the mock"). So this does **not** block brand C in CI; brand C's CI leg fails on the warm-up
-alone. What it blocks is local work — do not go looking for a way to render brand C against
-`pnpm mock`, because there is not one.
+**The live/e2e job already does that** — it runs `apps/*` on Prism but brand storefronts on the
+kept core (default since #295: "a brand that cannot reach the core fails here rather than quietly
+testing the mock"). So brand C's **e2e** leg fails on the warm-up alone.
+
+**The perf job is a different story, and I first got this wrong.** `scripts/perf.mjs` measures
+**always against the mock**, deliberately — _"always the mock, so runs are comparable"_, with
+`delete appEnv.STORE_API_URL`. So brand C's perf leg measures `/en-US/products/classic-tee` against a
+mock serving brand A's store, gets 404s, and never warms: `#451: failed — not yet`, then a Lighthouse
+FAIL. The bundle budget still passes, because it reads a build rather than a running server.
+**REQUEST #447** asks window 3 to let `perf.mjs` serve a brand's own `GET /store` example from
+`perf/store.example.json`; brand C commits one when that lands.
+
+Locally, it blocks everything — do not go looking for a way to render brand C against `pnpm mock`,
+because there is not one.
 
 This is the fifth thing brand B hid by selling a locale the starter and the contract example both
 happen to serve.

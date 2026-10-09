@@ -594,8 +594,22 @@ override an owner constraint. Asked the owner. Everything else is done and green
   for, so it has never needed the line, and when part 2 fails closed brand A would be the app that
   throws. Plus a **correction**: the live CI job runs `apps/*` on Prism but **brand storefronts on
   the kept core** (#295), so the single-store mock (trap 20) does **not** block brand C in CI — its
-  CI leg fails on the warm-up alone. **Trap 20 is a LOCAL blocker.** LAUNCH 12.7 now reads
-  "✅ CI / ⛔ local".
+  CI leg fails on the warm-up alone.
+
+  **CORRECTED 2026-10-09 by #444's red perf leg: trap 20 is NOT a local-only blocker.** I checked
+  the live job, found it ran brand storefronts on the kept core, and generalised "CI" from one job.
+  `scripts/perf.mjs` measures **always against the mock** on purpose — "always the mock, so runs are
+  comparable", with `delete appEnv.STORE_API_URL` — so brand C's perf leg measures
+  `/en-US/products/classic-tee` against a mock serving brand A's store, 404s, and never warms:
+  `#451: failed — not yet` then a Lighthouse FAIL, while the **bundle budget passes** because it
+  reads a build rather than a running server. That half-broken shape is the signature.
+  **The lesson, again: check the thing that runs, not the neighbouring thing that resembles it.**
+  Corrected in five places (gaps trap 20, C's README, LAUNCH § 12 + rows 12.7/12.8, `localeMismatch`,
+  the #444 body) with a test asserting the wrong sentence is gone. **REQUEST #447** (window 3) is the
+  fix: `perf.mjs` serves a brand's own `GET /store` example from `perf/store.example.json`.
+  **My part, when #447 is on main:** add `apps/storefronts/brand-c/perf/store.example.json`
+  (brand-c, USD, en-US, default_*, valid against the Store schema) **and one for brand B**, re-sync,
+  one push. Row 12.8 tracks it. HOLDING until then.
   **HOLDING `brands/phase3`** per the manager: #438 waits for window 3's #441, then I merge main and
   the review runs; the nine COPY lines + C's Dockerfile/bake/compose come as the manager's
   integration commit on top of my final head. The owner's CI monitor stays OFF (their choice), so

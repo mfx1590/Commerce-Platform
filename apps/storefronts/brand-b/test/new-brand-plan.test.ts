@@ -490,6 +490,17 @@ describe('localeMismatch', () => {
     expect(mock.effect).toMatch(/CORE leg/);
   });
 
+  it('says the mock reds the PERF leg in CI, which I first said it did not', () => {
+    // The correction #444 forced: I checked the live job (brand storefronts on the kept core) and
+    // generalised "CI" from one job. scripts/perf.mjs measures ALWAYS against the mock by design,
+    // so a brand on a new locale reds its perf leg -- Lighthouse fails on a warm-up that never
+    // succeeds, while the bundle budget passes because it reads a build. REQUEST #447.
+    const mock = localeMismatch({ locales: ['en-US'] })!.files[1]!;
+    expect(mock.effect).toMatch(/PERF LEG/);
+    expect(mock.effect).toMatch(/#447/);
+    expect(mock.effect).not.toMatch(/does not affect CI/);
+  });
+
   it('names the mismatching locale only, not every locale the brand sells', () => {
     expect(localeMismatch({ locales: ['en-GB', 'en-US'] })!.locales).toEqual(['en-US']);
   });

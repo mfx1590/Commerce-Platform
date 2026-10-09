@@ -528,7 +528,13 @@ export function localeMismatch(target, starterLocales = STARTER_LOCALES) {
           'locale the STORE does not offer. So a brand on a new locale 404s every localised route ' +
           'against the mock — correctly; the app is fail-closed and the mock has one store. A mock ' +
           'render check is therefore impossible for such a brand, and so is a mock e2e run even ' +
-          'once the warm-up is fixed. Its e2e has to be a CORE leg.',
+          'once the warm-up is fixed. Its e2e has to be a CORE leg, which CI already runs. ' +
+          '**AND IT REDS THE PERF LEG IN CI**, which I first said it did not: `scripts/perf.mjs` ' +
+          'measures ALWAYS against the mock on purpose ("always the mock, so runs are comparable", ' +
+          'with `delete appEnv.STORE_API_URL`), so the measured URLs 404 and the warm-up never ' +
+          'succeeds — `#451: failed — not yet`, then a Lighthouse FAIL, while the bundle budget ' +
+          'passes because it reads a build. REQUEST #447: let `perf.mjs` serve the brand’s own ' +
+          '`GET /store` example from `perf/store.example.json`.',
       },
       {
         path: 'e2e/*.spec.ts',
