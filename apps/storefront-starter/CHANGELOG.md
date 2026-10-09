@@ -1,5 +1,33 @@
 # Changelog — @platform/storefront-starter
 
+## 0.14.0 — 2026-10-09
+
+Issues #441 (parts 1–5) and #440. No contract change. **A production server must now name its
+Keycloak client.** The starter's own behaviour and brand A's are unchanged otherwise (same suites,
+same counts).
+
+- **The OIDC client id fails closed** (`oidcClientId`, `OidcConfigError`): `KEYCLOAK_CLIENT_ID` unset
+  falls back to the documented `storefront-brand-a` only where `siteUrl()` allows its own default
+  (NODE_ENV development / test, `next build`); anywhere else it throws. A brand that forgot it used to
+  sign customers in through brand A's client — sessions bound to `brand-a`'s store. Sign-out drops
+  the local session before resolving the client, so a misconfiguration never keeps anyone signed in.
+  The starter's e2e server (`next start`) gets the client from `playwright.config.ts`.
+- **One locale definition** (`src/i18n/locale-config.mjs`) for routing, the e2e server and the specs.
+  `scripts/e2e-warm.mjs` (moved out of `e2e-server.mjs`) warms `/<default locale>` and **fails at once
+  on a 3xx, naming the `location`** — brand C's `/en-GB` answered `307 → /en-US/en-GB` and the old loop
+  spun 120 times before blaming latency. Every `/en-GB` literal in the synced specs now goes through
+  `e2e/support/locale.ts`; `seo-head.spec.ts` and `checkout.spec.ts` take the locale list from it (the
+  hreflang count follows), and the German test skips with the reason when `de-DE` is not configured.
+- **The checkout journey ships to the brand's address**: `E2E_SHIP_ADDRESS_JSON` (validated), the NL
+  address by default (`e2e/support/ship-address.ts`).
+- **Catalogues follow the configured locales**: `test/i18n.test.ts` checks one exists per configured
+  locale (it passed in a brand with none); `src/i18n/catalogue.ts` fails naming the missing file
+  instead of a bare `MODULE_NOT_FOUND`; `vitest.config.ts` passes `SUPPORTED_LOCALES` (and
+  `DEFAULT_LOCALE` when set) from the environment.
+- Tests: `test/auth.test.ts` (client id), `test/route-origin.test.ts` (sign-out order),
+  `test/locale-config.test.ts`, `test/e2e-warm.test.ts`, `test/ship-address.test.ts`,
+  `test/i18n-request.test.ts`, `test/i18n.test.ts` — each red before its change.
+
 ## 0.13.5 — 2026-10-07
 
 Issue #330, the rendering half (window 6's CMS half is #385, `@platform/cms` 0.5.0). No contract change.

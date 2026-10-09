@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
+import { LOCALE, localePath, localeUrl } from './support/locale';
 
 /**
  * `/r/{code}` end to end (task 2.4).
  *
  * The unit tests cover the code and target rules; what only a browser can show is that the route is
  * reachable **without a locale prefix** — it depends on the middleware matcher excluding `/r/`, and
- * a matcher mistake would silently turn every referral link into a redirect to `/en-GB/r/...` and a
+ * a matcher mistake would silently turn every referral link into a redirect to `/<locale>/r/...` and a
  * 404.
  */
 
@@ -17,7 +18,7 @@ test('a referral link records the code and lands on the shop', async ({ page, co
   const response = await page.goto(`/r/${CODE}`);
   expect(response?.status()).toBe(200);
   // No locale prefix on the way in; the destination redirects to the default locale as usual.
-  await expect(page).toHaveURL(/\/en-GB$/);
+  await expect(page).toHaveURL(localeUrl('$'));
 
   const cookie = (await context.cookies()).find((c) => c.name === 'sf_attribution');
   expect(cookie, 'the referral must be recorded').toBeDefined();
@@ -36,13 +37,13 @@ test('the `to` target is honoured when it is on this site, and ignored when it i
   context,
 }) => {
   await context.clearCookies();
-  await page.goto(`/r/${CODE}?to=%2Fen-GB%2Fproducts`);
-  await expect(page).toHaveURL(/\/en-GB\/products$/);
+  await page.goto(`/r/${CODE}?to=${encodeURIComponent(localePath('/products'))}`);
+  await expect(page).toHaveURL(localeUrl('/products$'));
 
   await context.clearCookies();
   // An absolute URL must not be followed: a referral link cannot become an open redirect.
   await page.goto(`/r/${CODE}?to=https%3A%2F%2Fexample.com%2Fowned`);
-  await expect(page).toHaveURL(/\/en-GB$/);
+  await expect(page).toHaveURL(localeUrl('$'));
 });
 
 test('the first touch survives a second referral', async ({ page, context }) => {
@@ -77,7 +78,7 @@ test('a control-character target cannot redirect off this site', async ({ page, 
     await page.goto(`/r/${CODE}?to=${encoded}`);
 
     // Exactly the home page of this site, never evil.example.
-    await expect(page).toHaveURL(/^http:\/\/(127\.0\.0\.1|localhost):\d+\/en-GB$/);
+    await expect(page).toHaveURL(new RegExp(`^http://(127\\.0\\.0\\.1|localhost):\\d+/${LOCALE}$`));
     expect(new URL(page.url()).hostname).not.toContain('evil');
   }
 });

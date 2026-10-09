@@ -219,6 +219,23 @@ to the kit for everyone), put business logic in the storefront (pricing, stock, 
 come from the core), or import from the starter after generation — the starter is a template, not a
 dependency.
 
+### What a brand must set (#441, #440)
+
+Nothing in the starter assumes brand A's identity any more; a brand names its own:
+
+| Variable                              | Where a brand sets it                                                                                                                                                                                                                | Unset                                                                                                                                                             |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KEYCLOAK_CLIENT_ID`                  | its `next.config.mjs` (`process.env.KEYCLOAK_CLIENT_ID ??= 'storefront-brand-x'`)                                                                                                                                                    | dev / tests / `next build`: `storefront-brand-a`; **any other server throws `OidcConfigError`** — a borrowed client would bind customer sessions to another store |
+| `SUPPORTED_LOCALES`, `DEFAULT_LOCALE` | its `next.config.mjs` for the app, **and** its `playwright.config.ts` for e2e (the Playwright process never loads next.config; the e2e server and every synced spec take the locale from there), and its test script / CI for vitest | `en-GB,de-DE`, default the first                                                                                                                                  |
+| `E2E_SHIP_ADDRESS_JSON`               | its `playwright.config.ts`                                                                                                                                                                                                           | the starter's NL address                                                                                                                                          |
+
+One definition of the locales — `src/i18n/locale-config.mjs` — serves the app's routing,
+`scripts/e2e-warm.mjs` (the e2e server warms `/<default locale>`; **a redirect is not warm**: it fails
+at once naming the `location`) and the specs (`e2e/support/locale.ts`: `localePath`, `localeUrl`,
+`LOCALES`). A configured locale with no `messages/<locale>.json` fails with a message naming the file
+(`src/i18n/catalogue.ts`), and `test/i18n.test.ts` checks a catalogue exists for every configured
+locale.
+
 ## Routes
 
 | Route group  | Routes                                                                           | Owner                          |

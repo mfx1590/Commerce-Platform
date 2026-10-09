@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { locales } from '@/i18n/routing';
 import { resolveCurrency } from '@/lib/i18n';
 import type { Store } from '@/lib/store-api';
 import { DIRECTIVE_FIXTURES } from './fixtures/directives';
@@ -34,7 +35,10 @@ function leaves(value: unknown, prefix = ''): [string, string][] {
 
 describe('message catalogues', () => {
   it('ships one per configured locale', () => {
-    expect(catalogues.sort()).toEqual(['de-DE.json', 'en-GB.json']);
+    // The configured locales — SUPPORTED_LOCALES, as the app routes them — not a literal pair: in a
+    // brand that sells en-US this used to pass with no en-US catalogue at all (#441 part 5).
+    const missing = locales.filter((locale) => !catalogues.includes(`${locale}.json`));
+    expect(missing, `catalogues in messages/: ${catalogues.join(', ')}`).toEqual([]);
   });
 
   it('define exactly the same keys, so no locale silently falls back', () => {
