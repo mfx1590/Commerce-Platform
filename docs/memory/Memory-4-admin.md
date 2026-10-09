@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.11 (Admin API 0.4.9) · Branch: `admin/phase3` · Status: Phase 3 — #353 merged (54284d1); #398 test-race fix = the PR "Closes #398" opened from admin/phase3 in the same turn as this commit (number in the next record)
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 — #428 B = PR #434 (code commit f9dd637; head = this memory commit), waiting for CI
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,6 +16,8 @@ Never touches:
 Complete Store view against the real Admin API: catalog with variants/media, order detail with fulfil/refund/return, customers, promotions, content links, settings. Wave B — starts when core 2.1–2.2 have merged; the admin may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#428 A — PR #433 MERGED as d535c27** (2026-10-08; Refs #428, Closes #431; manager review MERGE).
+  HQ roles screen + #431 (customers journey real detail only).
 - **#357 (Integration 2a) — PR #367 MERGED as 2b0bd4c** (2026-10-06, Closes #357). Final head
   a8a0cef (main cdbf611 merged: #350, #368, #369). Advisory "admin e2e against the core" green ×3
   (run 37498562006 attempts 1–3): 22 passed + 3 skipped of 25 — both #357 journeys took the 422
@@ -441,10 +443,67 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#398 (2026-10-07) — tests asserting a transition-set state synchronously.** Found by window 2
+- **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
+  local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
+  #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles
+  refusal is the HQ layout's, not the section guard's) → hq-roles 1 + 1 skipped; core-mode
+  hq-roles 2 passed (owner password + TOTP read from the README). **PR #433** (Refs #428, Closes
+  #431; code commit 8b3be94, main merged at 94ca8cb; head = this memory commit).
+  - **PR A — HQ roles** (owner on hq): wrappers `listUsers`, `inviteUser`, `listUserRoles`,
+    `assignRole`, `revokeRole`, `listAuditLog` (NB its x-permission is `viewer` on
+    `store:{store_id}`, not owner on hq as the issue says — filter per user/store). Guard table rows
+    for every mutation (same `refuseUnlessPermitted`). `/roles`: users table with assignments per
+    store/organization; invite form (email, display name, optional initial relation + object; the
+    invited state + "first sign-in is set up in Keycloak until the invitation email exists");
+    per-user assign (relations from contracts `RELATIONS`; finance only on organization:hq) and
+    revoke (asks first: it ends that user's sessions); that user's audit entries. 400 → field
+    errors, 409 duplicate email → the email field, 403 → refusal panel. Folds #431 if #429 is on main.
+  - **#433 (PR A) MERGED as d535c27** (2026-10-08; manager review MERGE; #431 closed with it).
+  - **PR B built on the local side branch `admin/phase3-b`** (from 4dc39cc; commits 9f5caff,
+    136ae62 + tests/docs): wizard, readiness panel, `/stores/new` redirect, #420 mapping. Decision:
+    the Store view keeps `updateStore` for status → active (store_admin can't call `activateStore`,
+    owner on hq; the core runs the same readiness check) — only the HQ form uses `activateStore`.
+    Manager CONFIRMED B (2026-10-08): the Store view keeps `updateStore` by design (building to the
+    contract — said in README/PR); the core journey activating a stamped `e2e-` brand is Phase 3's
+    gate. Fast-forwarded admin/phase3 to the B branch, merged main d535c27.
+    **PR #434** (Closes #428, Closes #420; code commit f9dd637, main merged at 6c72c52; head = this
+    memory commit). Machine runs: mock e2e 24 passed + 6 skipped; core hq-onboarding 2 passed (after
+    the combobox-role fix); unit 713/713 single run (+ orders-screens refund retry #398-class fix).
+    Outbound session messages were paused by the app (10 in a row without the owner typing) — the
+    "PR up" to the manager waits for the owner's next message here.
+  - **PR B — onboarding wizard + #420**: steps legal entity (existing/inline) → store basics →
+    primary domain → review → `onboardStore`; 201 shows the key once (CreateApiKey pattern: state
+    only, gone on Done/reload, never in URL/log); 200 = "already exists", no key; 409
+    `details.differs`/hostname and 422 `details.settings` → the step owning the field. Readiness
+    panel from `getStore` + `activateStore`'s 409 `details.missing` → Activate. `/stores/new` →
+    redirect to the wizard. #420: settings status → active goes through `activateStore`; 409
+    `details.missing` as a readable list, `details.status: archived` said.
+  - Tests per PR: unit (guard per action, forms, error mapping), Prism contract, mock e2e (owner via
+    password+TOTP; store-admin/finance get the 403 guard). Core e2e: one HQ path if the advisory
+    harness signs in an owner; otherwise stated in the PR.
+  - Built while waiting (local commit, not pushed — push held until the manager sends #432's merge
+    sha and confirms the plan): wrappers listUsers/inviteUser/listUserRoles/assignRole/revokeRole/
+    listAuditLog (`RoleAssignmentBody` from the generated operation); `src/lib/roles` (GRANTABLE:
+    organization owner/finance/operations/analyst/support, store store_admin/store_staff/support;
+    zod schemas); `ROLES_PERMISSIONS` in the guard (organization-scoped ops may pass storeId '');
+    `src/app/actions/roles.ts` (invite → optional assignRole: the contract's inviteUser takes no
+    initial role; 409 → email field); `test/roles-actions.test.ts` 14. listAuditLog HAS `actor_id`
+    → decision (a) needs no REQUEST.
+- **#430 (2026-10-08, urgent) — PR #432 (code commit 41771e7; head = this memory commit).** Customers
+  e2e expected the not-available placeholder. #429
+  (core admin customer routes) is OPEN, so main's core still 404s them: a real-detail-only spec
+  would be red on my PR. Built: core mode registers the seeded customers-realm user via the Store
+  API (`e2e/core-customer.ts`; test-cli token carries store_code brand-a) and the journey asserts
+  the real detail when the core serves the list, else the placeholder (dead once #429 is on main).
+  Manager approved (dual path; follow-up #431 deletes the placeholder branch after #429). Local:
+  mock e2e 22 + 4 skipped; core run of the customers test 1 passed (main core → placeholder branch;
+  Store API registration ok); core stopped, machine freed. Next: #428
+  (roles UI, onboarding wizard; #420 folds in) — two PRs.
+- **#398 (2026-10-07) — PR #399 MERGED as c2fb6d7** (Closes #398; head c24585c; manager review MERGE)
+  — tests asserting a transition-set state synchronously. Found by window 2
   on #387's queue run (`settings.test.tsx:381`). Swept every test that mocks an action result and
-  reads the screen right after a click (scratchpad sweep script, then by hand): fixed 10 reads in 5
-  files (`findBy…`/`waitFor`); left synchronous UI reads (questions/forms opening, router.push).
+  reads the screen right after a click (scratchpad sweep script, then by hand): fixed 12 assertion
+  sites in 5 files (first reported as 10 — a miscount, corrected in the PR body) (`findBy…`/`waitFor`); left synchronous UI reads (questions/forms opening, router.push).
   The catalog-screens 5 s failure of 10-07 is a different class: CPU starvation during a concurrent
   rebuild (normally 331 ms), not the race — left alone. Proof: 5 files 97/97; two full suites run in
   parallel to load the machine, 651/651 each.
@@ -703,6 +762,14 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Windows' reserved TCP ranges move** (WinNAT, re-chosen at boot): on 10-08 evening 4179–4278
+  was reserved, which covers EVERY contract suite's Prism port (4211–4218) — locally they die with
+  "listen EACCES" while CI (Linux) is fine. Verify a suite through a temporary copy on a free port
+  (`sed` the BASE to e.g. 4391, run, delete the copy); check with `netsh int ipv4 show
+  excludedportrange protocol=tcp`.
+- **Local unit runs time out at Vitest's 5 s on long-typing tests** (catalog-screens, capture
+  amount) on most full runs since 10-08 — local only: CI unit jobs on #432 and main were green. The
+  manager's rule: a per-test timeout only with per-run CI evidence.
 - **Testing a form/action result:** anything set after `await action(...)` inside
   `startTransition(async …)` commits on a later macrotask — assert it with `findBy…`/`waitFor`,
   never `getBy…` right after `await user.click(...)`. The action CALL itself is synchronous at the

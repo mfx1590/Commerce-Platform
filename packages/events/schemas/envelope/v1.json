@@ -32,6 +32,7 @@
         "customer.created",
         "customer.updated",
         "customer.erased",
+        "customer.export_requested",
         "order.placed",
         "order.confirmed",
         "order.cancelled",

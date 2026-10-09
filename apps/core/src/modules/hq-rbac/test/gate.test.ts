@@ -65,12 +65,22 @@ const SPEC = readFileSync(
   'utf8',
 );
 const SPEC_PATHS = SPEC.slice(SPEC.indexOf('\npaths:'), SPEC.indexOf('\ncomponents:'));
-const SPEC_PERMISSIONS = [
+/** Every operation under paths, with its permission or null when it declares none. */
+const SPEC_OPERATIONS = [
   ...SPEC_PATHS.matchAll(/operationId: (\w+)\n([\s\S]*?)(?=\n\s+operationId: |$)/g),
-].flatMap((m) => {
+].map((m) => {
   const xp = m[2]!.match(/x-permission:\s*\{\s*relation:\s*(\w+),\s*object:\s*'([^']+)'\s*\}/);
-  return xp ? [{ operationId: m[1]!, relation: xp[1]!, object: xp[2]! }] : [];
+  return { operationId: m[1]!, permission: xp ? { relation: xp[1]!, object: xp[2]! } : null };
 });
+const SPEC_PERMISSIONS = SPEC_OPERATIONS.flatMap((o) =>
+  o.permission ? [{ operationId: o.operationId, ...o.permission }] : [],
+);
+/**
+ * Operations that legitimately carry no x-permission (#402). Only the caller's own identity today; adding a
+ * name here is a deliberate review decision, and a stale entry (an operation that gained a permission, or
+ * left the spec) fails the test too.
+ */
+const UNGUARDED_OPERATIONS = ['getMe'];
 
 describe('x-permission sweep of admin-api.yaml is exhaustive (#90, static)', () => {
   it('attributes every x-permission line under paths to exactly one operation', () => {
@@ -87,6 +97,19 @@ describe('x-permission sweep of admin-api.yaml is exhaustive (#90, static)', () 
       ).toContain(id);
     }
     expect(SPEC_PERMISSIONS.filter((p) => p.relation === 'finance').length).toBeGreaterThan(0);
+  });
+
+  it('every operation under paths carries an x-permission unless allowlisted (#402)', () => {
+    const ids = SPEC_OPERATIONS.map((o) => o.operationId);
+    expect(ids).toHaveLength((SPEC_PATHS.match(/^\s+operationId: /gm) ?? []).length);
+    expect(new Set(ids).size).toBe(ids.length);
+    const unguarded = SPEC_OPERATIONS.filter((o) => o.permission === null).map(
+      (o) => o.operationId,
+    );
+    // Exact equality in both directions: an unguarded operation outside the allowlist fails, and so does an
+    // allowlist entry that is guarded after all or no longer exists.
+    expect(unguarded.sort()).toEqual([...UNGUARDED_OPERATIONS].sort());
+    expect(SPEC_PERMISSIONS).toHaveLength(ids.length - UNGUARDED_OPERATIONS.length);
   });
 });
 

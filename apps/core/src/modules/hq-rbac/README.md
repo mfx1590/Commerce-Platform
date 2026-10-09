@@ -12,12 +12,20 @@ check.
 | Method | Path                                         | operationId     | x-permission                 |
 | ------ | -------------------------------------------- | --------------- | ---------------------------- |
 | GET    | `/admin/users`                               | `listUsers`     | `owner` on `organization:hq` |
+| POST   | `/admin/users`                               | `inviteUser`    | `owner` on `organization:hq` |
 | GET    | `/admin/users/{userId}/roles`                | `listUserRoles` | `owner` on `organization:hq` |
 | POST   | `/admin/users/{userId}/roles`                | `assignRole`    | `owner` on `organization:hq` |
 | DELETE | `/admin/users/{userId}/roles/{assignmentId}` | `revokeRole`    | `owner` on `organization:hq` |
 
-Not implemented here: `POST /admin/users` (`inviteUser`, creates the Keycloak user + mirror) — needs a
-Keycloak service account; scheduled with the Phase 3 role-admin endpoints.
+`inviteUser` (#415): body `{ email, display_name }` → auth-sdk `inviteUser` → 201 `StaffUser`. The Keycloak
+user is created through the `core-admin` service account (`HqRbacDeps.keycloak`, default
+`createKeycloakAdmin()` from the environment: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`) with
+the required actions `UPDATE_PASSWORD` and `CONFIGURE_TOTP` and no password; the invitation email itself
+waits for SMTP (Integration 2b). 409 on an existing email, 400 on a malformed body. Every role change
+(`assignRole` / `revokeRole`) also ends the user's Keycloak sessions through the same client — after the
+tuple change, before the mirror row, so a refused logout compensates the tuple and answers 503 with nothing
+changed (#422) — then invalidates the scope cache (`onRoleChange`): the same bearer token is refused on its
+next request. The core passes no `keycloak` option, so the environment client is used.
 
 Assign (ADR 0002 §7), in this order: OpenFGA tuple → `role_assignment` mirror row + `audit_log` row in one
 transaction → if the transaction fails, the tuple is deleted again. Revoke is the mirror image (tuple deleted,

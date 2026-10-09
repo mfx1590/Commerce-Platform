@@ -82,6 +82,55 @@ are `updateCustomer`, `listCustomerAddresses` and `addCustomerAddress` (part B).
 - **The customer on carts and orders (#310):** `createCart` and `completeCart` accept the same token and
   resolve-or-provision the customer the same way; see the checkout README "Customer link at placement".
 
+## Admin API (#414, Admin API 0.4.11) — `admin.ts`, `gdpr.ts`
+
+Store-scoped tenant client (RLS) for everything; the routes live in `src/http/admin-routes.ts`, permissions from
+the spec. Every mutation writes its audit row and its outbox event in the same transaction; neither ever carries an
+email, a name, a phone or an address (`email_hash` and field names only).
+
+| Operation               | Permission             | Function                                     | Notes                                                                                                                                                                                                                                                                     |
+| ----------------------- | ---------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listCustomers`         | `support` on the store | `adminListCustomers(client, storeId, query)` | `q` = case-insensitive substring of email / first / last name (LIKE wildcards literal); `group_id`; sort `created_at` (default, desc) / `email` / `last_name` (nulls last)                                                                                                |
+| `getCustomer`           | `support`              | `adminGetCustomer`                           | 404 for unknown and for another store's customer (indistinguishable under RLS); erased rows are readable                                                                                                                                                                  |
+| `updateCustomer`        | `support`              | `adminUpdateCustomer`                        | names / phone (`''` clears), `customer_group_id` (a group of the SAME store or null, else 400), `status` registered ↔ disabled (a guest has no account: 400); erased → 404; a patch that changes nothing writes nothing; one `customer.updated` (sorted `changed_fields`) |
+| `listCustomerAddresses` | `support`              | `adminListCustomerAddresses`                 | defaults first; 404 like `getCustomer`                                                                                                                                                                                                                                    |
+| `listCustomerGroups`    | `viewer`               | `listCustomerGroups`                         | the store's groups by code. Groups are created by the seed / migrations; there is no create or update operation in the spec — assignment goes through `updateCustomer`                                                                                                    |
+| `eraseCustomer`         | `store_admin`          | `eraseCustomer` (`gdpr.ts`)                  | 202, no body; see below                                                                                                                                                                                                                                                   |
+| `exportCustomer`        | `store_admin`          | `buildCustomerExport` (`gdpr.ts`)            | `requestCustomerExport` (202, one `customer.export_requested` per request) + `buildCustomerExport` (the bundle); see below                                                                                                                                                |
+
+### Erasure and export (GDPR; manager decisions 2026-10-08)
+
+**Erasure** is synchronous (one transaction) although the contract says "scheduled": the 202 answers both a fresh
+erasure and the replay on an already erased customer (no-op: nothing written, no second event). In that transaction:
+
+- `status` → `erased`; `email` → **`erased+<customer_id>@invalid`** (the column is NOT NULL and unique per store;
+  `.invalid` is reserved by RFC 2606, so the placeholder can never receive mail); `first_name`, `last_name`,
+  `phone`, `keycloak_subject` → null; `consent` and `metadata` → `{}`. The id, store, group and timestamps stay.
+- every `customer_address` row of the customer is deleted;
+- `identity_id` → null, and the organization-level `customer_identity` row is deleted when nothing references it
+  any more (another store's customer of the same person, or a merged identity, keeps it — tried under a
+  savepoint, a foreign-key refusal means "keep");
+- **orders are kept unchanged**, linked by `customer_id` only. Basis: invoices and transaction records are
+  retained under the legal-obligation exception (GDPR art. 17(3)(b)) — manager decision A, on the owner's
+  lawyer-review list; if the review says otherwise it becomes a follow-up (scrub the order email / shipping
+  address), not a redo;
+- one audit row `customer.erase` (`addresses_deleted`, `identity_unlinked`, `identity_deleted` — no personal
+  data) and ONE `customer.erased` outbox row; consumers (marketing reviews / referrals, search, BI) must delete
+  their copies on it — the core does not reach into their tables.
+
+An erased customer stays listable and readable by support (status `erased`, the placeholder email, null names), is
+not updatable (404) and not exportable (404).
+
+**Export.** `buildCustomerExport(client, storeId, customerId)` returns the bundle `customer-export/v1`:
+`{ format, generated_at, store_id, customer: { id, email, first_name, last_name, phone, status,
+customer_group_id, created_at }, addresses: [...], consent: {...}, orders: [{ id, display_id, status,
+payment_status, fulfillment_status, email, currency, shipping_address, billing_address, subtotal_minor,
+discount_minor, shipping_minor, tax_minor, total_minor, placed_at, lines: [{ sku, title, variant_title,
+quantity, unit_price_minor, discount_minor, tax_minor, total_minor }] }] }` — that store, that customer only
+(RLS plus explicit predicates; the test exports with two stores and two customers). Unknown, another store's or
+erased → 404. `exportCustomer` (202) writes one `customer.export_requested` row per request (no dedupe; ids
+only) — the hand-over to the delivery job of Integration 2b (storage + email), which calls this function.
+
 ## Known gaps
 
 - **Stale email after a change at Keycloak.** The row keeps the email it was created (or adopted) with. Until an

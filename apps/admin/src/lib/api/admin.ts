@@ -177,6 +177,27 @@ export async function revokeApiKey(
   });
 }
 
+/**
+ * One-transaction brand onboarding (owner on hq): 201 with the publishable key shown ONCE; 200 with
+ * `publishable_key: null` on an identical repeat; 409 `details.differs` / `details.field`; 422
+ * `details.settings`.
+ */
+export async function onboardStore(
+  body: AdminComponents['StoreOnboardingInput'],
+): Promise<ApiResult<AdminResponse<'onboardStore'>>> {
+  return adminCall<'onboardStore'>({ path: '/admin/onboarding/stores', method: 'POST', body });
+}
+
+/** Draft/paused → active once every prerequisite exists; 409 `details.missing` / `status`. */
+export async function activateStore(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'activateStore'>>> {
+  return adminCall<'activateStore'>({
+    path: buildPath('/admin/stores/{storeId}/activate', { storeId }),
+    method: 'POST',
+  });
+}
+
 export async function listLegalEntities(): Promise<ApiResult<AdminResponse<'listLegalEntities'>>> {
   return adminCall<'listLegalEntities'>({ path: '/admin/legal-entities' });
 }
@@ -684,4 +705,64 @@ export async function getPromotionReport(
     path: buildPath('/admin/stores/{storeId}/marketing/reports/promotions', { storeId }),
     query: range,
   });
+}
+
+// ---------------------------------------------------------------------------- roles (task 3.1, #428)
+
+/** Staff users (HQ, owner on organization:hq). `q` matches email or display name. */
+export async function listUsers(query: Query = {}): Promise<ApiResult<AdminResponse<'listUsers'>>> {
+  return adminCall<'listUsers'>({ path: '/admin/users', query });
+}
+
+/**
+ * Creates the Keycloak user and its staff mirror (owner on hq). 409 when the email is taken. The
+ * contract takes no initial role: the form assigns one with `assignRole` after a 201.
+ */
+export async function inviteUser(body: {
+  email: string;
+  display_name: string;
+}): Promise<ApiResult<AdminResponse<'inviteUser'>>> {
+  return adminCall<'inviteUser'>({ path: '/admin/users', method: 'POST', body });
+}
+
+export async function listUserRoles(
+  userId: string,
+): Promise<ApiResult<AdminResponse<'listUserRoles'>>> {
+  return adminCall<'listUserRoles'>({
+    path: buildPath('/admin/users/{userId}/roles', { userId }),
+  });
+}
+
+/** `assignRole`'s inline request body, straight from the generated operation. */
+export type RoleAssignmentBody =
+  operations['assignRole']['requestBody']['content']['application/json'];
+
+/** Grants a relation on a store or on the organization; ends the user's sessions in the core. */
+export async function assignRole(
+  userId: string,
+  body: RoleAssignmentBody,
+): Promise<ApiResult<AdminResponse<'assignRole'>>> {
+  return adminCall<'assignRole'>({
+    path: buildPath('/admin/users/{userId}/roles', { userId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Revokes one assignment; ends the user's sessions in the core. */
+export async function revokeRole(
+  userId: string,
+  assignmentId: string,
+): Promise<ApiResult<AdminResponse<'revokeRole'>>> {
+  return adminCall<'revokeRole'>({
+    path: buildPath('/admin/users/{userId}/roles/{assignmentId}', { userId, assignmentId }),
+    method: 'DELETE',
+  });
+}
+
+/** Audit entries, filtered by actor and/or store (`viewer` on the store; HQ roles see all). */
+export async function listAuditLog(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listAuditLog'>>> {
+  return adminCall<'listAuditLog'>({ path: '/admin/audit-log', query });
 }

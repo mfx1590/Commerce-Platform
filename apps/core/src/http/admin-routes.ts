@@ -22,6 +22,7 @@ import {
   type ProductStatus,
 } from '../modules/catalog';
 import {
+  activateStore,
   addDomain,
   createApiKey,
   createSalesChannel,
@@ -33,13 +34,15 @@ import {
   listSalesChannels,
   listStores,
   listWarehouses,
+  onboardStore,
   revokeApiKey,
   updateDomain,
   updateStore,
+  type StoreRegistrar,
   STORE_SORT_FIELDS,
 } from '../modules/registry';
 import { organizationClient, tenantClient } from '../lib/db';
-import { validationError } from '../lib/errors';
+import { AppError, validationError } from '../lib/errors';
 import { handle } from './errors';
 import {
   ADMIN_MOVEMENT_REASONS,
@@ -57,6 +60,16 @@ import {
   ORDER_STATUSES,
   PAYMENT_STATUSES,
 } from '../modules/orders';
+import {
+  adminGetCustomer,
+  adminListCustomerAddresses,
+  adminListCustomers,
+  adminUpdateCustomer,
+  CUSTOMER_SORT_FIELDS,
+  eraseCustomer,
+  listCustomerGroups,
+  requestCustomerExport,
+} from '../modules/customers';
 import { loadSpec } from './openapi';
 import { requirePermission, resolveObject } from './permissions';
 import {
@@ -112,8 +125,24 @@ function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function adminRouter(): Router {
+/** Onboarding without a registrar would create stores nobody can see: refused as a 503, never guessed. */
+function requireRegistrar(registrar: StoreRegistrar | undefined): StoreRegistrar {
+  if (!registrar) throw new AppError('internal', 'store registrar not configured', {}, 503);
+  return registrar;
+}
+
+export interface AdminRouterOptions {
+  /**
+   * The OpenFGA side of store onboarding (#413): `ensureStoreObject` after the onboarding transaction and the
+   * `fga_object` activation prerequisite. mountCoreMiddleware() passes the OpenFGA adapter (src/http/store-registrar.ts)
+   * unless a test hands in the in-memory one from the registry module.
+   */
+  storeRegistrar?: StoreRegistrar;
+}
+
+export function adminRouter(opts: AdminRouterOptions = {}): Router {
   const r = Router();
+  const registrar = opts.storeRegistrar;
 
   // ---- inventory (task 2.4, src/modules/inventory) ----------------------------------------------------------
   // listInventoryLevels' x-permission is `viewer` on `store:{store_id}` with store_id an OPTIONAL query: with it
@@ -363,7 +392,132 @@ export function adminRouter(): Router {
     body('updateStore'),
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
-      res.json(await updateStore(client, storeId, req.body, p.actor));
+      res.json(
+        await updateStore(client, storeId, req.body, p.actor, registrar ? { registrar } : {}),
+      );
+    }),
+  );
+  // ---- customers (#414, Admin API 0.4.11): support reads and updates, store_admin erases and exports -------
+  r.get(
+    '/admin/stores/:storeId/customers',
+    permission('listCustomers'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const sort = sortParams(req.query, CUSTOMER_SORT_FIELDS, problems);
+      const groupId = one(req.query.group_id);
+      if (groupId !== undefined && !UUID_RE.test(groupId)) problems.group_id = 'uuid';
+      throwIfProblems(problems);
+      res.json(
+        await adminListCustomers(client, storeId, {
+          ...page,
+          ...sort,
+          ...(one(req.query.q) !== undefined ? { q: one(req.query.q)! } : {}),
+          ...(groupId !== undefined ? { group_id: groupId } : {}),
+        }),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customers/:customerId',
+    permission('getCustomer'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(await adminGetCustomer(client, storeId, uuidParam(req.params, 'customerId')));
+    }),
+  );
+  r.patch(
+    '/admin/stores/:storeId/customers/:customerId',
+    permission('updateCustomer'),
+    body('updateCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      res.json(
+        await adminUpdateCustomer(
+          client,
+          storeId,
+          uuidParam(req.params, 'customerId'),
+          req.body,
+          p.actor,
+        ),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customers/:customerId/addresses',
+    permission('listCustomerAddresses'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json({
+        items: await adminListCustomerAddresses(
+          client,
+          storeId,
+          uuidParam(req.params, 'customerId'),
+        ),
+      });
+    }),
+  );
+  // GDPR erasure: 202 both for the erasure and for the replay on an erased customer (the contract's
+  // "scheduled"; it runs synchronously, one transaction) — no body.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/erase',
+    permission('eraseCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await eraseCustomer(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
+    }),
+  );
+  // GDPR export: 202 + one `customer.export_requested` per request; the bundle is built by the delivery job.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/export',
+    permission('exportCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await requestCustomerExport(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customer-groups',
+    permission('listCustomerGroups'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listCustomerGroups(client, storeId) });
+    }),
+  );
+
+  // ---- registry: onboarding (#413, Admin API 0.4.11) ------------------------------------------------------
+  r.post(
+    '/admin/stores/:storeId/activate',
+    permission('activateStore'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      res.json(
+        await activateStore(
+          organizationClientFor(p),
+          storeId,
+          requireRegistrar(registrar),
+          p.actor,
+        ),
+      );
+    }),
+  );
+  r.post(
+    '/admin/onboarding/stores',
+    permission('onboardStore'),
+    body('onboardStore'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const { created, result } = await onboardStore(
+        organizationClientFor(p),
+        req.body,
+        requireRegistrar(registrar),
+        p.actor,
+      );
+      res.status(created ? 201 : 200).json(result);
     }),
   );
 

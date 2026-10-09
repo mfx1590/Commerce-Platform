@@ -23,6 +23,15 @@ export {
   updateStore,
 } from './service';
 export { STORE_SORT_FIELDS } from './types';
+// onboarding (#413): the workflow, the activation gate and the settings shape check
+export { activateStore, onboardStore, onboardingConventions } from './onboarding';
+export type { OnboardStoreResult } from './onboarding';
+export { inMemoryStoreRegistrar } from './registrar';
+export type { InMemoryStoreRegistrar } from './registrar';
+export { READINESS_PREREQUISITES, storeReadiness } from './readiness';
+export type { ReadinessPrerequisite, StoreReadiness } from './readiness';
+export { STORE_SETTINGS_SHAPES, settingsProblems, validateStoreSettings } from './settings-schema';
+export type { SettingsProblems } from './settings-schema';
 export type {
   ApiKey,
   ApiKeyCreated,
@@ -47,4 +56,8 @@ export type {
   StoreStatus,
   Warehouse,
   LegalEntity,
+  LegalEntityInput,
+  StoreOnboardingInput,
+  StoreOnboarded,
+  StoreRegistrar,
 } from './types';

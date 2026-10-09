@@ -32,7 +32,11 @@
       ],
       "image": {
         "_type": "image",
-        "mediaSlot": "home-hero-01"
+        "mediaSlot": "home-hero-02"
+      },
+      "video": {
+        "_type": "heroVideo",
+        "mediaSlot": "home-hero-shirt-loop-8s"
       }
     },
     "blocks": [
@@ -80,10 +84,10 @@
       },
       {
         "_type": "imageBlock",
-        "_key": "img-home-hero-02",
+        "_key": "img-home-hero-01",
         "image": {
           "_type": "image",
-          "mediaSlot": "home-hero-02"
+          "mediaSlot": "home-hero-01"
         },
         "width": "wide"
       },
@@ -157,7 +161,11 @@
       ],
       "image": {
         "_type": "image",
-        "mediaSlot": "home-hero-01"
+        "mediaSlot": "home-hero-02"
+      },
+      "video": {
+        "_type": "heroVideo",
+        "mediaSlot": "home-hero-shirt-loop-8s"
       }
     },
     "blocks": [
@@ -205,10 +213,10 @@
       },
       {
         "_type": "imageBlock",
-        "_key": "img-home-hero-02",
+        "_key": "img-home-hero-01",
         "image": {
           "_type": "image",
-          "mediaSlot": "home-hero-02"
+          "mediaSlot": "home-hero-01"
         },
         "width": "wide"
       },

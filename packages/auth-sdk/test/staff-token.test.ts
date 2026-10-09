@@ -13,6 +13,7 @@ import {
   msUntilNextTotpStep,
   OWNER_DEV_TOTP_SECRET,
   ownerTokenFile,
+  RETRY_GAP_MS,
   staffToken,
   TOTP_STEP_MS,
   totp,
@@ -37,14 +38,24 @@ function fakeClock(start = 1_760_000_000_000) {
   };
 }
 
-/** Fake Keycloak: test-cli password grant with conditional OTP for owner, single-use codes, userinfo. */
+/**
+ * Fake Keycloak: test-cli password grant with conditional OTP for owner, single-use codes, userinfo, and the
+ * realm's brute-force quick-login rule (two refused logins within 1 s block the user for 60 s, #406).
+ */
 function fakeKeycloak(clock: { now(): number }) {
+  const QUICK_LOGIN_CHECK_MS = 1_000;
+  const QUICK_LOGIN_WAIT_MS = 60_000;
   /** token → granted scope: userinfo answers 403 without `openid`, as Keycloak does. */
   const issued = new Map<string, string>();
   const usedCodes = new Set<string>();
   const state = {
     grants: 0,
     userinfo: 0,
+    /** Refused logins counted by the brute-force detector (a refusal during a block is not counted). */
+    failures: 0,
+    lastFailure: -Infinity,
+    /** Quick-login block in force until this time (0 = none). */
+    blockedUntil: 0,
     lastBody: new URLSearchParams(),
     /** Forgets every token it issued: what a restart, a reimport or `pnpm dev --reset` does. */
     restart: () => issued.clear(),
@@ -52,6 +63,9 @@ function fakeKeycloak(clock: { now(): number }) {
     reset: () => {
       issued.clear();
       usedCodes.clear();
+      state.failures = 0;
+      state.lastFailure = -Infinity;
+      state.blockedUntil = 0;
     },
     /** A code somebody else spent in this or an adjacent step. */
     spend: (code: string) => usedCodes.add(code),
@@ -96,7 +110,17 @@ function fakeKeycloak(clock: { now(): number }) {
         m[1] === 'customers'
           ? username === 'jane@example.com' && password === 'jane'
           : password === username;
-      if (!ok) return json(401, { error: 'invalid_grant' });
+      const refuse = () => {
+        const now = clock.now();
+        if (now < state.blockedUntil) return json(401, { error: 'invalid_grant' });
+        if (now - state.lastFailure < QUICK_LOGIN_CHECK_MS)
+          state.blockedUntil = now + QUICK_LOGIN_WAIT_MS;
+        state.lastFailure = now;
+        state.failures++;
+        return json(401, { error: 'invalid_grant' });
+      };
+      if (clock.now() < state.blockedUntil) return refuse();
+      if (!ok) return refuse();
       if (m[1] === 'staff' && username === 'owner') {
         // Keycloak's direct-grant flow: the enrolled user must send a code of the previous, current or next
         // step (look-ahead 1), and a code that was already used is refused (otpPolicyCodeReusable: false).
@@ -105,8 +129,7 @@ function fakeKeycloak(clock: { now(): number }) {
         const accepted = [now - TOTP_STEP_MS, now, now + TOTP_STEP_MS].map((at) =>
           totp(OWNER_DEV_TOTP_SECRET, at),
         );
-        if (!accepted.includes(otp) || usedCodes.has(otp))
-          return json(401, { error: 'invalid_grant' });
+        if (!accepted.includes(otp) || usedCodes.has(otp)) return refuse();
         usedCodes.add(otp);
       }
       return json(200, { access_token: mint(body.get('scope') ?? ''), expires_in: 900 });
@@ -224,17 +247,48 @@ describe('staffToken (unit, fake Keycloak)', () => {
     await staffToken('owner', opts());
     expect(kc.state.grants).toBe(2);
     expect(kc.state.lastBody.get('otp')).toBe(totp(OWNER_DEV_TOTP_SECRET, t0));
-    expect(clock.slept).toEqual([]);
+    expect(clock.slept).toEqual([RETRY_GAP_MS]); // never two attempts within a second (#406)
+    expect(kc.state.failures).toBe(1);
+    expect(kc.state.blockedUntil).toBe(0);
 
     await forgetStaffToken({});
     kc.state.restart();
     // Now the current step's code is spent too (by the grant above): the helper waits for a fresh step.
+    const t1 = clock.now();
     await staffToken('owner', opts());
     expect(kc.state.grants).toBe(5);
-    expect(clock.slept).toEqual([msUntilNextTotpStep(t0)]);
-    expect(clock.now()).toBe(t0 + msUntilNextTotpStep(t0));
-    expect(Math.floor(clock.now() / TOTP_STEP_MS)).toBe(Math.floor(t0 / TOTP_STEP_MS) + 1);
+    // A gap after the first refusal, then a wait that reaches the next step (at least a gap long) after the
+    // second; the block never trips.
+    expect(clock.slept.slice(1)).toEqual([
+      RETRY_GAP_MS,
+      Math.max(msUntilNextTotpStep(t1 + RETRY_GAP_MS), RETRY_GAP_MS),
+    ]);
+    expect(Math.floor(clock.now() / TOTP_STEP_MS)).toBeGreaterThan(Math.floor(t1 / TOTP_STEP_MS));
     expect(kc.state.lastBody.get('otp')).toBe(totp(OWNER_DEV_TOTP_SECRET, clock.now()));
+    expect(kc.state.failures).toBe(3);
+    expect(kc.state.blockedUntil).toBe(0);
+  });
+
+  it('the fake enforces the quick-login rule: two refusals within a second block even a valid code (#406)', async () => {
+    const post = (otp: string) =>
+      fetch(`${issuer()}/protocol/openid-connect/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: 'test-cli',
+          grant_type: 'password',
+          username: 'owner',
+          password: 'owner',
+          otp,
+        }),
+      }).then((r) => r.status);
+    expect(await post('000000')).toBe(401);
+    expect(await post('000000')).toBe(401); // same instant on the fake clock → quick login
+    expect(kc.state.blockedUntil).toBe(clock.now() + 60_000);
+    expect(await post(totp(OWNER_DEV_TOTP_SECRET, clock.now()))).toBe(401); // valid, still refused
+    expect(kc.state.failures).toBe(2);
+    // Which is exactly what the helper's gap avoids: with RETRY_GAP_MS between refusals no block forms.
+    expect(RETRY_GAP_MS).toBeGreaterThan(1_000);
   });
 
   it('a user without TOTP: no otp, no file, memoized in-process', async () => {
@@ -309,7 +363,8 @@ async function up(url: string): Promise<boolean> {
 const live = await up(`${KC}/realms/staff/.well-known/openid-configuration`);
 
 describe.runIf(live)('staffToken (live Keycloak)', () => {
-  afterAll(() => forgetStaffToken());
+  // No per-file deletion of the shared file (#406): test/global-setup.ts removes it once at the end of a local
+  // run that created it, so the next file reuses this grant instead of spending another code.
 
   it('owner: a real token (sub seed-owner) that a second process reuses through the shared file', async () => {
     const token = await staffToken('owner');

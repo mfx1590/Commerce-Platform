@@ -63,6 +63,79 @@ Rules the module enforces:
 - Errors are `AppError` (`src/lib/errors.ts`) with the contract codes: `validation_error`, `forbidden`, `not_found`,
   `conflict` (unique violations are mapped).
 
+## Store onboarding (#413, Admin API 0.4.11 / CONTRACT CHANGE #417)
+
+`onboardStore(client, input, registrar, actor)` creates a brand in ONE transaction, then registers it in OpenFGA:
+
+1. the legal entity — inline (`legal_entity`, created here; code unique per organization) or an existing one
+   (`legal_entity_id`; unknown → 400). Exactly one of the two, else 400;
+2. the store in `draft`, with the server-owned conventions `content_space_id = <code>`,
+   `search_index = <code>_products`, `timezone` default `UTC`;
+3. the enabled locales and currencies (the defaults first, through the same set sync as `updateStore`);
+4. the primary domain (`domain.hostname`, lowercased; a hostname another store has → 409);
+5. one `web` sales channel named like the store;
+6. one `publishable` key named `storefront`, bound to that channel — the plain key is in the response ONCE
+   (`publishable_key.key`), the row holds the sha256 and the 8-character prefix;
+7. one `audit_log` row (`store.onboard`, no key material) and the `store.created` outbox row — same transaction;
+8. **after the commit**, `registrar.ensureStoreObject(storeId)`: the `store:<id>#organization@organization:hq`
+   tuple without which no scope resolution ever shows the store (`StoreRegistrar`, see below).
+
+Idempotent by `code`: the same input again answers the same store with `publishable_key: null` and writes nothing
+(the route answers 200 instead of 201) — and runs step 8 again, which is how a registration that failed after the
+commit is repaired by simply calling again. The same code with a different definition is a 409 naming the fields
+that differ (`details.differs`). A failure anywhere inside the transaction leaves no row of any kind
+(onboarding.test.ts forces one after the key insert with a trigger).
+
+`activateStore(client, storeId, registrar, actor)` moves `draft` / `paused` → `active` when every prerequisite
+is present, with an audit row (`store.activate`) and `store.updated` (`changed_fields: ['status']`); an active
+store is a no-op 200; `archived` is a 409 with `details.status`. The prerequisites, reported in this order in
+`details.missing` (409 `conflict`): `legal_entity`, `locale`, `currency`, `primary_domain`, `publishable_key`
+(a live one), `fga_object`. `updateStore` with `status: 'active'` runs the SAME gate (`refuseUnlessReady`) —
+pass `{ registrar }` to it; without one the OpenFGA object counts as missing, never as present.
+
+**`StoreRegistrar`** (`{ ensureStoreObject(storeId), hasStoreObject(storeId) }`): the registry never talks to
+OpenFGA itself. The HTTP layer hands in `src/http/store-registrar.ts`, which writes through window 2's
+`ensureStoreObject` of `@platform/auth-sdk` (#415 / #421: read first, write only when missing, a concurrent
+duplicate tolerated, OpenFGA unreachable = 503 fail closed) and checks by reading the same tuple
+(`storeObjectTuple`); tests use `inMemoryStoreRegistrar()` from this module. The live assertion — the seeded
+owner sees an onboarded store through OpenFGA scope resolution, a store admin of other brands gets 403, and
+activation reads the real tuple — is `test/auth-live.test.ts` "#413 onboarding (live)". A store created before
+this task (through `createStore`) is repaired by `pnpm --filter @platform/auth-sdk fga:reconcile --fix`.
+
+Routes (`src/http/admin-routes.ts`): `POST /admin/onboarding/stores` (`onboardStore`, 201 / 200 / 400 / 409 / 422) and `POST /admin/stores/{storeId}/activate` (`activateStore`, 200 / 404 / 409), both `owner` on
+`organization:hq`; `updateStore` gains 404 / 409 / 422 (Admin API 0.4.11, contracts-v0.4.13).
+
+### Store settings the core reads (`settings-schema.ts`)
+
+`store.settings` stays free-form by contract, but every key the core reads is checked by SHAPE on `createStore`,
+`updateStore` and `onboardStore`: a wrong type is the contract's 422 `validation_error` with `details.settings`
+mapping each offending path to what was expected; unknown keys are preserved untouched (other modules add their
+own without a registry change). The readers keep their forgiving fallbacks — this is the write-side gate.
+
+| Path                                                              | Shape                           | Read by                                   |
+| ----------------------------------------------------------------- | ------------------------------- | ----------------------------------------- |
+| `payment.invoice_allowed`                                         | boolean                         | Store API `payment.methods` (#350 / #358) |
+| `payment.methods`                                                 | DERIVED — refused when written  | computed by `GET /store`, never stored    |
+| `support_refund_limit_minor`                                      | integer ≥ 0 (absent = no limit) | payments refund router (window 7)         |
+| `fulfillment.provider`                                            | non-empty string                | fulfillment registry (window 8)           |
+| `fulfillment.routing.default`                                     | string or null (warehouse code) | fulfillment routing (window 8)            |
+| `fulfillment.routing.countries`                                   | `{ CC: warehouse code }`        | fulfillment routing (window 8)            |
+| `tax.provider`                                                    | `table` \| `stripe`             | tax module (window 7)                     |
+| `tax.prices_include_tax`                                          | boolean                         | tax + cart pricing (#221)                 |
+| `tax.shipping_taxable`                                            | boolean                         | tax module (#352)                         |
+| `shipping.provider`                                               | non-empty string                | shipping `carrierConfigFor` (window 8)    |
+| `shipping.carrier_account_ids`                                    | string[]                        | shipping (window 8)                       |
+| `shipping.services`                                               | string[]                        | shipping (window 8)                       |
+| `shipping.default_parcel.{length_cm,width_cm,height_cm,weight_g}` | integer ≥ 1                     | shipping (window 8)                       |
+| `shipping.label_format`                                           | non-empty string                | shipping (window 8)                       |
+| `fraud.providers`                                                 | array of `rules` \| `radar`     | fraud `fraudSettingsFrom` (window 7)      |
+| `fraud.velocity.{max_orders,window_minutes}`                      | integer ≥ 1                     | fraud (window 7)                          |
+| `fraud.country_mismatch`                                          | `review` \| `allow`             | fraud (window 7)                          |
+| `fraud.radar_highest`                                             | `block` \| `review`             | fraud (window 7)                          |
+
+A module that starts reading a new key adds its row here and its line in `STORE_SETTINGS_SHAPES` (the test pins
+that every group has its leaves listed).
+
 ## Events
 
 - `store.created` v1 — on `createStore`.

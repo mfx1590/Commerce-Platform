@@ -1,0 +1,302 @@
+[
+  {
+    "_id": "legal.en-GB.imprint",
+    "_type": "legal",
+    "locale": "en-GB",
+    "title": "Company details",
+    "slug": {
+      "_type": "slug",
+      "current": "imprint"
+    },
+    "kind": "imprint",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "imp-h",
+          "style": "h2",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imp-h-span",
+              "text": "Who you are buying from"
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imp-1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imp-1-span",
+              "text": "[[COMPANY_LEGAL_NAME]], a company registered in England and Wales."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imp-2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imp-2-span",
+              "text": "Company number [[COMPANIES_HOUSE_NUMBER]]. VAT registration number [[VAT_NUMBER]]."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imp-3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imp-3-span",
+              "text": "Registered office: [[REGISTERED_OFFICE_ADDRESS]], [[CITY]], [[POSTCODE]], United Kingdom."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imp-4",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imp-4-span",
+              "text": "Director: [[DIRECTOR_NAME]]. Email [[CONTACT_EMAIL]]. Telephone [[CONTACT_PHONE]]."
+            }
+          ]
+        }
+      ]
+    },
+    "seo": {
+      "metaTitle": "Company details — Stonecrop",
+      "metaDescription": "Company details for Stonecrop."
+    }
+  },
+  {
+    "_id": "legal.en-GB.privacy",
+    "_type": "legal",
+    "locale": "en-GB",
+    "title": "Privacy notice",
+    "slug": {
+      "_type": "slug",
+      "current": "privacy"
+    },
+    "kind": "privacy",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "priv-h",
+          "style": "h2",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "priv-h-span",
+              "text": "What we hold, and why"
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "priv-1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "priv-1-span",
+              "text": "[[COMPANY_LEGAL_NAME]] is the controller for the personal data described here, under the UK GDPR and the Data Protection Act 2018."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "priv-2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "priv-2-span",
+              "text": "We hold the name, delivery address, email address and order history needed to sell you something and to honour the law on records. Card details never reach our servers: payment is taken by our provider's hosted fields."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "priv-3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "priv-3-span",
+              "text": "Orders are kept for [[ORDER_RETENTION_PERIOD]] to meet HMRC record keeping requirements, then deleted."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "priv-4",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "priv-4-span",
+              "text": "To see, correct or erase what we hold, write to [[PRIVACY_CONTACT_EMAIL]]. You can complain to the Information Commissioner's Office at ico.org.uk."
+            }
+          ]
+        }
+      ]
+    },
+    "seo": {
+      "metaTitle": "Privacy notice — Stonecrop",
+      "metaDescription": "Privacy notice for Stonecrop."
+    }
+  },
+  {
+    "_id": "legal.en-GB.terms",
+    "_type": "legal",
+    "locale": "en-GB",
+    "title": "Terms of sale",
+    "slug": {
+      "_type": "slug",
+      "current": "terms"
+    },
+    "kind": "terms",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "terms-h",
+          "style": "h2",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-h-span",
+              "text": "The contract"
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "terms-1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-1-span",
+              "text": "These terms apply to orders placed with [[COMPANY_LEGAL_NAME]] through this site. A contract is formed when we send the email confirming dispatch, not when you place the order."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "terms-2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-2-span",
+              "text": "Prices are in pounds sterling and include VAT at the prevailing rate. We deliver to the United Kingdom only."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "terms-3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-3-span",
+              "text": "Orders are dispatched within [[DISPATCH_WINDOW]]. Nothing here affects your rights under the Consumer Rights Act 2015."
+            }
+          ]
+        }
+      ]
+    },
+    "seo": {
+      "metaTitle": "Terms of sale — Stonecrop",
+      "metaDescription": "Terms of sale for Stonecrop."
+    }
+  },
+  {
+    "_id": "legal.en-GB.returns",
+    "_type": "legal",
+    "locale": "en-GB",
+    "title": "Returns and cancellation",
+    "slug": {
+      "_type": "slug",
+      "current": "returns"
+    },
+    "kind": "returns",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "ret-h",
+          "style": "h2",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "ret-h-span",
+              "text": "Changing your mind"
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "ret-1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "ret-1-span",
+              "text": "You may cancel within fourteen days of delivery without giving a reason, under the Consumer Contracts Regulations 2013. We extend that to thirty days as a matter of policy."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "ret-2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "ret-2-span",
+              "text": "Return postage within the United Kingdom is on us. Write to [[RETURNS_EMAIL]] and we will send a label."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "ret-3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "ret-3-span",
+              "text": "Refunds reach the original payment method within [[REFUND_WINDOW]] of the parcel arriving back with us."
+            }
+          ]
+        }
+      ]
+    },
+    "seo": {
+      "metaTitle": "Returns and cancellation — Stonecrop",
+      "metaDescription": "Returns and cancellation for Stonecrop."
+    }
+  }
+]

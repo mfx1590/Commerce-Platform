@@ -15,6 +15,7 @@ import { expect, test } from '@playwright/test';
 
 import { AGAINST_CORE, EXPECT, stamped } from './api-mode';
 import { placeCoreOrder } from './core-order';
+import { CORE_CUSTOMER, registerCoreCustomer } from './core-customer';
 import { BRAND_A, BRAND_C, sessionCookies, signIn } from './staff';
 
 test.describe('store-admin', () => {
@@ -266,41 +267,44 @@ test.describe('store-admin', () => {
 
   test('customers: support-gated list and a server-rendered detail with consent', async ({
     page,
+    request,
   }) => {
+    // Core mode creates the customer it reads (#430): the seeded customers-realm user is linked to
+    // brand-a through the Store API first, so a freshly seeded core has a row to list.
+    if (AGAINST_CORE) {
+      await registerCoreCustomer(request, process.env.CORE_URL ?? 'http://localhost:9000');
+    }
+
     // store_admin implies support, so the section is offered and the direct URL renders data.
     await signIn(page, `/${BRAND_A}/customers`);
     await page.waitForURL(new RegExp(`/${BRAND_A}/customers`));
 
-    if (EXPECT.customersRoute !== null) {
-      // The core does not mount the customers routes yet (#265 class): the screen says so, names
-      // the route, and does not pretend the session ended.
-      await expect(
-        page.getByRole('heading', { name: 'Not available on this API yet' }),
-      ).toBeVisible();
-      await expect(
-        page.getByText(`The core does not serve ${EXPECT.customersRoute} yet.`),
-      ).toBeVisible();
-      await expect(page.getByRole('heading', { name: /session/i })).toHaveCount(0);
-      return;
-    }
-
+    // The core serves the admin customer routes since #429 (#431 dropped the placeholder branch;
+    // the not-available panel itself stays covered by test/api-mode.test.tsx).
     const table = page.getByRole('table', { name: 'Customers' });
     await expect(table).toBeVisible();
-    await table.getByRole('link', { name: 'jane@example.com' }).click();
+
+    // The real list and detail — Prism's example, or the core's own row for the customer above.
+    await table.getByRole('link', { name: CORE_CUSTOMER.email }).first().click();
     await page.waitForURL(new RegExp(`/${BRAND_A}/customers/[0-9a-f-]{36}$`));
 
-    await expect(page.getByRole('heading', { name: 'Jane Doe' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: `${CORE_CUSTOMER.firstName} ${CORE_CUSTOMER.lastName}` }),
+    ).toBeVisible();
     const consent = page.getByRole('table', { name: 'Consent by channel' });
     // Cells, not text: the "Granted" column header would otherwise match too.
     await expect(consent.getByRole('cell', { name: 'marketing email' })).toBeVisible();
     await expect(consent.getByRole('cell', { name: 'granted' })).toBeVisible();
-    await expect(consent.getByRole('cell', { name: 'checkout' })).toBeVisible();
+    if (!AGAINST_CORE) {
+      // Where the consent was given: the example says checkout; the core records the sign-up.
+      await expect(consent.getByRole('cell', { name: 'checkout' })).toBeVisible();
+    }
     // The order-history link carries the email into the orders filter.
     await expect(page.getByRole('link', { name: 'Orders by this customer' })).toHaveAttribute(
       'href',
       new RegExp(`/${BRAND_A}/orders\\?q=jane%40example\\.com$`),
     );
-    // Erasure is never one click: the typed confirmation gates it.
+    // Erasure is never one click: the typed confirmation gates it. Nothing is erased.
     await page.getByRole('button', { name: 'Erase this customer' }).click();
     await expect(page.getByRole('button', { name: 'Yes, erase' })).toBeDisabled();
   });

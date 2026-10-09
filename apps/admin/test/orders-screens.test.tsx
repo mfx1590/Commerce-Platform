@@ -228,9 +228,13 @@ describe('order actions: gating, confirmation and the refund idempotency key', (
 
     await user.click(screen.getByRole('button', { name: /Yes, refund/ }));
     await waitFor(() => expect(actions.createRefundAction).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole('alert')).toHaveTextContent(/Could not reach the Admin API/);
+    // The failure is set inside the async transition (#398 class): wait for it, and for the button to
+    // come back from its pending state — a click on a disabled button is silently dropped.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Could not reach the Admin API/);
     // Still open: retry.
-    await user.click(screen.getByRole('button', { name: /Yes, refund/ }));
+    const retry = screen.getByRole('button', { name: /Yes, refund/ });
+    await waitFor(() => expect(retry).toBeEnabled());
+    await user.click(retry);
     await waitFor(() => expect(actions.createRefundAction).toHaveBeenCalledTimes(2));
     const [first, second] = actions.createRefundAction.mock.calls as [unknown[], unknown[]];
     expect(first[2]).toBe('refund-attempt-alpha');

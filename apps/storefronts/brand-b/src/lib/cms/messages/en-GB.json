@@ -1,0 +1,43 @@
+{
+  "nav": {
+    "label": "Main",
+    "shop": "Shop",
+    "about": "About",
+    "account": "Account",
+    "cart": "Cart"
+  },
+  "footer": {
+    "label": "Footer",
+    "legal": "Legal",
+    "social": "Follow us",
+    "copyright": "© {year} {store}"
+  },
+  "page": {
+    "notFound": {
+      "title": "Page not found",
+      "body": "That page does not exist in this store, or it is no longer published.",
+      "back": "Back to the home page"
+    }
+  },
+  "legal": {
+    "lastReviewed": "Last reviewed {date}",
+    "kind": {
+      "terms": "Terms and conditions",
+      "privacy": "Privacy policy",
+      "imprint": "Imprint",
+      "cookies": "Cookie policy",
+      "returns": "Returns"
+    }
+  },
+  "product": {
+    "view": "View product",
+    "unavailable": "This product is not available right now."
+  },
+  "image": {
+    "missing": "Image unavailable"
+  },
+  "preview": {
+    "banner": "Preview: you are looking at unpublished drafts.",
+    "exit": "Exit preview"
+  }
+}
