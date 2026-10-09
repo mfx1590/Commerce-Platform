@@ -730,6 +730,15 @@ targets, base URI — but it is **not** XSS protection and should not be describ
 
 ## Performance budget
 
+**A brand measures against its own store (#447).** The gate's Prism mock describes brand A
+(`en-GB`, `de-DE`), and the root layout 404s a locale the store does not offer, so a brand selling
+another locale could never be warmed. A brand ships `perf/store.example.json` — its store as `GET
+/store` would describe it (`code`, `name`, currencies, locales, `default_*` …) — and `perf.mjs` then
+validates it against the spec's `Store` schema (a wrong example fails naming the problems), writes a
+temporary copy of `store-api.yaml` whose `GET /store` example is that file (one line changes;
+`scripts/perf-store-example.mjs`), starts Prism from it on `PERF_MOCK_PORT` (default 4012) and points
+the app at it. No file: the shared mock on `MOCK_API_URL` serves exactly as before.
+
 One command runs the whole gate and exits non-zero if **any** budget is exceeded (task 2.3):
 
 ```bash
