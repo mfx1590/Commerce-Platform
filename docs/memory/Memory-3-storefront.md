@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · main `088d997` merged · **Manager = "Manager session five"** (repo root; "Project manager handoff" retired). **CRITICAL PATH: #441 + #440, ONE PR "Closes #441, Closes #440"** (brand C #438 cannot run e2e until the starter stops assuming brand A). Build slot is mine; the MACHINE is not — ask before any e2e/build/Lighthouse. Still open: #358's live proof (Stripe keys).
+Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** **#441 + #440 = PR #445 (code commit `c5386d1`; head = this memory commit)** — "Closes #441, Closes #440"; checks pending, report when they finish; no further pushes until the manager says. Mock e2e 2026-10-09 (machine granted, released): default 75 = 67 / 8 (== main CI baseline 75 = 67 / 8); SUPPORTED_LOCALES=en-GB 51 = 42 / 9. Brand follow-ups (window 10): brand A `KEYCLOAK_CLIENT_ID ??= 'storefront-brand-a'` (routed into #438); every brand sets SUPPORTED_LOCALES in next.config AND its preserved playwright.config.ts, E2E_SHIP_ADDRESS_JSON there, KEYCLOAK_CLIENT_ID in next.config. Still open: #358's live proof (Stripe keys).
 
 ## Identity (does not change)
 
@@ -246,7 +246,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
-- **#441 + #440 (2026-10-09) — PLAN, sent to the manager for confirmation (> ~20 calls).** Each part with
+- **#441 + #440 (2026-10-09) — ALL PARTS DONE → PR #445 (code commit `c5386d1`).** Plan as confirmed: Each part with
   a test that fails first; brand A + starter behaviour byte-identical (same suite counts).
   1. **DONE locally (this commit): #441 part 2 (security, FIRST):** `src/lib/auth/oidc.ts` — `KEYCLOAK_CLIENT_ID` unset → the
      documented dev default `storefront-brand-a` ONLY where `siteUrl()` allows its default
