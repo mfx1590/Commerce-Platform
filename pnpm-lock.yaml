@@ -300,6 +300,12 @@ importers:
       '@types/react-dom':
         specifier: ^19.1.0
         version: 19.2.7(@types/react@19.2.18)
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: 3.0.1
+        version: 3.0.1(ajv@8.20.0)
       autoprefixer:
         specifier: ^10.4.21
         version: 10.5.5(postcss@8.5.28)
@@ -318,6 +324,9 @@ importers:
       vitest:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@20.19.43)(jiti@1.21.7)(jsdom@26.1.0)(lightningcss@1.32.0)(tsx@4.23.13)(yaml@2.9.0)
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
   apps/storefronts/brand-a:
     dependencies:
