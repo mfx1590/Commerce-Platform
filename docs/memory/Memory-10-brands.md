@@ -572,9 +572,14 @@ override an owner constraint. Asked the owner. Everything else is done and green
 - **MACHINE: everything that does not need the core is done** — the #438 build and budget block, and
   now both brands' mock e2e runs. **The core run is blocked on the owner's "no docker" instruction**,
   not on anything technical: `E2E_STORE_API_URL` pointing at a running core is all the specs need.
-- **ONE REQUEST still to file**: the four synced unit tests that hard-code `en-GB`
-  (`test/route-origin.test.ts` ×2, `test/seo.test.ts`, `test/cms-content.test.ts`). Window 3, as a
-  #441 follow-up. Until it lands, no brand can turn `SUPPORTED_LOCALES` on for vitest.
+- **REQUEST #446 FILED**: the four synced unit tests that hard-code `en-GB`
+  (`test/route-origin.test.ts` ×2, `test/seo.test.ts`, `test/cms-content.test.ts`). Window 3, a #441
+  follow-up. Until it lands, no brand can turn `SUPPORTED_LOCALES` on for vitest.
+- **The local core run turned out to be unnecessary.** CI's live job runs `apps/*` on Prism but
+  **brand storefronts on the kept core** (#295), so the funnel and lifecycle specs the manager wanted
+  quoted will RUN on #444 itself — against a backend that holds B's and C's real stores. The thing a
+  local core run would have proved is proved by the PR. No docker needed, and the owner's rule is not
+  in the way after all. Pushed at `5e3870d`.
 - **DONE: PR #444** (code commit `ba8a7e4`; head = this memory commit), `brands/phase3` -> `main`,
   "Closes #438". 244 files, +25.5k. Pushed `9ae927a..ba8a7e4`.
   **#441 parts 4 and 5 appended** (comment 6076967115) with the 3xx-not-warm ask the measurement
