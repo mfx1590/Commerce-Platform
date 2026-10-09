@@ -101,9 +101,11 @@ export async function warmUpServer(options) {
     streak = quick ? streak + 1 : 0;
     const report = `page ${page === null ? 'failed' : `${Math.round(page.ms)} ms`}, chunk ${
       chunk === null
-        ? chunkPath === null
-          ? 'not found in the page'
-          : 'failed'
+        ? page === null
+          ? 'not tried'
+          : chunkPath === null
+            ? 'not found in the page'
+            : 'failed'
         : `${Math.round(chunk.ms)} ms`
     }`;
     log(`[e2e-server] warm-up ${attempts}: ${report}${quick ? '' : ' — not yet'}`);
