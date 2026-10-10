@@ -580,7 +580,29 @@ override an owner constraint. Asked the owner. Everything else is done and green
   quoted will RUN on #444 itself — against a backend that holds B's and C's real stores. The thing a
   local core run would have proved is proved by the PR. No docker needed, and the owner's rule is not
   in the way after all. Pushed at `5e3870d`.
-- **PR #444 head is now `f4fd496`.** Verified by sha that **#445 (d67349a), #448 (0ec34d1), #450
+- **#444 REVIEW (Opus, on bb8b29f): BLOCK on one item, now fixed.** Brand C had **5** cms documents
+  where brand B has **10** — the generator wrote home + 4 legal while its own comment said the SET
+  mirrors, § 1 called the set fixed, and **C's LAUNCH 6.4 verified `/en-US/about` → 200 against a
+  page that did not exist**. A checklist row can be as wrong as code. Fixed in `f45aa59`: C has B's
+  set, the generator emits all of it, counts aligned in LAUNCH/README/CHANGELOG.
+  **Verified by generating a throwaway brand and running the validator on it**, which caught what
+  reading would not: `[[CAMPAIGN_STARTS_AT]]`/`[[...ENDS_AT]]` **fail the schema** ("endsAt — Must
+  end after it starts"), so the dates must be real AND live (`campaignIsLive()` gates the route the
+  nav links to). **So a placeholder is not a general strategy** — it works for prose and fails for
+  anything another rule reads; `E2E_SHIP_ADDRESS_JSON` likewise (country validated as two letters).
+  Gaps **trap 24** records both, and § 1's warning now says the content-set claim was wrong too.
+  Nits also fixed: the inherited Manchester address is a manualSteps entry (no pair can rewrite a
+  country), step 4's "exclusions while #441 is open" log, and LAUNCH § 12's "44 / 6" which omitted
+  that run's failure (now bb8b29f's **45 / 6**, perf LCP best **1716 ms**).
+- **FLAKES: five sightings, none reproducible in isolation, none ever seen in CI.** All in slow,
+  IO- or render-heavy tests, all passing on re-run: brand A `brand-i18n-seo` real-layout (1329 ms,
+  then 5485 ms), brand B `e2e-build-origin` "no marker" (builds fixtures in the **shared** system
+  temp dir), and `cms-content` "no hard-coded strings" + `i18n` "resolves every t(...)" which
+  **swapped brands between runs**. The last one passes 3/3 alone at 223 ms. They cluster when the
+  three suites run concurrently under turbo while a build or server is also running.
+  **Run the three suites SEQUENTIALLY for a trustworthy gate signal**; do not add retries or
+  timeouts without per-run evidence (the manager's standard, and right).
+- **(earlier) PR #444 head `f4fd496`.** Verified by sha that **#445 (d67349a), #448 (0ec34d1), #450
   (e0cd978) and #443 (933d484) are all ancestors** — the manager asked twice for merges that were
   already in, so check with `git merge-base --is-ancestor` before re-doing one. The last merge was
   worth it: main's `8e32f48` adds `**/.lighthouseci/` to the root `.prettierignore`, ending the local
