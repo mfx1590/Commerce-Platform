@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`). **#449 = PR #450 (code commit `0267a04`; head = this memory commit)** — the review assertion and the card postcode follow E2E_SHIP_ADDRESS_JSON; checks pending, quote the starter's live-job counts (expect 75 = 67 / 8) when they finish. **Next (next active stint, NOT now): #446.** Still open: #358's live proof (Stripe keys). Then quiet. Machine NOT mine.
+Last updated: 2026-10-10 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five" (handing over to a session six — check Memory-main's top bullet).** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`), **#449 (PR #450 = `e0cd978`, merged 2026-10-09; code commit `0267a04`, 15/15 checks green; issue CLOSED)**. **Nothing on the docket — QUIET.** Next (only when the manager says): #446. Still open: #358's live proof (Stripe keys). Branch is 2 memory commits ahead of / behind origin/main (`8e32f48`+): `git merge origin/main` + `pnpm install` before any work; nothing pushed since `d4a364f`. Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -246,8 +246,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
-- **HAND-OVER (2026-10-09, context full) — #449 = PR #450, code commit `0267a04`, pushed head
-  `d4a364f` (memory record).** Done and pushed: `reviewAddressLine1()` + `MOCK_CART_LINE1` in
+- [x] **#449 — DONE, PR #450 merged = `e0cd978` (2026-10-09 12:08 UTC), code commit `0267a04`, head
+  `d4a364f`; 15/15 checks green.** A fresh session on 2026-10-10 was started with a stale message
+  (it described the fix as uncommitted): verified merged, issue closed, and no NL literal left in any
+  spec (only the default in `e2e/support/ship-address.ts`, `MOCK_CART_LINE1`, and unit-test fixtures).
+  The hand-over note as written, for the record: Done and pushed: `reviewAddressLine1()` + `MOCK_CART_LINE1` in
   `e2e/support/ship-address.ts` (tested), `checkout.spec.ts` asserts it, `card-payment.spec.ts` fills
   the configured postcode; CHANGELOG 0.14.2; lint/format/typecheck/609 unit green. **Nothing
   uncommitted on disk** (this note is a local commit, not pushed). **Next step for the fresh
