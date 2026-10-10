@@ -580,7 +580,20 @@ override an owner constraint. Asked the owner. Everything else is done and green
   quoted will RUN on #444 itself — against a backend that holds B's and C's real stores. The thing a
   local core run would have proved is proved by the PR. No docker needed, and the owner's rule is not
   in the way after all. Pushed at `5e3870d`.
-- **PR #444 head is now `1352efe`** (pushed `f84c045..1352efe`), carrying #448's per-brand perf mock
+- **PR #444 head is now `f4fd496`.** Verified by sha that **#445 (d67349a), #448 (0ec34d1), #450
+  (e0cd978) and #443 (933d484) are all ancestors** — the manager asked twice for merges that were
+  already in, so check with `git merge-base --is-ancestor` before re-doing one. The last merge was
+  worth it: main's `8e32f48` adds `**/.lighthouseci/` to the root `.prettierignore`, ending the local
+  `format:check` redness after a brand perf run (the line the brand `.gitignore` comment had been
+  waiting on since task 2.2).
+- **ONBOARDING-GAPS traps now run 1..23**, verified sequential. 21 = a re-sync can add dependencies
+  and `--frozen-lockfile` cannot install them. 22 = parameterising a spec's INPUT is not
+  parameterising its ASSERTIONS (the `Keizersgracht 1` literal; two brands failing one identical
+  test is the signature of an inherited literal). 23 = a multi-path `git checkout --` silently
+  restores a `PRESERVE` entry, and **nothing** catches it — `sync --check` is truthfully clean
+  because a preserved file is allowed to differ; the only symptom is the preserved COUNT differing
+  from the sibling brands'. Compare that count after any sync work.
+- **(earlier) PR #444 head `1352efe`** (pushed `f84c045..1352efe`), carrying #448's per-brand perf mock
   example and #450's review-page address fix. **Everything of mine on #438 is done**; the only
   expected red is `app images`, which is the manager's integration commit.
   **CI proved both #441 fixes** on run 37920845926: brand C `[e2e-server] ready: …:3103 is warm`,
