@@ -1,0 +1,34 @@
+[
+  {
+    "_id": "navigation.en-US.main",
+    "_type": "navigation",
+    "locale": "en-US",
+    "key": "main",
+    "items": [
+      {
+        "_type": "navItem",
+        "_key": "nav-all",
+        "label": "Everything",
+        "href": "/products"
+      },
+      {
+        "_type": "navItem",
+        "_key": "nav-restock",
+        "label": "Back in stock",
+        "href": "/campaign/back-in-stock"
+      },
+      {
+        "_type": "navItem",
+        "_key": "nav-made",
+        "label": "How it is made",
+        "href": "/made"
+      },
+      {
+        "_type": "navItem",
+        "_key": "nav-about",
+        "label": "About",
+        "href": "/about"
+      }
+    ]
+  }
+]

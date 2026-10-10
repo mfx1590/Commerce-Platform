@@ -47,7 +47,7 @@
   score. `numberOfRuns: 5` and the 2500 ms LCP budget are unchanged; the port stays `3100` for every
   brand because `scripts/perf.mjs` starts its own `next start --port ${PERF_PORT ?? 3100}`.
 - **`cms/brand-c/content`**: the home page and the four legal documents in `en-US`. All five validate
-  against the shared schemas (`seed-content.mjs --dry-run` → _5 documents valid (1 page, 4 legal)_).
+  against the shared schemas (`seed-content.mjs --dry-run` → _10 documents valid (1 campaignLanding, 1 footer, 3 page, 4 legal, 1 navigation)_).
   The legal texts cite **US** instruments — UCC Article 2 as adopted by the state, the FTC Mail,
   Internet, or Telephone Order Merchandise Rule, CCPA/CPRA, the NY SHIELD Act, COPPA, CAN-SPAM — and
   are **a developer's drafts**. They are not brand B's text translated: there is **no federal right

@@ -19,8 +19,10 @@ brand that is _not_ in the seed still needs.
 > **Written before #438, and #438 proved it optimistic.** The script does do all of this, and brand
 > C exists. But generating a brand whose locale the starter does not serve turned up five defects
 > this list does not mention (traps 13-17), one of which meant the generated app could not render a
-> single page. "Mechanical" meant "mechanical for a brand shaped like brand B". Read section 3
-> before trusting this one.
+> single page. "Mechanical" meant "mechanical for a brand shaped like brand B". **And the list below
+> is not quite right about the content set either** — it calls the document set fixed, and the
+> generator wrote half of it until the #444 review counted (trap 24). Read section 3 before trusting
+> this one.
 
 | Step                          | File                                                                 | Why it is mechanical                                                                                                                                                                                                               |
 | ----------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -382,6 +384,28 @@ would reproduce three solved bugs.
       siblings has either a good reason, written down, or a mistake. Brand C's good reason
       (`test/i18n.test.ts`, trap 14) stopped being good when #441 part 5 landed, and the count is
       what showed the removal had not actually happened.
+
+24. **A `[[PLACEHOLDER]]` is not valid everywhere, and the document SET is easy to get wrong.**
+    Two findings from the #444 review, which caught the generator writing **5** of brand B's **10**
+    documents while its own comment said "the document SET mirrors; the prose does not" and § 1 above
+    called the set fixed. Brand C therefore had no `about` page — and its `LAUNCH.md` 6.4 verified
+    `/en-US/about` → 200 against a page that did not exist. A checklist row can be as wrong as code.
+
+    - **The set is nav + footer + campaign + home + about + made + 4 legal.** Navigation and the
+      footer are _mostly mechanical_, because the routes are the app's; only the labels are a
+      decision. The campaign matters because the nav and footer link to it.
+    - **Some fields reject placeholders, and only running the validator shows it.** The generated
+      campaign failed `seed-content --dry-run` with _"endsAt — Must end after it starts"_: the schema
+      compares the two dates, so `[[CAMPAIGN_STARTS_AT]]`/`[[CAMPAIGN_ENDS_AT]]` cannot stand. The
+      dates have to be real **and live**, because `campaignIsLive()` gates the route and the nav
+      links to it. Likewise `E2E_SHIP_ADDRESS_JSON` cannot hold one: `shippingAddressFromEnv`
+      validates the country as two letters.
+      **So "put a placeholder in it" is not a general strategy** — it works for prose and fails for
+      anything another rule reads. Generate, then run the validator; do not reason about it.
+    - **Brand C's content references no media slots**, unlike brand B's, because brand C's manifest
+      declares none. `hero.image` is optional in the schema, so the documents validate without it.
+      Pointing content at a slot that does not exist would be the same false record as inventing a
+      `bytes` or `sha256` (§ 5).
 
 ## 4. What needed NOTHING, which is the good news
 

@@ -238,7 +238,11 @@ function main() {
   }
   log(`  foreign-market tests: ${exclusions.foreignMarket.tests.length}`);
   log(`    ${exclusions.foreignMarket.reason}`);
-  log('  (already present in the template’s playwright.config.ts, carried by substitution)');
+  log(
+    '  (NONE are applied: #441 removed the reason for all of them. Listed because the template’s ' +
+      'playwright.config.ts records them as history, and a new brand should know why the block is ' +
+      'there rather than re-adding the exclusions.)',
+  );
 
   // 5. The content skeleton. Structure only: every sentence is a decision (section 2).
   step('cms content skeleton');
@@ -303,6 +307,124 @@ function main() {
               ],
             },
           ],
+        },
+      })),
+      // Navigation and the footer are the one part of the set that is MOSTLY mechanical: the routes
+      // are the app's (`/products`, `/about`, `/made`, `/legal/*`), so only the labels are a
+      // decision. Hrefs real, labels placeholders — a nav that links somewhere real and names it
+      // with `[[NAV_*]]` is caught by the launch gate, while a nav with invented labels reads as
+      // finished and is not.
+      'navigation.json': [
+        {
+          _id: `navigation.${locale}.main`,
+          _type: 'navigation',
+          locale,
+          key: 'main',
+          items: [
+            { _type: 'navItem', _key: 'nav-all', label: '[[NAV_ALL_LABEL]]', href: '/products' },
+            {
+              _type: 'navItem',
+              _key: 'nav-campaign',
+              label: '[[NAV_CAMPAIGN_LABEL]]',
+              href: '/campaign/launch',
+            },
+            { _type: 'navItem', _key: 'nav-made', label: '[[NAV_MADE_LABEL]]', href: '/made' },
+            { _type: 'navItem', _key: 'nav-about', label: '[[NAV_ABOUT_LABEL]]', href: '/about' },
+          ],
+        },
+      ],
+      'footer.json': [
+        {
+          _id: `footer.${locale}.default`,
+          _type: 'footer',
+          locale,
+          columns: [
+            {
+              _type: 'footerColumn',
+              _key: 'col-shop',
+              heading: '[[FOOTER_SHOP_HEADING]]',
+              links: [
+                { _type: 'link', _key: 'f-all', label: '[[NAV_ALL_LABEL]]', href: '/products' },
+                {
+                  _type: 'link',
+                  _key: 'f-campaign',
+                  label: '[[NAV_CAMPAIGN_LABEL]]',
+                  href: '/campaign/launch',
+                },
+              ],
+            },
+            {
+              _type: 'footerColumn',
+              _key: 'col-about',
+              heading: '[[BRAND_NAME]]',
+              links: [
+                { _type: 'link', _key: 'f-about', label: '[[NAV_ABOUT_LABEL]]', href: '/about' },
+                { _type: 'link', _key: 'f-made', label: '[[NAV_MADE_LABEL]]', href: '/made' },
+              ],
+            },
+          ],
+          // The four legal routes are fixed by `legal.json` above, so these are not decisions.
+          legalLinks: [
+            { _type: 'link', _key: 'f-imprint', label: 'Company details', href: '/legal/imprint' },
+            { _type: 'link', _key: 'f-privacy', label: 'Privacy', href: '/legal/privacy' },
+            { _type: 'link', _key: 'f-terms', label: 'Terms', href: '/legal/terms' },
+            { _type: 'link', _key: 'f-returns', label: 'Returns', href: '/legal/returns' },
+          ],
+          copyright: '© [[COPYRIGHT_YEAR]] [[COMPANY_LEGAL_NAME]]. All rights reserved.',
+        },
+      ],
+      // A neutral slug on purpose: `launch` keeps the nav and footer links above pointing at a
+      // document that exists. A placeholder inside the slug would put `[[...]]` in a URL.
+      'campaign.json': [
+        {
+          _id: `campaignLanding.${locale}.launch`,
+          _type: 'campaignLanding',
+          locale,
+          title: '[[CAMPAIGN_TITLE]]',
+          slug: { _type: 'slug', current: 'launch' },
+          campaignId: '[[CAMPAIGN_ID]]',
+          // REAL dates, not placeholders, for two reasons found by validating the output rather
+          // than by reading it. The schema checks `endsAt` is after `startsAt`, so a placeholder
+          // pair fails `seed-content --dry-run` outright ("Must end after it starts"). And the
+          // window has to be LIVE, because `campaignIsLive()` gates the route: a campaign outside
+          // its window 404s, and the navigation and footer above link to it. A year from the
+          // generation date keeps the link working while the prose is still placeholders, which the
+          // launch gate is what blocks.
+          startsAt: `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+          endsAt: `${new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10)}T23:59:59.000Z`,
+          hero: {
+            _type: 'hero',
+            headline: '[[CAMPAIGN_HEADLINE]]',
+            subheadline: '[[CAMPAIGN_SUBHEADLINE]]',
+            layout: 'full-bleed',
+          },
+          blocks: [],
+          seo: {
+            metaTitle: '[[CAMPAIGN_META_TITLE]]',
+            metaDescription: '[[CAMPAIGN_META_DESCRIPTION]]',
+          },
+        },
+      ],
+      // `about` and `made` are the two content routes the app links to from the nav, the footer and
+      // the sitemap, so the SET needs them even though every sentence in them is the brand's.
+      'pages.json': ['about', 'made'].map((slug) => ({
+        _id: `page.${locale}.${slug}`,
+        _type: 'page',
+        locale,
+        title: `[[PAGE_${slug.toUpperCase()}_TITLE]]`,
+        slug: { _type: 'slug', current: slug },
+        hero: {
+          _type: 'hero',
+          headline: `[[PAGE_${slug.toUpperCase()}_HEADLINE]]`,
+          subheadline: `[[PAGE_${slug.toUpperCase()}_SUBHEADLINE]]`,
+          layout: 'full-bleed',
+        },
+        blocks: [],
+        seo: {
+          metaTitle: `[[PAGE_${slug.toUpperCase()}_META_TITLE]]`,
+          metaDescription: `[[PAGE_${slug.toUpperCase()}_META_DESCRIPTION]]`,
         },
       })),
     };

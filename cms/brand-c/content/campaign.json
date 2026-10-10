@@ -1,0 +1,55 @@
+[
+  {
+    "_id": "campaignLanding.en-US.back-in-stock",
+    "_type": "campaignLanding",
+    "locale": "en-US",
+    "title": "Back in stock",
+    "slug": {
+      "_type": "slug",
+      "current": "back-in-stock"
+    },
+    "campaignId": "back-in-stock-2026",
+    "startsAt": "2026-10-01T00:00:00.000Z",
+    "endsAt": "2027-02-28T23:59:59.000Z",
+    "hero": {
+      "_type": "hero",
+      "eyebrow": "Back in stock",
+      "headline": "The ones that ran out first",
+      "subheadline": "The same cuts in the same cloth, made again because they sold before we could photograph them.",
+      "layout": "full-bleed",
+      "ctas": [
+        {
+          "_type": "cta",
+          "_key": "campaign-cta",
+          "label": "See what is back",
+          "href": "/products",
+          "variant": "primary"
+        }
+      ]
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "campaign-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "campaign-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "campaign-p-span",
+                "text": "Nothing here is new. These are repeats of pieces we have made before, in the same fabric and the same fit, which is the whole point of keeping the list short."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaTitle": "Back in stock - [[BRAND_NAME]]",
+      "metaDescription": "Repeat runs of the pieces that sold out first. Small-batch everyday clothes, shipped across the US."
+    }
+  }
+]

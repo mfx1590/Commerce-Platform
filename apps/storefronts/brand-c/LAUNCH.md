@@ -124,13 +124,15 @@ promised a VAT-inclusive price that is wrong at checkout.
 | --- | ----------------------------------------------- | ----- | ------------------------------------------------- | --- |
 | 6.1 | `brand-c` is a dataset in `cms/src/datasets.ts` | 6     | `storeCode: 'brand-c'`, `dataset: 'brand-c'`      | ✅  |
 | 6.2 | A real Sanity project and the `brand-c` dataset | owner | `SANITY_PROJECT_ID` is set and the dataset exists | ⛔  |
-| 6.3 | The five documents are seeded into it           | 10    | `node cms/brand-c/scripts/seed-content.mjs --yes` | ⛔  |
+| 6.3 | The ten documents are seeded into it            | 10    | `node cms/brand-c/scripts/seed-content.mjs --yes` | ⛔  |
 | 6.4 | Content routes render against a real dataset    | 10    | `/en-US/about`, `/en-US/legal/*` answer `200`     | ⛔  |
 
 6.1 is ✅ and was **not** window 10's work: `brand-c` was already in `cms/src/datasets.ts` and a test
 in `cms/test/datasets.test.ts` enforces that the datasets mirror the seed's store codes. 6.3 is
 blocked only on 6.2 — the documents themselves validate today:
-`node cms/brand-c/scripts/seed-content.mjs --dry-run` → _5 documents valid (1 page, 4 legal)_.
+`node cms/brand-c/scripts/seed-content.mjs --dry-run` → _10 documents valid (1 campaignLanding, 1 footer, 3 page, 4 legal, 1 navigation)_ — the same document
+SET as brand B's (#444 review: it used to be five, and 6.4 verified `/en-US/about` against a page
+that did not exist).
 
 ---
 
@@ -247,8 +249,12 @@ and in production alike. The test that should have caught it asserted a hard-cod
 catalogues and never read the configured locales, so it passed on an app that could not serve a page.
 
 12.4 and 12.5 **were** why brand C had no e2e coverage at all. Both landed in #445, and **CI
-proved it**: on #444's run 37920845926 brand C's leg logs
-`[e2e-server] ready: http://127.0.0.1:3103 is warm` and reports **44 passed / 6 skipped**. Brand B's
+proved it**: on #444's head `bb8b29f` brand C's leg logs
+`[e2e-server] ready: http://127.0.0.1:3103 is warm` and reports **45 passed / 6 skipped**, with its
+perf leg green too (LCP best run **1716 ms** against the 2500 ms budget). The earlier run
+37920845926 was 44 / 6 / **1 failed** — the inherited `Keizersgracht 1` literal, fixed by window 3
+in #450; quoting that run's pass count without its failure is a half-truth and is corrected here.
+Brand B's
 leg on the same run printed the funnel line in full — `order b4197547-... placed (GBP 8719 minor),
 shipped → processing, delivered → completed, address country GB`.
 
@@ -323,7 +329,7 @@ mock, and **REQUEST #447** is the fix — `perf.mjs` serving a brand's own `GET 
 | `pnpm typecheck` (whole workspace, 23/23)                                 | pass                     |
 | `pnpm test --filter @platform/storefront-brand-c` — 583 passed, 3 skipped | pass                     |
 | `pnpm test --filter @platform/storefront-brand-b` — 660 passed, 3 skipped | pass                     |
-| C's 5 documents validate against the shared schema                        | pass                     |
+| C's 10 documents validate against the shared schema                       | pass                     |
 | `LAUNCH_GATE=1` fails on C's 23 placeholders, naming each                 | pass                     |
 | `sync-from-starter --check` → "manifest is current"                       | pass                     |
 | `infra/ci/changes.sh` lists brand C in `perf_apps`, `perf_unmeasured=[]`  | pass                     |
@@ -338,7 +344,7 @@ mock, and **REQUEST #447** is the fix — `perf.mjs` serving a brand's own `GET 
 | `bundle-budget.mjs --sync-readme` then `--verify` — 17 routes, all within budget | pass                                                                                                                             |
 | `/health` under `next start`                                                     | pass (200)                                                                                                                       |
 | **mock render check**                                                            | **impossible** — 12.7; every `/en-US/...` is a correct 404                                                                       |
-| **one core e2e run**                                                             | **not run** — blocked twice, by 12.4 and 12.7                                                                                    |
+| **one core e2e run**                                                             | **CI ran it** — 45 passed / 6 skipped on `bb8b29f`, the funnel lines quoted on #444                                              |
 
 The one claim this file used to hedge is now measured, and the mechanism was **not** the one
 predicted — see § 12.

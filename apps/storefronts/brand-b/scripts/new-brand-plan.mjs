@@ -616,6 +616,17 @@ export function manualSteps(target) {
         'src/i18n/request.ts imports it unguarded. See `messageCatalogues`.',
     })),
     {
+      step: "the e2e shipping address is still the template brand's",
+      where: `apps/storefronts/${target.code}/playwright.config.ts (E2E_SHIP_ADDRESS_JSON)`,
+      why:
+        'the template brand sets a real street in its own market, and no substitution pair can ' +
+        'turn one country’s address into another’s — so this brand inherits it silently. The ' +
+        'funnel specs then fill an address the store will not ship to and time out on "No ' +
+        'delivery options are available for this address", which reads like a checkout bug. ' +
+        'A placeholder is not an option: `shippingAddressFromEnv` validates the country as two ' +
+        'letters and would throw. Write a real address in this brand’s market.',
+    },
+    {
       step: 'the locale reasoning inherited from the template brand',
       where: `apps/storefronts/${target.code}/next.config.mjs and playwright.config.ts`,
       why:

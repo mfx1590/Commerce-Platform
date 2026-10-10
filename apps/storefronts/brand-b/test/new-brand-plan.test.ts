@@ -505,6 +505,18 @@ describe('localeMismatch', () => {
     expect(localeMismatch({ locales: ['en-GB', 'en-US'] })!.locales).toEqual(['en-US']);
   });
 
+  it('names the inherited shipping address, which no substitution can fix', () => {
+    // #444 review: the generator carries brand B's Manchester address into every new brand, and a
+    // pair that rewrote GB into another country does not exist. Silence here costs the next brand
+    // four timing-out funnel tests that read like a checkout bug.
+    const step = manualSteps(parseArgs(ARGS)).find((entry) => entry.step.includes('shipping'));
+    expect(step).toBeDefined();
+    expect(step?.where).toContain('E2E_SHIP_ADDRESS_JSON');
+    expect(step?.why).toMatch(/No delivery options/);
+    // And it says why a placeholder will not do, so nobody tries one.
+    expect(step?.why).toMatch(/two\s+letters/);
+  });
+
   it('is reported as a manual step, so a generated brand cannot miss it', () => {
     // Specific: there are two locale steps now, and the other one is about prose.
     const step = manualSteps(parseArgs(ARGS)).find((entry) => entry.step.includes('synced e2e'));

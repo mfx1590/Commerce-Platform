@@ -45,12 +45,12 @@ pnpm --filter @platform/storefront-brand-c start
 pnpm lint && pnpm format:check && pnpm typecheck
 pnpm test --filter @platform/storefront-brand-c       # 583 passed, 3 skipped
 LAUNCH_GATE=1 pnpm test --filter @platform/storefront-brand-c   # FAILS: 23 placeholders left
-node cms/brand-c/scripts/seed-content.mjs --dry-run   # 5 documents valid (1 page, 4 legal)
+node cms/brand-c/scripts/seed-content.mjs --dry-run   # 10 documents valid
 node scripts/sync-from-starter.mjs --check            # manifest is current
 ```
 
 **`pnpm e2e` runs in CI, not on a laptop.** CI's live job points brand storefronts at the kept core,
-which holds brand C's real store: **44 passed / 6 skipped** on #444's run 37920845926, with
+which holds brand C's real store: **45 passed / 6 skipped** on #444's head `bb8b29f`, with
 `[e2e-server] ready: http://127.0.0.1:3103 is warm`. Locally the harness cannot start, because
 `pnpm mock` serves one store and every `/en-US/...` route is then a correct 404 — see "The locale
 gap" below. Set `E2E_STORE_API_URL` to a running core, or read the CI leg.
