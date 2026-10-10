@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { serializeJsonLd } from '@/components/json-ld';
+import { defaultLocale, locales } from '@/i18n/routing';
 import {
   absoluteUrl,
   alternatesFor,
@@ -83,13 +84,19 @@ describe('URLs', () => {
 
 describe('alternates', () => {
   it('is self-referencing and lists every locale plus x-default', () => {
-    const { canonical, languages } = alternatesFor('de-DE', '/products/alpine-backpack');
+    // The configured locales, not the starter's pair (#446): a brand with one locale, or another
+    // one, runs this against its own routing. The last locale, so the starter still renders a
+    // page that is not the default's.
+    const current = locales.at(-1)!;
+    const { canonical, languages } = alternatesFor(current, '/products/alpine-backpack');
 
-    expect(canonical).toBe('/de-DE/products/alpine-backpack');
-    expect(languages['en-GB']).toBe('/en-GB/products/alpine-backpack');
-    expect(languages['de-DE']).toBe('/de-DE/products/alpine-backpack');
+    expect(canonical).toBe(`/${current}/products/alpine-backpack`);
+    for (const locale of locales) {
+      expect(languages[locale]).toBe(`/${locale}/products/alpine-backpack`);
+    }
     // Somewhere to send a visitor whose language the store does not sell in.
-    expect(languages['x-default']).toBe('/en-GB/products/alpine-backpack');
+    expect(languages['x-default']).toBe(`/${defaultLocale}/products/alpine-backpack`);
+    expect(Object.keys(languages)).toHaveLength(locales.length + 1);
   });
 
   it('returns relative paths — metadataBase does the join, and doing it twice corrupts the URL', () => {
