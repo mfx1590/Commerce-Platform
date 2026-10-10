@@ -580,7 +580,17 @@ override an owner constraint. Asked the owner. Everything else is done and green
   quoted will RUN on #444 itself — against a backend that holds B's and C's real stores. The thing a
   local core run would have proved is proved by the PR. No docker needed, and the owner's rule is not
   in the way after all. Pushed at `5e3870d`.
-- **DONE: PR #444** (code commit `ba8a7e4`; head = this memory commit), `brands/phase3` -> `main`,
+- **PR #444 head is now `1352efe`** (pushed `f84c045..1352efe`), carrying #448's per-brand perf mock
+  example and #450's review-page address fix. **Everything of mine on #438 is done**; the only
+  expected red is `app images`, which is the manager's integration commit.
+  **CI proved both #441 fixes** on run 37920845926: brand C `[e2e-server] ready: …:3103 is warm`,
+  **44 passed / 6 skipped**; brand B's funnel line in full — `order b4197547-… placed (GBP 8719
+  minor), shipped → processing, delivered → completed, address country GB`, **48 / 6**. Both legs had
+  the **same** single failure, an inherited literal (trap 22), fixed by window 3 in #450.
+  **Brand C's perf leg passes locally** with `perf/store.example.json`: `perf: bundle budget PASS,
+  Lighthouse PASS`. Brand B has one too — its perf had been measuring brand A's EUR store under
+  brand B's name.
+- **(earlier) PR #444** (code commit `ba8a7e4`; head = that memory commit), `brands/phase3` -> `main`,
   "Closes #438". 244 files, +25.5k. Pushed `9ae927a..ba8a7e4`.
   **#441 parts 4 and 5 appended** (comment 6076967115) with the 3xx-not-warm ask the measurement
   added, and a correction to part 3 (four funnel tests, not three). **#439 items 6-8 appended**
