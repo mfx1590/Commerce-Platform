@@ -340,6 +340,26 @@ would reproduce three solved bugs.
     the sync just introduced, and the error names the package rather than the cause. Trap 1 is the
     same lesson for a new workspace package; this is it for a new dependency of an existing one.
 
+22. **Parameterising a spec's INPUT is not the same as parameterising its ASSERTIONS, and the
+    second one is easy to forget.** #441 part 3 gave `completeAddressStep` an address from
+    `E2E_SHIP_ADDRESS_JSON`, so brands B and C stopped timing out on "No delivery options are
+    available for this address". They then failed **one** test each instead —
+    `e2e/checkout.spec.ts` "what the customer agrees to", which did:
+
+    ```ts
+    await expect(page.getByText(/Keizersgracht 1/)).toBeVisible();
+    ```
+
+    The spec typed the brand's address and then asserted the **starter's** street on the review page.
+    The fix (#449 → #450) is one line, `reviewAddressLine1(enteredAddress)`, but the shape is worth
+    remembering: when a helper becomes configurable, grep the specs for the **old literal value**, not
+    just for the helper. The address had three readers — the form filler, the review assertion, and
+    the delivery-option precondition — and only the first was changed.
+
+    Found by CI, not locally, and only once the warm-up fix let brand C's suite run at all: 44 passed
+    / 6 skipped / **1 failed**, with brand B at 48 / 6 / 1 — the **same** inherited test. Two brands
+    failing one identical test is the signature of an inherited literal rather than a brand defect.
+
 ## 4. What needed NOTHING, which is the good news
 
 Two acceptance criteria were already satisfied by existing CI, and a generator should not try to wire

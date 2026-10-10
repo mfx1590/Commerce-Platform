@@ -28,10 +28,12 @@ C's `COPY` line**: REQUEST #439. See `LAUNCH.md` § 11.
 pnpm test --filter @platform/storefront-brand-c`
 - Launch gate (not part of CI): `LAUNCH_GATE=1 pnpm test --filter @platform/storefront-brand-c`
   — **fails** while any `[[PLACEHOLDER]]` is left in `cms/brand-c/content` (23 today, 19 distinct).
-- **`pnpm e2e` does not run at all**, and will not until two things land. Measured, not predicted:
-  the harness throws in its warm-up before the first test, and even fixed, the Prism mock serves one
-  store (`brand-a`, `en-GB`/`de-DE`) so every `/en-US/...` route is a correct 404. Brand C's e2e has
-  to be a **core** leg. See "The locale gap" below and `LAUNCH.md` 12.4 and 12.7.
+- **`pnpm e2e` runs in CI and not on a laptop**, and the difference is the backend. CI's live job
+  runs brand storefronts against the kept core, which holds brand C's real store: **44 passed /
+  6 skipped** on #444's run 37920845926, with `[e2e-server] ready: http://127.0.0.1:3103 is warm`.
+  Locally it cannot start, because `pnpm mock` is Prism serving one store (`brand-a`,
+  `en-GB`/`de-DE`) and every `/en-US/...` route is then a correct 404. Point it at a core with
+  `E2E_STORE_API_URL` or read the CI leg. See "The locale gap" below.
 
 ## Constraints
 

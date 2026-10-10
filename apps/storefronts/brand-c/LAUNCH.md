@@ -235,9 +235,9 @@ that breaks things brand B never exposed. None of it is fixable from inside this
 | 12.1 | A `messages/en-US.json` exists, so pages render at all            | 10     | `test/i18n.test.ts` "for the locale next.config.mjs actually declares"                | ✅  |
 | 12.2 | That catalogue is reviewed for US English, not just copied        | owner  | 139 strings, copied from `en-GB.json`                                                 | ⛔  |
 | 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`               | 10     | its two `collect.url` entries                                                         | ✅  |
-| 12.4 | The synced e2e specs address a locale brand C serves              | 3      | REQUEST: take the prefix from `src/i18n/routing.ts`                                   | ⛔  |
-| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves               | 3      | same REQUEST                                                                          | ⛔  |
-| 12.6 | `test/i18n.test.ts` derives its expected set from the config      | 3      | same REQUEST; PRESERVED in brand C meanwhile                                          | ⛔  |
+| 12.4 | The synced e2e specs address a locale brand C serves              | 3      | #441 part 4 landed (#445): the prefix comes from `src/i18n/locale-config.mjs`         | ✅  |
+| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves               | 3      | same; CI logs `[e2e-server] ready: http://127.0.0.1:3103 is warm`                     | ✅  |
+| 12.6 | `test/i18n.test.ts` derives its expected set from the config      | 3      | #441 part 5 landed; brand C's preservation is dropped and the file is synced          | ✅  |
 | 12.7 | A backend serving brand C's OWN store — e2e and perf both         | 10 / 3 | the live job uses the kept core; `perf.mjs` overlays `perf/store.example.json` (#448) | ✅  |
 | 12.8 | `perf/store.example.json` so the perf mock serves brand C's store | 10     | `perf: bundle budget PASS, Lighthouse PASS` locally, 2026-10-09                       | ✅  |
 
@@ -246,8 +246,14 @@ that breaks things brand B never exposed. None of it is fixable from inside this
 and in production alike. The test that should have caught it asserted a hard-coded set of two
 catalogues and never read the configured locales, so it passed on an app that could not serve a page.
 
-12.4 and 12.5 are why **brand C has no e2e coverage at all today**, and this is measured rather than
-predicted. Every synced spec navigates to `/en-GB/…` and asserts that URL back, and
+12.4 and 12.5 **were** why brand C had no e2e coverage at all. Both landed in #445, and **CI
+proved it**: on #444's run 37920845926 brand C's leg logs
+`[e2e-server] ready: http://127.0.0.1:3103 is warm` and reports **44 passed / 6 skipped**. Brand B's
+leg on the same run printed the funnel line in full — `order b4197547-... placed (GBP 8719 minor),
+shipped → processing, delivered → completed, address country GB`.
+
+The history below is kept because the failure was instructive, and because the mechanism was not the
+one anybody predicted. Every synced spec navigates to `/en-GB/…` and asserts that URL back, and
 `scripts/e2e-server.mjs` warms `/en-GB` before it will declare the app ready.
 
 **Run on 2026-10-09, `pnpm --filter @platform/storefront-brand-c e2e`:**

@@ -49,8 +49,11 @@ node cms/brand-c/scripts/seed-content.mjs --dry-run   # 5 documents valid (1 pag
 node scripts/sync-from-starter.mjs --check            # manifest is current
 ```
 
-**`pnpm e2e` cannot be believed yet** — see "The locale gap" below. It is not that a test fails; the
-harness does not start.
+**`pnpm e2e` runs in CI, not on a laptop.** CI's live job points brand storefronts at the kept core,
+which holds brand C's real store: **44 passed / 6 skipped** on #444's run 37920845926, with
+`[e2e-server] ready: http://127.0.0.1:3103 is warm`. Locally the harness cannot start, because
+`pnpm mock` serves one store and every `/en-US/...` route is then a correct 404 — see "The locale
+gap" below. Set `E2E_STORE_API_URL` to a running core, or read the CI leg.
 
 ## Diff against the starter
 
@@ -102,8 +105,9 @@ had **no US-English review** (`LAUNCH.md` 12.2).
 What is **not** fixed, because it is window 3's and the sync replaces it:
 
 - **Every synced e2e spec** navigates to `/en-GB/…` and asserts that URL back.
-- **`scripts/e2e-server.mjs`** warms `/en-GB` before declaring the app ready, so **`pnpm e2e`
-  fails before the first test** rather than failing a test. **Measured, 2026-10-09:** `GET /en-GB` on brand C answers **307** with `location: /en-US/en-GB` — next-intl treats the unknown locale as a path segment under the default one. 307 is under 400, so the warm-up's `timed()` counts the page as a **success**: the log reads `page 5 ms` on every one of 120 attempts. What never succeeds is the **chunk**, because the warm-up discovers its path by regex out of the page body and a **12-byte** redirect body contains no `/_next/static/chunks/…`. So `chunkPath` stays null, `chunk` is null forever, and `warmUp()` throws after 120 s.
+- **`scripts/e2e-server.mjs`** warmed `/en-GB` before declaring the app ready, so `pnpm e2e`
+  failed before the first test rather than failing a test. **Fixed in #445**; kept here because the
+  mechanism was not the one anybody predicted. **Measured, 2026-10-09:** `GET /en-GB` on brand C answers **307** with `location: /en-US/en-GB` — next-intl treats the unknown locale as a path segment under the default one. 307 is under 400, so the warm-up's `timed()` counts the page as a **success**: the log reads `page 5 ms` on every one of 120 attempts. What never succeeds is the **chunk**, because the warm-up discovers its path by regex out of the page body and a **12-byte** redirect body contains no `/_next/static/chunks/…`. So `chunkPath` stays null, `chunk` is null forever, and `warmUp()` throws after 120 s.
   The printed error — _"did not answer a page and a static chunk under 1000 ms"_ — is misleading:
   the page answered in 5 ms every time.
 

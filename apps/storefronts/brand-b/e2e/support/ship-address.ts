@@ -54,3 +54,22 @@ export function shippingAddressFromEnv(
   }
   return Object.fromEntries(FIELDS.map((field) => [field, value[field]])) as unknown as ShipAddress;
 }
+
+/**
+ * The street of the address the Store API's example cart already carries — what Prism serves, so
+ * what the review page shows when the journey did not type an address (the mock opens at the
+ * payment step). It happens to equal the starter's default; it is named so that a brand's own
+ * address is never confused with it (#449).
+ */
+export const MOCK_CART_LINE1 = 'Keizersgracht 1';
+
+/**
+ * The street the review page must show (#449): the configured address's when the journey typed it
+ * (`completeAddressStep`), the example cart's when the backend already had one.
+ */
+export function reviewAddressLine1(
+  enteredAddress: boolean,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  return enteredAddress ? shippingAddressFromEnv(env).line1 : MOCK_CART_LINE1;
+}

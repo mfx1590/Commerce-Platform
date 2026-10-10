@@ -15,6 +15,7 @@ import {
   type CapturedOrder,
 } from './support/journey';
 import { LOCALES, localePath, localeUrl } from './support/locale';
+import { reviewAddressLine1 } from './support/ship-address';
 
 /**
  * The journey the storefront exists to support, end to end — against **either** backend.
@@ -116,8 +117,11 @@ test('PLP → PDP → cart → checkout → confirmation', async ({ page }) => {
     await expect(page).toHaveURL(localeUrl('/checkout/review$'));
     await expect(page.getByRole('heading', { level: 1, name: 'Review your order' })).toBeVisible();
     // Whichever steps this backend required, the address on the review page is the one entered —
-    // either by this spec, or by the fixture the mock returns.
-    await expect(page.getByText(/Keizersgracht 1/)).toBeVisible();
+    // the brand's configured address when this spec typed it, the mock's example cart otherwise
+    // (#449: the NL street was a literal here, and brands B and C failed this one test).
+    await expect(
+      page.getByText(reviewAddressLine1(enteredAddress), { exact: false }),
+    ).toBeVisible();
     expect(visited.length).toBeGreaterThan(0);
 
     // Captured here rather than in the cart: delivery and tax are only known once the address and

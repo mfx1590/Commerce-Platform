@@ -12,6 +12,7 @@ import {
   openPurchasableProduct,
 } from './support/journey';
 import { localeUrl } from './support/locale';
+import { shippingAddressFromEnv } from './support/ship-address';
 
 /**
  * #358: a card order through Stripe's Payment Element, in Stripe TEST mode, against the core.
@@ -77,7 +78,8 @@ async function enterCard(page: Page, number: string): Promise<void> {
   await element.locator('input[name="expiry"]').fill('12 / 34');
   await element.locator('input[name="cvc"]').fill('123');
   const postal = element.locator('input[name="postalCode"]');
-  if (await postal.isVisible()) await postal.fill('1015 CJ');
+  // The brand's own postcode (#449), the NL default otherwise.
+  if (await postal.isVisible()) await postal.fill(shippingAddressFromEnv().postal_code);
 }
 
 async function placeOrder(page: Page): Promise<void> {
