@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-10 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five" (handing over to a session six — check Memory-main's top bullet).** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`), **#449 (PR #450 = `e0cd978`, merged 2026-10-09; code commit `0267a04`, 15/15 checks green; issue CLOSED)**. **Nothing on the docket — QUIET.** Next (only when the manager says): #446. Still open: #358's live proof (Stripe keys). Branch is 2 memory commits ahead of / behind origin/main (`8e32f48`+): `git merge origin/main` + `pnpm install` before any work; nothing pushed since `d4a364f`. Machine NOT mine.
+Last updated: 2026-10-10 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five" (handing over to a session six — check Memory-main's top bullet).** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`), **#449 (PR #450 = `e0cd978`, merged 2026-10-09; code commit `0267a04`, 15/15 checks green; issue CLOSED)**. **#446 = PR #451 (code commit `1c9b14c`; head = this memory commit)** — four unit tests take the locale from `src/i18n/routing`; main merged at `fd718df` (`f915e7c`); report to the manager when the PR is up and again when every check has finished; hold pushes until the manager confirms the merge. Then QUIET. Still open: #358's live proof (Stripe keys). Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -413,8 +413,17 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#446 (next active stint, manager 2026-10-09):** four synced unit tests hard-code `en-GB` —
-      make them read the configured locales (`src/i18n/locale-config.mjs` / routing), like #441 did for e2e.
+- [ ] **#446 — PR #451, code commit `1c9b14c` (2026-10-10), 0.14.3; tick when merged.** `route-origin.test.ts`
+      (×2: `/${defaultLocale}/account`), `seo.test.ts` (one alternate per configured locale, `x-default` on
+      the default, count = locales + 1) and `cms-content.test.ts` (metadata in the default locale) import
+      `locales` / `defaultLocale` from `@/i18n/routing`. **Measured, unit suite (609 tests):** before —
+      default 609 pass; `SUPPORTED_LOCALES=en-US` 5 failed (these 4 + i18n's catalogue test); `en-GB`
+      alone 1 failed (seo). After — default 609; `en-GB` 609; `de-DE,en-GB` 609; `en-US` 1 failed =
+      i18n's "ships one per configured locale", correct (the starter has no en-US catalogue). Lint,
+      format:check, typecheck (22 tasks) green. **One unexplained one-off:** the first default run after
+      the edit failed i18n's "covers every namespace a client component asks for" (a test that walks
+      `src/`, untouched by this change); output not kept, immediate re-run and three other runs green,
+      four suites were run back to back. No e2e, no build.
 
 - [ ] **Nit from the review of #403 ("not now"):** the hero's `<video>` could also carry `poster` (moot
       while the server-rendered poster sits under the overlay).
