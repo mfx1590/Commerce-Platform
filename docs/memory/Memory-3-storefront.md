@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five".** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`). **#449 = PR #450 (code commit `0267a04`; head = this memory commit)** — the review assertion and the card postcode follow E2E_SHIP_ADDRESS_JSON; checks pending, quote the starter's live-job counts (expect 75 = 67 / 8) when they finish. **Next (next active stint, NOT now): #446.** Still open: #358's live proof (Stripe keys). Then quiet. Machine NOT mine.
+Last updated: 2026-10-10 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five" (handing over to a session six — check Memory-main's top bullet).** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`), **#449 (PR #450 = `e0cd978`, merged 2026-10-09; code commit `0267a04`, 15/15 checks green; issue CLOSED)**. **#446 = PR #451 (code commit `1c9b14c`; head = this memory commit)** — four unit tests take the locale from `src/i18n/routing`; main merged at `fd718df` (`f915e7c`); report to the manager when the PR is up and again when every check has finished; hold pushes until the manager confirms the merge. Then QUIET. Still open: #358's live proof (Stripe keys). Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -246,6 +246,20 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
+- [x] **#449 — DONE, PR #450 merged = `e0cd978` (2026-10-09 12:08 UTC), code commit `0267a04`, head
+  `d4a364f`; 15/15 checks green.** A fresh session on 2026-10-10 was started with a stale message
+  (it described the fix as uncommitted): verified merged, issue closed, and no NL literal left in any
+  spec (only the default in `e2e/support/ship-address.ts`, `MOCK_CART_LINE1`, and unit-test fixtures).
+  The hand-over note as written, for the record: Done and pushed: `reviewAddressLine1()` + `MOCK_CART_LINE1` in
+  `e2e/support/ship-address.ts` (tested), `checkout.spec.ts` asserts it, `card-payment.spec.ts` fills
+  the configured postcode; CHANGELOG 0.14.2; lint/format/typecheck/609 unit green. **Nothing
+  uncommitted on disk** (this note is a local commit, not pushed). **Next step for the fresh
+  session:** wait for PR #450's CI; when every check has finished, message "Manager session five"
+  with the results and quote the starter's live-job counts (expect 75 = 67 passed / 8 skipped);
+  hold pushes until the manager confirms the merge; then record the merge sha here (Done) and stay
+  quiet. Next task after that, only when the manager says: #446 (four synced unit tests hard-code
+  en-GB).
+
 - [x] **#441 + #440 (2026-10-09) — DONE, PR #445 merged = `d67349a` (code commit `c5386d1`).** Plan as confirmed: Each part with
   a test that fails first; brand A + starter behaviour byte-identical (same suite counts).
   1. **DONE locally (this commit): #441 part 2 (security, FIRST):** `src/lib/auth/oidc.ts` — `KEYCLOAK_CLIENT_ID` unset → the
@@ -399,8 +413,17 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#446 (next active stint, manager 2026-10-09):** four synced unit tests hard-code `en-GB` —
-      make them read the configured locales (`src/i18n/locale-config.mjs` / routing), like #441 did for e2e.
+- [ ] **#446 — PR #451, code commit `1c9b14c` (2026-10-10), 0.14.3; tick when merged.** `route-origin.test.ts`
+      (×2: `/${defaultLocale}/account`), `seo.test.ts` (one alternate per configured locale, `x-default` on
+      the default, count = locales + 1) and `cms-content.test.ts` (metadata in the default locale) import
+      `locales` / `defaultLocale` from `@/i18n/routing`. **Measured, unit suite (609 tests):** before —
+      default 609 pass; `SUPPORTED_LOCALES=en-US` 5 failed (these 4 + i18n's catalogue test); `en-GB`
+      alone 1 failed (seo). After — default 609; `en-GB` 609; `de-DE,en-GB` 609; `en-US` 1 failed =
+      i18n's "ships one per configured locale", correct (the starter has no en-US catalogue). Lint,
+      format:check, typecheck (22 tasks) green. **One unexplained one-off:** the first default run after
+      the edit failed i18n's "covers every namespace a client component asks for" (a test that walks
+      `src/`, untouched by this change); output not kept, immediate re-run and three other runs green,
+      four suites were run back to back. No e2e, no build.
 
 - [ ] **Nit from the review of #403 ("not now"):** the hero's `<video>` could also carry `poster` (moot
       while the server-rendered poster sits under the overlay).

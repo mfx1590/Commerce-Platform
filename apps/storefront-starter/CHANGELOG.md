@@ -1,5 +1,17 @@
 # Changelog — @platform/storefront-starter
 
+## 0.14.3 — 2026-10-10
+
+Issue #446. Test-only.
+
+- **Four unit tests take the locale from the app's routing, not the starter's literals.**
+  `test/route-origin.test.ts` (the two sign-in fallbacks land on `/<defaultLocale>/account`),
+  `test/seo.test.ts` (alternates: one entry per configured locale, `x-default` on the default, the
+  count is locales + 1 — no longer assuming two) and `test/cms-content.test.ts` (page metadata in
+  the default locale) import `locales` / `defaultLocale` from `src/i18n/routing`. A brand can now
+  pass `SUPPORTED_LOCALES` / `DEFAULT_LOCALE` to vitest (#441 part 5's plumbing) without a red
+  suite. The starter's own run is unchanged: 609 tests, same assertions for `en-GB,de-DE`.
+
 ## 0.14.2 — 2026-10-09
 
 Issue #449. Test-only.
