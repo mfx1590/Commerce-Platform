@@ -7,6 +7,7 @@ import {
   RUNTIME_SITE_URL,
   vacuousReason,
 } from './support/build-origin';
+import { LOCALE } from './support/locale';
 
 /**
  * Everything the app serves carries the origin it **runs** with, and nothing carries the origin it
@@ -45,8 +46,6 @@ const BUILD_HOST = new URL(BUILD_SITE_URL).host;
  * fixes its origin in `src/brand/config.ts` is held to *that* origin rather than failing here.
  */
 const EXPECTED_ORIGIN = new URL(siteUrl({ SITE_URL: RUNTIME_SITE_URL })).origin;
-
-const LOCALE = 'en-GB';
 
 const locsOf = (xml: string): string[] =>
   [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]!);

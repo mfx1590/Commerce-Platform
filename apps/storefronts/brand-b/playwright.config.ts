@@ -42,6 +42,30 @@ const SITE_URL = process.env.SITE_URL;
  */
 process.env.STORE_PUBLISHABLE_KEY ??= 'pk_brand-b_dev_00000000000000000000';
 /**
+ * **Brand B's locale and market, for the Playwright process** (#441 parts 4 and 3).
+ *
+ * `next.config.mjs` declares these for the app, and Playwright never loads it. Since #445 the
+ * synced specs take the locale prefix from `e2e/support/locale.ts` and the shipping address from
+ * `e2e/support/ship-address.ts`, both of which read `process.env` **at module load**. Set here with
+ * `??=`, in this module's body, they reach the specs: Playwright evaluates this config in the parent
+ * process before the workers fork, and the workers inherit `process.env` — the same mechanism
+ * `STORE_PUBLISHABLE_KEY` above has always relied on.
+ *
+ * This is what replaced brand B's exclusions. Before #441 the inherited specs navigated to
+ * `/en-GB` (right for B by luck) and filled a Netherlands address (wrong for B), so four funnel
+ * tests timed out on "No delivery options are available for this address" and two locale-plural
+ * tests failed against a correct app. Now they run against brand B's own locale and market.
+ */
+process.env.SUPPORTED_LOCALES ??= 'en-GB';
+process.env.E2E_SHIP_ADDRESS_JSON ??= JSON.stringify({
+  first_name: 'Ada',
+  last_name: 'Lovelace',
+  line1: '1 Deansgate',
+  postal_code: 'M3 1BD',
+  city: 'Manchester',
+  country: 'GB',
+});
+/**
  * **Deliberate divergence from the starter, re-checked at every sync.** Since #375 the starter's
  * config imports `RUNTIME_SITE_URL` from `e2e/support/build-origin` and passes that to the server.
  * Brand B must NOT: that module reads `process.env.SITE_URL` in a module-level `const`, ES imports
@@ -94,53 +118,26 @@ function workersFromEnv(raw: string | undefined): number | undefined {
 const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
 
 /**
- * **Two starter specs hard-code the starter's two locales, and brand B sells one.**
+ * **Brand B has no e2e exclusions any more** — #441 removed the reason for both of them, and this
+ * block is the record of what used to be here so a reader does not go looking.
  *
- * `e2e/seo-head.spec.ts` declares `const LOCALES = ['en-GB', 'de-DE']` and drives both its page
- * matrix and its `hreflang` count (`LOCALES.length + 1`) from it; `e2e/checkout.spec.ts` navigates
- * to `/de-DE/products` and asserts the alternates of a two-locale site. Brand B emits two
- * alternates (`en-GB` + `x-default`) and does not serve `/de-DE` at all, so both fail — correctly,
- * against an app that is correct.
+ * - `seo-head.spec.ts` and two `checkout.spec.ts` tests were excluded because they hard-coded the
+ *   starter's two locales. Part 1 made the list come from the app's own routing, so they now run
+ *   against brand B's one locale, and **brand B has its `<head>` metadata coverage back** — the gap
+ *   `ONBOARDING-GAPS.md` § 3.12 recorded is closed.
+ * - Four funnel tests were excluded because `completeAddressStep` filled a Netherlands address and
+ *   brand B ships GB only. Part 3 made the address come from `E2E_SHIP_ADDRESS_JSON`, set above.
  *
- * Those files are SYNCED. Editing them here would be drift the next sync undoes, so the exclusion
- * lives in this file instead, and **REQUEST #441 asks window 3 to take the locale list from the
- * environment** — after which these lines come out.
- *
- * This is a real coverage gap, not a tidy-up: brand B currently has **no** `<head>` metadata
- * assertion. `e2e/journey.spec.ts` covers the locale behaviour that matters (en-GB served with
- * `lang="en-GB"`, `/de-DE` not served as de-DE), and `apps/storefronts/brand-b/ONBOARDING-GAPS.md`
- * § 3.9 records what is missing so the next brand's author is not surprised.
+ * `e2e/journey.spec.ts` stays. It is not the same coverage: it asserts brand B's **identity** (one
+ * locale served, `/de-DE` not served as de-DE, GBP prices against the core) and carries the
+ * `GET /store` payment precondition with the CI-visible skip and success lines (#442). The funnel
+ * overlap with the inherited specs is deliberate — a brand proving its own checkout on its own
+ * market is worth one duplicated walk.
  */
-const LOCALE_PLURAL_SPECS = ['**/seo-head.spec.ts'];
-const LOCALE_PLURAL_TESTS = /in German is translated|offers hreflang alternates/;
-
-/**
- * **And FOUR inherited funnel tests cannot reach brand B's delivery step.**
- * `e2e/support/journey.ts`'s `completeAddressStep` fills a Netherlands address with no override, and
- * brand B ships to **GB only** (`shippingCountries: ['GB']` in the seed) — so B answers "No delivery
- * options are available for this address", correctly, and they time out. Measured, and counted by
- * running: the first core run showed three, the next showed a fourth.
- *
- * `e2e/journey.spec.ts` replaces them with brand B's own walk on a **GB** address, including the
- * place-order → ship → deliver assertions, so the coverage is not lost — only moved to a file this
- * brand owns. **#441 part 3** asks window 3 to take the address from the brand or the environment;
- * when it lands, all four come back and brand B's copy shrinks.
- */
-const NL_ADDRESS_TESTS = new RegExp(
-  [
-    'PLP → PDP → cart → checkout → confirmation',
-    'a signed-in customer can buy',
-    // A fourth, found by running it rather than by reading: this one also places an order, so it
-    // reaches the same delivery step and is told the same thing.
-    'a stale session still buys',
-    'the confirmation shows the order processing once shipped',
-  ].join('|'),
-);
 
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: LOCALE_PLURAL_SPECS,
-  grepInvert: new RegExp(`${LOCALE_PLURAL_TESTS.source}|${NL_ADDRESS_TESTS.source}`),
+  // No testIgnore and no grepInvert: see the block above. Every synced spec runs for brand B.
   // Visual baselines are keyed by platform: font rasterisation differs between a Windows laptop and
   // CI's Linux, so one PNG cannot serve both. Without this, taking a baseline locally guarantees a
   // meaningless red build on CI. See e2e/visual.spec.ts.
@@ -184,6 +181,10 @@ export default defineConfig({
         // Said out loud rather than inherited: e2e/runtime-origin.spec.ts compares what is served
         // against this value, and the build is made with a different one.
         SITE_URL,
+        // The e2e server is `next start` — production mode — where since #441 part 2 an unset
+        // client id **throws `OidcConfigError`** rather than borrowing brand A's. Ported from the
+        // starter's config at the #445 sync, with brand B's own client.
+        KEYCLOAK_CLIENT_ID: 'storefront-brand-b',
         // The indexable configuration, as in `perf`. Without it `/robots.txt` is a bare
         // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
         // build origin is absent from it could not fail whatever robots.txt did (#309 review).

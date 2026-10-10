@@ -16,6 +16,14 @@ brand that is _not_ in the seed still needs.
 
 ## 1. Mechanical — a script can do all of this (#438's target)
 
+> **Written before #438, and #438 proved it optimistic.** The script does do all of this, and brand
+> C exists. But generating a brand whose locale the starter does not serve turned up five defects
+> this list does not mention (traps 13-17), one of which meant the generated app could not render a
+> single page. "Mechanical" meant "mechanical for a brand shaped like brand B". **And the list below
+> is not quite right about the content set either** — it calls the document set fixed, and the
+> generator wrote half of it until the #444 review counted (trap 24). Read section 3 before trusting
+> this one.
+
 | Step                          | File                                                                 | Why it is mechanical                                                                                                                                                                                                               |
 | ----------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Copy the three sync scripts   | `scripts/{sync-from-starter,merge-package-json,preserved-drift}.mjs` | Byte-identical from any existing brand. **Do not copy `starter-manifest.json` or `starter-preserved.json`** — those are the _other_ brand's records, and a new brand's first sync would read them and think the starter had moved. |
@@ -148,6 +156,256 @@ would reproduce three solved bugs.
     the list from the app's own routing; the exclusion comes out the day it lands.
 
 ---
+
+13. **THE BIG ONE: brand B proved nothing about cloning, because B's locale is one of the
+    starter's.** The starter serves `en-GB` and `de-DE` and writes those into its synced files as
+    literals. Brand B sells `en-GB`, so every literal B inherited happened to be right and the clone
+    looked clean. **Brand C sells `en-US` and nothing inherited is right** — measured by grep, not
+    guessed: **8 synced spec files, 43 `en-GB` occurrences**, plus `scripts/e2e-server.mjs`'s
+    warm-up path and `lighthouserc.json`'s two collect URLs.
+    Three consequences, which need three different answers:
+    - **`lighthouserc.json`** is the brand's (PRESERVED), so it can be fixed: it was measuring two
+      `/en-GB` 404s and reporting the result as a performance score. The generator now SUBSTITUTES
+      this file rather than copying it byte for byte.
+    - **`scripts/e2e-server.mjs`** warms `/en-GB` before declaring the app ready, and **e2e fails
+      BEFORE the first test** — which looks nothing like a failing test. **Measured on brand C**
+      (2026-10-09), and not by the mechanism anyone would guess. `GET /en-GB` on brand C answers **307** with `location: /en-US/en-GB` — next-intl treats the unknown locale as a path segment under the default one. 307 is under 400, so the warm-up's `timed()` counts the page as a **success**: the log reads `page 5 ms` on every one of 120 attempts. What never succeeds is the **chunk**, because the warm-up discovers its path by regex out of the page body and a **12-byte** redirect body contains no `/_next/static/chunks/…`. So `chunkPath` stays null, `chunk` is null forever, and `warmUp()` throws after 120 s.
+      The error it prints is actively misleading:
+      ```
+      [e2e-server] the app on http://127.0.0.1:3103 did not answer a page and a static chunk under 1000 ms 2 times in a row within 120 s
+      ```
+      The page was never slow. It answered in single-digit milliseconds, correctly, 120 times. Ask
+      for the warm-up to treat a **3xx as not warm**, as well as for the locale to come from the
+      config — a redirect that answers fast and carries no chunk should fail on the first attempt
+      with the reason, not on the hundred-and-twentieth with a sentence about latency.
+    - **The 8 specs** navigate to `/en-GB/...` and assert that URL back. **Excluding them would
+      delete the suite rather than port it**, so they are left in place and reported.
+      The last two are window 3's files and the sync replaces them, so a brand cannot fix them. **The
+      REQUEST**: take the locale PREFIX from `src/i18n/routing.ts`, which already reads
+      `SUPPORTED_LOCALES`, in the specs and in the warm-up path. Same shape as #441 parts 1 and 3 for
+      the locale LIST and the address.
+
+14. **The sharpest edge of 13, and the only part that stops the APP rather than the tests: no
+    message catalogue.** `src/i18n/request.ts` spreads
+    `(await import(...)).default` over the path `../../messages/<locale>.json` — **unguarded**;
+    the try/catch beside it covers only window 6's optional `content` catalogue. The locale it
+    resolves comes from `routing.locales`, i.e. `SUPPORTED_LOCALES`. So **a brand that correctly
+    declares its own locale and ships no catalogue for it throws on every page**, in dev, in
+    `next build` and in production alike. `messages/` holds only the starter's two.
+    **And the one test for it was vacuous.** `test/i18n.test.ts` has
+    `it('ships one per configured locale')`, which asserts the hard-coded set
+    `['de-DE.json', 'en-GB.json']` and never reads the configured locales — in a brand app vitest
+    sets no `SUPPORTED_LOCALES`, so `routing.locales` falls back to the starter's default and the
+    brand's own locale is never mentioned. **It passed on a brand C that could not serve a page.**
+    A test whose name describes an invariant it does not check is worse than no test: it answers the
+    question you would otherwise have gone and looked at.
+    The generator now writes `messages/<locale>.json` from the starter catalogue in the same
+    language, or from its first locale marked **UNTRANSLATED** when there is none — because copying
+    English into an `fr-FR` catalogue produces an app that renders, and an app that renders reports
+    nothing. Brand C PRESERVES `test/i18n.test.ts` so it can expect three catalogues and read the
+    locale out of `next.config.mjs`; that preservation comes out when window 3 fixes the starter's.
+
+15. **A substitution table cannot read prose, and will turn true sentences false.** Rewriting
+    `en-GB` to `en-US` everywhere produced two **false statements about the starter** in brand C's
+    generated files: that the starter defaults `SUPPORTED_LOCALES` to `'en-US,de-DE'`, and that
+    `seo-head.spec.ts` declares `['en-US', 'de-DE']`. Both were next to a file where the identical
+    rewrite was correct.
+    A locale literal is **data** in `lighthouserc.json` and **prose** everywhere else, and prose
+    distinguishes "the locale this brand sells" (rewrite it) from "the locale the starter serves"
+    (must not) — which a table cannot. The generator now computes pairs **per file** against
+    `LOCALE_DATA_FILES`, and `localeProse()` reports the blocks a human has to write. The same is
+    true of brand prose generally: "B is the first brand where the locale list is genuinely the
+    brand's own" cannot be mechanically retargeted at C, and `brand B` -> `brand C` makes it a lie.
+
+16. **A pure module's unit tests do not cover the CLI's adapter layer, and that is where the bug
+    was.** `new-brand-plan.mjs` touches no filesystem so it can be tested directly — the right
+    design, and it is why 45 tests were cheap. But `readTemplateMeta` in the CLI builds the template
+    object by reading the template's files, and it had no `locales` field. **Every unit test passed**
+    (the fixtures supplied one) and the real path threw `Cannot read properties of undefined`.
+    The lesson is the same shape as #408's: verify the thing that will actually run. The catalogue
+    writing in trap 14 was therefore proved by generating a throwaway `brand-d` with `fr-FR` and
+    checking the file on disk, not by a fixture.
+
+17. **A generated brand starts with a RED perf leg, and the generator cannot prevent it.**
+    `README.md` is one of the four files `sync-from-starter.mjs` **excludes**, so a generated brand
+    has no README — and `scripts/bundle-budget.mjs --verify` requires a
+    `<!-- bundle-budget:start --> ... <!-- bundle-budget:end -->` block in it whose route list and
+    budget column match `bundle-budget.json`. Without it: _"no block in README.md — run
+    --sync-readme"_. The table can only be written by `--sync-readme` **after a completed
+    `next build`**, which needs the shared machine. So writing the README is a manual step, and
+    until someone builds the brand its perf leg is red for a reason that has nothing to do with its
+    performance. (Brand B met the same gate from the other direction in #442: a **stale** block.)
+
+18. **Where cross-brand tooling lives is load-bearing, because `apps/storefronts/*` means "a
+    storefront".** `infra/ci/changes.sh` reduces every changed path under `apps/storefronts/` to its
+    first two segments and reports any that is not a measurable storefront as `perf_unmeasured`;
+    `.github/workflows/ci.yml` then does `exit 1` on a non-empty list. Putting the generator in
+    `apps/storefronts/scripts/` therefore turned the **perf** job red with _"storefront changed with
+    no perf script: apps/storefronts/scripts"_ and advice to add a `lighthouserc.json` to a
+    directory that is not a storefront. It also sits outside the brands window's documented paths
+    (`apps/storefronts/<brand>/**`).
+    It now lives in `apps/storefronts/brand-b/scripts/` — the template brand, whose suite already
+    holds its tests. A REQUEST proposes the real fix: let `changes.sh` ignore a directory with no
+    `package.json` (it already computes `measurable` that way), or give cross-brand tooling a home
+    outside `apps/storefronts/`.
+
+19. **A brand already in the seed must NOT be sent to the onboarding wizard.** The generator's
+    manual steps told brand C's author to create the store with `onboardStore` (#428) — but
+    `brand-c`'s store, legal entity, tax rate, shipping countries and publishable key are **already
+    in `packages/db`'s seed** (`SEED_IDS.*.brandC`; `packages/db/CLAUDE.md` says brand-a/b/c).
+    Following the advice would have created a **second store for the same brand**. `SEEDED_BRANDS`
+    now splits it: a seeded brand is told to CHECK the seeded store against the command line, and
+    only a brand that is genuinely new goes to the wizard (section 6 below).
+
+20. **The Prism mock is SINGLE-STORE, so a brand whose locale is not the contract example's
+    cannot be rendered or e2e'd against the mock at all.** Measured on brand C, 2026-10-09:
+
+    ```
+    pk_brand-a_dev_…  ->  code=brand-a  locales=['en-GB', 'de-DE']
+    pk_brand-b_dev_…  ->  code=brand-a  locales=['en-GB', 'de-DE']
+    pk_brand-c_dev_…  ->  code=brand-a  locales=['en-GB', 'de-DE']
+    ```
+
+    Prism serves the contract's example store for **every** publishable key. And
+    `src/lib/i18n.ts` has, correctly:
+
+    ```ts
+    export function assertStoreOffersLocale(store: Store | null, locale: string): void {
+      if (store === null) return; // an outage is not a 404
+      if (!store.locales.includes(locale)) notFound();
+    }
+    ```
+
+    which runs in the **root `[locale]/layout.tsx`**, so it gates every localised route. Against the
+    mock, brand C's `/en-US/...` therefore returns Next's own 404 — **correctly**. The app is
+    fail-closed and the mock has one store; nothing is broken, and nothing can be rendered either.
+    `/health` answers 200 throughout, which is how you tell this apart from a dead server.
+
+    **This is the same accident as trap 13, a fifth time.** Brand B sells `en-GB`, which IS in the
+    example store's locales, so B's mock render and B's mock e2e both worked and told us nothing.
+    **Consequences for any brand on a new locale:** a mock render check is impossible; a mock e2e run
+    is impossible even after #441 part 4 lands (the warm-up would start, and then every page would
+    404); so **its e2e has to be a CORE leg**, against a backend that has the brand's real store.
+    CI already runs brand legs that way. Plan for it rather than discovering it: #437 recorded a
+    "mock render check" as a routine step, and for brand C that step does not exist.
+
+    **It reaches CI through the PERF job, not the e2e one** — and I got this wrong first time, so the
+    distinction is worth stating carefully:
+
+    - **The live/e2e job is fine.** It runs `apps/*` on Prism but **brand storefronts on the kept core**
+      (default since #295 — _"a brand that cannot reach the core fails here rather than quietly testing
+      the mock"_), and the core holds the brand's real store.
+    - **The perf job is not, and cannot be.** `scripts/perf.mjs` measures **always against the mock**, on
+      purpose — _"always the mock, so runs are comparable"_, with `delete appEnv.STORE_API_URL`. So a
+      brand whose locale the contract example does not offer measures 404s and its warm-up never
+      succeeds: `#451: failed — not yet`, then a Lighthouse FAIL. The bundle budget passes, because it
+      reads a build rather than a running server.
+
+    So trap 20 is **not** a local-development-only finding, which is what I wrote after checking only the
+    live job. It is a local finding **and** a red perf leg for every brand on a new locale.
+    **RESOLVED by #448** (`0ec34d1`): `perf.mjs` validates a brand's `perf/store.example.json`
+    against the spec's own `Store` schema and overlays it onto the mock's `GET /store` example, with
+    the brand's Prism on `PERF_MOCK_PORT` 4012. **Both brand B and brand C now ship one** — B's too,
+    even though B's measurement works by luck today, so no brand's perf depends on `en-GB` being in
+    the shared contract example.
+
+    Measured on brand C, 2026-10-09, with the file in place:
+
+    ```
+    ── Store mock for brand-c (perf/store.example.json) on http://127.0.0.1:4012 ──
+    perf: warm-up http://127.0.0.1:3100/en-US/products #1: 227 ms
+    perf: warm-up http://127.0.0.1:3100/en-US/products #2: 36 ms
+    perf: warm-up http://127.0.0.1:3100/en-US/products/classic-tee #1: 83 ms
+    perf: warm-up http://127.0.0.1:3100/en-US/products/classic-tee #2: 31 ms
+    …
+    Checking assertions against 2 URL(s), 10 total run(s)
+    perf: bundle budget PASS, Lighthouse PASS
+    ```
+
+    **Two things to get right in that file, neither obvious:**
+
+    - **Build it from the seed, not from the contract example.** Every field is a fact about the
+      brand's real store: `SEED_IDS.stores.<brand>` for the id, `seedId(index, 6, 1)` for the sales
+      channel, `code` for `content_space_id` and `<code>_products` for `search_index`. A plausible
+      invention measures a store that does not exist.
+    - **Copy the seeded THEME, not `{}`.** The seed gives each store a different `color.primary`
+      (`#1E40AF`, `#047857`, `#B91C1C` by store index), and **Lighthouse scores accessibility on
+      contrast** — so an empty theme measures the kit's default palette rather than the brand's, and
+      the number would not be about this brand at all.
+
+21. **A re-sync can add DEPENDENCIES, and `--frozen-lockfile` will not install them.** #448's
+    `scripts/perf-store-example.mjs` imports `ajv`, `ajv-formats` and `yaml`. The sync copies the
+    script and `merge-package-json.mjs` correctly merges the three new devDependencies into every
+    brand's `package.json` — but the install had already run, so `node scripts/perf.mjs` died with
+    `Cannot find module 'ajv'` from a file that had existed for thirty seconds. **Order matters:
+    merge main, re-sync, THEN `pnpm install` without `--frozen-lockfile`** — frozen cannot add what
+    the sync just introduced, and the error names the package rather than the cause. Trap 1 is the
+    same lesson for a new workspace package; this is it for a new dependency of an existing one.
+
+22. **Parameterising a spec's INPUT is not the same as parameterising its ASSERTIONS, and the
+    second one is easy to forget.** #441 part 3 gave `completeAddressStep` an address from
+    `E2E_SHIP_ADDRESS_JSON`, so brands B and C stopped timing out on "No delivery options are
+    available for this address". They then failed **one** test each instead —
+    `e2e/checkout.spec.ts` "what the customer agrees to", which did:
+
+    ```ts
+    await expect(page.getByText(/Keizersgracht 1/)).toBeVisible();
+    ```
+
+    The spec typed the brand's address and then asserted the **starter's** street on the review page.
+    The fix (#449 → #450) is one line, `reviewAddressLine1(enteredAddress)`, but the shape is worth
+    remembering: when a helper becomes configurable, grep the specs for the **old literal value**, not
+    just for the helper. The address had three readers — the form filler, the review assertion, and
+    the delivery-option precondition — and only the first was changed.
+
+    Found by CI, not locally, and only once the warm-up fix let brand C's suite run at all: 44 passed
+    / 6 skipped / **1 failed**, with brand B at 48 / 6 / 1 — the **same** inherited test. Two brands
+    failing one identical test is the signature of an inherited literal rather than a brand defect.
+
+23. **`git checkout -- scripts/sync-from-starter.mjs` silently un-does an un-preservation, and
+    nothing fails.** Un-preserving a file is two edits that must agree: remove it from `PRESERVE` in
+    the brand's own `sync-from-starter.mjs`, and let the next sync take the starter's copy. I did
+    both for brand C's `test/i18n.test.ts`, then reverted an **unrelated** experiment with
+    `git checkout -- apps/storefronts/brand-c/{vitest.config.ts,scripts/sync-from-starter.mjs}` —
+    which restored the `PRESERVE` entry from HEAD along with it. I had already written a commit
+    message saying the preservation was dropped.
+
+    **Nothing caught it.** `sync --check` said "manifest is current" (truthfully — a preserved file
+    is _allowed_ to differ), the file's content happened to match the starter's byte for byte, and
+    every test passed. The only visible symptom was the sync's own count: **11 preserved for brand C
+    where A and B had 10.** That one-line difference in a routine log is what a reader has to notice.
+
+    Two things to take from it:
+
+    - **A `git checkout --` with several paths is not a safe undo** when one of those paths carries
+      an unrelated deliberate change. Revert the file you experimented with, not its neighbours.
+    - **Compare the preserved COUNT across brands** after any sync work. `starter-preserved.json`
+      is the record and the sync prints the number; a brand with one more preserved file than its
+      siblings has either a good reason, written down, or a mistake. Brand C's good reason
+      (`test/i18n.test.ts`, trap 14) stopped being good when #441 part 5 landed, and the count is
+      what showed the removal had not actually happened.
+
+24. **A `[[PLACEHOLDER]]` is not valid everywhere, and the document SET is easy to get wrong.**
+    Two findings from the #444 review, which caught the generator writing **5** of brand B's **10**
+    documents while its own comment said "the document SET mirrors; the prose does not" and § 1 above
+    called the set fixed. Brand C therefore had no `about` page — and its `LAUNCH.md` 6.4 verified
+    `/en-US/about` → 200 against a page that did not exist. A checklist row can be as wrong as code.
+
+    - **The set is nav + footer + campaign + home + about + made + 4 legal.** Navigation and the
+      footer are _mostly mechanical_, because the routes are the app's; only the labels are a
+      decision. The campaign matters because the nav and footer link to it.
+    - **Some fields reject placeholders, and only running the validator shows it.** The generated
+      campaign failed `seed-content --dry-run` with _"endsAt — Must end after it starts"_: the schema
+      compares the two dates, so `[[CAMPAIGN_STARTS_AT]]`/`[[CAMPAIGN_ENDS_AT]]` cannot stand. The
+      dates have to be real **and live**, because `campaignIsLive()` gates the route and the nav
+      links to it. Likewise `E2E_SHIP_ADDRESS_JSON` cannot hold one: `shippingAddressFromEnv`
+      validates the country as two letters.
+      **So "put a placeholder in it" is not a general strategy** — it works for prose and fails for
+      anything another rule reads. Generate, then run the validator; do not reason about it.
+    - **Brand C's content references no media slots**, unlike brand B's, because brand C's manifest
+      declares none. `hero.image` is optional in the schema, so the documents validate without it.
+      Pointing content at a slot that does not exist would be the same false record as inventing a
+      `bytes` or `sha256` (§ 5).
 
 ## 4. What needed NOTHING, which is the good news
 

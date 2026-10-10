@@ -1,0 +1,23 @@
+[
+  {
+    "_id": "page.en-US.home",
+    "_type": "page",
+    "locale": "en-US",
+    "title": "Brand C",
+    "slug": {
+      "_type": "slug",
+      "current": "home"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "Everyday clothes, made to last",
+      "subheadline": "Small-batch basics cut from cloth we can trace. Free returns anywhere in the US for thirty days.",
+      "layout": "image-right"
+    },
+    "blocks": [],
+    "seo": {
+      "metaTitle": "Brand C - everyday clothes made to last",
+      "metaDescription": "Small-batch everyday clothes from cloth we can trace. Ships across the United States, with free returns for thirty days."
+    }
+  }
+]

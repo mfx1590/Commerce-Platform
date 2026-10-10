@@ -18,9 +18,11 @@ import { urlOnThisSite } from '@/lib/site-origin';
 export const dynamic = 'force-dynamic';
 
 export async function POST(): Promise<NextResponse> {
-  const provider = oidcProviderFromEnv();
   const session = await getSession();
+  // The local session goes first, whatever else is misconfigured: an unset client id (#441) fails
+  // the Keycloak half loudly below, but must never leave the customer signed in here.
   await clearSession();
+  const provider = oidcProviderFromEnv();
 
   const logout = new URL(endSessionEndpoint(provider));
   logout.searchParams.set('client_id', provider.clientId);

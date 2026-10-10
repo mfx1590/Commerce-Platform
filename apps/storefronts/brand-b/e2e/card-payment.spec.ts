@@ -11,6 +11,8 @@ import {
   clickWhenReady,
   openPurchasableProduct,
 } from './support/journey';
+import { localeUrl } from './support/locale';
+import { shippingAddressFromEnv } from './support/ship-address';
 
 /**
  * #358: a card order through Stripe's Payment Element, in Stripe TEST mode, against the core.
@@ -59,7 +61,7 @@ const CARDS = {
 async function toCardReview(page: Page): Promise<void> {
   await openPurchasableProduct(page);
   await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
-  await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: SERVER_ACTION_TIMEOUT });
   await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
   await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
   await advanceToReview(page, `e2e-card+${Date.now().toString(36)}@example.com`, 'card');
@@ -76,7 +78,8 @@ async function enterCard(page: Page, number: string): Promise<void> {
   await element.locator('input[name="expiry"]').fill('12 / 34');
   await element.locator('input[name="cvc"]').fill('123');
   const postal = element.locator('input[name="postalCode"]');
-  if (await postal.isVisible()) await postal.fill('1015 CJ');
+  // The brand's own postcode (#449), the NL default otherwise.
+  if (await postal.isVisible()) await postal.fill(shippingAddressFromEnv().postal_code);
 }
 
 async function placeOrder(page: Page): Promise<void> {
@@ -87,7 +90,7 @@ async function placeOrder(page: Page): Promise<void> {
 }
 
 async function expectPlaced(page: Page, label: string): Promise<string> {
-  await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/orders/[^/]+$'), { timeout: SERVER_ACTION_TIMEOUT });
   await expect(page.getByRole('heading', { level: 1, name: 'Thank you' })).toBeVisible();
   const placed = await captureOrder(page, 'the confirmation');
   expect(placed.lines.length, 'the order has lines').toBeGreaterThan(0);

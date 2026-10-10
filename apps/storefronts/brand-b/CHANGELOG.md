@@ -1,5 +1,18 @@
 # Changelog — @platform/storefront-brand-b
 
+## Unreleased — 2026-10-09 · brand B's perf store example (#448)
+
+- **`perf/store.example.json`**, so brand B's perf measurement stops depending on luck. The perf
+  gate measures against the Prism mock, whose `GET /store` example is brand A — and brand B worked
+  only because `en-GB` happens to be one of brand A's two locales. It measured brand A's EUR store
+  under brand B's name. Now it measures brand B: GBP, `en-GB`, GB, and brand B's own seeded theme
+  (`#047857`), which matters because Lighthouse scores accessibility on contrast.
+- Fields come from the seed (`SEED_IDS.stores.brandB`, `seedId(2, 6, 1)` for the sales channel), not
+  from the contract example.
+- The e2e exclusions are gone (#441): `seo-head.spec.ts`, the two locale-plural checkout tests and
+  the four NL-address funnel tests all run now, the last of those on a **Manchester** address from
+  `E2E_SHIP_ADDRESS_JSON`. Brand B has its `<head>` metadata coverage back.
+
 ## Unreleased — 2026-10-09 · brand B created from the starter (#437)
 
 - **Cloned** from `apps/storefront-starter` with the brand's own copy of
