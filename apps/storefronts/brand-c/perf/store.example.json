@@ -1,0 +1,26 @@
+{
+  "id": "00000000-0000-4000-8000-000000000033",
+  "code": "brand-c",
+  "name": "Brand C",
+  "default_currency": "USD",
+  "default_locale": "en-US",
+  "default_country": "US",
+  "currencies": ["USD"],
+  "locales": ["en-US"],
+  "sales_channel": {
+    "id": "33000006-0000-4000-8000-000000000001",
+    "code": "web",
+    "type": "web"
+  },
+  "content_space_id": "brand-c",
+  "search_index": "brand-c_products",
+  "payment": {
+    "methods": ["card", "invoice"]
+  },
+  "theme": {
+    "color": {
+      "primary": "#B91C1C",
+      "primaryForeground": "#ffffff"
+    }
+  }
+}

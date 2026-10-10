@@ -301,10 +301,44 @@ would reproduce three solved bugs.
 
     So trap 20 is **not** a local-development-only finding, which is what I wrote after checking only the
     live job. It is a local finding **and** a red perf leg for every brand on a new locale.
-    **REQUEST #447** asks window 3 for the fix: `perf.mjs` starts Prism from a spec copy whose
-    `GET /store` example is replaced by the brand's own `perf/store.example.json` when it exists. The
-    brands then each commit one, and a brand's measurement stops depending on `en-GB` being in the
-    shared example.
+    **RESOLVED by #448** (`0ec34d1`): `perf.mjs` validates a brand's `perf/store.example.json`
+    against the spec's own `Store` schema and overlays it onto the mock's `GET /store` example, with
+    the brand's Prism on `PERF_MOCK_PORT` 4012. **Both brand B and brand C now ship one** — B's too,
+    even though B's measurement works by luck today, so no brand's perf depends on `en-GB` being in
+    the shared contract example.
+
+    Measured on brand C, 2026-10-09, with the file in place:
+
+    ```
+    ── Store mock for brand-c (perf/store.example.json) on http://127.0.0.1:4012 ──
+    perf: warm-up http://127.0.0.1:3100/en-US/products #1: 227 ms
+    perf: warm-up http://127.0.0.1:3100/en-US/products #2: 36 ms
+    perf: warm-up http://127.0.0.1:3100/en-US/products/classic-tee #1: 83 ms
+    perf: warm-up http://127.0.0.1:3100/en-US/products/classic-tee #2: 31 ms
+    …
+    Checking assertions against 2 URL(s), 10 total run(s)
+    perf: bundle budget PASS, Lighthouse PASS
+    ```
+
+    **Two things to get right in that file, neither obvious:**
+
+    - **Build it from the seed, not from the contract example.** Every field is a fact about the
+      brand's real store: `SEED_IDS.stores.<brand>` for the id, `seedId(index, 6, 1)` for the sales
+      channel, `code` for `content_space_id` and `<code>_products` for `search_index`. A plausible
+      invention measures a store that does not exist.
+    - **Copy the seeded THEME, not `{}`.** The seed gives each store a different `color.primary`
+      (`#1E40AF`, `#047857`, `#B91C1C` by store index), and **Lighthouse scores accessibility on
+      contrast** — so an empty theme measures the kit's default palette rather than the brand's, and
+      the number would not be about this brand at all.
+
+21. **A re-sync can add DEPENDENCIES, and `--frozen-lockfile` will not install them.** #448's
+    `scripts/perf-store-example.mjs` imports `ajv`, `ajv-formats` and `yaml`. The sync copies the
+    script and `merge-package-json.mjs` correctly merges the three new devDependencies into every
+    brand's `package.json` — but the install had already run, so `node scripts/perf.mjs` died with
+    `Cannot find module 'ajv'` from a file that had existed for thirty seconds. **Order matters:
+    merge main, re-sync, THEN `pnpm install` without `--frozen-lockfile`** — frozen cannot add what
+    the sync just introduced, and the error names the package rather than the cause. Trap 1 is the
+    same lesson for a new workspace package; this is it for a new dependency of an existing one.
 
 ## 4. What needed NOTHING, which is the good news
 

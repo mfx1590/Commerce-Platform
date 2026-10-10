@@ -230,16 +230,16 @@ brand B's was (PR #443). Brand B hit the identical wall; `ONBOARDING-GAPS.md` tr
 Brand C is the first brand whose locale is **not one the starter serves** (`en-GB`, `de-DE`), and
 that breaks things brand B never exposed. None of it is fixable from inside this app.
 
-| #    | Item                                                              | Owner  | Verify                                                                 | Now              |
-| ---- | ----------------------------------------------------------------- | ------ | ---------------------------------------------------------------------- | ---------------- |
-| 12.1 | A `messages/en-US.json` exists, so pages render at all            | 10     | `test/i18n.test.ts` "for the locale next.config.mjs actually declares" | ✅               |
-| 12.2 | That catalogue is reviewed for US English, not just copied        | owner  | 139 strings, copied from `en-GB.json`                                  | ⛔               |
-| 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`               | 10     | its two `collect.url` entries                                          | ✅               |
-| 12.4 | The synced e2e specs address a locale brand C serves              | 3      | REQUEST: take the prefix from `src/i18n/routing.ts`                    | ⛔               |
-| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves               | 3      | same REQUEST                                                           | ⛔               |
-| 12.6 | `test/i18n.test.ts` derives its expected set from the config      | 3      | same REQUEST; PRESERVED in brand C meanwhile                           | ⛔               |
-| 12.7 | A backend serving brand C's OWN store — e2e yes, **perf no**      | 10 / 3 | the live job uses the kept core; `perf.mjs` is always on the mock      | ✅ e2e / ⛔ perf |
-| 12.8 | `perf/store.example.json` so the perf mock serves brand C's store | 10     | needs REQUEST #447 in the starter first                                | ⛔               |
+| #    | Item                                                              | Owner  | Verify                                                                                | Now |
+| ---- | ----------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------- | --- |
+| 12.1 | A `messages/en-US.json` exists, so pages render at all            | 10     | `test/i18n.test.ts` "for the locale next.config.mjs actually declares"                | ✅  |
+| 12.2 | That catalogue is reviewed for US English, not just copied        | owner  | 139 strings, copied from `en-GB.json`                                                 | ⛔  |
+| 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`               | 10     | its two `collect.url` entries                                                         | ✅  |
+| 12.4 | The synced e2e specs address a locale brand C serves              | 3      | REQUEST: take the prefix from `src/i18n/routing.ts`                                   | ⛔  |
+| 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves               | 3      | same REQUEST                                                                          | ⛔  |
+| 12.6 | `test/i18n.test.ts` derives its expected set from the config      | 3      | same REQUEST; PRESERVED in brand C meanwhile                                          | ⛔  |
+| 12.7 | A backend serving brand C's OWN store — e2e and perf both         | 10 / 3 | the live job uses the kept core; `perf.mjs` overlays `perf/store.example.json` (#448) | ✅  |
+| 12.8 | `perf/store.example.json` so the perf mock serves brand C's store | 10     | `perf: bundle budget PASS, Lighthouse PASS` locally, 2026-10-09                       | ✅  |
 
 12.1 is the one that mattered most: `src/i18n/request.ts` imports `messages/${locale}.json`
 **unguarded**, so before that file existed brand C threw on **every page**, in dev, in `next build`

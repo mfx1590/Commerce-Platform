@@ -8,6 +8,5 @@
   "src/brand/layouts/index.ts": "9b2e7d62fbf92db64f7b93c6279dc82e066f1248",
   "src/brand/tokens.ts": "64bf61693e70efc136de2f5eca08838b6f575ca1",
   "tailwind.config.ts": "83beaff093ee6610ed68ef2c2e263311e75197c6",
-  "test/i18n.test.ts": "b816d15a88e0152962d50b45158fa4b6d13e3a31",
   "tsconfig.json": "2d4498a0123964f2db916877742224d18c92fb84"
 }

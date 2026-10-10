@@ -132,13 +132,30 @@ run against the core, which holds brand C's real store (`locales: ['en-US']` in 
 kept core (default since #295: "a brand that cannot reach the core fails here rather than quietly
 testing the mock"). So brand C's **e2e** leg fails on the warm-up alone.
 
-**The perf job is a different story, and I first got this wrong.** `scripts/perf.mjs` measures
-**always against the mock**, deliberately — _"always the mock, so runs are comparable"_, with
-`delete appEnv.STORE_API_URL`. So brand C's perf leg measures `/en-US/products/classic-tee` against a
-mock serving brand A's store, gets 404s, and never warms: `#451: failed — not yet`, then a Lighthouse
-FAIL. The bundle budget still passes, because it reads a build rather than a running server.
-**REQUEST #447** asks window 3 to let `perf.mjs` serve a brand's own `GET /store` example from
-`perf/store.example.json`; brand C commits one when that lands.
+**The perf job was a different story, and I first got it wrong — now fixed.** `scripts/perf.mjs`
+measures **always against the mock**, deliberately — _"always the mock, so runs are comparable"_,
+with `delete appEnv.STORE_API_URL`. So brand C's perf leg used to measure
+`/en-US/products/classic-tee` against a mock serving brand A's store, get 404s, and never warm:
+`#451: failed — not yet`, then a Lighthouse FAIL while the bundle budget passed (it reads a build,
+not a running server — that half-broken shape was the signature).
+
+**#448 fixed it**, and `perf/store.example.json` in this app is brand C's half: `perf.mjs` validates
+it against the spec's own `Store` schema and overlays it onto the mock's `GET /store`, serving the
+brand's Prism on `PERF_MOCK_PORT` 4012. Measured locally on 2026-10-09:
+
+```
+── Store mock for brand-c (perf/store.example.json) on http://127.0.0.1:4012 ──
+perf: warm-up http://127.0.0.1:3100/en-US/products #1: 227 ms, #2: 36 ms
+perf: warm-up http://127.0.0.1:3100/en-US/products/classic-tee #1: 83 ms, #2: 31 ms
+Checking assertions against 2 URL(s), 10 total run(s)
+perf: bundle budget PASS, Lighthouse PASS
+```
+
+**Every field in that file comes from the seed, not from the contract example** — the store id from
+`SEED_IDS.stores.brandC`, the sales channel from `seedId(3, 6, 1)`, `content_space_id` from the code
+and `search_index` from `<code>_products`. And the **theme is the seeded one** (`#B91C1C`), not `{}`:
+Lighthouse scores accessibility on contrast, so an empty theme would have measured the kit's default
+palette and the number would not have been about brand C at all.
 
 Locally, it blocks everything — do not go looking for a way to render brand C against `pnpm mock`,
 because there is not one.

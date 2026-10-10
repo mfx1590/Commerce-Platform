@@ -56,13 +56,6 @@ const PRESERVE = new Set([
   // Path-depth fixes: this app sits one directory deeper than the starter.
   'tsconfig.json',
   'tailwind.config.ts',
-  // Brand C sells `en-US`, which the starter does not, so it ships a THIRD message catalogue and
-  // the starter's `test/i18n.test.ts` asserts a hard-coded set of two. Preserved rather than
-  // excluded: the file's other four tests (key parity, placeholder parity, "actually translated",
-  // and the directive fixtures) are worth keeping. REQUEST to window 3: derive the expected set
-  // from the configured locales, after which this line comes out and the file re-syncs normally.
-  // See ONBOARDING-GAPS.md section 3.13.
-  'test/i18n.test.ts',
 ]);
 const isPreserved = (file) => PRESERVE.has(file) || file.startsWith('src/brand/');
 
