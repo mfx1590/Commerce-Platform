@@ -360,6 +360,29 @@ would reproduce three solved bugs.
     / 6 skipped / **1 failed**, with brand B at 48 / 6 / 1 — the **same** inherited test. Two brands
     failing one identical test is the signature of an inherited literal rather than a brand defect.
 
+23. **`git checkout -- scripts/sync-from-starter.mjs` silently un-does an un-preservation, and
+    nothing fails.** Un-preserving a file is two edits that must agree: remove it from `PRESERVE` in
+    the brand's own `sync-from-starter.mjs`, and let the next sync take the starter's copy. I did
+    both for brand C's `test/i18n.test.ts`, then reverted an **unrelated** experiment with
+    `git checkout -- apps/storefronts/brand-c/{vitest.config.ts,scripts/sync-from-starter.mjs}` —
+    which restored the `PRESERVE` entry from HEAD along with it. I had already written a commit
+    message saying the preservation was dropped.
+
+    **Nothing caught it.** `sync --check` said "manifest is current" (truthfully — a preserved file
+    is _allowed_ to differ), the file's content happened to match the starter's byte for byte, and
+    every test passed. The only visible symptom was the sync's own count: **11 preserved for brand C
+    where A and B had 10.** That one-line difference in a routine log is what a reader has to notice.
+
+    Two things to take from it:
+
+    - **A `git checkout --` with several paths is not a safe undo** when one of those paths carries
+      an unrelated deliberate change. Revert the file you experimented with, not its neighbours.
+    - **Compare the preserved COUNT across brands** after any sync work. `starter-preserved.json`
+      is the record and the sync prints the number; a brand with one more preserved file than its
+      siblings has either a good reason, written down, or a mistake. Brand C's good reason
+      (`test/i18n.test.ts`, trap 14) stopped being good when #441 part 5 landed, and the count is
+      what showed the removal had not actually happened.
+
 ## 4. What needed NOTHING, which is the good news
 
 Two acceptance criteria were already satisfied by existing CI, and a generator should not try to wire
