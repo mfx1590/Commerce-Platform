@@ -1,5 +1,17 @@
 # Changelog — @platform/storefront-starter
 
+## 0.14.2 — 2026-10-09
+
+Issue #449. Test-only.
+
+- **The checkout journey's review assertion follows the configured address.** `checkout.spec.ts`
+  asserted the NL street literally, so brands B and C — whose journeys type their own
+  `E2E_SHIP_ADDRESS_JSON` (#441 part 3) — failed that one test on the core. It now asserts
+  `reviewAddressLine1(enteredAddress)`: the configured `line1` when the journey typed the address,
+  the contract example cart's (`MOCK_CART_LINE1`) when the backend already had one (the mock).
+  `card-payment.spec.ts` enters the configured postcode. No NL literal is left outside
+  `e2e/support/ship-address.ts`.
+
 ## 0.14.1 — 2026-10-09
 
 Issue #447. Tooling only. New dev dependencies, exact and already in the lockfile: `yaml` 2.9.0,
