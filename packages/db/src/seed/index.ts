@@ -836,6 +836,14 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
           [[SEED_IDS.sharedStock.stockItem, org, sharedItem.sku, sharedItem.name]],
         );
       }
+      // Only variants that do not exist yet reach the INSERT: 0191's BEFORE INSERT trigger gives an unmapped variant
+      // its stock item BEFORE `ON CONFLICT DO NOTHING` discards the row, so re-inserting an existing variant would
+      // leave an orphan stock item behind on every re-seed (and fail on a duplicate sku on the one after).
+      const existing = await tx.query<{ id: string }>(
+        'SELECT id FROM product_variant WHERE id = ANY($1::uuid[])',
+        [variants.map((v) => v[0])],
+      );
+      const seeded = new Set(existing.rows.map((r) => r.id));
       await bulk(
         tx,
         'product_variant',
@@ -854,7 +862,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
           'position',
           'stock_item_id',
         ],
-        variants,
+        variants.filter((v) => !seeded.has(v[0] as string)),
       );
       await bulk(
         tx,
