@@ -29,3 +29,10 @@
 
 - `proposed/0190_stock_pool.sql` deleted; `testing/pool-database.ts` applies only the proposed 0191 on a database
   migrated by packages/db, and `proposed-migrations.test.ts` runs 0190's own backfill function over the seed.
+
+### 2026-10-12 · cycle counts: design and proposed contract (#436)
+
+- README section "Cycle counts and reconciliation"; `proposed/0192_cycle_count.sql` (table + RLS kind
+  `organization_only`) and `proposed/admin-api.cycle-counts.yaml` (`createCycleCount`, `listCycleCounts`,
+  `reconcileCycleCount`), the exact text of the CONTRACT CHANGE.
+- `proposed-cycle-count.test.ts`: 13 tests on a throwaway database. No reconciliation code yet.

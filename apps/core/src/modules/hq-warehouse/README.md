@@ -105,17 +105,53 @@ prefixed with `split:` for every further one.
 `src/wiring.ts` gains `setAllocationPolicy(stockAwareAllocationPolicy)`. Until then `shared-pool.test.ts` drives
 the policy through a local fake of that seam, on the proposed schema.
 
+## Cycle counts and reconciliation (#436 — design + proposed contract #458, no code yet)
+
+Somebody counts a stock item on a shelf; the count is written down; reconciliation turns the difference into
+**exactly one `stock_movement`** (reason `cycle_count`, no store, its `stock.moved` in the same transaction).
+A level is never edited directly. Proposed: `proposed/0192_cycle_count.sql`, `proposed/admin-api.cycle-counts.yaml`.
+
+| Step      | Operation (`operations` on `organization:hq`) | Effect                                                                         |
+| --------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
+| record    | `createCycleCount`                            | a `cycle_count` row, status `recorded`; no stock changes                       |
+| reconcile | `reconcileCycleCount`                         | within tolerance → one movement, `applied`; above → nothing moves, `flagged`   |
+| approve   | `reconcileCycleCount` with `approve: true`    | recomputes and applies whatever the delta is; approver on the row and in audit |
+| read      | `listCycleCounts`                             | by warehouse, stock item, status; newest count first                           |
+
+- **The delta is measured against on-hand as of the count, not on-hand now:** `delta = counted − (on_hand now −
+movements written since counted_at)`. A count taken at 18:00 and reconciled the next morning ignores what
+  shipped overnight; measuring against on-hand now would put those units back on the shelf.
+- **Computed under the pool row's lock at apply time** — at reconcile and again at approval — never taken from
+  an earlier read. The row keeps the final `on_hand_as_of_count` and `delta`.
+- **`counted_at` may not be in the future** (422).
+- **`superseded` (409):** a count is refused, at record and at reconcile, when a count of the same stock item and
+  warehouse with the same or a later `counted_at` is already applied. Otherwise the newer count's own adjustment
+  would be read as "a movement since the old count" and the old discrepancy applied a second time.
+- **Tolerance:** `organization.settings.warehouse.count_tolerance`, a non-negative integer, units of |delta|.
+  Unset or malformed = 0: every non-zero discrepancy waits for an approval.
+- **Idempotent by count id:** `cycle_count.stock_movement_id` (UNIQUE) is the link; reconciling an applied count
+  changes nothing. A zero delta is `applied` with no movement (the ledger refuses a zero movement).
+- **Who writes the movement:** the inventory module's pool-keyed `moveStock` — the only writer of `on_hand` —
+  through a `StockMover` port. It arrives with window 1's #456; until then tests use a local fake.
+- **RLS `organization_only`** (new kind: organization match AND organization scope): counts are an HQ record; a
+  store session can neither read nor write one, not even for an item it maps.
+- **CLI:** `cli/reconcile.ts --warehouse wh-eu --dry-run` prints the plan (count, on-hand as of the count, delta,
+  apply or flag) and writes nothing.
+- **WMS:** `wms/` holds `WmsAdapter { pullCounts(warehouse) }` and an in-memory implementation, exported through
+  `index.ts`. `apps/wms-adapter` becomes a package when an Odoo instance exists (manager, 2026-10-12).
+
 ## How to run
 
 ```bash
 pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 ```
 
-| File                          | What it proves                                                                                                                                    |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allocation.test.ts`          | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic) — 24 tests, no database  |
-| `proposed-migrations.test.ts` | 0190's backfill, then proposed 0191, over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                           |
-| `shared-pool.test.ts`         | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 parallel placements, no deadlock — 8 tests |
+| File                           | What it proves                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allocation.test.ts`           | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic) — 24 tests, no database  |
+| `proposed-migrations.test.ts`  | 0190's backfill, then proposed 0191, over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                           |
+| `shared-pool.test.ts`          | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 parallel placements, no deadlock — 8 tests |
+| `proposed-cycle-count.test.ts` | proposed 0192 on main's schema alone: the `organization_only` RLS and the CHECKs that hold a count together — 13 tests                            |
 
 The two database files seed a throwaway database (`testing/pool-database.ts`). Outside turbo, export
 `DATABASE_URL` / `DATABASE_URL_APP` on `127.0.0.1:5433` (the vitest default says `localhost`).
