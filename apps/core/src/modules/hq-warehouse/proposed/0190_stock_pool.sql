@@ -34,6 +34,10 @@ CREATE INDEX product_variant_stock_item_idx ON product_variant (stock_item_id);
 --     which names no pool table — so there is no policy recursion — and already limits it to accessible stores.
 -- `pool_self` is for stock_item (the item is the row's id), `pool` for tables carrying stock_item_id (0191).
 -- Consequence, wanted: a store session cannot INSERT a stock_item (no variant maps a row that does not exist yet).
+-- `pool_ledger` (stock_movement, 0191) adds the attribution check the `store` kind gives today: a store session
+-- reads and writes only movements of an item it maps AND attributed to one of its own stores. Movements with no
+-- store (store_id NULL: receipts, transfers, cycle counts) and other stores' movements are organization scope
+-- only — app.can_access_store(NULL) is not true in store scope.
 CREATE OR REPLACE FUNCTION app.apply_rls(p_table text, p_kind text) RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -51,6 +55,8 @@ BEGIN
     pred := format('organization_id = app.current_organization_id() AND (app.current_scope() = ''organization'' OR EXISTS (SELECT 1 FROM product_variant v WHERE v.stock_item_id = %I.id))', p_table);
   ELSIF p_kind = 'pool' THEN
     pred := format('organization_id = app.current_organization_id() AND (app.current_scope() = ''organization'' OR EXISTS (SELECT 1 FROM product_variant v WHERE v.stock_item_id = %I.stock_item_id))', p_table);
+  ELSIF p_kind = 'pool_ledger' THEN
+    pred := format('organization_id = app.current_organization_id() AND (app.current_scope() = ''organization'' OR (EXISTS (SELECT 1 FROM product_variant v WHERE v.stock_item_id = %I.stock_item_id) AND app.can_access_store(store_id)))', p_table);
   ELSE
     RAISE EXCEPTION 'unknown rls kind %', p_kind;
   END IF;
@@ -65,10 +71,38 @@ SELECT app.apply_rls('stock_item', 'pool_self');
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON stock_item
   FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
 
--- The backfill, as a function because 0191 runs the very same statement again for variants created in between.
--- Idempotent: it only touches variants whose stock_item_id is still NULL. Runs as the migration role.
-CREATE OR REPLACE FUNCTION app.backfill_stock_items() RETURNS integer
+-- The mapping is the key to the pool: whoever points a variant at an item gains that item's pool rows. The column
+-- sits on a `store`-kind table, whose policy would let a store session write any item id into its own variants
+-- (the foreign key does not help: referential checks bypass row security). So, from the migration the column is
+-- born in: ONLY organization scope may insert a variant that is already mapped, or change a mapping. Fail-closed:
+-- anything that is not exactly organization scope is refused, an empty or missing scope included — so owner-role
+-- scripts (the seed) must set app.scope = 'organization' to map, as the backfill below does.
+CREATE OR REPLACE FUNCTION app.guard_variant_stock_item() RETURNS trigger
 LANGUAGE plpgsql AS $$
+BEGIN
+  IF app.current_scope() = 'organization' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' AND NEW.stock_item_id IS NOT NULL THEN
+    RAISE EXCEPTION 'only organization scope may insert a variant already mapped to a stock item'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.stock_item_id IS DISTINCT FROM OLD.stock_item_id THEN
+    RAISE EXCEPTION 'only organization scope may map a variant to another stock item'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END $$;
+-- Named to sort before 0191's `variant_stock_item` trigger: it must see the value the session sent.
+CREATE TRIGGER guard_variant_stock_item BEFORE INSERT OR UPDATE OF stock_item_id ON product_variant
+  FOR EACH ROW EXECUTE FUNCTION app.guard_variant_stock_item();
+
+-- The backfill, as a function because 0191 runs the very same statement again for variants created in between.
+-- Idempotent: it only touches variants whose stock_item_id is still NULL. Runs as the migration role, in
+-- organization scope for its own duration (the function-level SET is restored on return and on error) so the
+-- guard above lets it map.
+CREATE OR REPLACE FUNCTION app.backfill_stock_items() RETURNS integer
+LANGUAGE plpgsql SET app.scope = 'organization' AS $$
 DECLARE
   n integer;
 BEGIN

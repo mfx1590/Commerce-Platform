@@ -53,7 +53,8 @@ paths:
         Idempotent: a variant already mapped to this item is a 200 with nothing written. Otherwise refused with
         409 unless the variant's CURRENT stock item has zero on-hand and no open reservation at every warehouse:
         quantities are never merged silently (stock is moved first, with movements). Writes one audit row
-        (`variant.stock_item_mapped`, before / after stock_item_id). The item the variant leaves is kept.
+        (`variant.stock_item_mapped`, before / after stock_item_id) and, in the same transaction, one
+        `stock_item.mapped` v1 outbox event (nothing on the idempotent path). The item the variant leaves is kept.
       x-permission: { relation: operations, object: 'organization:hq' }
       responses:
         '200':
@@ -113,10 +114,13 @@ components:
         incoming: { type: integer }
         available: { type: integer }
 
-    # CHANGED (additive): one new required property. A row stays "one variant in one warehouse"; the quantities
-    # are the pool row's, so two variants mapped to one item show the same `id` and the same numbers.
+    # CHANGED (additive): one new required property, and a description.
     InventoryLevel:
       type: object
+      description: >
+        One variant in one warehouse, carrying the numbers of the POOL row of the stock item the variant maps.
+        `id` is the pool row's, so it repeats when two variants in one response share a stock item: key rows by
+        (`variant_id`, `warehouse_id`) and never sum `on_hand`, `reserved` or `available` across variants.
       required:
         [
           id,

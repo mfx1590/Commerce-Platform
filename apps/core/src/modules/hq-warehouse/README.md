@@ -17,37 +17,47 @@ quantities. The Integration 3 gate is _a shared warehouse serves two brands from
 | `product_variant.stock_item_id` | store        | many variants → one item              | how a brand sells an item; a new variant gets its own item (trigger)                                      |
 | `inventory_level`               | pool         | UNIQUE (stock_item_id, warehouse_id)  | `store_id` and `variant_id` dropped; `reserved` is every store's total                                    |
 | `reservation`                   | store        | (stock_item, warehouse, order / cart) | keeps `store_id` (who reserved) and `variant_id`; gains `allocation_rule`                                 |
-| `stock_movement`                | pool         | append-only                           | gains `stock_item_id`; `store_id` + `variant_id` nullable together (both NULL = no store caused the move) |
+| `stock_movement`                | pool ledger  | append-only                           | gains `stock_item_id`; `store_id` + `variant_id` nullable together (both NULL = no store caused the move) |
 
 Availability for a store = the pool row's `available` (`on_hand − reserved`) of the item its variant maps. Store A
 reserving N lowers store B's availability by N at once, because there is one row.
 
 ## Two migrations (D1: expand, then rekey)
 
-- **`proposed/0190_stock_pool.sql` — expand, landable alone.** `stock_item`, the nullable column, the backfill and
-  the two RLS kinds. Nothing reads it; the inventory and catalog modules run unchanged.
+- **`proposed/0190_stock_pool.sql` — expand, landable alone.** `stock_item`, the nullable column, the backfill,
+  the three RLS kinds and the mapping guard. Nothing reads it; the inventory and catalog modules run unchanged.
 - **`proposed/0191_stock_pool_rekey.sql` — rekey, lands only with window 1's inventory rewrite.** Backfill again
-  (variants created since 0190), `stock_item_id` NOT NULL, the re-keyed tables above, the two triggers.
+  (variants created since 0190), `stock_item_id` NOT NULL, the re-keyed tables above, the new-variant trigger.
 - **Backfill (D2): 1:1, never an automatic merge.** The item's sku is the variant's when unique in the
   organization, else `<store code>:<sku>`. Pooling two brands is only ever an explicit `mapVariantToStockItem`.
 
 ## Row-level security
 
 A plain `organization` predicate would let brand A read and write the stock of an item only brand B sells, so the
-pool gets its own kinds in `app.apply_rls` (`pool_self` for `stock_item`, `pool` for rows with `stock_item_id`):
+pool gets its own kinds in `app.apply_rls`:
 
-| Session            | `stock_item`, `inventory_level`, `stock_movement`          | `reservation`        |
-| ------------------ | ---------------------------------------------------------- | -------------------- |
-| organization scope | every row of the organization                              | every row            |
-| store scope        | only rows whose item a variant of an accessible store maps | its own stores' rows |
+| Session            | `stock_item` (`pool_self`), `inventory_level` (`pool`)     | `stock_movement` (`pool_ledger`)                                | `reservation` (`store`) |
+| ------------------ | ---------------------------------------------------------- | --------------------------------------------------------------- | ----------------------- |
+| organization scope | every row of the organization                              | every row, and the only scope that writes a store-less movement | every row               |
+| store scope        | only rows whose item a variant of an accessible store maps | such an item's movements ATTRIBUTED TO ITS OWN STORES only      | its own stores' rows    |
 
-The predicate is `organization AND (scope = 'organization' OR EXISTS (SELECT 1 FROM product_variant v WHERE
-v.stock_item_id = <the row's item>))`. `product_variant`'s own policy (the `store` kind) limits the subquery to
-accessible stores and names no pool table, so there is no recursion; `product_variant (stock_item_id)` is indexed.
-Consequences: a store session cannot INSERT a stock item (nothing maps a row that does not exist yet), and
-re-mapping a variant is refused for it by a trigger as well as by the API. On a shared item a store sees the pool's
-`reserved` total and the item's movements (another store's sales appear there as deltas with a reference id), never
-another store's reservation rows.
+The pool predicate is `organization AND (scope = 'organization' OR EXISTS (SELECT 1 FROM product_variant v WHERE
+v.stock_item_id = <the row's item>))`; the ledger adds `AND app.can_access_store(store_id)` on the store branch.
+`product_variant`'s own policy (the `store` kind) limits the subquery to accessible stores and names no pool
+table, so there is no recursion; `product_variant (stock_item_id)` is indexed.
+
+**The mapping is the key to the pool, so it is guarded where the column is born (0190):** only organization scope
+may insert a variant that is already mapped or change a mapping (`guard_variant_stock_item`, fail-closed — an
+empty scope is refused too). A store session cannot INSERT a stock item either (nothing maps a row that does not
+exist yet); its new variants get their own item from a SECURITY DEFINER trigger whose organization scope is the
+function's own `SET` clause, restored by Postgres on return and on error.
+
+On a shared item a store sees the pool's `reserved` total — never another store's reservation rows, never
+another store's movements, never a movement no store caused (receipts, transfers, cycle counts: HQ only).
+
+**Known property, not a defect:** a new variant's item is named `<store code>:<sku>` when the plain sku is taken,
+so a store admin can learn that another brand of the same organization already has an item with that sku. Within
+one organization that is acceptable.
 
 ## What changes for readers
 
@@ -60,8 +70,9 @@ another store's reservation rows.
 - **Events (with 0191, `proposed/stock.moved.v2.json`): `stock.moved` v2** — required `stock_item_id` + the item's
   `sku`; `variant_id` and `store_id` present together only when a store caused the movement. The envelope's
   `store_id` is already nullable and `outbox` is RLS kind `store_nullable`, so a pool movement with no store is an
-  envelope with `store_id: null`, written in organization scope: no envelope diff. v1 stays valid and is what the
-  core emits until the rekey.
+  envelope with `store_id: null`, written in organization scope. v1 stays valid and is what the core emits until
+  the rekey. New topic **`stock_item.mapped` v1** (`proposed/stock_item.mapped.v1.json`, ids only), written by
+  `mapVariantToStockItem` in its transaction; the envelope enums gain the topic and aggregate type `stock_item`.
 - **Seed (packages/db, at 0191):** levels are inserted by `stock_item_id` (looked up from the variant; the trigger
   has made the items), and one brand B variant is mapped onto a brand A variant's item in `wh-eu`, with a fixed
   id in `SEED_IDS`, so the gate has a shared item to sell from.
@@ -81,5 +92,5 @@ pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 ```
 
 `proposed-migrations.test.ts` seeds a throwaway database, applies 0190 then 0191 over the seeded data and asserts
-the backfill and every RLS rule above (20 tests). `testing/pool-database.ts` is the helper later tests build on.
+the backfill, the mapping guard and every RLS rule above (34 tests). `testing/pool-database.ts` is the helper later tests build on.
 Outside turbo, export `DATABASE_URL` / `DATABASE_URL_APP` on `127.0.0.1:5433` (the vitest default says `localhost`).

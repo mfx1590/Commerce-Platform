@@ -10,9 +10,9 @@
 --   * reservation: gains stock_item_id and allocation_rule; KEEPS store_id (who reserved) and variant_id.
 --   * stock_movement: gains stock_item_id; store_id and variant_id become nullable (both NULL = a pool movement
 --     no store caused: a receipt, a transfer, a cycle count).
--- RLS: inventory_level and stock_movement move from the `store` kind to the `pool` kind (0190); reservation stays
--- `store`. So a store sees the pool row of an item it maps — including the `reserved` total — and never another
--- store's reservation rows.
+-- RLS (kinds from 0190): inventory_level moves from `store` to `pool`, stock_movement to `pool_ledger`;
+-- reservation stays `store`. So a store sees the pool row of an item it maps — including the `reserved` total —
+-- and never another store's reservation rows or movements, nor a movement no store caused.
 
 -- 1. Variants created since 0190 (same idempotent statement), then the column is mandatory.
 ALTER TABLE product_variant DISABLE TRIGGER set_updated_at;
@@ -22,18 +22,21 @@ ALTER TABLE product_variant ALTER COLUMN stock_item_id SET NOT NULL;
 
 -- 2. A variant inserted without a stock item gets its own (1:1, the backfill's naming rule). The catalog creates
 --    variants in STORE scope, and a store session may not insert into stock_item (policy `pool_self`), so the
---    function is SECURITY DEFINER and raises the scope to `organization` for exactly its own two statements —
---    it must see every item of the organization to apply the sku rule, whatever role owns the migration.
+--    function is SECURITY DEFINER and runs in organization scope — which it also needs to apply the sku rule
+--    against items the store cannot see. The scope is the function's own SET clause: Postgres restores it on
+--    return AND on error, so no exit path can leave the session elevated. A variant that arrives already mapped
+--    is left alone here; whether the session may do that is 0190's guard_variant_stock_item, which fires first
+--    (trigger names sort) and sees the value the session sent.
 CREATE OR REPLACE FUNCTION app.variant_stock_item() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+SET app.scope = 'organization' AS $$
 DECLARE
-  prev_scope text := coalesce(current_setting('app.scope', true), '');
-  item_sku   text := NEW.sku;
+  item_sku text := NEW.sku;
 BEGIN
   IF NEW.stock_item_id IS NOT NULL THEN
     RETURN NEW;
   END IF;
-  PERFORM set_config('app.scope', 'organization', true);
   IF EXISTS (SELECT 1 FROM stock_item si WHERE si.organization_id = NEW.organization_id AND si.sku = NEW.sku) THEN
     SELECT s.code || ':' || NEW.sku INTO item_sku FROM store s WHERE s.id = NEW.store_id;
   END IF;
@@ -43,26 +46,14 @@ BEGIN
          NEW.barcode
   FROM product p WHERE p.id = NEW.product_id
   RETURNING id INTO NEW.stock_item_id;
-  PERFORM set_config('app.scope', prev_scope, true);
   RETURN NEW;
 END $$;
+-- It can only run as a trigger; nobody needs to call it.
+REVOKE EXECUTE ON FUNCTION app.variant_stock_item() FROM PUBLIC, platform_app;
 CREATE TRIGGER variant_stock_item BEFORE INSERT ON product_variant
   FOR EACH ROW EXECUTE FUNCTION app.variant_stock_item();
 
--- 3. Re-mapping a variant is an HQ act (`mapVariantToStockItem`, `operations` on organization:hq). The API checks
---    the permission; this is the database's own refusal for a store-scoped session, whose policy on product_variant
---    would otherwise let it point its variant at any item it can see.
-CREATE OR REPLACE FUNCTION app.guard_variant_remap() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-  IF NEW.stock_item_id IS DISTINCT FROM OLD.stock_item_id AND app.current_scope() = 'store' THEN
-    RAISE EXCEPTION 'a store-scoped session cannot re-map a variant to another stock item'
-      USING ERRCODE = 'insufficient_privilege';
-  END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER guard_variant_remap BEFORE UPDATE OF stock_item_id ON product_variant
-  FOR EACH ROW EXECUTE FUNCTION app.guard_variant_remap();
+-- 3. (Re-mapping a variant is refused outside organization scope by 0190's guard_variant_stock_item.)
 
 -- 4. inventory_level → pool rows.
 DROP POLICY tenant_isolation ON inventory_level;
@@ -99,5 +90,5 @@ ALTER TABLE stock_movement ALTER COLUMN variant_id DROP NOT NULL;
 ALTER TABLE stock_movement ADD CONSTRAINT stock_movement_store_attribution_check
   CHECK ((store_id IS NULL) = (variant_id IS NULL));
 CREATE INDEX stock_movement_stock_item_idx ON stock_movement (stock_item_id, warehouse_id, created_at DESC);
-SELECT app.apply_rls('stock_movement', 'pool');
+SELECT app.apply_rls('stock_movement', 'pool_ledger');
 -- Still append-only for the application role (0009's REVOKE UPDATE, DELETE is untouched).

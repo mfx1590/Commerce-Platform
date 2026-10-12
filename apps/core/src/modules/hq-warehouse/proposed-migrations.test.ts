@@ -137,6 +137,76 @@ describe('0190 (expand)', () => {
   });
 });
 
+describe('0190: the mapping guard, before any rekey', () => {
+  const remap = `UPDATE product_variant SET stock_item_id = $2 WHERE id = $1`;
+  const insertMapped = `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title, stock_item_id)
+     VALUES ($1, $2, $3, $4, 'Mapped at insert', $5)`;
+  let mine: Variant[];
+  let theirs: Variant;
+
+  beforeAll(async () => {
+    mine = await variantsOf(A, 2);
+    theirs = (await variantsOf(B, 1))[0]!;
+  });
+
+  it("refuses a store session that points its variant at another brand's item", async () => {
+    await expect(a.query(remap, [mine[0]!.id, theirs.stock_item_id])).rejects.toMatchObject({
+      code: '42501',
+    });
+  });
+
+  it('refuses a store session that points its variant at another of its own items', async () => {
+    await expect(a.query(remap, [mine[0]!.id, mine[1]!.stock_item_id])).rejects.toMatchObject({
+      code: '42501',
+    });
+  });
+
+  it('refuses an empty scope too: only organization scope maps', async () => {
+    // the owner role bypasses row security and carries no scope at all
+    await expect(
+      db.owner.query(remap, [mine[0]!.id, mine[1]!.stock_item_id]),
+    ).rejects.toMatchObject({ code: '42501' });
+    expect(
+      await count(db.owner, `product_variant WHERE id = $1 AND stock_item_id = $2`, [
+        mine[0]!.id,
+        mine[0]!.stock_item_id,
+      ]),
+    ).toBe(1);
+  });
+
+  it('refuses a store session inserting a variant already mapped to an item it maps', async () => {
+    await expect(
+      a.query(insertMapped, [
+        ORG,
+        A,
+        mine[0]!.product_id,
+        'mapped-insert-one',
+        mine[1]!.stock_item_id,
+      ]),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('refuses a store session inserting a variant already mapped to an item it does not map', async () => {
+    await expect(
+      a.query(insertMapped, [
+        ORG,
+        A,
+        mine[0]!.product_id,
+        'mapped-insert-two',
+        theirs.stock_item_id,
+      ]),
+    ).rejects.toMatchObject({ code: '42501' });
+    expect(await count(a, `stock_item WHERE id = $1`, [theirs.stock_item_id])).toBe(0);
+  });
+
+  it('lets a store session edit its variant without touching the mapping', async () => {
+    const r = await a.query(`UPDATE product_variant SET title = title WHERE id = $1`, [
+      mine[0]!.id,
+    ]);
+    expect(r.rowCount).toBe(1);
+  });
+});
+
 describe('0191 (rekey)', () => {
   beforeAll(async () => {
     // A variant created between the two migrations has no item yet; 0191 starts with the same backfill.
@@ -303,15 +373,78 @@ describe('0191 (rekey)', () => {
       expect(await count(db.owner, item, [mapped.id, shared.stock_item_id])).toBe(1);
     });
 
-    it('a pool movement no store caused is seen by the stores that map the item, and only by them', async () => {
-      const made = await hq.query<{ id: string }>(
-        `INSERT INTO stock_movement (organization_id, stock_item_id, warehouse_id, delta, reason)
-         VALUES ($1, $2, $3, 7, 'receipt') RETURNING id`,
-        [ORG, own.stock_item_id, EU],
-      );
-      const id = [made.rows[0]!.id];
-      expect(await count(b, `stock_movement WHERE id = $1`, id)).toBe(1);
-      expect(await count(a, `stock_movement WHERE id = $1`, id)).toBe(0);
+    describe('the ledger on a shared item (pool_ledger)', () => {
+      const insert = `INSERT INTO stock_movement
+           (organization_id, store_id, variant_id, stock_item_id, warehouse_id, delta, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
+      const byId = `stock_movement WHERE id = $1`;
+      let saleOfB: string;
+      let receipt: string;
+
+      beforeAll(async () => {
+        const item = shared.stock_item_id;
+        const sale = await hq.query<{ id: string }>(insert, [
+          ORG,
+          B,
+          mapped.id,
+          item,
+          EU,
+          -1,
+          'sale',
+        ]);
+        const noStore = await hq.query<{ id: string }>(insert, [
+          ORG,
+          null,
+          null,
+          item,
+          EU,
+          9,
+          'receipt',
+        ]);
+        saleOfB = sale.rows[0]!.id;
+        receipt = noStore.rows[0]!.id;
+      });
+
+      it('brand A cannot INSERT a movement attributed to brand B', async () => {
+        await expect(
+          a.query(insert, [ORG, B, mapped.id, shared.stock_item_id, EU, -1, 'sale']),
+        ).rejects.toMatchObject({ code: '42501' });
+      });
+
+      it("brand A cannot SELECT brand B's sale movement", async () => {
+        expect(await count(a, byId, [saleOfB])).toBe(0);
+        expect(await count(b, byId, [saleOfB])).toBe(1);
+      });
+
+      it('brand A cannot INSERT a movement with no store', async () => {
+        await expect(
+          a.query(insert, [ORG, null, null, shared.stock_item_id, EU, 3, 'receipt']),
+        ).rejects.toMatchObject({ code: '42501' });
+      });
+
+      it('no store session can SELECT a movement with no store', async () => {
+        expect(await count(a, byId, [receipt])).toBe(0);
+        expect(await count(b, byId, [receipt])).toBe(0);
+      });
+
+      it('organization scope reads both (and wrote both)', async () => {
+        expect(await count(hq, byId, [saleOfB])).toBe(1);
+        expect(await count(hq, byId, [receipt])).toBe(1);
+      });
+
+      it('brand A writes and reads its own attributed movement', async () => {
+        const own = await a.query<{ id: string }>(insert, [
+          ORG,
+          A,
+          shared.id,
+          shared.stock_item_id,
+          EU,
+          -1,
+          'sale',
+        ]);
+        expect(await count(a, byId, [own.rows[0]!.id])).toBe(1);
+        expect(await count(b, byId, [own.rows[0]!.id])).toBe(0);
+      });
     });
 
     it('keeps the ledger append-only for the application role, and attribution all-or-nothing', async () => {
@@ -345,16 +478,67 @@ describe('0191 (rekey)', () => {
       expect(prefixed.rows[0]!.sku).toBe(`brand-a:${own.sku}`);
     });
 
-    it('leaves the session in store scope afterwards', async () => {
+    const scope = `SELECT current_setting('app.scope', true) AS scope`;
+
+    it('leaves the session in store scope after a successful insert', async () => {
       const seen = await a.transaction(async (tx) => {
         await tx.query(insertVariant, [ORG, A, shared.product_id, 'fresh-variant-two', 'Another']);
+        const now = await tx.query<{ scope: string }>(scope);
         const r = await tx.query<{ n: string }>(
           `SELECT count(*)::text AS n FROM stock_item WHERE id = $1`,
           [own.stock_item_id],
         );
-        return Number(r.rows[0]!.n);
+        return [now.rows[0]!.scope, Number(r.rows[0]!.n)];
       });
-      expect(seen).toBe(0);
+      expect(seen).toEqual(['store', 0]);
+    });
+
+    it('leaves the scope as it was after an insert that fails inside the trigger', async () => {
+      const seen = await a.transaction(async (tx) => {
+        await tx.query('SAVEPOINT failing');
+        // an empty sku passes product_variant's own checks and fails stock_item's CHECK inside the function
+        const error = await tx
+          .query(insertVariant, [ORG, A, shared.product_id, '', 'No sku'])
+          .then(() => null)
+          .catch((e: { code?: string }) => e.code);
+        await tx.query('ROLLBACK TO SAVEPOINT failing');
+        const now = await tx.query<{ scope: string }>(scope);
+        return [error, now.rows[0]!.scope];
+      });
+      expect(seen).toEqual(['23514', 'store']);
+    });
+
+    it('leaves the scope as it was after a refused insert', async () => {
+      const seen = await a.transaction(async (tx) => {
+        await tx.query('SAVEPOINT refused');
+        const error = await tx
+          .query(
+            `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title, stock_item_id)
+             VALUES ($1, $2, $3, 'refused-variant-one', 'Refused', $4)`,
+            [ORG, A, shared.product_id, shared.stock_item_id],
+          )
+          .then(() => null)
+          .catch((e: { code?: string }) => e.code);
+        await tx.query('ROLLBACK TO SAVEPOINT refused');
+        const now = await tx.query<{ scope: string }>(scope);
+        return [error, now.rows[0]!.scope];
+      });
+      expect(seen).toEqual(['42501', 'store']);
+    });
+
+    it('lets organization scope insert a variant already mapped', async () => {
+      await hq.query(
+        `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title, stock_item_id)
+         VALUES ($1, $2, $3, 'hq-mapped-variant', 'Mapped by HQ', $4)`,
+        [ORG, A, shared.product_id, shared.stock_item_id],
+      );
+      expect(
+        await count(
+          db.owner,
+          `product_variant WHERE sku = 'hq-mapped-variant' AND stock_item_id = $1`,
+          [shared.stock_item_id],
+        ),
+      ).toBe(1);
     });
   });
 });
