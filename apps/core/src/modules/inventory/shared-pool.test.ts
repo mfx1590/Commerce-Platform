@@ -7,7 +7,7 @@ import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@p
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { addLineItem, createCart, updateCart } from '../cart';
-import { getStoreProduct } from '../catalog';
+import { createVariant, getStoreProduct } from '../catalog';
 import { completeCart, createPaymentSession } from '../checkout';
 import {
   availableByVariant,
@@ -811,5 +811,71 @@ describe('the allocation seam on the pool (#454)', () => {
     expect(await count('reservation')).toBe(reservations + 1);
     expect(await count('"order"')).toBe(orders + 1);
     expect(await pool(vA.item, EU)).toMatchObject({ reserved: 0 }); // setPool reset it; nothing reserved since
+  });
+});
+
+describe('variant creation (the catalog, in store scope)', () => {
+  it('a new variant gets its own stock item from the database; the same sku in another brand gets a prefixed item; a store cannot arrive mapped', async () => {
+    const productOf = async (storeId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          `SELECT id FROM product WHERE store_id = $1 ORDER BY handle LIMIT 1`,
+          [storeId],
+        )
+      ).rows[0]!.id;
+    // the catalog inserts with stock_item_id unset, as a store session; 0191's trigger gives the variant its item
+    const mine = await createVariant(
+      a,
+      A,
+      await productOf(A),
+      { sku: 'POOL-NEW-1', title: 'Pool new' },
+      actor,
+    );
+    const item = await a.query<{ id: string; sku: string }>(
+      `SELECT si.id, si.sku FROM stock_item si JOIN product_variant v ON v.stock_item_id = si.id WHERE v.id = $1`,
+      [mine.id],
+    );
+    expect(item.rows).toEqual([{ id: expect.any(String), sku: 'POOL-NEW-1' }]); // visible to its own store
+    expect(
+      (await b.query(`SELECT 1 FROM stock_item WHERE id = $1`, [item.rows[0]!.id])).rowCount,
+    ).toBe(0);
+    // one item per variant, never an automatic merge: brand B's variant with the same sku gets `<store>:<sku>`
+    const theirs = await createVariant(
+      b,
+      B,
+      await productOf(B),
+      { sku: 'POOL-NEW-1', title: 'Pool new' },
+      actor,
+    );
+    const other = await owner.query<{ id: string; sku: string }>(
+      `SELECT si.id, si.sku FROM stock_item si JOIN product_variant v ON v.stock_item_id = si.id WHERE v.id = $1`,
+      [theirs.id],
+    );
+    expect(other.rows[0]!.sku).toBe('brand-b:POOL-NEW-1');
+    expect(other.rows[0]!.id).not.toBe(item.rows[0]!.id);
+
+    // nothing in stock yet; HQ receives, the store sells from its own new pool row
+    expect((await a.transaction((tx) => availableByVariant(tx, [mine.id]))).get(mine.id)).toBe(0);
+    await createStockMovement(hq, {
+      organizationId: ORG,
+      variantId: mine.id,
+      warehouseId: EU,
+      delta: 5,
+      reason: 'receipt',
+      actor,
+    });
+    expect((await a.transaction((tx) => availableByVariant(tx, [mine.id]))).get(mine.id)).toBe(5);
+    expect((await b.transaction((tx) => availableByVariant(tx, [theirs.id]))).get(theirs.id)).toBe(
+      0,
+    );
+
+    // a store session cannot insert a variant that already points at an item — its own or anybody's (0190's guard)
+    await expect(
+      a.query(
+        `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title, stock_item_id)
+         SELECT organization_id, store_id, product_id, 'POOL-NEW-2', 'x', $2 FROM product_variant WHERE id = $1`,
+        [mine.id, other.rows[0]!.id],
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
   });
 });

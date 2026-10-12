@@ -1160,3 +1160,118 @@ describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore
     ).toBe(404);
   });
 });
+
+describe('the shared stock pool (#456, CONTRACT CHANGE #453): listStockItems, mapVariantToStockItem', () => {
+  const operations = as('seed-operations');
+  const put = (subject: string, path: string) =>
+    request(app).put(path).set('Authorization', `Bearer dev:${subject}`).send();
+
+  /** A brand A and a brand B variant, each on its own item (never the first: a seed may already share those). */
+  async function pair(offset: number) {
+    const pick = async (storeId: string) =>
+      (
+        await db.owner.query<{ id: string; sku: string; item: string }>(
+          `SELECT id, sku, stock_item_id AS item FROM product_variant
+           WHERE store_id = $1 AND manage_inventory ORDER BY sku OFFSET $2 LIMIT 1`,
+          [storeId, offset],
+        )
+      ).rows[0]!;
+    return { a: await pick(A), b: await pick(B) };
+  }
+
+  it('GET /admin/stock-items: HQ roles list the pool as a contract Page (viewer on organization:hq); a store admin gets 403; filters', async () => {
+    const res = await analyst.get('/admin/stock-items?limit=5');
+    expect(res.status).toBe(200);
+    spec.assertPage('StockItem', res.body);
+    expect(res.body).toMatchObject({ page: 1, limit: 5 });
+    expect(res.body.total).toBeGreaterThan(5);
+    expect(res.body.items.some((i: { levels: unknown[] }) => i.levels.length > 0)).toBe(true);
+    expect((await storeAdmin.get('/admin/stock-items')).status).toBe(403);
+    expect((await storeStaff.get('/admin/stock-items')).status).toBe(403);
+    expect((await request(app).get('/admin/stock-items')).status).toBe(401);
+
+    const { a } = await pair(3);
+    const bySku = await operations.get(`/admin/stock-items?sku=${encodeURIComponent(a.sku)}`);
+    expect(bySku.body.items.map((i: { id: string }) => i.id)).toEqual([a.item]);
+    expect(bySku.body.items[0].variants).toEqual([{ variant_id: a.id, store_id: A, sku: a.sku }]);
+    const ofB = await operations.get(`/admin/stock-items?store_id=${B}&limit=100`);
+    expect(
+      ofB.body.items.every((i: { variants: { store_id: string }[] }) =>
+        i.variants.some((v) => v.store_id === B),
+      ),
+    ).toBe(true);
+    const bad = await operations.get('/admin/stock-items?store_id=x&shared=maybe');
+    expect(bad.status).toBe(400);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['shared', 'store_id']);
+  });
+
+  it('PUT /admin/stock-items/{id}/variants/{id}: operations only; 409 with stock; 200 StockItem and idempotent; the level list shows one pool row for both variants', async () => {
+    const { a, b } = await pair(4);
+    const path = `/admin/stock-items/${a.item}/variants/${b.id}`;
+    expect((await put('seed-store-admin', path)).status).toBe(403);
+    expect((await put('seed-analyst', path)).status).toBe(403);
+    expect((await request(app).put(path)).status).toBe(401);
+
+    // brand B's own item still holds the seeded stock: quantities are never merged silently
+    await db.owner.query(
+      `UPDATE inventory_level SET on_hand = 3, reserved = 0 WHERE stock_item_id = $1`,
+      [b.item],
+    );
+    const refused = await put('seed-operations', path);
+    expect(refused.status).toBe(409);
+    spec.assertSchema('Error', refused.body);
+    expect(refused.body).toMatchObject({
+      code: 'conflict',
+      details: { stock_item_id: b.item, on_hand: 6, open_reservations: 0 },
+    });
+
+    await db.owner.query(`UPDATE inventory_level SET on_hand = 0 WHERE stock_item_id = $1`, [
+      b.item,
+    ]);
+    const mapped = await put('seed-operations', path);
+    expect(mapped.status).toBe(200);
+    spec.assertSchema('StockItem', mapped.body);
+    expect(mapped.body.id).toBe(a.item);
+    expect(mapped.body.variants.map((v: { variant_id: string }) => v.variant_id).sort()).toEqual(
+      [a.id, b.id].sort(),
+    );
+    const again = await put('seed-operations', path);
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(mapped.body);
+    const events = await db.owner.query(
+      `SELECT 1 FROM outbox WHERE topic = 'stock_item.mapped' AND payload->>'variant_id' = $1`,
+      [b.id],
+    );
+    expect(events.rowCount).toBe(1);
+
+    expect(
+      (
+        await put(
+          'seed-operations',
+          `/admin/stock-items/${a.item}/variants/00000000-0000-4000-8000-00000000ffff`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await put('seed-operations', `/admin/stock-items/not-a-uuid/variants/${b.id}`)).status,
+    ).toBe(400);
+
+    // InventoryLevel: one row per (variant, warehouse); the two variants carry the same pool row
+    const levelOf = async (variantId: string) => {
+      const res = await operations.get(`/admin/inventory/levels?variant_id=${variantId}&limit=10`);
+      spec.assertPage('InventoryLevel', res.body);
+      return res.body.items as {
+        id: string;
+        stock_item_id: string;
+        store_id: string;
+        on_hand: number;
+        warehouse_id: string;
+      }[];
+    };
+    const la = await levelOf(a.id);
+    const lb = await levelOf(b.id);
+    expect(lb.map((l) => l.id).sort()).toEqual(la.map((l) => l.id).sort());
+    expect(lb.every((l) => l.stock_item_id === a.item && l.store_id === B)).toBe(true);
+    expect(la.every((l) => l.stock_item_id === a.item && l.store_id === A)).toBe(true);
+  });
+});
