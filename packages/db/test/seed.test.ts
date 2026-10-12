@@ -143,7 +143,47 @@ describe('seed data', () => {
     const hq = createOrganizationClient(db.app, { organizationId: ORG });
     const r = await hq.query<{ bad: string }>(`
       SELECT (SELECT count(*) FROM product WHERE store_id NOT IN (SELECT id FROM store)) +
-             (SELECT count(*) FROM inventory_level il JOIN product_variant v ON v.id = il.variant_id WHERE v.store_id <> il.store_id) AS bad`);
+             (SELECT count(*) FROM inventory_level il
+               WHERE NOT EXISTS (SELECT 1 FROM product_variant v WHERE v.stock_item_id = il.stock_item_id)) AS bad`);
     expect(Number(r.rows[0]!.bad)).toBe(0);
+  });
+
+  it('the shared stock item: brand A and brand B each map it with one variant, and it is ONE pool row per warehouse, stocked in wh-eu', async () => {
+    const { stockItem, variantBrandA, variantBrandB } = SEED_IDS.sharedStock;
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const mapped = await hq.query<{ id: string; store_id: string }>(
+      'SELECT id, store_id FROM product_variant WHERE stock_item_id = $1 ORDER BY id',
+      [stockItem],
+    );
+    expect(mapped.rows).toEqual([
+      { id: variantBrandA, store_id: SEED_IDS.stores.brandA },
+      { id: variantBrandB, store_id: SEED_IDS.stores.brandB },
+    ]);
+    // every other variant has an item of its own: items = variants − 1
+    const counts = await hq.query<{ variants: string; items: string }>(
+      'SELECT (SELECT count(*) FROM product_variant) variants, (SELECT count(*) FROM stock_item) items',
+    );
+    expect(Number(counts.rows[0]!.items)).toBe(Number(counts.rows[0]!.variants) - 1);
+    const levels = await hq.query<{ warehouse_id: string; available: number }>(
+      'SELECT warehouse_id, available FROM inventory_level WHERE stock_item_id = $1 ORDER BY warehouse_id',
+      [stockItem],
+    );
+    expect(levels.rows.map((r) => r.warehouse_id)).toEqual(
+      [SEED_IDS.warehouses.eu, SEED_IDS.warehouses.us].sort(),
+    );
+    expect(
+      levels.rows.find((r) => r.warehouse_id === SEED_IDS.warehouses.eu)?.available,
+    ).toBeGreaterThanOrEqual(40);
+    // both brands read the same pool row; brand C, which does not map the item, reads none of it
+    const sees = async (storeId: string): Promise<number> => {
+      const t = createTenantClient(db.app, { organizationId: ORG, storeIds: [storeId] });
+      const r = await t.query('SELECT id FROM inventory_level WHERE stock_item_id = $1', [
+        stockItem,
+      ]);
+      return r.rows.length;
+    };
+    expect(await sees(SEED_IDS.stores.brandA)).toBe(2);
+    expect(await sees(SEED_IDS.stores.brandB)).toBe(2);
+    expect(await sees(SEED_IDS.stores.brandC)).toBe(0);
   });
 });

@@ -38,6 +38,15 @@ export const SEED_IDS = {
     brandB: 'pk_brand-b_dev_00000000000000000000',
     brandC: 'pk_brand-c_dev_00000000000000000000',
   },
+  /**
+   * The shared stock pool (db 0191): ONE stock item two brands sell from — brand A's first variant and brand B's
+   * first variant both map it; it is stocked in `wh-eu`. The variant ids are `seedId(1 | 2, KIND.variant, 1)`.
+   */
+  sharedStock: {
+    stockItem: '00000000-0000-4000-8000-000000000051',
+    variantBrandA: '31000003-0000-4000-8000-000000000001',
+    variantBrandB: '32000003-0000-4000-8000-000000000001',
+  },
 } as const;
 
 export interface SeedOptions {
@@ -337,17 +346,20 @@ export async function topUpStock(
   return hq.transaction(async (tx) => {
     const r = await tx.query<{ levels: string; units: string | null }>(
       `WITH low AS (
-         SELECT id, organization_id, store_id, variant_id, warehouse_id, $1::int - available AS delta
-         FROM inventory_level
-         WHERE store_id = ANY($2::uuid[]) AND available < $1::int
-         FOR UPDATE
+         SELECT il.id, il.organization_id, il.stock_item_id, il.warehouse_id, $1::int - il.available AS delta
+         FROM inventory_level il
+         WHERE il.available < $1::int
+           AND EXISTS (SELECT 1 FROM product_variant v
+                       WHERE v.stock_item_id = il.stock_item_id AND v.store_id = ANY($2::uuid[]))
+         FOR UPDATE OF il
        ), raised AS (
          UPDATE inventory_level il SET on_hand = il.on_hand + low.delta, updated_at = now()
          FROM low WHERE il.id = low.id
-         RETURNING low.organization_id, low.store_id, low.variant_id, low.warehouse_id, low.delta
+         RETURNING low.organization_id, low.stock_item_id, low.warehouse_id, low.delta
        ), ledger AS (
-         INSERT INTO stock_movement (organization_id, store_id, variant_id, warehouse_id, delta, reason, note)
-         SELECT organization_id, store_id, variant_id, warehouse_id, delta, 'adjustment', 'seed top-up (local development)'
+         -- a pool movement no store caused: store_id and variant_id stay NULL (organization scope)
+         INSERT INTO stock_movement (organization_id, stock_item_id, warehouse_id, delta, reason, note)
+         SELECT organization_id, stock_item_id, warehouse_id, delta, 'adjustment', 'seed top-up (local development)'
          FROM raised
          RETURNING delta
        )
@@ -668,6 +680,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
       const prices: unknown[][] = [];
       const media: unknown[][] = [];
       const inventory: unknown[][] = [];
+      let sharedItem: { sku: string; name: string } | null = null;
       let variantN = 0;
       const handles = new Set<string>();
       for (let p = 1; p <= productsPerStore; p++) {
@@ -733,6 +746,14 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
             variantN += 1;
             const variantId = id(KIND.variant, variantN);
             const sku = `${s.code.toUpperCase().replace('-', '')}-${String(p).padStart(4, '0')}-${kebab(size).toUpperCase()}-${color.slice(0, 3).toUpperCase()}`;
+            // The shared pool: brand A's first variant owns the fixed item, brand B's first variant maps it too.
+            // Every other variant arrives unmapped and gets its own item from 0191's trigger.
+            const shared =
+              variantId === SEED_IDS.sharedStock.variantBrandA ||
+              variantId === SEED_IDS.sharedStock.variantBrandB;
+            if (variantId === SEED_IDS.sharedStock.variantBrandA) {
+              sharedItem = { sku, name: `${title} — ${size} / ${color}` };
+            }
             variants.push([
               variantId,
               org,
@@ -746,6 +767,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
               150 + Math.floor(rnd() * 400),
               'PT',
               pos++,
+              shared ? SEED_IDS.sharedStock.stockItem : null,
             ]);
             prices.push([
               id(KIND.price, variantN),
@@ -757,12 +779,12 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
               basePrice,
               onSale ? Math.round(basePrice * 1.25) : null,
             ]);
-            const euStock = Math.floor(rnd() * 40);
+            // the shared item is always stocked in wh-eu (the Integration 3 gate sells from it)
+            const euStock = Math.max(Math.floor(rnd() * 40), shared ? 40 : 0);
             const usStock = Math.floor(rnd() * 20);
             inventory.push([
               id(KIND.inventory, variantN * 2 - 1),
               org,
-              storeId,
               variantId,
               SEED_IDS.warehouses.eu,
               euStock,
@@ -770,7 +792,6 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
             inventory.push([
               id(KIND.inventory, variantN * 2),
               org,
-              storeId,
               variantId,
               SEED_IDS.warehouses.us,
               usStock,
@@ -806,6 +827,15 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
         ['id', 'organization_id', 'store_id', 'product_id', 'name', '"values"', 'position'],
         options,
       );
+      if (sharedItem) {
+        // before the variants: the two shared variants reference it (organization scope may insert them mapped)
+        await bulk(
+          tx,
+          'stock_item',
+          ['id', 'organization_id', 'sku', 'name'],
+          [[SEED_IDS.sharedStock.stockItem, org, sharedItem.sku, sharedItem.name]],
+        );
+      }
       await bulk(
         tx,
         'product_variant',
@@ -822,6 +852,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
           'weight_g',
           'origin_country',
           'position',
+          'stock_item_id',
         ],
         variants,
       );
@@ -846,12 +877,26 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
         ['id', 'organization_id', 'store_id', 'product_id', 'variant_id', 'url', 'alt', 'position'],
         media,
       );
-      await bulk(
-        tx,
-        'inventory_level',
-        ['id', 'organization_id', 'store_id', 'variant_id', 'warehouse_id', 'on_hand'],
-        inventory,
-      );
+      // Pool rows (0191): keyed by the variant's stock item. Brand B's shared variant resolves to the item brand A
+      // already stocked, so its two rows conflict on (stock_item_id, warehouse_id) and are skipped — one pool.
+      for (let i = 0; i < inventory.length; i += 500) {
+        const part = inventory.slice(i, i + 500);
+        await tx.query(
+          `INSERT INTO inventory_level (id, organization_id, stock_item_id, warehouse_id, on_hand)
+           SELECT x.id, x.organization_id, v.stock_item_id, x.warehouse_id, x.on_hand
+           FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::int[])
+                  AS x(id, organization_id, variant_id, warehouse_id, on_hand)
+           JOIN product_variant v ON v.id = x.variant_id
+           ON CONFLICT DO NOTHING`,
+          [
+            part.map((r) => r[0]),
+            part.map((r) => r[1]),
+            part.map((r) => r[2]),
+            part.map((r) => r[3]),
+            part.map((r) => r[4]),
+          ],
+        );
+      }
       log(
         `${s.code}: ${products.length} products, ${variants.length} variants, ${inventory.length} inventory levels`,
       );

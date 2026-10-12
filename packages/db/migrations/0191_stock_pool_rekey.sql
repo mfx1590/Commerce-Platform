@@ -1,7 +1,5 @@
--- PROPOSED (CONTRACT CHANGE, window 11, task 3.1 / #435): packages/db/migrations/0191_stock_pool_rekey.sql.
---
--- Kept here verbatim until the main window applies it; the hq-warehouse tests apply 0190 + 0191 to a seeded
--- throwaway database (the #244 pattern).
+-- Landed from CONTRACT CHANGE #453 (window 11, task 3.1 / #435), manager decision 2026-10-12, together with the
+-- inventory module's rewrite (window 1, #456). The SQL below is the proposed file verbatim.
 --
 -- 0191 stock pool, step 2 of 2 (REKEY — lands ONLY together with the inventory module's rewrite, window 1):
 -- stock is held per (stock item, warehouse), not per (store's variant, warehouse).

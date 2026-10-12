@@ -686,6 +686,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stock-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The organization's stock items with the variants mapped to each and the pool level per warehouse */
+        get: operations["listStockItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stock-items/{stockItemId}/variants/{variantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+                variantId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Map a store's variant to this stock item (pooling two brands is only ever this explicit act)
+         * @description Idempotent: a variant already mapped to this item is a 200 with nothing written. Otherwise refused with 409 unless the variant's CURRENT stock item has zero on-hand and no open reservation at every warehouse: quantities are never merged silently (stock is moved first, with movements). Writes one audit row (`variant.stock_item_mapped`, before / after stock_item_id) and, in the same transaction, one `stock_item.mapped` v1 outbox event (nothing on the idempotent path). The item the variant leaves is kept.
+         */
+        put: operations["mapVariantToStockItem"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/shipping-options": {
         parameters: {
             query?: never;
@@ -2193,6 +2233,33 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        StockItem: {
+            /** Format: uuid */
+            id: string;
+            /** @description Unique per organization */
+            sku: string;
+            name: string;
+            barcode: string | null;
+            variants: {
+                /** Format: uuid */
+                variant_id: string;
+                /** Format: uuid */
+                store_id: string;
+                /** @description The variant's own sku in its store */
+                sku: string;
+            }[];
+            levels: components["schemas"]["StockLevel"][];
+        };
+        StockLevel: {
+            /** Format: uuid */
+            warehouse_id: string;
+            on_hand: number;
+            /** @description Every store's open reservations on this pool row */
+            reserved: number;
+            incoming: number;
+            available: number;
+        };
+        /** @description One variant in one warehouse, carrying the numbers of the POOL row of the stock item the variant maps. `id` is the pool row's, so it repeats when two variants in one response share a stock item: key rows by (`variant_id`, `warehouse_id`) and never sum `on_hand`, `reserved` or `available` across variants. */
         InventoryLevel: {
             /** Format: uuid */
             id: string;
@@ -2200,6 +2267,8 @@ export interface components {
             store_id: string;
             /** Format: uuid */
             variant_id: string;
+            /** Format: uuid */
+            stock_item_id: string;
             sku: string;
             /** Format: uuid */
             warehouse_id: string;
@@ -5012,6 +5081,85 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listStockItems: {
+        parameters: {
+            query?: {
+                /** @description Substring of the item sku */
+                sku?: string;
+                /** @description Only items a variant of this store maps */
+                store_id?: string;
+                /** @description true = only items mapped by more than one store */
+                shared?: boolean;
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["StockItem"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    mapVariantToStockItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+                variantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stock item, with the variant among `variants` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The variant's current stock item still holds stock or open reservations */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "the variant's current stock item still holds stock",
+                     *       "details": {
+                     *         "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *         "on_hand": 12,
+                     *         "open_reservations": 1
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listShippingOptions: {
