@@ -1,0 +1,134 @@
+# PROPOSED (CONTRACT CHANGE, window 11, task 3.1 / #435): additions to packages/contracts/openapi/admin-api.yaml.
+# They land WITH migration 0191 (the rekey), not with 0190: until levels are pool-keyed, "two variants on one
+# item" would be a lie in the contract. Nothing existing is removed or renamed.
+
+paths:
+  # ---------------------------------------------------------------- stock pool (after the `inventory` block)
+  /admin/stock-items:
+    get:
+      tags: [inventory]
+      operationId: listStockItems
+      summary: The organization's stock items with the variants mapped to each and the pool level per warehouse
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      parameters:
+        - { name: sku, in: query, schema: { type: string }, description: Substring of the item sku }
+        - {
+            name: store_id,
+            in: query,
+            schema: { type: string, format: uuid },
+            description: Only items a variant of this store maps,
+          }
+        - {
+            name: shared,
+            in: query,
+            schema: { type: boolean },
+            description: true = only items mapped by more than one store,
+          }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/StockItem' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/stock-items/{stockItemId}/variants/{variantId}:
+    parameters:
+      - { name: stockItemId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: variantId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [inventory]
+      operationId: mapVariantToStockItem
+      summary: Map a store's variant to this stock item (pooling two brands is only ever this explicit act)
+      description: >
+        Idempotent: a variant already mapped to this item is a 200 with nothing written. Otherwise refused with
+        409 unless the variant's CURRENT stock item has zero on-hand and no open reservation at every warehouse:
+        quantities are never merged silently (stock is moved first, with movements). Writes one audit row
+        (`variant.stock_item_mapped`, before / after stock_item_id). The item the variant leaves is kept.
+      x-permission: { relation: operations, object: 'organization:hq' }
+      responses:
+        '200':
+          description: The stock item, with the variant among `variants`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The variant's current stock item still holds stock or open reservations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: conflict,
+                  message: the variant's current stock item still holds stock,
+                  details:
+                    {
+                      stock_item_id: 71000000-0000-4000-8000-000000000001,
+                      on_hand: 12,
+                      open_reservations: 1,
+                    },
+                }
+
+components:
+  schemas:
+    StockItem:
+      type: object
+      required: [id, sku, name, barcode, variants, levels]
+      properties:
+        id: { type: string, format: uuid }
+        sku: { type: string, description: Unique per organization }
+        name: { type: string }
+        barcode: { type: [string, 'null'] }
+        variants:
+          type: array
+          items:
+            type: object
+            required: [variant_id, store_id, sku]
+            properties:
+              variant_id: { type: string, format: uuid }
+              store_id: { type: string, format: uuid }
+              sku: { type: string, description: The variant's own sku in its store }
+        levels:
+          type: array
+          items: { $ref: '#/components/schemas/StockLevel' }
+    StockLevel:
+      type: object
+      required: [warehouse_id, on_hand, reserved, incoming, available]
+      properties:
+        warehouse_id: { type: string, format: uuid }
+        on_hand: { type: integer }
+        reserved: { type: integer, description: Every store's open reservations on this pool row }
+        incoming: { type: integer }
+        available: { type: integer }
+
+    # CHANGED (additive): one new required property. A row stays "one variant in one warehouse"; the quantities
+    # are the pool row's, so two variants mapped to one item show the same `id` and the same numbers.
+    InventoryLevel:
+      type: object
+      required:
+        [
+          id,
+          store_id,
+          variant_id,
+          stock_item_id,
+          sku,
+          warehouse_id,
+          on_hand,
+          reserved,
+          incoming,
+          available,
+        ]
+      properties:
+        stock_item_id: { type: string, format: uuid }
