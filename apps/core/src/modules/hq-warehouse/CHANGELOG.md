@@ -29,3 +29,10 @@
 
 - `proposed/0190_stock_pool.sql` deleted; `testing/pool-database.ts` applies only the proposed 0191 on a database
   migrated by packages/db, and `proposed-migrations.test.ts` runs 0190's own backfill function over the seed.
+
+### 2026-10-12 · the pool's second step is in packages/* (0191, events, Admin API; with #456)
+
+- The four proposed copies that landed are deleted (`proposed/0191_stock_pool_rekey.sql`, `stock.moved.v2.json`,
+  `stock_item.mapped.v1.json`, `admin-api.stock-pool.yaml`); `testing/pool-database.ts` is migrate + seed.
+- `proposed-migrations.test.ts` takes the seed's shared item into account (items = variants − 1, exactly one
+  pooled pair) and tests the naming rule through the insert trigger instead of the backfill.
