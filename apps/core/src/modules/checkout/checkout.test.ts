@@ -403,9 +403,10 @@ describe('completeCart — one transaction', () => {
     });
     const idx = variants.length - 1;
     const cart = await readyCart({ variant: idx });
-    await owner.query(`UPDATE inventory_level SET on_hand = 0 WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)`, [
-      variants[idx]!.id,
-    ]);
+    await owner.query(
+      `UPDATE inventory_level SET on_hand = 0 WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)`,
+      [variants[idx]!.id],
+    );
     await expect(
       completeCart(a, { cartId: cart.id, idempotencyKey: `key-oos-${cart.id}`, actor }),
     ).rejects.toMatchObject({
