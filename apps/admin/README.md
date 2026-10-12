@@ -87,7 +87,10 @@ one body; `e2e/api-mode.ts` holds the few things that differ (display name, doma
 which routes the core does not mount). **Core-mode journeys write into the shared local
 database**: everything they create is stamped with the run (product handles, promotion codes, key
 names), so reruns never collide, and nothing irreversible is confirmed on seeded data.
-Core mode creates what it reads (#285): the orders journeys place their own guest order through
+Core mode creates what it reads (#285, #430): the customers journey first links the seeded
+customers-realm user (`jane@example.com`) to brand-a through the Store API (`e2e/core-customer.ts`,
+idempotent) and reads that row back (#431: every core serves the admin customer routes since
+#429; the placeholder branch is gone). The orders journeys place their own guest order through
 the Store API (`e2e/core-order.ts`) — one order per journey that needs one (the orders list, and
 since #357 capture → refund and buy label), each taking **one unit** of the first in-stock variant
 among the first 20 brand-a products by ascending price, so every run lowers that variant's
@@ -597,6 +600,50 @@ prefix; choosing `paused` asked first (cancelled — the store stays active). As
 forms at all, every card read-only with the relation named, keys card the store_admin panel.
 No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
 redacted in the DOM before capture; no key value is committed.
+
+## HQ roles (task 3.1 A, issue #428; Admin API 0.4.12)
+
+**HQ · Roles** (`/roles`, owner on `organization:hq`): every staff user with status and last
+sign-in; **Manage** opens one person — their relations (on the organization or a store), **Assign**
+(only pairs the OpenFGA model can grant: `owner`, `finance`, `operations`, `analyst`, `support` on
+the organization; `store_admin`, `store_staff`, `support` on a store — `src/lib/roles`), **Revoke**
+(asks first: it ends the person's sessions), and what they changed (`listAuditLog` per store they
+hold, `actor_id` = them; time, action and entity only — never the before/after bodies). **Invite**
+creates the person (`inviteUser`: email + display name — the contract takes no role) and then grants
+the optional initial relation with `assignRole`; a refused grant is said ("Invited, but the initial
+relation was not granted") and retried from the person's row. Until the invitation email exists
+(SMTP, Integration 2b) the first sign-in is set up by an admin in Keycloak — the screen says so.
+
+Every mutation is refused server-side before the API unless the principal is owner on hq
+(`ROLES_PERMISSIONS` in the shared guard, pinned against the yaml); a taken email (409) lands
+under the email field, a 400 under the field it names, a 403 is the refusal panel. Journey
+`e2e/hq-roles.spec.ts` is read-only (inviting creates a real Keycloak user): the store admin's
+refusal in both modes; in core mode the owner signs in (password + the dev TOTP read from
+`infra/keycloak/README.md` at run time, `e2e/owner.ts`) and reads the users and one person's
+relations.
+
+## HQ onboarding (task 3.1 B, issues #428 and #420; Admin API 0.4.12)
+
+**HQ · Onboarding** (`/onboarding`, owner on `organization:hq`) is a four-step wizard — legal entity
+(existing, or a new one inline) → store basics (code, name, defaults, timezone, enabled currencies
+and locales, optional settings JSON) → primary domain → review — and one `onboardStore` call that
+creates it all in one transaction as a **draft**. Each step checks its own fields before Next; the
+server re-validates, and its answers go back to the step that owns the field (`src/lib/onboarding`):
+a 400's field keys, a 409's `details.differs` (a different definition for the same code) or
+`details.field: domain.hostname` (a hostname another store has), a 422's `details.settings`.
+
+**The key is shown once.** The 201 carries the store's first publishable key; it lives in the
+wizard's state only — never the URL, storage or a log — and "Done" drops it on the way to the
+readiness panel. A 200 is the identical repeat: "already exists", no key. `/stores/new` (the old
+step 1) redirects here.
+
+**Readiness** (`/onboarding/{storeId}`): the store's status and **Activate** (`activateStore`). What
+is missing is exactly the 409's `details.missing`, in words (`MISSING_LABELS`); an empty list is an
+activation. **Activation from the Store view goes through `updateStore` by design; `activateStore` is the HQ
+path.** #420: the same 409 from `updateStore` with `status: active` is said the same way under
+the Status field of the Store view's General form (store_admin cannot call `activateStore`, which is
+owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
+other fields first and then calls `activateStore`.
 
 ## When a screen cannot show what was asked for
 

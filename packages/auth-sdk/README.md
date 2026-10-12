@@ -97,14 +97,16 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
   accepted (`ASSIGNABLE_RELATIONS`); everything else is 400.
 - `listRoleAssignments(deps, staffUserId)`, `listStaffUsers(deps, { q, page, limit })`.
 - **Session revocation on role change (#415):** with `RolesDeps.keycloak` set (`createKeycloakAdmin()`),
-  every successful assign/revoke first drops the cached scope (`onChange`) and then ends the user's Keycloak
-  sessions (admin `logout`): the very next request is evaluated against the new relations and no refresh
-  token survives; the access token itself expires by `exp` (15 min) but is already refused by OpenFGA. A
-  failed logout answers 503 AFTER the change is applied and audited — the operator retries (idempotent)
-  rather than believing the sessions are gone.
+  every assign/revoke ends the user's Keycloak sessions (admin `logout`) right after the tuple change and
+  BEFORE the mirror transaction, then drops the cached scope (`onChange`): the very next request is evaluated
+  against the new relations and no refresh token survives; the access token itself expires by `exp` (15 min)
+  but is already refused by OpenFGA. A refused logout compensates the tuple and answers 503 — nothing has
+  changed, so re-issuing the call re-runs the whole change including the logout (#422).
 - `inviteUser(deps, { email, displayName, initialRole? })` (#415) — `POST /admin/users` as the contract
   documents it: the Keycloak staff user (email = username, required actions `UPDATE_PASSWORD` +
-  `CONFIGURE_TOTP`, no password), then the `staff_user` row with `keycloak_subject` and the
+  `CONFIGURE_TOTP`, no password; `firstName` = the first word of the display name, `lastName` = the rest or
+  the same word — the realm's user profile requires both, or the account is "not fully set up" and gets no
+  token), then the `staff_user` row with `keycloak_subject` and the
   `staff_user.create` audit row in one transaction (the Keycloak user is deleted again if that fails), then
   the optional first role through `assignRole`. 409 `conflict` when the email exists (here or in Keycloak),
   400 for a malformed email / empty name. The invitation EMAIL is out of scope until SMTP exists

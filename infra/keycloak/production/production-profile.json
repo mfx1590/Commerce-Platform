@@ -1,0 +1,32 @@
+{
+  "_comment": "Production profile inputs for derive-production.mjs (issue #416): the public Keycloak URL, exactly one origin + callback per OIDC client and the password policy per realm. Lives under production/ because the docker startup import treats every top-level *.json of infra/keycloak as a realm (a config there kills the Keycloak boot). Hostnames follow the <sub>.example.com convention of infra/helm until the cluster exists (#342); edit them with the real hosts, re-derive, commit — the invariants test fails on a hand edit of the derived files.",
+  "keycloakUrl": "https://auth.example.com",
+  "realms": {
+    "staff": {
+      "passwordPolicy": "length(12) and notUsername and notEmail and upperCase(1) and lowerCase(1) and digits(1) and passwordHistory(5)",
+      "clients": {
+        "admin-app": {
+          "origin": "https://admin.example.com",
+          "callback": "https://admin.example.com/api/auth/callback"
+        }
+      }
+    },
+    "customers": {
+      "passwordPolicy": "length(10) and notUsername and notEmail",
+      "clients": {
+        "storefront-brand-a": {
+          "origin": "https://shop.example.com",
+          "callback": "https://shop.example.com/auth/callback"
+        },
+        "storefront-brand-b": {
+          "origin": "https://shop-b.example.com",
+          "callback": "https://shop-b.example.com/auth/callback"
+        },
+        "storefront-brand-c": {
+          "origin": "https://shop-c.example.com",
+          "callback": "https://shop-c.example.com/auth/callback"
+        }
+      }
+    }
+  }
+}

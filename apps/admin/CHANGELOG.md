@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Added — issue #428 B: brand onboarding wizard and readiness panel; #420 activation 409
+
+- `/onboarding`: legal entity → store basics → primary domain → review → `onboardStore`; the 201's
+  publishable key shown once (state only, gone on Done); the 200 repeat says so with no key;
+  400/409/422 `details` mapped onto the owning step. `/onboarding/{storeId}`: status + Activate
+  listing exactly `details.missing`. `/stores/new` redirects to the wizard.
+- #420: `activateStore`/`updateStore` 409 `details.missing` / `details.status: archived` said in
+  words under Status (`activationBlocked`, `ActionResult.missing`); the HQ store form activates via
+  `activateStore` after saving the other fields; the Store view keeps `updateStore` (store_admin).
+- Wrappers `onboardStore`, `activateStore`; guard rows (owner on hq). Tests: `test/onboarding.test.ts`
+  (23), `test/onboarding-screens.test.tsx` (9), settings #420 case, Prism contract
+  `test-contract/onboarding.test.tsx` (6, port 4219), e2e `e2e/hq-onboarding.spec.ts`.
+
+### Changed — issue #431: the customers journey asserts the real detail only
+
+- The core serves the admin customer routes since #429, so the not-available branch of the
+  customers e2e journey (and `EXPECT.customersRoute`) is gone; the placeholder itself stays covered
+  by `test/api-mode.test.tsx`.
+
+### Added — issue #428 A: HQ roles (Admin API 0.4.12)
+
+- `/roles` (owner on hq): staff users; per person relations with Assign (model-grantable pairs only)
+  and Revoke (asks first; ends their sessions); their audit entries per store (`actor_id`); Invite
+  (`inviteUser`, then `assignRole` for the optional initial relation — the contract's invite takes
+  no role; a failed grant is reported with the user shown).
+- Wrappers `listUsers`, `inviteUser`, `listUserRoles`, `assignRole`, `revokeRole`, `listAuditLog`;
+  `src/lib/roles` (grantable pairs, schemas); `ROLES_PERMISSIONS` in the shared guard
+  (organization-scoped operations pass no store id).
+- Tests: `test/roles-actions.test.ts` (14), `test/roles-screens.test.tsx` (12), Prism contract
+  `test-contract/roles.test.tsx` (7, port 4218), e2e `e2e/hq-roles.spec.ts` (+ `e2e/owner.ts`).
+
+### Fixed — issue #430: the customers e2e journey reads the core's real customer
+
+- Core mode links the seeded customers-realm user to brand-a through the Store API first
+  (`e2e/core-customer.ts`: `test-cli` customers-realm token + seeded publishable key,
+  `POST /store/customers`, idempotent), then asserts the real list, detail ("Jane Doe"), consent and
+  the gated erase. A core without the admin customer routes (main before #429) still gets the
+  not-available assertions; the placeholder itself stays covered by `test/api-mode.test.tsx`.
+
 ### Fixed — issue #398: tests no longer read a transition-set state synchronously
 
 - Assertions on state a server action's result sets inside `startTransition(async …)` (refusal

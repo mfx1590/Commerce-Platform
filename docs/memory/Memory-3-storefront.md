@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-07 · Contracts: **contracts-v0.4.11** · **Manager = "Project manager handoff".** Done today: #382 (PR #383), **#389 (PR #392, `ad7cc5a`; lhci 0.15.1, PLP LCP element = `<h1>`)**, **#390 (PR #395, `d872a19`; scripts/warm-urls.mjs)**. **#330 rendering half = PR #403 ("Closes #330"), reviewed head `7f195be` (Opus static review MERGE; the hero.tsx wrap and the cms README line recorded as manager exceptions, window 6 told on #330); this memory-only commit follows it** — on `storefront/phase3-330`: `HeroMedia` (server markup around the poster) + `HeroLoop` ('use client', memo) — after `load`, muted loop, pause control, never under reduced motion or in an e2e build; CSP `media-src 'self' https://res.cloudinary.com`. Bundle budget: home 131.1 kB (136), content/campaign 132.9 kB (145; +1.1 kB). **Still open: #358's live proof** (Stripe test keys). Never block on a question dialog: send the decision to the manager (root CLAUDE.md, 4451e7c).
+Last updated: 2026-10-10 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five" (handing over to a session six — check Memory-main's top bullet).** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`), **#449 (PR #450 = `e0cd978`, merged 2026-10-09; code commit `0267a04`, 15/15 checks green; issue CLOSED)**. **#446 = PR #451 (code commit `1c9b14c`; head = this memory commit)** — four unit tests take the locale from `src/i18n/routing`; main merged at `fd718df` (`f915e7c`); report to the manager when the PR is up and again when every check has finished; hold pushes until the manager confirms the merge. Then QUIET. Still open: #358's live proof (Stripe keys). Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -246,6 +246,43 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
+- [x] **#449 — DONE, PR #450 merged = `e0cd978` (2026-10-09 12:08 UTC), code commit `0267a04`, head
+  `d4a364f`; 15/15 checks green.** A fresh session on 2026-10-10 was started with a stale message
+  (it described the fix as uncommitted): verified merged, issue closed, and no NL literal left in any
+  spec (only the default in `e2e/support/ship-address.ts`, `MOCK_CART_LINE1`, and unit-test fixtures).
+  The hand-over note as written, for the record: Done and pushed: `reviewAddressLine1()` + `MOCK_CART_LINE1` in
+  `e2e/support/ship-address.ts` (tested), `checkout.spec.ts` asserts it, `card-payment.spec.ts` fills
+  the configured postcode; CHANGELOG 0.14.2; lint/format/typecheck/609 unit green. **Nothing
+  uncommitted on disk** (this note is a local commit, not pushed). **Next step for the fresh
+  session:** wait for PR #450's CI; when every check has finished, message "Manager session five"
+  with the results and quote the starter's live-job counts (expect 75 = 67 passed / 8 skipped);
+  hold pushes until the manager confirms the merge; then record the merge sha here (Done) and stay
+  quiet. Next task after that, only when the manager says: #446 (four synced unit tests hard-code
+  en-GB).
+
+- [x] **#441 + #440 (2026-10-09) — DONE, PR #445 merged = `d67349a` (code commit `c5386d1`).** Plan as confirmed: Each part with
+  a test that fails first; brand A + starter behaviour byte-identical (same suite counts).
+  1. **DONE locally (this commit): #441 part 2 (security, FIRST):** `src/lib/auth/oidc.ts` — `KEYCLOAK_CLIENT_ID` unset → the
+     documented dev default `storefront-brand-a` ONLY where `siteUrl()` allows its default
+     (NODE_ENV development/test, `next build`); anywhere else throw (`OidcConfigError`, the
+     `SiteUrlError` shape). The starter's own e2e runs `next start` → `playwright.config.ts` webServer
+     env passes `KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a'` explicitly (brands set their own).
+  2. **DONE locally: part 4** (`src/i18n/locale-config.mjs` = the one definition; `scripts/e2e-warm.mjs` warms `/${defaultLocale}`, a 3xx fails at once naming `location`; `e2e/support/locale.ts` `localePath`/`localeUrl` replace every en-GB prefix literal; a brand must set `SUPPORTED_LOCALES` in its PRESERVED playwright.config.ts — the Playwright process never loads next.config): `scripts/e2e-server.mjs` warm-up path = `/${defaultLocale}` from the app's routing
+     (SUPPORTED_LOCALES / DEFAULT_LOCALE through a tiny plain module both can import, or the env with
+     the same default); a **3xx is NOT warm** — fail at once naming the `location`. Synced specs take
+     the prefix from one `e2e/support/locale.ts` helper (43 literals in 8 files).
+  3. **DONE locally: part 1** (list: 75 tests default, 51 with SUPPORTED_LOCALES=en-GB): `seo-head.spec.ts` + `checkout.spec.ts` derive the locale list from routing; the
+     hreflang count = locales + 1 (x-default); the German test runs only when `de-DE` is configured
+     (skip with the reason otherwise).
+  4. **DONE locally: part 3** (`e2e/support/ship-address.ts`): `completeAddressStep` takes the address from `E2E_SHIP_ADDRESS_JSON` (validated),
+     default the NL address; the four funnel tests unchanged for the starter.
+  5. **DONE locally: part 5 + #440** (`src/i18n/catalogue.ts`; plus sign-out clears the cookie BEFORE resolving the provider, so an unset client id never keeps a customer signed in): `test/i18n.test.ts` expects one catalogue per configured locale (and one
+     exists for each); `vitest.config.ts` passes `SUPPORTED_LOCALES` / `DEFAULT_LOCALE` from the env
+     with today's defaults; `src/i18n/request.ts` fails loudly naming the missing catalogue (not a
+     bare MODULE_NOT_FOUND 500).
+  Gates per part (lint, format, typecheck, unit); one mock e2e run at the end with the machine
+  granted (starter counts unchanged).
+
 - **Docket (manager, 2026-10-03), one PR at a time: #293 (PR six) → #312 (waits for the core's
   #303 PR C; the `refreshTokens` / `tokenEndpoint` narrowing to the provider half rides with it).**
   Standing rules: plan-paste anything over ~20 calls. Push only after the previous PR merges and
@@ -375,6 +412,18 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 -->
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
+
+- [ ] **#446 — PR #451, code commit `1c9b14c` (2026-10-10), 0.14.3; tick when merged.** `route-origin.test.ts`
+      (×2: `/${defaultLocale}/account`), `seo.test.ts` (one alternate per configured locale, `x-default` on
+      the default, count = locales + 1) and `cms-content.test.ts` (metadata in the default locale) import
+      `locales` / `defaultLocale` from `@/i18n/routing`. **Measured, unit suite (609 tests):** before —
+      default 609 pass; `SUPPORTED_LOCALES=en-US` 5 failed (these 4 + i18n's catalogue test); `en-GB`
+      alone 1 failed (seo). After — default 609; `en-GB` 609; `de-DE,en-GB` 609; `en-US` 1 failed =
+      i18n's "ships one per configured locale", correct (the starter has no en-US catalogue). Lint,
+      format:check, typecheck (22 tasks) green. **One unexplained one-off:** the first default run after
+      the edit failed i18n's "covers every namespace a client component asks for" (a test that walks
+      `src/`, untouched by this change); output not kept, immediate re-run and three other runs green,
+      four suites were run back to back. No e2e, no build.
 
 - [ ] **Nit from the review of #403 ("not now"):** the hero's `<video>` could also carry `poster` (moot
       while the server-rendered poster sits under the overlay).
@@ -769,6 +818,10 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`pnpm add` in this monorepo re-resolves unrelated peer suffixes** (Medusa, Vitest) in the lockfile
+  — three times now. Revert the lockfile and hand-add only the importer entries, then prove it with
+  `pnpm install --frozen-lockfile` (#358, #445, #448).
 
 - **`@platform/cms` lives in `cms/`, outside `packages/*`** — `pnpm --filter "./packages/*" build` skips it. After
   merging a window-6 change, also `pnpm --filter @platform/cms build`, or `src/lib/cms/*` shows TS errors

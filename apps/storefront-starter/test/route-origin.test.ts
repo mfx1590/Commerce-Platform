@@ -1,5 +1,6 @@
 import { NextRequest, type NextResponse } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defaultLocale } from '@/i18n/routing';
 import type * as Oidc from '@/lib/auth/oidc';
 
 /**
@@ -19,6 +20,8 @@ const PUBLIC = 'https://shop.public.example';
 const POD = 'http://localhost:3100';
 const HOSTILE = 'evil.example';
 const KEYCLOAK = 'https://id.public.example';
+// Where a sign-in with no usable target lands: the app's default locale, not the starter's (#446).
+const ACCOUNT = `${PUBLIC}/${defaultLocale}/account`;
 
 // ── Next and the session, replaced by things a test can read ─────────────────────────────────────
 
@@ -77,6 +80,8 @@ function unconfigure(): void {
   vi.stubEnv('SITE_URL', '');
   vi.stubEnv('NODE_ENV', 'production');
   vi.stubEnv('NEXT_PHASE', 'phase-production-server');
+  // A production server that names its client (#441): only the origin is missing here.
+  vi.stubEnv('KEYCLOAK_CLIENT_ID', 'storefront-brand-a');
 }
 
 beforeEach(() => {
@@ -129,6 +134,15 @@ describe('POST /auth/sign-out', () => {
     expect(clearSession).toHaveBeenCalledOnce();
     expect(logged).toHaveBeenCalledOnce();
   });
+
+  it('drops the local session even when the client id is not configured, then fails loudly (#441)', async () => {
+    unconfigure();
+    vi.stubEnv('KEYCLOAK_CLIENT_ID', '');
+
+    await expect(signOut.POST()).rejects.toThrow(/KEYCLOAK_CLIENT_ID is not set/);
+    // The cookie is gone first: a misconfigured client must never keep a customer signed in here.
+    expect(clearSession).toHaveBeenCalledOnce();
+  });
 });
 
 // ── GET /auth/callback ───────────────────────────────────────────────────────────────────────────
@@ -143,7 +157,7 @@ describe('GET /auth/callback', () => {
   it('sends a refused sign-in to the account page on the configured origin', async () => {
     const response = await callback.GET(behindIngress('/auth/callback?error=access_denied'));
 
-    expect(locationOf(response).toString()).toBe(`${PUBLIC}/en-GB/account?error=sign_in_failed`);
+    expect(locationOf(response).toString()).toBe(`${ACCOUNT}?error=sign_in_failed`);
     expect(saveSession).not.toHaveBeenCalled();
   });
 
@@ -166,7 +180,7 @@ describe('GET /auth/callback', () => {
 
     const response = await callback.GET(behindIngress('/auth/callback?code=code-1&state=state-1'));
 
-    expect(locationOf(response).toString()).toBe(`${PUBLIC}/en-GB/account`);
+    expect(locationOf(response).toString()).toBe(ACCOUNT);
   });
 
   it('never redirects to the pod or to a forwarded host', async () => {

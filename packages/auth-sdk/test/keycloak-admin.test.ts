@@ -105,7 +105,8 @@ describe('createKeycloakAdmin (unit, fake Keycloak)', () => {
     expect(u.subject).toBe('kc-1');
     expect(u.username).toBe('new.person@example.com');
     expect(u.email).toBe('new.person@example.com');
-    expect(u.firstName).toBe('New Person');
+    expect(u.firstName).toBe('New');
+    expect(u.lastName).toBe('Person'); // the realm's user profile requires both names
     expect(u.enabled).toBe(true);
     expect(u.emailVerified).toBe(false);
     expect(u.requiredActions).toEqual([...INVITE_REQUIRED_ACTIONS]);
@@ -114,6 +115,16 @@ describe('createKeycloakAdmin (unit, fake Keycloak)', () => {
     expect(kc.state.tokens).toBe(1); // reused for the follow-up read
     expect(await a.getUser('kc-1')).toMatchObject({ subject: 'kc-1' });
     expect(kc.state.tokens).toBe(1);
+  });
+
+  it('a one-word display name is stored as first and last name (the profile requires both)', async () => {
+    const u = await admin().createUser({ email: 'one@example.com', displayName: 'Madonna' });
+    expect([u.firstName, u.lastName]).toEqual(['Madonna', 'Madonna']);
+    const v = await admin().createUser({
+      email: 'three@example.com',
+      displayName: 'Ana Maria de Souza',
+    });
+    expect([v.firstName, v.lastName]).toEqual(['Ana', 'Maria de Souza']);
   });
 
   it('409 conflict when the email exists; 400 before any call for a bad email or an empty name', async () => {

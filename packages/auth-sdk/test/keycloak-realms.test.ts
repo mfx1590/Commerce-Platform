@@ -51,6 +51,8 @@ interface User {
   /** Set on the one service-account user (core-admin, #415); such a user is no staff user. */
   serviceAccountClientId?: string;
   clientRoles?: Record<string, string[]>;
+  realmRoles?: string[];
+  groups?: string[];
   requiredActions?: string[];
   credentials?: { type: string; value?: string; secretData?: string; credentialData?: string }[];
 }
@@ -180,6 +182,9 @@ describe('staff realm export (static)', () => {
       'realm-management': ['manage-users', 'view-users', 'query-users'],
     });
     expect(saUsers[0]!.email).toBeUndefined(); // never a staff_user mirror
+    // No realm roles (default-roles-staff, offline_access, uma_authorization must never creep in, #422).
+    expect(saUsers[0]!.realmRoles).toBeUndefined();
+    expect(saUsers[0]!.groups).toBeUndefined();
     expect(saUsers[0]!.credentials).toBeUndefined();
   });
 

@@ -1,0 +1,322 @@
+[
+  {
+    "_id": "legal.en-US.imprint",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "Company details",
+    "slug": {
+      "_type": "slug",
+      "current": "imprint"
+    },
+    "kind": "imprint",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "imprint-p1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imprint-p1-span",
+              "text": "[[COMPANY_LEGAL_NAME]], a corporation organized under the laws of [[STATE_OF_INCORPORATION]]."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imprint-p2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imprint-p2-span",
+              "text": "Employer Identification Number [[EIN]]. [[STATE_REGISTRATION_DETAIL]]."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imprint-p3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imprint-p3-span",
+              "text": "Principal place of business: [[STREET_ADDRESS]], [[CITY]], [[STATE]] [[ZIP]], United States."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imprint-p4",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imprint-p4-span",
+              "text": "Registered agent for service of process: [[REGISTERED_AGENT_NAME]], [[REGISTERED_AGENT_ADDRESS]]."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "imprint-p5",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "imprint-p5-span",
+              "text": "Questions about this page: [[CONTACT_EMAIL]], [[CONTACT_PHONE]]. No federal law requires a United States retailer to publish these details; we publish them because a customer should be able to find out who they are buying from."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_id": "legal.en-US.privacy",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "Privacy notice",
+    "slug": {
+      "_type": "slug",
+      "current": "privacy"
+    },
+    "kind": "privacy",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "privacy-p1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "privacy-p1-span",
+              "text": "[[COMPANY_LEGAL_NAME]] is responsible for the personal information described here. The United States has no single federal privacy statute covering retail sales, so this notice is written to the state laws that reach our customers."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "privacy-p2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "privacy-p2-span",
+              "text": "We hold the name, shipping address, email address and order history needed to sell you something and to keep the records the law requires. Card details never reach our servers: the payment fields are hosted by our payment processor and we never see or store a card number."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "privacy-p3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "privacy-p3-span",
+              "text": "California residents have rights under the California Consumer Privacy Act as amended by the California Privacy Rights Act: to know what we hold, to have it deleted, to have it corrected, and to opt out of its sale or sharing. We do not sell personal information. Requests go to [[PRIVACY_EMAIL]] and we answer within forty-five days."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "privacy-p4",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "privacy-p4-span",
+              "text": "We keep order records for [[ORDER_RETENTION_PERIOD]] to meet Internal Revenue Service and [[STATE]] tax record-keeping requirements, then delete them."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "privacy-p5",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "privacy-p5-span",
+              "text": "We hold personal information under reasonable administrative, technical and physical safeguards, as the New York SHIELD Act requires, and will notify you and the authorities if a breach reaches the threshold that law sets."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "privacy-p6",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "privacy-p6-span",
+              "text": "We do not knowingly collect information from children under thirteen, as the Children's Online Privacy Protection Act requires. Marketing email carries an unsubscribe link in every message and we honor it within ten business days, as the CAN-SPAM Act requires."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_id": "legal.en-US.terms",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "Terms of sale",
+    "slug": {
+      "_type": "slug",
+      "current": "terms"
+    },
+    "kind": "terms",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "terms-p1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-p1-span",
+              "text": "These terms apply to orders placed with [[COMPANY_LEGAL_NAME]] through this site. A contract is formed when we send the email confirming that your order has shipped, not when you place it. Until then we may decline an order, and will refund you in full if we do."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "terms-p2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-p2-span",
+              "text": "Prices are in United States dollars and are shown WITHOUT sales tax. Tax is calculated at checkout for the address you are shipping to. Sales of goods under these terms are governed by Article 2 of the Uniform Commercial Code as adopted in [[STATE]]."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "terms-p3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-p3-span",
+              "text": "We ship within the United States only."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "terms-p4",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-p4-span",
+              "text": "Orders ship within [[SHIPPING_WINDOW]]. If we cannot ship within thirty days of your order we will offer you a revised date or a full refund, as the Federal Trade Commission's Mail, Internet, or Telephone Order Merchandise Rule requires."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "terms-p5",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "terms-p5-span",
+              "text": "[[GOVERNING_LAW_AND_VENUE]]. Nothing in these terms limits a right you have under the consumer-protection law of your own state."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "_id": "legal.en-US.returns",
+    "_type": "legal",
+    "locale": "en-US",
+    "title": "Returns and exchanges",
+    "slug": {
+      "_type": "slug",
+      "current": "returns"
+    },
+    "kind": "returns",
+    "lastReviewed": "2026-10-09",
+    "body": {
+      "_type": "richText",
+      "content": [
+        {
+          "_type": "block",
+          "_key": "returns-p1",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "returns-p1-span",
+              "text": "There is no federal right to cancel an online order in the United States. The Federal Trade Commission's Cooling-Off Rule covers door-to-door and other off-premises sales, not a purchase made on a website. Everything below is our own promise rather than a statutory minimum, and we intend to keep it."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "returns-p2",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "returns-p2-span",
+              "text": "Return anything unworn, with its tags, within thirty days of delivery for a full refund. You do not need to give a reason."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "returns-p3",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "returns-p3-span",
+              "text": "Return shipping within the United States is on us. Write to [[RETURNS_EMAIL]] and we will send you a prepaid label."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "returns-p4",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "returns-p4-span",
+              "text": "Refunds reach the original payment method within [[REFUND_WINDOW]] of the parcel arriving back with us. We refund the sales tax you paid along with the price."
+            }
+          ]
+        },
+        {
+          "_type": "block",
+          "_key": "returns-p5",
+          "style": "normal",
+          "children": [
+            {
+              "_type": "span",
+              "_key": "returns-p5-span",
+              "text": "Nothing here limits any right you have under the law of your state, including [[STATE_CONSUMER_PROTECTION_STATUTE]], or your right to dispute a charge with your card issuer."
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

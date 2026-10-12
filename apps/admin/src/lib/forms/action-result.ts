@@ -34,6 +34,8 @@ export type ActionResult<T> =
        * retry: the screen says it is not available here, in a neutral tone, and `formError` says why.
        */
       unavailable?: true;
+      /** `activateStore`'s 409: the prerequisites the store lacks (`details.missing`). */
+      missing?: string[];
     } & FormErrors);
 
 export function actionSuccess<T>(data: T): ActionResult<T> {

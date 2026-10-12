@@ -7,6 +7,8 @@ import {
   createState,
   exchangeCode,
   oidcConfigFromEnv,
+  oidcProviderFromEnv,
+  OidcConfigError,
   safeReturnTo,
 } from '@/lib/auth/oidc';
 import { isExpired, parseSession, sessionFromTokens } from '@/lib/auth/session';
@@ -41,6 +43,41 @@ describe('oidcConfigFromEnv', () => {
     expect(config.issuer).toBe('https://id.example.com/realms/customers-eu');
     expect(config.clientId).toBe('storefront-brand-b');
     expect(config.redirectUri).toBe('https://brand-b.example.com/auth/callback');
+  });
+});
+
+describe('oidcProviderFromEnv — the client id fails closed (#441)', () => {
+  // A brand that forgets KEYCLOAK_CLIENT_ID must not sign its customers in through brand A's
+  // client: the customer token's store_code is stamped per client, so every session would be bound
+  // to brand-a. The documented default exists only where siteUrl() allows its own (#298/#320).
+  it('uses the documented dev default only in development, tests and `next build`', () => {
+    for (const env of [
+      { NODE_ENV: 'development' },
+      { NODE_ENV: 'test' },
+      { NODE_ENV: 'production', NEXT_PHASE: 'phase-production-build' },
+    ]) {
+      expect(oidcProviderFromEnv(env).clientId, JSON.stringify(env)).toBe('storefront-brand-a');
+    }
+  });
+
+  it('refuses to guess anywhere else — a production server, no NODE_ENV, a misspelt one', () => {
+    for (const env of [{ NODE_ENV: 'production' }, {}, { NODE_ENV: 'staging' }]) {
+      expect(() => oidcProviderFromEnv(env), JSON.stringify(env)).toThrow(OidcConfigError);
+      expect(() => oidcProviderFromEnv(env)).toThrow(/KEYCLOAK_CLIENT_ID is not set/);
+    }
+  });
+
+  it('an empty value counts as unset', () => {
+    expect(() => oidcProviderFromEnv({ NODE_ENV: 'production', KEYCLOAK_CLIENT_ID: ' ' })).toThrow(
+      OidcConfigError,
+    );
+  });
+
+  it('a configured client id is used everywhere, production included', () => {
+    expect(
+      oidcProviderFromEnv({ NODE_ENV: 'production', KEYCLOAK_CLIENT_ID: 'storefront-brand-c' })
+        .clientId,
+    ).toBe('storefront-brand-c');
   });
 });
 

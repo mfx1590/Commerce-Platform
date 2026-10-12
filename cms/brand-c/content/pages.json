@@ -1,0 +1,130 @@
+[
+  {
+    "_id": "page.en-US.about",
+    "_type": "page",
+    "locale": "en-US",
+    "title": "About [[BRAND_NAME]]",
+    "slug": {
+      "_type": "slug",
+      "current": "about"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "A short list, made properly",
+      "subheadline": "Who we are, and what we will not do.",
+      "layout": "full-bleed"
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "about-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "about-h",
+            "style": "h2",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "about-h-span",
+                "text": "Why the list is short"
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "about-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "about-p1-span",
+                "text": "Every extra style is another pattern, another fabric order and another thing to get wrong. We would rather make a dozen things we can answer questions about."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "about-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "about-p2-span",
+                "text": "We do not run sales. The price is what we need to pay the mill and the sewing floor, and cutting it in January would mean it was wrong in June. Prices are shown before sales tax, which is added at checkout for the address you are shipping to."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaTitle": "About - [[BRAND_NAME]]",
+      "metaDescription": "A short list of everyday clothes, made in small runs and shipped across the United States."
+    }
+  },
+  {
+    "_id": "page.en-US.made",
+    "_type": "page",
+    "locale": "en-US",
+    "title": "How it is made",
+    "slug": {
+      "_type": "slug",
+      "current": "made"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "Cloth, cutting, and who did it",
+      "subheadline": "Where each part of a [[BRAND_NAME]] piece comes from.",
+      "layout": "image-left"
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "made-body",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "made-h",
+            "style": "h2",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "made-h-span",
+                "text": "Named, not implied"
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "made-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "made-p1-span",
+                "text": "[[MILL_AND_LOCATION]] weaves the cotton. [[KNITTER_AND_LOCATION]] spins the wool. Cutting and sewing happen at [[SEWING_FACILITY_AND_LOCATION]]."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "made-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "made-p2-span",
+                "text": "We publish the mill and the sewing floor because a supply chain you cannot name is one you cannot check. Each of those three is a real business with a real address, and the owner fills them in before this page goes live."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaTitle": "How it is made - [[BRAND_NAME]]",
+      "metaDescription": "The mill, the spinner and the sewing floor behind each piece. Named, not implied."
+    }
+  }
+]

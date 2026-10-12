@@ -1,12 +1,13 @@
 /**
- * The server-side permission check in front of every mutating server action (registry and orders).
+ * The server-side permission check in front of every mutating server action (registry, orders,
+ * roles).
  *
  * A server action is a public POST endpoint: anything the browser can reach, a crafted request can
  * reach too, whatever the page offered. So each action loads the principal (`GET /admin/me`, the
  * Admin API's own answer from OpenFGA) and refuses — before calling the operation — unless it holds
- * the operation's `x-permission` (`REGISTRY_PERMISSIONS`, `ORDER_PERMISSIONS`). The Admin API
- * checks again; this check means a refused request never reaches it, and the refusal has the
- * contract's own 403 shape.
+ * the operation's `x-permission` (`REGISTRY_PERMISSIONS`, `ORDER_PERMISSIONS`,
+ * `ROLES_PERMISSIONS`). The Admin API checks again; this check means a refused request never
+ * reaches it, and the refusal has the contract's own 403 shape.
  */
 
 import 'server-only';
@@ -15,13 +16,15 @@ import { actionError, type ActionResult } from '../forms/action-result';
 import { mapServerError } from '../forms/server-errors';
 import { ORDER_PERMISSIONS } from '../orders/permissions';
 import { loadPrincipal } from '../principal';
+import { ROLES_PERMISSIONS } from '../roles/permissions';
 import { REGISTRY_PERMISSIONS } from '../settings';
 import { holds, ruleObject, type PermissionRule } from './rules';
 
-const OPERATIONS = { ...REGISTRY_PERMISSIONS, ...ORDER_PERMISSIONS } satisfies Record<
-  string,
-  PermissionRule
->;
+const OPERATIONS = {
+  ...REGISTRY_PERMISSIONS,
+  ...ORDER_PERMISSIONS,
+  ...ROLES_PERMISSIONS,
+} satisfies Record<string, PermissionRule>;
 
 export type GuardedOperation = keyof typeof OPERATIONS;
 
@@ -33,9 +36,10 @@ export async function refuseUnlessPermitted(
   storeId: string,
 ): Promise<ActionResult<never> | null> {
   const rule: PermissionRule = OPERATIONS[operation];
-  // Every store-scoped screen names its store in the path: anything but a uuid never reaches the
-  // principal check or the API. (`createStore` alone has no store yet and passes '' — HQ-scoped.)
-  if (operation !== 'createStore' && !STORE_ID.test(storeId)) {
+  // A store id, when one is named, must be a uuid: anything else never reaches the principal check
+  // or the API. Only an organization-scoped operation may name none ('' — `createStore`, the roles).
+  const unscoped = storeId === '' && rule.object === 'organization';
+  if (!unscoped && !STORE_ID.test(storeId)) {
     return actionError({ fieldErrors: {}, formError: 'That store is not valid.' });
   }
   const principal = await loadPrincipal();

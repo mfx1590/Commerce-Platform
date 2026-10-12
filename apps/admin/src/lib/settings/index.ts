@@ -30,6 +30,8 @@ export const REGISTRY_PERMISSIONS = {
   createSalesChannel: { relation: 'store_admin', object: 'store' },
   createApiKey: { relation: 'store_admin', object: 'store' },
   revokeApiKey: { relation: 'store_admin', object: 'store' },
+  onboardStore: { relation: 'owner', object: 'organization' },
+  activateStore: { relation: 'owner', object: 'organization' },
 } as const satisfies Record<string, PermissionRule>;
 
 export type RegistryOperation = keyof typeof REGISTRY_PERMISSIONS;

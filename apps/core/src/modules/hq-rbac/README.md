@@ -22,8 +22,9 @@ user is created through the `core-admin` service account (`HqRbacDeps.keycloak`,
 `createKeycloakAdmin()` from the environment: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`) with
 the required actions `UPDATE_PASSWORD` and `CONFIGURE_TOTP` and no password; the invitation email itself
 waits for SMTP (Integration 2b). 409 on an existing email, 400 on a malformed body. Every role change
-(`assignRole` / `revokeRole`) also ends the user's Keycloak sessions through the same client, after the
-committed change and the scope-cache invalidation (`onRoleChange`): the same bearer token is refused on its
+(`assignRole` / `revokeRole`) also ends the user's Keycloak sessions through the same client — after the
+tuple change, before the mirror row, so a refused logout compensates the tuple and answers 503 with nothing
+changed (#422) — then invalidates the scope cache (`onRoleChange`): the same bearer token is refused on its
 next request. The core passes no `keycloak` option, so the environment client is used.
 
 Assign (ADR 0002 §7), in this order: OpenFGA tuple → `role_assignment` mirror row + `audit_log` row in one

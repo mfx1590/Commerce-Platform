@@ -30,7 +30,8 @@ export interface PlacedOrder {
   payment_status: string;
 }
 
-function publishableKey(): string {
+/** The seeded brand-a dev publishable key (env, else the value `.env.example` documents). */
+export function publishableKey(): string {
   const fromEnv = process.env.STORE_PUBLISHABLE_KEY;
   if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
   // Playwright runs from apps/admin.

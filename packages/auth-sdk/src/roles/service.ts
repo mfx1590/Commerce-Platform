@@ -35,8 +35,9 @@ export interface RolesDeps {
   /** Called after every successful change (scope-cache invalidation, task 1.4). */
   onChange?: (staffUserId: string) => void;
   /**
-   * Ends the user's Keycloak sessions after every successful change (#415): the next request is evaluated
-   * against the new relations and no refresh token survives. Absent → no revocation (unit tests, CLI).
+   * Ends the user's Keycloak sessions on every change (#415): after the tuple, before the mirror — a refused
+   * logout compensates the tuple and answers 503, so nothing changed and a retry re-runs it (#422). The next
+   * request is evaluated against the new relations and no refresh token survives. Absent → no revocation.
    */
   keycloak?: Pick<KeycloakAdmin, 'logoutUser'>;
   requestId?: string | null;
@@ -169,12 +170,11 @@ async function requireUser(db: ScopedClient, staffUserId: string): Promise<{ sub
 }
 
 /**
- * After a committed role change: drop the cached scope, then end the Keycloak sessions. The change is already
- * applied and audited; a failed logout answers 503 so the operator retries (idempotent) rather than
- * believing the sessions are gone.
+ * Session revocation (#415, #422): runs AFTER the tuple change and BEFORE the mirror transaction. If Keycloak
+ * refuses, the caller compensates the tuple and answers 503 — nothing has changed, so a retry re-runs the
+ * whole change including this logout. Absent `deps.keycloak` → no revocation (unit tests, CLI).
  */
-async function afterChange(deps: RolesDeps, staffUserId: string, subject: string): Promise<void> {
-  deps.onChange?.(staffUserId);
+async function revokeSessions(deps: RolesDeps, subject: string): Promise<void> {
   if (deps.keycloak) await deps.keycloak.logoutUser(subject);
 }
 
@@ -204,6 +204,12 @@ export async function assignRole(
   }
 
   const wroteTuple = await ensureTuple(fga, tuple);
+  try {
+    await revokeSessions(deps, subject);
+  } catch (err) {
+    if (wroteTuple) await removeTuple(fga, tuple).catch(() => undefined);
+    throw err;
+  }
   let row: Row;
   try {
     row = await db.transaction(async (tx) => {
@@ -231,7 +237,7 @@ export async function assignRole(
     if (wroteTuple) await removeTuple(fga, tuple).catch(() => undefined);
     throw err;
   }
-  await afterChange(deps, input.staffUserId, subject);
+  deps.onChange?.(input.staffUserId);
   return { assignment: toApi(row), created: true };
 }
 
@@ -255,6 +261,12 @@ export async function revokeRole(
 
   const deletedTuple = await removeTuple(fga, tuple);
   try {
+    await revokeSessions(deps, subject);
+  } catch (err) {
+    if (deletedTuple) await ensureTuple(fga, tuple).catch(() => undefined);
+    throw err;
+  }
+  try {
     await db.transaction(async (tx) => {
       await tx.query('DELETE FROM role_assignment WHERE id = $1', [row.id]);
       await audit(tx, {
@@ -272,7 +284,7 @@ export async function revokeRole(
     if (deletedTuple) await ensureTuple(fga, tuple).catch(() => undefined);
     throw err;
   }
-  await afterChange(deps, input.staffUserId, subject);
+  deps.onChange?.(input.staffUserId);
 }
 
 export async function listRoleAssignments(

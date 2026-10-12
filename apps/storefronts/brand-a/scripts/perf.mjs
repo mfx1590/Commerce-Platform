@@ -25,10 +25,16 @@
  * nothing listens.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  overlayStoreExample,
+  readStoreExample,
+  validateStoreExample,
+} from './perf-store-example.mjs';
 import { warmUrls } from './warm-urls.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -36,6 +42,8 @@ const args = new Set(process.argv.slice(2));
 const PORT = process.env.PERF_PORT ?? '3100';
 const MOCK_API_URL = process.env.MOCK_API_URL ?? 'http://127.0.0.1:4010';
 const APP_URL = `http://127.0.0.1:${PORT}`;
+/** Where the brand's own Store mock listens when the app ships `perf/store.example.json` (#447). */
+const PERF_MOCK_PORT = process.env.PERF_MOCK_PORT ?? '4012';
 const isWindows = process.platform === 'win32';
 const LHCI_VERSION = '0.15.1';
 
@@ -107,6 +115,44 @@ function stop(child) {
   else process.kill(-child.pid, 'SIGTERM');
 }
 
+/**
+ * The brand's own Store mock (#447), or `null` when the app ships no `perf/store.example.json`.
+ *
+ * Prism, started from a temporary copy of the Store API spec whose `GET /store` example is the
+ * brand's (validated against the spec's `Store` schema first — see `perf-store-example.mjs`), so a
+ * brand that sells another locale than brand A's can be warmed and measured at all. Without the
+ * file nothing changes: the shared mock on `MOCK_API_URL` serves, as before.
+ */
+async function startBrandMock() {
+  const example = readStoreExample(root);
+  if (example === null) return null;
+
+  const contracts = join(root, 'node_modules', '@platform', 'contracts');
+  const specText = readFileSync(join(contracts, 'openapi', 'store-api.yaml'), 'utf8');
+  validateStoreExample(specText, example);
+  const spec = join(mkdtempSync(join(tmpdir(), 'perf-store-')), 'store-api.yaml');
+  writeFileSync(spec, overlayStoreExample(specText, example));
+
+  const prism = resolve(
+    dirname(
+      createRequire(join(contracts, 'package.json')).resolve('@stoplight/prism-cli/package.json'),
+    ),
+    'dist/index.js',
+  );
+  const url = `http://127.0.0.1:${PERF_MOCK_PORT}`;
+  console.log(`\n── Store mock for ${example.code} (perf/store.example.json) on ${url} ──`);
+  const child = spawn(
+    process.execPath,
+    [prism, 'mock', spec, '--host', '127.0.0.1', '--port', PERF_MOCK_PORT, '--errors'],
+    { cwd: root, stdio: 'inherit', detached: !isWindows },
+  );
+  if (!(await waitFor(`${url}/store`, 60_000))) {
+    stop(child);
+    throw new Error(`perf: the brand's Store mock did not answer ${url}/store within 60 s.`);
+  }
+  return { url, child };
+}
+
 /** The URLs Lighthouse will measure, straight from its own config. */
 function measuredUrls() {
   const config = JSON.parse(readFileSync(join(root, 'lighthouserc.json'), 'utf8'));
@@ -124,13 +170,22 @@ async function warmMeasuredUrls() {
 }
 
 async function main() {
+  const brandMock = await startBrandMock();
+  const mockUrl = brandMock?.url ?? MOCK_API_URL;
+  appEnv.MOCK_API_URL = mockUrl;
+  /** Every way out stops the brand's mock first: `process.exit` skips `finally` blocks. */
+  const exit = (code) => {
+    if (brandMock !== null) stop(brandMock.child);
+    process.exit(code);
+  };
+
   // Any HTTP answer means Prism is up; `/store` without a publishable key is a correct 401.
-  if (!(await reachable(`${MOCK_API_URL}/store`))) {
+  if (!(await reachable(`${mockUrl}/store`))) {
     console.error(
-      `perf: the Store API mock is not reachable at ${MOCK_API_URL}.\n` +
+      `perf: the Store API mock is not reachable at ${mockUrl}.\n` +
         'Start it with `pnpm mock` (or the mock-store container), or set MOCK_API_URL.',
     );
-    process.exit(2);
+    exit(2);
   }
 
   if (!args.has('--skip-build')) {
@@ -140,11 +195,11 @@ async function main() {
       [NEXT_BIN, 'build'],
       appEnv,
     );
-    if (built !== 0) process.exit(built);
+    if (built !== 0) exit(built);
   }
 
   const bundle = run('bundle budget', 'node', ['scripts/bundle-budget.mjs']);
-  if (args.has('--bundle-only')) process.exit(bundle);
+  if (args.has('--bundle-only')) exit(bundle);
 
   console.log(`\n── next start on ${APP_URL} ──`);
   const server = spawn(process.execPath, [NEXT_BIN, 'start', '--port', PORT], {
@@ -179,7 +234,7 @@ async function main() {
     `\nperf: bundle budget ${bundle === 0 ? 'PASS' : 'FAIL'}, ` +
       `Lighthouse ${lighthouse === 0 ? 'PASS' : 'FAIL'}`,
   );
-  process.exit(bundle !== 0 || lighthouse !== 0 ? 1 : 0);
+  exit(bundle !== 0 || lighthouse !== 0 ? 1 : 0);
 }
 
 await main();
