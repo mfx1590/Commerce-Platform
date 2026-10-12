@@ -1,7 +1,8 @@
 # hq-warehouse — the shared stock pool and stock-aware allocation (window 11, #435)
 
-**Status: design + proposed contract.** CONTRACT CHANGE #453 is filed from this page (seam: REQUEST #454); no engine code exists until
-the manager has decided it. Owner: window 11 (`apps/core/src/modules/hq-warehouse/**`, `apps/wms-adapter/**`).
+**Status: built against the proposed contract.** CONTRACT CHANGE #453 is decided (0190 lands first, 0191 with
+window 1's inventory rewrite); the allocation seam is REQUEST #454. Owner: window 11
+(`apps/core/src/modules/hq-warehouse/**`, `apps/wms-adapter/**`).
 
 ## The problem
 
@@ -79,11 +80,27 @@ one organization that is acceptable.
 - **Lock order** for a placement touching several items: every pool row it needs, sorted by
   (`stock_item_id`, `warehouse_id`), one `SELECT … FOR UPDATE` — two brands' placements on a shared item queue.
 
-## Allocation (after the decision)
+## Allocation (`allocation.ts`, public API in `index.ts`)
 
-A pure policy behind ONE seam in the inventory module (`setAllocationPolicy`, REQUEST to window 1): per line,
-store override → destination country → region → priority, splitting across warehouses when one cannot cover the
-line, never more than available, deterministic, with the rule that won recorded on `reservation.allocation_rule`.
+`stockAwareAllocationPolicy(context, lines)` is a pure function in the shape of REQUEST #454: the inventory module
+locks the pool rows, hands over each line's candidates (the locked rows' `available`), and enforces the answer.
+
+1. **Rank the warehouses once per order** by the fulfillment module's routing rules (its `routingSettingsFrom` and
+   `regionOf`, through its public API): store override for the destination country → store default → same
+   country → same region → the rest; `priority`, then `code`, then id break ties.
+2. **Per line: one warehouse if one can cover the whole line** — the first in the ranking that can. One shipment
+   from farther away beats a split from nearby.
+3. **Otherwise split** greedily down the ranking. Never more than a shelf holds; what an earlier line of the same
+   order took from a stock item is gone for the next (two variants of one order can map to one item).
+4. **What is left is the line's `shortfall`.** Out of stock or backorder is the inventory module's call.
+
+The rule is recorded per allocation and stored on `reservation.allocation_rule`: `store_country`,
+`store_default`, `same_country`, `same_region` or `priority` for a line's first warehouse, and the same
+prefixed with `split:` for every further one.
+
+**Not mounted yet.** The seam does not exist until window 1's rekey lands; then `registerModuleSeams()` in
+`src/wiring.ts` gains `setAllocationPolicy(stockAwareAllocationPolicy)`. Until then `shared-pool.test.ts` drives
+the policy through a local fake of that seam, on the proposed schema.
 
 ## How to run
 
@@ -91,6 +108,11 @@ line, never more than available, deterministic, with the rule that won recorded 
 pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 ```
 
-`proposed-migrations.test.ts` seeds a throwaway database, applies 0190 then 0191 over the seeded data and asserts
-the backfill, the mapping guard and every RLS rule above (34 tests). `testing/pool-database.ts` is the helper later tests build on.
-Outside turbo, export `DATABASE_URL` / `DATABASE_URL_APP` on `127.0.0.1:5433` (the vitest default says `localhost`).
+| File                          | What it proves                                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allocation.test.ts`          | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic) — 24 tests, no database  |
+| `proposed-migrations.test.ts` | 0190 then 0191 over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                                                 |
+| `shared-pool.test.ts`         | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 parallel placements, no deadlock — 8 tests |
+
+The two database files seed a throwaway database (`testing/pool-database.ts`). Outside turbo, export
+`DATABASE_URL` / `DATABASE_URL_APP` on `127.0.0.1:5433` (the vitest default says `localhost`).
