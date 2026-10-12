@@ -36,3 +36,12 @@
   `organization_only`) and `proposed/admin-api.cycle-counts.yaml` (`createCycleCount`, `listCycleCounts`,
   `reconcileCycleCount`), the exact text of the CONTRACT CHANGE.
 - `proposed-cycle-count.test.ts`: 13 tests on a throwaway database. No reconciliation code yet.
+
+### 2026-10-12 · the #457 review's follow-ups
+
+- The policy refuses NaN, infinite, fractional and unsafe-integer quantities and shelves, and two candidates for
+  one warehouse on a line (RangeError: a caller's bug, never a guess).
+- New property over the 500 seeded cases: a line goes whole to the FIRST ranked warehouse that covers it and is
+  split only when none does. `allocation.test.ts` is 28 tests.
+- Wording: the ranking is per line (the same order for every line of an order); "8 placements issued at once"
+  (the test pool has 4 connections). `shared-pool.test.ts`: the recorded-rule test stands alone on its own cart.

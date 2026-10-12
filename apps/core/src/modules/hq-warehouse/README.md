@@ -87,7 +87,7 @@ one organization that is acceptable.
 `stockAwareAllocationPolicy(context, lines)` is a pure function in the shape of REQUEST #454: the inventory module
 locks the pool rows, hands over each line's candidates (the locked rows' `available`), and enforces the answer.
 
-1. **Rank the warehouses once per order** by the fulfillment module's routing rules (its `routingSettingsFrom` and
+1. **Rank each line's candidate warehouses** (the same order for every line of an order) by the fulfillment module's routing rules (its `routingSettingsFrom` and
    `regionOf`, through its public API): store override for the destination country → store default → same
    country → same region → the rest; `priority`, then `code`, then id break ties.
 2. **Per line: one warehouse if one can cover the whole line** — the first in the ranking that can. One shipment
@@ -146,12 +146,12 @@ movements written since counted_at)`. A count taken at 18:00 and reconciled the 
 pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 ```
 
-| File                           | What it proves                                                                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allocation.test.ts`           | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic) — 24 tests, no database  |
-| `proposed-migrations.test.ts`  | 0190's backfill, then proposed 0191, over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                           |
-| `shared-pool.test.ts`          | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 parallel placements, no deadlock — 8 tests |
-| `proposed-cycle-count.test.ts` | proposed 0192 on main's schema alone: the `organization_only` RLS and the CHECKs that hold a count together — 13 tests                            |
+| File                           | What it proves                                                                                                                                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allocation.test.ts`           | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic), bad numbers and duplicate candidates refused — 28 tests, no database |
+| `proposed-migrations.test.ts`  | 0190's backfill, then proposed 0191, over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                                                                        |
+| `shared-pool.test.ts`          | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 placements issued at once, no deadlock — 8 tests                                        |
+| `proposed-cycle-count.test.ts` | proposed 0192 on main's schema alone: the `organization_only` RLS and the CHECKs that hold a count together — 13 tests                                                                         |
 
 The two database files seed a throwaway database (`testing/pool-database.ts`). Outside turbo, export
 `DATABASE_URL` / `DATABASE_URL_APP` on `127.0.0.1:5433` (the vitest default says `localhost`).

@@ -275,18 +275,33 @@ describe('one pool for two brands', () => {
   });
 
   it('records the rule of every allocation on the reservation, for the admin', async () => {
+    // its own cart, so the rows it reads are this test's and nobody else's
+    const cart = await db.owner.query<{ id: string }>(
+      `INSERT INTO cart (organization_id, store_id, sales_channel_id, currency, locale, country)
+       SELECT organization_id, store_id, id, 'EUR', 'en', 'NL' FROM sales_channel
+       WHERE store_id = $1 ORDER BY id LIMIT 1 RETURNING id`,
+      [B],
+    );
+    await shelf(one.item, EU, 2);
+    await shelf(one.item, US, 2);
+    await reserveThroughSeam(b, {
+      storeId: B,
+      cartId: cart.rows[0]!.id,
+      destinationCountry: 'NL',
+      lines: [{ variantId: one.variantB, quantity: 3 }],
+    });
     const { rows } = await hq.query<{
       warehouse_id: string;
       quantity: number;
       allocation_rule: string;
     }>(
       `SELECT warehouse_id, quantity, allocation_rule FROM reservation
-       WHERE store_id = $1 AND variant_id = $2 ORDER BY created_at DESC, allocation_rule LIMIT 2`,
-      [B, one.variantB],
+       WHERE cart_id = $1 ORDER BY allocation_rule`,
+      [cart.rows[0]!.id],
     );
     expect(rows).toEqual([
       { warehouse_id: EU, quantity: 2, allocation_rule: 'same_country' },
-      { warehouse_id: US, quantity: 2, allocation_rule: 'split:priority' },
+      { warehouse_id: US, quantity: 1, allocation_rule: 'split:priority' },
     ]);
   });
 
@@ -344,7 +359,8 @@ describe('concurrency on the shared pool', () => {
     }
   });
 
-  it('never over-allocates under 8 parallel placements from both brands', async () => {
+  // 8 placements issued at once; the test database's app pool has 4 connections, so 4 run concurrently.
+  it('never over-allocates under 8 placements issued at once from both brands', async () => {
     await shelf(one.item, EU, 3);
     await shelf(one.item, US, 2);
     const results = await Promise.all(
