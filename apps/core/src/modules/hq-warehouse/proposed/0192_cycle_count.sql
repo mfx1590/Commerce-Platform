@@ -43,6 +43,8 @@ CREATE TABLE cycle_count (
   CHECK (delta IS NULL OR delta = counted_quantity - on_hand_as_of_count),
   -- a movement exists exactly when a non-zero delta was applied
   CHECK ((stock_movement_id IS NOT NULL) = (status = 'applied' AND delta <> 0)),
+  -- a manual count has a counter; a WMS pull has none
+  CHECK ((source = 'manual') = (counted_by IS NOT NULL)),
   CHECK ((approved_by IS NULL) = (approved_at IS NULL)),
   CHECK (approved_at IS NULL OR status = 'applied')
 );
@@ -86,3 +88,7 @@ END $$;
 SELECT app.apply_rls('cycle_count', 'organization_only');
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON cycle_count
   FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+-- A count is a record and is never deleted (as audit_log and stock_movement are protected). UPDATE stays: the
+-- row is updated as it is reconciled.
+REVOKE DELETE ON cycle_count FROM platform_app;

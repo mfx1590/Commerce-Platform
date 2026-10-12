@@ -127,6 +127,11 @@ movements written since counted_at)`. A count taken at 18:00 and reconciled the 
 - **`superseded` (409):** a count is refused, at record and at reconcile, when a count of the same stock item and
   warehouse with the same or a later `counted_at` is already applied. Otherwise the newer count's own adjustment
   would be read as "a movement since the old count" and the old discrepancy applied a second time.
+- **Known limitation (accepted, manager 2026-10-12):** "movements since `counted_at`" compares with
+  `stock_movement.created_at`, the writing transaction's start time, so a movement that began before the count
+  and committed after it is treated as before the count.
+- **A count is a record:** the application role cannot delete one; a manual count names who counted, a WMS pull
+  names nobody.
 - **Tolerance:** `organization.settings.warehouse.count_tolerance`, a non-negative integer, units of |delta|.
   Unset or malformed = 0: every non-zero discrepancy waits for an approval.
 - **Idempotent by count id:** `cycle_count.stock_movement_id` (UNIQUE) is the link; reconciling an applied count
@@ -151,7 +156,7 @@ pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 | `allocation.test.ts`           | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic), bad numbers and duplicate candidates refused — 28 tests, no database |
 | `proposed-migrations.test.ts`  | 0190's backfill, then proposed 0191, over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                                                                        |
 | `shared-pool.test.ts`          | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 placements issued at once, no deadlock — 8 tests                                        |
-| `proposed-cycle-count.test.ts` | proposed 0192 on main's schema alone: the `organization_only` RLS and the CHECKs that hold a count together — 13 tests                                                                         |
+| `proposed-cycle-count.test.ts` | proposed 0192 on main's schema alone: the `organization_only` RLS and the CHECKs that hold a count together, no DELETE — 16 tests                                                              |
 
 The two database files seed a throwaway database (`testing/pool-database.ts`). Outside turbo, export
 `DATABASE_URL` / `DATABASE_URL_APP` on `127.0.0.1:5433` (the vitest default says `localhost`).

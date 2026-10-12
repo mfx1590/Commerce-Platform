@@ -45,3 +45,8 @@
   split only when none does. `allocation.test.ts` is 28 tests.
 - Wording: the ranking is per line (the same order for every line of an order); "8 placements issued at once"
   (the test pool has 4 connections). `shared-pool.test.ts`: the recorded-rule test stands alone on its own cart.
+
+### 2026-10-12 · cycle counts, revision 2 after the decision on #458
+
+- `proposed/0192_cycle_count.sql`: a manual count must name its counter and a WMS pull must not (CHECK); the
+  application role cannot DELETE a count. `proposed-cycle-count.test.ts` is 16 tests.

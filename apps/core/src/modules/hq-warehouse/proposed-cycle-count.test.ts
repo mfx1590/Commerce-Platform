@@ -17,8 +17,13 @@ let other: ReturnType<typeof createOrganizationClient>;
 let item: string;
 let countId: string;
 
-const insert = `INSERT INTO cycle_count (organization_id, warehouse_id, stock_item_id, counted_quantity, counted_at)
-   VALUES ($1, $2, $3, $4, now()) RETURNING id`;
+// a manual count, by the first seeded staff user
+const insert = `INSERT INTO cycle_count
+     (organization_id, warehouse_id, stock_item_id, counted_quantity, counted_at, counted_by)
+   SELECT $1, $2, $3, $4, now(), id FROM staff_user ORDER BY id LIMIT 1 RETURNING id`;
+const insertFrom = `INSERT INTO cycle_count
+     (organization_id, warehouse_id, stock_item_id, counted_quantity, counted_at, source, counted_by)
+   VALUES ($1, $2, $3, 4, now(), $4, $5) RETURNING id`;
 
 async function count(
   client: { query: (text: string, params?: unknown[]) => Promise<{ rows: unknown[] }> },
@@ -84,6 +89,32 @@ describe('0192: row-level security (organization_only)', () => {
 describe("0192: a count's story holds together", () => {
   const set = (assignments: string) =>
     hq.query(`UPDATE cycle_count SET ${assignments} WHERE id = $1`, [countId]);
+
+  it('refuses a manual count with no counter', async () => {
+    await expect(hq.query(insertFrom, [ORG, EU, item, 'manual', null])).rejects.toMatchObject({
+      code: '23514',
+    });
+  });
+
+  it('refuses a WMS pull that names a staff user, and accepts one that names none', async () => {
+    const staff = await db.owner.query<{ id: string }>(
+      `SELECT id FROM staff_user ORDER BY id LIMIT 1`,
+    );
+    await expect(
+      hq.query(insertFrom, [ORG, EU, item, 'wms', staff.rows[0]!.id]),
+    ).rejects.toMatchObject({ code: '23514' });
+    const pulled = await hq.query(insertFrom, [ORG, EU, item, 'wms', null]);
+    expect(pulled.rowCount).toBe(1);
+  });
+
+  it('never lets the application role delete a count', async () => {
+    await expect(
+      hq.query(`DELETE FROM cycle_count WHERE id = $1`, [countId]),
+    ).rejects.toMatchObject({
+      code: '42501',
+    });
+    expect(await count(hq, `cycle_count WHERE id = $1`, [countId])).toBe(1);
+  });
 
   it('refuses a negative count', async () => {
     await expect(hq.query(insert, [ORG, EU, item, -1])).rejects.toMatchObject({ code: '23514' });
