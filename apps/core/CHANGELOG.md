@@ -2,6 +2,33 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-12 · inventory on the shared stock pool (#456; db 0190 + 0191, CONTRACT CHANGE #453, REQUEST #454)
+
+- Stock lies per (stock item, warehouse) and every variant that maps the item sells from it. The inventory
+  module resolves variant → `stock_item_id` and works on the pool row: placement, release, consume, adjust and
+  the availability read. Callers (checkout, orders, returns, shipping) keep their call shapes. Lock order:
+  variant rows (SHARE, id order), then pool rows by (`stock_item_id`, `warehouse_id`).
+- Attribution under the ledger policy: a movement a store caused carries its `store_id` + `variant_id` and is
+  written in that store's scope; a movement no store caused carries neither and is organization scope only. The
+  module never changes the scope it is given. `stock.moved` **v2** (item id + item sku; variant and store only
+  when attributed); v1 is no longer emitted. HQ `createStockMovement` is store-less, organization scope only, with
+  an audit row (`stock_movement.create`) that keeps the addressed variant.
+- `reservation` rows carry `stock_item_id` (the variant's item at reserve time — enforced by the module) and
+  `allocation_rule`.
+- The allocation seam: `setAllocationPolicy(fn)` (+ the `Allocation*` types, `priorityGreedyPolicy`). The module
+  locks first, offers candidates from the locked rows, validates the decision (a bad one is a 500 and the placement
+  rolls back) and keeps the shortfall / 409 / backorder behaviour. Default = the allocation as before.
+- Admin API: `listStockItems` (`GET /admin/stock-items`), `mapVariantToStockItem`
+  (`PUT /admin/stock-items/{stockItemId}/variants/{variantId}`: idempotent; 409 unless the variant's current item
+  has zero on-hand and no open reservation; audit + `stock_item.mapped`), `InventoryLevel.stock_item_id`
+  (`id` is the pool row's and repeats for variants that share an item).
+- `availableByVariant(tx, variantIds)` is the availability read for other modules: the cart uses it, and — by a
+  one-time manager exception — so do `marketing/feed-items.ts` and `search/records.ts` (one statement each; they
+  read `inventory_level` by a column 0191 drops). The catalog read model joins the pool rows; shapes unchanged.
+- A shipment release for a variant re-mapped to another item since the shipment consumed is refused (409).
+- Tests: the existing suites adapted mechanically to the re-keyed tables (reads through the variant's
+  `stock_item_id`); `shared-pool.test.ts` (15, the stores' side as store-scoped clients), `allocation.test.ts` (10).
+
 ### 2026-10-08 · admin customer routes + GDPR erasure (#414, Admin API 0.4.11)
 
 - `listCustomers` / `getCustomer` / `updateCustomer` / `listCustomerAddresses` / `listCustomerGroups` are real

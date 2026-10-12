@@ -134,9 +134,12 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   scoped client + ids (idempotent on the target state); `markShipmentCreated` is a kept no-op. Edits before fulfilment
   recompute totals with the cart's `TaxCalculator` and leave money to window 7 (`order.metadata.edits`).
 - Inventory (`src/modules/inventory`): `on_hand` changes only through `moveStock` (append-only `stock_movement` +
-  one `stock.moved`); reservations are the placement stock check (`reserveForOrder` from the checkout, deterministic
-  lock order variant → warehouse priority → code), released by the orders module's cancel, consumed by window 8 via
-  `consumeForShipment`. A reservation is never a movement.
+  one `stock.moved` v2); stock lies in the SHARED POOL — per (stock item, warehouse), every variant that maps the
+  item sells from it (#456). Reservations are the placement stock check (`reserveForOrder` from the checkout; lock
+  order: variant rows, then pool rows by stock_item_id → warehouse_id; WHICH warehouse is the allocation policy,
+  `setAllocationPolicy`), released by the orders module's cancel, consumed by window 8 via `consumeForShipment`. A
+  reservation is never a movement. A movement a store caused is attributed to it; one no store caused is
+  organization scope only — the module never changes scope.
 - Returns (`src/modules/returns`): request → receive (order returned quantities + restock of resellable goods +
   `return.received`) → refund through the `RefundRequester` seam (`setRefundRequester`; manual default calls
   `PaymentProvider.refund`, no refund row — the `refund` table and `refund.*` events are window 7's; idempotent per
