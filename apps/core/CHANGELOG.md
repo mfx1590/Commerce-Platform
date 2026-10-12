@@ -25,7 +25,14 @@
 - `availableByVariant(tx, variantIds)` is the availability read for other modules: the cart uses it, and — by a
   one-time manager exception — so do `marketing/feed-items.ts` and `search/records.ts` (one statement each; they
   read `inventory_level` by a column 0191 drops). The catalog read model joins the pool rows; shapes unchanged.
-- A shipment release for a variant re-mapped to another item since the shipment consumed is refused (409).
+- A shipment release for a variant re-mapped to another item since the order reserved is refused: 409 `conflict`,
+  decided from the reservation rows before the ledger is read (in store scope the ledger no longer shows the
+  store its movements on an item it stopped mapping — #459 review).
+- One lock routine, `lockStock`: variant rows, then any pool row that has to be created (in `stock_item_id` order,
+  before a lock is held), then every pool row by (`stock_item_id`, `warehouse_id`) — used by placement, cancel,
+  ship, a cancelled shipment and the returns module's restock (#459 review: a shipment cancel could deadlock
+  against a placement; a backorder created its row mid-placement). The backorder target is again the item's first
+  pool row in warehouse priority order.
 - Tests: the existing suites adapted mechanically to the re-keyed tables (reads through the variant's
   `stock_item_id`); `shared-pool.test.ts` (15, the stores' side as store-scoped clients), `allocation.test.ts` (10).
 

@@ -50,11 +50,19 @@ comes back as 403, an invisible item as 404, another store's variant as `unknown
   the module enforces it: the variant rows are SHARE-locked while their stock is reserved, the item is read from
   the variant IN the insert, and a mismatch fails the placement. Re-mapping takes the variant row FOR UPDATE, so
   the two queue.
-- **Lock order, one for everybody:** variant rows first (`FOR SHARE`, in id order; `mapVariantToStockItem` takes
-  its one variant `FOR UPDATE`), then the pool rows of the items involved in **(`stock_item_id`, `warehouse_id`)**
-  order — every row of those items, active warehouse or not, in one `SELECT … FOR UPDATE`. Two stores placing at
-  once on overlapping shared items queue behind each other instead of deadlocking (tested: placements from two
-  stores on two shared items in opposite line orders; 8 parallel placements on shared variants in shuffled order).
+- **Lock order, one for everybody (`lockStock`).** Every path that touches more than one pool row — placement,
+  cancel, ship, a cancelled shipment, the returns module's restock — takes its locks UP FRONT in the same three
+  steps: (1) the variant rows, `FOR SHARE`, in id order (`mapVariantToStockItem` takes its one variant
+  `FOR UPDATE`); (2) where a pool row may have to be CREATED — a backorder on an item with no row, a restock into
+  a warehouse the item never lay in — the missing rows are inserted first, in `stock_item_id` order: nothing
+  creates a row once a lock is held; (3) every pool row of the items involved, active warehouse or not, in
+  **(`stock_item_id`, `warehouse_id`)** order, in one `SELECT … FOR UPDATE`. Nothing locks pool rows one at a time
+  in another order (a single-row `moveStock` has nothing to order). Two transactions on overlapping items — two
+  stores placing, a shipment cancel against a placement — queue behind each other instead of deadlocking (tested:
+  a shipment release and a placement that would take two shared pool rows in opposite order, made deterministic
+  with a gate — it ended in `40P01` before the release locked up front; placements from two stores on two shared
+  items in opposite line orders; 8 parallel placements in shuffled order; parallel backorders on items with no
+  rows).
 
 ## Allocation: the policy decides, the module enforces (`setAllocationPolicy`, REQUEST #454)
 
@@ -78,7 +86,8 @@ allocation with its `allocation_rule`.
   summed per (stock item, warehouse) ACROSS lines, so a unit cannot be promised twice.
 - **Shortfall stays the module's**: not backorderable → 409 `out_of_stock` `{ variant_id, available }` and the
   whole placement rolls back (the checkout voids the payment authorisation on that path); backorderable → the
-  shortfall is reserved on the priority warehouse (rule `backorder`, the row created at zero when missing),
+  shortfall is reserved on the item's first pool row in warehouse priority order (rule `backorder`) — an item
+  with no row in any active warehouse gets one, at zero, in the priority warehouse before the locks are taken —
   `available` goes negative, `backorderQuantity` in the result.
 
 ## Public API (`index.ts`)
@@ -92,6 +101,7 @@ allocation with its `allocation_rule`.
 | `releaseReservationsForShipment(tx, { …, shipmentId, items, actor })`                                  | window 8 (#191's `releaseReservations` shape)                           | a planned shipment cancelled before picking: the goods go back on the SAME pool row they left (`adjustment`, `shipment_release:<id>`, attributed), the reservation re-opens. Same replay rules as before. A variant re-mapped since → 409 (see Decisions) |
 | `moveStock(tx, { organizationId, storeId?, variantId?, stockItemId?, warehouseId, delta, reason, … })` | `consumeForShipment`, the returns module (`return`), HQ flows           | the only writer of `on_hand`. `storeId` + `variantId` → attributed, on the variant's item; neither → a pool movement no store caused, needs `stockItemId` and organization scope                                                                          |
 | `availableByVariant(tx, variantIds)`                                                                   | cart, marketing feed items, search records                              | what each variant can sell now: `available` summed over the active warehouses of its item's pool rows. The one availability read for other modules — nobody else joins the pool tables                                                                    |
+| `lockStock(tx, { organizationId, storeId, variantIds, stockItemIds?, ensureWarehouseId? })`            | this module; the returns module before its restock                      | takes the locks of a multi-row stock operation in THE lock order (Rules) and returns the store's variants with their items and the locked pool rows                                                                                                       |
 | `ensureLevel(tx, { organizationId, stockItemId, warehouseId }, lock)`                                  | this module                                                             | the pool row, created at zero; 404 for an item the session cannot see (nothing written)                                                                                                                                                                   |
 | `setAllocationPolicy(fn)` / `priorityGreedyPolicy`                                                     | `src/wiring.ts` (window 11's engine), tests                             | the allocation seam (above)                                                                                                                                                                                                                               |
 | `listInventoryLevels` / `createStockMovement` / `listStockItems` / `mapVariantToStockItem`             | Admin API routes                                                        | see below                                                                                                                                                                                                                                                 |
@@ -134,9 +144,14 @@ variant stays `in_stock` with `available_quantity: 0`).
   public shapes for its callers (checkout, orders, returns, shipping) did not change.
 - **2026-10-12 · HQ movements are store-less** (manager, D4), addressed variant on the audit row; shipment consume
   and release stay attributed to the store.
-- **2026-10-12 · A shipment release after a re-mapping is refused (409).** The goods belong to the pool row they
-  left; if the variant maps another item by then, a reservation of that variant can no longer hold the old item
-  (the rule above). Stock is moved by hand first — the same principle as the mapping's own 409.
+- **2026-10-12 · A shipment release after a re-mapping is refused: 409 `conflict`
+  `{ variant_id, stock_item_id, current_stock_item_id }`.** The goods belong to the pool row they left; if the
+  variant maps another item by then, a reservation of that variant can no longer hold the old item (the rule
+  above). It is decided from the order's RESERVATION rows, before the ledger is read: a store no longer sees its
+  own movements on an item it stopped mapping (`pool_ledger`), so the ledger alone would answer "nothing to
+  release" and the stock would never come back (#459 review). Stock is moved by hand first — the same principle
+  as the mapping's own 409.
+- **2026-10-12 · One lock routine (`lockStock`), rows created before locks** (#459 review): see Rules.
 - **2026-10-12 · Other modules read availability through `availableByVariant`** — the marketing feed items and
   the search records were changed to call it (manager exception; they were reading this module's table).
 - **2026-09-08 · Reservations are the placement stock check** (manager, 2.4): the cart's add-time check stays
@@ -162,7 +177,9 @@ variant stays `in_stock` with `available_quantity: 0`).
   (409 with stock, 409 with an open reservation, organization scope only, idempotent, audit + `stock_item.mapped`,
   one availability afterwards); store A reserves N and store B's availability drops by N; neither store reads the
   other's reservations, movements or events, nor a store-less one; the last unit to exactly one of two stores;
-  opposite-order placements from two stores without deadlock; fail closed (an unmapped item, a store-less movement
+  opposite-order placements from two stores without deadlock; a shipment release against a placement in
+  opposite order (gated, deterministic); parallel backorders; a shipment release after a re-mapping → 409 in the
+  store's own scope; fail closed (an unmapped item, a store-less movement
   and a movement for another store are refused by the module AND by the database); `stock.moved` v2 for a sale and
   an organization-scope receipt; the seam on the pool; variant creation in store scope.
 - HTTP: `test/admin-api.test.ts` (levels, movements, stock items, mapping, permissions),
