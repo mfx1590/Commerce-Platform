@@ -1,7 +1,9 @@
-// The proposed stock-pool migrations (proposed/0190 + 0191, #435) on a seeded throwaway database: they apply over
-// real data, the backfill is 1:1 and idempotent, and row-level security holds the line the manager drew
-// (2026-10-12): a store-scoped session reaches a pool row ONLY when one of its stores maps the item; reservations
-// stay store-scoped; creating and re-mapping stock items is not a store session's to do.
+// The stock pool's migrations on a seeded throwaway database (#435, CONTRACT CHANGE #453). Step 1 (0190) is on
+// main since db 0.3.4 and runs with every test database; the seed runs after it, so this file runs 0190's own
+// backfill function over the seeded data, then applies the PROPOSED rekey (proposed/0191). Asserted: the backfill
+// is 1:1 and idempotent, only organization scope may map a variant, and row-level security holds the line the
+// manager drew (2026-10-12): a store-scoped session reaches a pool row ONLY when one of its stores maps the item,
+// the ledger only for its own stores' movements, and reservations stay store-scoped.
 import { createOrganizationClient, createTenantClient, SEED_IDS } from '@platform/db';
 import type { TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -24,7 +26,7 @@ interface Variant {
   stock_item_id: string;
 }
 // Brand A: `shared` (brand B's `mapped` variant is pooled onto its item) and `clash` (its sku is copied onto a
-// brand B variant before 0190). Brand B: `own` stays alone on its item.
+// brand B variant before the backfill). Brand B: `own` stays alone on its item.
 let shared: Variant;
 let clash: Variant;
 let mapped: Variant;
@@ -62,7 +64,7 @@ beforeAll(async () => {
   b = createTenantClient(db.app, { organizationId: ORG, storeIds: [B] });
   hq = createOrganizationClient(db.app, { organizationId: ORG });
 
-  // Before 0190: one sku carried by two brands, so the backfill has a collision to resolve.
+  // Before the backfill: one sku carried by two brands, so it has a collision to resolve.
   const seedA = await db.owner.query<{ id: string; sku: string }>(
     `SELECT id, sku FROM product_variant WHERE store_id = $1 ORDER BY sku DESC LIMIT 1`,
     [A],
@@ -77,7 +79,8 @@ beforeAll(async () => {
   variantsBefore = await count(db.owner, `product_variant`);
   levelsBefore = (await db.owner.query<typeof levelsBefore>(LEVEL_TOTALS)).rows[0]!;
 
-  await applyProposed(db, '0190_stock_pool.sql');
+  // What 0190 ran on the day it landed, and what 0191 runs again first: the same function.
+  await db.owner.query(`SELECT app.backfill_stock_items()`);
   clash = (
     await db.owner.query<Variant>(`SELECT ${VARIANT_COLS} FROM product_variant WHERE id = $1`, [
       seedA.rows[0]!.id,
@@ -89,7 +92,7 @@ afterAll(async () => {
   await db?.drop();
 });
 
-describe('0190 (expand)', () => {
+describe('the backfill (0190)', () => {
   it('gives every variant its own stock item, 1:1', async () => {
     expect(await count(db.owner, `product_variant WHERE stock_item_id IS NULL`)).toBe(0);
     expect(await count(db.owner, `stock_item`)).toBe(variantsBefore);
@@ -137,7 +140,7 @@ describe('0190 (expand)', () => {
   });
 });
 
-describe('0190: the mapping guard, before any rekey', () => {
+describe('the mapping guard (0190), before any rekey', () => {
   const remap = `UPDATE product_variant SET stock_item_id = $2 WHERE id = $1`;
   const insertMapped = `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title, stock_item_id)
      VALUES ($1, $2, $3, $4, 'Mapped at insert', $5)`;

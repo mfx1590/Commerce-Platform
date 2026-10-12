@@ -24,3 +24,8 @@
 - `allocation.test.ts` (24 tests, 500 seeded random cases) and `shared-pool.test.ts` (8 tests on the proposed
   schema, through a local fake of the seam: availability across brands, split, last-unit race, parallel placements).
 - Not mounted: `src/wiring.ts` registers it once the seam exists.
+
+### 2026-10-12 · 0190 is on main (db 0.3.4, contracts #455)
+
+- `proposed/0190_stock_pool.sql` deleted; `testing/pool-database.ts` applies only the proposed 0191 on a database
+  migrated by packages/db, and `proposed-migrations.test.ts` runs 0190's own backfill function over the seed.

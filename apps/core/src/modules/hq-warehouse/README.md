@@ -1,8 +1,10 @@
 # hq-warehouse — the shared stock pool and stock-aware allocation (window 11, #435)
 
-**Status: built against the proposed contract.** CONTRACT CHANGE #453 is decided (0190 lands first, 0191 with
-window 1's inventory rewrite); the allocation seam is REQUEST #454. Owner: window 11
-(`apps/core/src/modules/hq-warehouse/**`, `apps/wms-adapter/**`).
+**Status: step 1 of the pool is on main; the rest is built against the proposed contract.** CONTRACT CHANGE #453
+is decided: migration 0190 landed as db 0.3.4; 0191, the two event schemas and the Admin API additions (still
+under `proposed/`) land with window 1's inventory rewrite (#456), which also brings the allocation seam (REQUEST
+#454). #435 closes when the pool is live. Owner: window 11 (`apps/core/src/modules/hq-warehouse/**`,
+`apps/wms-adapter/**`).
 
 ## The problem
 
@@ -25,7 +27,7 @@ reserving N lowers store B's availability by N at once, because there is one row
 
 ## Two migrations (D1: expand, then rekey)
 
-- **`proposed/0190_stock_pool.sql` — expand, landable alone.** `stock_item`, the nullable column, the backfill,
+- **`packages/db/migrations/0190_stock_pool.sql` — expand, ON MAIN since db 0.3.4.** `stock_item`, the nullable column, the backfill,
   the three RLS kinds and the mapping guard. Nothing reads it; the inventory and catalog modules run unchanged.
 - **`proposed/0191_stock_pool_rekey.sql` — rekey, lands only with window 1's inventory rewrite.** Backfill again
   (variants created since 0190), `stock_item_id` NOT NULL, the re-keyed tables above, the new-variant trigger.
@@ -89,8 +91,9 @@ locks the pool rows, hands over each line's candidates (the locked rows' `availa
    `regionOf`, through its public API): store override for the destination country → store default → same
    country → same region → the rest; `priority`, then `code`, then id break ties.
 2. **Per line: one warehouse if one can cover the whole line** — the first in the ranking that can. One shipment
-   from farther away beats a split from nearby.
-3. **Otherwise split** greedily down the ranking. Never more than a shelf holds; what an earlier line of the same
+   from a farther warehouse beats a split from the nearest (manager, 2026-10-12): with 3 on the `same_country`
+   shelf and 9 on a `priority` one, a line of 4 goes whole to the latter and is recorded as `priority`.
+3. **Otherwise split** — only when no single ranked warehouse covers the line — greedily down the ranking. Never more than a shelf holds; what an earlier line of the same
    order took from a stock item is gone for the next (two variants of one order can map to one item).
 4. **What is left is the line's `shortfall`.** Out of stock or backorder is the inventory module's call.
 
@@ -111,7 +114,7 @@ pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 | File                          | What it proves                                                                                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `allocation.test.ts`          | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic) — 24 tests, no database  |
-| `proposed-migrations.test.ts` | 0190 then 0191 over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                                                 |
+| `proposed-migrations.test.ts` | 0190's backfill, then proposed 0191, over the seeded data: backfill, the mapping guard, every RLS rule above — 34 tests                           |
 | `shared-pool.test.ts`         | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 parallel placements, no deadlock — 8 tests |
 
 The two database files seed a throwaway database (`testing/pool-database.ts`). Outside turbo, export
