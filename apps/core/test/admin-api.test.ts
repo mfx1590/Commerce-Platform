@@ -621,7 +621,7 @@ describe('orders (task 2.3): listOrders, getOrder, cancelOrder', () => {
     const variant = await client.query<{ id: string }>(
       `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
        JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
-       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       JOIN inventory_level il ON il.stock_item_id = v.stock_item_id AND il.available >= 5
        WHERE v.store_id = $1 ORDER BY v.sku LIMIT 1`,
       [A],
     );
@@ -939,7 +939,7 @@ describe('returns (task 2.5): createReturn, receiveReturn', () => {
     const variant = await client.query<{ id: string }>(
       `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
        JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
-       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       JOIN inventory_level il ON il.stock_item_id = v.stock_item_id AND il.available >= 5
        WHERE v.store_id = $1 ORDER BY v.sku DESC LIMIT 1`,
       [A],
     );

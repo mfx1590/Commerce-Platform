@@ -51,7 +51,7 @@ async function fixture(storeId: string, address: Record<string, string>, currenc
     `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
       JOIN price pr ON pr.variant_id = v.id AND pr.currency = $2 AND pr.min_quantity = 1
       WHERE v.store_id = $1
-        AND coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.variant_id = v.id), 0) >= 20
+        AND coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.stock_item_id = v.stock_item_id), 0) >= 20
       ORDER BY v.sku LIMIT 1`,
     [storeId, currency],
   );
@@ -146,7 +146,7 @@ const outboxFor = (shipmentId: string) =>
 const onHand = async (variant: string, warehouse: string) =>
   (
     await owner.query<{ on_hand: number }>(
-      `SELECT on_hand FROM inventory_level WHERE variant_id = $1 AND warehouse_id = $2`,
+      `SELECT on_hand FROM inventory_level WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1) AND warehouse_id = $2`,
       [variant, warehouse],
     )
   ).rows[0]?.on_hand ?? null;

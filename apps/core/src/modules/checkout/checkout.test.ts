@@ -69,7 +69,7 @@ beforeAll(async () => {
   );
   scopeA = { organizationId: ORG, storeId: A, salesChannelId: channel.rows[0]!.id };
   const vs = await owner.query<{ id: string; available: number }>(
-    `SELECT v.id, coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.variant_id = v.id), 0)::int AS available
+    `SELECT v.id, coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.stock_item_id = v.stock_item_id), 0)::int AS available
      FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
      JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
      WHERE v.store_id = $1 AND v.manage_inventory AND NOT v.allow_backorder ORDER BY v.sku`,
@@ -403,7 +403,7 @@ describe('completeCart — one transaction', () => {
     });
     const idx = variants.length - 1;
     const cart = await readyCart({ variant: idx });
-    await owner.query(`UPDATE inventory_level SET on_hand = 0 WHERE variant_id = $1`, [
+    await owner.query(`UPDATE inventory_level SET on_hand = 0 WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)`, [
       variants[idx]!.id,
     ]);
     await expect(
@@ -464,7 +464,7 @@ describe('idempotency is per store (RLS on payment rows)', () => {
     const vB = await owner.query<{ id: string }>(
       `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
        JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'GBP' AND pr.min_quantity = 1
-       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       JOIN inventory_level il ON il.stock_item_id = v.stock_item_id AND il.available >= 5
        WHERE v.store_id = $1 ORDER BY v.sku LIMIT 1`,
       [B],
     );

@@ -43,7 +43,7 @@ interface SeededVariant {
 async function variantsA(): Promise<SeededVariant[]> {
   const r = await owner.query<SeededVariant>(
     `SELECT v.id, v.product_id, pr.amount_minor::int AS price, v.manage_inventory, v.allow_backorder,
-            coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.variant_id = v.id), 0)::int AS available
+            coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.stock_item_id = v.stock_item_id), 0)::int AS available
      FROM product_variant v
      JOIN product p ON p.id = v.product_id AND p.status = 'published'
      JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1

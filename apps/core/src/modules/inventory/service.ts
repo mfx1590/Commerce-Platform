@@ -273,7 +273,8 @@ function requireOrganizationScope(client: ScopedClient, what: string): void {
  * `POST /admin/inventory/movements` (HQ, `operations`; organization scope): addressed by variant, the movement
  * lands on that variant's stock item. It is a pool movement NO STORE CAUSED (a receipt, an adjustment, a
  * transfer, a cycle count), so it is written without attribution — `store_id` / `variant_id` NULL, envelope store
- * null. 201 with the variant's `InventoryLevel` (the pool row's numbers).
+ * null — and one audit row (`stock_movement.create`) keeps the variant it was addressed by. 201 with the variant's
+ * `InventoryLevel` (the pool row's numbers).
  */
 export async function createStockMovement(
   client: ScopedClient,
@@ -283,11 +284,29 @@ export async function createStockMovement(
   return client.transaction(async (tx) => {
     const variant = (await variantStock(tx, [input.variantId])).get(input.variantId);
     if (!variant) throw notFound('variant', input.variantId);
-    const { level } = await moveStock(tx, {
+    const { level, movementId } = await moveStock(tx, {
       ...input,
       storeId: null,
       variantId: null,
       stockItemId: variant.stockItemId,
+    });
+    // The ledger row is store-less by design, so the audit row is where the variant the movement was ADDRESSED
+    // BY stays on record (manager decision D4, 2026-10-12). An HQ act: no store on the audit row either.
+    await writeAudit(tx, {
+      organizationId: input.organizationId,
+      storeId: null,
+      actor: input.actor,
+      action: 'stock_movement.create',
+      entityType: 'stock_movement',
+      entityId: movementId,
+      after: {
+        addressed_variant_id: variant.variantId,
+        addressed_store_id: variant.storeId,
+        stock_item_id: variant.stockItemId,
+        warehouse_id: input.warehouseId,
+        delta: input.delta,
+        reason: input.reason,
+      },
     });
     return toAdminLevel({
       id: level.id,

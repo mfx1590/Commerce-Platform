@@ -61,7 +61,7 @@ beforeAll(async () => {
   );
   variantId = v.rows[0]!.id;
   await owner.query(
-    `UPDATE inventory_level SET on_hand = CASE warehouse_id WHEN $2::uuid THEN 10 ELSE 10 END, reserved = 0 WHERE variant_id = $1`,
+    `UPDATE inventory_level SET on_hand = CASE warehouse_id WHEN $2::uuid THEN 10 ELSE 10 END, reserved = 0 WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)`,
     [variantId, EU],
   );
   const opt = await owner.query<{ id: string }>(
@@ -143,7 +143,7 @@ describe('whole lifecycle: place → confirm → capture → ship → deliver �
   it('the outbox streams reproduce the order, the return and the stock level', async () => {
     const onHandBefore = (
       await owner.query<{ on_hand: number }>(
-        `SELECT on_hand FROM inventory_level WHERE variant_id = $1 AND warehouse_id = $2`,
+        `SELECT on_hand FROM inventory_level WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1) AND warehouse_id = $2`,
         [variantId, EU],
       )
     ).rows[0]!.on_hand;
@@ -240,7 +240,7 @@ describe('whole lifecycle: place → confirm → capture → ship → deliver �
       [variantId, EU],
     );
     const level = await owner.query<{ on_hand: number; reserved: number }>(
-      `SELECT on_hand, reserved FROM inventory_level WHERE variant_id = $1 AND warehouse_id = $2`,
+      `SELECT on_hand, reserved FROM inventory_level WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1) AND warehouse_id = $2`,
       [variantId, EU],
     );
     expect(projectOnHand(moves.rows, onHandBefore)).toBe(level.rows[0]!.on_hand);
@@ -252,12 +252,12 @@ describe('whole lifecycle: place → confirm → capture → ship → deliver �
     const { order } = await place(2, 'cancel@example.com');
     await confirmOrder(a, order.id, system);
     const before = await owner.query<{ reserved: number }>(
-      `SELECT sum(reserved)::int AS reserved FROM inventory_level WHERE variant_id = $1`,
+      `SELECT sum(reserved)::int AS reserved FROM inventory_level WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)`,
       [variantId],
     );
     await cancelOrder(a, order.id, { reason: 'changed mind', actor: system });
     const after = await owner.query<{ reserved: number }>(
-      `SELECT sum(reserved)::int AS reserved FROM inventory_level WHERE variant_id = $1`,
+      `SELECT sum(reserved)::int AS reserved FROM inventory_level WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)`,
       [variantId],
     );
     expect(after.rows[0]!.reserved).toBe(before.rows[0]!.reserved - 2);
