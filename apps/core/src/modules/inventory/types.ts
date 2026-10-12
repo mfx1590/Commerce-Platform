@@ -2,6 +2,7 @@ import type { AdminComponents } from '@platform/contracts';
 import type { Actor } from '../../lib/audit';
 
 export type AdminInventoryLevel = AdminComponents['schemas']['InventoryLevel'];
+export type AdminStockItem = AdminComponents['schemas']['StockItem'];
 
 /** `stock_movement.reason` (0007). `sale` and `return` are written by the system (shipment / return flows only). */
 export type MovementReason =
@@ -14,10 +15,21 @@ export const ADMIN_MOVEMENT_REASONS = [
   'cycle_count',
 ] as const;
 
+/**
+ * One movement of the pool. WHO CAUSED IT is the attribution, and it is all or nothing (the ledger's CHECK):
+ *
+ * - `storeId` + `variantId` — a store caused it (a sale, a return, a shipment release). The pool row is the
+ *   variant's stock item. Written in that store's scope; the `pool_ledger` policy refuses any other store.
+ * - neither — a pool movement no store caused (a receipt, a transfer, a cycle count, an HQ adjustment):
+ *   `stockItemId` names the pool row and the movement can only be written in ORGANIZATION scope. The module never
+ *   raises its own scope to write one: a store-scoped caller gets the database's refusal.
+ */
 export interface MoveStockInput {
   organizationId: string;
-  storeId: string;
-  variantId: string;
+  storeId?: string | null | undefined;
+  variantId?: string | null | undefined;
+  /** Required without an attribution. With one it is resolved from the variant when omitted. */
+  stockItemId?: string | undefined;
   warehouseId: string;
   /** Signed change of `on_hand`; never 0. */
   delta: number;
@@ -28,22 +40,42 @@ export interface MoveStockInput {
   actor: Actor;
 }
 
-export interface LevelRow {
+/** A pool row: stock of one stock item in one warehouse, shared by every variant that maps the item. */
+export interface PoolLevel {
   id: string;
   organization_id: string;
-  store_id: string;
-  variant_id: string;
+  stock_item_id: string;
   warehouse_id: string;
   on_hand: number;
   reserved: number;
   incoming: number;
   available: number;
+  /** The stock ITEM's sku (unique per organization) — not a variant's. */
+  item_sku: string;
+}
+
+/**
+ * Admin `InventoryLevel`: one VARIANT in one warehouse, carrying the numbers of the pool row its stock item has
+ * there. `id` is the pool row's, so two variants that share an item repeat it — key by (variant_id, warehouse_id).
+ */
+export interface LevelRow {
+  id: string;
+  organization_id: string;
+  store_id: string;
+  variant_id: string;
+  stock_item_id: string;
+  warehouse_id: string;
+  on_hand: number;
+  reserved: number;
+  incoming: number;
+  available: number;
+  /** The variant's own sku in its store. */
   sku: string;
 }
 
 export interface MoveStockResult {
   movementId: string;
-  level: LevelRow;
+  level: PoolLevel;
 }
 
 export interface ReserveLine {
@@ -61,6 +93,8 @@ export interface ReserveForOrderInput {
 export interface Allocation {
   warehouseId: string;
   quantity: number;
+  /** Why this warehouse (the allocation policy's rule; `backorder` for a shortfall reserved anyway). */
+  rule: string;
 }
 
 export interface ReservationResult {
@@ -106,6 +140,17 @@ export interface ListLevelsQuery {
   below_available?: number | undefined;
   sort?: LevelSortField | undefined;
   order?: 'asc' | 'desc' | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
+}
+
+export interface ListStockItemsQuery {
+  /** Substring of the item sku. */
+  sku?: string | undefined;
+  /** Only items a variant of this store maps. */
+  store_id?: string | undefined;
+  /** true = only items mapped by more than one store. */
+  shared?: boolean | undefined;
   page?: number | undefined;
   limit?: number | undefined;
 }
