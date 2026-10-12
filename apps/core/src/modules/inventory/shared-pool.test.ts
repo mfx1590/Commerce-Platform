@@ -12,6 +12,7 @@ import { completeCart, createPaymentSession } from '../checkout';
 import {
   availableByVariant,
   consumeForShipment,
+  consumeReservationsForShipment,
   createStockMovement,
   ensureLevel,
   listInventoryLevels,
@@ -19,6 +20,7 @@ import {
   mapVariantToStockItem,
   moveStock,
   priorityGreedyPolicy,
+  releaseReservationsForShipment,
   reserveForOrder,
   setAllocationPolicy,
   type AllocationPolicy,
@@ -130,8 +132,11 @@ async function shopOf(
   };
 }
 
-/** A ready cart in `shop` and its placement, all through that store's own client. */
-async function place(shop: Shop, lines: { variantId: string; quantity: number }[]) {
+/** A cart in `shop` that only needs completing (through that store's own client). */
+async function ready(
+  shop: Shop,
+  lines: { variantId: string; quantity: number }[],
+): Promise<string> {
   const i = n++;
   const cart = await createCart(shop.client, shop.scope);
   for (const l of lines) {
@@ -144,12 +149,15 @@ async function place(shop: Shop, lines: { variantId: string; quantity: number }[
     shipping_option_id: shop.optionId,
   });
   await createPaymentSession(shop.client, cart.id, { provider: 'manual' });
-  return completeCart(shop.client, {
-    cartId: cart.id,
-    idempotencyKey: `pool-${cart.id}`,
-    actor: customer,
-  });
+  return cart.id;
 }
+
+const complete = (shop: Shop, cartId: string) =>
+  completeCart(shop.client, { cartId, idempotencyKey: `pool-${cartId}`, actor: customer });
+
+/** A ready cart in `shop` and its placement, all through that store's own client. */
+const place = async (shop: Shop, lines: { variantId: string; quantity: number }[]) =>
+  complete(shop, await ready(shop, lines));
 
 /** Maps brand B's variant onto brand A's variant's item (HQ, organization scope), emptying B's own item first. */
 async function share(vA: V, vB: V): Promise<string> {
@@ -877,5 +885,167 @@ describe('variant creation (the catalog, in store scope)', () => {
         [mine.id, other.rows[0]!.id],
       ),
     ).rejects.toMatchObject({ code: '42501' });
+  });
+});
+
+describe('one lock order for every path that touches more than one pool row (#459 review)', () => {
+  it('a shipment release and a placement that would take two shared pool rows in OPPOSITE order: no deadlock, every unit accounted for', async () => {
+    // Two brand A variants whose VARIANT ids and STOCK ITEM ids sort in opposite directions: a path that locks in
+    // variant order and one that locks in stock-item order would take the two pool rows in opposite order.
+    const candidates = va.slice(13, 40);
+    let p: V | undefined;
+    let q: V | undefined;
+    for (let i = 0; i < candidates.length && !p; i++) {
+      for (let j = i + 1; j < candidates.length; j++) {
+        const first = candidates[i]!;
+        const second = candidates[j]!;
+        if (first.id < second.id && first.item > second.item) {
+          p = first;
+          q = second;
+          break;
+        }
+      }
+    }
+    expect(p, 'a pair of variants with opposite id / item order').toBeDefined();
+    const bp = vb[13]!;
+    const bq = vb[14]!;
+    await share(p!, bp);
+    await share(q!, bq);
+    await setPool(p!.item, 50, 0);
+    await setPool(q!.item, 50, 0);
+
+    // store A: one order of both variants, planned as a shipment (its reservations consumed)
+    const { order } = await place(shopA, [
+      { variantId: p!.id, quantity: 1 },
+      { variantId: q!.id, quantity: 1 },
+    ]);
+    const shipment = {
+      organizationId: ORG,
+      storeId: A,
+      orderId: order.id,
+      shipmentId: '80000000-0000-4000-8000-000000000199',
+      items: order.items.map((i) => ({ orderLineItemId: i.id, quantity: i.quantity })),
+      actor,
+    };
+    await a.transaction((tx) => consumeReservationsForShipment(tx, shipment));
+    // store B: a cart on the same two items, ready to be placed
+    const cartB = await ready(shopB, [
+      { variantId: bq.id, quantity: 1 },
+      { variantId: bp.id, quantity: 1 },
+    ]);
+
+    const waiting = async () =>
+      Number(
+        (
+          await db.owner.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+          )
+        ).rows[0]!.n,
+      );
+    const until = async (done: () => Promise<boolean>, ms: number) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end && !(await done())) await new Promise((r) => setTimeout(r, 25));
+    };
+
+    // The gate: a third session holds the SECOND variant's row. A release that worked variant by variant would
+    // stop right here — AFTER taking the first pool row, BEFORE the second. That is the moment the placement runs.
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const holder = owner.transaction(async (tx) => {
+      await tx.query(`SELECT id FROM product_variant WHERE id = $1 FOR UPDATE`, [q!.id]);
+      await gate;
+    });
+    await new Promise((r) => setTimeout(r, 100)); // the holder has its lock
+    const release = a.transaction((tx) => releaseReservationsForShipment(tx, shipment));
+    await until(async () => (await waiting()) >= 1, 5_000); // the release is parked behind the gate
+    let placed = false;
+    const placement = complete(shopB, cartB).finally(() => (placed = true));
+    // one order for everybody: the placement is not behind the release — it finishes while the release still waits
+    await until(async () => placed || (await waiting()) >= 2, 5_000);
+    open();
+    await holder;
+
+    const results = await Promise.allSettled([release, placement]);
+    const failed = results
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map((r) => `${(r.reason as { code?: string }).code}: ${(r.reason as Error).message}`);
+    expect(failed).toEqual([]); // opposite lock orders end here as 40P01 "deadlock detected"
+    expect(results[0]).toMatchObject({ status: 'fulfilled', value: 2 });
+    // every unit accounted for: the released units are back on hand and reserved again by A's order; B holds one
+    expect(await pool(p!.item, EU)).toEqual({ on_hand: 50, reserved: 2, available: 48 });
+    expect(await pool(q!.item, EU)).toEqual({ on_hand: 50, reserved: 2, available: 48 });
+  }, 60_000);
+
+  it('a backorder never creates a pool row in the middle of a placement: two backorderable lines, parallel placements, no deadlock', async () => {
+    const x = va[41]!;
+    const y = va[42]!;
+    await owner.query(`UPDATE product_variant SET allow_backorder = true WHERE id = ANY($1)`, [
+      [x.id, y.id],
+    ]);
+    // nothing in stock anywhere and no pool rows at all: every placement is a backorder on the priority warehouse
+    await owner.query(`DELETE FROM inventory_level WHERE stock_item_id = ANY($1)`, [
+      [x.item, y.item],
+    ]);
+    const jobs = [];
+    for (let i = 0; i < 6; i++) {
+      jobs.push(
+        place(shopA, [
+          { variantId: i % 2 ? x.id : y.id, quantity: 1 },
+          { variantId: i % 2 ? y.id : x.id, quantity: 1 },
+        ]),
+      );
+    }
+    const results = await Promise.allSettled(jobs);
+    expect(results.filter((r) => r.status === 'rejected')).toEqual([]);
+    expect(await pool(x.item, EU)).toEqual({ on_hand: 0, reserved: 6, available: -6 });
+    expect(await pool(y.item, EU)).toEqual({ on_hand: 0, reserved: 6, available: -6 });
+    const rules = await owner.query<{ allocation_rule: string }>(
+      `SELECT DISTINCT allocation_rule FROM reservation WHERE stock_item_id = ANY($1)`,
+      [[x.item, y.item]],
+    );
+    expect(rules.rows).toEqual([{ allocation_rule: 'backorder' }]);
+  }, 60_000);
+});
+
+describe('a shipment release after the variant was re-mapped (#459 review)', () => {
+  it('is refused with 409 in the store’s own scope — before the ledger is read — and writes nothing', async () => {
+    const v = va[43]!;
+    const target = va[44]!;
+    await setPool(v.item, 2, 0);
+    const { order } = await place(shopA, [{ variantId: v.id, quantity: 2 }]);
+    const shipmentId = '80000000-0000-4000-8000-000000000299';
+    const input = {
+      organizationId: ORG,
+      storeId: A,
+      orderId: order.id,
+      shipmentId,
+      items: order.items.map((i) => ({ orderLineItemId: i.id, quantity: i.quantity })),
+      actor,
+    };
+    await a.transaction((tx) => consumeReservationsForShipment(tx, input));
+    expect(await pool(v.item, EU)).toEqual({ on_hand: 0, reserved: 0, available: 0 });
+    // HQ re-maps the variant: allowed, its item is empty and holds no open reservation
+    await mapVariantToStockItem(hq, { stockItemId: target.item, variantId: v.id, actor });
+    // the store no longer maps the old item: its own sale movement there is invisible to it (pool_ledger) …
+    expect(
+      (await a.query(`SELECT 1 FROM stock_movement WHERE reference_id = $1`, [shipmentId]))
+        .rowCount,
+    ).toBe(0);
+    expect(await count(`stock_movement WHERE reference_id = $1`, [shipmentId])).toBe(1);
+
+    const movements = await count('stock_movement');
+    const reservations = await count('reservation');
+    // … so the release must not answer "nothing to release": it is a conflict, said explicitly
+    await expect(
+      a.transaction((tx) => releaseReservationsForShipment(tx, input)),
+    ).rejects.toMatchObject({
+      code: 'conflict',
+      status: 409,
+      details: { variant_id: v.id, stock_item_id: v.item, current_stock_item_id: target.item },
+    });
+    expect(await count('stock_movement')).toBe(movements);
+    expect(await count('reservation')).toBe(reservations);
+    expect(await pool(v.item, EU)).toEqual({ on_hand: 0, reserved: 0, available: 0 });
   });
 });

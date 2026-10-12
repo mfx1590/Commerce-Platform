@@ -16,11 +16,13 @@ export {
 export {
   consumeForShipment,
   consumeReservationsForShipment,
+  lockStock,
   releaseForOrder,
   releaseReservationsForShipment,
   reserveForOrder,
 } from './reservations';
 export { priorityGreedyPolicy, setAllocationPolicy } from './allocation';
+export type { LockStockInput } from './reservations';
 export type {
   AllocationCandidate,
   AllocationContext,

@@ -1,9 +1,13 @@
 // Reservations on the shared stock pool (#106, re-keyed by #456): the stock check AT PLACEMENT.
 //
-// `reserveForOrder` resolves the order's variants to their stock items (SHARE-locking the variant rows so a
-// re-mapping cannot slip in), locks the items' pool rows in ONE canonical order — stock_item_id, then
-// warehouse_id: the same order for every placement of every store, so two stores placing at once on overlapping
-// items queue instead of deadlocking — and only then decides. WHICH warehouse serves a line is the allocation
+// THE LOCK ORDER (`lockStock`, used by every path here that touches more than one pool row — placement, cancel,
+// ship, a cancelled shipment, and the returns module's restock): (1) the variant rows, FOR SHARE, in id order;
+// (2) where a pool row may have to be CREATED (a backorder, a restock into a warehouse the item never lay in), the
+// missing rows are inserted first, in stock_item_id order — nothing creates a row after a lock is held; (3) every
+// pool row of the items involved, FOR UPDATE, in (stock_item_id, warehouse_id) order. One order for every store
+// and every path, so two transactions on overlapping items queue instead of deadlocking.
+//
+// `reserveForOrder` resolves the order's variants to their stock items, takes those locks, and only then decides. WHICH warehouse serves a line is the allocation
 // policy's call (allocation.ts, the #454 seam; default: priority order, greedy); that the decision is honest is
 // checked here against the locked rows. It inserts `reservation` rows (who reserved: `store_id` + `variant_id`;
 // which pool row: `stock_item_id`; why this warehouse: `allocation_rule`) and raises the pool row's `reserved`.
@@ -18,16 +22,15 @@
 // store sees how much of a shared item is reserved, never who reserved it.
 import type { Queryable } from '@platform/db';
 import type { Actor } from '../../lib/audit';
-import { AppError, conflict, validationError } from '../../lib/errors';
+import { AppError, conflict, notFound, validationError } from '../../lib/errors';
 import {
-  byPriority,
   currentAllocationPolicy,
   validateDecisions,
   type AllocationCandidate,
   type AllocationContext,
   type AllocationLine,
 } from './allocation';
-import { ensureLevel, moveStock, variantStock } from './service';
+import { ensureLevel, moveStock, variantStock, type VariantStock } from './service';
 import type {
   Allocation,
   ConsumeForShipmentInput,
@@ -36,7 +39,7 @@ import type {
   ReserveForOrderInput,
 } from './types';
 
-interface LockedLevel {
+export interface LockedLevel {
   id: string;
   stock_item_id: string;
   warehouse_id: string;
@@ -83,6 +86,62 @@ async function bumpReserved(tx: Queryable, levelId: string, delta: number): Prom
     `UPDATE inventory_level SET reserved = reserved + $2, updated_at = now() WHERE id = $1`,
     [levelId, delta],
   );
+}
+
+/**
+ * Creates, at zero, the pool rows `stockItemIds` lack in `warehouseId` — in stock_item_id order, in ONE statement,
+ * and only ever BEFORE this transaction holds a pool-row lock (step 2 of the lock order). In store scope the row
+ * security check passes only for items the session maps; callers pass their own variants' items.
+ */
+async function createMissingLevels(
+  tx: Queryable,
+  organizationId: string,
+  stockItemIds: readonly string[],
+  warehouseId: string,
+): Promise<void> {
+  const ids = [...new Set(stockItemIds)].sort();
+  if (ids.length === 0) return;
+  await tx.query(
+    `INSERT INTO inventory_level (organization_id, stock_item_id, warehouse_id, on_hand)
+     SELECT $1, t.stock_item_id, $3, 0
+     FROM unnest($2::uuid[]) WITH ORDINALITY AS t(stock_item_id, ord)
+     ORDER BY t.ord
+     ON CONFLICT (stock_item_id, warehouse_id) DO NOTHING`,
+    [organizationId, ids, warehouseId],
+  );
+}
+
+export interface LockStockInput {
+  organizationId: string;
+  storeId: string;
+  variantIds: readonly string[];
+  /** Pool rows to lock besides the variants' current items (the rows a reservation or a shipment names). */
+  stockItemIds?: readonly string[] | undefined;
+  /** A warehouse where every variant's item must have a pool row afterwards (created at zero when missing). */
+  ensureWarehouseId?: string | undefined;
+}
+
+/**
+ * Takes the locks of a multi-row stock operation in THE lock order (see the file header) and returns what it
+ * locked: the store's variants with their items, and every pool row of the items involved. Variants that are not
+ * the store's are simply absent from `variants` — the caller decides whether that is an error.
+ */
+export async function lockStock(
+  tx: Queryable,
+  input: LockStockInput,
+): Promise<{ variants: Map<string, VariantStock>; levels: LockedLevel[] }> {
+  const variants = await variantStock(tx, input.variantIds, input.storeId);
+  const items = [...variants.values()].map((v) => v.stockItemId);
+  if (input.ensureWarehouseId !== undefined) {
+    const warehouse = await tx.query<{ id: string }>(
+      `SELECT id FROM warehouse WHERE id = $1 AND is_active`,
+      [input.ensureWarehouseId],
+    );
+    if (!warehouse.rows[0]) throw notFound('warehouse', input.ensureWarehouseId);
+    await createMissingLevels(tx, input.organizationId, items, input.ensureWarehouseId);
+  }
+  const levels = await lockLevels(tx, [...items, ...(input.stockItemIds ?? [])]);
+  return { variants, levels };
 }
 
 /**
@@ -171,15 +230,35 @@ export async function reserveForOrder(
     return variantIds.map((variantId) => ({ variantId, allocations: [], backorderQuantity: 0 }));
   }
 
-  // 2. the pool rows, locked in the canonical order — BEFORE anything is decided
-  const levels = await lockLevels(
-    tx,
-    managed.map((id) => variants.get(id)!.stockItemId),
-  );
-  const levelOf = new Map(levels.map((l) => [poolKey(l.stock_item_id, l.warehouse_id), l]));
+  // 2. A backorder needs a pool row to hold it. An item that may be backordered and has no row in any active
+  //    warehouse gets one in the priority warehouse NOW — before any pool row is locked, in stock_item_id order —
+  //    so nothing is created in the middle of the placement (the lock order, step 2).
   const warehouses = await activeWarehouses(tx);
+  const managedItems = managed.map((id) => variants.get(id)!.stockItemId);
+  const backorderable = managed
+    .filter((id) => variants.get(id)!.allowBackorder)
+    .map((id) => variants.get(id)!.stockItemId);
+  if (backorderable.length > 0 && warehouses[0]) {
+    const stocked = await tx.query<{ stock_item_id: string }>(
+      `SELECT DISTINCT il.stock_item_id FROM inventory_level il
+       JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
+       WHERE il.stock_item_id = ANY($1)`,
+      [backorderable],
+    );
+    const has = new Set(stocked.rows.map((r) => r.stock_item_id));
+    await createMissingLevels(
+      tx,
+      input.organizationId,
+      backorderable.filter((id) => !has.has(id)),
+      warehouses[0].id,
+    );
+  }
 
-  // 3. the policy decides on the locked numbers; its decision is validated against them
+  // 3. the pool rows, locked in the canonical order — BEFORE anything is decided
+  const levels = await lockLevels(tx, managedItems);
+  const levelOf = new Map(levels.map((l) => [poolKey(l.stock_item_id, l.warehouse_id), l]));
+
+  // 4. the policy decides on the locked numbers; its decision is validated against them
   const lines: AllocationLine[] = managed.map((variantId) => {
     const v = variants.get(variantId)!;
     const candidates: AllocationCandidate[] = warehouses.map((w) => ({
@@ -200,7 +279,8 @@ export async function reserveForOrder(
   const context = await allocationContext(tx, input);
   const decisions = validateDecisions(lines, currentAllocationPolicy()(context, lines));
 
-  // 4. shortfall is the module's: 409 for a variant that may not be backordered, the priority warehouse otherwise
+  // 5. shortfall is the module's: 409 for a variant that may not be backordered; otherwise it is reserved on the
+  //    item's first pool row in warehouse priority order (the row step 2 guaranteed)
   const taken = new Map<string, number>(); // per pool row, by the lines of THIS placement so far
   const byVariant = new Map<string, ReservationResult>();
   for (const [i, line] of lines.entries()) {
@@ -224,7 +304,10 @@ export async function reserveForOrder(
           available,
         });
       }
-      const priority = [...line.candidates].sort(byPriority)[0];
+      // candidates are in warehouse priority order (priority, then code): the first one where the item has a row
+      const priority = line.candidates.find((c) =>
+        levelOf.has(poolKey(line.stockItemId, c.warehouseId)),
+      );
       if (!priority) throw new AppError('internal', 'no active warehouse');
       const existing = allocations.find((a) => a.warehouseId === priority.warehouseId);
       if (existing) existing.quantity += decision.shortfall;
@@ -238,30 +321,18 @@ export async function reserveForOrder(
       backorderQuantity = decision.shortfall;
     }
 
-    // 5. one reservation per allocation; the pool row's `reserved` rises by the same quantity
+    // 6. one reservation per allocation; the pool row's `reserved` rises by the same quantity
     for (const a of allocations) {
       const key = poolKey(line.stockItemId, a.warehouseId);
-      let level = levelOf.get(key);
+      const level = levelOf.get(key);
       if (!level) {
-        // a backorder on a warehouse where the item has no row yet: created at zero, locked
-        const created = await ensureLevel(
-          tx,
-          {
-            organizationId: input.organizationId,
-            stockItemId: line.stockItemId,
-            warehouseId: a.warehouseId,
-          },
-          true,
-        );
-        level = {
-          id: created.id,
-          stock_item_id: created.stock_item_id,
-          warehouse_id: created.warehouse_id,
-          on_hand: created.on_hand,
-          reserved: created.reserved,
-          available: created.available,
-        };
-        levelOf.set(key, level);
+        // Unreachable: a policy may only allocate what a LOCKED row has available, and a backorder lands on a
+        // row that exists. Creating a row here would break the lock order, so it is an error instead.
+        throw new AppError('internal', 'an allocation names a pool row that was not locked', {
+          variant_id: line.variantId,
+          stock_item_id: line.stockItemId,
+          warehouse_id: a.warehouseId,
+        });
       }
       await insertReservation(tx, {
         organizationId: input.organizationId,
@@ -333,17 +404,18 @@ export async function consumeForShipment(
     }
   }
   const variantIds = [...new Set(lines.map((l) => l.variantId))];
-  // variants first (SHARE, id order), then the pool rows the order's reservations hold (canonical order)
-  await variantStock(tx, variantIds, input.storeId);
+  // the lock order: variants, then the pool rows the order's reservations hold (their rows exist: nothing to create)
   const held = await tx.query<{ stock_item_id: string }>(
     `SELECT DISTINCT stock_item_id FROM reservation
      WHERE order_id = $1 AND variant_id = ANY($2) AND released_at IS NULL`,
     [input.orderId, variantIds],
   );
-  await lockLevels(
-    tx,
-    held.rows.map((r) => r.stock_item_id),
-  );
+  await lockStock(tx, {
+    organizationId: input.organizationId,
+    storeId: input.storeId,
+    variantIds,
+    stockItemIds: held.rows.map((r) => r.stock_item_id),
+  });
   for (const line of lines) {
     const open = await tx.query<{
       id: string;
@@ -499,9 +571,15 @@ export async function consumeReservationsForShipment(
  * so the same call twice releases once, a larger later call releases the difference, and an empty `items` means
  * everything the shipment consumed. Returns the units released now.
  *
- * A variant that was re-mapped to another stock item since the shipment consumed is refused with 409: the goods
- * belong to the item they left, and a reservation of this variant can no longer hold that item (`moveStock`
- * raises the conflict). Stock is moved by hand first — the same rule as the mapping itself.
+ * A variant that was RE-MAPPED to another stock item since this order reserved is refused with 409 `conflict`
+ * `{ variant_id, stock_item_id, current_stock_item_id }`: the goods belong to the item they left, and a
+ * reservation of this variant can no longer hold that item. This is decided from the order's RESERVATION rows —
+ * which a store always sees — BEFORE the ledger is read: under `pool_ledger` a store no longer sees its own
+ * movements on an item it stopped mapping, so the ledger alone would answer "nothing to release". Stock is moved
+ * by hand first — the same rule as the mapping itself.
+ *
+ * Locks: the lock order (`lockStock`) over the variants of `items` and the pool rows their reservations name,
+ * taken up front — never one row at a time.
  */
 export async function releaseReservationsForShipment(
   tx: Queryable,
@@ -514,6 +592,39 @@ export async function releaseReservationsForShipment(
     actor: Actor;
   },
 ): Promise<number> {
+  // 1. which variants: the lines asked for, or — with no lines — every variant the order ever reserved
+  const askedLines =
+    input.items.length > 0 ? await variantsOfLines(tx, input.orderId, input.items) : [];
+  const reservedBy = await tx.query<{ variant_id: string; stock_item_id: string }>(
+    `SELECT DISTINCT variant_id, stock_item_id FROM reservation WHERE order_id = $1 AND store_id = $2`,
+    [input.orderId, input.storeId],
+  );
+  const variantIds =
+    input.items.length > 0
+      ? [...new Set(askedLines.map((l) => l.variantId))]
+      : [...new Set(reservedBy.rows.map((r) => r.variant_id))];
+  const involved = reservedBy.rows.filter((r) => variantIds.includes(r.variant_id));
+  // 2. the lock order, up front: the variants, then every pool row their reservations name
+  const { variants } = await lockStock(tx, {
+    organizationId: input.organizationId,
+    storeId: input.storeId,
+    variantIds,
+    stockItemIds: involved.map((r) => r.stock_item_id),
+  });
+  // 3. a variant re-mapped since it reserved: refused here, before the ledger is read (see above)
+  for (const r of involved) {
+    const current = variants.get(r.variant_id);
+    if (current && current.stockItemId !== r.stock_item_id) {
+      throw conflict(
+        'the variant was re-mapped to another stock item since this order reserved; move the stock first',
+        {
+          variant_id: r.variant_id,
+          stock_item_id: r.stock_item_id,
+          current_stock_item_id: current.stockItemId,
+        },
+      );
+    }
+  }
   // canonical order: the asked quantity is spent warehouse by warehouse in this order (priority, then code)
   const consumed = await tx.query<{
     variant_id: string;
@@ -541,7 +652,7 @@ export async function releaseReservationsForShipment(
   let asked: Map<string, number> | undefined;
   if (input.items.length > 0) {
     asked = new Map();
-    for (const l of await variantsOfLines(tx, input.orderId, input.items)) {
+    for (const l of askedLines) {
       asked.set(l.variantId, (asked.get(l.variantId) ?? 0) + l.quantity);
     }
   }
@@ -570,7 +681,7 @@ export async function releaseReservationsForShipment(
       organizationId: input.organizationId,
       storeId: input.storeId,
       variantId: c.variant_id,
-      stockItemId: c.stock_item_id, // the pool row the goods left; 409 when the variant maps another item now
+      stockItemId: c.stock_item_id, // the pool row the goods left (locked above; the variant still maps it)
       warehouseId: c.warehouse_id,
       delta: quantity,
       reason: 'adjustment',

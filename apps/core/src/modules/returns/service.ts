@@ -8,7 +8,7 @@ import type { Queryable, ScopedClient } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { AppError, conflict, notFound, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
-import { moveStock } from '../inventory';
+import { lockStock, moveStock } from '../inventory';
 import {
   loadOrder,
   loadOrderLines,
@@ -330,7 +330,21 @@ export async function receiveReturn(
       received.map((r) => ({ lineItemId: r.order_line_item_id, quantity: r.quantity })),
       input.actor,
     );
-    // restock resellable goods through the inventory module (append-only ledger + stock.moved each)
+    // restock resellable goods through the inventory module (append-only ledger + stock.moved each). A return of
+    // several lines touches several pool rows: the inventory module's lock order is taken up front (variants,
+    // the rows this warehouse may still lack, then every pool row) — never one row at a time (#459 review).
+    const restocked = received
+      .filter((r) => r.condition === 'resellable')
+      .map((r) => lines.find((l) => l.id === r.order_line_item_id)?.variant_id)
+      .filter((id): id is string => typeof id === 'string');
+    if (restocked.length > 0) {
+      await lockStock(tx, {
+        organizationId: order.organization_id,
+        storeId: order.store_id,
+        variantIds: restocked,
+        ensureWarehouseId: input.warehouseId,
+      });
+    }
     for (const r of received) {
       if (r.condition !== 'resellable') continue;
       const line = lines.find((l) => l.id === r.order_line_item_id);
