@@ -1,6 +1,6 @@
 # Memory 11 — Shared warehouse / WMS
 Window: 11 · Key: `warehouse` · Branch prefix: `warehouse/` · Model: Sonnet
-Last updated: 2026-10-12 · Contracts: contracts-v0.4.14 + db 0.3.4 (Admin 0.4.12, Store 0.5.4, events 0.3.2) · Last commit: local only, nothing pushed · Status: #435 PR up as Refs #435 (engine + design + proposed 0191); 0190 on main (db 0.3.4); waiting for CI and for window 1's #456
+Last updated: 2026-10-12 · Contracts: contracts-v0.4.14 + db 0.3.4 (Admin 0.4.12, Store 0.5.4, events 0.3.2) · Last commit: 0c64b79 pushed (PR #457) · Status: #435 PR up as Refs #435 (engine + design + proposed 0191); 0190 on main (db 0.3.4); waiting for CI and for window 1's #456
 
 ## Identity (does not change)
 Owned paths (write):
@@ -19,7 +19,7 @@ Multi-brand allocation rules over shared stock locations, Odoo Inventory (or WMS
 - (nothing yet)
 
 ## In progress
-- **#435 (task 3.1) — PR going up as "Refs #435" (the manager gave the word to push 2026-10-12).** It carries the design README, the proposed 0191 + two event schemas + Admin API fragment, the engine (`allocation.ts`, `types.ts`, `index.ts`) and 66 tests. #435 itself closes only when the pool is live (after window 1's #456). PR number + code commit: see the line added after the push.
+- **#435 (task 3.1) — PR going up as "Refs #435" (the manager gave the word to push 2026-10-12).** It carries the design README, the proposed 0191 + two event schemas + Admin API fragment, the engine (`allocation.ts`, `types.ts`, `index.ts`) and 66 tests. #435 itself closes only when the pool is live (after window 1's #456). PR #457 (code commit 0c64b79; head = this memory commit — LOCAL until the next push: the manager allowed one push, so the remote head is 0c64b79).
 - **0190 is ON MAIN: #455 = 25b0c39, db 0.3.4.** main merged here; `proposed/0190_stock_pool.sql` deleted; `testing/pool-database.ts` applies only proposed 0191 on a database migrated by packages/db; `createTestDatabase` runs the real 0190 BEFORE the seed, so seeded variants have no item until the backfill (0191's first statement, or `SELECT app.backfill_stock_items()`).
 - **FROZEN since 2026-10-12: `proposed/0191_stock_pool_rekey.sql`, `proposed/stock.moved.v2.json`, `proposed/stock_item.mapped.v1.json`, `proposed/admin-api.stock-pool.yaml`.** Window 1 builds #456 against them. Any change = a message to the manager FIRST, then to window 1. (0191's header comment still says the tests apply 0190 + 0191; left as is for that reason.)
 - **Manager rulings on the engine (2026-10-12):** one shipment from a farther warehouse that covers the line beats a split from the nearest — CONFIRMED; the seeded 500-case property test without a new dependency is fine; the 4 failing hq-rbac live tests in the local gate are this worktree's environment (the core's vitest does not load the root .env, and this worktree never ran `pnpm --filter @platform/auth-sdk fga:seed`) — CI decides, do not dig, do not touch the stack; name them in the PR body.
