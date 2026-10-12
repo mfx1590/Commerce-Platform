@@ -50,3 +50,14 @@
 
 - `proposed/0192_cycle_count.sql`: a manual count must name its counter and a WMS pull must not (CHECK); the
   application role cannot DELETE a count. `proposed-cycle-count.test.ts` is 16 tests.
+
+### 2026-10-12 · cycle counts and reconciliation: the code (#436)
+
+- `cycle-counts.ts`: `createCycleCount`, `listCycleCounts`, `reconcileCycleCount` (one movement through the
+  `StockMover` port, flag above the tolerance, approval, idempotent by count id, delta against on-hand as of the
+  count, recomputed under the shelf's lock), `planOpenCounts`, `countTolerance`, `planReconciliation`.
+- `http.ts`: `cycleCountsAdminRouter` (three operations, `operations` on `organization:hq`).
+- `cli/reconcile.ts`: `--warehouse <code> --dry-run` prints the plan and writes nothing.
+- `wms/`: `WmsAdapter { pullCounts(warehouse) }`, the in-memory adapter, `recordWmsCounts`.
+- `cycle-counts.test.ts`: 29 tests on the proposed 0191 + 0192 with a local fake of `moveStock`.
+- Not mounted: the router and the stock mover are wired once window 1's #456 is on main.
