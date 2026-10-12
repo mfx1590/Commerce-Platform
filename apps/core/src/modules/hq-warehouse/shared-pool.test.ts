@@ -1,4 +1,4 @@
-// The shared pool end to end (#435), on a seeded throwaway database with 0190 (main) and the proposed 0191:
+// The shared pool end to end (#435), on a seeded throwaway database (migrations 0190 + 0191 in packages/db):
 // two brands map variants to one stock item, and the allocation policy decides under the pool rows' locks.
 //
 // `reserveThroughSeam` below is a LOCAL FAKE of the one hook asked of the inventory module in REQUEST #454 — what

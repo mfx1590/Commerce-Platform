@@ -1,13 +1,12 @@
-// The stock pool's migrations on a seeded throwaway database (#435, CONTRACT CHANGE #453). Step 1 (0190) is on
-// main since db 0.3.4 and runs with every test database; the seed runs after it, so this file runs 0190's own
-// backfill function over the seeded data, then applies the PROPOSED rekey (proposed/0191). Asserted: the backfill
-// is 1:1 and idempotent, only organization scope may map a variant, and row-level security holds the line the
-// manager drew (2026-10-12): a store-scoped session reaches a pool row ONLY when one of its stores maps the item,
-// the ledger only for its own stores' movements, and reservations stay store-scoped.
+// The stock pool's schema on a seeded throwaway database (#435; migrations 0190 + 0191 in packages/db). Asserted:
+// every variant has a stock item (the seed's two shared variants map ONE), the naming rule, only organization
+// scope may map a variant, and row-level security holds the line the manager drew (2026-10-12): a store-scoped
+// session reaches a pool row ONLY when one of its stores maps the item, the ledger only for its own stores'
+// movements, and reservations stay store-scoped.
 import { createOrganizationClient, createTenantClient, SEED_IDS } from '@platform/db';
 import type { TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { applyProposed, createPoolDatabase } from './testing/pool-database';
+import { createPoolDatabase } from './testing/pool-database';
 
 const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
@@ -26,26 +25,22 @@ interface Variant {
   stock_item_id: string;
 }
 // Brand A: `shared` (brand B's `mapped` variant is pooled onto its item) and `clash` (its sku is copied onto a
-// brand B variant before the backfill). Brand B: `own` stays alone on its item.
+// brand B variant). Brand B: `own` stays alone on its item. None of them is the seed's shared pair.
 let shared: Variant;
 let clash: Variant;
 let mapped: Variant;
 let own: Variant;
 let clashCopyId: string;
-let betweenId: string;
 let variantsBefore: number;
-let levelsBefore: { on_hand: string; reserved: string; rows: string };
 
 const VARIANT_COLS = `id, sku, product_id, stock_item_id`;
-const LEVEL_TOTALS = `SELECT sum(on_hand)::text AS on_hand, sum(reserved)::text AS reserved, count(*)::text AS rows
-   FROM inventory_level`;
-
+/** A store's variants that sit alone on their item (the seed's shared pair, SEED_IDS.sharedStock, is left out). */
 async function variantsOf(storeId: string, limit: number): Promise<Variant[]> {
   const { rows } = await db.owner.query<Variant>(
     `SELECT ${VARIANT_COLS} FROM product_variant
-     WHERE store_id = $1 AND manage_inventory AND title NOT IN ('Clash copy', 'Between')
+     WHERE store_id = $1 AND manage_inventory AND title <> 'Clash copy' AND stock_item_id <> $3
      ORDER BY sku LIMIT $2`,
-    [storeId, limit],
+    [storeId, limit, SEED_IDS.sharedStock.stockItem],
   );
   return rows;
 }
@@ -59,46 +54,45 @@ async function count(client: Counter, from: string, params: unknown[] = []): Pro
 }
 
 beforeAll(async () => {
-  db = await createPoolDatabase('seeded');
+  db = await createPoolDatabase();
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A] });
   b = createTenantClient(db.app, { organizationId: ORG, storeIds: [B] });
   hq = createOrganizationClient(db.app, { organizationId: ORG });
 
-  // Before the backfill: one sku carried by two brands, so it has a collision to resolve.
-  const seedA = await db.owner.query<{ id: string; sku: string }>(
-    `SELECT id, sku FROM product_variant WHERE store_id = $1 ORDER BY sku DESC LIMIT 1`,
+  // One sku carried by two brands: brand B gets a variant with a sku brand A already sells.
+  const seedA = await db.owner.query<Variant>(
+    `SELECT ${VARIANT_COLS} FROM product_variant WHERE store_id = $1 ORDER BY sku DESC LIMIT 1`,
     [A],
   );
+  clash = seedA.rows[0]!;
   const copy = await db.owner.query<{ id: string }>(
     `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title)
      SELECT organization_id, store_id, id, $2, 'Clash copy' FROM product WHERE store_id = $1 ORDER BY id LIMIT 1
      RETURNING id`,
-    [B, seedA.rows[0]!.sku],
+    [B, clash.sku],
   );
   clashCopyId = copy.rows[0]!.id;
   variantsBefore = await count(db.owner, `product_variant`);
-  levelsBefore = (await db.owner.query<typeof levelsBefore>(LEVEL_TOTALS)).rows[0]!;
-
-  // What 0190 ran on the day it landed, and what 0191 runs again first: the same function.
-  await db.owner.query(`SELECT app.backfill_stock_items()`);
-  clash = (
-    await db.owner.query<Variant>(`SELECT ${VARIANT_COLS} FROM product_variant WHERE id = $1`, [
-      seedA.rows[0]!.id,
-    ])
-  ).rows[0]!;
 }, 240_000);
 
 afterAll(async () => {
   await db?.drop();
 });
 
-describe('the backfill (0190)', () => {
-  it('gives every variant its own stock item, 1:1', async () => {
+describe('a stock item for every variant (0190 backfill, 0191 trigger)', () => {
+  it("maps every variant, one item each — except the seed's shared pair, which maps ONE", async () => {
     expect(await count(db.owner, `product_variant WHERE stock_item_id IS NULL`)).toBe(0);
-    expect(await count(db.owner, `stock_item`)).toBe(variantsBefore);
-    expect(
-      await count(db.owner, `(SELECT DISTINCT stock_item_id FROM product_variant) AS mapped`),
-    ).toBe(variantsBefore);
+    expect(await count(db.owner, `stock_item`)).toBe(variantsBefore - 1);
+    const pooled = await db.owner.query<{ stock_item_id: string; variants: string[] }>(
+      `SELECT stock_item_id, array_agg(id::text ORDER BY id) AS variants FROM product_variant
+       GROUP BY stock_item_id HAVING count(*) > 1`,
+    );
+    expect(pooled.rows).toEqual([
+      {
+        stock_item_id: SEED_IDS.sharedStock.stockItem,
+        variants: [SEED_IDS.sharedStock.variantBrandA, SEED_IDS.sharedStock.variantBrandB].sort(),
+      },
+    ]);
   });
 
   it('keeps the variant sku when it is unique in the organization', async () => {
@@ -110,37 +104,32 @@ describe('the backfill (0190)', () => {
     expect(item.rows[0]).toEqual({ sku: v!.sku, organization_id: ORG });
   });
 
-  it('prefixes the store code when two brands carry the same sku, and never merges them', async () => {
+  it('prefixes the store code for a variant whose sku already names an item, and never merges them', async () => {
     const { rows } = await db.owner.query<{ id: string; item_sku: string; stock_item_id: string }>(
       `SELECT v.id, si.sku AS item_sku, v.stock_item_id FROM product_variant v
        JOIN stock_item si ON si.id = v.stock_item_id WHERE v.id = ANY ($1::uuid[])`,
       [[clash.id, clashCopyId]],
     );
     const byId = new Map(rows.map((r) => [r.id, r]));
-    expect(byId.get(clash.id)!.item_sku).toBe(`brand-a:${clash.sku}`);
+    expect(byId.get(clash.id)!.item_sku).toBe(clash.sku);
     expect(byId.get(clashCopyId)!.item_sku).toBe(`brand-b:${clash.sku}`);
     expect(byId.get(clash.id)!.stock_item_id).not.toBe(byId.get(clashCopyId)!.stock_item_id);
   });
 
-  it('is idempotent and leaves the inventory tables alone', async () => {
+  it('leaves the backfill nothing to do', async () => {
     const again = await db.owner.query<{ n: number }>(`SELECT app.backfill_stock_items() AS n`);
     expect(again.rows[0]!.n).toBe(0);
-    expect(
-      await count(
-        db.owner,
-        `information_schema.columns WHERE column_name = 'stock_item_id'
-         AND table_name IN ('inventory_level', 'reservation', 'stock_movement')`,
-      ),
-    ).toBe(0);
   });
 
   it('lets a store session see only the items its own variants map', async () => {
-    expect(await count(a, `stock_item`)).toBe(await count(a, `product_variant`));
-    expect(await count(hq, `stock_item`)).toBe(variantsBefore);
+    expect(await count(a, `stock_item`)).toBe(
+      await count(a, `(SELECT DISTINCT stock_item_id FROM product_variant) AS mine`),
+    );
+    expect(await count(hq, `stock_item`)).toBe(variantsBefore - 1);
   });
 });
 
-describe('the mapping guard (0190), before any rekey', () => {
+describe('the mapping guard (0190)', () => {
   const remap = `UPDATE product_variant SET stock_item_id = $2 WHERE id = $1`;
   const insertMapped = `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title, stock_item_id)
      VALUES ($1, $2, $3, $4, 'Mapped at insert', $5)`;
@@ -212,16 +201,6 @@ describe('the mapping guard (0190), before any rekey', () => {
 
 describe('0191 (rekey)', () => {
   beforeAll(async () => {
-    // A variant created between the two migrations has no item yet; 0191 starts with the same backfill.
-    const between = await db.owner.query<{ id: string }>(
-      `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title)
-       SELECT organization_id, store_id, id, 'between-migrations-one', 'Between' FROM product
-       WHERE store_id = $1 ORDER BY id LIMIT 1 RETURNING id`,
-      [A],
-    );
-    betweenId = between.rows[0]!.id;
-    await applyProposed(db, '0191_stock_pool_rekey.sql');
-
     const [a1] = await variantsOf(A, 1);
     const [b1, b2] = await variantsOf(B, 2);
     shared = a1!;
@@ -234,12 +213,7 @@ describe('0191 (rekey)', () => {
     ]);
   }, 240_000);
 
-  it('backfills the variant created since 0190 and makes the column mandatory', async () => {
-    expect(
-      await count(db.owner, `product_variant WHERE id = $1 AND stock_item_id IS NOT NULL`, [
-        betweenId,
-      ]),
-    ).toBe(1);
+  it('makes the mapping mandatory', async () => {
     expect(
       await count(
         db.owner,
@@ -249,8 +223,7 @@ describe('0191 (rekey)', () => {
     ).toBe(1);
   });
 
-  it('carries every level over: same rows, same on-hand, same reserved', async () => {
-    expect((await db.owner.query(LEVEL_TOTALS)).rows[0]).toEqual(levelsBefore);
+  it('keys a level by stock item: no store, no variant', async () => {
     expect(
       await count(
         db.owner,
@@ -319,7 +292,7 @@ describe('0191 (rekey)', () => {
 
     it('organization scope sees every pool row', async () => {
       expect(await count(hq, `stock_item`)).toBe(await count(db.owner, `stock_item`));
-      expect(await count(hq, `inventory_level`)).toBe(Number(levelsBefore.rows));
+      expect(await count(hq, `inventory_level`)).toBe(await count(db.owner, `inventory_level`));
     });
 
     it("brand A sees the pool's reserved total but not brand B's reservation rows", async () => {
