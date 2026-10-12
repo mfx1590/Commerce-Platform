@@ -37,7 +37,8 @@ paths:
       summary: Record that a stock item was counted in a warehouse (changes no stock)
       description: >
         Writes the count down with status `recorded`; stock changes only through `reconcileCycleCount`.
-        `counted_at` defaults to now and may not be in the future (422). Refused with 409 `superseded` when a
+        `counted_at` defaults to now and may not be in the future (422 `validation_error`). Refused with 409
+        `conflict` (`details.reason` = `superseded`) when a
         count of the same stock item and warehouse with the same or a later `counted_at` has already been applied.
       x-permission: { relation: operations, object: 'organization:hq' }
       requestBody:
@@ -65,21 +66,31 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: A later count of this stock item and warehouse has already been applied (`superseded`)
+          description: A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example:
                 {
-                  code: superseded,
+                  code: conflict,
                   message: a later count of this stock item and warehouse has already been applied,
-                  details: { applied_cycle_count_id: 72000000-0000-4000-8000-000000000002 },
+                  details:
+                    {
+                      reason: superseded,
+                      applied_cycle_count_id: 72000000-0000-4000-8000-000000000002,
+                    },
                 }
         '422':
-          description: '`counted_at` is in the future'
+          description: '`counted_at` is in the future (`validation_error`)'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: validation_error,
+                  message: counted_at may not be in the future,
+                  details: { field: counted_at },
+                }
 
   /admin/cycle-counts/{cycleCountId}/reconcile:
     parameters:
@@ -117,7 +128,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: A later count of this stock item and warehouse has already been applied (`superseded`)
+          description: A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
