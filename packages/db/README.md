@@ -39,3 +39,14 @@ rules stay per store and one rule per store + scope is enforced. Since 0.2.2 it 
 accepts `buy_x_get_y` and still refuses unknown types. Since 0.3.3 it covers `notification_delivery` (0180): rows
 stay per store, organization scope sees every store, a re-delivered `event_id` conflicts, and the table has no
 recipient column.
+
+## Stock pool (0190, db 0.3.4; step 1 of 2)
+
+`stock_item` is organization-level: what physically lies on a shelf, shared by the brands that map it. A store's
+variant points at one item through `product_variant.stock_item_id` (nullable until 0191). Whoever maps a variant
+gains that item's pool rows, so the mapping is guarded in the database: only organization scope may insert a variant
+that is already mapped or change a mapping (trigger `guard_variant_stock_item`, 42501 otherwise, a missing scope
+included). Row security for the pool uses the kinds `pool_self`, `pool` and `pool_ledger` (see the migration): a
+store-scoped session reaches a pool row only when one of its own stores maps the item, and a ledger row only when it
+is also attributed to one of its stores; organization scope sees all. The backfill runs as the migration role, which
+must bypass row security (it does locally and in CI), and maps every existing variant 1:1.
