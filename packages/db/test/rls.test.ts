@@ -452,4 +452,122 @@ describe('row-level security (platform_app role)', () => {
     expect(cols).toContain('organization_id');
     expect(cols.filter((c) => /email|recipient|address|phone|name/.test(c))).toEqual([]);
   });
+
+  // --- stock pool (0190) ---------------------------------------------------------------------------
+  const poolVariant = async (store: string, sku: string): Promise<string> => {
+    const client = createTenantClient(db.app, { organizationId: ORG, storeIds: [store] });
+    const made = await client.query<{ id: string }>(
+      `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title)
+       SELECT $1, $2, p.id, $3, 'One size' FROM product p WHERE p.store_id = $2 RETURNING id`,
+      [ORG, store, sku],
+    );
+    const row = made.rows[0];
+    if (!row) throw new Error(`no variant created for ${sku}`);
+    return row.id;
+  };
+  const stockItemOf = async (variantId: string): Promise<string> => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const found = await hq.query<{ stock_item_id: string | null }>(
+      'SELECT stock_item_id FROM product_variant WHERE id = $1',
+      [variantId],
+    );
+    const item = found.rows[0]?.stock_item_id;
+    if (!item) throw new Error(`variant ${variantId} has no stock item`);
+    return item;
+  };
+
+  it('stock pool (0190): a store session reaches only the stock items its own variants map', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    // a variant is created unmapped in store scope (what the catalog does until 0191) ...
+    const variantA = await poolVariant(STORE_A, 'POOL-A');
+    const variantB = await poolVariant(STORE_B, 'POOL-B');
+    // ... and the backfill maps every unmapped variant 1:1, never merging
+    await db.owner.query('SELECT app.backfill_stock_items()');
+    const itemA = await stockItemOf(variantA);
+    const itemB = await stockItemOf(variantB);
+    expect(itemA).not.toBe(itemB);
+    const named = await hq.query<{ sku: string }>(
+      'SELECT sku FROM stock_item WHERE id = ANY($1) ORDER BY sku',
+      [[itemA, itemB]],
+    );
+    expect(named.rows).toEqual([{ sku: 'POOL-A' }, { sku: 'POOL-B' }]);
+    // a second run touches nothing that is already mapped
+    await db.owner.query('SELECT app.backfill_stock_items()');
+    expect(await stockItemOf(variantA)).toBe(itemA);
+
+    // store A: its own item, never brand B's — to read or to write
+    const seen = await a.query<{ id: string }>('SELECT id FROM stock_item WHERE id = ANY($1)', [
+      [itemA, itemB],
+    ]);
+    expect(seen.rows.map((r) => r.id)).toEqual([itemA]);
+    const touched = await a.query('UPDATE stock_item SET name = $2 WHERE id = $1', [itemB, 'x']);
+    expect(touched.rowCount).toBe(0);
+    // a store session cannot create a stock item: no variant maps a row that does not exist yet
+    await expect(
+      a.query(`INSERT INTO stock_item (organization_id, sku, name) VALUES ($1, 'ROGUE', 'Rogue')`, [
+        ORG,
+      ]),
+    ).rejects.toThrow(/row-level security/);
+    // organization scope sees both; another organization none
+    const both = await hq.query('SELECT id FROM stock_item WHERE id = ANY($1)', [[itemA, itemB]]);
+    expect(both.rows).toHaveLength(2);
+    const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
+    expect((await other.query('SELECT id FROM stock_item')).rows).toHaveLength(0);
+  });
+
+  it('stock pool (0190): only organization scope may map a variant to a stock item', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const variantA = await poolVariant(STORE_A, 'MAP-A');
+    const variantB = await poolVariant(STORE_B, 'MAP-B');
+    await db.owner.query('SELECT app.backfill_stock_items()');
+    const itemA = await stockItemOf(variantA);
+    const itemB = await stockItemOf(variantB);
+    const refused = /only organization scope may/;
+
+    // store scope cannot point its variant at another brand's item (which would hand it that item's pool) ...
+    await expect(
+      a.query('UPDATE product_variant SET stock_item_id = $2 WHERE id = $1', [variantA, itemB]),
+    ).rejects.toThrow(refused);
+    // ... nor insert a variant that arrives already mapped — to an item it maps, or to one it does not
+    for (const [sku, item] of [
+      ['MAP-A2', itemA],
+      ['MAP-A3', itemB],
+    ] as const) {
+      await expect(
+        a.query(
+          `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title, stock_item_id)
+           SELECT $1, $2, p.id, $3, 'One size', $4 FROM product p WHERE p.store_id = $2`,
+          [ORG, STORE_A, sku, item],
+        ),
+      ).rejects.toThrow(refused);
+    }
+    // fail closed: a session with no scope at all (the owner role) is refused too
+    await expect(
+      db.owner.query('UPDATE product_variant SET stock_item_id = $2 WHERE id = $1', [
+        variantA,
+        itemB,
+      ]),
+    ).rejects.toThrow(refused);
+    expect(await stockItemOf(variantA)).toBe(itemA);
+
+    // an ordinary edit of the variant in store scope is untouched by the guard
+    const edited = await a.query(`UPDATE product_variant SET title = 'Edited' WHERE id = $1`, [
+      variantA,
+    ]);
+    expect(edited.rowCount).toBe(1);
+
+    // organization scope maps — and only then does the store reach the shared item
+    expect((await a.query('SELECT id FROM stock_item WHERE id = $1', [itemB])).rows).toHaveLength(
+      0,
+    );
+    await hq.query('UPDATE product_variant SET stock_item_id = $2 WHERE id = $1', [
+      variantA,
+      itemB,
+    ]);
+    expect((await a.query('SELECT id FROM stock_item WHERE id = $1', [itemB])).rows).toHaveLength(
+      1,
+    );
+  });
 });

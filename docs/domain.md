@@ -74,6 +74,24 @@ Physical stock location, shared by all stores (decision 3: own warehouses `wh-eu
 
 Owner: window 11 (warehouse); Phase 1 CRUD by window 1. Events: none in v0.1.
 
+### stock_item
+What physically lies on a shelf (db 0.3.4, migration 0190; CONTRACT CHANGE #453). Organization-level: the brands that
+map it share one stock pool. A store's `product_variant.stock_item_id` points at one item (nullable until 0191, then
+mandatory); the backfill maps every variant 1:1 and never merges — pooling two brands is an explicit HQ act.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id | uuid FK | |
+| sku | text | unique per organization; the variant's sku when unique, else `<store code>:<sku>` |
+| name | text | |
+| barcode | text NULL | |
+
+RLS kind `pool_self`: organization scope sees every item; a store-scoped session only the items one of its own
+stores' variants maps. Only organization scope may map a variant (database trigger, 42501 otherwise). From 0191 the
+pool's rows (`inventory_level`, `stock_movement`) are keyed by stock item; reservations stay per store.
+Owner: window 11 (warehouse). Events: `stock.moved` v2 and `stock_item.mapped` arrive with 0191.
+
 ### staff_user
 Mirror of a Keycloak staff-realm user. Roles are NOT stored here (OpenFGA is the source of truth).
 
