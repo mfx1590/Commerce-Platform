@@ -3,7 +3,12 @@
 // A count is written down; reconciliation turns its discrepancy into exactly ONE stock movement — through the
 // inventory module, the only writer of `on_hand` — or flags it for an approval. A level is never edited here.
 //
-//   delta = counted − on-hand AS OF the count = counted − (on-hand now − movements written since counted_at)
+//   delta = counted − on-hand AS OF the count = counted − (on-hand now − PHYSICAL movements since counted_at)
+//
+// "Physical" is every movement except reason `cycle_count`. A cycle-count adjustment moves no goods: it corrects
+// the books to what a count saw. Reading one as "a movement since" would undo it — count A approved after count B
+// was taken would be subtracted from B's baseline and A's discrepancy applied a second time. (An adjustment from
+// a count taken AFTER this one never gets here: that count is applied, so this one is refused as superseded.)
 //
 // Everything that decides is computed under the shelf's lock at apply time (at reconcile, and again at approval),
 // never taken from an earlier read. Every function takes an ORGANIZATION-scoped client: counts are an HQ record
@@ -11,7 +16,7 @@
 import type { Queryable, ScopedClient } from '@platform/db';
 import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError, notFound } from '../../lib/errors';
-import { moveStock } from '../inventory';
+import { ensureLevel, moveStock } from '../inventory';
 
 export type CycleCountStatus = 'recorded' | 'flagged' | 'applied';
 export const CYCLE_COUNT_STATUSES: readonly CycleCountStatus[] = ['recorded', 'flagged', 'applied'];
@@ -104,7 +109,7 @@ export interface ReconciliationPlan {
 export function planReconciliation(input: {
   countedQuantity: number;
   onHandNow: number;
-  /** Sum of the deltas of the movements written since the count. */
+  /** Sum of the deltas of the PHYSICAL movements written since the count (never a `cycle_count` one). */
   movedSinceCount: number;
   tolerance: number;
   approve: boolean;
@@ -290,21 +295,34 @@ export async function listCycleCounts(
   });
 }
 
-/** What the shelf says right now, read inside the caller's transaction (under `lockShelf`). */
+/** Movements that moved goods. A `cycle_count` movement corrects the books and is never one of them. */
+const PHYSICAL = `reason <> 'cycle_count'`;
+
+/**
+ * What the shelf says right now, inside the caller's transaction. The pool row is taken through the inventory
+ * module's `ensureLevel` — created at zero when the shelf has never held the item, THEN locked — so the row
+ * exists before it is read and every other writer of the shelf (they all lock this row) queues behind us. One
+ * pool row per reconciliation, so the module's lock order holds trivially.
+ */
 async function readShelf(
   tx: Queryable,
-  shelf: { stockItemId: string; warehouseId: string; countedAt: Date },
+  shelf: { organizationId: string; stockItemId: string; warehouseId: string; countedAt: Date },
 ): Promise<{ onHandNow: number; movedSinceCount: number }> {
-  const level = await tx.query<{ on_hand: number }>(
-    `SELECT on_hand FROM inventory_level WHERE stock_item_id = $1 AND warehouse_id = $2 FOR UPDATE`,
-    [shelf.stockItemId, shelf.warehouseId],
+  const level = await ensureLevel(
+    tx,
+    {
+      organizationId: shelf.organizationId,
+      stockItemId: shelf.stockItemId,
+      warehouseId: shelf.warehouseId,
+    },
+    true,
   );
   const moved = await tx.query<{ n: string }>(
     `SELECT coalesce(sum(delta), 0)::text AS n FROM stock_movement
-     WHERE stock_item_id = $1 AND warehouse_id = $2 AND created_at > $3`,
+     WHERE stock_item_id = $1 AND warehouse_id = $2 AND created_at > $3 AND ${PHYSICAL}`,
     [shelf.stockItemId, shelf.warehouseId, shelf.countedAt],
   );
-  return { onHandNow: level.rows[0]?.on_hand ?? 0, movedSinceCount: Number(moved.rows[0]!.n) };
+  return { onHandNow: level.on_hand, movedSinceCount: Number(moved.rows[0]!.n) };
 }
 
 async function toleranceOf(tx: Queryable, organizationId: string): Promise<number> {
@@ -358,7 +376,7 @@ export async function reconcileCycleCount(
 
     const plan = planReconciliation({
       countedQuantity: before.counted_quantity,
-      ...(await readShelf(tx, shelf)),
+      ...(await readShelf(tx, { organizationId: options.organizationId, ...shelf })),
       tolerance: await toleranceOf(tx, options.organizationId),
       approve,
     });
@@ -428,6 +446,12 @@ export interface PlannedReconciliation extends ReconciliationPlan {
   status: CycleCountStatus;
   /** A later count of the shelf is already applied: reconciling this one would answer 409. */
   superseded: boolean;
+  /**
+   * A newer count of the same shelf is open too. Each line is computed as if it were reconciled alone, now:
+   * once this one is applied the newer one's delta shrinks by it, and once the newer one is applied this one is
+   * superseded — reconcile the newest.
+   */
+  newerOpenCount: boolean;
 }
 
 /**
@@ -446,14 +470,17 @@ export async function planOpenCounts(
     if (!warehouseId) throw notFound('warehouse', input.warehouseCode);
     const tolerance = await toleranceOf(tx, input.organizationId);
     const open = await tx.query<
-      Row & { on_hand_now: number; moved_since: string; superseded: boolean }
+      Row & { on_hand_now: number; moved_since: string; superseded: boolean; newer_open: boolean }
     >(
       `SELECT ${COLUMNS},
               coalesce((SELECT il.on_hand FROM inventory_level il
                         WHERE il.stock_item_id = c.stock_item_id AND il.warehouse_id = c.warehouse_id), 0) AS on_hand_now,
               (SELECT coalesce(sum(m.delta), 0)::text FROM stock_movement m
                WHERE m.stock_item_id = c.stock_item_id AND m.warehouse_id = c.warehouse_id
-                 AND m.created_at > c.counted_at) AS moved_since,
+                 AND m.created_at > c.counted_at AND m.${PHYSICAL}) AS moved_since,
+              EXISTS (SELECT 1 FROM cycle_count n
+                      WHERE n.stock_item_id = c.stock_item_id AND n.warehouse_id = c.warehouse_id
+                        AND n.status <> 'applied' AND n.counted_at > c.counted_at) AS newer_open,
               EXISTS (SELECT 1 FROM cycle_count l
                       WHERE l.stock_item_id = c.stock_item_id AND l.warehouse_id = c.warehouse_id
                         AND l.status = 'applied' AND l.counted_at >= c.counted_at AND l.id <> c.id) AS superseded
@@ -472,6 +499,7 @@ export async function planOpenCounts(
         countedAt: r.counted_at.toISOString(),
         status: r.status,
         superseded: r.superseded,
+        newerOpenCount: r.newer_open,
         ...planReconciliation({
           countedQuantity: r.counted_quantity,
           onHandNow: r.on_hand_now,
