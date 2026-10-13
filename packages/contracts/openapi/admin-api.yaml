@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.13
+  version: 0.4.14
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -19,6 +19,9 @@ info:
     0.4.13 (#453, stock pool step 2) adds `listStockItems` and `mapVariantToStockItem` under `/admin/stock-items`
     (organization scope) with `StockItem` / `StockLevel`, and `InventoryLevel` carries the pool row's numbers and a
     required `stock_item_id`.
+    0.4.14 (#458, cycle counts) adds `listCycleCounts`, `createCycleCount` and `reconcileCycleCount` under
+    `/admin/cycle-counts` (`operations` on `organization:hq`) with `CycleCount`. A superseded count is a 409
+    `conflict` with `details.reason`; no new error code.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -1874,6 +1877,191 @@ paths:
                       open_reservations: 1,
                     },
                 }
+
+  # ---------------------------------------------------------------- cycle counts (CONTRACT CHANGE #458)
+  /admin/cycle-counts:
+    get:
+      tags: [inventory]
+      operationId: listCycleCounts
+      summary: Cycle counts of the shared pool, newest count first
+      x-permission: { relation: operations, object: 'organization:hq' }
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: stock_item_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [recorded, flagged, applied] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/CycleCount' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 72000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    sku: TEE-M-RED
+                    counted_quantity: 38
+                    counted_by: 00000000-0000-4000-8000-000000000043
+                    counted_at: '2026-10-12T08:30:00Z'
+                    source: manual
+                    note: null
+                    status: recorded
+                    on_hand_as_of_count: null
+                    delta: null
+                    stock_movement_id: null
+                    approved_by: null
+                    approved_at: null
+                    reconciled_at: null
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [inventory]
+      operationId: createCycleCount
+      summary: Record that a stock item was counted in a warehouse (changes no stock)
+      description: >
+        Writes the count down with status `recorded`; stock changes only through `reconcileCycleCount`.
+        `counted_at` defaults to now and may not be in the future (422 `validation_error`). Refused with 409
+        `conflict` (`details.reason` = `superseded`) when a
+        count of the same stock item and warehouse with the same or a later `counted_at` has already been applied.
+      x-permission: { relation: operations, object: 'organization:hq' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [warehouse_id, stock_item_id, counted_quantity]
+              properties:
+                warehouse_id: { type: string, format: uuid }
+                stock_item_id: { type: string, format: uuid }
+                counted_quantity: { type: integer, minimum: 0 }
+                counted_at: { type: string, format: date-time }
+                note: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CycleCount' }
+              example:
+                id: 72000000-0000-4000-8000-000000000001
+                warehouse_id: 00000000-0000-4000-8000-000000000021
+                stock_item_id: 71000000-0000-4000-8000-000000000001
+                sku: TEE-M-RED
+                counted_quantity: 38
+                counted_by: 00000000-0000-4000-8000-000000000043
+                counted_at: '2026-10-12T08:30:00Z'
+                source: manual
+                note: null
+                status: recorded
+                on_hand_as_of_count: null
+                delta: null
+                stock_movement_id: null
+                approved_by: null
+                approved_at: null
+                reconciled_at: null
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: conflict,
+                  message: a later count of this stock item and warehouse has already been applied,
+                  details:
+                    {
+                      reason: superseded,
+                      applied_cycle_count_id: 72000000-0000-4000-8000-000000000002,
+                    },
+                }
+        '422':
+          description: '`counted_at` is in the future (`validation_error`)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: validation_error,
+                  message: counted_at may not be in the future,
+                  details: { field: counted_at },
+                }
+
+  /admin/cycle-counts/{cycleCountId}/reconcile:
+    parameters:
+      - { name: cycleCountId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [inventory]
+      operationId: reconcileCycleCount
+      summary: Turn the count's discrepancy into one stock movement, or flag it for approval
+      description: >
+        Under the pool row's lock: on-hand as of `counted_at` = on-hand now minus the movements written since;
+        delta = `counted_quantity` minus that. |delta| within `organization.settings.warehouse.count_tolerance`
+        (non-negative integer, units; unset or malformed = 0): exactly one stock movement (reason `cycle_count`,
+        no store, one `stock.moved` in the same transaction) and status `applied` — no movement when the delta
+        is 0. Above the tolerance: nothing moves, status `flagged`, 200. A call with `approve: true` recomputes
+        under the lock and applies whatever the delta is, recording the approver on the count and in the audit
+        log. Idempotent by count: reconciling an `applied` count changes nothing and answers the same count.
+      x-permission: { relation: operations, object: 'organization:hq' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                approve: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The count after reconciliation (`applied` or `flagged`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CycleCount' }
+              example:
+                id: 72000000-0000-4000-8000-000000000001
+                warehouse_id: 00000000-0000-4000-8000-000000000021
+                stock_item_id: 71000000-0000-4000-8000-000000000001
+                sku: TEE-M-RED
+                counted_quantity: 38
+                counted_by: 00000000-0000-4000-8000-000000000043
+                counted_at: '2026-10-12T08:30:00Z'
+                source: manual
+                note: null
+                status: applied
+                on_hand_as_of_count: 40
+                delta: -2
+                stock_movement_id: 73000000-0000-4000-8000-000000000001
+                approved_by: null
+                approved_at: null
+                reconciled_at: '2026-10-12T08:31:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   # ---------------------------------------------------------------- fulfillment
   /admin/stores/{storeId}/shipping-options:
@@ -5002,6 +5190,50 @@ components:
         reserved: { type: integer }
         incoming: { type: integer }
         available: { type: integer }
+    CycleCount:
+      type: object
+      required:
+        [
+          id,
+          warehouse_id,
+          stock_item_id,
+          sku,
+          counted_quantity,
+          counted_by,
+          counted_at,
+          source,
+          note,
+          status,
+          on_hand_as_of_count,
+          delta,
+          stock_movement_id,
+          approved_by,
+          approved_at,
+          reconciled_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        stock_item_id: { type: string, format: uuid }
+        sku: { type: string, description: The stock item's sku }
+        counted_quantity: { type: integer, minimum: 0 }
+        counted_by: { type: [string, 'null'], format: uuid, description: null for a system source }
+        counted_at: { type: string, format: date-time }
+        source: { type: string, enum: [manual, wms] }
+        note: { type: [string, 'null'] }
+        status: { type: string, enum: [recorded, flagged, applied] }
+        on_hand_as_of_count:
+          { type: [integer, 'null'], description: null until the count is first reconciled }
+        delta: { type: [integer, 'null'], description: counted_quantity minus on_hand_as_of_count }
+        stock_movement_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: set when a non-zero delta was applied,
+          }
+        approved_by: { type: [string, 'null'], format: uuid }
+        approved_at: { type: [string, 'null'], format: date-time }
+        reconciled_at: { type: [string, 'null'], format: date-time }
     ShippingOptionInput:
       type: object
       required: [code, name, price_minor, currency, countries]

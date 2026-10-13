@@ -842,4 +842,218 @@ describe('row-level security (platform_app role)', () => {
       ),
     ).rejects.toThrow(/stock_item_id/);
   });
+
+  // --- cycle counts (0192): an HQ record, RLS kind organization_only -----------------------------------
+  const countStaff = async (key: string): Promise<string> => {
+    const hq = createOrganizationClient(db.owner, { organizationId: ORG });
+    const made = await hq.query<{ id: string }>(
+      `INSERT INTO staff_user (organization_id, keycloak_subject, email, display_name)
+       VALUES ($1, 'kc-' || $2, $2 || '@example.com', 'Counter') RETURNING id`,
+      [ORG, key],
+    );
+    const row = made.rows[0];
+    if (!row) throw new Error(`no staff user ${key}`);
+    return row.id;
+  };
+  /** The name Postgres gave the cycle_count CHECK whose definition contains `fragment` (exactly one). */
+  const countCheck = async (fragment: string): Promise<RegExp> => {
+    const found = await db.owner.query<{ conname: string }>(
+      `SELECT conname FROM pg_constraint
+        WHERE conrelid = 'cycle_count'::regclass AND contype = 'c' AND position($1 in pg_get_constraintdef(oid)) > 0`,
+      [fragment],
+    );
+    expect(found.rows, fragment).toHaveLength(1);
+    return new RegExp(`"${found.rows[0]!.conname}"`);
+  };
+  // $5 counted_by, $6 source, $7 status, $8 on_hand_as_of_count, $9 delta, $10 stock_movement_id, $11 reconciled_at
+  const record = `INSERT INTO cycle_count (organization_id, warehouse_id, stock_item_id, counted_quantity, counted_by,
+                    counted_at, source, status, on_hand_as_of_count, delta, stock_movement_id, reconciled_at)
+                  VALUES ($1, $2, $3, $4, $5, now() - interval '1 hour', $6, $7, $8, $9, $10, $11) RETURNING id`;
+
+  it('cycle counts (0192): organization_only — no store session reads or writes a count, not even for an item it maps', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const both = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A, STORE_B] });
+    const warehouse = await poolWarehouse('wh-pool');
+    const { item } = await sharedItem('COUNT');
+    const counter = await countStaff('count-rls');
+    const recorded = [
+      ORG,
+      warehouse,
+      item,
+      7,
+      counter,
+      'manual',
+      'recorded',
+      null,
+      null,
+      null,
+      null,
+    ];
+
+    // the policy is the new kind: the organization's rows, in organization scope only
+    const policy = await db.owner.query<{ qual: string; with_check: string }>(
+      `SELECT qual, with_check FROM pg_policies WHERE tablename = 'cycle_count' AND policyname = 'tenant_isolation'`,
+    );
+    expect(policy.rows).toHaveLength(1);
+    expect(policy.rows[0]?.qual).toMatch(/current_organization_id\(\)/);
+    expect(policy.rows[0]?.qual).toMatch(/current_scope\(\) = 'organization'/);
+    expect(policy.rows[0]?.qual).not.toMatch(/can_access_store|product_variant/);
+    expect(policy.rows[0]?.with_check).toBe(policy.rows[0]?.qual);
+
+    // organization scope writes a count down and reads it back
+    const made = await hq.query<{ id: string }>(record, recorded);
+    const id = made.rows[0]!.id;
+    const read = await hq.query<{ status: string; source: string; counted_quantity: number }>(
+      'SELECT status, source, counted_quantity FROM cycle_count WHERE id = $1',
+      [id],
+    );
+    expect(read.rows).toEqual([{ status: 'recorded', source: 'manual', counted_quantity: 7 }]);
+
+    // store A maps the counted item (it reads the item itself) and still reaches no count of it
+    const mapped = await a.query('SELECT id FROM stock_item WHERE id = $1', [item]);
+    expect(mapped.rows).toHaveLength(1);
+    for (const store of [a, both]) {
+      expect((await store.query('SELECT id FROM cycle_count')).rows).toHaveLength(0);
+      const byItem = await store.query('SELECT id FROM cycle_count WHERE stock_item_id = $1', [
+        item,
+      ]);
+      expect(byItem.rows).toHaveLength(0);
+      await expect(store.query(record, recorded)).rejects.toThrow(/row-level security/);
+      const edited = await store.query(`UPDATE cycle_count SET note = 'store' WHERE id = $1`, [id]);
+      expect(edited.rowCount).toBe(0);
+    }
+    // no context at all reads nothing either
+    expect((await db.app.query('SELECT id FROM cycle_count')).rows).toHaveLength(0);
+
+    // organization scope updates it (a count is updated as it is reconciled); the store's attempt left no trace
+    const noted = await hq.query(`UPDATE cycle_count SET note = 'recount' WHERE id = $1`, [id]);
+    expect(noted.rowCount).toBe(1);
+    const after = await hq.query<{ note: string | null }>(
+      'SELECT note FROM cycle_count WHERE stock_item_id = $1',
+      [item],
+    );
+    expect(after.rows).toEqual([{ note: 'recount' }]);
+
+    // another organization reads none, and cannot write one in this organization's name
+    const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
+    expect((await other.query('SELECT id FROM cycle_count')).rows).toHaveLength(0);
+    await expect(other.query(record, recorded)).rejects.toThrow(/row-level security/);
+  });
+
+  it('cycle counts (0192): a count is never deleted by the application role, not even in organization scope', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const warehouse = await poolWarehouse('wh-pool');
+    const { item } = await sharedItem('COUNT-DEL');
+    const counter = await countStaff('count-delete');
+    const made = await hq.query<{ id: string }>(record, [
+      ORG,
+      warehouse,
+      item,
+      3,
+      counter,
+      'manual',
+      'recorded',
+      null,
+      null,
+      null,
+      null,
+    ]);
+    const id = made.rows[0]!.id;
+
+    await expect(hq.query('DELETE FROM cycle_count WHERE id = $1', [id])).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(a.query('DELETE FROM cycle_count WHERE id = $1', [id])).rejects.toThrow(
+      /permission denied/,
+    );
+    const grants = await db.owner.query<{ privilege_type: string }>(
+      `SELECT privilege_type FROM information_schema.role_table_grants
+        WHERE table_name = 'cycle_count' AND grantee = 'platform_app' ORDER BY privilege_type`,
+    );
+    expect(grants.rows.map((r) => r.privilege_type)).toEqual(['INSERT', 'SELECT', 'UPDATE']);
+    const kept = await hq.query('SELECT id FROM cycle_count WHERE id = $1', [id]);
+    expect(kept.rows).toHaveLength(1);
+  });
+
+  it('cycle counts (0192): a manual count has a counter and a wms count has none; a movement is linked exactly when a non-zero delta was applied', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const warehouse = await poolWarehouse('wh-pool');
+    const { item } = await sharedItem('COUNT-CHECK');
+    const counter = await countStaff('count-check');
+    const hasCounter = await countCheck('counted_by IS NOT NULL');
+    const hasMovement = await countCheck('stock_movement_id IS NOT NULL');
+    expect(String(hasCounter)).not.toBe(String(hasMovement));
+    const now = new Date();
+    const movement = async (delta: number): Promise<string> => {
+      const made = await hq.query<{ id: string }>(
+        `INSERT INTO stock_movement (organization_id, stock_item_id, warehouse_id, delta, reason)
+         VALUES ($1, $2, $3, $4, 'cycle_count') RETURNING id`,
+        [ORG, item, warehouse, delta],
+      );
+      return made.rows[0]!.id;
+    };
+    const row = (
+      countedBy: string | null,
+      source: string,
+      status: string,
+      onHand: number | null,
+      delta: number | null,
+      movementId: string | null,
+    ): unknown[] => [
+      ORG,
+      warehouse,
+      item,
+      onHand === null || delta === null ? 7 : onHand + delta,
+      countedBy,
+      source,
+      status,
+      onHand,
+      delta,
+      movementId,
+      status === 'recorded' ? null : now,
+    ];
+
+    // the counter: manual needs one, wms refuses one
+    await expect(
+      hq.query(record, row(null, 'manual', 'recorded', null, null, null)),
+    ).rejects.toThrow(hasCounter);
+    await expect(
+      hq.query(record, row(counter, 'wms', 'recorded', null, null, null)),
+    ).rejects.toThrow(hasCounter);
+    const pulled = await hq.query(record, row(null, 'wms', 'recorded', null, null, null));
+    expect(pulled.rowCount).toBe(1);
+
+    // applied with a non-zero delta requires the movement ...
+    await expect(hq.query(record, row(counter, 'manual', 'applied', 5, 2, null))).rejects.toThrow(
+      hasMovement,
+    );
+    const applied = await hq.query(
+      record,
+      row(counter, 'manual', 'applied', 5, 2, await movement(2)),
+    );
+    expect(applied.rowCount).toBe(1);
+    // ... and a movement is refused wherever nothing was applied: recorded, flagged, or a zero delta
+    await expect(
+      hq.query(record, row(counter, 'manual', 'recorded', null, null, await movement(1))),
+    ).rejects.toThrow(hasMovement);
+    await expect(
+      hq.query(record, row(counter, 'manual', 'flagged', 5, 40, await movement(40))),
+    ).rejects.toThrow(hasMovement);
+    await expect(
+      hq.query(record, row(counter, 'manual', 'applied', 5, 0, await movement(1))),
+    ).rejects.toThrow(hasMovement);
+    // a zero delta is applied with no movement; a flagged count waits with none
+    const level = await hq.query(record, row(counter, 'manual', 'applied', 5, 0, null));
+    expect(level.rowCount).toBe(1);
+    const flagged = await hq.query(record, row(counter, 'manual', 'flagged', 5, 40, null));
+    expect(flagged.rowCount).toBe(1);
+    // one movement reconciles one count
+    const once = await movement(-1);
+    await hq.query(record, row(counter, 'manual', 'applied', 5, -1, once));
+    await expect(hq.query(record, row(counter, 'manual', 'applied', 5, -1, once))).rejects.toThrow(
+      /cycle_count_stock_movement_id_key/,
+    );
+  });
 });

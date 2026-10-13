@@ -190,7 +190,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.13/);
+    expect(text).toMatch(/version: 0\.4\.14/);
     for (const tag of [
       'registry',
       'catalog',
@@ -460,6 +460,63 @@ describe('admin-api.yaml', () => {
     );
     expect(text).toMatch(/\n {4}StockItem:\n/);
     expect(text).toMatch(/\n {4}StockLevel:\n/);
+  });
+
+  it('cycle counts (0.4.14, #458): list / create / reconcile at operations on hq; superseded is a 409 conflict with details.reason, no new error code', () => {
+    const op = (id: string) => ops.find((o) => o.id === id);
+    const permission = (id: string) =>
+      op(id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(ops.length).toBeGreaterThanOrEqual(120);
+    for (const id of ['listCycleCounts', 'createCycleCount', 'reconcileCycleCount']) {
+      expect(op(id), id).toBeDefined();
+      expect(permission(id), id).toEqual(['operations', 'organization:hq']);
+      expect(op(id)!.body, `${id} lacks 401`).toMatch(
+        /'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/,
+      );
+      expect(op(id)!.body, `${id} lacks 403`).toMatch(
+        /'403': \{ \$ref: '#\/components\/responses\/Forbidden' \}/,
+      );
+      // the mock answers from the example: each success response carries one
+      expect(op(id)!.body, `${id} lacks an example`).toMatch(/\n {14}example:\n/);
+    }
+    expect(text).toMatch(/\n {2}\/admin\/cycle-counts:\n/);
+    expect(text).toMatch(/\n {2}\/admin\/cycle-counts\/\{cycleCountId\}\/reconcile:\n/);
+    // a count is never deleted, and nothing but reconcile changes one
+    const start = text.indexOf('\n  /admin/cycle-counts:\n');
+    const block = text.slice(start, text.indexOf('\n  # ----', start + 1));
+    expect(block).not.toMatch(/\n {4}(delete|patch|put):\n/);
+
+    const create = op('createCycleCount')!.body;
+    expect(create).toMatch(/'201':/);
+    expect(create).toMatch(/required: \[warehouse_id, stock_item_id, counted_quantity\]/);
+    expect(create).toMatch(/counted_quantity: \{ type: integer, minimum: 0 \}/);
+    // the decision on #458: superseded and a future counted_at reuse the closed list of codes
+    expect(create).toMatch(/'409':[\s\S]*code: conflict,[\s\S]*reason: superseded,/);
+    expect(create).toMatch(/applied_cycle_count_id: /);
+    expect(create).toMatch(
+      /'422':[\s\S]*code: validation_error,[\s\S]*details: \{ field: counted_at \}/,
+    );
+    expect(text).not.toMatch(/code: superseded/);
+    const codes = text.match(/description: '(validation_error, [^']+)'/)?.[1] ?? '';
+    expect(codes).toMatch(/\bconflict\b/);
+    expect(codes).not.toMatch(/superseded/);
+
+    const reconcile = op('reconcileCycleCount')!.body;
+    expect(reconcile).toMatch(/approve: \{ type: boolean, default: false \}/);
+    expect(reconcile).toMatch(/'200':/);
+    expect(reconcile).toMatch(/'404':/);
+    expect(reconcile).toMatch(/'409':/);
+    // a flagged result is a 200, not an error
+    expect(reconcile).toMatch(/status `flagged`, 200/);
+
+    const schema = text.indexOf('\n    CycleCount:\n');
+    expect(schema).toBeGreaterThan(text.indexOf('\n    InventoryLevel:\n'));
+    const body = text.slice(schema, text.indexOf('\n    ShippingOptionInput:\n', schema));
+    expect(body).toMatch(/status: \{ type: string, enum: \[recorded, flagged, applied\] \}/);
+    expect(body).toMatch(/source: \{ type: string, enum: \[manual, wms\] \}/);
+    expect(body).toMatch(/counted_by: \{ type: \[string, 'null'\], format: uuid/);
   });
 
   it('0.4.9 (#354): capturePayment and buyShipmentLabel — permissions, 200/409/422, honest examples', () => {
