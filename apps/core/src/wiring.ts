@@ -14,6 +14,8 @@ import {
   type PriceResolver,
 } from './modules/cart';
 import { registerFraudCheck } from './modules/fraud';
+import { stockAwareAllocationPolicy } from './modules/hq-warehouse';
+import { setAllocationPolicy } from './modules/inventory';
 import { registerPaymentProviders } from './modules/payments';
 import {
   eligibleLines,
@@ -260,7 +262,10 @@ export function mulDivRound(a: number, b: number, c: number): number {
 
 let registered = false;
 
-/** Idempotent. Payments (#176), carrier rates (window 8), tax (#127 / #221), fraud (#231), price lists (#179). */
+/**
+ * Idempotent. Payments (#176), carrier rates (window 8), tax (#127 / #221), fraud (#231), price lists (#179),
+ * stock allocation (#435).
+ */
 export function registerModuleSeams(): void {
   if (registered) return;
   registered = true;
@@ -276,4 +281,9 @@ export function registerModuleSeams(): void {
   // approved interim): the checkout's post-rollback hook (#241) takes over the day the check sets
   // `recordsBlockedAfterRollback` — no change needed here then.
   registerFraudCheck();
+  // window 11's stock-aware engine behind the inventory module's allocation seam (#435 / REQUEST #454): WHICH
+  // warehouse a placement reserves in follows the fulfillment routing rules (store override for the destination
+  // country → store default → same country → same region → priority), one warehouse per line when one covers it.
+  // The inventory module still locks the pool rows first and validates every decision against them.
+  setAllocationPolicy(stockAwareAllocationPolicy);
 }

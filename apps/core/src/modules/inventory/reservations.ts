@@ -1,13 +1,21 @@
 // Reservations on the shared stock pool (#106, re-keyed by #456): the stock check AT PLACEMENT.
 //
-// THE LOCK ORDER (`lockStock`, used by every path here that touches more than one pool row — placement, cancel,
-// ship, a cancelled shipment, and the returns module's restock): (1) the variant rows, FOR SHARE, in id order;
-// (2) where a pool row may have to be CREATED (a backorder, a restock into a warehouse the item never lay in), the
-// missing rows are inserted first, in stock_item_id order — nothing creates a row after a lock is held; (3) every
-// pool row of the items involved, FOR UPDATE, in (stock_item_id, warehouse_id) order. One order for every store
-// and every path, so two transactions on overlapping items queue instead of deadlocking.
+// THE LOCK ORDER, for every path here that touches more than one pool row: (1) the variant rows, FOR SHARE, in id
+// order; (2) where a pool row may have to be CREATED (a backorder, a restock into a warehouse the item never lay
+// in), the missing rows are inserted first, in stock_item_id order — nothing creates a row after a lock is held;
+// (3) every pool row of the items involved, FOR UPDATE, in (stock_item_id, warehouse_id) order. One order for every
+// store and every path, so two transactions on overlapping items queue instead of deadlocking. Who takes it how:
+//   * `lockStock` is the three steps as one routine — ship (`consumeForShipment`), a cancelled shipment
+//     (`releaseReservationsForShipment`) and the returns module's restock call it;
+//   * `reserveForOrder` (placement) runs the same three steps INLINE, with the same helpers (`variantStock`,
+//     `createMissingLevels`, `lockLevels`): which rows step 2 creates is its own rule (a backorderable item with no
+//     row in any active warehouse gets one in the priority warehouse), not `lockStock`'s "every item in one given
+//     warehouse";
+//   * `releaseForOrder` (cancel) takes step 3 only, through `lockLevels`: it works on the reservations' own stock
+//     items, reads no variant and creates no row, so steps 1 and 2 have nothing to do.
 //
-// `reserveForOrder` resolves the order's variants to their stock items, takes those locks, and only then decides. WHICH warehouse serves a line is the allocation
+// `reserveForOrder` resolves the order's variants to their stock items, takes those locks, and only then decides.
+// WHICH warehouse serves a line is the allocation
 // policy's call (allocation.ts, the #454 seam; default: priority order, greedy); that the decision is honest is
 // checked here against the locked rows. It inserts `reservation` rows (who reserved: `store_id` + `variant_id`;
 // which pool row: `stock_item_id`; why this warehouse: `allocation_rule`) and raises the pool row's `reserved`.

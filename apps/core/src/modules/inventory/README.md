@@ -50,14 +50,19 @@ comes back as 403, an invisible item as 404, another store's variant as `unknown
   the module enforces it: the variant rows are SHARE-locked while their stock is reserved, the item is read from
   the variant IN the insert, and a mismatch fails the placement. Re-mapping takes the variant row FOR UPDATE, so
   the two queue.
-- **Lock order, one for everybody (`lockStock`).** Every path that touches more than one pool row — placement,
-  cancel, ship, a cancelled shipment, the returns module's restock — takes its locks UP FRONT in the same three
-  steps: (1) the variant rows, `FOR SHARE`, in id order (`mapVariantToStockItem` takes its one variant
+- **Lock order, one for everybody.** Every path that touches more than one pool row — placement, cancel, ship, a
+  cancelled shipment, the returns module's restock — takes its locks UP FRONT in the same order: (1) the variant rows, `FOR SHARE`, in id order (`mapVariantToStockItem` takes its one variant
   `FOR UPDATE`); (2) where a pool row may have to be CREATED — a backorder on an item with no row, a restock into
   a warehouse the item never lay in — the missing rows are inserted first, in `stock_item_id` order: nothing
   creates a row once a lock is held; (3) every pool row of the items involved, active warehouse or not, in
   **(`stock_item_id`, `warehouse_id`)** order, in one `SELECT … FOR UPDATE`. Nothing locks pool rows one at a time
-  in another order (a single-row `moveStock` has nothing to order). Two transactions on overlapping items — two
+  in another order (a single-row `moveStock` has nothing to order). Who takes it how: `lockStock` is the three
+  steps as one routine, called by ship (`consumeForShipment`), a cancelled shipment
+  (`releaseReservationsForShipment`) and the returns module's restock; placement (`reserveForOrder`) runs the same
+  three steps inline with the same helpers, because which rows it creates in step 2 is its own rule (a
+  backorderable item with no row in any active warehouse gets one in the priority warehouse); cancel
+  (`releaseForOrder`) takes step 3 only — it works on the reservations' own stock items, reads no variant and
+  creates no row. Two transactions on overlapping items — two
   stores placing, a shipment cancel against a placement — queue behind each other instead of deadlocking (tested:
   a shipment release and a placement that would take two shared pool rows in opposite order, made deterministic
   with a gate — it ended in `40P01` before the release locked up front; placements from two stores on two shared
@@ -74,11 +79,16 @@ store's `settings.fulfillment.routing` as stored), (4) **validates the decision*
 allocation with its `allocation_rule`.
 
 - `setAllocationPolicy(fn)` replaces the policy and returns the previous one — a registry write like the cart's
-  `setPriceResolver` / `setDiscountEvaluator`; no I/O. Window 11's stock-aware engine registers itself in
-  `src/wiring.ts`. Types: `AllocationCandidate`, `AllocationLine`, `AllocationContext`, `AllocationDecision`,
+  `setPriceResolver` / `setDiscountEvaluator`; no I/O. `currentAllocationPolicy()` reads it. **A running server
+  uses window 11's stock-aware engine**: `registerModuleSeams()` in `src/wiring.ts` registers
+  `stockAwareAllocationPolicy` (#435) — warehouses ranked by the fulfillment routing rules (store override for the
+  destination country → store default → same country → same region → priority), one warehouse per line when one
+  covers it, a split down the ranking only when none does; rules `store_country`, `store_default`,
+  `same_country`, `same_region`, `priority`, each with a `split:` form (its README has the detail). Types: `AllocationCandidate`, `AllocationLine`, `AllocationContext`, `AllocationDecision`,
   `AllocationPolicy` (pure and synchronous: no database, no clock, no randomness).
-- **Default: `priorityGreedyPolicy`** — warehouses in priority order (then code), each giving what it has; the
-  behaviour before the seam existed, unchanged. Rules `priority` / `split:priority`. Two lines of one placement
+- **Built-in default: `priorityGreedyPolicy`** — what the module does when nothing is registered (a test or a
+  script that calls `reserveForOrder` without `registerModuleSeams()`): warehouses in priority order (then code),
+  each giving what it has; the behaviour before the seam existed, unchanged. Rules `priority` / `split:priority`. Two lines of one placement
   that map the same item draw from one running balance.
 - **A bad decision is a bug — 500 `internal`, never a customer error**, and the placement rolls back: not exactly
   one decision per line, a warehouse that was not offered, a quantity that is not a positive integer, two entries
@@ -103,7 +113,7 @@ allocation with its `allocation_rule`.
 | `availableByVariant(tx, variantIds)`                                                                   | cart, marketing feed items, search records                              | what each variant can sell now: `available` summed over the active warehouses of its item's pool rows. The one availability read for other modules — nobody else joins the pool tables                                                                    |
 | `lockStock(tx, { organizationId, storeId, variantIds, stockItemIds?, ensureWarehouseId? })`            | this module; the returns module before its restock                      | takes the locks of a multi-row stock operation in THE lock order (Rules) and returns the store's variants with their items and the locked pool rows                                                                                                       |
 | `ensureLevel(tx, { organizationId, stockItemId, warehouseId }, lock)`                                  | this module                                                             | the pool row, created at zero; 404 for an item the session cannot see (nothing written)                                                                                                                                                                   |
-| `setAllocationPolicy(fn)` / `priorityGreedyPolicy`                                                     | `src/wiring.ts` (window 11's engine), tests                             | the allocation seam (above)                                                                                                                                                                                                                               |
+| `setAllocationPolicy(fn)` / `currentAllocationPolicy()` / `priorityGreedyPolicy`                       | `src/wiring.ts` (window 11's engine), tests                             | the allocation seam (above)                                                                                                                                                                                                                               |
 | `listInventoryLevels` / `createStockMovement` / `listStockItems` / `mapVariantToStockItem`             | Admin API routes                                                        | see below                                                                                                                                                                                                                                                 |
 
 ## Store availability
@@ -151,7 +161,8 @@ variant stays `in_stock` with `available_quantity: 0`).
   own movements on an item it stopped mapping (`pool_ledger`), so the ledger alone would answer "nothing to
   release" and the stock would never come back (#459 review). Stock is moved by hand first — the same principle
   as the mapping's own 409.
-- **2026-10-12 · One lock routine (`lockStock`), rows created before locks** (#459 review): see Rules.
+- **2026-10-12 · One lock order, rows created before locks; `lockStock` is its routine for ship, a cancelled
+  shipment and the returns restock** (#459 review): see Rules for what placement and cancel do.
 - **2026-10-12 · Other modules read availability through `availableByVariant`** — the marketing feed items and
   the search records were changed to call it (manager exception; they were reading this module's table).
 - **2026-09-08 · Reservations are the placement stock check** (manager, 2.4): the cart's add-time check stays
