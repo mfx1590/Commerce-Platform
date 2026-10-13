@@ -1,4 +1,4 @@
-// Cycle counts and reconciliation (#436) on a seeded throwaway database with the proposed 0191 + 0192: count →
+// Cycle counts and reconciliation (#436) on a seeded throwaway database: count →
 // reconcile → exactly one movement, the tolerance and the approval, the delta against on-hand AS OF the count and
 // its three guards, idempotency, permissions through the router, the dry-run CLI and the WMS pull.
 //
@@ -141,7 +141,7 @@ const failure = (p: Promise<unknown>) =>
   );
 
 beforeAll(async () => {
-  db = await createPoolDatabase('0192');
+  db = await createPoolDatabase();
   process.env.CORE_DEV_TOKENS = '1';
   await initDb({ connectionString: db.app.options.connectionString! });
   hq = createOrganizationClient(db.app, { organizationId: ORG });

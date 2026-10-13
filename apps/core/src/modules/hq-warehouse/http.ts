@@ -2,10 +2,9 @@
 // `src/http/module-routers.ts` after `adminRouter()` — the same staff principal, JSON body parser and error
 // handler as every other admin route.
 //
-// Permissions are each operation's `x-permission` from `admin-api.yaml`, read through `loadSpec` like every other
-// admin route. The three operations are CONTRACT CHANGE #458 and reach the spec with this module's PR; until the
-// spec carries them, the permission and the body rules are the proposed ones below (the fallback disappears with
-// the proposed copies).
+// Permissions are each operation's `x-permission` from `admin-api.yaml` (0.4.14, CONTRACT CHANGE #458), read
+// through `loadSpec` like every other admin route — never hard-coded — and request bodies are validated against
+// the spec's schemas.
 import { Router, type RequestHandler } from 'express';
 import { handle } from '../../http/errors';
 import { loadSpec } from '../../http/openapi';
@@ -24,34 +23,22 @@ export const CYCLE_COUNTS_PATH = '/admin/cycle-counts';
 export const RECONCILE_CYCLE_COUNT_PATH = '/admin/cycle-counts/:cycleCountId/reconcile';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PROPOSED_PERMISSION = { relation: 'operations', object: 'organization:hq' } as const;
 
 type Operation = 'createCycleCount' | 'listCycleCounts' | 'reconcileCycleCount';
 
-function specHas(operationId: Operation): boolean {
-  try {
-    loadSpec('admin-api.yaml').permission(operationId);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function permission(operationId: Operation): RequestHandler {
-  const perm = specHas(operationId)
-    ? loadSpec('admin-api.yaml').permission(operationId)
-    : PROPOSED_PERMISSION;
+  const perm = loadSpec('admin-api.yaml').permission(operationId);
   return requirePermission(perm.relation, () => resolveObject(perm.object, {}));
 }
 
-/** The spec validates the body once it knows the operation; the checks below hold either way. */
+/** The body, validated against the operation's schema in the spec. No body at all is an empty object. */
 function validated(operationId: Operation, body: unknown): Record<string, unknown> {
-  if (specHas(operationId)) loadSpec('admin-api.yaml').validateBody(operationId, body);
-  if (body === undefined || body === null) return {};
-  if (typeof body !== 'object' || Array.isArray(body)) {
+  const given = body === undefined || body === null ? {} : body;
+  loadSpec('admin-api.yaml').validateBody(operationId, given);
+  if (typeof given !== 'object' || Array.isArray(given)) {
     throw validationError('request body must be a JSON object', { body: 'object' });
   }
-  return body as Record<string, unknown>;
+  return given as Record<string, unknown>;
 }
 
 function createInput(body: Record<string, unknown>) {

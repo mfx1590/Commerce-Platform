@@ -1,5 +1,4 @@
-// The proposed cycle-count migration (proposed/0192, #436) on a seeded throwaway database migrated to main's
-// head: its CHECKs hold a count's story
+// The cycle-count table (migration 0192, #436) on a seeded throwaway database: its CHECKs hold a count's story
 // together, and row-level security is `organization_only` — counts are an HQ record no store session touches.
 import { createOrganizationClient, createTenantClient, SEED_IDS } from '@platform/db';
 import type { TestDatabase } from '@platform/db/testing';
@@ -35,7 +34,7 @@ async function count(
 }
 
 beforeAll(async () => {
-  db = await createPoolDatabase('0192');
+  db = await createPoolDatabase();
 
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A] });
   hq = createOrganizationClient(db.app, { organizationId: ORG });
