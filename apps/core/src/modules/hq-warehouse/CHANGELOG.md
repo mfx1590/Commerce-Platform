@@ -75,5 +75,13 @@
   re-exports the seam's input types from the inventory module.
 - Reconciliation moves stock through the inventory module's real `moveStock` by default
   (`inventoryStockMover`); `setStockMover` stays as a test seam. New tests assert the store-less movement and
-  its one `stock.moved` v2 outbox row — written, NOT yet run: no local Postgres on 2026-10-13.
+  its one `stock.moved` v2 outbox row.
 - `testing/pool-database.ts`: migrate + seed, with `'0192'` applying the still-proposed cycle-count migration.
+
+### 2026-10-13 · no fakes left
+
+- `shared-pool.test.ts` places through the inventory module's real `reserveForOrder` with the policy behind
+  `setAllocationPolicy` (10 tests; new: whole-line-first, the store override, the 409's details).
+- The module is 118 tests: allocation 28, proposed-migrations 34, shared-pool 10, proposed-cycle-count 16,
+  cycle-counts 30 — all on throwaway databases migrated by packages/db, plus the proposed 0192.
+- The engine is registered at boot since #461 (window 1's `src/wiring.ts`).

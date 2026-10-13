@@ -100,9 +100,9 @@ The rule is recorded per allocation and stored on `reservation.allocation_rule`:
 `store_default`, `same_country`, `same_region` or `priority` for a line's first warehouse, and the same
 prefixed with `split:` for every further one.
 
-**Mounting is window 1's:** `registerModuleSeams()` in `src/wiring.ts` registers it with
-`setAllocationPolicy(stockAwareAllocationPolicy)` (follow-up to #456). `shared-pool.test.ts` still drives the
-policy through a local fake of that seam.
+**Registered at boot** since #461: `registerModuleSeams()` in `src/wiring.ts` (window 1's file) calls
+`setAllocationPolicy(stockAwareAllocationPolicy)`. `shared-pool.test.ts` drives it through the inventory
+module's real `reserveForOrder`.
 
 ## Cycle counts and reconciliation (#436, CONTRACT CHANGE #458)
 
@@ -154,13 +154,13 @@ movements written since counted_at)`. A count taken at 18:00 and reconciled the 
 pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 ```
 
-| File                           | What it proves                                                                                                                                                                                                                          |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allocation.test.ts`           | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic), bad numbers and duplicate candidates refused — 28 tests, no database                                          |
-| `proposed-migrations.test.ts`  | the pool's schema over the seeded data: a stock item per variant (the seed's shared pair maps one), the naming rule, the mapping guard, every RLS rule above — 34 tests                                                                 |
-| `shared-pool.test.ts`          | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 placements issued at once, no deadlock — 8 tests                                                                                 |
-| `proposed-cycle-count.test.ts` | proposed 0192 on main's schema alone: the `organization_only` RLS and the CHECKs that hold a count together, no DELETE — 16 tests                                                                                                       |
-| `cycle-counts.test.ts`         | count → reconcile → one movement, idempotency, tolerance and approval, on-hand as of the count and its three guards, the router (operations vs store admin), the dry-run CLI, the WMS pull — 29 tests, with a local fake of `moveStock` |
+| File                           | What it proves                                                                                                                                                                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allocation.test.ts`           | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic), bad numbers and duplicate candidates refused — 28 tests, no database                                                                            |
+| `proposed-migrations.test.ts`  | the pool's schema over the seeded data: a stock item per variant (the seed's shared pair maps one), the naming rule, the mapping guard, every RLS rule above — 34 tests                                                                                                   |
+| `shared-pool.test.ts`          | two brands on one item: A reserves N and B's availability drops by N, the split, the split, whole-line-first, the store override, 409 out_of_stock, the last-unit race, 8 placements issued at once, no deadlock — 10 tests, through the real `reserveForOrder`           |
+| `proposed-cycle-count.test.ts` | proposed 0192 on main's schema alone: the `organization_only` RLS and the CHECKs that hold a count together, no DELETE — 16 tests                                                                                                                                         |
+| `cycle-counts.test.ts`         | count → reconcile → one movement, idempotency, tolerance and approval, on-hand as of the count and its three guards, the router (operations vs store admin), the dry-run CLI, the WMS pull, and the real `moveStock` path with its `stock.moved` v2 outbox row — 30 tests |
 
 The two database files seed a throwaway database (`testing/pool-database.ts`: migrate + seed; the seed maps one
 shared item for brands A and B, `SEED_IDS.sharedStock`). Outside turbo, export
