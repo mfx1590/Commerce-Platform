@@ -814,7 +814,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(8);
+    expect(moduleAdminRouters()).toHaveLength(9);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -880,6 +880,25 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
       const anonymous = await request(app).get(`/admin/stores/${A}/${path}`);
       expect(anonymous.status).toBe(401);
     }
+  });
+
+  it('cycle counts (#436): the hq-warehouse router answers behind our staff auth, HQ operations only', async () => {
+    // window 11: cycleCountsAdminRouter — every operation is `operations` on organization:hq in the spec
+    const list = await as('seed-operations').get('/admin/cycle-counts');
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveProperty('items');
+    expect((await request(app).get('/admin/cycle-counts')).status).toBe(401);
+    const id = '00000000-0000-4000-8000-00000000dead';
+    // a store role is refused on all three BEFORE anything is read: the body of the refused calls is not even valid
+    expect((await storeAdmin.get('/admin/cycle-counts')).status).toBe(403);
+    expect((await storeAdmin.post('/admin/cycle-counts', {})).status).toBe(403);
+    expect((await storeAdmin.post(`/admin/cycle-counts/${id}/reconcile`, {})).status).toBe(403);
+    // with the permission the routes answer themselves: validation, and an unknown count is a 404 — never the
+    // terminal "not implemented" 404 of an unmounted path
+    expect((await as('seed-operations').post('/admin/cycle-counts', {})).status).toBe(400);
+    const unknown = await as('seed-operations').post(`/admin/cycle-counts/${id}/reconcile`, {});
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.message).not.toMatch(/is not implemented/);
   });
 
   it('moduleWebhookRouters() (#176 part 3): the Stripe webhook answers outside /store and /admin, on the raw body', async () => {

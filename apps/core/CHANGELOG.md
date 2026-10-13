@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-13 · cycle counts mounted (#436, CONTRACT CHANGE #458)
+
+- `moduleAdminRouters()` (`src/http/module-routers.ts`) mounts window 11's `cycleCountsAdminRouter()`: `GET` and
+  `POST /admin/cycle-counts`, `POST /admin/cycle-counts/:cycleCountId/reconcile` (Admin API `listCycleCounts`,
+  `createCycleCount`, `reconcileCycleCount`; each `operations` on `organization:hq`). Nine module routers now.
+  The mount test checks 401 without a token, 403 for a store role on all three, and that the routes answer
+  themselves (validation, unknown count) rather than the terminal 404 of an unmounted path.
+
 ### 2026-10-13 · the stock-aware allocation engine is registered (#435)
 
 - `registerModuleSeams()` (`src/wiring.ts`) registers window 11's `stockAwareAllocationPolicy` behind the

@@ -5448,7 +5448,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`) */
+            /** @description `conflict`: a later count of this stock item and warehouse has already been applied (`details.reason` = `superseded`), or the adjustment would take on-hand below zero (the inventory module refuses it; recount) */
             409: {
                 headers: {
                     [name: string]: unknown;
