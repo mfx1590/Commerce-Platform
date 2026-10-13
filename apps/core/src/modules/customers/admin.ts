@@ -1,4 +1,4 @@
-// Admin API customer operations (#414, Admin API 0.4.11): what support and store admins do with a store's
+// Admin API customer operations (#414, Admin API 0.4.12): what support and store admins do with a store's
 // customers through the HQ / store admin. Everything runs on the store-scoped tenant client the route hands in
 // (RLS keeps every read and write inside that store; the explicit `store_id` predicates are a second fence, not
 // the security boundary). Every mutation writes its audit row and its outbox event in the same transaction, and

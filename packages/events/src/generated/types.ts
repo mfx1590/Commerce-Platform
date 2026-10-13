@@ -5,12 +5,12 @@
  */
 export interface EventEnvelopeV1Base {
 event_id: string
-topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "customer.export_requested" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.label_created" | "shipment.shipped" | "shipment.delivered" | "fulfillment.requested" | "fulfillment.picking" | "fulfillment.packed" | "return.requested" | "return.received" | "stock.moved" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
+topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "customer.export_requested" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.label_created" | "shipment.shipped" | "shipment.delivered" | "fulfillment.requested" | "fulfillment.picking" | "fulfillment.packed" | "return.requested" | "return.received" | "stock.moved" | "stock_item.mapped" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
 version: number
 occurred_at: string
 organization_id: string
 store_id: (string | null)
-aggregate_type: ("store" | "product" | "customer" | "order" | "payment" | "refund" | "shipment" | "return" | "stock_movement" | "campaign" | "feed" | "attribution" | "referral" | "review" | "cart")
+aggregate_type: ("store" | "product" | "customer" | "order" | "payment" | "refund" | "shipment" | "return" | "stock_movement" | "stock_item" | "campaign" | "feed" | "attribution" | "referral" | "review" | "cart")
 aggregate_id: string
 actor: {
 type: ("staff" | "customer" | "system")
@@ -590,6 +590,32 @@ on_hand_after: number
 reserved_after: number
 }
 /**
+ * Stock of a stock item changed in a warehouse (one stock_movement row of the shared pool). `sku` is the stock item's. `variant_id` and `store_id` are present together, and only when a store caused the movement (a sale, a return, a shipment release); both are absent for a pool movement no store caused (receipt, transfer, cycle count), whose envelope `store_id` is null.
+ */
+export interface StockMovedV2 {
+stock_movement_id: string
+stock_item_id: string
+sku: string
+variant_id?: string
+store_id?: string
+warehouse_id: string
+delta: number
+reason: ("receipt" | "sale" | "return" | "adjustment" | "transfer_in" | "transfer_out" | "cycle_count")
+reference_type: (string | null)
+reference_id: (string | null)
+on_hand_after: number
+reserved_after: number
+}
+/**
+ * A store's variant was mapped to a stock item (Admin `mapVariantToStockItem`); from now on the variant sells from that item's pool. Ids only. The envelope's `store_id` is the variant's store, `aggregate_type` is `stock_item`, `aggregate_id` the item the variant is mapped to now.
+ */
+export interface StockItemMappedV1 {
+stock_item_id: string
+previous_stock_item_id: string
+variant_id: string
+store_id: string
+}
+/**
  * A store (brand) was created.
  */
 export interface StoreCreatedV1 {
@@ -647,6 +673,8 @@ export interface EventPayloads {
   'shipment.label_created@1': ShipmentLabelCreatedV1;
   'shipment.shipped@1': ShipmentShippedV1;
   'stock.moved@1': StockMovedV1;
+  'stock.moved@2': StockMovedV2;
+  'stock_item.mapped@1': StockItemMappedV1;
   'store.created@1': StoreCreatedV1;
   'store.updated@1': StoreUpdatedV1;
 }
@@ -685,7 +713,8 @@ export interface LatestPayloads {
   'shipment.delivered': ShipmentDeliveredV1;
   'shipment.label_created': ShipmentLabelCreatedV1;
   'shipment.shipped': ShipmentShippedV1;
-  'stock.moved': StockMovedV1;
+  'stock.moved': StockMovedV2;
+  'stock_item.mapped': StockItemMappedV1;
   'store.created': StoreCreatedV1;
   'store.updated': StoreUpdatedV1;
 }

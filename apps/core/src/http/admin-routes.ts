@@ -49,6 +49,8 @@ import {
   createStockMovement,
   LEVEL_SORT_FIELDS,
   listInventoryLevels,
+  listStockItems,
+  mapVariantToStockItem,
 } from '../modules/inventory';
 import { getReturn, receiveReturn, requestReturn } from '../modules/returns';
 import {
@@ -220,6 +222,47 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
           delta: b.delta,
           reason: b.reason,
           note: b.note ?? null,
+          actor: p.actor,
+        }),
+      );
+    }),
+  );
+
+  // ---- the shared stock pool (#456, CONTRACT CHANGE #453): organization scope, HQ roles ---------------------
+  r.get(
+    '/admin/stock-items',
+    permission('listStockItems'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const storeId = one(req.query.store_id);
+      if (storeId !== undefined && !UUID_RE.test(storeId)) problems.store_id = 'uuid';
+      const sharedRaw = one(req.query.shared);
+      if (sharedRaw !== undefined && sharedRaw !== 'true' && sharedRaw !== 'false') {
+        problems.shared = 'true or false';
+      }
+      throwIfProblems(problems);
+      const sku = one(req.query.sku);
+      res.json(
+        await listStockItems(organizationClientFor(p), {
+          ...page,
+          ...(sku !== undefined ? { sku } : {}),
+          ...(storeId !== undefined ? { store_id: storeId } : {}),
+          ...(sharedRaw !== undefined ? { shared: sharedRaw === 'true' } : {}),
+        }),
+      );
+    }),
+  );
+  r.put(
+    '/admin/stock-items/:stockItemId/variants/:variantId',
+    permission('mapVariantToStockItem'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      res.json(
+        await mapVariantToStockItem(organizationClientFor(p), {
+          stockItemId: uuidParam(req.params, 'stockItemId'),
+          variantId: uuidParam(req.params, 'variantId'),
           actor: p.actor,
         }),
       );
