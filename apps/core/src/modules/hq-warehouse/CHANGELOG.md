@@ -85,3 +85,11 @@
 - The module is 118 tests: allocation 28, proposed-migrations 34, shared-pool 10, proposed-cycle-count 16,
   cycle-counts 30 — all on throwaway databases migrated by packages/db, plus the proposed 0192.
 - The engine is registered at boot since #461 (window 1's `src/wiring.ts`).
+
+### 2026-10-13 · cycle counts are in the contract (contracts 0.4.16: db 0.3.6, Admin API 0.4.14)
+
+- The two proposed copies are deleted (`proposed/0192_cycle_count.sql`, `proposed/admin-api.cycle-counts.yaml`);
+  the `proposed/` folder is gone. `testing/pool-database.ts` is migrate + seed.
+- `http.ts`: permissions and body validation come from `admin-api.yaml` only; the proposed fallback is removed.
+- Test files renamed: `proposed-migrations.test.ts` → `stock-pool-schema.test.ts`,
+  `proposed-cycle-count.test.ts` → `cycle-count-schema.test.ts`.
