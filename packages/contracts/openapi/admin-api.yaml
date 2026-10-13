@@ -2058,7 +2058,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`)
+          description: >-
+            `conflict`: a later count of this stock item and warehouse has already been applied (`details.reason` =
+            `superseded`), or the adjustment would take on-hand below zero (the inventory module refuses it; recount)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
