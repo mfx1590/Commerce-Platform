@@ -44,7 +44,11 @@ function describe(c: PlannedReconciliation): string {
       : c.delta === 0
         ? 'APPLY, no movement (the count matches)'
         : `APPLY one movement of ${signed(c.delta)}`;
-  return `${c.sku}  counted ${c.countedQuantity} at ${c.countedAt}  on-hand as of the count ${c.onHandAsOfCount}  delta ${signed(c.delta)}  → ${verdict}`;
+  const note =
+    c.newerOpenCount && !c.superseded
+      ? '  (a newer count of this shelf is open: reconcile that one)'
+      : '';
+  return `${c.sku}  counted ${c.countedQuantity} at ${c.countedAt}  on-hand as of the count ${c.onHandAsOfCount}  delta ${signed(c.delta)}  → ${verdict}${note}`;
 }
 
 /** Runs the preview against `client` and returns the exit code. `out` receives one line per call. */

@@ -2,9 +2,8 @@
 // reconcile → exactly one movement, the tolerance and the approval, the delta against on-hand AS OF the count and
 // its three guards, idempotency, permissions through the router, the dry-run CLI and the WMS pull.
 //
-// Most tests run with `fakeMoveStock`, a stand-in for the inventory module's `moveStock` (the only writer of
-// `on_hand` in application code; this is test code) written before #456 landed. The last block runs the real
-// one — the default — and asserts its `stock.moved` v2 outbox row.
+// Nothing is faked: every movement — a reconciliation's and the receipts and shipments the tests need — goes
+// through the inventory module's real `moveStock`, the only writer of `on_hand` in application code.
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, SEED_IDS, type ScopedClient } from '@platform/db';
@@ -14,6 +13,7 @@ import { coreErrorHandler, DevTokenVerifier } from '../../http';
 import type { Actor } from '../../lib/audit';
 import { closePool, initDb } from '../../lib/db';
 import { mountCoreMiddleware } from '../../server';
+import { moveStock } from '../inventory';
 import { runReconcile } from './cli/reconcile';
 import {
   countTolerance,
@@ -26,8 +26,6 @@ import {
   reconcileCycleCount,
   recordWmsCounts,
   resetStockMover,
-  setStockMover,
-  type StockMover,
 } from './index';
 import { createPoolDatabase } from './testing/pool-database';
 
@@ -35,34 +33,28 @@ const ORG = SEED_IDS.organization;
 const EU = SEED_IDS.warehouses.eu;
 const US = SEED_IDS.warehouses.us;
 
-const fakeMoveStock: StockMover = async (tx, input) => {
-  await tx.query(
-    `INSERT INTO inventory_level (organization_id, stock_item_id, warehouse_id) VALUES ($1, $2, $3)
-     ON CONFLICT (stock_item_id, warehouse_id) DO NOTHING`,
-    [input.organizationId, input.stockItemId, input.warehouseId],
+/**
+ * Goods really move: a receipt (+) or a transfer out (−) through the inventory module, as HQ. `at` backdates the
+ * ledger row (fixture, owner role) so a test can place a movement between two counts.
+ */
+async function move(item: string, delta: number, at?: Date, warehouse = EU): Promise<void> {
+  const moved = await hq.transaction((tx) =>
+    moveStock(tx, {
+      organizationId: ORG,
+      stockItemId: item,
+      warehouseId: warehouse,
+      delta,
+      reason: delta > 0 ? 'receipt' : 'transfer_out',
+      actor: operations,
+    }),
   );
-  await tx.query(
-    `UPDATE inventory_level SET on_hand = on_hand + $3 WHERE stock_item_id = $1 AND warehouse_id = $2`,
-    [input.stockItemId, input.warehouseId, input.delta],
-  );
-  const movement = await tx.query<{ id: string }>(
-    `INSERT INTO stock_movement
-       (organization_id, stock_item_id, warehouse_id, delta, reason, reference_type, reference_id, actor_id, note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-    [
-      input.organizationId,
-      input.stockItemId,
-      input.warehouseId,
-      input.delta,
-      input.reason,
-      input.referenceType,
-      input.referenceId,
-      input.actor.id,
-      input.note,
-    ],
-  );
-  return { stockMovementId: movement.rows[0]!.id };
-};
+  if (at) {
+    await db.owner.query(`UPDATE stock_movement SET created_at = $2 WHERE id = $1`, [
+      moved.movementId,
+      at,
+    ]);
+  }
+}
 
 let db: TestDatabase;
 let hq: ScopedClient;
@@ -153,14 +145,14 @@ beforeAll(async () => {
     await db.owner.query<{ id: string; sku: string }>(
       `SELECT si.id, si.sku FROM stock_item si
        JOIN inventory_level il ON il.stock_item_id = si.id AND il.warehouse_id = $1
-       ORDER BY si.sku LIMIT 40`,
+       ORDER BY si.sku LIMIT 200`,
       [EU],
     )
   ).rows;
 }, 240_000);
 
 beforeEach(async () => {
-  setStockMover(fakeMoveStock);
+  resetStockMover();
   await setTolerance(5);
 });
 
@@ -355,19 +347,7 @@ describe('tolerance and approval', () => {
     expect(flagged).toMatchObject({ status: 'flagged', on_hand_as_of_count: 10, delta: 10 });
     // 4 units are received after the flag (a movement, as the inventory module would write it): on-hand as of
     // the count is still 10 (14 now minus the 4 since), and the delta lands on top of the receipt
-    await hq.transaction((tx) =>
-      fakeMoveStock(tx, {
-        organizationId: ORG,
-        stockItemId: item.id,
-        warehouseId: EU,
-        delta: 4,
-        reason: 'cycle_count',
-        referenceType: 'cycle_count',
-        referenceId: count.id,
-        note: 'a receipt, in this test',
-        actor: operations,
-      }),
-    );
+    await move(item.id, 4);
     // and the shelf's row itself changes by 1 with no ledger row (fixture): only a fresh read can know
     await setOnHand(item.id, EU, 15);
     const approved = await reconcile(count.id, true);
@@ -391,19 +371,7 @@ describe('the delta is against on-hand as of the count', () => {
     await setOnHand(item.id, EU, 12);
     const count = await record(item.id, 10, minutesAgo(600)); // counted 10 where the system said 12
     // 3 units ship after the count
-    await hq.transaction((tx) =>
-      fakeMoveStock(tx, {
-        organizationId: ORG,
-        stockItemId: item.id,
-        warehouseId: EU,
-        delta: -3,
-        reason: 'cycle_count',
-        referenceType: 'cycle_count',
-        referenceId: count.id,
-        note: 'a shipment, in this test',
-        actor: operations,
-      }),
-    );
+    await move(item.id, -3);
     expect(await onHand(item.id)).toBe(9);
     const applied = await reconcile(count.id);
     expect(applied).toMatchObject({ status: 'applied', on_hand_as_of_count: 12, delta: -2 });
@@ -449,6 +417,159 @@ describe('the delta is against on-hand as of the count', () => {
     // a newer count is fine, and so is the same shelf in another warehouse
     expect((await record(item.id, 12)).status).toBe('recorded');
     expect((await record(item.id, 3, minutesAgo(120), US)).status).toBe('recorded');
+  });
+});
+
+describe('several counts of one shelf', () => {
+  const adjustments = async (item: string) =>
+    (await movementsOf(item)).filter((m) => m.reason === 'cycle_count').map((m) => m.delta);
+
+  beforeEach(async () => {
+    await setTolerance(100);
+  });
+
+  it('A applied, then B: the adjustment for A is not "a movement since B"', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10); // the books say 10; 8 are on the shelf
+    const countA = await record(item.id, 8, minutesAgo(120));
+    const countB = await record(item.id, 8, minutesAgo(60));
+    expect(await reconcile(countA.id)).toMatchObject({ status: 'applied', delta: -2 });
+    expect(await onHand(item.id)).toBe(8);
+    expect(await reconcile(countB.id)).toMatchObject({
+      status: 'applied',
+      on_hand_as_of_count: 8,
+      delta: 0,
+      stock_movement_id: null,
+    });
+    expect(await onHand(item.id)).toBe(8);
+    expect(await adjustments(item.id)).toEqual([-2]);
+  });
+
+  it('A flagged, B taken, A approved, B reconciled: the discrepancy is applied once', async () => {
+    await setTolerance(1);
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const countA = await record(item.id, 8, minutesAgo(120));
+    expect((await reconcile(countA.id)).status).toBe('flagged');
+    const countB = await record(item.id, 8, minutesAgo(60));
+    expect(await reconcile(countA.id, true)).toMatchObject({ status: 'applied', delta: -2 });
+    expect(await reconcile(countB.id)).toMatchObject({ status: 'applied', delta: 0 });
+    expect(await onHand(item.id)).toBe(8);
+    expect(await adjustments(item.id)).toEqual([-2]);
+  });
+
+  it('B applied, then A: the older count is superseded and nothing moves again', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const countA = await record(item.id, 8, minutesAgo(120));
+    const countB = await record(item.id, 8, minutesAgo(60));
+    expect(await reconcile(countB.id)).toMatchObject({ status: 'applied', delta: -2 });
+    expect(await failure(reconcile(countA.id, true))).toMatchObject({
+      status: 409,
+      details: { reason: 'superseded', applied_cycle_count_id: countB.id },
+    });
+    expect(await onHand(item.id)).toBe(8);
+    expect(await adjustments(item.id)).toEqual([-2]);
+  });
+
+  // The books say 10 where 8 lie. Count A = 8; 1 ships; count B = 7; 5 are received; count C = 12.
+  // Whatever the order of reconciliation, the books must end at 12 — the newest count's truth — once.
+  const threeCounts = async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const countA = await record(item.id, 8, minutesAgo(180));
+    await move(item.id, -1, minutesAgo(150));
+    const countB = await record(item.id, 7, minutesAgo(120));
+    await move(item.id, 5, minutesAgo(90));
+    const countC = await record(item.id, 12, minutesAgo(60));
+    expect(await onHand(item.id)).toBe(14);
+    return { item, countA, countB, countC };
+  };
+
+  it('three interleaved counts, oldest first: A, B, C', async () => {
+    const { item, countA, countB, countC } = await threeCounts();
+    expect(await reconcile(countA.id)).toMatchObject({ on_hand_as_of_count: 10, delta: -2 });
+    expect(await reconcile(countB.id)).toMatchObject({ on_hand_as_of_count: 7, delta: 0 });
+    expect(await reconcile(countC.id)).toMatchObject({ on_hand_as_of_count: 12, delta: 0 });
+    expect(await onHand(item.id)).toBe(12);
+    expect(await adjustments(item.id)).toEqual([-2]);
+  });
+
+  it('three interleaved counts, newest first: C, then A and B are superseded', async () => {
+    const { item, countA, countB, countC } = await threeCounts();
+    expect(await reconcile(countC.id)).toMatchObject({ on_hand_as_of_count: 14, delta: -2 });
+    expect(await failure(reconcile(countA.id))).toMatchObject({ status: 409 });
+    expect(await failure(reconcile(countB.id))).toMatchObject({ status: 409 });
+    expect(await onHand(item.id)).toBe(12);
+    expect(await adjustments(item.id)).toEqual([-2]);
+  });
+
+  it('three interleaved counts, middle first: B, C, then A is superseded', async () => {
+    const { item, countA, countB, countC } = await threeCounts();
+    expect(await reconcile(countB.id)).toMatchObject({ on_hand_as_of_count: 9, delta: -2 });
+    expect(await reconcile(countC.id)).toMatchObject({ on_hand_as_of_count: 12, delta: 0 });
+    expect(await failure(reconcile(countA.id))).toMatchObject({ status: 409 });
+    expect(await onHand(item.id)).toBe(12);
+    expect(await adjustments(item.id)).toEqual([-2]);
+  });
+
+  it('a newer count that finds a NEW discrepancy still applies its own delta on top', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const countA = await record(item.id, 8, minutesAgo(120));
+    const countB = await record(item.id, 5, minutesAgo(60)); // three more went missing between the counts
+    await reconcile(countA.id);
+    expect(await reconcile(countB.id)).toMatchObject({ on_hand_as_of_count: 8, delta: -3 });
+    expect(await onHand(item.id)).toBe(5);
+    expect(await adjustments(item.id)).toEqual([-2, -3]);
+  });
+
+  it('marks the older of two open counts in the plan', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, US, 10);
+    const older = await record(item.id, 8, minutesAgo(120), US);
+    const newer = await record(item.id, 8, minutesAgo(60), US);
+    const plan = await planOpenCounts(hq, { organizationId: ORG, warehouseCode: 'wh-us' });
+    expect(plan.counts.find((c) => c.cycleCountId === older.id)?.newerOpenCount).toBe(true);
+    expect(plan.counts.find((c) => c.cycleCountId === newer.id)?.newerOpenCount).toBe(false);
+  });
+});
+
+describe('a shelf that has never held the item', () => {
+  /** Fixture (owner role): the item has no pool row in the US warehouse at all. */
+  const emptyShelf = async () => {
+    const item = freshItem();
+    await db.owner.query(
+      `DELETE FROM inventory_level WHERE stock_item_id = $1 AND warehouse_id = $2`,
+      [item.id, US],
+    );
+    return item;
+  };
+
+  beforeEach(async () => {
+    await setTolerance(100);
+  });
+
+  it('creates the pool row before reading it, then applies the count', async () => {
+    const item = await emptyShelf();
+    const count = await record(item.id, 5, minutesAgo(30), US);
+    expect(await reconcile(count.id)).toMatchObject({
+      status: 'applied',
+      on_hand_as_of_count: 0,
+      delta: 5,
+    });
+    expect(await onHand(item.id, US)).toBe(5);
+  });
+
+  it('counts a first receipt racing the reconciliation exactly once', async () => {
+    for (let round = 0; round < 5; round++) {
+      const item = await emptyShelf();
+      const count = await record(item.id, 5, minutesAgo(30), US);
+      await Promise.all([reconcile(count.id), move(item.id, 7, undefined, US)]);
+      // 5 counted, then 7 received: 12 whichever of the two got the shelf first
+      expect(await onHand(item.id, US)).toBe(12);
+      expect((await movementsOf(item.id, US)).map((m) => m.delta).sort()).toEqual([5, 7]);
+    }
   });
 });
 
@@ -522,6 +643,18 @@ describe('the dry-run CLI', () => {
 });
 
 describe('WMS pull (in-memory adapter)', () => {
+  it('answers not_found for a warehouse that does not exist', async () => {
+    expect(
+      await failure(
+        recordWmsCounts(
+          hq,
+          { organizationId: ORG, warehouseCode: 'wh-nowhere' },
+          createMemoryWmsAdapter(),
+        ),
+      ),
+    ).toMatchObject({ status: 404, code: 'not_found' });
+  });
+
   it('records what the WMS counted as wms counts with no counter, and reports unknown skus', async () => {
     const item = freshItem();
     const wms = createMemoryWmsAdapter();
@@ -657,6 +790,21 @@ describe('the router: permissions and the wire shape', () => {
     ).toBe(400);
   });
 
+  it("passes the inventory module's refusal through: on-hand would go negative → 409 conflict", async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const count = await record(item.id, 1, minutesAgo(60)); // 1 counted …
+    await move(item.id, -3); // … then 3 shipped: the books cannot say −2
+    const refused = await as('seed-operations').post(`/admin/cycle-counts/${count.id}/reconcile`, {
+      approve: true,
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.code).toBe('conflict');
+    expect(await onHand(item.id)).toBe(7);
+    const after = await listCycleCounts(hq, { stockItemId: item.id, page: 1, limit: 5 });
+    expect(after.items[0]).toMatchObject({ status: 'recorded', stock_movement_id: null });
+  });
+
   it('answers 422 to a count in the future and 409 superseded over the wire', async () => {
     const ops = as('seed-operations');
     const item = freshItem();
@@ -681,9 +829,8 @@ describe('the router: permissions and the wire shape', () => {
   });
 });
 
-describe('through the inventory module (no fake)', () => {
-  it('moves stock with the real moveStock by default: one store-less movement and one stock.moved v2', async () => {
-    resetStockMover();
+describe('the movement and its event', () => {
+  it('writes one store-less movement and one stock.moved v2', async () => {
     const item = freshItem();
     await setOnHand(item.id, EU, 10);
     const count = await record(item.id, 13);
@@ -723,8 +870,7 @@ describe('through the inventory module (no fake)', () => {
     expect(events.rows[0]!.payload).not.toHaveProperty('store_id');
   });
 
-  it('is a no-op the second time on the real path too: still one movement, one event', async () => {
-    resetStockMover();
+  it('is a no-op the second time: still one movement, one event', async () => {
     const item = freshItem();
     await setOnHand(item.id, EU, 10);
     const count = await record(item.id, 12);
