@@ -111,7 +111,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `registerFraudCheck()` (it registers with the checkout's `setFraudCheck` seam itself, #231) — and the
   cart's `promotionsDiscountEvaluator` over window 9's promotions engine (#230; for tax-inclusive stores it
   converts prices, fixed amounts and minimum subtotals gross → net for the engine and the allocations back — what
-  a merchant configures and a customer sees is always gross; the engine never changes). Plain registry writes — no I/O, no configuration
+  a merchant configures and a customer sees is always gross; the engine never changes) — and window 11's
+  `stockAwareAllocationPolicy` behind the inventory module's `setAllocationPolicy` seam (#435: which warehouse a
+  placement reserves in follows the fulfillment routing rules, one warehouse per line when one covers it). Plain registry writes — no I/O, no configuration
   read.
 - Payment seam (`src/modules/checkout`): `setPaymentProvider()` registers window 7's `stripe` (#127) next to the
   built-in `manual` provider; `createSession` / `authorize` / `void` / `refund` exchange ids and amounts only (hosted
@@ -137,7 +139,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   one `stock.moved` v2); stock lies in the SHARED POOL — per (stock item, warehouse), every variant that maps the
   item sells from it (#456). Reservations are the placement stock check (`reserveForOrder` from the checkout; lock
   order: variant rows, then pool rows by stock_item_id → warehouse_id; WHICH warehouse is the allocation policy,
-  `setAllocationPolicy`), released by the orders module's cancel, consumed by window 8 via `consumeForShipment`. A
+  `setAllocationPolicy` — window 11's engine on a running server, `priorityGreedyPolicy` when nothing is registered), released by the orders module's cancel, consumed by window 8 via `consumeForShipment`. A
   reservation is never a movement. A movement a store caused is attributed to it; one no store caused is
   organization scope only — the module never changes scope.
 - Returns (`src/modules/returns`): request → receive (order returned quantities + restock of resellable goods +
