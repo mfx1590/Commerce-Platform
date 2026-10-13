@@ -2,9 +2,9 @@
 // reconcile → exactly one movement, the tolerance and the approval, the delta against on-hand AS OF the count and
 // its three guards, idempotency, permissions through the router, the dry-run CLI and the WMS pull.
 //
-// `fakeMoveStock` is a LOCAL FAKE of the inventory module's pool-addressed `moveStock` (window 1, #456), which is
-// the only writer of `on_hand` in application code; this is test code. The real one also writes `stock.moved` to
-// the outbox in the same transaction — asserted when it replaces this fake.
+// Most tests run with `fakeMoveStock`, a stand-in for the inventory module's `moveStock` (the only writer of
+// `on_hand` in application code; this is test code) written before #456 landed. The last block runs the real
+// one — the default — and asserts its `stock.moved` v2 outbox row.
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, SEED_IDS, type ScopedClient } from '@platform/db';
@@ -681,14 +681,63 @@ describe('the router: permissions and the wire shape', () => {
   });
 });
 
-describe('without a stock mover', () => {
-  it('fails closed: a non-zero delta cannot be applied and the count stays as it was', async () => {
+describe('through the inventory module (no fake)', () => {
+  it('moves stock with the real moveStock by default: one store-less movement and one stock.moved v2', async () => {
     resetStockMover();
     const item = freshItem();
     await setOnHand(item.id, EU, 10);
-    const count = await record(item.id, 11);
-    expect(await failure(reconcile(count.id))).toMatchObject({ status: 500, code: 'internal' });
-    const again = await listCycleCounts(hq, { stockItemId: item.id, page: 1, limit: 5 });
-    expect(again.items[0]!.status).toBe('recorded');
+    const count = await record(item.id, 13);
+    const applied = await reconcile(count.id);
+    expect(applied).toMatchObject({ status: 'applied', delta: 3 });
+    expect(await onHand(item.id)).toBe(13);
+    expect(await movementsOf(item.id)).toEqual([
+      {
+        id: applied.stock_movement_id,
+        delta: 3,
+        reason: 'cycle_count',
+        reference_type: 'cycle_count',
+        reference_id: count.id,
+        store_id: null,
+      },
+    ]);
+    const events = await db.owner.query<{
+      version: number;
+      store_id: string | null;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT version, store_id, payload FROM outbox WHERE topic = 'stock.moved' AND aggregate_id = $1`,
+      [applied.stock_movement_id],
+    );
+    expect(events.rows).toHaveLength(1);
+    expect(events.rows[0]).toMatchObject({ version: 2, store_id: null });
+    expect(events.rows[0]!.payload).toMatchObject({
+      stock_movement_id: applied.stock_movement_id,
+      stock_item_id: item.id,
+      sku: item.sku,
+      warehouse_id: EU,
+      delta: 3,
+      reason: 'cycle_count',
+      on_hand_after: 13,
+    });
+    expect(events.rows[0]!.payload).not.toHaveProperty('variant_id');
+    expect(events.rows[0]!.payload).not.toHaveProperty('store_id');
+  });
+
+  it('is a no-op the second time on the real path too: still one movement, one event', async () => {
+    resetStockMover();
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const count = await record(item.id, 12);
+    const first = await reconcile(count.id);
+    expect(await reconcile(count.id)).toEqual(first);
+    expect(await movementsOf(item.id)).toHaveLength(1);
+    expect(
+      (
+        await db.owner.query(
+          `SELECT 1 FROM outbox WHERE topic = 'stock.moved' AND aggregate_id = $1`,
+          [first.stock_movement_id],
+        )
+      ).rowCount,
+    ).toBe(1);
   });
 });

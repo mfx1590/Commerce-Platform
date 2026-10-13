@@ -68,3 +68,12 @@
   `stock_item.mapped.v1.json`, `admin-api.stock-pool.yaml`); `testing/pool-database.ts` is migrate + seed.
 - `proposed-migrations.test.ts` takes the seed's shared item into account (items = variants − 1, exactly one
   pooled pair) and tests the naming rule through the insert trigger instead of the backfill.
+
+### 2026-10-13 · on the landed pool (contracts-v0.4.15)
+
+- main merged (#460: 0191, `stock.moved` v2, `stock_item.mapped` v1, the inventory rewrite). `types.ts`
+  re-exports the seam's input types from the inventory module.
+- Reconciliation moves stock through the inventory module's real `moveStock` by default
+  (`inventoryStockMover`); `setStockMover` stays as a test seam. New tests assert the store-less movement and
+  its one `stock.moved` v2 outbox row — written, NOT yet run: no local Postgres on 2026-10-13.
+- `testing/pool-database.ts`: migrate + seed, with `'0192'` applying the still-proposed cycle-count migration.

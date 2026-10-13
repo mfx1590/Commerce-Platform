@@ -110,8 +110,8 @@ Somebody counts a stock item on a shelf; the count is written down; reconciliati
 **exactly one `stock_movement`** (reason `cycle_count`, no store, its `stock.moved` in the same transaction).
 A level is never edited directly. Code: `cycle-counts.ts` (service), `http.ts` (`cycleCountsAdminRouter`),
 `cli/reconcile.ts`, `wms/`. Contract, still proposed: `proposed/0192_cycle_count.sql`,
-`proposed/admin-api.cycle-counts.yaml`. **Not mounted yet:** the router and `setStockMover` are wired when
-window 1's pool-addressed `moveStock` (#456) is on main.
+`proposed/admin-api.cycle-counts.yaml`. **Not mounted yet:** the router needs one line in
+`src/http/module-routers.ts` (window 1), which lands with 0192 and the Admin API additions.
 
 | Step      | Operation (`operations` on `organization:hq`) | Effect                                                                         |
 | --------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -138,8 +138,9 @@ movements written since counted_at)`. A count taken at 18:00 and reconciled the 
   Unset or malformed = 0: every non-zero discrepancy waits for an approval.
 - **Idempotent by count id:** `cycle_count.stock_movement_id` (UNIQUE) is the link; reconciling an applied count
   changes nothing. A zero delta is `applied` with no movement (the ledger refuses a zero movement).
-- **Who writes the movement:** the inventory module's pool-keyed `moveStock` — the only writer of `on_hand` —
-  through a `StockMover` port. It arrives with window 1's #456; until then tests use a local fake.
+- **Who writes the movement:** the inventory module's pool-addressed `moveStock` — the only writer of `on_hand` —
+  through its public API. `setStockMover` is a test seam; the default is the real one, so nothing is registered at
+  boot.
 - **RLS `organization_only`** (new kind: organization match AND organization scope): counts are an HQ record; a
   store session can neither read nor write one, not even for an item it maps.
 - **CLI:** `cli/reconcile.ts --warehouse wh-eu --dry-run` prints the plan (count, on-hand as of the count, delta,

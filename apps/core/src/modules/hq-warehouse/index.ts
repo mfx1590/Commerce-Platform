@@ -1,9 +1,9 @@
 // hq-warehouse public API (window 11).
 //   * Allocation: `stockAwareAllocationPolicy`, registered behind the inventory module's `setAllocationPolicy`
 //     seam (REQUEST #454) by one line in `src/wiring.ts`.
-//   * Cycle counts (#436): the service functions, `cycleCountsAdminRouter()` (one line in
-//     `src/http/module-routers.ts`), and `setStockMover`, which `src/wiring.ts` points at the inventory module's
-//     pool-addressed `moveStock`.
+//   * Cycle counts (#436): the service functions and `cycleCountsAdminRouter()` (one line in
+//     `src/http/module-routers.ts`). Reconciliation moves stock through the inventory module's `moveStock`
+//     by default; `setStockMover` is a test seam.
 //   * WMS boundary: `WmsAdapter` and the in-memory implementation.
 export { rankWarehouses, stockAwareAllocationPolicy } from './allocation';
 export type {
@@ -20,6 +20,7 @@ export {
   countTolerance,
   createCycleCount,
   CYCLE_COUNT_STATUSES,
+  inventoryStockMover,
   listCycleCounts,
   planOpenCounts,
   planReconciliation,

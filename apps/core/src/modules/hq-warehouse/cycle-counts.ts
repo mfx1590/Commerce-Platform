@@ -11,6 +11,7 @@
 import type { Queryable, ScopedClient } from '@platform/db';
 import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError, notFound } from '../../lib/errors';
+import { moveStock } from '../inventory';
 
 export type CycleCountStatus = 'recorded' | 'flagged' | 'applied';
 export const CYCLE_COUNT_STATUSES: readonly CycleCountStatus[] = ['recorded', 'flagged', 'applied'];
@@ -36,9 +37,10 @@ export interface CycleCount {
 }
 
 /**
- * The one thing reconciliation asks of the inventory module: its pool-addressed `moveStock` (window 1, #456),
- * called with reason `cycle_count`, no store, and the count as the reference. Registered at boot by
- * `setStockMover`; the module never writes a level or a movement itself.
+ * The one thing reconciliation asks of the inventory module: its pool-addressed `moveStock` (#456), called with
+ * reason `cycle_count`, no store, and the count as the reference. A port so that tests can stand in for it; the
+ * default is the real one, so nothing has to be registered at boot. The module never writes a level or a movement
+ * itself.
  */
 export type StockMover = (
   tx: Queryable,
@@ -55,19 +57,31 @@ export type StockMover = (
   },
 ) => Promise<{ stockMovementId: string }>;
 
-const notWired: StockMover = () => {
-  throw new AppError('internal', 'hq-warehouse: no stock mover registered (setStockMover)');
+/** The inventory module's `moveStock`: one locked pool row, one ledger row, one `stock.moved`, no attribution. */
+export const inventoryStockMover: StockMover = async (tx, input) => {
+  const moved = await moveStock(tx, {
+    organizationId: input.organizationId,
+    stockItemId: input.stockItemId,
+    warehouseId: input.warehouseId,
+    delta: input.delta,
+    reason: input.reason,
+    referenceType: input.referenceType,
+    referenceId: input.referenceId,
+    note: input.note,
+    actor: input.actor,
+  });
+  return { stockMovementId: moved.movementId };
 };
-let stockMover: StockMover = notWired;
+let stockMover: StockMover = inventoryStockMover;
 
-/** Registers the inventory module's `moveStock` behind the port. Returns the previous one. */
+/** Replaces the stock mover (tests). Returns the previous one. */
 export function setStockMover(next: StockMover): StockMover {
   const previous = stockMover;
   stockMover = next;
   return previous;
 }
 export function resetStockMover(): void {
-  stockMover = notWired;
+  stockMover = inventoryStockMover;
 }
 
 /** `organization.settings.warehouse.count_tolerance`: a non-negative integer of units; anything else is 0. */
