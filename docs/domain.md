@@ -90,7 +90,8 @@ mandatory); the backfill maps every variant 1:1 and never merges — pooling two
 RLS kind `pool_self`: organization scope sees every item; a store-scoped session only the items one of its own
 stores' variants maps. Only organization scope may map a variant (database trigger, 42501 otherwise). From 0191 the
 pool's rows (`inventory_level`, `stock_movement`) are keyed by stock item; reservations stay per store.
-Owner: window 11 (warehouse). Events: `stock.moved` v2 and `stock_item.mapped` arrive with 0191.
+Owner: window 11 (warehouse). Events: `stock.moved` v2 and `stock_item.mapped` v1 (events 0.3.3, landed with 0191;
+the mapping writes `stock_item.mapped`).
 
 ### staff_user
 Mirror of a Keycloak staff-realm user. Roles are NOT stored here (OpenFGA is the source of truth).
@@ -684,19 +685,22 @@ Owner: window 1 (orders) Phase 2; support flows window 16. Events: `return.reque
 Owner: window 1 (orders).
 
 ### inventory_level
-Stock of one variant in one warehouse. `store_id` = the variant's store (variants are store-owned; warehouses are shared).
+Stock of one stock item in one warehouse: the POOL row (since 0191, db 0.3.5). It carries no store and no variant;
+every variant mapped to the item sells from it (before 0191 the row was keyed by `variant_id` and carried `store_id`).
 
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| organization_id / store_id | uuid | |
-| variant_id | uuid FK product_variant | |
+| organization_id | uuid | |
+| stock_item_id | uuid FK stock_item | NOT NULL |
 | warehouse_id | uuid FK warehouse | |
 | on_hand | int | physical |
-| reserved | int | held by unshipped orders |
+| reserved | int | held by unshipped orders of EVERY store that maps the item |
 | incoming | int | purchase orders |
 | available | int GENERATED | on_hand − reserved |
-| UNIQUE | | (variant_id, warehouse_id) |
+| UNIQUE | | (stock_item_id, warehouse_id) |
+
+RLS kind `pool`: organization scope, or a store session one of whose own stores' variants maps the item.
 
 Owner: window 1 (inventory); allocation policy window 11. Events: `stock.moved` (from stock_movement).
 
@@ -706,8 +710,10 @@ Append-only ledger of stock changes; `inventory_level` is its projection.
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| organization_id / store_id | uuid | |
-| variant_id | uuid FK | |
+| organization_id | uuid | |
+| stock_item_id | uuid FK stock_item | NOT NULL (since 0191) |
+| store_id | uuid NULL | the store that caused it; NULL = no store did (receipt, transfer, cycle count) |
+| variant_id | uuid NULL FK | NULL exactly when `store_id` is NULL (CHECK) |
 | warehouse_id | uuid FK | |
 | delta | int | signed |
 | reason | text | `receipt` / `sale` / `return` / `adjustment` / `transfer_in` / `transfer_out` / `cycle_count` |
@@ -717,7 +723,11 @@ Append-only ledger of stock changes; `inventory_level` is its projection.
 | note | text NULL | |
 | created_at | timestamptz | no updated_at |
 
-Owner: window 1 (inventory). Events: `stock.moved`.
+Since 0191 (db 0.3.5) it is the pool's ledger. RLS kind `pool_ledger`: a store session reads and writes only
+movements of an item it maps AND attributed to one of its own stores; store-less movements and other stores'
+movements are organization scope only.
+
+Owner: window 1 (inventory). Events: `stock.moved` (v2 since events 0.3.3, keyed by `stock_item_id`).
 
 ### reservation
 Stock held for an order (or a cart during checkout) until shipped or expired.
@@ -725,14 +735,18 @@ Stock held for an order (or a cart during checkout) until shipped or expired.
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| organization_id / store_id | uuid | |
+| organization_id / store_id | uuid | who reserved |
 | variant_id | uuid FK | |
+| stock_item_id | uuid FK stock_item | NOT NULL (since 0191): the pool row it holds; the inventory module keeps it equal to the variant's item at reserving time |
 | warehouse_id | uuid FK | |
 | order_id | uuid NULL FK | |
 | cart_id | uuid NULL FK | |
 | quantity | int | |
+| allocation_rule | text NULL | why the allocation chose that warehouse (since 0191) |
 | expires_at | timestamptz NULL | carts only |
 | released_at | timestamptz NULL | |
+
+RLS kind stays `store` (also on a shared item): a brand never reads another brand's reservations.
 
 Owner: window 1 (inventory).
 

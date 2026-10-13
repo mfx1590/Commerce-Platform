@@ -190,7 +190,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.12/);
+    expect(text).toMatch(/version: 0\.4\.13/);
     for (const tag of [
       'registry',
       'catalog',
@@ -422,6 +422,44 @@ describe('admin-api.yaml', () => {
     for (const id of ['pickShipment', 'packShipment']) {
       expect(ops.find((o) => o.id === id)!.body, id).toMatch(/'409':/);
     }
+  });
+
+  it('stock pool (0.4.13, #453): listStockItems at viewer and mapVariantToStockItem at operations, both on hq; InventoryLevel requires stock_item_id', () => {
+    const op = (id: string) => ops.find((o) => o.id === id);
+    const permission = (id: string) =>
+      op(id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(op('listStockItems'), 'listStockItems').toBeDefined();
+    expect(op('mapVariantToStockItem'), 'mapVariantToStockItem').toBeDefined();
+    expect(permission('listStockItems')).toEqual(['viewer', 'organization:hq']);
+    expect(permission('mapVariantToStockItem')).toEqual(['operations', 'organization:hq']);
+    for (const id of ['listStockItems', 'mapVariantToStockItem']) {
+      expect(op(id)!.body, `${id} lacks 401`).toMatch(
+        /'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/,
+      );
+      expect(op(id)!.body, `${id} lacks 403`).toMatch(
+        /'403': \{ \$ref: '#\/components\/responses\/Forbidden' \}/,
+      );
+    }
+    expect(text).toMatch(/\n {2}\/admin\/stock-items:\n/);
+    expect(text).toMatch(/\n {2}\/admin\/stock-items\/\{stockItemId\}\/variants\/\{variantId\}:\n/);
+    // the mapping is a state change: it names its outbox event, and refuses with 409 instead of merging quantities
+    expect(op('mapVariantToStockItem')!.body).toMatch(/`stock_item\.mapped` v1 outbox event/);
+    expect(op('mapVariantToStockItem')!.body).toMatch(/'409':/);
+    // InventoryLevel: one row per variant and warehouse carrying the pool's numbers, with the item it maps
+    const start = text.indexOf('\n    InventoryLevel:\n');
+    expect(start).toBeGreaterThan(0);
+    const required = text.slice(
+      text.indexOf('\n      required:', start),
+      text.indexOf('\n      properties:', start),
+    );
+    expect(required).toMatch(/\n\s+variant_id,\n\s+stock_item_id,\n\s+sku,/);
+    expect(text.slice(start, start + 2000)).toMatch(
+      /stock_item_id: \{ type: string, format: uuid \}/,
+    );
+    expect(text).toMatch(/\n {4}StockItem:\n/);
+    expect(text).toMatch(/\n {4}StockLevel:\n/);
   });
 
   it('0.4.9 (#354): capturePayment and buyShipmentLabel — permissions, 200/409/422, honest examples', () => {

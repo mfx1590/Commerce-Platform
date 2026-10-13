@@ -85,7 +85,7 @@ beforeAll(async () => {
      JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
      JOIN price_list pl ON pl.id = pr.price_list_id AND pl.type = 'default' AND pl.status = 'active'
      WHERE v.store_id = $1 AND pr.amount_minor >= 1000
-       AND (SELECT coalesce(sum(il.available), 0) FROM inventory_level il WHERE il.variant_id = v.id) >= 5
+       AND (SELECT coalesce(sum(il.available), 0) FROM inventory_level il WHERE il.stock_item_id = v.stock_item_id) >= 5
      ORDER BY v.sku LIMIT 12`,
     [A],
   );

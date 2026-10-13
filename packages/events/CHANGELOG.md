@@ -34,3 +34,20 @@
 - Producer: the core's customers module, one row per request in the same transaction as the 202 (no dedupe — every request
   is a new request). Consumer: the GDPR export delivery (Integration 2b: storage + email); nobody is required to handle it
   (unknown-topic rule). 36 topics in v1.
+
+## 0.3.3 — 2026-10-12 (CONTRACT CHANGE #453, stock pool step 2; contracts-v0.4.15)
+
+- `stock.moved` **v2** (the first second version of a topic): stock is held per stock item and warehouse (db 0.3.5,
+  migration 0191), so the payload requires `stock_item_id` and `sku` is the stock item's. `variant_id` and `store_id`
+  are optional and come together (`dependentRequired`): present when a store caused the movement (a sale, a return, a
+  shipment release), both absent for a pool movement no store caused (receipt, transfer, cycle count), whose envelope
+  `store_id` is null. v1 is frozen and unchanged; `LATEST_VERSION['stock.moved']` is 2, so `makeEvent` writes v2.
+- One additive v1 schema: `stock_item.mapped` — a store's variant was mapped to a stock item (Admin API
+  `mapVariantToStockItem`, 0.4.13). Payload is ids only: `stock_item_id`, `previous_stock_item_id`, `variant_id`,
+  `store_id`; `additionalProperties: false`. Envelope `store_id` is the variant's store, `aggregate_id` the item the
+  variant is mapped to now.
+- Envelope v1 (additive, as in 0.2.0): topic enum gains `stock_item.mapped` (37 topics, was 36), `aggregate_type` gains
+  `stock_item`.
+- Producer: the core's inventory module (window 1, #456), each in the same transaction as the state change. Consumers
+  of `stock.moved` (search/availability, accounting, warehouse) must handle v2 from this release on and key by
+  `stock_item_id`; `stock_item.mapped` is optional for everyone (unknown-topic rule).

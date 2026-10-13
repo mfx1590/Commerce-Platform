@@ -1,10 +1,10 @@
-// The proposed cycle-count migration (proposed/0192, #436) on a seeded throwaway database: it applies on main's
-// schema alone (it needs only 0190's stock_item, not the proposed rekey), its CHECKs hold a count's story
+// The proposed cycle-count migration (proposed/0192, #436) on a seeded throwaway database migrated to main's
+// head: its CHECKs hold a count's story
 // together, and row-level security is `organization_only` — counts are an HQ record no store session touches.
 import { createOrganizationClient, createTenantClient, SEED_IDS } from '@platform/db';
 import type { TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { applyProposed, createPoolDatabase } from './testing/pool-database';
+import { createPoolDatabase } from './testing/pool-database';
 
 const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
@@ -35,9 +35,7 @@ async function count(
 }
 
 beforeAll(async () => {
-  db = await createPoolDatabase('seeded');
-  await db.owner.query(`SELECT app.backfill_stock_items()`);
-  await applyProposed(db, '0192_cycle_count.sql');
+  db = await createPoolDatabase('0192');
 
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A] });
   hq = createOrganizationClient(db.app, { organizationId: ORG });

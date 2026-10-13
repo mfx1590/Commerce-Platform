@@ -61,3 +61,10 @@
 - `wms/`: `WmsAdapter { pullCounts(warehouse) }`, the in-memory adapter, `recordWmsCounts`.
 - `cycle-counts.test.ts`: 29 tests on the proposed 0191 + 0192 with a local fake of `moveStock`.
 - Not mounted: the router and the stock mover are wired once window 1's #456 is on main.
+
+### 2026-10-12 · the pool's second step is in packages/* (0191, events, Admin API; with #456)
+
+- The four proposed copies that landed are deleted (`proposed/0191_stock_pool_rekey.sql`, `stock.moved.v2.json`,
+  `stock_item.mapped.v1.json`, `admin-api.stock-pool.yaml`); `testing/pool-database.ts` is migrate + seed.
+- `proposed-migrations.test.ts` takes the seed's shared item into account (items = variants − 1, exactly one
+  pooled pair) and tests the naming rule through the insert trigger instead of the backfill.

@@ -100,7 +100,7 @@ beforeAll(async () => {
      FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
      JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
      WHERE v.store_id = $1 AND v.manage_inventory AND NOT v.allow_backorder
-       AND coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.variant_id = v.id), 0) >= 20
+       AND coalesce((SELECT sum(il.available) FROM inventory_level il WHERE il.stock_item_id = v.stock_item_id), 0) >= 20
      ORDER BY v.sku`,
     [A],
   );

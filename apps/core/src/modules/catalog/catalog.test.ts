@@ -110,7 +110,7 @@ describe('store read model (seeded brand-a)', () => {
     const before = await getStoreProduct(a, A, 'EUR', first.handle);
     const target = before.variants[0]!;
     await owner.query(
-      'UPDATE inventory_level SET on_hand = 0, reserved = 0 WHERE variant_id = $1',
+      'UPDATE inventory_level SET on_hand = 0, reserved = 0 WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)',
       [target.id],
     );
     const after = await getStoreProduct(a, A, 'EUR', first.handle);

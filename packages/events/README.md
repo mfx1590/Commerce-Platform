@@ -13,7 +13,7 @@ migrations/0100_outbox.sql    outbox table + RLS, applied by packages/db
 scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 ```
 
-## Topics (36, all v1)
+## Topics (37; all v1, `stock.moved` also v2)
 
 | Aggregate      | Topics                                                                                                   |
 | -------------- | -------------------------------------------------------------------------------------------------------- |
@@ -26,7 +26,8 @@ scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 | shipment       | `shipment.created`, `shipment.label_created` (0.3.1), `shipment.shipped`, `shipment.delivered`           |
 | shipment       | `fulfillment.requested`, `fulfillment.picking`, `fulfillment.packed` (0.3.0)                             |
 | return         | `return.requested`, `return.received`                                                                    |
-| stock_movement | `stock.moved`                                                                                            |
+| stock_movement | `stock.moved` (v2 since 0.3.3: keyed by the stock item; v1 frozen)                                       |
+| stock_item     | `stock_item.mapped` (0.3.3, ids only)                                                                    |
 | campaign       | `campaign.launched`, `campaign.ended` (0.2.0)                                                            |
 | feed           | `feed.published` (0.2.0)                                                                                 |
 | attribution    | `attribution.recorded` (0.2.0, one per touch, emitted by the core at placement)                          |

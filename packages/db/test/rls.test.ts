@@ -479,10 +479,11 @@ describe('row-level security (platform_app role)', () => {
   it('stock pool (0190): a store session reaches only the stock items its own variants map', async () => {
     const hq = createOrganizationClient(db.app, { organizationId: ORG });
     const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
-    // a variant is created unmapped in store scope (what the catalog does until 0191) ...
+    // a variant is created unmapped in store scope (what the catalog does) and, since 0191, gets its own item
+    // from the insert trigger: 1:1, never merging ...
     const variantA = await poolVariant(STORE_A, 'POOL-A');
     const variantB = await poolVariant(STORE_B, 'POOL-B');
-    // ... and the backfill maps every unmapped variant 1:1, never merging
+    // ... so the backfill (which mapped them before 0191) finds nothing left to do
     await db.owner.query('SELECT app.backfill_stock_items()');
     const itemA = await stockItemOf(variantA);
     const itemB = await stockItemOf(variantB);
@@ -569,5 +570,276 @@ describe('row-level security (platform_app role)', () => {
     expect((await a.query('SELECT id FROM stock_item WHERE id = $1', [itemB])).rows).toHaveLength(
       1,
     );
+  });
+
+  it('stock pool (0191): the variant trigger never reads a product of another store', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const foreign = await hq.query<{ id: string }>(
+      'SELECT id FROM product WHERE store_id = $1 LIMIT 1',
+      [STORE_B],
+    );
+    const productB = foreign.rows[0]?.id;
+    if (!productB) throw new Error('no product of store B');
+    // store A names brand B's product id for a variant of its own store: the foreign key alone would accept it,
+    // and the trigger (organization scope) would copy brand B's title into a stock item store A can read
+    await expect(
+      a.query(
+        `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title)
+         VALUES ($1, $2, $3, 'TITLE-PROBE', 'One size')`,
+        [ORG, STORE_A, productB],
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    const left = await hq.query('SELECT id FROM stock_item WHERE sku LIKE $1', ['%TITLE-PROBE']);
+    expect(left.rows).toHaveLength(0);
+  });
+
+  // --- stock pool (0191): the real tables, keyed by stock item ---------------------------------------
+  const poolWarehouse = async (code: string): Promise<string> => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const made = await hq.query<{ id: string }>(
+      `INSERT INTO warehouse (organization_id, code, name, country) VALUES ($1, $2, $2, 'NL')
+       ON CONFLICT (organization_id, code) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+      [ORG, code],
+    );
+    const row = made.rows[0];
+    if (!row) throw new Error(`no warehouse ${code}`);
+    return row.id;
+  };
+  /** Brand A's variant mapped onto brand B's item by organization scope: one pool, two brands. */
+  const sharedItem = async (
+    prefix: string,
+  ): Promise<{ variantA: string; variantB: string; item: string }> => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const variantA = await poolVariant(STORE_A, `${prefix}-A`);
+    const variantB = await poolVariant(STORE_B, `${prefix}-B`);
+    const item = await stockItemOf(variantB);
+    await hq.query('UPDATE product_variant SET stock_item_id = $2 WHERE id = $1', [variantA, item]);
+    return { variantA, variantB, item };
+  };
+
+  it('stock pool (0191): inventory_level is a pool row — a store reaches it only through an item it maps', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    const warehouse = await poolWarehouse('wh-pool');
+    const elsewhere = await poolWarehouse('wh-pool-2');
+    const variantA = await poolVariant(STORE_A, 'LEVEL-A');
+    const variantB = await poolVariant(STORE_B, 'LEVEL-B');
+    const itemA = await stockItemOf(variantA);
+    const itemB = await stockItemOf(variantB);
+    expect(itemA).not.toBe(itemB);
+
+    // the row carries no store and no variant any more
+    const cols = await db.owner.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'inventory_level'`,
+    );
+    expect(cols.rows.map((r) => r.column_name)).toContain('stock_item_id');
+    expect(cols.rows.map((r) => r.column_name)).not.toContain('store_id');
+    expect(cols.rows.map((r) => r.column_name)).not.toContain('variant_id');
+
+    const level = `INSERT INTO inventory_level (organization_id, stock_item_id, warehouse_id, on_hand)
+                   VALUES ($1, $2, $3, $4) RETURNING id`;
+    const levelA = (await hq.query<{ id: string }>(level, [ORG, itemA, warehouse, 10])).rows[0]!.id;
+    const levelB = (await hq.query<{ id: string }>(level, [ORG, itemB, warehouse, 20])).rows[0]!.id;
+    // one pool row per item and warehouse
+    await expect(hq.query(level, [ORG, itemB, warehouse, 1])).rejects.toThrow(
+      /inventory_level_stock_item_warehouse_key/,
+    );
+
+    // store A: its own item's level only — brand B's is unreadable, not updatable, not insertable
+    const seen = await a.query<{ id: string }>(
+      'SELECT id FROM inventory_level WHERE stock_item_id = ANY($1)',
+      [[itemA, itemB]],
+    );
+    expect(seen.rows.map((r) => r.id)).toEqual([levelA]);
+    const own = await a.query('UPDATE inventory_level SET reserved = 1 WHERE id = $1', [levelA]);
+    expect(own.rowCount).toBe(1);
+    const foreign = await a.query('UPDATE inventory_level SET on_hand = 0 WHERE id = $1', [levelB]);
+    expect(foreign.rowCount).toBe(0);
+    await expect(a.query(level, [ORG, itemB, elsewhere, 5])).rejects.toThrow(/row-level security/);
+    const untouched = await hq.query<{ on_hand: number }>(
+      'SELECT on_hand FROM inventory_level WHERE id = $1',
+      [levelB],
+    );
+    expect(untouched.rows[0]?.on_hand).toBe(20);
+
+    // organization scope maps A's variant onto B's item: now both brands see B's pool row ...
+    await hq.query('UPDATE product_variant SET stock_item_id = $2 WHERE id = $1', [
+      variantA,
+      itemB,
+    ]);
+    const forA = await a.query('SELECT id FROM inventory_level WHERE id = $1', [levelB]);
+    expect(forA.rows).toHaveLength(1);
+    const forB = await b.query('SELECT id FROM inventory_level WHERE id = $1', [levelB]);
+    expect(forB.rows).toHaveLength(1);
+    // ... and A, which maps its former item no longer, has lost that item's row (the item itself is kept)
+    const former = await a.query('SELECT id FROM inventory_level WHERE id = $1', [levelA]);
+    expect(former.rows).toHaveLength(0);
+    const kept = await hq.query('SELECT id FROM inventory_level WHERE id = $1', [levelA]);
+    expect(kept.rows).toHaveLength(1);
+    // another organization sees none of it
+    const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
+    expect((await other.query('SELECT id FROM inventory_level')).rows).toHaveLength(0);
+  });
+
+  it('stock pool (0191): stock_movement is the pool ledger — on a shared item a store reads and writes only its own movements', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const warehouse = await poolWarehouse('wh-pool');
+    const { variantA, variantB, item } = await sharedItem('LEDGER');
+    const move = `INSERT INTO stock_movement (organization_id, store_id, variant_id, stock_item_id, warehouse_id, delta, reason)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`;
+
+    // store A: a movement attributed to itself, written and read back
+    const mine = await a.query<{ id: string }>(move, [
+      ORG,
+      STORE_A,
+      variantA,
+      item,
+      warehouse,
+      -1,
+      'sale',
+    ]);
+    const ownId = mine.rows[0]!.id;
+    const readOwn = await a.query('SELECT id FROM stock_movement WHERE id = $1', [ownId]);
+    expect(readOwn.rows).toHaveLength(1);
+    // store A cannot forge a movement attributed to brand B, nor write one no store caused
+    await expect(
+      a.query(move, [ORG, STORE_B, variantB, item, warehouse, -1, 'sale']),
+    ).rejects.toThrow(/row-level security/);
+    await expect(a.query(move, [ORG, null, null, item, warehouse, 5, 'receipt'])).rejects.toThrow(
+      /row-level security/,
+    );
+
+    // organization scope writes all three kinds
+    const theirs = await hq.query<{ id: string }>(move, [
+      ORG,
+      STORE_B,
+      variantB,
+      item,
+      warehouse,
+      -2,
+      'sale',
+    ]);
+    const receipt = await hq.query<{ id: string }>(move, [
+      ORG,
+      null,
+      null,
+      item,
+      warehouse,
+      50,
+      'receipt',
+    ]);
+    const forA = await hq.query<{ id: string }>(move, [
+      ORG,
+      STORE_A,
+      variantA,
+      item,
+      warehouse,
+      1,
+      'return',
+    ]);
+    expect(forA.rows).toHaveLength(1);
+    // store A reads neither brand B's sale nor the store-less receipt, even on an item it maps
+    const readTheirs = await a.query('SELECT id FROM stock_movement WHERE id = $1', [
+      theirs.rows[0]!.id,
+    ]);
+    expect(readTheirs.rows).toHaveLength(0);
+    const readReceipt = await a.query('SELECT id FROM stock_movement WHERE id = $1', [
+      receipt.rows[0]!.id,
+    ]);
+    expect(readReceipt.rows).toHaveLength(0);
+    const visible = await a.query<{ store_id: string | null }>(
+      'SELECT DISTINCT store_id FROM stock_movement WHERE stock_item_id = $1',
+      [item],
+    );
+    expect(visible.rows).toEqual([{ store_id: STORE_A }]);
+    // organization scope reads all four
+    const all = await hq.query('SELECT id FROM stock_movement WHERE stock_item_id = $1', [item]);
+    expect(all.rows).toHaveLength(4);
+    // a store and its variant come together or not at all
+    await expect(
+      hq.query(move, [ORG, STORE_A, null, item, warehouse, 1, 'adjustment']),
+    ).rejects.toThrow(/stock_movement_store_attribution_check/);
+    // the ledger is still append-only for the application role
+    await expect(
+      a.query('UPDATE stock_movement SET delta = -9 WHERE id = $1', [ownId]),
+    ).rejects.toThrow(/permission denied/);
+  });
+
+  it('stock pool (0191): a reservation stays per store, also on a shared item', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    const warehouse = await poolWarehouse('wh-pool');
+    const { variantA, variantB, item } = await sharedItem('HOLD');
+    // a reservation needs a cart or an order: one order per store
+    const orders = await hq.transaction(async (tx) => {
+      const out: Record<string, string> = {};
+      for (const store of [STORE_A, STORE_B]) {
+        const ch = await tx.query<{ id: string }>(
+          `INSERT INTO sales_channel (organization_id, store_id, code, name, type) VALUES ($1, $2, 'pool-' || gen_random_uuid(), 'Web', 'web') RETURNING id`,
+          [ORG, store],
+        );
+        const o = await tx.query<{ id: string }>(
+          `INSERT INTO "order" (organization_id, store_id, sales_channel_id, email, currency, locale,
+             shipping_address, billing_address, subtotal_minor, total_minor)
+           VALUES ($1, $2, $3, 'x@example.com', 'EUR', 'en-GB', '{}', '{}', 1000, 1000) RETURNING id`,
+          [ORG, store, ch.rows[0]!.id],
+        );
+        out[store] = o.rows[0]!.id;
+      }
+      return out;
+    });
+    const reserve = `INSERT INTO reservation (organization_id, store_id, variant_id, stock_item_id, warehouse_id, order_id, quantity, allocation_rule)
+                     VALUES ($1, $2, $3, $4, $5, $6, 1, 'single_warehouse') RETURNING id`;
+
+    // each store reserves for itself on the same pool row
+    const mine = await a.query<{ id: string }>(reserve, [
+      ORG,
+      STORE_A,
+      variantA,
+      item,
+      warehouse,
+      orders[STORE_A],
+    ]);
+    const theirs = await b.query<{ id: string }>(reserve, [
+      ORG,
+      STORE_B,
+      variantB,
+      item,
+      warehouse,
+      orders[STORE_B],
+    ]);
+    // store A maps the item, yet reads only its own reservation on it
+    const seen = await a.query<{ id: string }>(
+      'SELECT id FROM reservation WHERE stock_item_id = $1',
+      [item],
+    );
+    expect(seen.rows.map((r) => r.id)).toEqual([mine.rows[0]!.id]);
+    const readTheirs = await a.query('SELECT id FROM reservation WHERE id = $1', [
+      theirs.rows[0]!.id,
+    ]);
+    expect(readTheirs.rows).toHaveLength(0);
+    const released = await a.query('UPDATE reservation SET released_at = now() WHERE id = $1', [
+      theirs.rows[0]!.id,
+    ]);
+    expect(released.rowCount).toBe(0);
+    // nor can it reserve in brand B's name
+    await expect(
+      a.query(reserve, [ORG, STORE_B, variantB, item, warehouse, orders[STORE_B]]),
+    ).rejects.toThrow(/row-level security/);
+    // organization scope sees both
+    const both = await hq.query('SELECT id FROM reservation WHERE stock_item_id = $1', [item]);
+    expect(both.rows).toHaveLength(2);
+    // the pool row a reservation holds is mandatory
+    await expect(
+      hq.query(
+        `INSERT INTO reservation (organization_id, store_id, variant_id, warehouse_id, order_id, quantity)
+         VALUES ($1, $2, $3, $4, $5, 1)`,
+        [ORG, STORE_A, variantA, warehouse, orders[STORE_A]],
+      ),
+    ).rejects.toThrow(/stock_item_id/);
   });
 });

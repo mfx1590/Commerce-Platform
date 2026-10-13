@@ -162,9 +162,12 @@ export async function loadAggregates(
     : { rows: [] as PriceRow[] };
   const inventory = variantIds.length
     ? await tx.query<InventoryRow>(
-        `SELECT il.variant_id, il.warehouse_id, il.on_hand, il.reserved, il.available
-         FROM inventory_level il JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
-         WHERE il.variant_id = ANY($1) ORDER BY w.priority`,
+        // the shared stock pool (#456): a variant's levels are the pool rows of the stock item it maps
+        `SELECT v.id AS variant_id, il.warehouse_id, il.on_hand, il.reserved, il.available
+         FROM product_variant v
+         JOIN inventory_level il ON il.stock_item_id = v.stock_item_id
+         JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
+         WHERE v.id = ANY($1) ORDER BY w.priority, w.code`,
         [variantIds],
       )
     : { rows: [] as InventoryRow[] };
