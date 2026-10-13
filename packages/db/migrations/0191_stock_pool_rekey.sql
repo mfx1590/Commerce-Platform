@@ -1,7 +1,10 @@
--- PROPOSED (CONTRACT CHANGE, window 11, task 3.1 / #435): packages/db/migrations/0191_stock_pool_rekey.sql.
---
--- Kept here verbatim until the main window applies it; the hq-warehouse tests apply 0190 + 0191 to a seeded
--- throwaway database (the #244 pattern).
+-- Landed from CONTRACT CHANGE #453 (window 11, task 3.1 / #435), manager decision 2026-10-12, together with the
+-- inventory module's rewrite (window 1, #456). The SQL below is the proposed file verbatim, except ONE change
+-- from the review of the landing (PR 460): app.variant_stock_item() reads the product only when it belongs to the
+-- new variant's own store and organization, and refuses the insert otherwise. The function runs in organization
+-- scope, and product_variant.product_id is a plain foreign key (referential checks bypass row security): without
+-- the two predicates a store session could name another store's product id and read that product's title back
+-- from the stock item's name.
 --
 -- 0191 stock pool, step 2 of 2 (REKEY — lands ONLY together with the inventory module's rewrite, window 1):
 -- stock is held per (stock item, warehouse), not per (store's variant, warehouse).
@@ -44,8 +47,13 @@ BEGIN
   SELECT NEW.organization_id, item_sku,
          p.title || CASE WHEN NEW.title <> '' AND NEW.title <> p.title THEN ' — ' || NEW.title ELSE '' END,
          NEW.barcode
-  FROM product p WHERE p.id = NEW.product_id
+  FROM product p
+  WHERE p.id = NEW.product_id AND p.store_id = NEW.store_id AND p.organization_id = NEW.organization_id
   RETURNING id INTO NEW.stock_item_id;
+  IF NEW.stock_item_id IS NULL THEN
+    RAISE EXCEPTION 'a new variant''s product must belong to the variant''s own store'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
   RETURN NEW;
 END $$;
 -- It can only run as a trigger; nobody needs to call it.
