@@ -572,6 +572,28 @@ describe('row-level security (platform_app role)', () => {
     );
   });
 
+  it('stock pool (0191): the variant trigger never reads a product of another store', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const foreign = await hq.query<{ id: string }>(
+      'SELECT id FROM product WHERE store_id = $1 LIMIT 1',
+      [STORE_B],
+    );
+    const productB = foreign.rows[0]?.id;
+    if (!productB) throw new Error('no product of store B');
+    // store A names brand B's product id for a variant of its own store: the foreign key alone would accept it,
+    // and the trigger (organization scope) would copy brand B's title into a stock item store A can read
+    await expect(
+      a.query(
+        `INSERT INTO product_variant (organization_id, store_id, product_id, sku, title)
+         VALUES ($1, $2, $3, 'TITLE-PROBE', 'One size')`,
+        [ORG, STORE_A, productB],
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    const left = await hq.query('SELECT id FROM stock_item WHERE sku LIKE $1', ['%TITLE-PROBE']);
+    expect(left.rows).toHaveLength(0);
+  });
+
   // --- stock pool (0191): the real tables, keyed by stock item ---------------------------------------
   const poolWarehouse = async (code: string): Promise<string> => {
     const hq = createOrganizationClient(db.app, { organizationId: ORG });
