@@ -21,7 +21,7 @@ export {
   releaseReservationsForShipment,
   reserveForOrder,
 } from './reservations';
-export { priorityGreedyPolicy, setAllocationPolicy } from './allocation';
+export { currentAllocationPolicy, priorityGreedyPolicy, setAllocationPolicy } from './allocation';
 export type { LockStockInput } from './reservations';
 export type {
   AllocationCandidate,

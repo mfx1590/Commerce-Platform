@@ -2,6 +2,23 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-13 · the stock-aware allocation engine is registered (#435)
+
+- `registerModuleSeams()` (`src/wiring.ts`) registers window 11's `stockAwareAllocationPolicy` behind the
+  inventory module's allocation seam. **What changes for a placement on a running server:** the warehouse is no
+  longer simply the one with the best `priority` number. Warehouses are ranked by the fulfillment routing rules
+  (store override for the destination country → store default → same country → same region → priority); the
+  first one that covers the WHOLE line takes it, and a line is split down the ranking only when no single
+  warehouse can. `reservation.allocation_rule` records `store_country`, `store_default`, `same_country`,
+  `same_region` or `priority` (and `split:<rule>`) instead of only `priority` / `split:priority`. Unchanged: the
+  inventory module locks the pool rows first, validates every decision against them, and decides shortfall itself
+  (409 `out_of_stock`, or a backorder on the item's first pool row in priority order, rule `backorder`). Code that
+  calls `reserveForOrder` without `registerModuleSeams()` (the module's own tests) keeps `priorityGreedyPolicy`.
+- `currentAllocationPolicy()` is exported from the inventory module (the wiring test reads the seam with it).
+- Wording (#459 review nit): the reservations header and the inventory README said every multi-row path calls
+  `lockStock`. The lock ORDER is one for every path; `lockStock` is its routine for ship, a cancelled shipment and
+  the returns restock, placement runs the same three steps inline, and cancel takes only the pool-row step.
+
 ### 2026-10-12 · inventory on the shared stock pool (#456; db 0190 + 0191, CONTRACT CHANGE #453, REQUEST #454)
 
 - Stock lies per (stock item, warehouse) and every variant that maps the item sells from it. The inventory
