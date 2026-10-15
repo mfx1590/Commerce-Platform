@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.15
+  version: 0.4.16
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -24,6 +24,10 @@ info:
     `conflict` with `details.reason`; no new error code.
     0.4.15 (#466) adds `voided` to the order's `payment_status` (authorized → voided when `cancelOrder` releases the
     authorization; terminal; additive).
+    0.4.16 (#469) adds three HQ reads: `listStockItemMovements` and `listStockItemReservations` under
+    `/admin/stock-items/{stockItemId}` (`viewer` on `organization:hq`) with `StockMovement` / `StockReservation`, and
+    `previewCycleCountReconcile` (`operations` on `organization:hq`, a safe GET that writes nothing and takes no lock)
+    with `CycleCountPreview`. Additive.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -2063,6 +2067,160 @@ paths:
           description: >-
             `conflict`: a later count of this stock item and warehouse has already been applied (`details.reason` =
             `superseded`), or the adjustment would take on-hand below zero (the inventory module refuses it; recount)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/stock-items/{stockItemId}/movements:
+    parameters:
+      - { name: stockItemId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [inventory]
+      operationId: listStockItemMovements
+      summary: The pool row's ledger — every stock movement of this stock item, newest first
+      description: >
+        HQ only. Includes pool movements no store caused (`store_id` and `variant_id` null: receipts, transfers,
+        cycle counts) and movements a store caused (a sale, a return), which keep the store and variant they were
+        written with. 404 for an unknown stock item.
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [page, limit, total, items]
+                properties:
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+                  items: { type: array, items: { $ref: '#/components/schemas/StockMovement' } }
+              example:
+                page: 1
+                limit: 20
+                total: 2
+                items:
+                  - id: 73000000-0000-4000-8000-000000000001
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    store_id: null
+                    variant_id: null
+                    delta: -2
+                    reason: cycle_count
+                    reference_type: cycle_count
+                    reference_id: 72000000-0000-4000-8000-000000000001
+                    actor_id: 00000000-0000-4000-8000-000000000043
+                    note: null
+                    created_at: '2026-10-12T08:31:00Z'
+                  - id: 73000000-0000-4000-8000-000000000002
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    variant_id: 30000000-0000-4000-8000-000000000301
+                    delta: -1
+                    reason: sale
+                    reference_type: order
+                    reference_id: 30000000-0000-4000-8000-000000000501
+                    actor_id: null
+                    note: null
+                    created_at: '2026-10-11T14:05:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stock-items/{stockItemId}/reservations:
+    parameters:
+      - { name: stockItemId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [inventory]
+      operationId: listStockItemReservations
+      summary: Reservations held on this stock item's pool rows, with the allocation rule that placed each
+      description: >
+        HQ only; every store's reservations. `status=open` (default) = not released and not expired; `released`
+        = released or expired; `all` = both. Newest first. 404 for an unknown stock item.
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [open, released, all], default: open },
+          }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [page, limit, total, items]
+                properties:
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+                  items: { type: array, items: { $ref: '#/components/schemas/StockReservation' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 74000000-0000-4000-8000-000000000001
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    variant_id: 30000000-0000-4000-8000-000000000301
+                    order_id: 30000000-0000-4000-8000-000000000501
+                    quantity: 1
+                    allocation_rule: store_country
+                    expires_at: null
+                    released_at: null
+                    created_at: '2026-10-11T14:05:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/cycle-counts/{cycleCountId}/reconcile-preview:
+    parameters:
+      - { name: cycleCountId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [inventory]
+      operationId: previewCycleCountReconcile
+      summary: What reconcileCycleCount would do now — recomputed as-of on-hand, delta and status — without writing
+      description: >
+        Same computation as `reconcileCycleCount` (on-hand as of `counted_at` = on-hand now minus the movements
+        written since; delta = `counted_quantity` minus that; `would_status` from `count_tolerance`), but writes
+        nothing and takes no lock, so a later reconcile or approval may compute a different delta if stock moves
+        in between. An `applied` count answers its stored values with `would_status: applied`. Superseded counts
+        answer the same 409 as `reconcileCycleCount` (`details.reason` = `superseded`); 404 as reconcile
+        (unknown count, or its warehouse is deactivated).
+      x-permission: { relation: operations, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CycleCountPreview' }
+              example:
+                cycle_count_id: 72000000-0000-4000-8000-000000000001
+                on_hand_as_of_count: 40
+                delta: -2
+                count_tolerance: 0
+                would_status: flagged
+                computed_at: '2026-10-12T09:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A later count of this stock item and warehouse has already been applied, or the stock was corrected by hand after this count (`conflict`, `details.reason` = `superseded`)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -5239,6 +5397,98 @@ components:
         approved_by: { type: [string, 'null'], format: uuid }
         approved_at: { type: [string, 'null'], format: date-time }
         reconciled_at: { type: [string, 'null'], format: date-time }
+    StockMovement:
+      type: object
+      required:
+        [
+          id,
+          stock_item_id,
+          warehouse_id,
+          store_id,
+          variant_id,
+          delta,
+          reason,
+          reference_type,
+          reference_id,
+          actor_id,
+          note,
+          created_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        stock_item_id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        store_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: null = a pool movement no store caused,
+          }
+        variant_id: { type: [string, 'null'], format: uuid }
+        delta: { type: integer, description: Signed; never 0 }
+        reason:
+          {
+            type: string,
+            enum: [receipt, sale, return, adjustment, transfer_in, transfer_out, cycle_count],
+          }
+        reference_type: { type: [string, 'null'], description: 'e.g. order, shipment, cycle_count' }
+        reference_id: { type: [string, 'null'], format: uuid }
+        actor_id: { type: [string, 'null'], format: uuid, description: null for a system source }
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    StockReservation:
+      type: object
+      required:
+        [
+          id,
+          stock_item_id,
+          warehouse_id,
+          store_id,
+          variant_id,
+          order_id,
+          quantity,
+          allocation_rule,
+          expires_at,
+          released_at,
+          created_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        stock_item_id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        store_id: { type: string, format: uuid, description: The store that reserved }
+        variant_id: { type: string, format: uuid }
+        order_id: { type: [string, 'null'], format: uuid, description: null for a cart hold }
+        quantity: { type: integer, minimum: 1 }
+        allocation_rule:
+          type: [string, 'null']
+          description: >
+            Why this warehouse: store_country | store_default | same_country | same_region | priority;
+            `split:<rule>` for the second and later warehouse of a split line; `backorder` for a shortfall reserved
+            anyway. null for rows written before 0191.
+        expires_at: { type: [string, 'null'], format: date-time }
+        released_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    CycleCountPreview:
+      type: object
+      required:
+        [cycle_count_id, on_hand_as_of_count, delta, count_tolerance, would_status, computed_at]
+      properties:
+        cycle_count_id: { type: string, format: uuid }
+        on_hand_as_of_count: { type: integer }
+        delta:
+          {
+            type: integer,
+            description: 'counted_quantity minus on_hand_as_of_count, as of computed_at',
+          }
+        count_tolerance:
+          {
+            type: integer,
+            minimum: 0,
+            description: organization.settings.warehouse.count_tolerance (unset = 0),
+          }
+        would_status: { type: string, enum: [applied, flagged] }
+        computed_at: { type: string, format: date-time }
     ShippingOptionInput:
       type: object
       required: [code, name, price_minor, currency, countries]

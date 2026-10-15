@@ -24,6 +24,7 @@ export {
   listCycleCounts,
   planOpenCounts,
   planReconciliation,
+  previewCycleCountReconcile,
   reconcileCycleCount,
   resetStockMover,
   setStockMover,
@@ -31,6 +32,7 @@ export {
 export type {
   CreateCycleCountInput,
   CycleCount,
+  CycleCountPreview,
   CycleCountStatus,
   ListCycleCountsQuery,
   PlannedReconciliation,

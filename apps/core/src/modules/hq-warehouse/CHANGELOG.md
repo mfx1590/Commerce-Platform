@@ -114,3 +114,13 @@
   and in the dry-run plan. Two tests (after the count: refused; before the count: no effect).
 - The racing-receipt test says what it proves (the numbers) and where the lock is verified (statically).
 - README: reconciling a count in a deactivated warehouse answers 404.
+
+### 2026-10-15 · reconcile preview (CONTRACT CHANGE #469, Admin API 0.4.16)
+
+- `previewCycleCountReconcile` (`cycle-counts.ts`) and `GET /admin/cycle-counts/:cycleCountId/reconcile-preview`
+  (`http.ts`, `operations` on organization:hq from the spec): reconcile's computation and superseded rule as a
+  pure read — no lock, no pool row created, nothing written. `physicalMovedSince` is now shared with `readShelf`.
+- Seven tests: a flagged preview writes nothing (counts, movements, outbox, audit, levels compared) and matches the
+  `CycleCountPreview` schema; the previewed delta is what reconcile then applies; an applied count answers its
+  stored values; 409 superseded; a shelf with no pool row reads 0 and stays without one; 404 (deactivated
+  warehouse, unknown count), 400 (malformed id); 403 for a store admin, 401 without a token.

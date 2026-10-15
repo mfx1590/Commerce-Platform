@@ -2,6 +2,15 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-15 · HQ reads of a pool row: its ledger and its reservations (CONTRACT CHANGE #469, contracts 0.4.18)
+
+- `GET /admin/stock-items/{stockItemId}/movements` (`listStockItemMovements`) and
+  `GET /admin/stock-items/{stockItemId}/reservations` (`listStockItemReservations`), both `viewer` on
+  `organization:hq`, organization scope only (Admin API 0.4.16). Newest first, `warehouse_id` filter, paging;
+  reservations by `status` `open` (default) / `released` / `all`, every store's, with `allocation_rule`;
+  movements include the ones no store caused. 404 for an unknown stock item. Inventory module:
+  `listStockItemMovements`, `listStockItemReservations`, `RESERVATION_STATUSES`.
+
 ### 2026-10-15 · a cancelled authorisation reads `voided` (#466, contracts 0.4.17)
 
 - `Order.payment_status` gains `voided` (Admin API 0.4.15, Store API 0.5.5, `order.updated` v1 widened in place,
