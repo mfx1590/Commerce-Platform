@@ -42,7 +42,11 @@ export async function mapVariantAction(
   const refused = await refuseUnlessPermitted('mapVariantToStockItem', '');
   if (refused !== null) return refused;
   if (!UUID.safeParse(stockItemId).success || !UUID.safeParse(variantId).success) {
-    return { status: 'error', fieldErrors: { variant_id: 'Enter a variant id (uuid).' }, formError: null };
+    return {
+      status: 'error',
+      fieldErrors: { variant_id: 'Enter a variant id (uuid).' },
+      formError: null,
+    };
   }
   const result = await mapVariantToStockItem(stockItemId, variantId);
   if (!result.ok) {
