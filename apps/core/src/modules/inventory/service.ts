@@ -21,8 +21,12 @@ import { buildEvent, eventActor, withEvents } from '../../outbox';
 import type {
   AdminInventoryLevel,
   AdminStockItem,
+  AdminStockMovement,
+  AdminStockReservation,
   LevelRow,
   ListLevelsQuery,
+  ListStockItemMovementsQuery,
+  ListStockItemReservationsQuery,
   ListStockItemsQuery,
   MoveStockInput,
   MoveStockResult,
@@ -506,6 +510,143 @@ export async function listStockItems(
         tx,
         ids.rows.map((r) => r.id),
       ),
+    };
+  });
+}
+
+/** A pool read's paging (the contract's Page / Limit: 1-based, 1..100, default 20). */
+function paging(q: { page?: number | undefined; limit?: number | undefined }) {
+  const page = Math.max(1, q.page ?? 1);
+  const limit = Math.min(100, Math.max(1, q.limit ?? 20));
+  return { page, limit, offset: (page - 1) * limit };
+}
+
+async function requireStockItem(tx: Queryable, stockItemId: string): Promise<void> {
+  const item = await tx.query(`SELECT 1 FROM stock_item WHERE id = $1`, [stockItemId]);
+  if (!item.rows[0]) throw notFound('stock item', stockItemId);
+}
+
+const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
+
+/**
+ * `GET /admin/stock-items/{stockItemId}/movements` (`viewer` on `organization:hq`, #469): the pool row's ledger,
+ * newest first. ORGANIZATION SCOPE only — the HQ screen sees every movement of the item: the ones a store caused
+ * (they keep the store and variant they were written with) and the ones no store caused (`store_id` /
+ * `variant_id` null: receipts, transfers, cycle counts). A store session could never read the latter
+ * (`pool_ledger`), which is why there is no store-scoped variant. 404 for an unknown stock item.
+ */
+export async function listStockItemMovements(
+  client: ScopedClient,
+  stockItemId: string,
+  q: ListStockItemMovementsQuery = {},
+): Promise<Page<AdminStockMovement>> {
+  requireOrganizationScope(client, 'listStockItemMovements');
+  const { page, limit, offset } = paging(q);
+  const params: unknown[] = [stockItemId];
+  let clause = 'm.stock_item_id = $1';
+  if (q.warehouse_id) {
+    params.push(q.warehouse_id);
+    clause += ` AND m.warehouse_id = $${params.length}`;
+  }
+  return client.transaction(async (tx) => {
+    await requireStockItem(tx, stockItemId);
+    const total = await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM stock_movement m WHERE ${clause}`,
+      params,
+    );
+    const rows = await tx.query<{
+      id: string;
+      stock_item_id: string;
+      warehouse_id: string;
+      store_id: string | null;
+      variant_id: string | null;
+      delta: number;
+      reason: AdminStockMovement['reason'];
+      reference_type: string | null;
+      reference_id: string | null;
+      actor_id: string | null;
+      note: string | null;
+      created_at: Date;
+    }>(
+      `SELECT m.id, m.stock_item_id, m.warehouse_id, m.store_id, m.variant_id, m.delta, m.reason,
+              m.reference_type, m.reference_id, m.actor_id, m.note, m.created_at
+       FROM stock_movement m WHERE ${clause}
+       ORDER BY m.created_at DESC, m.id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    );
+    return {
+      page,
+      limit,
+      total: Number(total.rows[0]?.n ?? 0),
+      items: rows.rows.map((r) => ({ ...r, created_at: r.created_at.toISOString() })),
+    };
+  });
+}
+
+/**
+ * `GET /admin/stock-items/{stockItemId}/reservations` (`viewer` on `organization:hq`, #469): what holds the pool
+ * rows' `reserved` — EVERY store's reservations on this item, with the allocation rule that placed each, newest
+ * first. ORGANIZATION SCOPE only: a store must never see another store's reservations (the pool row shows it the
+ * total). `status`: `open` (default) = not released and not expired; `released` = released or expired; `all`.
+ * 404 for an unknown stock item.
+ */
+export async function listStockItemReservations(
+  client: ScopedClient,
+  stockItemId: string,
+  q: ListStockItemReservationsQuery = {},
+): Promise<Page<AdminStockReservation>> {
+  requireOrganizationScope(client, 'listStockItemReservations');
+  const { page, limit, offset } = paging(q);
+  const params: unknown[] = [stockItemId];
+  const where = ['r.stock_item_id = $1'];
+  if (q.warehouse_id) {
+    params.push(q.warehouse_id);
+    where.push(`r.warehouse_id = $${params.length}`);
+  }
+  const status = q.status ?? 'open';
+  if (status === 'open') {
+    where.push('r.released_at IS NULL AND (r.expires_at IS NULL OR r.expires_at > now())');
+  } else if (status === 'released') {
+    where.push('(r.released_at IS NOT NULL OR r.expires_at <= now())');
+  }
+  const clause = where.join(' AND ');
+  return client.transaction(async (tx) => {
+    await requireStockItem(tx, stockItemId);
+    const total = await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM reservation r WHERE ${clause}`,
+      params,
+    );
+    const rows = await tx.query<{
+      id: string;
+      stock_item_id: string;
+      warehouse_id: string;
+      store_id: string;
+      variant_id: string;
+      order_id: string | null;
+      quantity: number;
+      allocation_rule: string | null;
+      expires_at: Date | null;
+      released_at: Date | null;
+      created_at: Date;
+    }>(
+      `SELECT r.id, r.stock_item_id, r.warehouse_id, r.store_id, r.variant_id, r.order_id, r.quantity,
+              r.allocation_rule, r.expires_at, r.released_at, r.created_at
+       FROM reservation r WHERE ${clause}
+       ORDER BY r.created_at DESC, r.id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset],
+    );
+    return {
+      page,
+      limit,
+      total: Number(total.rows[0]?.n ?? 0),
+      items: rows.rows.map((r) => ({
+        ...r,
+        expires_at: iso(r.expires_at),
+        released_at: iso(r.released_at),
+        created_at: r.created_at.toISOString(),
+      })),
     };
   });
 }

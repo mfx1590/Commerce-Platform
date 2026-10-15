@@ -3,6 +3,8 @@ import type { Actor } from '../../lib/audit';
 
 export type AdminInventoryLevel = AdminComponents['schemas']['InventoryLevel'];
 export type AdminStockItem = AdminComponents['schemas']['StockItem'];
+export type AdminStockMovement = AdminComponents['schemas']['StockMovement'];
+export type AdminStockReservation = AdminComponents['schemas']['StockReservation'];
 
 /** `stock_movement.reason` (0007). `sale` and `return` are written by the system (shipment / return flows only). */
 export type MovementReason =
@@ -140,6 +142,25 @@ export interface ListLevelsQuery {
   below_available?: number | undefined;
   sort?: LevelSortField | undefined;
   order?: 'asc' | 'desc' | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
+}
+
+/** `GET /admin/stock-items/{stockItemId}/movements` (#469). */
+export interface ListStockItemMovementsQuery {
+  warehouse_id?: string | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
+}
+
+/** `open` = not released and not expired (default); `released` = released or expired; `all` = both. */
+export const RESERVATION_STATUSES = ['open', 'released', 'all'] as const;
+export type ReservationStatusFilter = (typeof RESERVATION_STATUSES)[number];
+
+/** `GET /admin/stock-items/{stockItemId}/reservations` (#469). */
+export interface ListStockItemReservationsQuery {
+  warehouse_id?: string | undefined;
+  status?: ReservationStatusFilter | undefined;
   page?: number | undefined;
   limit?: number | undefined;
 }
