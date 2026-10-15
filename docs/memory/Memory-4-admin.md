@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 (#468) review MERGE, in the merge queue; follow-up PR "Refs #468" prepared locally, pushed only after the merge is confirmed
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 (#468) review MERGE; queue refused it (advisory core e2e red) → e2e fix + review follow-ups pushed into #474; queue reruns when green
 
 ## Identity (does not change)
 Owned paths (write):

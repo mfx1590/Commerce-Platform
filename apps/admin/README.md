@@ -682,7 +682,8 @@ item — with the pool's numbers, never summed across variants. The "shared with
 needs `listStockItems` (viewer on hq), so only HQ principals see it; a store admin sees the
 stock item id. Warehouse names come from `listWarehouses`, which is also viewer on hq: a store
 principal never calls it and sees a short warehouse id (`Warehouse 00000000`), with the filter
-offering the warehouses its rows are in. No movement form here: stock is corrected through cycle
+offering the warehouses its rows are in — until CONTRACT CHANGE #475 puts `warehouse_code` on the
+row. No movement form here: stock is corrected through cycle
 counts in HQ.
 
 Every mutation is refused server-side before the API unless the principal is operations on hq
