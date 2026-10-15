@@ -732,6 +732,10 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
     spec.assertPage('InventoryLevel', res.body);
     expect(res.body.items).toHaveLength(5);
     for (const i of res.body.items) expect(i.store_id).toBe(A);
+    // #475: the store principal reads the warehouse's code with every level (required by the spec component)
+    expect(
+      res.body.items.every((i: { warehouse_code: string }) => /^wh-/.test(i.warehouse_code)),
+    ).toBe(true);
     const avail = res.body.items.map((i: { available: number }) => i.available);
     expect([...avail].sort((x, y) => x - y)).toEqual(avail);
 
@@ -740,6 +744,9 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
       '/admin/inventory/levels?limit=100&warehouse_id=' + SEED_IDS.warehouses.eu,
     );
     expect(mine.status).toBe(200);
+    expect(
+      mine.body.items.every((i: { warehouse_code: string }) => i.warehouse_code === 'wh-eu'),
+    ).toBe(true);
     const stores = new Set(mine.body.items.map((i: { store_id: string }) => i.store_id));
     expect(stores.has(SEED_IDS.stores.brandC)).toBe(false);
     // HQ operations sees every store
@@ -770,6 +777,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
     const lvl = levels.body.items[0] as {
       variant_id: string;
       warehouse_id: string;
+      warehouse_code: string;
       on_hand: number;
       sku: string;
     };
@@ -799,6 +807,8 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
     expect(res.body).toMatchObject({
       variant_id: lvl.variant_id,
       sku: lvl.sku,
+      warehouse_id: lvl.warehouse_id,
+      warehouse_code: lvl.warehouse_code,
       on_hand: lvl.on_hand + 5,
     });
     const negative = await operations.post('/admin/inventory/movements', {
@@ -1349,6 +1359,13 @@ describe('the shared stock pool (#456, CONTRACT CHANGE #453): listStockItems, ma
     await reserve(A, a.id, await cartOf(A), 2, 'same_country', '2026-10-15T08:00:00Z', false);
     await reserve(B, b.id, await cartOf(B), 1, 'same_region', '2026-10-15T09:00:00Z', false);
     await reserve(A, a.id, await cartOf(A), 3, 'priority', '2026-10-15T07:00:00Z', true);
+    // expired, never released: a hold whose expiry has passed counts as released, not open (#476 review)
+    await db.owner.query(
+      `INSERT INTO reservation (organization_id, store_id, variant_id, stock_item_id, warehouse_id, cart_id,
+                                quantity, allocation_rule, created_at, expires_at, released_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 4, 'priority', '2026-10-15T06:00:00Z', now() - interval '1 minute', NULL)`,
+      [SEED_IDS.organization, B, b.id, a.item, EU, await cartOf(B)],
+    );
     await db.owner.query(
       `INSERT INTO stock_movement (organization_id, stock_item_id, warehouse_id, store_id, variant_id, delta, reason, created_at)
        VALUES ($1, $2, $3, NULL, NULL, 7, 'receipt', '2026-10-15T10:00:00Z'),
@@ -1387,9 +1404,17 @@ describe('the shared stock pool (#456, CONTRACT CHANGE #453): listStockItems, ma
     ]);
     const released = await operations.get(`${reservationsPath}?status=released`);
     spec.assertPage('StockReservation', released.body);
-    expect(released.body.items.map((r: { quantity: number }) => r.quantity)).toEqual([3]);
+    expect(
+      released.body.items.map((r: { quantity: number; released_at: string | null }) => [
+        r.quantity,
+        r.released_at === null,
+      ]),
+    ).toEqual([
+      [3, false], // released
+      [4, true], // expired, never released
+    ]);
     expect((await operations.get(`${reservationsPath}?status=all&limit=2`)).body).toMatchObject({
-      total: 3,
+      total: 4,
       limit: 2,
     });
     expect((await operations.get(`${reservationsPath}?warehouse_id=${US}`)).body.total).toBe(0);
