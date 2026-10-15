@@ -458,8 +458,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   Prism contract (port 4220) run freely; **mock e2e + advisory core leg: ask the manager ONCE when
   ready, it hands over the machine.** Push the main merge only with the first real push. Report PR
   up + head sha, then checks finished. Decisions: warehouse section stays `operations` (counts and
-  pool work), though listStockItems alone is viewer; "Voided" is the one capitalised status label
-  (issue wording; STATUS_LABELS override) — flagged in the PR.
+  pool work), though listStockItems alone is viewer — manager ACCEPTED (README says so; analyst
+  read-only view = later follow-up if asked). Status label is lowercase "voided" like every other
+  (manager 2026-10-15: consistency wins; the override was dropped).
   Gate 2026-10-15: lint 0, typecheck 0, admin unit 776/776, Prism contract warehouse 9/9.
   **#469 ACCEPTED** (a+b window 1, c window 11; Admin API 0.4.16 / contracts 0.4.18): the movements,
   reservations and reconcile-preview screens are a SMALL FOLLOW-UP PR after #469 lands — never in #468.

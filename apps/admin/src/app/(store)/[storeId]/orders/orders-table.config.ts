@@ -91,10 +91,7 @@ export function toneFor(status: string): PillTone {
   return STATUS_TONES[status] ?? 'neutral';
 }
 
-/** Labels the issue names verbatim (#468: payment_status `voided` reads "Voided"). */
-const STATUS_LABELS: Record<string, string> = { voided: 'Voided' };
-
 /** `pending`/`processing` read better with the underscore gone. */
 export function statusLabel(status: string): string {
-  return STATUS_LABELS[status] ?? status.replaceAll('_', ' ');
+  return status.replaceAll('_', ' ');
 }

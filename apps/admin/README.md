@@ -647,7 +647,10 @@ other fields first and then calls `activateStore`.
 
 ## HQ warehouse and store inventory (task 3.4, issue #468; Admin API 0.4.15)
 
-**HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs.
+**HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs. The section is gated on
+`operations` because the pool and count work all need it, although `listStockItems` alone is
+viewer on hq — so an analyst sees no warehouse entry (a read-only view is a later follow-up if
+asked; manager decision 2026-10-15).
 
 **Stock items** (`listStockItems`, viewer on hq): one entry per item, with the variants that map it
 per brand and the **pool** numbers per warehouse (reserved = every brand's reservations). Filters:

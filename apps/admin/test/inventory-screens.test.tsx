@@ -205,9 +205,9 @@ describe('the inventory page', () => {
 });
 
 describe('orders: payment status voided', () => {
-  it('is in the filter list, labelled "Voided", in a neutral tone', () => {
+  it('is in the filter list, labelled "voided" like every status, in a neutral tone', () => {
     expect(PAYMENT_STATUSES).toContain('voided');
-    expect(statusLabel('voided')).toBe('Voided');
+    expect(statusLabel('voided')).toBe('voided');
     expect(toneFor('voided')).toBe('neutral');
   });
 });

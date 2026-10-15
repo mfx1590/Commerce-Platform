@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### Added — issue #468: HQ warehouse (stock pool, cycle counts), store inventory, payment status Voided (Admin API 0.4.15)
+### Added — issue #468: HQ warehouse (stock pool, cycle counts), store inventory, payment status voided (Admin API 0.4.15)
 
 - `/warehouse` (operations on hq): stock items with variants per brand and pool levels per
   warehouse; "Pool a variant" (`mapVariantToStockItem`) asks first naming both brands, 409 "move the
@@ -13,7 +13,8 @@
   "reconcile the newest count of a shelf", older open counts tagged.
 - `/{storeId}/inventory` (new Store section, viewer): rows keyed by (variant, warehouse) with the
   pool's numbers, never summed; "Shared with N brands" only for viewers on hq.
-- Orders: payment status `voided` (#466) — label "Voided", neutral tone, in the payment filter.
+- Orders: payment status `voided` (#466) — lowercase like every status label, neutral tone, in the
+  payment filter.
 - Wrappers `listInventoryLevels`, `listStockItems`, `mapVariantToStockItem`, `listCycleCounts`,
   `createCycleCount`, `reconcileCycleCount`; guard rows (operations on hq); `src/lib/warehouse`.
   Tests: `test/warehouse-actions.test.ts` (25), `test/warehouse-screens.test.tsx` (30),
