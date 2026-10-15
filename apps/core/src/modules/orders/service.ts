@@ -564,6 +564,12 @@ export async function cancelOrderInTx(
   }
   // Reservations are released here, through the orders module's own cancel — never from window 8's side.
   await releaseForOrder(tx, orderId);
+  // #466: an authorisation the cancel released reads `voided` — as its OWN transition, so `order.updated`
+  // (changed_fields ['payment_status']) is written before `order.cancelled`; one combined transition would emit
+  // only `order.cancelled`. awaiting / failed have nothing to release; captured is window 7's refund to make.
+  if (o.payment_status === 'authorized') {
+    await transition(tx, orderId, { payment_status: 'voided', actor: input.actor });
+  }
   await transition(tx, orderId, {
     status: 'cancelled',
     reason: input.reason,

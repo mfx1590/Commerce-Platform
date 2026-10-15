@@ -2151,8 +2151,11 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "confirmed" | "processing" | "completed" | "cancelled";
-            /** @enum {string} */
-            payment_status: "awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed";
+            /**
+             * @description `voided` — the authorization was released by `cancelOrder` before any capture (the payment row is `cancelled`). Terminal.
+             * @enum {string}
+             */
+            payment_status: "awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed" | "voided";
             /** @enum {string} */
             fulfillment_status: "unfulfilled" | "partially_fulfilled" | "fulfilled" | "partially_returned" | "returned";
             total: components["schemas"]["Money"];

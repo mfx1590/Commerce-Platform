@@ -51,3 +51,12 @@
 - Producer: the core's inventory module (window 1, #456), each in the same transaction as the state change. Consumers
   of `stock.moved` (search/availability, accounting, warehouse) must handle v2 from this release on and key by
   `stock_item_id`; `stock_item.mapped` is optional for everyone (unknown-topic rule).
+
+## 0.3.4 — 2026-10-15 (CONTRACT CHANGE #466, Order.payment_status `voided`; contracts-v0.4.17)
+
+- `order.updated` v1: the `payment_status` enum gains `voided` (authorized → voided when `cancelOrder` releases the
+  authorization; terminal). Additive enum value in v1, widened in place and not a v2 (manager decision on #466): every
+  producer and reader is inside apps/core; no consumer before Phase 4. If a consumer exists by the next such widening,
+  that one is a v2. `order.cancelled` v1 is unchanged; 37 topics, unchanged.
+- Producer: the core's orders module (window 1, a later PR): its own `order.updated` with
+  `changed_fields: ['payment_status']`, in the same transaction as the void, before the status moves to `cancelled`.

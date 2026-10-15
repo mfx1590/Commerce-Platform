@@ -548,7 +548,7 @@ Owner: window 1 (checkout).
 | currency | char(3) | |
 | locale | text | |
 | status | text | `pending` / `confirmed` / `processing` / `completed` / `cancelled` |
-| payment_status | text | `awaiting` / `authorized` / `captured` / `partially_refunded` / `refunded` / `failed` |
+| payment_status | text | `awaiting` / `authorized` / `captured` / `partially_refunded` / `refunded` / `failed` / `voided` (authorized → voided when the order is cancelled and `cancelOrder` releases the authorization; terminal; db 0.3.7, CONTRACT CHANGE #466) |
 | fulfillment_status | text | `unfulfilled` / `partially_fulfilled` / `fulfilled` / `partially_returned` / `returned` |
 | shipping_address / billing_address | jsonb | `Address` snapshot |
 | shipping_option_id | uuid NULL FK | |
