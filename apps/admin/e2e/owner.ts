@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { Page } from '@playwright/test';
+import { test, type Page } from '@playwright/test';
 
 /**
  * Signing in as the seeded HQ `owner`, who is pre-enrolled for TOTP (staff realm, dev/CI only).
@@ -36,14 +36,28 @@ export async function signInAsOwner(page: Page, to = '/'): Promise<void> {
 
   const secret = devTotpSecret();
   const otp = page.locator('input[name="otp"]');
-  // A code already used in this 30 s window is refused (code reuse is off); the policy's look-ahead
-  // of one window accepts the next one.
-  for (const at of [Date.now(), Date.now() + 30_000]) {
+  // A code already used is refused (code reuse is off) — by this sign-in or by another spec file's
+  // owner sign-in in the same run (hq-roles, hq-onboarding, warehouse). The policy's look-ahead of
+  // one window accepts the next step's code; when both are spent, wait for a fresh 30 s step.
+  const step = (at: number) => Math.floor(at / 30_000);
+  const tried = new Set<number>();
+  const budget = 100_000;
+  // Waiting for a fresh step can outlast the default 30 s test timeout: give the test that budget.
+  test.info().setTimeout(test.info().timeout + budget);
+  const deadline = Date.now() + budget;
+  while (Date.now() < deadline) {
+    const now = step(Date.now());
+    const counter = [now, now + 1].find((candidate) => !tried.has(candidate));
+    if (counter === undefined) {
+      await page.waitForTimeout((now + 1) * 30_000 - Date.now() + 1_000);
+      continue;
+    }
+    tried.add(counter);
     await otp.waitFor();
-    await otp.fill(totp(secret, at));
+    await otp.fill(totp(secret, counter * 30_000));
     await page.getByRole('button', { name: /sign in|log in|submit/i }).click();
     await page.waitForLoadState('load');
     if (!page.url().includes('/realms/staff/')) return;
   }
-  throw new Error('owner TOTP was refused twice');
+  throw new Error(`owner TOTP was refused ${tried.size} times`);
 }
