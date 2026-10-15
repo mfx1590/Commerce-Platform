@@ -1,12 +1,12 @@
 /**
  * The server-side permission check in front of every mutating server action (registry, orders,
- * roles).
+ * roles, warehouse).
  *
  * A server action is a public POST endpoint: anything the browser can reach, a crafted request can
  * reach too, whatever the page offered. So each action loads the principal (`GET /admin/me`, the
  * Admin API's own answer from OpenFGA) and refuses — before calling the operation — unless it holds
  * the operation's `x-permission` (`REGISTRY_PERMISSIONS`, `ORDER_PERMISSIONS`,
- * `ROLES_PERMISSIONS`). The Admin API checks again; this check means a refused request never
+ * `ROLES_PERMISSIONS`, `WAREHOUSE_PERMISSIONS`). The Admin API checks again; this check means a refused request never
  * reaches it, and the refusal has the contract's own 403 shape.
  */
 
@@ -18,12 +18,14 @@ import { ORDER_PERMISSIONS } from '../orders/permissions';
 import { loadPrincipal } from '../principal';
 import { ROLES_PERMISSIONS } from '../roles/permissions';
 import { REGISTRY_PERMISSIONS } from '../settings';
+import { WAREHOUSE_PERMISSIONS } from '../warehouse/permissions';
 import { holds, ruleObject, type PermissionRule } from './rules';
 
 const OPERATIONS = {
   ...REGISTRY_PERMISSIONS,
   ...ORDER_PERMISSIONS,
   ...ROLES_PERMISSIONS,
+  ...WAREHOUSE_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 
 export type GuardedOperation = keyof typeof OPERATIONS;
