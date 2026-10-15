@@ -190,7 +190,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.16/);
+    expect(text).toMatch(/version: 0\.4\.17/);
     for (const tag of [
       'registry',
       'catalog',
@@ -821,5 +821,32 @@ describe('stock pool reads (contracts 0.4.18, Admin API 0.4.16, #469)', () => {
     expect(schema('CycleCountPreview')).toMatch(
       /would_status: \{ type: string, enum: \[applied, flagged\] \}/,
     );
+  });
+});
+
+describe('InventoryLevel.warehouse_code (contracts 0.4.19, Admin API 0.4.17, #475)', () => {
+  const text = read('admin-api.yaml');
+
+  it('InventoryLevel requires a read-only warehouse_code, and every InventoryLevel example carries it', () => {
+    const start = text.indexOf('\n    InventoryLevel:\n');
+    expect(start).toBeGreaterThan(0);
+    const next = text.slice(start + 1).search(/\n {4}\w+:\n/);
+    const schema = text.slice(start, start + 1 + next);
+    const required = schema.slice(
+      schema.indexOf('\n      required:'),
+      schema.indexOf('\n      properties:'),
+    );
+    expect(required).toMatch(/\n\s+warehouse_id,\n\s+warehouse_code,\n\s+on_hand,/);
+    expect(schema).toMatch(
+      /\n {8}warehouse_code:\n {10}type: string\n {10}readOnly: true\n {10}description: /,
+    );
+    // the two operations answering an InventoryLevel: their examples validate (the mock answers from them)
+    const ops = operations(text);
+    for (const id of ['listInventoryLevels', 'createStockMovement']) {
+      const body = ops.find((o) => o.id === id)!.body;
+      expect(body, id).toContain("$ref: '#/components/schemas/InventoryLevel'");
+      expect(body, id).toMatch(/warehouse_code: wh-eu,/);
+    }
+    expect(text.split("$ref: '#/components/schemas/InventoryLevel'").length - 1).toBe(2);
   });
 });

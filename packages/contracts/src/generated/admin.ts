@@ -2384,6 +2384,8 @@ export interface components {
             sku: string;
             /** Format: uuid */
             warehouse_id: string;
+            /** @description The warehouse's `code` (from the warehouse row), so a store-scoped caller can name the warehouse without `listWarehouses` (viewer on organization:hq). */
+            readonly warehouse_code: string;
             on_hand: number;
             reserved: number;
             incoming: number;
@@ -5241,6 +5243,7 @@ export interface operations {
                      *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
                      *           "sku": "TEE-M-RED",
                      *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "warehouse_code": "wh-eu",
                      *           "on_hand": 12,
                      *           "reserved": 1,
                      *           "incoming": 0,
@@ -5294,6 +5297,7 @@ export interface operations {
                      *       "stock_item_id": "71000000-0000-4000-8000-000000000001",
                      *       "sku": "TEE-M-RED",
                      *       "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *       "warehouse_code": "wh-eu",
                      *       "on_hand": 22,
                      *       "reserved": 1,
                      *       "incoming": 0,
