@@ -337,12 +337,20 @@ async function readShelf(
     },
     true,
   );
+  return { onHandNow: level.on_hand, movedSinceCount: await physicalMovedSince(tx, shelf) };
+}
+
+/** Sum of the PHYSICAL movements written on the shelf since the count. */
+async function physicalMovedSince(
+  tx: Queryable,
+  shelf: { stockItemId: string; warehouseId: string; countedAt: Date },
+): Promise<number> {
   const moved = await tx.query<{ n: string }>(
     `SELECT coalesce(sum(delta), 0)::text AS n FROM stock_movement
      WHERE stock_item_id = $1 AND warehouse_id = $2 AND created_at > $3 AND ${PHYSICAL}`,
     [shelf.stockItemId, shelf.warehouseId, shelf.countedAt],
   );
-  return { onHandNow: level.on_hand, movedSinceCount: Number(moved.rows[0]!.n) };
+  return Number(moved.rows[0]!.n);
 }
 
 async function toleranceOf(tx: Queryable, organizationId: string): Promise<number> {
@@ -454,6 +462,78 @@ export async function reconcileCycleCount(
       after,
     });
     return after;
+  });
+}
+
+/** The Admin API's `CycleCountPreview` (0.4.16, CONTRACT CHANGE #469). */
+export interface CycleCountPreview {
+  cycle_count_id: string;
+  on_hand_as_of_count: number;
+  delta: number;
+  count_tolerance: number;
+  would_status: 'applied' | 'flagged';
+  computed_at: string;
+}
+
+/**
+ * What `reconcileCycleCount` would do now, WITHOUT doing it (`previewCycleCountReconcile`). The same computation —
+ * `planReconciliation` over on-hand now and the physical movements since the count, the same superseded rule
+ * (409) — but a pure read: no advisory lock, no row lock, and no pool row created (a shelf that has never held the
+ * item reads on-hand 0). So it is a preview: a later reconcile or approval recomputes under the lock and may find
+ * a different delta if stock moved in between. An applied count answers its stored values. A count in a
+ * deactivated warehouse answers 404, like reconcile.
+ */
+export async function previewCycleCountReconcile(
+  client: ScopedClient,
+  cycleCountId: string,
+  options: { organizationId: string },
+): Promise<CycleCountPreview> {
+  return client.transaction(async (tx) => {
+    const found = await tx.query<Row & { warehouse_active: boolean; now: Date }>(
+      `SELECT ${COLUMNS}, w.is_active AS warehouse_active, now() AS now
+       FROM ${FROM} JOIN warehouse w ON w.id = c.warehouse_id WHERE c.id = $1`,
+      [cycleCountId],
+    );
+    const count = found.rows[0];
+    if (!count) throw notFound('cycle count', cycleCountId);
+    const tolerance = await toleranceOf(tx, options.organizationId);
+    const computedAt = count.now.toISOString();
+    if (count.status === 'applied') {
+      return {
+        cycle_count_id: count.id,
+        on_hand_as_of_count: count.on_hand_as_of_count!,
+        delta: count.delta!,
+        count_tolerance: tolerance,
+        would_status: 'applied',
+        computed_at: computedAt,
+      };
+    }
+    if (!count.warehouse_active) throw notFound('warehouse', count.warehouse_id);
+    const shelf = {
+      stockItemId: count.stock_item_id,
+      warehouseId: count.warehouse_id,
+      countedAt: count.counted_at,
+    };
+    await refuseSuperseded(tx, { ...shelf, exceptId: count.id });
+    const level = await tx.query<{ on_hand: number }>(
+      `SELECT on_hand FROM inventory_level WHERE stock_item_id = $1 AND warehouse_id = $2`,
+      [shelf.stockItemId, shelf.warehouseId],
+    );
+    const plan = planReconciliation({
+      countedQuantity: count.counted_quantity,
+      onHandNow: level.rows[0]?.on_hand ?? 0,
+      movedSinceCount: await physicalMovedSince(tx, shelf),
+      tolerance,
+      approve: false,
+    });
+    return {
+      cycle_count_id: count.id,
+      on_hand_as_of_count: plan.onHandAsOfCount,
+      delta: plan.delta,
+      count_tolerance: tolerance,
+      would_status: plan.action === 'apply' ? 'applied' : 'flagged',
+      computed_at: computedAt,
+    };
   });
 }
 

@@ -10,6 +10,7 @@ import { createOrganizationClient, SEED_IDS, type ScopedClient } from '@platform
 import type { TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { coreErrorHandler, DevTokenVerifier } from '../../http';
+import { loadSpec } from '../../http/openapi';
 import type { Actor } from '../../lib/audit';
 import { closePool, initDb } from '../../lib/db';
 import { mountCoreMiddleware } from '../../server';
@@ -929,5 +930,138 @@ describe('the movement and its event', () => {
         )
       ).rowCount,
     ).toBe(1);
+  });
+});
+
+describe('the reconcile preview (previewCycleCountReconcile, GET …/reconcile-preview)', () => {
+  let app: express.Express;
+  const get = (path: string, subject = 'seed-operations') =>
+    request(app).get(path).set('Authorization', `Bearer dev:${subject}`);
+  const preview = (id: string, subject?: string) =>
+    get(`/admin/cycle-counts/${id}/reconcile-preview`, subject);
+  const matchesSchema = loadSpec('admin-api.yaml').schema('CycleCountPreview');
+
+  /** Everything a preview could possibly write to. */
+  const snapshot = async () =>
+    (
+      await db.owner.query(
+        `SELECT (SELECT md5(coalesce(string_agg(c::text, '|' ORDER BY id), '')) FROM cycle_count c) AS counts,
+                (SELECT count(*)::text FROM stock_movement) AS movements,
+                (SELECT count(*)::text FROM outbox) AS events,
+                (SELECT count(*)::text FROM audit_log) AS audit,
+                (SELECT md5(string_agg(il::text, '|' ORDER BY id)) FROM inventory_level il) AS levels`,
+      )
+    ).rows[0];
+
+  beforeAll(() => {
+    app = express();
+    mountCoreMiddleware(app, new DevTokenVerifier());
+    app.use(cycleCountsAdminRouter());
+    app.use(coreErrorHandler);
+  });
+
+  it('previews a flagged count and writes nothing at all', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const count = await record(item.id, 16);
+    const before = await snapshot();
+    const res = await preview(count.id);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      cycle_count_id: count.id,
+      on_hand_as_of_count: 10,
+      delta: 6,
+      count_tolerance: 5,
+      would_status: 'flagged',
+    });
+    expect(matchesSchema(res.body)).toBe(true);
+    expect(await snapshot()).toEqual(before);
+  });
+
+  it('shows the delta reconcile then applies, when nothing moved in between', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const count = await record(item.id, 13, minutesAgo(60));
+    await move(item.id, -2); // shipped after the count: a physical movement since
+    const previewed = await preview(count.id);
+    expect(previewed.body).toMatchObject({
+      on_hand_as_of_count: 10,
+      delta: 3,
+      would_status: 'applied',
+    });
+    const applied = await reconcile(count.id);
+    expect(applied).toMatchObject({
+      status: 'applied',
+      on_hand_as_of_count: previewed.body.on_hand_as_of_count,
+      delta: previewed.body.delta,
+    });
+  });
+
+  it('answers an applied count with its stored values', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const count = await record(item.id, 12);
+    await reconcile(count.id);
+    await setOnHand(item.id, EU, 30); // the shelf moves on; the applied count does not
+    expect((await preview(count.id)).body).toMatchObject({
+      on_hand_as_of_count: 10,
+      delta: 2,
+      would_status: 'applied',
+    });
+  });
+
+  it('answers 409 superseded like reconcile', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const older = await record(item.id, 8, minutesAgo(120));
+    const later = await record(item.id, 9, minutesAgo(30));
+    await reconcile(later.id);
+    const res = await preview(older.id);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      code: 'conflict',
+      details: { reason: 'superseded', applied_cycle_count_id: later.id },
+    });
+  });
+
+  it('reads a shelf that has never held the item as 0 and does not create its pool row', async () => {
+    const item = freshItem();
+    await db.owner.query(
+      `DELETE FROM inventory_level WHERE stock_item_id = $1 AND warehouse_id = $2`,
+      [item.id, US],
+    );
+    const count = await record(item.id, 4, undefined, US);
+    expect((await preview(count.id)).body).toMatchObject({
+      on_hand_as_of_count: 0,
+      delta: 4,
+      would_status: 'applied',
+    });
+    const rows = await db.owner.query(
+      `SELECT 1 FROM inventory_level WHERE stock_item_id = $1 AND warehouse_id = $2`,
+      [item.id, US],
+    );
+    expect(rows.rowCount).toBe(0);
+  });
+
+  it('answers 404 for a count in a deactivated warehouse, an unknown count; 400 for a malformed id', async () => {
+    const item = freshItem();
+    const count = await record(item.id, 1, undefined, US);
+    await db.owner.query(`UPDATE warehouse SET is_active = false WHERE id = $1`, [US]);
+    try {
+      expect((await preview(count.id)).status).toBe(404);
+    } finally {
+      await db.owner.query(`UPDATE warehouse SET is_active = true WHERE id = $1`, [US]);
+    }
+    expect((await preview('99999999-9999-4999-8999-999999999999')).status).toBe(404);
+    expect((await get('/admin/cycle-counts/not-a-uuid/reconcile-preview')).status).toBe(400);
+  });
+
+  it('answers 403 to a store admin and 401 without a token', async () => {
+    const item = freshItem();
+    const count = await record(item.id, 1);
+    expect((await preview(count.id, 'seed-store-admin')).status).toBe(403);
+    expect(
+      (await request(app).get(`/admin/cycle-counts/${count.id}/reconcile-preview`)).status,
+    ).toBe(401);
   });
 });

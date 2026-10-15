@@ -16,15 +16,18 @@ import {
   createCycleCount,
   CYCLE_COUNT_STATUSES,
   listCycleCounts,
+  previewCycleCountReconcile,
   reconcileCycleCount,
 } from './cycle-counts';
 
 export const CYCLE_COUNTS_PATH = '/admin/cycle-counts';
 export const RECONCILE_CYCLE_COUNT_PATH = '/admin/cycle-counts/:cycleCountId/reconcile';
+export const PREVIEW_CYCLE_COUNT_PATH = '/admin/cycle-counts/:cycleCountId/reconcile-preview';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type Operation = 'createCycleCount' | 'listCycleCounts' | 'reconcileCycleCount';
+type Operation =
+  'createCycleCount' | 'listCycleCounts' | 'reconcileCycleCount' | 'previewCycleCountReconcile';
 
 function permission(operationId: Operation): RequestHandler {
   const perm = loadSpec('admin-api.yaml').permission(operationId);
@@ -141,6 +144,21 @@ export function cycleCountsAdminRouter(): Router {
           { organizationId: p.organizationId, approve: body.approve === true },
           p.actor,
         ),
+      );
+    }),
+  );
+
+  // A safe GET: it never writes (CONTRACT CHANGE #469 chose a GET over a preview flag on the POST for that).
+  r.get(
+    PREVIEW_CYCLE_COUNT_PATH,
+    permission('previewCycleCountReconcile'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const cycleCountId = uuidParam(req.params, 'cycleCountId');
+      res.json(
+        await previewCycleCountReconcile(organizationClientFor(p), cycleCountId, {
+          organizationId: p.organizationId,
+        }),
       );
     }),
   );

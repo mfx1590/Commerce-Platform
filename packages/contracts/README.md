@@ -6,9 +6,9 @@ See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 | Spec                     | `info.version` | Operations | Areas                                                                                                  |
 | ------------------------ | -------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
 | `openapi/store-api.yaml` | 0.5.5          | 22         | store, catalog, cart, checkout, orders, customers                                                      |
-| `openapi/admin-api.yaml` | 0.4.15         | 120        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
+| `openapi/admin-api.yaml` | 0.4.16         | 123        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
 
-`CONTRACTS_VERSION` is `0.4.17` (tag contracts-v0.4.17); it ships with events 0.3.4 and db 0.3.7. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
+`CONTRACTS_VERSION` is `0.4.18` (tag contracts-v0.4.18); it ships with events 0.3.4 and db 0.3.7. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
 abandoned-cart recovery (#244/#245); 0.4.6 the pick/pack examples (#261); 0.4.7 the typed review shape (#270),
 the customers additions (#264) and the registry settings operations (#279); 0.4.8 makes `Store.currencies` / `Store.locales`
 required (#279), documents the customer self-service statuses (#303) and lets `createCart` / `completeCart` take an optional
@@ -31,7 +31,10 @@ carries the pool's numbers, keyed by (`variant_id`, `warehouse_id`) — with `st
 `organization:hq`) with the `CycleCount` schema — a count changes no stock until it is reconciled, a discrepancy above
 the tolerance is a 200 with status `flagged`, and a superseded count is a 409 `conflict` with `details.reason` (no new
 error code); 0.4.17 (Admin API 0.4.15 + Store API 0.5.5, #466 + events 0.3.4 + db 0.3.7) adds
-`voided` to the order's `payment_status` (authorized → voided on cancel; terminal; additive). The marketing area (37 operations, 15 components) is specified in
+`voided` to the order's `payment_status` (authorized → voided on cancel; terminal; additive); 0.4.18 (Admin API
+0.4.16, #469) adds three HQ reads — `listStockItemMovements` and `listStockItemReservations` (`viewer` on
+`organization:hq`) with `StockMovement` / `StockReservation`, and `previewCycleCountReconcile` (`operations` on
+`organization:hq`), a safe GET that writes nothing and takes no lock, with `CycleCountPreview`. The marketing area (37 operations, 15 components) is specified in
 [docs/marketing-scope.md](../../docs/marketing-scope.md); the search area (6 merchandising operations, 5 components) in
 CONTRACT CHANGE #162; 0.4.1 adds product media (5 operations, 5 components, #168), `getPromotion` / `updatePromotion`
 with `buy_x_get_y` and `stackable` / `exclusive` (#189) and a spelled-out `ProductFeed` (#194); 0.4.2 adds order
