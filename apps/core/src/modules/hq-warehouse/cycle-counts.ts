@@ -151,9 +151,13 @@ async function lockShelf(tx: Queryable, stockItemId: string, warehouseId: string
 }
 
 /**
- * 409 when a count of the same shelf with the same or a later `counted_at` is already applied: its adjustment
- * would be read as "a movement since this count" and this count's discrepancy applied a second time.
- * (`conflict` with `details.reason = 'superseded'`: the contract's error codes are a closed list.)
+ * 409 `conflict` (`details.reason = 'superseded'`; the contract's error codes are a closed list) when this count
+ * is no longer the books' latest truth for its shelf:
+ *   * a count of the same shelf with the same or a later `counted_at` is already applied — its adjustment would be
+ *     read as "a movement since this count" and this count's discrepancy applied a second time; or
+ *   * a `cycle_count` movement was written on the shelf AFTER `counted_at` with no count behind it (entered by
+ *     hand through `createStockMovement`). It corrected the books to something seen after this count, and since it
+ *     is not a physical movement it would be ignored: the older count would then overwrite it.
  */
 async function refuseSuperseded(
   tx: Queryable,
@@ -172,6 +176,18 @@ async function refuseSuperseded(
       'a later count of this stock item and warehouse has already been applied',
       { reason: 'superseded', applied_cycle_count_id: later.rows[0].id },
     );
+  }
+  const byHand = await tx.query<{ id: string }>(
+    `SELECT m.id FROM stock_movement m
+     WHERE m.stock_item_id = $1 AND m.warehouse_id = $2 AND m.created_at > $3 AND ${UNLINKED_ADJUSTMENT}
+     ORDER BY m.created_at DESC LIMIT 1`,
+    [shelf.stockItemId, shelf.warehouseId, shelf.countedAt],
+  );
+  if (byHand.rows[0]) {
+    throw new AppError('conflict', 'the stock was adjusted by hand after this count', {
+      reason: 'superseded',
+      stock_movement_id: byHand.rows[0].id,
+    });
   }
 }
 
@@ -294,6 +310,10 @@ export async function listCycleCounts(
     };
   });
 }
+
+/** A `cycle_count` movement no count row links to: a correction entered by hand (as `m`). */
+const UNLINKED_ADJUSTMENT = `m.reason = 'cycle_count'
+  AND NOT EXISTS (SELECT 1 FROM cycle_count linked WHERE linked.stock_movement_id = m.id)`;
 
 /** Movements that moved goods. A `cycle_count` movement corrects the books and is never one of them. */
 const PHYSICAL = `reason <> 'cycle_count'`;
@@ -483,7 +503,10 @@ export async function planOpenCounts(
                         AND n.status <> 'applied' AND n.counted_at > c.counted_at) AS newer_open,
               EXISTS (SELECT 1 FROM cycle_count l
                       WHERE l.stock_item_id = c.stock_item_id AND l.warehouse_id = c.warehouse_id
-                        AND l.status = 'applied' AND l.counted_at >= c.counted_at AND l.id <> c.id) AS superseded
+                        AND l.status = 'applied' AND l.counted_at >= c.counted_at AND l.id <> c.id)
+              OR EXISTS (SELECT 1 FROM stock_movement m
+                         WHERE m.stock_item_id = c.stock_item_id AND m.warehouse_id = c.warehouse_id
+                           AND m.created_at > c.counted_at AND ${UNLINKED_ADJUSTMENT}) AS superseded
        FROM ${FROM} WHERE c.warehouse_id = $1 AND c.status <> 'applied'
        ORDER BY c.counted_at, c.id`,
       [warehouseId],
