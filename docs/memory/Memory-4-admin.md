@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 (#468) review MERGE; queue refused it (advisory core e2e red) → e2e fix + review follow-ups pushed into #474; queue reruns when green
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens) — plan sent
 
 ## Identity (does not change)
 Owned paths (write):
@@ -446,6 +446,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#468 follow-up B — PR "Refs #468" on the #476 reads (2026-10-15).** #474 MERGED = ce0b823
+  (#468 closed). admin/phase3 = main ce0b823, Admin API 0.4.16 / contracts-v0.4.18; install + package
+  build done. PLAN sent to the manager — wait for its answer before building. (1) ledger
+  (`listStockItemMovements`) and (2) reservations with allocation_rule in words
+  (`listStockItemReservations`, open/released/all) as `?item=&view=` cards on the stock items tab;
+  (3) approve dialog uses `previewCycleCountReconcile` via a guarded server action (409 superseded
+  → said + Approve disabled; other failure → the flag's delta with the old label), "may differ"
+  note kept (no lock). (4) store inventory shows `warehouse_code` once #477 merges (manager sends
+  the sha) — if not merged when 1–3 are ready, ship 1–3 alone. Ask before any e2e.
 - **#468 (2026-10-15) — stock pool + cycle-count screens (HQ), pool-keyed inventory rows, payment
   status "voided".** Assigned by "Manager session six". Done so far: merged main f2c7df5 (#467
   merged: Admin API 0.4.15, voided) into admin/phase3 (pushed with PR #474), install, packages rebuilt.
