@@ -227,3 +227,18 @@
 - db 0.3.6: migration 0192 (`cycle_count`, RLS kind `organization_only`). Events 0.3.3 and Store API 0.5.4 unchanged: no
   new topic, no envelope change — reconciliation emits `stock.moved` v2 through the inventory module.
 - `CONTRACTS_VERSION = '0.4.16'`; types regenerated. Producer: window 11 (hq-warehouse, #436). Consumer: window 4 (admin).
+
+## 0.4.17 — 2026-10-15 (Order.payment_status `voided`, CONTRACT CHANGE #466; contracts-v0.4.17)
+
+- Admin API 0.4.15 and Store API 0.5.5: the order's `payment_status` (`OrderSummary`, so `Order` too, in the Admin
+  API; the order read in the Store API) gains `voided` — the authorization was released by `cancelOrder` before any
+  capture (the payment row is `cancelled`). authorized → voided when an order is cancelled; `voided` is terminal.
+  Additive: no operation, parameter, example or error code changes. `listOrders`' `payment_status` query parameter is
+  a free string, so `voided` is filterable as is.
+- Contract only: the core starts writing the value in a later PR (window 1, after #465). No backfill (manager decision
+  on #466).
+- events 0.3.4: `order.updated` v1's `payment_status` enum gains `voided` in place (the decision: every producer and
+  reader is inside apps/core, no consumer before Phase 4). db 0.3.7: migration 0193 widens
+  `order_payment_status_check`.
+- `CONTRACTS_VERSION = '0.4.17'`; types regenerated. Producer: window 1 (core, `cancelOrder`). Consumers: window 4
+  (admin orders table, label "Voided", neutral tone), the storefronts' order read.
