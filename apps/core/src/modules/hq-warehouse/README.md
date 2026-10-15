@@ -113,12 +113,13 @@ A level is never edited directly. Code: `cycle-counts.ts` (service), `http.ts` (
 Admin API 0.4.14 (contracts 0.4.16). The router is mounted by one line in `src/http/module-routers.ts`
 (window 1's file).
 
-| Step      | Operation (`operations` on `organization:hq`) | Effect                                                                         |
-| --------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
-| record    | `createCycleCount`                            | a `cycle_count` row, status `recorded`; no stock changes                       |
-| reconcile | `reconcileCycleCount`                         | within tolerance → one movement, `applied`; above → nothing moves, `flagged`   |
-| approve   | `reconcileCycleCount` with `approve: true`    | recomputes and applies whatever the delta is; approver on the row and in audit |
-| read      | `listCycleCounts`                             | by warehouse, stock item, status; newest count first                           |
+| Step      | Operation (`operations` on `organization:hq`) | Effect                                                                              |
+| --------- | --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| record    | `createCycleCount`                            | a `cycle_count` row, status `recorded`; no stock changes                            |
+| reconcile | `reconcileCycleCount`                         | within tolerance → one movement, `applied`; above → nothing moves, `flagged`        |
+| approve   | `reconcileCycleCount` with `approve: true`    | recomputes and applies whatever the delta is; approver on the row and in audit      |
+| read      | `listCycleCounts`                             | by warehouse, stock item, status; newest count first                                |
+| preview   | `previewCycleCountReconcile` (GET)            | what reconcile would do now — as-of on-hand, delta, would-be status; writes nothing |
 
 - **The delta is measured against on-hand as of the count, not on-hand now:** `delta = counted − (on_hand now −
 PHYSICAL movements written since counted_at)`. A count taken at 18:00 and reconciled the next morning ignores
@@ -138,6 +139,11 @@ PHYSICAL movements written since counted_at)`. A count taken at 18:00 and reconc
 - **The inventory module can refuse the movement** (409 `conflict`: on-hand would go negative — more shipped
   since the count than was counted). The route passes it through and the count stays as it was.
 - **`counted_at` may not be in the future** (422).
+- **The preview** (`GET /admin/cycle-counts/{id}/reconcile-preview`, CONTRACT CHANGE #469) runs the same
+  computation and the same superseded rule (409) as reconcile, but as a pure read: no advisory lock, no row lock,
+  no pool row created (a shelf that never held the item reads 0), no event, no audit row. A later reconcile or
+  approval recomputes under the lock, so its delta can differ if stock moves in between — the admin says so next
+  to the button. An applied count answers its stored values with `would_status: applied`.
 - **A deactivated warehouse:** a count recorded there stays recorded, but reconciling it answers 404 (the inventory
   module's `ensureLevel` takes pool rows in active warehouses only). Reactivate the warehouse to reconcile it, or
   leave the count as a record.

@@ -8,6 +8,8 @@ export {
   createStockMovement,
   ensureLevel,
   listInventoryLevels,
+  listStockItemMovements,
+  listStockItemReservations,
   listStockItems,
   mapVariantToStockItem,
   moveStock,
@@ -30,10 +32,12 @@ export type {
   AllocationLine,
   AllocationPolicy,
 } from './allocation';
-export { ADMIN_MOVEMENT_REASONS, LEVEL_SORT_FIELDS } from './types';
+export { ADMIN_MOVEMENT_REASONS, LEVEL_SORT_FIELDS, RESERVATION_STATUSES } from './types';
 export type {
   AdminInventoryLevel,
   AdminStockItem,
+  AdminStockMovement,
+  AdminStockReservation,
   Allocation,
   ConsumeForShipmentInput,
   ConsumeLine,
@@ -41,6 +45,8 @@ export type {
   LevelRow,
   LevelSortField,
   ListLevelsQuery,
+  ListStockItemMovementsQuery,
+  ListStockItemReservationsQuery,
   ListStockItemsQuery,
   MovementReason,
   MoveStockInput,
@@ -49,5 +55,6 @@ export type {
   PoolLevel,
   ReservationResult,
   ReserveForOrderInput,
+  ReservationStatusFilter,
   ReserveLine,
 } from './types';

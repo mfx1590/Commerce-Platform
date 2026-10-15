@@ -242,3 +242,20 @@
   `order_payment_status_check`.
 - `CONTRACTS_VERSION = '0.4.17'`; types regenerated. Producer: window 1 (core, `cancelOrder`). Consumers: window 4
   (admin orders table, label "Voided", neutral tone), the storefronts' order read.
+
+## 0.4.18 — 2026-10-15 (stock pool reads, CONTRACT CHANGE #469; contracts-v0.4.18)
+
+- Admin API 0.4.16, three HQ-only reads (additive):
+  - `listStockItemMovements` — `GET /admin/stock-items/{stockItemId}/movements` (`viewer` on `organization:hq`;
+    `warehouse_id`, page, limit): the pool row's ledger, newest first, pool movements (no store) and store-caused ones.
+  - `listStockItemReservations` — `GET /admin/stock-items/{stockItemId}/reservations` (`viewer` on
+    `organization:hq`; `warehouse_id`, `status` = `open` (default) | `released` | `all`, page, limit): every
+    store's reservations with the `allocation_rule` that placed each (a free string because of `split:<rule>`).
+  - `previewCycleCountReconcile` — `GET /admin/cycle-counts/{cycleCountId}/reconcile-preview` (`operations` on
+    `organization:hq`): what `reconcileCycleCount` would do now, without writing and without the pool row's lock;
+    404 and 409 (`superseded`) as reconcile. A separate safe GET, not a flag on the POST (manager decision on #469).
+  - New components `StockMovement`, `StockReservation`, `CycleCountPreview`; examples on every 200 (the mock answers
+    from them).
+- No events, db or Store API change; no new error code. A store-scoped variant of (a)/(b) is out of scope.
+- `CONTRACTS_VERSION = '0.4.18'`; types regenerated. Producers: window 1 (inventory module, a + b), window 11
+  (hq-warehouse, c). Consumer: window 4 (admin, #468 follow-up).

@@ -1293,4 +1293,121 @@ describe('the shared stock pool (#456, CONTRACT CHANGE #453): listStockItems, ma
     expect(lb.every((l) => l.stock_item_id === a.item && l.store_id === B)).toBe(true);
     expect(la.every((l) => l.stock_item_id === a.item && l.store_id === A)).toBe(true);
   });
+
+  it('GET /admin/stock-items/{id}/movements and …/reservations (#469): HQ viewer reads, contract Pages, newest first; store roles 403; filters; 404 / 400', async () => {
+    const { a, b } = await pair(6);
+    // brand B's variant joins brand A's item (its own item emptied first, as the mapping requires)
+    await db.owner.query(
+      `UPDATE inventory_level SET on_hand = 0, reserved = 0 WHERE stock_item_id = $1`,
+      [b.item],
+    );
+    expect(
+      (await put('seed-operations', `/admin/stock-items/${a.item}/variants/${b.id}`)).status,
+    ).toBe(200);
+    const EU = SEED_IDS.warehouses.eu;
+    const US = SEED_IDS.warehouses.us;
+    const cartOf = async (storeId: string) => {
+      const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [storeId] });
+      const channel = await client.query<{ id: string }>(
+        `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+        [storeId],
+      );
+      return (
+        await createCart(client, {
+          organizationId: SEED_IDS.organization,
+          storeId,
+          salesChannelId: channel.rows[0]!.id,
+        })
+      ).id;
+    };
+    const reserve = (
+      storeId: string,
+      variantId: string,
+      cartId: string,
+      quantity: number,
+      rule: string,
+      at: string,
+      released: boolean,
+    ) =>
+      db.owner.query(
+        `INSERT INTO reservation (organization_id, store_id, variant_id, stock_item_id, warehouse_id, cart_id,
+                                  quantity, allocation_rule, created_at, released_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10 THEN now() END)`,
+        [
+          SEED_IDS.organization,
+          storeId,
+          variantId,
+          a.item,
+          EU,
+          cartId,
+          quantity,
+          rule,
+          at,
+          released,
+        ],
+      );
+    await reserve(A, a.id, await cartOf(A), 2, 'same_country', '2026-10-15T08:00:00Z', false);
+    await reserve(B, b.id, await cartOf(B), 1, 'same_region', '2026-10-15T09:00:00Z', false);
+    await reserve(A, a.id, await cartOf(A), 3, 'priority', '2026-10-15T07:00:00Z', true);
+    await db.owner.query(
+      `INSERT INTO stock_movement (organization_id, stock_item_id, warehouse_id, store_id, variant_id, delta, reason, created_at)
+       VALUES ($1, $2, $3, NULL, NULL, 7, 'receipt', '2026-10-15T10:00:00Z'),
+              ($1, $2, $3, $4, $5, -1, 'sale', '2026-10-15T11:00:00Z')`,
+      [SEED_IDS.organization, a.item, EU, A, a.id],
+    );
+
+    const movementsPath = `/admin/stock-items/${a.item}/movements`;
+    const movements = await analyst.get(movementsPath); // viewer on organization:hq
+    expect(movements.status).toBe(200);
+    spec.assertPage('StockMovement', movements.body);
+    const recent = movements.body.items.slice(0, 2) as {
+      store_id: string | null;
+      reason: string;
+      delta: number;
+    }[];
+    expect(recent.map((m) => [m.store_id, m.reason, m.delta])).toEqual([
+      [A, 'sale', -1],
+      [null, 'receipt', 7],
+    ]);
+    expect((await operations.get(`${movementsPath}?warehouse_id=${US}`)).body.total).toBe(0);
+
+    const reservationsPath = `/admin/stock-items/${a.item}/reservations`;
+    const open = await analyst.get(reservationsPath);
+    expect(open.status).toBe(200);
+    spec.assertPage('StockReservation', open.body);
+    expect(
+      open.body.items.map((r: { store_id: string; quantity: number; allocation_rule: string }) => [
+        r.store_id,
+        r.quantity,
+        r.allocation_rule,
+      ]),
+    ).toEqual([
+      [B, 1, 'same_region'],
+      [A, 2, 'same_country'],
+    ]);
+    const released = await operations.get(`${reservationsPath}?status=released`);
+    spec.assertPage('StockReservation', released.body);
+    expect(released.body.items.map((r: { quantity: number }) => r.quantity)).toEqual([3]);
+    expect((await operations.get(`${reservationsPath}?status=all&limit=2`)).body).toMatchObject({
+      total: 3,
+      limit: 2,
+    });
+    expect((await operations.get(`${reservationsPath}?warehouse_id=${US}`)).body.total).toBe(0);
+
+    for (const path of [movementsPath, reservationsPath]) {
+      expect((await storeAdmin.get(path)).status).toBe(403);
+      expect((await storeStaff.get(path)).status).toBe(403);
+      expect((await request(app).get(path)).status).toBe(401);
+    }
+    const unknown = '00000000-0000-4000-8000-00000000ffff';
+    for (const tail of ['movements', 'reservations']) {
+      const missing = await operations.get(`/admin/stock-items/${unknown}/${tail}`);
+      expect(missing.status).toBe(404);
+      spec.assertSchema('Error', missing.body);
+      expect((await operations.get(`/admin/stock-items/not-a-uuid/${tail}`)).status).toBe(400);
+    }
+    const bad = await operations.get(`${reservationsPath}?status=maybe&warehouse_id=x`);
+    expect(bad.status).toBe(400);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['status', 'warehouse_id']);
+  });
 });
