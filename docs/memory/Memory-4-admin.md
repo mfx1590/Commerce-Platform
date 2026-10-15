@@ -447,9 +447,17 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 
 ## In progress
 - **#468 (2026-10-15) — stock pool + cycle-count screens (HQ), pool-keyed inventory rows, payment
-  status "voided".** Assigned by "Manager session six". Done so far: merged main e18e73d into
-  admin/phase3, install, packages rebuilt. PR #467 (contracts-v0.4.17, Admin API 0.4.15 with
-  "voided") still OPEN. Next: read #468 + window 11's brief (`git show
+  status "voided".** Assigned by "Manager session six". Done so far: merged main f2c7df5 (#467
+  merged: Admin API 0.4.15, voided) into admin/phase3 (local, unpushed), install, packages rebuilt.
+  **PLAN sent to the manager 2026-10-15 — waiting for its answer; build nothing until it arrives.**
+  Plan: HQ /warehouse (tabs Stock items | Cycle counts, replaces placeholder), NEW store screen
+  /[storeId]/inventory (none existed — F1), orders voided (neutral, filter), wrappers + guard rows
+  + src/app/actions/warehouse.ts. F2: listStockItems is viewer on hq → "shared with N brands"
+  badge only for hq viewers. F3: no read gives the recomputed delta before approve → show the
+  flag's delta labelled "recomputed on approval". Open Qs to manager: Q1 build inventory screen,
+  Q2 F2 badge rule, Q3 dry-run in the ONE CONTRACT CHANGE issue (pool-row movements, reservations
+  with allocation_rule, optional reconcile preview) — file it after the answer. No e2e run without
+  the manager's OK. Earlier note: read #468 + window 11's brief (`git show
   origin/warehouse/phase3:docs/memory/Memory-11-warehouse.md`, section "For window 4"), send the
   manager a PLAN (screens, files, tests, missing reads) BEFORE building; missing reads (pool-row
   movement ledger, reservations with allocation_rule) → ONE `CONTRACT CHANGE:` issue, never an
