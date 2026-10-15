@@ -464,6 +464,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   Gate 2026-10-15: lint 0, typecheck 0, admin unit 776/776, Prism contract warehouse 9/9.
   **#469 ACCEPTED** (a+b window 1, c window 11; Admin API 0.4.16 / contracts 0.4.18): the movements,
   reservations and reconcile-preview screens are a SMALL FOLLOW-UP PR after #469 lands — never in #468.
+  Machine handed over 2026-10-15. **Mock e2e** (PORT=3200, own Prism admin :4311 / store :4314 —
+  :4310 was an unrelated ephemeral client port): full suite 25 passed + 8 skipped + 1 failed (rail
+  spec listed the old store sections → added Inventory), then rail+warehouse 6 passed + 3 skipped.
+  **Core leg BLOCKED (environment):** core :9000 healthy, but every admin call 503 "authorization
+  service unavailable": this worktree's `.env` OPENFGA_STORE_ID points at a store the shared
+  OpenFGA no longer has (404). The live store is the one wt-core / wt-warehouse name (11 tuples);
+  wt-auth, wt-brands, wt-storefront, wt-integration are stale too. Repointing my .env was denied by
+  the permission classifier — owner/manager decides (repoint .env to the live ids, or `fga:seed`).
+  Core stopped explicitly (tsx child killed), :9000 free.
   Plan: HQ /warehouse (tabs Stock items | Cycle counts, replaces placeholder), NEW store screen
   /[storeId]/inventory (none existed — F1), orders voided (neutral, filter), wrappers + guard rows
   + src/app/actions/warehouse.ts. F2: listStockItems is viewer on hq → "shared with N brands"
