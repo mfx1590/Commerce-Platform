@@ -2,7 +2,8 @@
 // in. A pure function over the candidates the inventory module hands it (the LOCKED pool rows), so every rule is
 // testable without a database and the same input always gives the same decision.
 //
-// Warehouses are ranked once per order by the fulfillment module's routing rules, in its order:
+// Each line's candidates are ranked by the fulfillment module's routing rules, in its order (the ranking reads
+// only the destination, the store's settings and the warehouses, so it is the same order for every line):
 //
 //   1. store override for the destination country   routing.countries[CC]
 //   2. store default                                routing.default
@@ -89,17 +90,28 @@ function allocateLine(
   line: AllocationLine,
   taken: Map<string, number>,
 ): AllocationDecision {
-  if (!Number.isInteger(line.quantity) || line.quantity < 0) {
+  // Bad numbers are a caller's bug, and an allocation is no place to guess: NaN, Infinity, fractions and
+  // integers past 2^53 are refused, as are two candidates for one warehouse (which shelf would be the truth?).
+  if (!Number.isSafeInteger(line.quantity) || line.quantity < 0) {
     throw new RangeError(
-      `allocation quantity must be a non-negative integer, got ${line.quantity}`,
+      `allocation quantity must be a non-negative safe integer, got ${line.quantity}`,
     );
+  }
+  const seen = new Set<string>();
+  for (const candidate of line.candidates) {
+    if (!Number.isSafeInteger(candidate.available)) {
+      throw new RangeError(
+        `candidate ${candidate.warehouseCode}: available must be a safe integer, got ${candidate.available}`,
+      );
+    }
+    if (seen.has(candidate.warehouseId)) {
+      throw new RangeError(`two candidates for warehouse ${candidate.warehouseCode} on one line`);
+    }
+    seen.add(candidate.warehouseId);
   }
   // What is left of each pool row after the earlier lines of this order.
   const left = (candidate: AllocationCandidate): number =>
-    Math.max(
-      0,
-      Math.floor(candidate.available) - (taken.get(poolKey(line, candidate.warehouseId)) ?? 0),
-    );
+    Math.max(0, candidate.available - (taken.get(poolKey(line, candidate.warehouseId)) ?? 0));
   const take = (allocation: LineAllocation): LineAllocation => {
     const key = poolKey(line, allocation.warehouseId);
     taken.set(key, (taken.get(key) ?? 0) + allocation.quantity);

@@ -204,3 +204,26 @@
   `pool_ledger`) and the seed's shared item. Store API 0.5.4 unchanged; no `ERROR_CODES` change.
 - `CONTRACTS_VERSION = '0.4.15'`; types regenerated. Producer: window 1 (inventory rewrite, #456) with window 11
   (allocation, #435). Consumers: window 4 (admin), every `stock.moved` consumer.
+
+## 0.4.16 — 2026-10-13 (cycle counts, CONTRACT CHANGE #458; contracts-v0.4.16)
+
+- Admin API 0.4.14 (120 operations, was 117), all three `operations` on `organization:hq`, tag `inventory`:
+  `listCycleCounts` (`GET /admin/cycle-counts`; filters `warehouse_id`, `stock_item_id`, `status`; newest count first),
+  `createCycleCount` (`POST /admin/cycle-counts`, 201: writes the count down as `recorded` and changes no stock) and
+  `reconcileCycleCount` (`POST /admin/cycle-counts/{cycleCountId}/reconcile`, optional body `{ approve }`). New schema
+  `CycleCount`. There is no update and no delete: a count is a record.
+- Reconciling turns the discrepancy into exactly one stock movement (reason `cycle_count`, no store, one `stock.moved`
+  in the same transaction) and status `applied`; a zero delta is `applied` with no movement. Above
+  `organization.settings.warehouse.count_tolerance` nothing moves and the answer is a 200 with status `flagged` — not an
+  error — until a call with `approve: true` applies it. Idempotent by count.
+- No new error code (the amendment on #458): a count superseded by an applied count with the same or a later
+  `counted_at` answers 409 `conflict` with `details: { reason: 'superseded', applied_cycle_count_id }`, at record time
+  and at reconcile time; a `counted_at` in the future answers 422 `validation_error` with
+  `details: { field: 'counted_at' }`. `ERROR_CODES` is unchanged (the 0.4.13 precedent: `ActivationBlocked`,
+  `InvalidSettings`).
+- The text is window 11's proposed file verbatim; the landing adds a schema-valid `example` to the three success
+  responses (the mock answers from examples) and nothing else. test/contract.test.ts walks list → record → reconcile on
+  the mock.
+- db 0.3.6: migration 0192 (`cycle_count`, RLS kind `organization_only`). Events 0.3.3 and Store API 0.5.4 unchanged: no
+  new topic, no envelope change — reconciliation emits `stock.moved` v2 through the inventory module.
+- `CONTRACTS_VERSION = '0.4.16'`; types regenerated. Producer: window 11 (hq-warehouse, #436). Consumer: window 4 (admin).

@@ -1,8 +1,8 @@
 # hq-warehouse — the shared stock pool and stock-aware allocation (window 11, #435)
 
-_*Status: the pool's schema and contract are in packages/* (CONTRACT CHANGE #453: migrations 0190 + 0191,
-`stock.moved` v2, `stock_item.mapped` v1, the Admin API additions), landed with window 1's inventory rewrite
-(#456)._* The allocation engine is registered behind the inventory module's seam (REQUEST #454) by window 1's
+**Status: the pool's schema and contract are in the workspace packages (CONTRACT CHANGE #453: migrations 0190 +
+0191, `stock.moved` v2, `stock_item.mapped` v1, the Admin API additions), landed with window 1's inventory
+rewrite (#456, contracts-v0.4.15).** The allocation engine is registered behind the inventory module's seam (REQUEST #454) by window 1's
 `src/wiring.ts`. Owner: window 11 (`apps/core/src/modules/hq-warehouse/**`, `apps/wms-adapter/**`).
 
 ## The problem
@@ -86,7 +86,7 @@ one organization that is acceptable.
 `stockAwareAllocationPolicy(context, lines)` is a pure function in the shape of REQUEST #454: the inventory module
 locks the pool rows, hands over each line's candidates (the locked rows' `available`), and enforces the answer.
 
-1. **Rank the warehouses once per order** by the fulfillment module's routing rules (its `routingSettingsFrom` and
+1. **Rank each line's candidate warehouses** (the same order for every line of an order) by the fulfillment module's routing rules (its `routingSettingsFrom` and
    `regionOf`, through its public API): store override for the destination country → store default → same
    country → same region → the rest; `priority`, then `code`, then id break ties.
 2. **Per line: one warehouse if one can cover the whole line** — the first in the ranking that can. One shipment
@@ -100,9 +100,63 @@ The rule is recorded per allocation and stored on `reservation.allocation_rule`:
 `store_default`, `same_country`, `same_region` or `priority` for a line's first warehouse, and the same
 prefixed with `split:` for every further one.
 
-**Not mounted yet.** The seam does not exist until window 1's rekey lands; then `registerModuleSeams()` in
-`src/wiring.ts` gains `setAllocationPolicy(stockAwareAllocationPolicy)`. Until then `shared-pool.test.ts` drives
-the policy through a local fake of that seam, on the proposed schema.
+**Registered at boot** since #461: `registerModuleSeams()` in `src/wiring.ts` (window 1's file) calls
+`setAllocationPolicy(stockAwareAllocationPolicy)`. `shared-pool.test.ts` drives it through the inventory
+module's real `reserveForOrder`.
+
+## Cycle counts and reconciliation (#436, CONTRACT CHANGE #458)
+
+Somebody counts a stock item on a shelf; the count is written down; reconciliation turns the difference into
+**exactly one `stock_movement`** (reason `cycle_count`, no store, its `stock.moved` in the same transaction).
+A level is never edited directly. Code: `cycle-counts.ts` (service), `http.ts` (`cycleCountsAdminRouter`),
+`cli/reconcile.ts`, `wms/`. Contract: migration `0192_cycle_count.sql` (db 0.3.6) and the three operations in
+Admin API 0.4.14 (contracts 0.4.16). The router is mounted by one line in `src/http/module-routers.ts`
+(window 1's file).
+
+| Step      | Operation (`operations` on `organization:hq`) | Effect                                                                         |
+| --------- | --------------------------------------------- | ------------------------------------------------------------------------------ |
+| record    | `createCycleCount`                            | a `cycle_count` row, status `recorded`; no stock changes                       |
+| reconcile | `reconcileCycleCount`                         | within tolerance → one movement, `applied`; above → nothing moves, `flagged`   |
+| approve   | `reconcileCycleCount` with `approve: true`    | recomputes and applies whatever the delta is; approver on the row and in audit |
+| read      | `listCycleCounts`                             | by warehouse, stock item, status; newest count first                           |
+
+- **The delta is measured against on-hand as of the count, not on-hand now:** `delta = counted − (on_hand now −
+PHYSICAL movements written since counted_at)`. A count taken at 18:00 and reconciled the next morning ignores
+  what shipped overnight; measuring against on-hand now would put those units back on the shelf.
+- **A cycle-count adjustment is never "a movement since".** Physical = every movement except reason
+  `cycle_count`: an adjustment moves no goods, it corrects the books to what a count saw. So with two counts of
+  one shelf, applying the older one first leaves the newer one a delta of 0 (or only what went missing between
+  the two) — the discrepancy is applied once, whatever the order; applying the newer one first supersedes the
+  older. The books always end at the newest count's truth plus what physically moved since it. This also covers
+  a manual `cycle_count` movement entered through `createStockMovement`: it is a correction, not goods moving.
+- **Computed under the pool row's lock at apply time** — at reconcile and again at approval — never taken from
+  an earlier read. The pool row is taken through the inventory module's `ensureLevel`: created at zero when the
+  shelf has never held the item, then locked, so a first receipt racing the reconciliation is counted once. The
+  row keeps the final `on_hand_as_of_count` and `delta`.
+- **The inventory module can refuse the movement** (409 `conflict`: on-hand would go negative — more shipped
+  since the count than was counted). The route passes it through and the count stays as it was.
+- **`counted_at` may not be in the future** (422).
+- **`superseded` (409, `code: conflict`, `details.reason: superseded`):** a count is refused, at record and at reconcile, when a count of the same stock item and
+  warehouse with the same or a later `counted_at` is already applied. Otherwise the newer count's own adjustment
+  would be read as "a movement since the old count" and the old discrepancy applied a second time.
+- **Known limitation (accepted, manager 2026-10-12):** "movements since `counted_at`" compares with
+  `stock_movement.created_at`, the writing transaction's start time, so a movement that began before the count
+  and committed after it is treated as before the count.
+- **A count is a record:** the application role cannot delete one; a manual count names who counted, a WMS pull
+  names nobody.
+- **Tolerance:** `organization.settings.warehouse.count_tolerance`, a non-negative integer, units of |delta|.
+  Unset or malformed = 0: every non-zero discrepancy waits for an approval.
+- **Idempotent by count id:** `cycle_count.stock_movement_id` (UNIQUE) is the link; reconciling an applied count
+  changes nothing. A zero delta is `applied` with no movement (the ledger refuses a zero movement).
+- **Who writes the movement:** the inventory module's pool-addressed `moveStock` — the only writer of `on_hand` —
+  through its public API. `setStockMover` is a test seam; the default is the real one, so nothing is registered at
+  boot.
+- **RLS `organization_only`** (new kind: organization match AND organization scope): counts are an HQ record; a
+  store session can neither read nor write one, not even for an item it maps.
+- **CLI:** `cli/reconcile.ts --warehouse wh-eu --dry-run` prints the plan (count, on-hand as of the count, delta,
+  apply or flag) and writes nothing.
+- **WMS:** `wms/` holds `WmsAdapter { pullCounts(warehouse) }` and an in-memory implementation, exported through
+  `index.ts`. `apps/wms-adapter` becomes a package when an Odoo instance exists (manager, 2026-10-12).
 
 ## How to run
 
@@ -110,11 +164,13 @@ the policy through a local fake of that seam, on the proposed schema.
 pnpm --filter @platform/core exec vitest run src/modules/hq-warehouse
 ```
 
-| File                          | What it proves                                                                                                                                                          |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `allocation.test.ts`          | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic) — 24 tests, no database                        |
-| `proposed-migrations.test.ts` | the pool's schema over the seeded data: a stock item per variant (the seed's shared pair maps one), the naming rule, the mapping guard, every RLS rule above — 34 tests |
-| `shared-pool.test.ts`         | two brands on one item: A reserves N and B's availability drops by N, the split, the last-unit race, 8 parallel placements, no deadlock — 8 tests                       |
+| File                         | What it proves                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allocation.test.ts`         | every rule in order, single warehouse vs split, shortfall, 500 seeded random cases (never over-allocates, deterministic), bad numbers and duplicate candidates refused — 28 tests, no database                                                                                                                                                                                    |
+| `stock-pool-schema.test.ts`  | the pool's schema over the seeded data: a stock item per variant (the seed's shared pair maps one), the naming rule, the mapping guard, every RLS rule above — 34 tests                                                                                                                                                                                                           |
+| `shared-pool.test.ts`        | two brands on one item: A reserves N and B's availability drops by N, the split, the split, whole-line-first, the store override, 409 out_of_stock, the last-unit race, 8 placements issued at once, no deadlock — 10 tests, through the real `reserveForOrder`                                                                                                                   |
+| `cycle-count-schema.test.ts` | the `cycle_count` table (0192): the `organization_only` RLS and the CHECKs that hold a count together, no DELETE — 16 tests                                                                                                                                                                                                                                                       |
+| `cycle-counts.test.ts`       | count → reconcile → one movement and its `stock.moved` v2, idempotency, tolerance and approval, on-hand as of the count and its guards, several counts of one shelf in every order, a shelf with no pool row and a racing first receipt, the router (operations vs store admin, the 409s and the 422), the dry-run CLI, the WMS pull — 42 tests, all through the real `moveStock` |
 
 The two database files seed a throwaway database (`testing/pool-database.ts`: migrate + seed; the seed maps one
 shared item for brands A and B, `SEED_IDS.sharedStock`). Outside turbo, export

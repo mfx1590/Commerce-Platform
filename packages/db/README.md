@@ -39,7 +39,9 @@ rules stay per store and one rule per store + scope is enforced. Since 0.2.2 it 
 accepts `buy_x_get_y` and still refuses unknown types. Since 0.3.3 it covers `notification_delivery` (0180): rows
 stay per store, organization scope sees every store, a re-delivered `event_id` conflicts, and the table has no
 recipient column. Since 0.3.4 / 0.3.5 it covers the stock pool (below): the mapping guard, the pool row, the
-ledger's attribution rule and per-store reservations on a shared item.
+ledger's attribution rule and per-store reservations on a shared item. Since 0.3.6 it covers `cycle_count` (0192):
+organization scope only (a store session reads and writes none, not even for an item it maps), no DELETE for the
+application role, and the counter and movement-link CHECKs.
 
 ## Stock pool (0190 + 0191, db 0.3.4 and 0.3.5)
 
@@ -67,3 +69,18 @@ Step 2 (0191, db 0.3.5) rekeys the stock tables onto the item:
 
 The seed has one shared item, `SEED_IDS.sharedStock`: brand A's and brand B's first variants map it and it is
 stocked in `wh-eu`. `topUpStock` writes store-less movements.
+
+## Cycle counts (0192, db 0.3.6)
+
+`cycle_count` records that a stock item was counted in a warehouse (CONTRACT CHANGE #458, window 11). It is an HQ
+record with its own RLS kind, `organization_only`: the organization's rows in organization scope only, so a
+store-scoped session reads and writes none — not even for an item it maps. A count never edits a level; reconciling
+it writes at most one `stock_movement` (reason `cycle_count`, no store) and links it in `stock_movement_id`.
+`status` is `recorded`, `flagged` (above the organization's tolerance, waiting for an approval) or `applied`; CHECKs
+keep the status, the computed delta, the movement link and the approval consistent, and require a counter exactly
+for a manual count. The application role cannot delete a count (as `audit_log` and `stock_movement` are protected);
+it updates the row as the count is reconciled.
+
+Known and accepted: "movements since `counted_at`" compares with `stock_movement.created_at`, which is the writing
+transaction's start time — a movement that began before the count and committed after it is treated as before the
+count.

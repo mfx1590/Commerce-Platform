@@ -39,6 +39,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
 - Every query goes through a scoped client. Raw `pool.query` returns zero rows by design (no context).
 - Table names `order` and `return` are reserved words: always write `"order"`, `"return"`.
 - `audit_log` and `stock_movement` are append-only for the app role (no UPDATE/DELETE grants).
+- `cycle_count` (0192, 0.3.6) is organization scope only (RLS kind `organization_only`: a store-scoped client reads and writes none) and has no DELETE grant for the app role.
 - Money is `*_minor bigint` + `currency char(3)`. Ids are uuid. See docs/domain.md.
 
 ## Constraints

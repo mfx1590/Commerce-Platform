@@ -7,11 +7,12 @@
 // (#162), `mediaRouter` (#168), `pricingRouter` (#137), `promotionsRouter` (#138 / #189); window 17's
 // `marketingAdminRouter` (#181); window 8's `shippingAdminRouter` (#131); window 7's `paymentsAdminRouter`
 // (#126). `moduleWebhookRouters()`: window 7's `paymentsWebhookRouter` (#125) and window 8's
-// `shippingWebhookRouter` (#131); window 8's `fulfillmentAdminRouter` (pick / pack / pick lists, #133). Nothing is
-// pending. Boot-time registrations (payment providers, carrier rates, tax, fraud, price lists, promotions) are
+// `shippingWebhookRouter` (#131); window 8's `fulfillmentAdminRouter` (pick / pack / pick lists, #133); window 11's
+// `cycleCountsAdminRouter` (#436). Nothing is pending. Boot-time registrations (payment providers, carrier rates, tax, fraud, price lists, promotions) are
 // not routers: they live in src/wiring.ts (`registerModuleSeams()`).
 import type { Router } from 'express';
 import { fulfillmentAdminRouter } from '../modules/fulfillment';
+import { cycleCountsAdminRouter } from '../modules/hq-warehouse';
 import { marketingAdminRouter } from '../modules/marketing';
 import { paymentsAdminRouter, paymentsWebhookRouter } from '../modules/payments';
 import { pricingRouter, promotionsRouter } from '../modules/promotions';
@@ -52,6 +53,9 @@ export function moduleAdminRouters(): Router[] {
   routers.push(paymentsAdminRouter());
   // window 8 — pick/pack: POST /admin/shipments/:id/pick, …/pack, GET /admin/stores/:storeId/pick-lists (#133)
   routers.push(fulfillmentAdminRouter());
+  // window 11 — cycle counts: GET + POST /admin/cycle-counts, POST /admin/cycle-counts/:cycleCountId/reconcile
+  // (Admin API listCycleCounts / createCycleCount / reconcileCycleCount, `operations` on organization:hq, #436)
+  routers.push(cycleCountsAdminRouter());
   return routers;
 }
 
