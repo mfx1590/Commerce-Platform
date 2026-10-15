@@ -3,6 +3,7 @@
 // on purpose (manager, 2026-10-12): `apps/wms-adapter` becomes a package the day something real consumes it.
 import type { ScopedClient } from '@platform/db';
 import { SYSTEM_ACTOR } from '../../../lib/audit';
+import { notFound } from '../../../lib/errors';
 import { createCycleCount, type CycleCount } from '../cycle-counts';
 
 /** One shelf as the WMS counted it. `sku` is the stock item's sku (unique per organization). */
@@ -60,7 +61,7 @@ export async function recordWmsCounts(
     input.warehouseCode,
   ]);
   const warehouseId = warehouse.rows[0]?.id;
-  if (!warehouseId) throw new Error(`warehouse ${input.warehouseCode} not found`);
+  if (!warehouseId) throw notFound('warehouse', input.warehouseCode);
 
   const counts = await adapter.pullCounts(input.warehouseCode);
   const items = await client.query<{ id: string; sku: string }>(

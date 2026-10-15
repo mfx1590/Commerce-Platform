@@ -1,7 +1,5 @@
--- PROPOSED (CONTRACT CHANGE, window 11, task 3.2 / #436): packages/db/migrations/0192_cycle_count.sql.
---
--- Kept here verbatim until the main window applies it; the hq-warehouse tests apply it to their own throwaway
--- database (the #244 pattern).
+-- Landed from CONTRACT CHANGE #458 (window 11, task 3.2 / #436), manager decision 2026-10-12. The SQL below is the
+-- proposed file verbatim.
 --
 -- 0192 cycle counts: `cycle_count` — somebody counted a stock item on a shelf — and what became of the count.
 -- A count never edits a level. Reconciliation turns the difference into exactly ONE `stock_movement` (reason

@@ -85,3 +85,24 @@
 - The module is 118 tests: allocation 28, proposed-migrations 34, shared-pool 10, proposed-cycle-count 16,
   cycle-counts 30 — all on throwaway databases migrated by packages/db, plus the proposed 0192.
 - The engine is registered at boot since #461 (window 1's `src/wiring.ts`).
+
+### 2026-10-13 · cycle counts are in the contract (contracts 0.4.16: db 0.3.6, Admin API 0.4.14)
+
+- The two proposed copies are deleted (`proposed/0192_cycle_count.sql`, `proposed/admin-api.cycle-counts.yaml`);
+  the `proposed/` folder is gone. `testing/pool-database.ts` is migrate + seed.
+- `http.ts`: permissions and body validation come from `admin-api.yaml` only; the proposed fallback is removed.
+- Test files renamed: `proposed-migrations.test.ts` → `stock-pool-schema.test.ts`,
+  `proposed-cycle-count.test.ts` → `cycle-count-schema.test.ts`.
+
+### 2026-10-13 · review fixes for the cycle-count landing (PR #463)
+
+- **Double application fixed.** "Movements since the count" now means PHYSICAL movements: reason `cycle_count` is
+  excluded. Before, approving an older count after a newer one was taken made the newer count's reconciliation
+  read that adjustment as stock movement and apply the same discrepancy again.
+- **New-shelf race fixed.** The pool row is created (at zero) and locked through the inventory module's
+  `ensureLevel` before it is read; a first receipt committing in between was counted twice.
+- The dry-run plan marks an open count that has a newer open count on the same shelf.
+- `recordWmsCounts`: an unknown warehouse is `not_found`, not a bare Error.
+- `cycle-counts.test.ts` runs entirely on the real `moveStock` (the fake is gone), 42 tests: both orders of two
+  counts, three interleaved counts in three orders, a new discrepancy between counts, the missing pool row, the
+  racing receipt, the inventory module's negative on-hand refusal as a 409 through the route.
