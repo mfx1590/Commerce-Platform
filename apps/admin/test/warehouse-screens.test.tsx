@@ -29,6 +29,7 @@ const actions = vi.hoisted(() => ({
   mapVariantAction: vi.fn(),
   recordCycleCountAction: vi.fn(),
   reconcileCycleCountAction: vi.fn(),
+  previewCycleCountAction: vi.fn(),
 }));
 vi.mock('@/app/actions/warehouse', () => actions);
 vi.mock('@/components/shell/section-guard', () => ({
@@ -47,6 +48,8 @@ const api = vi.hoisted(() => ({
   listWarehouses: vi.fn(),
   listStockItems: vi.fn(),
   listCycleCounts: vi.fn(),
+  listStockItemMovements: vi.fn(),
+  listStockItemReservations: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
@@ -438,11 +441,18 @@ describe('ReconcileButton renders every error from the brief', () => {
 });
 
 describe('ApproveButton', () => {
-  it('shows the flag’s delta with the recompute warning before confirming, then the applied delta', async () => {
-    actions.reconcileCycleCountAction.mockResolvedValue({
-      status: 'success',
-      data: { ...counts[0], status: 'applied', delta: -3 },
-    });
+  const preview = (delta: number, would_status = 'flagged') => ({
+    status: 'success' as const,
+    data: {
+      cycle_count_id: counts[0]!.id,
+      on_hand_as_of_count: 41,
+      delta,
+      count_tolerance: 1,
+      would_status,
+      computed_at: '2026-10-15T09:00:00Z',
+    },
+  });
+  const open = async () => {
     const user = userEvent.setup();
     render(
       <ApproveButton
@@ -453,22 +463,97 @@ describe('ApproveButton', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Approve the count of TEE-M-RED' }));
-    const dialog = screen.getByRole('alertdialog', {
-      name: 'Confirm approving the count of TEE-M-RED',
+    return user;
+  };
+  const dialog = () =>
+    screen.getByRole('alertdialog', { name: 'Confirm approving the count of TEE-M-RED' });
+
+  it('opening the dialog shows the recomputed delta from the preview, with the no-lock warning, before confirming', async () => {
+    actions.previewCycleCountAction.mockResolvedValue(preview(-3));
+    actions.reconcileCycleCountAction.mockResolvedValue({
+      status: 'success',
+      data: { ...counts[0], status: 'applied', delta: -3 },
     });
-    expect(dialog).toHaveTextContent(
-      'Delta when flagged: −2 — recomputed on approval; may differ.',
+    const user = await open();
+    expect(actions.previewCycleCountAction).toHaveBeenCalledWith(counts[0]!.id);
+    expect(await screen.findByText(/Delta now:/)).toBeInTheDocument();
+    expect(dialog()).toHaveTextContent(
+      'Delta now: −3 (above the tolerance of 1; when flagged: −2).',
     );
-    expect(dialog).toHaveTextContent('On hand now: 39.');
+    expect(dialog()).toHaveTextContent(
+      'Computed at 2026-10-15 09:00; recomputed again on approval — may differ (the preview holds no lock).',
+    );
     expect(actions.reconcileCycleCountAction).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Yes, approve' }));
     expect(actions.reconcileCycleCountAction).toHaveBeenCalledWith(counts[0]!.id, true);
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Approved — applied −3 (changed since the flag).',
+    expect(await screen.findByText('Approved — applied −3.')).toBeInTheDocument();
+  });
+
+  it('says when the applied delta changed after the preview', async () => {
+    actions.previewCycleCountAction.mockResolvedValue(preview(-3));
+    actions.reconcileCycleCountAction.mockResolvedValue({
+      status: 'success',
+      data: { ...counts[0], status: 'applied', delta: -4 },
+    });
+    const user = await open();
+    await screen.findByText(/Delta now:/);
+    await user.click(screen.getByRole('button', { name: 'Yes, approve' }));
+    expect(
+      await screen.findByText('Approved — applied −4 (changed since the preview).'),
+    ).toBeInTheDocument();
+  });
+
+  it('a superseded preview is said in the brief’s words and Approve is not offered', async () => {
+    actions.previewCycleCountAction.mockResolvedValue({
+      ...asActionError(
+        describeCycleCountError(
+          err(409, 'conflict', 'superseded', {
+            reason: 'superseded',
+            stock_movement_id: '73000000-0000-4000-8000-000000000009',
+          }),
+        ),
+      ),
+      superseded: true,
+    });
+    await open();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /corrected by hand after this count.*can never be applied; it stays as a record/,
     );
+    expect(screen.queryByRole('button', { name: 'Yes, approve' })).toBeNull();
+    expect(actions.reconcileCycleCountAction).not.toHaveBeenCalled();
+  });
+
+  it('any other preview failure falls back to the flag’s delta with the recompute warning', async () => {
+    actions.previewCycleCountAction.mockResolvedValue(
+      asActionError(describeCycleCountError(err(404, 'not_found', 'not found'))),
+    );
+    await open();
+    expect(await screen.findByText(/Delta when flagged:/)).toBeInTheDocument();
+    expect(dialog()).toHaveTextContent(
+      'Delta when flagged: −2 — recomputed on approval; may differ.',
+    );
+    expect(dialog()).toHaveTextContent('On hand now: 39.');
+    expect(dialog()).toHaveTextContent(/No preview: Not found/);
+    expect(screen.getByRole('button', { name: 'Yes, approve' })).toBeEnabled();
+  });
+
+  it('a 403 on the preview is the refusal panel, not a dialog', async () => {
+    actions.previewCycleCountAction.mockResolvedValue({
+      status: 'error',
+      fieldErrors: {},
+      formError: 'You need the operations relation on organization:hq to save this.',
+      refusal: err(403, 'forbidden', 'requires operations on organization:hq', {
+        relation: 'operations',
+        object: 'organization:hq',
+      }),
+    });
+    await open();
+    expect(await screen.findByText(/operations/)).toBeInTheDocument();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
   it('a 409 superseded at approval is said', async () => {
+    actions.previewCycleCountAction.mockResolvedValue(preview(-2));
     actions.reconcileCycleCountAction.mockResolvedValue(
       asActionError(
         describeCycleCountError(
@@ -479,20 +564,170 @@ describe('ApproveButton', () => {
         ),
       ),
     );
-    const user = userEvent.setup();
-    render(
-      <ApproveButton
-        cycleCountId={counts[0]!.id}
-        sku="TEE-M-RED"
-        flaggedDelta={-2}
-        onHandNow={null}
-      />,
-    );
-    await user.click(screen.getByRole('button', { name: 'Approve the count of TEE-M-RED' }));
+    const user = await open();
+    await screen.findByText(/Delta now:/);
     await user.click(screen.getByRole('button', { name: 'Yes, approve' }));
     expect(
       await screen.findByText(/newer count of this shelf is already applied/),
     ).toBeInTheDocument();
+  });
+});
+
+describe('a stock item’s ledger and reservations', () => {
+  const movement = {
+    stock_item_id: ITEM,
+    warehouse_id: WAREHOUSE,
+    reference_type: null,
+    reference_id: null,
+    note: null,
+    created_at: '2026-10-14T10:00:00Z',
+  };
+  const reservation = {
+    stock_item_id: ITEM,
+    warehouse_id: WAREHOUSE,
+    quantity: 1,
+    expires_at: null,
+    released_at: null,
+    created_at: '2026-10-14T11:00:00Z',
+  };
+
+  beforeEach(() => {
+    api.listStockItemMovements.mockResolvedValue(
+      ok({
+        items: [
+          {
+            ...movement,
+            id: '73000000-0000-4000-8000-000000000001',
+            store_id: SEED.stores.brandB,
+            variant_id: VARIANT_B,
+            delta: -1,
+            reason: 'sale',
+            reference_type: 'order',
+            reference_id: '40000000-0000-4000-8000-000000000001',
+            actor_id: null,
+          },
+          {
+            ...movement,
+            id: '73000000-0000-4000-8000-000000000002',
+            store_id: null,
+            variant_id: null,
+            delta: 12,
+            reason: 'receipt',
+            actor_id: '00000000-0000-4000-8000-000000000043',
+            note: 'PO 7',
+          },
+        ],
+        page: 1,
+        limit: 25,
+        total: 2,
+      }),
+    );
+    api.listStockItemReservations.mockResolvedValue(
+      ok({
+        items: [
+          {
+            ...reservation,
+            id: '74000000-0000-4000-8000-000000000001',
+            store_id: SEED.stores.brandA,
+            variant_id: VARIANT_A,
+            order_id: '40000000-0000-4000-8000-000000000002',
+            allocation_rule: 'store_country',
+          },
+          {
+            ...reservation,
+            id: '74000000-0000-4000-8000-000000000002',
+            store_id: SEED.stores.brandB,
+            variant_id: VARIANT_B,
+            order_id: null,
+            allocation_rule: 'split:same_region',
+            expires_at: '2026-10-14T11:30:00Z',
+          },
+          {
+            ...reservation,
+            id: '74000000-0000-4000-8000-000000000003',
+            store_id: SEED.stores.brandB,
+            variant_id: VARIANT_B,
+            order_id: '40000000-0000-4000-8000-000000000003',
+            allocation_rule: 'backorder',
+          },
+        ],
+        page: 1,
+        limit: 25,
+        total: 3,
+      }),
+    );
+  });
+
+  it('each row links to its movements and reservations', async () => {
+    await renderPage();
+    const item = screen.getByRole('listitem', { name: 'Stock item TEE-M-RED' });
+    expect(within(item).getByRole('link', { name: 'Movements of TEE-M-RED' })).toHaveAttribute(
+      'href',
+      `/warehouse?page=1&item=${ITEM}&view=movements`,
+    );
+    expect(within(item).getByRole('link', { name: 'Reservations of TEE-M-RED' })).toHaveAttribute(
+      'href',
+      `/warehouse?page=1&item=${ITEM}&view=reservations`,
+    );
+    expect(api.listStockItemMovements).not.toHaveBeenCalled();
+  });
+
+  it('the ledger: brand or pool, reason in words, signed delta, reference and actor', async () => {
+    await renderPage({ item: ITEM, view: 'movements', warehouse_id: WAREHOUSE, dpage: '2' });
+    expect(api.listStockItemMovements).toHaveBeenCalledWith(ITEM, {
+      warehouse_id: WAREHOUSE,
+      page: 2,
+      limit: 25,
+    });
+    const table = screen.getByRole('table', { name: 'Movements of TEE-M-RED' });
+    const [sale, receipt] = within(table).getAllByRole('row').slice(1);
+    expect(sale).toHaveTextContent(
+      /Main DC.*−1.*Sale.*Brand B.*B-TEE-M-RED.*order 40000000.*system/,
+    );
+    expect(receipt).toHaveTextContent(/\+12.*Receipt.*pool.*—.*00000000.*PO 7/);
+  });
+
+  it('reservations: open by default, brand, variant sku, order or cart hold, and the rule in words', async () => {
+    await renderPage({ item: ITEM, view: 'reservations' });
+    expect(api.listStockItemReservations).toHaveBeenCalledWith(ITEM, {
+      page: 1,
+      limit: 25,
+      status: 'open',
+    });
+    const table = screen.getByRole('table', { name: 'Reservations of TEE-M-RED' });
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows[0]).toHaveTextContent(/Brand A.*A-TEE-M-RED.*40000000.*1.*the store’s country/);
+    expect(rows[1]).toHaveTextContent(
+      /Brand B.*cart hold.*split — further warehouse, by same region as the address.*expires 2026-10-14 11:30/,
+    );
+    expect(rows[2]).toHaveTextContent(/backorder — reserved beyond stock/);
+  });
+
+  it('the status filter reaches the read; an unknown one falls back to open', async () => {
+    await renderPage({ item: ITEM, view: 'reservations', status: 'released' });
+    expect(api.listStockItemReservations).toHaveBeenLastCalledWith(
+      ITEM,
+      expect.objectContaining({ status: 'released' }),
+    );
+    await renderPage({ item: ITEM, view: 'reservations', status: 'bogus' });
+    expect(api.listStockItemReservations).toHaveBeenLastCalledWith(
+      ITEM,
+      expect.objectContaining({ status: 'open' }),
+    );
+  });
+
+  it('a 404 is said in words', async () => {
+    api.listStockItemMovements.mockResolvedValue({
+      ok: false,
+      ...err(404, 'not_found', 'stock item not found'),
+    });
+    await renderPage({ item: ITEM, view: 'movements' });
+    expect(screen.getByText('That stock item was not found.')).toBeInTheDocument();
+  });
+
+  it('a non-uuid item opens nothing', async () => {
+    await renderPage({ item: 'nope', view: 'movements' });
+    expect(api.listStockItemMovements).not.toHaveBeenCalled();
   });
 });
 

@@ -23,11 +23,13 @@ const api = vi.hoisted(() => ({
   mapVariantToStockItem: vi.fn(),
   createCycleCount: vi.fn(),
   reconcileCycleCount: vi.fn(),
+  previewCycleCountReconcile: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
 const actions = await import('@/app/actions/warehouse');
-const { WAREHOUSE_PERMISSIONS, WAREHOUSE_READS } = await import('@/lib/warehouse');
+const { WAREHOUSE_PERMISSIONS, WAREHOUSE_READS, allocationRuleLabel, movementReasonLabel } =
+  await import('@/lib/warehouse');
 
 const ITEM = '71000000-0000-4000-8000-000000000001';
 const VARIANT = '30000000-0000-4000-8000-000000000301';
@@ -54,12 +56,23 @@ beforeEach(() => {
   api.mapVariantToStockItem.mockResolvedValue(ok({ id: ITEM }));
   api.createCycleCount.mockResolvedValue(ok({ id: COUNT, status: 'recorded' }, 201));
   api.reconcileCycleCount.mockResolvedValue(ok({ id: COUNT, status: 'applied', delta: -2 }));
+  api.previewCycleCountReconcile.mockResolvedValue(
+    ok({
+      cycle_count_id: COUNT,
+      on_hand_as_of_count: 40,
+      delta: -2,
+      count_tolerance: 0,
+      would_status: 'flagged',
+      computed_at: '2026-10-15T09:00:00Z',
+    }),
+  );
 });
 
 const calls = {
   mapVariantToStockItem: () => actions.mapVariantAction(ITEM, VARIANT),
   createCycleCount: () => actions.recordCycleCountAction(count),
   reconcileCycleCount: () => actions.reconcileCycleCountAction(COUNT, false),
+  previewCycleCountReconcile: () => actions.previewCycleCountAction(COUNT),
 } as const;
 
 describe('the warehouse tables are the x-permission admin-api.yaml carries', () => {
@@ -107,6 +120,7 @@ describe('each warehouse action refuses, server-side, before the API', () => {
       expect(api.mapVariantToStockItem).not.toHaveBeenCalled();
       expect(api.createCycleCount).not.toHaveBeenCalled();
       expect(api.reconcileCycleCount).not.toHaveBeenCalled();
+      expect(api.previewCycleCountReconcile).not.toHaveBeenCalled();
     },
   );
 
@@ -263,5 +277,81 @@ describe('reconcileCycleCountAction', () => {
     const result = await actions.reconcileCycleCountAction(COUNT, true);
     expect(result.status).toBe('error');
     expect(result.status === 'error' && result.formError).toMatch(words);
+  });
+});
+
+describe('previewCycleCountAction', () => {
+  it('answers the preview', async () => {
+    expect(await actions.previewCycleCountAction(COUNT)).toMatchObject({
+      status: 'success',
+      data: { delta: -2, would_status: 'flagged' },
+    });
+    expect(api.previewCycleCountReconcile).toHaveBeenCalledWith(COUNT);
+  });
+
+  it('409 superseded is said and flagged as superseded', async () => {
+    api.previewCycleCountReconcile.mockResolvedValue(
+      fail(409, 'conflict', 'superseded', {
+        reason: 'superseded',
+        applied_cycle_count_id: '72000000-0000-4000-8000-000000000002',
+      }),
+    );
+    const result = await actions.previewCycleCountAction(COUNT);
+    expect(result).toMatchObject({ status: 'error', superseded: true });
+    expect(result.status === 'error' && result.formError).toMatch(
+      /newer count of this shelf is already applied/,
+    );
+  });
+
+  it('a 409 without details.reason is still superseded (the preview has no other 409)', async () => {
+    api.previewCycleCountReconcile.mockResolvedValue(fail(409, 'conflict', 'conflict'));
+    const result = await actions.previewCycleCountAction(COUNT);
+    expect(result).toMatchObject({ status: 'error', superseded: true });
+    expect(result.status === 'error' && result.formError).toMatch(/can never be applied/);
+  });
+
+  it('404 is said, and is not superseded', async () => {
+    api.previewCycleCountReconcile.mockResolvedValue(fail(404, 'not_found', 'not found'));
+    const result = await actions.previewCycleCountAction(COUNT);
+    expect(result).not.toHaveProperty('superseded');
+    expect(result.status === 'error' && result.formError).toMatch(/^Not found/);
+  });
+
+  it('a non-uuid count never reaches the API', async () => {
+    expect((await actions.previewCycleCountAction('nope')).status).toBe('error');
+    expect(api.previewCycleCountReconcile).not.toHaveBeenCalled();
+  });
+});
+
+describe('ledger and reservation words', () => {
+  it.each([
+    ['receipt', 'Receipt'],
+    ['sale', 'Sale'],
+    ['return', 'Return'],
+    ['adjustment', 'Adjustment'],
+    ['transfer_in', 'Transfer in'],
+    ['transfer_out', 'Transfer out'],
+    ['cycle_count', 'Cycle count'],
+    ['something_new', 'something_new'],
+  ])('reason %s reads %s', (reason, words) => {
+    expect(movementReasonLabel(reason)).toBe(words);
+  });
+
+  it.each([
+    ['store_country', 'the store’s country'],
+    ['store_default', 'the store’s default warehouse'],
+    ['same_country', 'same country as the address'],
+    ['same_region', 'same region as the address'],
+    ['priority', 'warehouse priority'],
+    ['split:priority', 'split — further warehouse, by warehouse priority'],
+    ['split:mystery', 'split — further warehouse, by mystery'],
+    ['backorder', 'backorder — reserved beyond stock'],
+    ['mystery', 'mystery'],
+  ])('allocation rule %s reads %s', (rule, words) => {
+    expect(allocationRuleLabel(rule)).toBe(words);
+  });
+
+  it('a reservation from before 0191 has no rule', () => {
+    expect(allocationRuleLabel(null)).toBe('—');
   });
 });

@@ -117,10 +117,16 @@ export async function previewCycleCountAction(
   if (!UUID.safeParse(cycleCountId).success) return invalid('That count is not valid.');
   const result = await previewCycleCountReconcile(cycleCountId);
   if (!result.ok) {
-    return {
-      ...actionError(describeCycleCountError(result), refusalOf(result.status, result.error)),
-      ...(result.status === 409 && isSuperseded(result.error) ? { superseded: true as const } : {}),
-    };
+    // The preview writes nothing, so its only 409 is superseded (the spec documents no other):
+    // read it that way even when `details.reason` is missing (Prism's generated 409 has none).
+    if (result.status === 409) {
+      const details = (result.error.details as Record<string, unknown> | undefined) ?? {};
+      const superseded = isSuperseded(result.error)
+        ? result
+        : { ...result, error: { ...result.error, details: { ...details, reason: 'superseded' } } };
+      return { ...actionError(describeCycleCountError(superseded)), superseded: true as const };
+    }
+    return actionError(describeCycleCountError(result), refusalOf(result.status, result.error));
   }
   return { status: 'success', data: result.data };
 }

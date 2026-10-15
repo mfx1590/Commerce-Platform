@@ -1,5 +1,5 @@
 /**
- * HQ warehouse and store inventory (#468) against the spec's own examples (Admin API 0.4.15): the
+ * HQ warehouse and store inventory (#468) against the spec's own examples (Admin API 0.4.16): the
  * reads and mutations the screens call, and the refusals the spec documents. Prism's `/admin/me`
  * example is a store_admin, so the actions are refused by the server-side guard before the API
  * here, and the operations themselves are exercised through the wrappers.
@@ -141,5 +141,61 @@ describe('the warehouse mutations against the spec', () => {
     expect(describeCycleCountError(future, ['counted_at']).fieldErrors).toEqual({
       counted_at: 'The count’s time is in the future.',
     });
+  });
+});
+
+describe('the stock item reads and the reconcile preview (#469, Admin API 0.4.16)', () => {
+  it('lists an item\u2019s movements', async () => {
+    const result = await api.listStockItemMovements(ITEM, { warehouse_id: WAREHOUSE, limit: 25 });
+    if (!result.ok) throw new Error(`listStockItemMovements failed: ${result.status}`);
+    expect(result.data).toMatchObject({ items: expect.any(Array), total: expect.any(Number) });
+    for (const movement of result.data.items) {
+      expect(movement).toMatchObject({ delta: expect.any(Number), reason: expect.any(String) });
+      expect(movement).toHaveProperty('store_id');
+    }
+  });
+
+  it('lists an item\u2019s reservations with allocation_rule', async () => {
+    const result = await api.listStockItemReservations(ITEM, { status: 'all', limit: 25 });
+    if (!result.ok) throw new Error(`listStockItemReservations failed: ${result.status}`);
+    expect(result.data).toMatchObject({ items: expect.any(Array), total: expect.any(Number) });
+    for (const reservation of result.data.items) {
+      expect(reservation).toHaveProperty('allocation_rule');
+      expect(reservation).toMatchObject({
+        store_id: expect.any(String),
+        quantity: expect.any(Number),
+      });
+    }
+  });
+
+  it('previews a reconcile', async () => {
+    const result = await api.previewCycleCountReconcile(COUNT);
+    if (!result.ok) throw new Error(`previewCycleCountReconcile failed: ${result.status}`);
+    expect(result.data).toMatchObject({
+      delta: expect.any(Number),
+      would_status: expect.stringMatching(/^(applied|flagged)$/),
+      count_tolerance: expect.any(Number),
+      computed_at: expect.any(String),
+    });
+  });
+
+  it("the preview is refused for Prism's store_admin before the API (operations on hq)", async () => {
+    expect(await actions.previewCycleCountAction(COUNT)).toMatchObject({
+      status: 'error',
+      refusal: { status: 403, error: { details: { relation: 'operations' } } },
+    });
+  });
+
+  it('the documented 409 on the preview is read as superseded by the action', async () => {
+    const result = await adminRequest<'previewCycleCountReconcile'>({
+      baseUrl: BASE,
+      path: `/admin/cycle-counts/${COUNT}/reconcile-preview`,
+      accessToken: 'contract-test-token',
+      headers: preferring(409),
+    });
+    if (result.ok) throw new Error('expected 409');
+    // The spec documents this 409 without an example, so Prism's body is generated (no `code`,
+    // no `details.reason`): the status is what is pinned; the action reads any 409 as superseded.
+    expect(result.status).toBe(409);
   });
 });
