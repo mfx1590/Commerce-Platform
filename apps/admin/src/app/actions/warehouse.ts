@@ -2,7 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { createCycleCount, mapVariantToStockItem, reconcileCycleCount } from '@/lib/api/admin';
+import {
+  createCycleCount,
+  mapVariantToStockItem,
+  previewCycleCountReconcile,
+  reconcileCycleCount,
+} from '@/lib/api/admin';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { actionError, type ActionResult } from '@/lib/forms/action-result';
 import { refuseUnlessPermitted } from '@/lib/permissions/guard';
@@ -11,6 +16,7 @@ import {
   cycleCountSchema,
   describeCycleCountError,
   describeMapError,
+  isSuperseded,
   type CycleCountValues,
 } from '@/lib/warehouse';
 
@@ -93,5 +99,28 @@ export async function reconcileCycleCountAction(
     return actionError(describeCycleCountError(result), refusalOf(result.status, result.error));
   }
   revalidatePath('/warehouse');
+  return { status: 'success', data: result.data };
+}
+
+type CycleCountPreview = AdminComponents['CycleCountPreview'];
+
+/**
+ * The approve dialog's preview (`previewCycleCountReconcile`, operations on hq): what reconciling
+ * would do now, written nowhere. A 409 superseded comes back with `superseded: true`, so the dialog
+ * can say it and refuse to offer Approve.
+ */
+export async function previewCycleCountAction(
+  cycleCountId: string,
+): Promise<ActionResult<CycleCountPreview> & { superseded?: true }> {
+  const refused = await refuseUnlessPermitted('previewCycleCountReconcile', '');
+  if (refused !== null) return refused;
+  if (!UUID.safeParse(cycleCountId).success) return invalid('That count is not valid.');
+  const result = await previewCycleCountReconcile(cycleCountId);
+  if (!result.ok) {
+    return {
+      ...actionError(describeCycleCountError(result), refusalOf(result.status, result.error)),
+      ...(result.status === 409 && isSuperseded(result.error) ? { superseded: true as const } : {}),
+    };
+  }
   return { status: 'success', data: result.data };
 }

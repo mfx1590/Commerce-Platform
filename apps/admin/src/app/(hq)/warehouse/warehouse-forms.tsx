@@ -7,6 +7,7 @@ import { SelectField, TextField } from '@/components/form/fields';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import {
   mapVariantAction,
+  previewCycleCountAction,
   reconcileCycleCountAction,
   recordCycleCountAction,
 } from '@/app/actions/warehouse';
@@ -345,9 +346,17 @@ export function ReconcileButton({ cycleCountId, sku }: { cycleCountId: string; s
   );
 }
 
+type Preview =
+  | { state: 'loading' }
+  | { state: 'ready'; delta: number; wouldStatus: string; tolerance: number; computedAt: string }
+  | { state: 'superseded'; message: string | null }
+  | { state: 'unavailable'; message: string | null };
+
 /**
- * Approve a flagged count. The delta is recomputed at approval under the pool row's lock, so the
- * flag's number is shown with that warning, and the applied delta is said afterwards.
+ * Approve a flagged count. Opening the dialog asks `previewCycleCountReconcile` what approving
+ * would apply now; the preview holds no lock, so the approval recomputes and may still differ, and
+ * the applied delta is said afterwards. A superseded count is said and Approve is not offered; any
+ * other preview failure falls back to the flag's delta with the same warning.
  */
 export function ApproveButton({
   cycleCountId,
@@ -364,17 +373,44 @@ export function ApproveButton({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [asking, setAsking] = useState(false);
+  const [preview, setPreview] = useState<Preview>({ state: 'loading' });
   const [failure, setFailure] = useState<Failure | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  const open = () => {
+    setAsking(true);
+    setFailure(null);
+    setPreview({ state: 'loading' });
+    startTransition(async () => {
+      const result = await previewCycleCountAction(cycleCountId);
+      if (result.status === 'success') {
+        setPreview({
+          state: 'ready',
+          delta: result.data.delta,
+          wouldStatus: result.data.would_status,
+          tolerance: result.data.count_tolerance,
+          computedAt: result.data.computed_at,
+        });
+        return;
+      }
+      if (result.refusal !== undefined) {
+        setAsking(false);
+        setFailure({ message: result.formError, refusal: result.refusal });
+        return;
+      }
+      setPreview(
+        'superseded' in result && result.superseded === true
+          ? { state: 'superseded', message: result.formError }
+          : { state: 'unavailable', message: result.formError },
+      );
+    });
+  };
+  const expected = preview.state === 'ready' ? preview.delta : flaggedDelta;
 
   return (
     <div className="space-y-1">
       {!asking ? (
-        <Button
-          size="sm"
-          aria-label={`Approve the count of ${sku}`}
-          onClick={() => setAsking(true)}
-        >
+        <Button size="sm" aria-label={`Approve the count of ${sku}`} onClick={open}>
           Approve…
         </Button>
       ) : (
@@ -383,44 +419,80 @@ export function ApproveButton({
           aria-label={`Confirm approving the count of ${sku}`}
           className="border-warning/30 bg-warning/5 space-y-2 rounded-md border px-3 py-2"
         >
-          <p className="text-sm">
-            Delta when flagged: <span className="font-medium">{formatDelta(flaggedDelta)}</span> —
-            recomputed on approval; may differ.
-            {onHandNow !== null && <> On hand now: {onHandNow}.</>}
-          </p>
-          <p className="text-sm">Approve and apply the delta as it is at approval?</p>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  setFailure(null);
-                  const result = await reconcileCycleCountAction(cycleCountId, true);
-                  setAsking(false);
-                  if (result.status === 'success') {
-                    setDone(
-                      `Approved — applied ${formatDelta(result.data.delta)}` +
-                        (result.data.delta !== flaggedDelta ? ' (changed since the flag).' : '.'),
-                    );
-                    router.refresh();
-                    return;
+          {preview.state === 'loading' && (
+            <p className="text-muted text-sm" role="status">
+              Recomputing the delta…
+            </p>
+          )}
+          {preview.state === 'ready' && (
+            <p className="text-sm">
+              Delta now: <span className="font-medium">{formatDelta(preview.delta)}</span> (
+              {preview.wouldStatus === 'flagged'
+                ? `above the tolerance of ${preview.tolerance}`
+                : `within the tolerance of ${preview.tolerance}`}
+              ; when flagged: {formatDelta(flaggedDelta)}). Computed at{' '}
+              {preview.computedAt.replace('T', ' ').slice(0, 16)}; recomputed again on approval —
+              may differ (the preview holds no lock).
+            </p>
+          )}
+          {preview.state === 'unavailable' && (
+            <p className="text-sm">
+              Delta when flagged: <span className="font-medium">{formatDelta(flaggedDelta)}</span> —
+              recomputed on approval; may differ.
+              {onHandNow !== null && <> On hand now: {onHandNow}.</>}
+              {preview.message !== null && (
+                <span className="text-muted"> (No preview: {preview.message})</span>
+              )}
+            </p>
+          )}
+          {preview.state === 'superseded' ? (
+            <>
+              <p className="text-sm" role="alert">
+                {preview.message}
+              </p>
+              <Button size="sm" variant="secondary" onClick={() => setAsking(false)}>
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-sm">Approve and apply the delta as it is at approval?</p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      setFailure(null);
+                      const result = await reconcileCycleCountAction(cycleCountId, true);
+                      setAsking(false);
+                      if (result.status === 'success') {
+                        setDone(
+                          `Approved — applied ${formatDelta(result.data.delta)}` +
+                            (result.data.delta !== expected
+                              ? ' (changed since the preview).'
+                              : '.'),
+                        );
+                        router.refresh();
+                        return;
+                      }
+                      setFailure({ message: result.formError, refusal: result.refusal });
+                    })
                   }
-                  setFailure({ message: result.formError, refusal: result.refusal });
-                })
-              }
-            >
-              {pending ? 'Approving…' : 'Yes, approve'}
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={pending}
-              onClick={() => setAsking(false)}
-            >
-              Cancel
-            </Button>
-          </div>
+                >
+                  {pending && preview.state !== 'loading' ? 'Approving…' : 'Yes, approve'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={pending}
+                  onClick={() => setAsking(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
       {done !== null && (
