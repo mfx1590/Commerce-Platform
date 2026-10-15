@@ -1,6 +1,6 @@
 # Memory 11 — Shared warehouse / WMS
 Window: 11 · Key: `warehouse` · Branch prefix: `warehouse/` · Model: Sonnet
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.16 (Admin 0.4.14, Store 0.5.4, events 0.3.3, db 0.3.6) · Last commit: 30aa828 pushed (draft PR #462) · Status: #435 and #436 CLOSED; one small follow-up PR "Refs #436" open; docket empty after it
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.16 (Admin 0.4.14, Store 0.5.4, events 0.3.3, db 0.3.6) · Last commit: 30aa828 pushed (draft PR #462) · Status: HOLDING — #435 and #436 closed, follow-up #464 merged (bd21855); docket empty
 
 ## Identity (does not change)
 Owned paths (write):
@@ -20,9 +20,35 @@ Multi-brand allocation rules over shared stock locations, Odoo Inventory (or WMS
 - **Task 3.2 (#436) — CLOSED 2026-10-15.** Draft PR #462 (code commit 30aa828; marked merged by GitHub) → integration PR #463 MERGED = 376e2f5 (contracts-v0.4.16: db 0.3.6 with 0192, Admin API 0.4.14; window 1 mounted `cycleCountsAdminRouter`). My landing commit 6dbe5ef and the review fix c4f6988 + b8566d9 (double application: "movements since" are PHYSICAL only, reason cycle_count excluded; new-shelf race: pool row through `ensureLevel` before it is read; tests all on the real `moveStock`). CONTRACT CHANGE #458 closed.
 
 ## In progress
-- **Review follow-ups of the cycle-count landing, ONE small PR "Refs #436"** — PR #464 (code commit d98fc7f; head = this memory commit). (1) a `cycle_count` movement entered by hand (no count row links it) AFTER a count's counted_at supersedes that count — 409 conflict, details.reason superseded + stock_movement_id — at reconcile, at record and in the dry-run plan (the manager chose this over refusing the reason in createStockMovement, which is window 1's file); (2) the racing-receipt test's comment says it checks the numbers and that the lock is verified statically; (3) README: reconcile in a deactivated warehouse answers 404 (kept). The six #457 follow-ups were all done earlier (f0ac020): none open. Module 132 tests (allocation 28, stock-pool-schema 34, shared-pool 10, cycle-count-schema 16, cycle-counts 44) + guards 14, eslint + typecheck clean.
-- After it: report to the manager when its checks finish. Then the docket is EMPTY: Phase 3 items left are the Odoo WMS adapter (waits for an instance — owner item) and scanner flows (admin UI, window 4).
-- **Standing rules (manager, 2026-10-15):** the shared dev database is migrated (0180–0192, by the manager); a running core against it is allowed now, but never `pnpm dev --reset`, never a reseed, no docker commands. Report to "Manager session six"; if outgoing messages are blocked (the app pauses them after ~10 in a row until the owner types here), the report goes in the last turn — the manager reads it there. Spent side branches: warehouse/phase3-rekey, warehouse/phase3-cycle-counts.
+- **HOLDING (manager, 2026-10-15): docket empty.** Follow-up PR #464 MERGED = bd21855 (code commit d98fc7f). main merged here (fast-forward). The Odoo adapter waits for an instance (owner item); scanner flows are window 4's.
+
+## For window 4 — admin screens for the stock pool and cycle counts (written for the manager's brief, 2026-10-15)
+All operations are in Admin API 0.4.14 (contracts-v0.4.16); permissions come from each operation's `x-permission`. Errors are `{ code, message, details }`; show `message` and use `details` as below.
+
+**Stock items (HQ screen)**
+- Read: `GET /admin/stock-items` (`listStockItems`, `viewer` on organization:hq) — filters `sku` (substring), `store_id` (items a store maps), `shared=true` (mapped by more than one store), paging. Each `StockItem` = id, sku (unique per organization; `<store code>:<sku>` when the plain sku was taken), name, barcode, `variants[]` (variant_id, store_id, the variant's own sku) and `levels[]` per warehouse (on_hand, reserved = EVERY store's reservations, incoming, available).
+- Action: `PUT /admin/stock-items/{stockItemId}/variants/{variantId}` (`mapVariantToStockItem`, `operations` on organization:hq) — "pool this variant onto this item". Idempotent (already mapped → 200, nothing written). Show its 409 (`conflict`, details `stock_item_id`, `on_hand`, `open_reservations`) as "the variant's current item still holds stock or open reservations — move the stock first"; 404 for an unknown item or variant. Confirm before mapping: it changes which shelf a brand sells from.
+- Store admins never see an item only another brand maps; an HQ user sees all.
+
+**Inventory levels (store screen, existing)**
+- `GET /admin/inventory/levels` rows stay one per (variant, warehouse) but carry the POOL's numbers and `stock_item_id`. `id` is the pool row's and REPEATS when two variants in one response share an item: key rows by (variant_id, warehouse_id), never sum on_hand / reserved / available across variants. Worth a "shared with N stores" badge (from `listStockItems`).
+- `POST /admin/inventory/movements` (`createStockMovement`, HQ `operations`): an HQ movement is store-less. Advise against reason `cycle_count` here — a hand correction with that reason after an open count supersedes that count (see below); counts belong in the cycle-count screen.
+
+**Cycle counts (HQ screen; `operations` on organization:hq for all three; a store admin gets 403)**
+- Read: `GET /admin/cycle-counts` (`listCycleCounts`) — filters `warehouse_id`, `stock_item_id`, `status` (recorded | flagged | applied), paging, newest count first. Show sku, counted_quantity, counted_by (null = a WMS pull, `source: wms`), counted_at, status, and after reconciliation `on_hand_as_of_count`, `delta` (signed), `stock_movement_id`, `approved_by` / `approved_at`.
+- Action 1 "Record a count": `POST /admin/cycle-counts` (`createCycleCount`) — warehouse_id, stock_item_id, counted_quantity (integer ≥ 0), optional counted_at (default now) and note. Changes NO stock.
+- Action 2 "Reconcile": `POST /admin/cycle-counts/{id}/reconcile` with no body. Answer 200 with status `applied` (one movement of `delta`; none when delta is 0) or `flagged` (|delta| above `organization.settings.warehouse.count_tolerance`, units; unset = 0 → every non-zero discrepancy is flagged). Reconciling an applied count is a no-op 200.
+- Action 3 "Approve": same route with `{ "approve": true }` — applies whatever the delta is NOW (it is recomputed at approval, so the number may differ from the flag's); the approver is recorded. Show the current delta before the button and confirm.
+- Errors to show:
+  - 409 `conflict` with `details.reason = 'superseded'`: "a newer count of this shelf is already applied" (`details.applied_cycle_count_id`) or "the stock was corrected by hand after this count" (`details.stock_movement_id`). The count can never be applied; it stays as a record.
+  - 409 `conflict` without that reason: the inventory module refused the movement (on-hand would go negative — more shipped since the count than was counted). Re-count.
+  - 422 `validation_error` with `details.field = 'counted_at'`: the count's time is in the future.
+  - 404: unknown count, warehouse or stock item — and reconcile of a count in a DEACTIVATED warehouse.
+  - 400 `validation_error`: malformed body or query (the Prism mock answers 422 with the counted_at example instead — mock only).
+- UI advice: when a shelf has several open counts, reconcile the NEWEST (older ones then answer 409 superseded); the dry-run CLI marks this too. The delta is measured against on-hand AS OF the count (what moved physically since is accounted for), so a count reconciled the next morning is still right.
+
+**Placements (read-only info for the order screens)**
+- `reservation.allocation_rule` says why a warehouse was chosen: `store_country`, `store_default`, `same_country`, `same_region`, `priority`; `split:<rule>` for the second and later warehouse of a split line; `backorder` for a shortfall reserved anyway. Not yet exposed by an Admin API read as far as I know — a CONTRACT CHANGE if window 4 wants to show it.
 
 ## Lessons that cost time here (keep)
 - A side branch the manager cherry-picks from cannot be rebased once pushed (no force-push): merge the integration head into it, then commit; say so.
