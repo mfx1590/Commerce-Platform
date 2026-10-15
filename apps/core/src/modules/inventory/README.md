@@ -105,7 +105,7 @@ allocation with its `allocation_rule`.
 | Function                                                                                               | Who calls it                                                            | What it does                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `reserveForOrder(tx, { organizationId, storeId, orderId, lines })`                                     | checkout, inside the placement transaction after the order lines exist  | the stock check at placement, through the allocation policy (above). A variant that is not the store's → 400 `unknown variant` before anything is locked. `manage_inventory = false` → no reservation.                                                    |
-| `releaseForOrder(tx, orderId)`                                                                         | the orders module's `cancelOrder` (its own transition — never window 8) | releases every open reservation of the order on its own pool row (`reserved −= q`, `released_at`), idempotent                                                                                                                                             |
+| `releaseForOrder(tx, orderId)`                                                                         | the orders module's `cancelOrder` (its own transition — never window 8) | releases every open reservation of the order on its own pool row (`reserved −= q`, `released_at`), idempotent; a pool row the session cannot see is 500 `internal` (ids only), never a silent skip                                                        |
 | `consumeForShipment(tx, { organizationId, storeId, orderId, shipmentId?, lines, actor })`              | window 8 at ship time                                                   | shrinks / closes the order's reservations (preferred warehouse first, then priority) and `moveStock(reason 'sale')` per pool row, attributed to the store; more than reserved → 409 `conflict`                                                            |
 | `consumeReservationsForShipment(tx, { …, shipmentId, warehouseId?, items, actor })`                    | window 8 (#191's `consumeReservations` shape)                           | by order line item; **idempotent per shipment** (the store's own `sale` movement for the shipment already exists → skipped)                                                                                                                               |
 | `releaseReservationsForShipment(tx, { …, shipmentId, items, actor })`                                  | window 8 (#191's `releaseReservations` shape)                           | a planned shipment cancelled before picking: the goods go back on the SAME pool row they left (`adjustment`, `shipment_release:<id>`, attributed), the reservation re-opens. Same replay rules as before. A variant re-mapped since → 409 (see Decisions) |
@@ -161,6 +161,12 @@ variant stays `in_stock` with `available_quantity: 0`).
   own movements on an item it stopped mapping (`pool_ledger`), so the ledger alone would answer "nothing to
   release" and the stock would never come back (#459 review). Stock is moved by hand first — the same principle
   as the mapping's own 409.
+- **2026-10-15 · A cancel never closes a reservation it cannot un-count.** `releaseForOrder` on an open
+  reservation whose pool row the session cannot see answers 500 `internal` `{ order_id, reservation_id,
+stock_item_id, warehouse_id }` and writes nothing. Before, it set `released_at` and skipped `reserved −= q`: the
+  units stayed out of `available` for every store sharing the row, for good. The state cannot arise through the
+  module (re-mapping is refused while a reservation is open), so it is a broken invariant to surface, not a case
+  to absorb; HQ (organization scope) still releases it once the cause is known.
 - **2026-10-12 · One lock order, rows created before locks; `lockStock` is its routine for ship, a cancelled
   shipment and the returns restock** (#459 review): see Rules for what placement and cancel do.
 - **2026-10-12 · Other modules read availability through `availableByVariant`** — the marketing feed items and
@@ -189,7 +195,8 @@ variant stays `in_stock` with `available_quantity: 0`).
   one availability afterwards); store A reserves N and store B's availability drops by N; neither store reads the
   other's reservations, movements or events, nor a store-less one; the last unit to exactly one of two stores;
   opposite-order placements from two stores without deadlock; a shipment release against a placement in
-  opposite order (gated, deterministic); parallel backorders; a shipment release after a re-mapping → 409 in the
+  opposite order (gated, deterministic); parallel backorders; a cancel whose reservation holds a pool row the store cannot see → 500, nothing written
+  (red before: it released silently); a shipment release after a re-mapping → 409 in the
   store's own scope; fail closed (an unmapped item, a store-less movement
   and a movement for another store are refused by the module AND by the database); `stock.moved` v2 for a sale and
   an organization-scope receipt; the seam on the pool; variant creation in store scope.

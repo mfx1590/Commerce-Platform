@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-15 · a cancel never closes a reservation it cannot un-count (#456 review nit)
+
+- `releaseForOrder` answers 500 `internal` `{ order_id, reservation_id, stock_item_id, warehouse_id }` when an
+  open reservation holds a pool row the session cannot see, and the cancel rolls back. Before, it closed the
+  reservation and skipped `reserved −= q`, so the units stayed out of `available` for every store on that row.
+  The module cannot produce that state (a variant with an open reservation cannot be re-mapped); the new
+  store-scoped test arranges it with the owner role and failed before the fix ("promise resolved 2").
+
 ### 2026-10-13 · cycle counts mounted (#436, CONTRACT CHANGE #458)
 
 - `moduleAdminRouters()` (`src/http/module-routers.ts`) mounts window 11's `cycleCountsAdminRouter()`: `GET` and

@@ -20,6 +20,7 @@ import {
   mapVariantToStockItem,
   moveStock,
   priorityGreedyPolicy,
+  releaseForOrder,
   releaseReservationsForShipment,
   reserveForOrder,
   setAllocationPolicy,
@@ -1047,5 +1048,50 @@ describe('a shipment release after the variant was re-mapped (#459 review)', () 
     expect(await count('stock_movement')).toBe(movements);
     expect(await count('reservation')).toBe(reservations);
     expect(await pool(v.item, EU)).toEqual({ on_hand: 0, reserved: 0, available: 0 });
+  });
+});
+
+describe('a cancel whose reservation holds a pool row the store cannot see (#456 review nit)', () => {
+  it('is a 500 in the store’s own scope — never a silent release that leaves the units reserved — and writes nothing', async () => {
+    const v = va[45]!;
+    const other = va[46]!;
+    await setPool(v.item, 2, 0);
+    const { order } = await place(shopA, [{ variantId: v.id, quantity: 2 }]);
+    expect(await pool(v.item, EU)).toEqual({ on_hand: 2, reserved: 2, available: 0 });
+    // The broken state the module rules out (mapVariantToStockItem answers 409 while a reservation is open),
+    // arranged by the owner role: the variant now maps another item, so store A no longer sees the pool row its
+    // open reservation holds.
+    await owner.query(`UPDATE product_variant SET stock_item_id = $1 WHERE id = $2`, [
+      other.item,
+      v.id,
+    ]);
+    expect(
+      (await a.query(`SELECT 1 FROM inventory_level WHERE stock_item_id = $1`, [v.item])).rowCount,
+    ).toBe(0);
+    const [reservation] = (
+      await owner.query<{ id: string }>(`SELECT id FROM reservation WHERE order_id = $1`, [
+        order.id,
+      ])
+    ).rows;
+
+    await expect(a.transaction((tx) => releaseForOrder(tx, order.id))).rejects.toMatchObject({
+      code: 'internal',
+      status: 500,
+      details: {
+        order_id: order.id,
+        reservation_id: reservation!.id,
+        stock_item_id: v.item,
+        warehouse_id: EU,
+      },
+    });
+    // nothing written: the reservation is still open and the units are still counted as reserved
+    expect(await count(`reservation WHERE order_id = $1 AND released_at IS NULL`, [order.id])).toBe(
+      1,
+    );
+    expect(await pool(v.item, EU)).toEqual({ on_hand: 2, reserved: 2, available: 0 });
+
+    // HQ sees the row, so the same reservation releases cleanly in organization scope once the cause is known
+    expect(await hq.transaction((tx) => releaseForOrder(tx, order.id))).toBe(2);
+    expect(await pool(v.item, EU)).toEqual({ on_hand: 2, reserved: 0, available: 2 });
   });
 });

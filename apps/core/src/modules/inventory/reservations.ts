@@ -362,7 +362,15 @@ export async function reserveForOrder(
   );
 }
 
-/** Releases every open reservation of an order (cancel). Idempotent; returns the quantity released. */
+/**
+ * Releases every open reservation of an order (cancel). Idempotent; returns the quantity released.
+ *
+ * A reservation always holds a pool row its store can see: the row belongs to the item its variant mapped when it
+ * reserved, and a variant cannot be re-mapped while it holds an open reservation (`mapVariantToStockItem` → 409).
+ * An open reservation whose pool row the session cannot see is therefore a broken invariant, not a no-op: closing
+ * it without lowering `reserved` would keep those units out of `available` for every store sharing the row,
+ * forever. It is a 500 `internal` (ids only) and the caller's transaction rolls back (#456 review nit).
+ */
 export async function releaseForOrder(tx: Queryable, orderId: string): Promise<number> {
   const open = await tx.query<{
     id: string;
@@ -384,7 +392,19 @@ export async function releaseForOrder(tx: Queryable, orderId: string): Promise<n
     const level = levels.find(
       (l) => l.stock_item_id === r.stock_item_id && l.warehouse_id === r.warehouse_id,
     );
-    if (level) await bumpReserved(tx, level.id, -r.quantity);
+    if (!level) {
+      throw new AppError(
+        'internal',
+        'an open reservation holds a pool row this session cannot see',
+        {
+          order_id: orderId,
+          reservation_id: r.id,
+          stock_item_id: r.stock_item_id,
+          warehouse_id: r.warehouse_id,
+        },
+      );
+    }
+    await bumpReserved(tx, level.id, -r.quantity);
     await tx.query(`UPDATE reservation SET released_at = now(), updated_at = now() WHERE id = $1`, [
       r.id,
     ]);
