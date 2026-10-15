@@ -726,6 +726,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/cycle-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cycle counts of the shared pool, newest count first */
+        get: operations["listCycleCounts"];
+        put?: never;
+        /**
+         * Record that a stock item was counted in a warehouse (changes no stock)
+         * @description Writes the count down with status `recorded`; stock changes only through `reconcileCycleCount`. `counted_at` defaults to now and may not be in the future (422 `validation_error`). Refused with 409 `conflict` (`details.reason` = `superseded`) when a count of the same stock item and warehouse with the same or a later `counted_at` has already been applied.
+         */
+        post: operations["createCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cycle-counts/{cycleCountId}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the count's discrepancy into one stock movement, or flag it for approval
+         * @description Under the pool row's lock: on-hand as of `counted_at` = on-hand now minus the movements written since; delta = `counted_quantity` minus that. |delta| within `organization.settings.warehouse.count_tolerance` (non-negative integer, units; unset or malformed = 0): exactly one stock movement (reason `cycle_count`, no store, one `stock.moved` in the same transaction) and status `applied` — no movement when the delta is 0. Above the tolerance: nothing moves, status `flagged`, 200. A call with `approve: true` recomputes under the lock and applies whatever the delta is, recording the approver on the count and in the audit log. Idempotent by count: reconciling an `applied` count changes nothing and answers the same count.
+         */
+        post: operations["reconcileCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/shipping-options": {
         parameters: {
             query?: never;
@@ -2276,6 +2319,44 @@ export interface components {
             reserved: number;
             incoming: number;
             available: number;
+        };
+        CycleCount: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** @description The stock item's sku */
+            sku: string;
+            counted_quantity: number;
+            /**
+             * Format: uuid
+             * @description null for a system source
+             */
+            counted_by: string | null;
+            /** Format: date-time */
+            counted_at: string;
+            /** @enum {string} */
+            source: "manual" | "wms";
+            note: string | null;
+            /** @enum {string} */
+            status: "recorded" | "flagged" | "applied";
+            /** @description null until the count is first reconciled */
+            on_hand_as_of_count: number | null;
+            /** @description counted_quantity minus on_hand_as_of_count */
+            delta: number | null;
+            /**
+             * Format: uuid
+             * @description set when a non-zero delta was applied
+             */
+            stock_movement_id: string | null;
+            /** Format: uuid */
+            approved_by: string | null;
+            /** Format: date-time */
+            approved_at: string | null;
+            /** Format: date-time */
+            reconciled_at: string | null;
         };
         ShippingOptionInput: {
             code: string;
@@ -5159,6 +5240,220 @@ export interface operations {
                      *       }
                      *     }
                      */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listCycleCounts: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                stock_item_id?: string;
+                status?: "recorded" | "flagged" | "applied";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "72000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "sku": "TEE-M-RED",
+                     *           "counted_quantity": 38,
+                     *           "counted_by": "00000000-0000-4000-8000-000000000043",
+                     *           "counted_at": "2026-10-12T08:30:00Z",
+                     *           "source": "manual",
+                     *           "note": null,
+                     *           "status": "recorded",
+                     *           "on_hand_as_of_count": null,
+                     *           "delta": null,
+                     *           "stock_movement_id": null,
+                     *           "approved_by": null,
+                     *           "approved_at": null,
+                     *           "reconciled_at": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["CycleCount"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    warehouse_id: string;
+                    /** Format: uuid */
+                    stock_item_id: string;
+                    counted_quantity: number;
+                    /** Format: date-time */
+                    counted_at?: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "72000000-0000-4000-8000-000000000001",
+                     *       "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *       "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *       "sku": "TEE-M-RED",
+                     *       "counted_quantity": 38,
+                     *       "counted_by": "00000000-0000-4000-8000-000000000043",
+                     *       "counted_at": "2026-10-12T08:30:00Z",
+                     *       "source": "manual",
+                     *       "note": null,
+                     *       "status": "recorded",
+                     *       "on_hand_as_of_count": null,
+                     *       "delta": null,
+                     *       "stock_movement_id": null,
+                     *       "approved_by": null,
+                     *       "approved_at": null,
+                     *       "reconciled_at": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CycleCount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "a later count of this stock item and warehouse has already been applied",
+                     *       "details": {
+                     *         "reason": "superseded",
+                     *         "applied_cycle_count_id": "72000000-0000-4000-8000-000000000002"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `counted_at` is in the future (`validation_error`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "validation_error",
+                     *       "message": "counted_at may not be in the future",
+                     *       "details": {
+                     *         "field": "counted_at"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    reconcileCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @default false */
+                    approve?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The count after reconciliation (`applied` or `flagged`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "72000000-0000-4000-8000-000000000001",
+                     *       "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *       "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *       "sku": "TEE-M-RED",
+                     *       "counted_quantity": 38,
+                     *       "counted_by": "00000000-0000-4000-8000-000000000043",
+                     *       "counted_at": "2026-10-12T08:30:00Z",
+                     *       "source": "manual",
+                     *       "note": null,
+                     *       "status": "applied",
+                     *       "on_hand_as_of_count": 40,
+                     *       "delta": -2,
+                     *       "stock_movement_id": "73000000-0000-4000-8000-000000000001",
+                     *       "approved_by": null,
+                     *       "approved_at": null,
+                     *       "reconciled_at": "2026-10-12T08:31:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CycleCount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `conflict`: a later count of this stock item and warehouse has already been applied (`details.reason` = `superseded`), or the adjustment would take on-hand below zero (the inventory module refuses it; recount) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["Error"];
                 };
             };

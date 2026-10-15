@@ -1,34 +1,8 @@
-// The allocation seam's shapes, exactly as asked of the inventory module in REQUEST #454. They live here until
-// that module exports them; the day it does, these become re-exports and nothing else changes.
+// The allocation seam's shapes. The inventory module owns them since #456 (REQUEST #454); this file re-exports
+// what the policy takes and adds what it promises on top: a decision whose rules are a closed set.
+import type { AllocationCandidate, AllocationContext, AllocationLine } from '../inventory';
 
-/** One warehouse that could serve a line: the locked pool row's numbers at decision time. */
-export interface AllocationCandidate {
-  warehouseId: string;
-  warehouseCode: string;
-  country: string;
-  priority: number;
-  /** on_hand − reserved of the (stock item, warehouse) row, read under the lock; may be ≤ 0. */
-  available: number;
-}
-
-export interface AllocationLine {
-  variantId: string;
-  stockItemId: string;
-  quantity: number;
-  allowBackorder: boolean;
-  /** Every active warehouse of the organization, including those with no level row yet (available 0). */
-  candidates: readonly AllocationCandidate[];
-}
-
-export interface AllocationContext {
-  organizationId: string;
-  storeId: string;
-  orderId: string;
-  /** The order's shipping country (ISO 3166-1 alpha-2), null when the order has none. */
-  destinationCountry: string | null;
-  /** `store.settings.fulfillment.routing` as stored: untrusted jsonb, validated by the policy. */
-  routingSettings: unknown;
-}
+export type { AllocationCandidate, AllocationContext, AllocationLine };
 
 /**
  * Why a warehouse was chosen. The first allocation of a line carries the rule that ranked its warehouse; every

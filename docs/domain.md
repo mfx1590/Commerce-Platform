@@ -750,6 +750,44 @@ RLS kind stays `store` (also on a shared item): a brand never reads another bran
 
 Owner: window 1 (inventory).
 
+### cycle_count
+Somebody counted a stock item in a warehouse, and what became of the count (db 0.3.6, migration 0192; CONTRACT
+CHANGE #458). Organization-level: it carries no `store_id`. A count never edits a level — reconciliation turns the
+difference into exactly one `stock_movement` (reason `cycle_count`, no store) and links it here; that link makes a
+second reconcile of the same count a no-op. A count is a record: the application role cannot delete one.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id | uuid FK organization | |
+| warehouse_id | uuid FK warehouse | |
+| stock_item_id | uuid FK stock_item | |
+| counted_quantity | int | ≥ 0 |
+| counted_by | uuid NULL FK staff_user | NOT NULL exactly when `source` is `manual` (CHECK); NULL = a system source |
+| counted_at | timestamptz | when the shelf was counted (not when the row was written) |
+| source | text | `manual` (default) / `wms` |
+| note | text NULL | |
+| status | text | `recorded` (default) / `flagged` / `applied` |
+| on_hand_as_of_count | int NULL | on-hand as of `counted_at`, computed by the last reconciliation under the pool row's lock; NULL while `recorded` |
+| delta | int NULL | `counted_quantity − on_hand_as_of_count` (CHECK); NULL while `recorded` |
+| stock_movement_id | uuid NULL UNIQUE FK stock_movement | set exactly when a non-zero delta was applied (CHECK) |
+| approved_by | uuid NULL FK staff_user | with `approved_at`, only on an `applied` count (CHECK) |
+| approved_at | timestamptz NULL | |
+| reconciled_at | timestamptz NULL | NOT NULL once reconciled |
+| created_at / updated_at | timestamptz | |
+
+Status: `recorded` — written down, not reconciled yet; `flagged` — reconciled, the discrepancy is above
+`organization.settings.warehouse.count_tolerance`: nothing moved, it waits for an approval by `operations` on
+`organization:hq`; `applied` — reconciled, `stock_movement_id` is the movement (NULL only when the delta was 0).
+`on_hand_as_of_count` and `delta` are final once the count is applied.
+
+RLS kind `organization_only`: the organization's rows in organization scope ONLY — no store session reads or writes
+a count, not even for an item it maps. No DELETE for `platform_app`; UPDATE stays (the row is updated as it is
+reconciled).
+
+Owner: window 11 (warehouse). Events: none of its own — reconciliation emits `stock.moved` through the inventory
+module.
+
 ---
 
 ## 2b. Marketing (store level unless noted; migration 0120, contracts-v0.3)
@@ -1014,7 +1052,7 @@ every mutation ─► outbox ─► bus ─► ledger_entry (Phase 4)
 | 7 payments | payment, refund, tax_rate (Stripe Tax) |
 | 8 shipping | shipment, shipment_item, shipping_option |
 | 9 search | promotion, product_media pipeline, search index sync, merchandising_rule |
-| 11 warehouse | warehouse, allocation policy over inventory_level |
+| 11 warehouse | warehouse, allocation policy over inventory_level, cycle_count |
 | 13 customers | customer, customer_address, customer_identity |
 | 14 events | outbox relay |
 | 15 accounting | ledger_entry, legal_entity.odoo_company_id |

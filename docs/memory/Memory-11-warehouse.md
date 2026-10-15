@@ -1,6 +1,6 @@
 # Memory 11 — Shared warehouse / WMS
 Window: 11 · Key: `warehouse` · Branch prefix: `warehouse/` · Model: Sonnet
-Last updated: 2026-10-12 · Contracts: contracts-v0.4.14 + db 0.3.4 (Admin 0.4.12, Store 0.5.4, events 0.3.2) · Last commit: 0c64b79 pushed (PR #457) · Status: #435 PR up as Refs #435 (engine + design + proposed 0191); 0190 on main (db 0.3.4); waiting for CI and for window 1's #456
+Last updated: 2026-10-13 · Contracts: contracts-v0.4.15 (Admin 0.4.13, Store 0.5.4, events 0.3.3, db 0.3.5) · Last commit: 30aa828 pushed (draft PR #462) · Status: 3.1 (#435) closed; 3.2 = DRAFT PR #462, waiting for the manager's 0192 + Admin API commit and window 1's router mount
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,20 +16,21 @@ Never touches:
 Multi-brand allocation rules over shared stock locations, Odoo Inventory (or WMS) integration, scanner pick/pack flows, cycle counts.
 
 ## Done
-- (nothing yet)
+- **Task 3.1 (#435) — CLOSED 2026-10-13.** PR #457 MERGED = 1869c70 (design, proposed contract, allocation engine; code commit 0c64b79). Migration 0190 = #455 (25b0c39, db 0.3.4). The pool's second step = integration PR #460 MERGED = e9bada6 (contracts-v0.4.15: db 0.3.5 with 0191, events 0.3.3, Admin API 0.4.13; window 1's inventory rewrite #456/#459; my landing commit fa50c4f cherry-picked). Window 1's #461 MERGED = 7293ae5 registers `stockAwareAllocationPolicy` in `src/wiring.ts`. CONTRACT CHANGE #453 and REQUEST #454 closed.
 
 ## In progress
-- **#435 (task 3.1) — PR going up as "Refs #435" (the manager gave the word to push 2026-10-12).** It carries the design README, the proposed 0191 + two event schemas + Admin API fragment, the engine (`allocation.ts`, `types.ts`, `index.ts`) and 66 tests. #435 itself closes only when the pool is live (after window 1's #456). PR #457 (code commit 0c64b79; head = this memory commit — LOCAL until the next push: the manager allowed one push, so the remote head is 0c64b79).
-- **0190 is ON MAIN: #455 = 25b0c39, db 0.3.4.** main merged here; `proposed/0190_stock_pool.sql` deleted; `testing/pool-database.ts` applies only proposed 0191 on a database migrated by packages/db; `createTestDatabase` runs the real 0190 BEFORE the seed, so seeded variants have no item until the backfill (0191's first statement, or `SELECT app.backfill_stock_items()`).
-- **FROZEN since 2026-10-12: `proposed/0191_stock_pool_rekey.sql`, `proposed/stock.moved.v2.json`, `proposed/stock_item.mapped.v1.json`, `proposed/admin-api.stock-pool.yaml`.** Window 1 builds #456 against them. Any change = a message to the manager FIRST, then to window 1. (0191's header comment still says the tests apply 0190 + 0191; left as is for that reason.)
-- **Manager rulings on the engine (2026-10-12):** one shipment from a farther warehouse that covers the line beats a split from the nearest — CONFIRMED; the seeded 500-case property test without a new dependency is fine; the 4 failing hq-rbac live tests in the local gate are this worktree's environment (the core's vitest does not load the root .env, and this worktree never ran `pnpm --filter @platform/auth-sdk fga:seed`) — CI decides, do not dig, do not touch the stack; name them in the PR body.
-- **Next:** (1) message the manager when every check on the PR has finished; (2) after #456 lands: `types.ts` becomes re-exports of the inventory module's seam types, the fake in `shared-pool.test.ts` is replaced by the real `reserveForOrder`, the remaining proposed files are deleted; (3) then #436 (cycle counts + reconciliation on the pool; WMS adapter interface, in-memory only).
+- **#436 (task 3.2) — DRAFT PR #462 (code commit 30aa828; head = this memory commit), "Refs #436", pushed 2026-10-13 on the manager's word.** It is a draft because it needs two things from others, named in its body: (1) the manager's contracts commit — migration 0192 + the Admin API additions (CONTRACT CHANGE #458; exact text in `proposed/0192_cycle_count.sql` and `proposed/admin-api.cycle-counts.yaml`); (2) window 1's mount in `src/http/module-routers.ts`: `import { cycleCountsAdminRouter } from '../modules/hq-warehouse'` + `routers.push(cycleCountsAdminRouter())`. Nothing else: reconciliation calls the inventory module's real `moveStock` by default (`inventoryStockMover`; `setStockMover` is a test seam).
+- **When both are on the branch / on main:** delete the two proposed copies, drop the spec fallback in `http.ts` (`specHas`, `PROPOSED_PERMISSION`), remove the `'0192'` option from `testing/pool-database.ts` (and the name `proposed-*.test.ts` is then history — rename or leave, ask), re-run the module + gate, push only when the manager says.
+- **Local gate on 30aa828 (2026-10-13, one detached run):** lint, format:check, typecheck green; core tests 1042 passed, 4 FAILED, 8 skipped; all 118 hq-warehouse tests passed (allocation 28, proposed-migrations 34, shared-pool 10, proposed-cycle-count 16, cycle-counts 30). The 4 failures are window 2's live hq-rbac suites again (role assign → 503) — ruled this worktree's environment on #457; sourcing .env before the run and `fga:seed` did NOT change it (turbo passes only DATABASE_URL* to the test task). CI decides.
+- **No fakes left:** `shared-pool.test.ts` goes through the real `reserveForOrder` + `setAllocationPolicy` (orders are bare fixture rows inserted by the owner role); `cycle-counts.test.ts` keeps `fakeMoveStock` for most tests and has a block on the real `moveStock` (store-less movement, one `stock.moved` v2 outbox row).
+- **HARD RULES (manager, 2026-10-13):** no `db:migrate`, no `pnpm dev`, no docker commands — the shared dev database has NOT run 0191 (owner's OK pending); the manager runs the first migrate, then says so. `warehouse/phase3-rekey` is spent. Report to "Manager session six"; if outgoing session messages are blocked (the app pauses them after ~10 in a row until the owner types here), write the report as the last turn — the manager reads it there.
+- Facts from window 1's work: `lockStock(tx, { organizationId, storeId, variantIds, stockItemIds?, ensureWarehouseId? })` is THE lock order (variants FOR SHARE by id, missing pool rows created first, then pool rows by stock_item_id, warehouse_id) — a reconciliation locks one pool row, so no ordering issue today; never `INSERT ... ON CONFLICT DO NOTHING` into product_variant (0191's trigger leaves an orphan item); 0191 on main refuses an insert whose product is not the variant's own store's (42501).
 
 ## Next — Phase 3
-- [ ] Allocation policy engine
-- [ ] WMS adapter (Odoo Inventory)
-- [ ] Scanner flows
-- [ ] Cycle counts + reconciliation
+- [x] Allocation policy engine (#435, registered at boot since #461)
+- [ ] Cycle counts + reconciliation (#436, draft PR #462)
+- [ ] WMS adapter (Odoo Inventory) — interface + in-memory only (in #462); the real adapter and the `apps/wms-adapter` package wait for an Odoo instance (owner item)
+- [ ] Scanner flows — admin UI, window 4, later
 
 ## Decisions made (with reasons)
 - **Manager rulings 2026-10-12 (plan confirmed):**
@@ -42,8 +43,8 @@ Multi-brand allocation rules over shared stock locations, Odoo Inventory (or WMS
 - **Accepted as I wrote them (points on #453):** kinds `pool_self` / `pool`; new-variant insert trigger; `inventory_level.variant_id` dropped with store_id; `reservation.allocation_rule`; stock_movement store_id + variant_id nullable together (CHECK); v2 payload carries store_id next to variant_id; `InventoryLevel` per (variant, warehouse) + required `stock_item_id`; `createStockMovement` unchanged.
 
 ## Blocked / waiting
-- #453: 0190 landed (#455 = 25b0c39). 0191 + stock.moved v2 + stock_item.mapped v1 + Admin API land with window 1's #456.
-- #454 (REQUEST: `setAllocationPolicy`) — bundled into window 1's #456; the engine is not mounted until then.
+- #462 (draft): the manager's 0192 + Admin API commit, and window 1's router mount. Then the cleanup listed under In progress.
+- CI on #462: report to the manager when every check has finished (read with the app's PR status; do not poll).
 
 ## Gotchas learned
 - Local gate 2026-10-12 on aef9f51: lint, format:check, typecheck green; core tests 959 passed, 4 FAILED, all in window 2's live suites (hq-rbac roles.test.ts x3, scope.test.ts x1: `expected 503 to be 201` on a role assign) in this worktree with a fresh .env copy while OpenFGA and Keycloak answer 200. Not ours (nothing in hq-warehouse is imported there); reported to the manager, stack untouched. Every hq-warehouse test (66) passed in that run.

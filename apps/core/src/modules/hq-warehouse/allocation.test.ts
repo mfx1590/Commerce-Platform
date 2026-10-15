@@ -160,6 +160,22 @@ describe('one line', () => {
     expect(decide(context('NL'), line(2, []))[0]).toMatchObject({ allocations: [], shortfall: 2 });
   });
 
+  it('refuses NaN, infinite and unsafe quantities', () => {
+    for (const quantity of [Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
+      expect(() => decide(context('NL'), line(quantity, [eu(5)]))).toThrow(RangeError);
+    }
+  });
+
+  it('refuses a shelf that is not a safe integer instead of guessing', () => {
+    for (const available of [Number.NaN, Number.POSITIVE_INFINITY, 2.5, 2 ** 53]) {
+      expect(() => decide(context('NL'), line(1, [eu(available)]))).toThrow(RangeError);
+    }
+  });
+
+  it('refuses two candidates for one warehouse on a line', () => {
+    expect(() => decide(context('NL'), line(1, [eu(5), eu(2)]))).toThrow(/two candidates/);
+  });
+
   it('refuses a quantity that is not a non-negative integer', () => {
     expect(() => decide(context('NL'), line(1.5, [eu(5)]))).toThrow(RangeError);
     expect(() => decide(context('NL'), line(-1, [eu(5)]))).toThrow(RangeError);
@@ -300,6 +316,36 @@ describe('properties over random stock levels (500 seeded cases)', () => {
         for (const c of lines[i]!.candidates) {
           const key = `${lines[i]!.stockItemId}:${c.warehouseId}`;
           expect(Math.max(0, c.available) - (spent.get(key) ?? 0)).toBe(0);
+        }
+      });
+    }
+  });
+
+  it('gives a line whole to the FIRST ranked warehouse that can cover it, and splits only when none can', () => {
+    for (const { ctx, lines } of cases) {
+      const spent = new Map<string, number>();
+      stockAwareAllocationPolicy(ctx, lines).forEach((d, i) => {
+        const l = lines[i]!;
+        const left = (warehouseId: string, available: number) =>
+          Math.max(0, available - (spent.get(`${l.stockItemId}:${warehouseId}`) ?? 0));
+        const covering = rankWarehouses(ctx, l.candidates).find(
+          (r) => left(r.candidate.warehouseId, r.candidate.available) >= l.quantity,
+        );
+        if (l.quantity > 0 && covering) {
+          expect(d.allocations).toEqual([
+            {
+              warehouseId: covering.candidate.warehouseId,
+              quantity: l.quantity,
+              rule: covering.rule,
+            },
+          ]);
+        } else if (l.quantity > 0) {
+          // no single warehouse covers it: every allocation is smaller than the line
+          expect(d.allocations.every((a) => a.quantity < l.quantity)).toBe(true);
+        }
+        for (const a of d.allocations) {
+          const key = `${l.stockItemId}:${a.warehouseId}`;
+          spent.set(key, (spent.get(key) ?? 0) + a.quantity);
         }
       });
     }

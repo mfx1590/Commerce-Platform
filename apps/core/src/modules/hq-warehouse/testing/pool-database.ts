@@ -1,6 +1,6 @@
-// A seeded throwaway database for the stock-pool tests. Both steps of the pool (0190, 0191) are real migrations
-// in packages/db, so `createTestDatabase` runs them and the seed (which maps one shared item for brands A and B,
-// `SEED_IDS.sharedStock`) runs on the pool's schema.
+// A seeded throwaway database for this module's tests. The stock pool (0190, 0191) and cycle counts (0192) are
+// migrations in packages/db, so `createTestDatabase` runs them and the seed (which maps one shared item for
+// brands A and B, `SEED_IDS.sharedStock`) runs on that schema.
 import { seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 

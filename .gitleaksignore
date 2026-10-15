@@ -1,0 +1,6 @@
+# Known false positives in history, one fingerprint per line (commit:file:rule:line). A fingerprint ignores exactly
+# one finding in one commit; the same text anywhere else is still reported. Each entry says what it is.
+#
+# generic-api-key on a migration FILE NAME in a string array (`POOL_MIGRATIONS = ['0191_…sql', '0192_cycle_count.sql']`,
+# window 11's test helper, commit d06bfc4; the line was removed later, the commit stays in history). Not a credential.
+d06bfc4924662bd01962c095f9ebef4c84a2a7c7:apps/core/src/modules/hq-warehouse/testing/pool-database.ts:generic-api-key:12
