@@ -20,7 +20,7 @@ scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 | store          | `store.created`, `store.updated`                                                                         |
 | product        | `product.published`, `product.updated`, `product.archived`                                               |
 | customer       | `customer.created`, `customer.updated`, `customer.erased`, `customer.export_requested` (0.3.2, ids only) |
-| order          | `order.placed`, `order.confirmed`, `order.cancelled`, `order.completed`, `order.updated`                 |
+| order          | `order.placed`, `order.confirmed`, `order.cancelled`, `order.completed`, `order.updated` (0.3.4: voided) |
 | payment        | `payment.authorized`, `payment.captured`, `payment.failed`                                               |
 | refund         | `refund.issued`, `refund.failed`                                                                         |
 | shipment       | `shipment.created`, `shipment.label_created` (0.3.1), `shipment.shipped`, `shipment.delivered`           |
@@ -79,3 +79,6 @@ await tenant.transaction(async (tx) => {
 2. `pnpm --filter @platform/events generate && pnpm --filter @platform/events test`.
 3. Bump the package version, add a CHANGELOG line, tag `events-vX.Y` at integration time.
    Consumers keep handling v1 until the Integrator retires it.
+
+One exception so far (0.3.4, #466): an additive enum value on `order.updated` v1, whose every producer and reader is
+inside apps/core, was widened in place. Once a consumer outside the core exists, such a widening is a v2.

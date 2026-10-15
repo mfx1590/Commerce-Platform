@@ -160,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.4/);
+    expect(text).toMatch(/version: 0\.5\.5/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -190,7 +190,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.14/);
+    expect(text).toMatch(/version: 0\.4\.15/);
     for (const tag of [
       'registry',
       'catalog',
@@ -732,5 +732,27 @@ describe('admin-api.yaml', () => {
     const withoutRatio = text.replace(/recovery_rate: \{ type: number[^}]*\}/, '');
     expect(withoutRatio).not.toMatch(/type: number/);
     expect(withoutRatio).toMatch(/amount_minor: \{ type: integer/);
+  });
+});
+
+describe('payment_status voided (contracts 0.4.17, #466)', () => {
+  it('both specs list voided in every payment_status enum, after the six existing values', () => {
+    for (const file of ['admin-api.yaml', 'store-api.yaml']) {
+      const enums = [
+        ...read(file).matchAll(/\bpayment_status:\s*\{[^}]*?enum:\s*\[([^\]]*)\]/g),
+      ].map((m) => m[1]!.split(',').map((v) => v.trim()));
+      expect(enums.length, file).toBeGreaterThanOrEqual(1);
+      for (const values of enums) {
+        expect(values, file).toEqual([
+          'awaiting',
+          'authorized',
+          'captured',
+          'partially_refunded',
+          'refunded',
+          'failed',
+          'voided',
+        ]);
+      }
+    }
   });
 });

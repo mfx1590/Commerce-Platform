@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.4
+  version: 0.5.5
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -12,6 +12,7 @@ info:
     0.4.0 adds POST /store/cart-recovery/{token} (additive);
     0.5.0 adds the typed review shape — Product.review_summary and GET /store/products/{handle}/reviews (additive).
     0.5.4 adds the optional `Store.payment.methods` (`card` | `invoice`) the checkout may offer (#354/#358, additive).
+    0.5.5 adds `voided` to the order's `payment_status` (authorized → voided when the order is cancelled; terminal; #466, additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -1289,7 +1290,7 @@ components:
         payment_status:
           {
             type: string,
-            enum: [awaiting, authorized, captured, partially_refunded, refunded, failed],
+            enum: [awaiting, authorized, captured, partially_refunded, refunded, failed, voided],
           }
         fulfillment_status:
           {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.14
+  version: 0.4.15
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -22,6 +22,8 @@ info:
     0.4.14 (#458, cycle counts) adds `listCycleCounts`, `createCycleCount` and `reconcileCycleCount` under
     `/admin/cycle-counts` (`operations` on `organization:hq`) with `CycleCount`. A superseded count is a 409
     `conflict` with `details.reason`; no new error code.
+    0.4.15 (#466) adds `voided` to the order's `payment_status` (authorized → voided when `cancelOrder` releases the
+    authorization; terminal; additive).
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -4952,7 +4954,8 @@ components:
         payment_status:
           {
             type: string,
-            enum: [awaiting, authorized, captured, partially_refunded, refunded, failed],
+            enum: [awaiting, authorized, captured, partially_refunded, refunded, failed, voided],
+            description: '`voided` — the authorization was released by `cancelOrder` before any capture (the payment row is `cancelled`). Terminal.',
           }
         fulfillment_status:
           {

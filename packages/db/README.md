@@ -41,7 +41,8 @@ stay per store, organization scope sees every store, a re-delivered `event_id` c
 recipient column. Since 0.3.4 / 0.3.5 it covers the stock pool (below): the mapping guard, the pool row, the
 ledger's attribution rule and per-store reservations on a shared item. Since 0.3.6 it covers `cycle_count` (0192):
 organization scope only (a store session reads and writes none, not even for an item it maps), no DELETE for the
-application role, and the counter and movement-link CHECKs.
+application role, and the counter and movement-link CHECKs. Since 0.3.7 it covers migration 0193: `"order".payment_status`
+accepts `voided` (CONTRACT CHANGE #466) and still refuses unknown values.
 
 ## Stock pool (0190 + 0191, db 0.3.4 and 0.3.5)
 
