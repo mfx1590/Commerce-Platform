@@ -310,6 +310,42 @@ describe('row-level security (platform_app role)', () => {
     ).toBe(0);
   });
 
+  it('orders: payment_status accepts voided after 0193; unknown values are still refused by the same check', async () => {
+    const constraint = await db.owner.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+       WHERE conrelid = '"order"'::regclass AND conname = 'order_payment_status_check'`,
+    );
+    expect(constraint.rows).toHaveLength(1);
+    expect(constraint.rows[0]?.def).toMatch(/'voided'/);
+
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const orderId = await a.transaction(async (tx) => {
+      const ch = await tx.query<{ id: string }>(
+        `INSERT INTO sales_channel (organization_id, store_id, code, name, type) VALUES ($1, $2, 'void-' || gen_random_uuid(), 'Web', 'web') RETURNING id`,
+        [ORG, STORE_A],
+      );
+      const o = await tx.query<{ id: string }>(
+        `INSERT INTO "order" (organization_id, store_id, sales_channel_id, email, currency, locale,
+           shipping_address, billing_address, subtotal_minor, total_minor, payment_status)
+         VALUES ($1, $2, $3, 'x@example.com', 'EUR', 'en-GB', '{}', '{}', 1000, 1000, 'authorized') RETURNING id`,
+        [ORG, STORE_A, ch.rows[0]!.id],
+      );
+      return o.rows[0]!.id;
+    });
+    const voided = await a.query<{ payment_status: string }>(
+      `UPDATE "order" SET payment_status = 'voided', status = 'cancelled' WHERE id = $1 RETURNING payment_status`,
+      [orderId],
+    );
+    expect(voided.rows[0]?.payment_status).toBe('voided');
+    // the payment row's word is not an order value
+    await expect(
+      a.query(`UPDATE "order" SET payment_status = 'cancelled' WHERE id = $1`, [orderId]),
+    ).rejects.toThrow(/order_payment_status_check/);
+    await expect(
+      a.query(`UPDATE "order" SET payment_status = 'void' WHERE id = $1`, [orderId]),
+    ).rejects.toThrow(/order_payment_status_check/);
+  });
+
   it('webhook_event (0140): rows stay per store; a redelivery conflicts on (provider, provider_event_id)', async () => {
     const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
     await a.query(

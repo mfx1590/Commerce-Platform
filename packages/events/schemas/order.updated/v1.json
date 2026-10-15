@@ -26,7 +26,15 @@
     },
     "payment_status": {
       "type": "string",
-      "enum": ["awaiting", "authorized", "captured", "partially_refunded", "refunded", "failed"]
+      "enum": [
+        "awaiting",
+        "authorized",
+        "captured",
+        "partially_refunded",
+        "refunded",
+        "failed",
+        "voided"
+      ]
     },
     "fulfillment_status": {
       "type": "string",

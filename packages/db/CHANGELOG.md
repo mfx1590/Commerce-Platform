@@ -91,3 +91,12 @@
   - Indexes `cycle_count_shelf_idx` (stock item, warehouse, `counted_at DESC`) and the partial `cycle_count_open_idx` (not yet applied).
 - No seed change and no new event: reconciliation emits `stock.moved` through the inventory module.
 - test/rls.test.ts: the real table — organization scope records, reads and updates a count; a store session (one store, or both) reads none, cannot insert and updates zero rows, although it reads the counted item itself; a context-less connection and another organization read none; DELETE is refused for `platform_app` in every scope (grants are INSERT, SELECT, UPDATE); the counter CHECK both ways; the movement-link CHECK both ways (applied with a non-zero delta needs the movement; recorded, flagged and zero-delta rows refuse one); one movement reconciles one count.
+
+## 0.3.7 — 2026-10-15 (CONTRACT CHANGE #466, Order.payment_status `voided`; contracts-v0.4.17)
+
+- Migration 0193: `"order".payment_status` gains `voided` — drops and re-adds `order_payment_status_check` (the CHECK
+  0006 declared inline, auto-named; the name verified in `pg_constraint` on a throwaway database) with the six existing
+  values plus `voided`. authorized → voided when `cancelOrder` releases the authorization; terminal. No data update
+  and no backfill (manager decision on #466); the core starts writing the value in a later PR.
+- test/rls.test.ts: the re-added check keeps its name and carries `voided`; an order row updates to `voided`; unknown
+  values (`cancelled`, the payment row's word, and `void`) are still refused by it.

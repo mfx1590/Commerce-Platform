@@ -10,6 +10,7 @@ import {
   type EventEnvelope,
   type EventTopic,
   type OrderPlacedV1,
+  type OrderUpdatedV1,
 } from '../src/index.js';
 
 const ORG = '00000000-0000-4000-8000-000000000001';
@@ -417,6 +418,32 @@ describe('event schemas', () => {
     expect(
       v.validatePayload('stock_item.mapped', 1, { ...mapped, sku: 'TEE-M-RED' }).errors.join(),
     ).toMatch(/additional properties/);
+  });
+
+  it('order.updated v1 (0.3.4, #466) accepts payment_status voided in place; an unknown value is still refused', () => {
+    const updated: OrderUpdatedV1 = {
+      order_id: ID,
+      display_id: 1000,
+      status: 'cancelled',
+      payment_status: 'voided',
+      fulfillment_status: 'unfulfilled',
+      changed_fields: ['payment_status'],
+    };
+    const e = makeEvent({
+      topic: 'order.updated',
+      organizationId: ORG,
+      storeId: STORE,
+      aggregateType: 'order',
+      aggregateId: ID,
+      payload: updated,
+    });
+    expect(e.version).toBe(1);
+    expect(LATEST_VERSION['order.updated']).toBe(1);
+    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+    expect(v.validatePayload('order.updated', 1, updated).ok).toBe(true);
+    expect(
+      v.validatePayload('order.updated', 1, { ...updated, payment_status: 'cancelled' }).ok,
+    ).toBe(false);
   });
 
   it('shipment.label_created (0.3.1, #354) validates an envelope and refuses a missing label or an address', () => {

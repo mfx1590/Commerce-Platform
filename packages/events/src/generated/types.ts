@@ -343,7 +343,7 @@ export interface OrderUpdatedV1 {
 order_id: string
 display_id: number
 status: ("pending" | "confirmed" | "processing" | "completed" | "cancelled")
-payment_status: ("awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed")
+payment_status: ("awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed" | "voided")
 fulfillment_status: ("unfulfilled" | "partially_fulfilled" | "fulfilled" | "partially_returned" | "returned")
 changed_fields: string[]
 }
