@@ -476,6 +476,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   **PR #474 opened 2026-10-15** (Closes #468; code + main merge ae88dac; head = this memory commit).
   Next: report PR + head to the manager, then "checks finished". Push nothing more unless the
   manager says so. Follow-up after #469 lands: movements / reservations / reconcile-preview screens.
+  Manager 2026-10-15: local core leg NOT needed (CI's "admin e2e against the core (advisory)" is the
+  evidence); never hand-edit .env. Next time a local core is needed AND the manager hands over the
+  machine: `pnpm --filter @platform/auth-sdk fga:seed` in wt-admin first (rewrites the store/model ids
+  after an OpenFGA restart). Review of #474 in progress — push nothing until the verdict (this note
+  is a local commit only).
   Plan: HQ /warehouse (tabs Stock items | Cycle counts, replaces placeholder), NEW store screen
   /[storeId]/inventory (none existed — F1), orders voided (neutral, filter), wrappers + guard rows
   + src/app/actions/warehouse.ts. F2: listStockItems is viewer on hq → "shared with N brands"
