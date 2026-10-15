@@ -2,6 +2,18 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-15 · a cancelled authorisation reads `voided` (#466, contracts 0.4.17)
+
+- `Order.payment_status` gains `voided` (Admin API 0.4.15, Store API 0.5.5, `order.updated` v1 widened in place,
+  db 0193 — the manager's part of the integration). Payment transitions: `authorized → voided`; `voided` is
+  terminal (a late capture report is a 409).
+- `cancelOrder`: when the order's `payment_status` is `authorized`, after the void (payment rows `cancelled`, as
+  before) it moves `payment_status → voided` as its OWN transition, then `status → cancelled` — so one
+  `order.updated` (`changed_fields: ['payment_status']`) precedes `order.cancelled` (payload unchanged), both in
+  the cancel's transaction. The manual provider's void always succeeds, so a manual-payment cancel reads
+  `voided`. Unchanged: a failed void is 402 `payment_failed` with nothing written; `awaiting` / `failed` /
+  `captured` / refund states keep their value on cancel. No backfill (manager decision on #466).
+
 ### 2026-10-15 · a cancel never closes a reservation it cannot un-count (#456 review nit)
 
 - `releaseForOrder` answers 500 `internal` `{ order_id, reservation_id, stock_item_id, warehouse_id }` when an

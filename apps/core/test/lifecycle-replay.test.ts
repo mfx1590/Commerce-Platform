@@ -264,11 +264,19 @@ describe('whole lifecycle: place → confirm → capture → ship → deliver �
     expect((await stream(order.id, 'order.')).map((e) => e.topic)).toEqual([
       'order.placed',
       'order.confirmed',
+      'order.updated', // #466: payment_status authorized → voided, before the cancel itself
       'order.cancelled',
     ]);
     const projected = projectOrder(await stream(order.id, 'order.'))!;
-    expect(projected).toMatchObject({ status: 'cancelled', cancel_reason: 'changed mind' });
-    expect((await orderRow(order.id)).status).toBe('cancelled');
+    expect(projected).toMatchObject({
+      status: 'cancelled',
+      payment_status: 'voided',
+      cancel_reason: 'changed mind',
+    });
+    expect(await orderRow(order.id)).toMatchObject({
+      status: 'cancelled',
+      payment_status: 'voided',
+    });
     expect(
       (
         await owner.query(`SELECT 1 FROM reservation WHERE order_id = $1 AND released_at IS NULL`, [
