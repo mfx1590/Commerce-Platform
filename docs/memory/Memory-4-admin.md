@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.16 on main (Admin API 0.4.14; 0.4.15/contracts-v0.4.17 after PR #467) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #468 assigned — setup done, PLAN next (after /compact)
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.16 on main (Admin API 0.4.14; 0.4.15/contracts-v0.4.17 after PR #467) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #468 in review — PR #474
 
 ## Identity (does not change)
 Owned paths (write):
@@ -473,6 +473,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   wt-auth, wt-brands, wt-storefront, wt-integration are stale too. Repointing my .env was denied by
   the permission classifier — owner/manager decides (repoint .env to the live ids, or `fga:seed`).
   Core stopped explicitly (tsx child killed), :9000 free.
+  **PR #474 opened 2026-10-15** (Closes #468; code + main merge ae88dac; head = this memory commit).
+  Next: report PR + head to the manager, then "checks finished". Push nothing more unless the
+  manager says so. Follow-up after #469 lands: movements / reservations / reconcile-preview screens.
   Plan: HQ /warehouse (tabs Stock items | Cycle counts, replaces placeholder), NEW store screen
   /[storeId]/inventory (none existed — F1), orders voided (neutral, filter), wrappers + guard rows
   + src/app/actions/warehouse.ts. F2: listStockItems is viewer on hq → "shared with N brands"
