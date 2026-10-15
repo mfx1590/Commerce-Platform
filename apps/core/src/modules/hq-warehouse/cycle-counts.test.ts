@@ -37,14 +37,20 @@ const US = SEED_IDS.warehouses.us;
  * Goods really move: a receipt (+) or a transfer out (−) through the inventory module, as HQ. `at` backdates the
  * ledger row (fixture, owner role) so a test can place a movement between two counts.
  */
-async function move(item: string, delta: number, at?: Date, warehouse = EU): Promise<void> {
+async function move(
+  item: string,
+  delta: number,
+  at?: Date,
+  warehouse = EU,
+  reason: 'receipt' | 'transfer_out' | 'cycle_count' = delta > 0 ? 'receipt' : 'transfer_out',
+): Promise<void> {
   const moved = await hq.transaction((tx) =>
     moveStock(tx, {
       organizationId: ORG,
       stockItemId: item,
       warehouseId: warehouse,
       delta,
-      reason: delta > 0 ? 'receipt' : 'transfer_out',
+      reason,
       actor: operations,
     }),
   );
@@ -524,6 +530,40 @@ describe('several counts of one shelf', () => {
     expect(await adjustments(item.id)).toEqual([-2, -3]);
   });
 
+  it('a cycle_count movement entered by hand after the count supersedes it (409), at reconcile and at record', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    const count = await record(item.id, 8, minutesAgo(120));
+    // somebody corrects the books by hand later, with no count record behind it
+    await move(item.id, -1, minutesAgo(60), EU, 'cycle_count');
+    const refused = await failure(reconcile(count.id, true));
+    expect(refused).toMatchObject({
+      status: 409,
+      code: 'conflict',
+      details: { reason: 'superseded' },
+    });
+    expect(refused!.details).toHaveProperty('stock_movement_id');
+    expect(await onHand(item.id)).toBe(9);
+    expect(await failure(record(item.id, 8, minutesAgo(90)))).toMatchObject({
+      status: 409,
+      details: { reason: 'superseded' },
+    });
+    const plan = await planOpenCounts(hq, { organizationId: ORG, warehouseCode: 'wh-eu' });
+    expect(plan.counts.find((c) => c.cycleCountId === count.id)?.superseded).toBe(true);
+    // a count taken after the hand correction is not affected
+    const later = await record(item.id, 9, minutesAgo(30));
+    expect(await reconcile(later.id)).toMatchObject({ status: 'applied', delta: 0 });
+  });
+
+  it('a hand correction BEFORE the count does not supersede it', async () => {
+    const item = freshItem();
+    await setOnHand(item.id, EU, 10);
+    await move(item.id, -1, minutesAgo(120), EU, 'cycle_count');
+    const count = await record(item.id, 7, minutesAgo(60));
+    expect(await reconcile(count.id)).toMatchObject({ status: 'applied', delta: -2 });
+    expect(await onHand(item.id)).toBe(7);
+  });
+
   it('marks the older of two open counts in the plan', async () => {
     const item = freshItem();
     await setOnHand(item.id, US, 10);
@@ -561,6 +601,10 @@ describe('a shelf that has never held the item', () => {
     expect(await onHand(item.id, US)).toBe(5);
   });
 
+  // What this proves is the NUMBERS: whichever transaction gets the shelf first, the receipt is counted once.
+  // That the reconciliation takes the pool row (created, then FOR UPDATE through the inventory module's
+  // ensureLevel) before it reads it is verified statically in cycle-counts.ts (readShelf); a test cannot force
+  // the interleaving that would expose a missing lock, it can only fail to observe one.
   it('counts a first receipt racing the reconciliation exactly once', async () => {
     for (let round = 0; round < 5; round++) {
       const item = await emptyShelf();

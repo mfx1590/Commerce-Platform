@@ -127,8 +127,10 @@ PHYSICAL movements written since counted_at)`. A count taken at 18:00 and reconc
   `cycle_count`: an adjustment moves no goods, it corrects the books to what a count saw. So with two counts of
   one shelf, applying the older one first leaves the newer one a delta of 0 (or only what went missing between
   the two) — the discrepancy is applied once, whatever the order; applying the newer one first supersedes the
-  older. The books always end at the newest count's truth plus what physically moved since it. This also covers
-  a manual `cycle_count` movement entered through `createStockMovement`: it is a correction, not goods moving.
+  older. The books always end at the newest count's truth plus what physically moved since it. A manual
+  `cycle_count` movement entered through `createStockMovement` is a correction too, so it is never "a movement
+  since" either; and when one with no count record behind it is written AFTER a count, that count is superseded
+  (409): the hand correction saw the shelf later, and the older count would otherwise overwrite it.
 - **Computed under the pool row's lock at apply time** — at reconcile and again at approval — never taken from
   an earlier read. The pool row is taken through the inventory module's `ensureLevel`: created at zero when the
   shelf has never held the item, then locked, so a first receipt racing the reconciliation is counted once. The
@@ -136,6 +138,9 @@ PHYSICAL movements written since counted_at)`. A count taken at 18:00 and reconc
 - **The inventory module can refuse the movement** (409 `conflict`: on-hand would go negative — more shipped
   since the count than was counted). The route passes it through and the count stays as it was.
 - **`counted_at` may not be in the future** (422).
+- **A deactivated warehouse:** a count recorded there stays recorded, but reconciling it answers 404 (the inventory
+  module's `ensureLevel` takes pool rows in active warehouses only). Reactivate the warehouse to reconcile it, or
+  leave the count as a record.
 - **`superseded` (409, `code: conflict`, `details.reason: superseded`):** a count is refused, at record and at reconcile, when a count of the same stock item and
   warehouse with the same or a later `counted_at` is already applied. Otherwise the newer count's own adjustment
   would be read as "a movement since the old count" and the old discrepancy applied a second time.

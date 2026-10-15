@@ -106,3 +106,11 @@
 - `cycle-counts.test.ts` runs entirely on the real `moveStock` (the fake is gone), 42 tests: both orders of two
   counts, three interleaved counts in three orders, a new discrepancy between counts, the missing pool row, the
   racing receipt, the inventory module's negative on-hand refusal as a 409 through the route.
+
+### 2026-10-15 · follow-ups from the cycle-count review (#463)
+
+- A `cycle_count` movement entered by hand (no count record links it) AFTER a count's `counted_at` now supersedes
+  that count: 409 `conflict`, `details.reason = superseded`, `details.stock_movement_id` — at reconcile, at record,
+  and in the dry-run plan. Two tests (after the count: refused; before the count: no effect).
+- The racing-receipt test says what it proves (the numbers) and where the lock is verified (statically).
+- README: reconciling a count in a deactivated warehouse answers 404.
