@@ -16,6 +16,8 @@ import {
   createStockMovement,
   ensureLevel,
   listInventoryLevels,
+  listStockItemMovements,
+  listStockItemReservations,
   listStockItems,
   mapVariantToStockItem,
   moveStock,
@@ -1093,5 +1095,69 @@ describe('a cancel whose reservation holds a pool row the store cannot see (#456
     // HQ sees the row, so the same reservation releases cleanly in organization scope once the cause is known
     expect(await hq.transaction((tx) => releaseForOrder(tx, order.id))).toBe(2);
     expect(await pool(v.item, EU)).toEqual({ on_hand: 2, reserved: 0, available: 2 });
+  });
+});
+
+describe('HQ reads of one pool row: its ledger and what holds its reserved (#469)', () => {
+  it('two stores on one shared item: both reservations listed with their rule; the ledger holds a store-less receipt; organization scope only; 404', async () => {
+    const vA = va[47]!;
+    const vB = vb[47]!;
+    const item = await share(vA, vB);
+    await setPool(item, 5, 0);
+    const { order: orderA } = await place(shopA, [{ variantId: vA.id, quantity: 2 }]);
+    const { order: orderB } = await place(shopB, [{ variantId: vB.id, quantity: 1 }]);
+    // a pool movement no store caused: an HQ receipt, written last so it is the newest
+    await createStockMovement(hq, {
+      organizationId: ORG,
+      variantId: vA.id,
+      warehouseId: EU,
+      delta: 4,
+      reason: 'receipt',
+      actor,
+    });
+
+    const open = await listStockItemReservations(hq, item);
+    expect(open.total).toBe(2);
+    expect(
+      open.items.map((r) => [r.store_id, r.variant_id, r.order_id, r.quantity, r.allocation_rule]),
+    ).toEqual([
+      [B, vB.id, orderB.id, 1, 'priority'], // newest first
+      [A, vA.id, orderA.id, 2, 'priority'],
+    ]);
+    expect(open.items.every((r) => r.stock_item_id === item && r.released_at === null)).toBe(true);
+
+    const ledger = await listStockItemMovements(hq, item);
+    expect(ledger.items[0]).toMatchObject({
+      stock_item_id: item,
+      warehouse_id: EU,
+      store_id: null,
+      variant_id: null,
+      delta: 4,
+      reason: 'receipt',
+      actor_id: actor.id,
+    });
+    expect((await listStockItemMovements(hq, item, { warehouse_id: US })).total).toBe(0);
+
+    // released after a cancel: out of `open`, into `released`; `all` keeps both
+    await hq.transaction((tx) => releaseForOrder(tx, orderA.id));
+    expect((await listStockItemReservations(hq, item)).items.map((r) => r.store_id)).toEqual([B]);
+    const released = await listStockItemReservations(hq, item, { status: 'released' });
+    expect(released.items.map((r) => [r.store_id, r.released_at !== null])).toEqual([[A, true]]);
+    expect((await listStockItemReservations(hq, item, { status: 'all' })).total).toBe(2);
+    expect(
+      (await listStockItemReservations(hq, item, { status: 'all', limit: 1, page: 2 })).items.map(
+        (r) => r.store_id,
+      ),
+    ).toEqual([A]);
+
+    // a store session never reads them (another store's reservations, store-less movements)
+    await expect(listStockItemReservations(a, item)).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(listStockItemMovements(b, item)).rejects.toMatchObject({ code: 'forbidden' });
+    const unknown = '00000000-0000-4000-8000-00000000ffff';
+    await expect(listStockItemMovements(hq, unknown)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(listStockItemReservations(hq, unknown)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await hq.transaction((tx) => releaseForOrder(tx, orderB.id));
   });
 });
