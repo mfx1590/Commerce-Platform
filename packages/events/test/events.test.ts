@@ -86,7 +86,7 @@ describe('event schemas', () => {
     ]) {
       expect(EVENT_TOPICS).toContain(t);
     }
-    expect(EVENT_TOPICS).toHaveLength(36);
+    expect(EVENT_TOPICS).toHaveLength(37);
   });
 
   it('compiles every schema and has a v1 for every topic', () => {
@@ -329,6 +329,93 @@ describe('event schemas', () => {
           email: 'someone@example.com',
         })
         .errors.join(),
+    ).toMatch(/additional properties/);
+  });
+
+  it('stock.moved v2 (0.3.3, #453) is keyed by the stock item; a store and its variant come together or not at all', () => {
+    const sale = {
+      stock_movement_id: ID,
+      stock_item_id: ID,
+      sku: 'TEE-M-RED',
+      variant_id: ID,
+      store_id: STORE,
+      warehouse_id: ID,
+      delta: -1,
+      reason: 'sale' as const,
+      reference_type: 'order',
+      reference_id: ID,
+      on_hand_after: 9,
+      reserved_after: 0,
+    };
+    expect(LATEST_VERSION['stock.moved']).toBe(2);
+    const e = makeEvent({
+      topic: 'stock.moved',
+      organizationId: ORG,
+      storeId: STORE,
+      aggregateType: 'stock_movement',
+      aggregateId: ID,
+      payload: sale,
+    });
+    expect(e.version).toBe(2);
+    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+
+    // A pool movement no store caused (a receipt): neither variant_id nor store_id, envelope store_id null.
+    const { variant_id: _variant, store_id: _store, ...pool } = sale;
+    const receipt = {
+      ...pool,
+      delta: 20,
+      reason: 'receipt' as const,
+      reference_type: null,
+      reference_id: null,
+    };
+    expect(v.validatePayload('stock.moved', 2, receipt)).toEqual({ ok: true, errors: [] });
+    expect(
+      v.validateEnvelope(
+        makeEvent({
+          topic: 'stock.moved',
+          organizationId: ORG,
+          storeId: null,
+          aggregateType: 'stock_movement',
+          aggregateId: ID,
+          payload: receipt,
+        }),
+      ),
+    ).toEqual({ ok: true, errors: [] });
+
+    expect(v.validatePayload('stock.moved', 2, { ...receipt, variant_id: ID }).ok).toBe(false);
+    expect(v.validatePayload('stock.moved', 2, { ...receipt, store_id: STORE }).ok).toBe(false);
+    const { stock_item_id: _item, ...noItem } = sale;
+    expect(v.validatePayload('stock.moved', 2, noItem).errors.join()).toMatch(/stock_item_id/);
+
+    // v1 is frozen and still validates its own payload; it never knew the stock item.
+    const { stock_item_id: _item1, store_id: _store1, ...v1Payload } = sale;
+    expect(v.validatePayload('stock.moved', 1, v1Payload)).toEqual({ ok: true, errors: [] });
+    expect(v.validatePayload('stock.moved', 1, sale).errors.join()).toMatch(
+      /additional properties/,
+    );
+  });
+
+  it('stock_item.mapped (0.3.3, #453) validates an ids-only envelope and refuses a missing or an extra field', () => {
+    const mapped = {
+      stock_item_id: '20000000-0000-4000-8000-000000000002',
+      previous_stock_item_id: ID,
+      variant_id: ID,
+      store_id: STORE,
+    };
+    const e = makeEvent({
+      topic: 'stock_item.mapped',
+      organizationId: ORG,
+      storeId: STORE,
+      aggregateType: 'stock_item',
+      aggregateId: mapped.stock_item_id,
+      payload: mapped,
+    });
+    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+    expect(LATEST_VERSION['stock_item.mapped']).toBe(1);
+    const { previous_stock_item_id: _drop, ...noPrevious } = mapped;
+    expect(v.validatePayload('stock_item.mapped', 1, noPrevious).ok).toBe(false);
+    expect(
+      v.validatePayload('stock_item.mapped', 1, { ...mapped, sku: 'TEE-M-RED' }).errors.join(),
     ).toMatch(/additional properties/);
   });
 

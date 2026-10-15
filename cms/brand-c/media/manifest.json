@@ -1,0 +1,8 @@
+{
+  "brand": "brand-c",
+  "source": "commerce-platform-media/brand-c/manifest.json (outside the repo) — NOT YET GENERATED",
+  "generator": "pending: brand-c's stills have not been produced.",
+  "licence": "to be recorded when the media is generated",
+  "delivery": "Cloudinary: https://res.cloudinary.com/<cloud>/<image|video>/upload/<publicId>",
+  "slots": []
+}

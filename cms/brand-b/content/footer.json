@@ -1,0 +1,74 @@
+[
+  {
+    "_id": "footer.en-GB.default",
+    "_type": "footer",
+    "locale": "en-GB",
+    "columns": [
+      {
+        "_type": "footerColumn",
+        "_key": "col-shop",
+        "heading": "Shop",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-all",
+            "label": "Everything",
+            "href": "/products"
+          },
+          {
+            "_type": "link",
+            "_key": "f-winter",
+            "label": "Winter weight",
+            "href": "/campaign/winter-weight"
+          }
+        ]
+      },
+      {
+        "_type": "footerColumn",
+        "_key": "col-about",
+        "heading": "Stonecrop",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-about",
+            "label": "About",
+            "href": "/about"
+          },
+          {
+            "_type": "link",
+            "_key": "f-made",
+            "label": "How it is made",
+            "href": "/made"
+          }
+        ]
+      }
+    ],
+    "legalLinks": [
+      {
+        "_type": "link",
+        "_key": "f-imprint",
+        "label": "Company details",
+        "href": "/legal/imprint"
+      },
+      {
+        "_type": "link",
+        "_key": "f-privacy",
+        "label": "Privacy",
+        "href": "/legal/privacy"
+      },
+      {
+        "_type": "link",
+        "_key": "f-terms",
+        "label": "Terms",
+        "href": "/legal/terms"
+      },
+      {
+        "_type": "link",
+        "_key": "f-returns",
+        "label": "Returns",
+        "href": "/legal/returns"
+      }
+    ],
+    "copyright": "© 2026 [[COMPANY_LEGAL_NAME]]. All rights reserved."
+  }
+]

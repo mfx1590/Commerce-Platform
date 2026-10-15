@@ -15,6 +15,7 @@ import {
   clickWhenReady,
   openPurchasableProduct,
 } from './support/journey';
+import { localeUrl } from './support/locale';
 
 /**
  * #372: the customer sees the order's real status as the shop works on it. The run places an order
@@ -126,12 +127,12 @@ test('the confirmation shows the order processing once shipped and completed onc
   // ── The customer places an order.
   await openPurchasableProduct(page);
   await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
-  await expect(page).toHaveURL(/\/en-GB\/cart$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: SERVER_ACTION_TIMEOUT });
   await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
   await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
   await advanceToReview(page, `e2e-lifecycle+${Date.now().toString(36)}@example.com`);
   await clickWhenReady(page, page.getByRole('button', { name: 'Place order' }));
-  await expect(page).toHaveURL(/\/en-GB\/orders\/[^/]+$/, { timeout: SERVER_ACTION_TIMEOUT });
+  await expect(page).toHaveURL(localeUrl('/orders/[^/]+$'), { timeout: SERVER_ACTION_TIMEOUT });
 
   const confirmation = page.getByTestId('order-confirmation');
   const orderId = (await confirmation.getAttribute('data-order-id')) ?? '';

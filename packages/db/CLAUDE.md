@@ -30,7 +30,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
 - `createOrganizationClient(pool, { organizationId, actorId? })` → same shape, `scope: 'organization'` (HQ: all stores). Only after an organization-level permission check.
 - `migrate(pool)`, `listMigrations()`, `createPool(url)`, `connectionStringFromEnv('owner' | 'app')`.
 - `app.outbox_lag()` (SQL, not TS): per-store/topic unpublished counts for monitoring. Callable by the `platform_metrics` role, which has EXECUTE on that function and no table access at all.
-- `seed(pool)`, `SEED_IDS` — fixed uuids for brand-a/b/c, wh-eu/wh-us, one staff user per role.
+- `seed(pool)`, `SEED_IDS` — fixed uuids for brand-a/b/c, wh-eu/wh-us, one staff user per role, and the shared stock item (`sharedStock`, 0.3.5).
 - `@platform/db/testing` → `createTestDatabase()` returns `{ owner, app, drop }` pools (app = `platform_app` role, RLS enforced).
 
 ## Rules every consumer must follow
@@ -39,6 +39,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
 - Every query goes through a scoped client. Raw `pool.query` returns zero rows by design (no context).
 - Table names `order` and `return` are reserved words: always write `"order"`, `"return"`.
 - `audit_log` and `stock_movement` are append-only for the app role (no UPDATE/DELETE grants).
+- `cycle_count` (0192, 0.3.6) is organization scope only (RLS kind `organization_only`: a store-scoped client reads and writes none) and has no DELETE grant for the app role.
 - Money is `*_minor bigint` + `currency char(3)`. Ids are uuid. See docs/domain.md.
 
 ## Constraints

@@ -2,6 +2,73 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-15 · a cancel never closes a reservation it cannot un-count (#456 review nit)
+
+- `releaseForOrder` answers 500 `internal` `{ order_id, reservation_id, stock_item_id, warehouse_id }` when an
+  open reservation holds a pool row the session cannot see, and the cancel rolls back. Before, it closed the
+  reservation and skipped `reserved −= q`, so the units stayed out of `available` for every store on that row.
+  The module cannot produce that state (a variant with an open reservation cannot be re-mapped); the new
+  store-scoped test arranges it with the owner role and failed before the fix ("promise resolved 2").
+
+### 2026-10-13 · cycle counts mounted (#436, CONTRACT CHANGE #458)
+
+- `moduleAdminRouters()` (`src/http/module-routers.ts`) mounts window 11's `cycleCountsAdminRouter()`: `GET` and
+  `POST /admin/cycle-counts`, `POST /admin/cycle-counts/:cycleCountId/reconcile` (Admin API `listCycleCounts`,
+  `createCycleCount`, `reconcileCycleCount`; each `operations` on `organization:hq`). Nine module routers now.
+  The mount test checks 401 without a token, 403 for a store role on all three, and that the routes answer
+  themselves (validation, unknown count) rather than the terminal 404 of an unmounted path.
+
+### 2026-10-13 · the stock-aware allocation engine is registered (#435)
+
+- `registerModuleSeams()` (`src/wiring.ts`) registers window 11's `stockAwareAllocationPolicy` behind the
+  inventory module's allocation seam. **What changes for a placement on a running server:** the warehouse is no
+  longer simply the one with the best `priority` number. Warehouses are ranked by the fulfillment routing rules
+  (store override for the destination country → store default → same country → same region → priority); the
+  first one that covers the WHOLE line takes it, and a line is split down the ranking only when no single
+  warehouse can. `reservation.allocation_rule` records `store_country`, `store_default`, `same_country`,
+  `same_region` or `priority` (and `split:<rule>`) instead of only `priority` / `split:priority`. Unchanged: the
+  inventory module locks the pool rows first, validates every decision against them, and decides shortfall itself
+  (409 `out_of_stock`, or a backorder on the item's first pool row in priority order, rule `backorder`). Code that
+  calls `reserveForOrder` without `registerModuleSeams()` (the module's own tests) keeps `priorityGreedyPolicy`.
+- `currentAllocationPolicy()` is exported from the inventory module (the wiring test reads the seam with it).
+- Wording (#459 review nit): the reservations header and the inventory README said every multi-row path calls
+  `lockStock`. The lock ORDER is one for every path; `lockStock` is its routine for ship, a cancelled shipment and
+  the returns restock, placement runs the same three steps inline, and cancel takes only the pool-row step.
+
+### 2026-10-12 · inventory on the shared stock pool (#456; db 0190 + 0191, CONTRACT CHANGE #453, REQUEST #454)
+
+- Stock lies per (stock item, warehouse) and every variant that maps the item sells from it. The inventory
+  module resolves variant → `stock_item_id` and works on the pool row: placement, release, consume, adjust and
+  the availability read. Callers (checkout, orders, returns, shipping) keep their call shapes. Lock order:
+  variant rows (SHARE, id order), then pool rows by (`stock_item_id`, `warehouse_id`).
+- Attribution under the ledger policy: a movement a store caused carries its `store_id` + `variant_id` and is
+  written in that store's scope; a movement no store caused carries neither and is organization scope only. The
+  module never changes the scope it is given. `stock.moved` **v2** (item id + item sku; variant and store only
+  when attributed); v1 is no longer emitted. HQ `createStockMovement` is store-less, organization scope only, with
+  an audit row (`stock_movement.create`) that keeps the addressed variant.
+- `reservation` rows carry `stock_item_id` (the variant's item at reserve time — enforced by the module) and
+  `allocation_rule`.
+- The allocation seam: `setAllocationPolicy(fn)` (+ the `Allocation*` types, `priorityGreedyPolicy`). The module
+  locks first, offers candidates from the locked rows, validates the decision (a bad one is a 500 and the placement
+  rolls back) and keeps the shortfall / 409 / backorder behaviour. Default = the allocation as before.
+- Admin API: `listStockItems` (`GET /admin/stock-items`), `mapVariantToStockItem`
+  (`PUT /admin/stock-items/{stockItemId}/variants/{variantId}`: idempotent; 409 unless the variant's current item
+  has zero on-hand and no open reservation; audit + `stock_item.mapped`), `InventoryLevel.stock_item_id`
+  (`id` is the pool row's and repeats for variants that share an item).
+- `availableByVariant(tx, variantIds)` is the availability read for other modules: the cart uses it, and — by a
+  one-time manager exception — so do `marketing/feed-items.ts` and `search/records.ts` (one statement each; they
+  read `inventory_level` by a column 0191 drops). The catalog read model joins the pool rows; shapes unchanged.
+- A shipment release for a variant re-mapped to another item since the order reserved is refused: 409 `conflict`,
+  decided from the reservation rows before the ledger is read (in store scope the ledger no longer shows the
+  store its movements on an item it stopped mapping — #459 review).
+- One lock routine, `lockStock`: variant rows, then any pool row that has to be created (in `stock_item_id` order,
+  before a lock is held), then every pool row by (`stock_item_id`, `warehouse_id`) — used by placement, cancel,
+  ship, a cancelled shipment and the returns module's restock (#459 review: a shipment cancel could deadlock
+  against a placement; a backorder created its row mid-placement). The backorder target is again the item's first
+  pool row in warehouse priority order.
+- Tests: the existing suites adapted mechanically to the re-keyed tables (reads through the variant's
+  `stock_item_id`); `shared-pool.test.ts` (15, the stores' side as store-scoped clients), `allocation.test.ts` (10).
+
 ### 2026-10-08 · admin customer routes + GDPR erasure (#414, Admin API 0.4.11)
 
 - `listCustomers` / `getCustomer` / `updateCustomer` / `listCustomerAddresses` / `listCustomerGroups` are real

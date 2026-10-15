@@ -5,6 +5,7 @@
 // no events (docs/domain.md); `cart.abandoned` is task 2.6's job.
 import type { Queryable, ScopedClient } from '@platform/db';
 import { AppError, notFound, validationError } from '../../lib/errors';
+import { availableByVariant } from '../inventory';
 import {
   currentDiscountEvaluator,
   currentPriceResolver,
@@ -501,13 +502,8 @@ async function loadVariant(
 
 /** Sum of `available` over active warehouses (same rule as the catalog read model). */
 async function availableQuantity(tx: Queryable, variantId: string): Promise<number> {
-  const r = await tx.query<{ available: number }>(
-    `SELECT coalesce(sum(il.available), 0)::int AS available
-     FROM inventory_level il JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
-     WHERE il.variant_id = $1`,
-    [variantId],
-  );
-  return r.rows[0]?.available ?? 0;
+  // the pool row(s) of the variant's stock item (#456): what another brand reserved on a shared item counts
+  return (await availableByVariant(tx, [variantId])).get(variantId) ?? 0;
 }
 
 /** 409 `out_of_stock` when a tracked, non-backorderable variant cannot cover `quantity` (task 2.4 adds reservations). */

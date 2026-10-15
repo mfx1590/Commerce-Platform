@@ -1,4 +1,5 @@
 import { defineRouting } from 'next-intl/routing';
+import { localeConfigFromEnv } from './locale-config.mjs';
 
 /**
  * Locale routing.
@@ -10,17 +11,8 @@ import { defineRouting } from 'next-intl/routing';
  *
  * A brand app sets its own list; the defaults match the Brand A mock (`en-GB`, `de-DE`).
  */
-function fromEnv(name: string, fallback: string): string[] {
-  const raw = process.env[name];
-  if (raw === undefined || raw.trim() === '') return fallback.split(',');
-  return raw
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => value !== '');
-}
-
-export const locales = fromEnv('SUPPORTED_LOCALES', 'en-GB,de-DE');
-export const defaultLocale = process.env.DEFAULT_LOCALE ?? locales[0] ?? 'en-GB';
+// One definition, shared with scripts/e2e-server.mjs and the e2e specs (#441 part 4).
+export const { locales, defaultLocale } = localeConfigFromEnv(process.env);
 
 export const routing = defineRouting({
   locales,

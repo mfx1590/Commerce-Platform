@@ -575,6 +575,92 @@ describe('Admin API mock (0.4.1)', () => {
   });
 });
 
+describe('Admin API mock (0.4.14 cycle counts)', () => {
+  const WAREHOUSE_ID = '00000000-0000-4000-8000-000000000021';
+  const STOCK_ITEM_ID = '71000000-0000-4000-8000-000000000001';
+  const COUNT_ID = '72000000-0000-4000-8000-000000000001';
+
+  it('cycle counts (#458): list → record → reconcile answer schema-valid counts; a bad body is refused; superseded is a 409 conflict', async () => {
+    const list = await fetch(
+      `${ADMIN}/admin/cycle-counts?status=recorded&warehouse_id=${WAREHOUSE_ID}`,
+      {
+        headers: adminHeaders,
+      },
+    );
+    expect(list.status).toBe(200);
+    const page = await json(list);
+    const items = page.items as Array<{ status: string; stock_movement_id: string | null }>;
+    expect(page.total).toBe(items.length);
+    expect(items[0]?.status).toBe('recorded');
+    expect(items[0]?.stock_movement_id).toBeNull();
+    const badFilter = await fetch(`${ADMIN}/admin/cycle-counts?status=superseded`, {
+      headers: adminHeaders,
+    });
+    expect(badFilter.status).toBe(400);
+
+    const record = (body: unknown, prefer?: string) =>
+      fetch(`${ADMIN}/admin/cycle-counts`, {
+        method: 'POST',
+        headers: prefer ? { ...adminHeaders, prefer } : adminHeaders,
+        body: JSON.stringify(body),
+      });
+    const count = {
+      warehouse_id: WAREHOUSE_ID,
+      stock_item_id: STOCK_ITEM_ID,
+      counted_quantity: 38,
+    };
+    const created = await record(count);
+    expect(created.status).toBe(201);
+    const made = await json(created);
+    expect(made.status).toBe('recorded');
+    expect(made.delta).toBeNull();
+    // Prism answers a malformed body with the operation's documented 422 when it has one (it prefers 422 to 400),
+    // so on the mock the refusal is the 422 `validation_error`; the core answers 400 for a body the schema refuses.
+    for (const bad of [
+      { ...count, counted_quantity: -1 },
+      { ...count, status: 'applied' },
+      { warehouse_id: WAREHOUSE_ID, counted_quantity: 1 },
+    ]) {
+      const refused = await record(bad);
+      expect(refused.status, JSON.stringify(bad)).toBe(422);
+      expect((await json(refused)).code).toBe('validation_error');
+    }
+
+    const superseded = await record(count, 'code=409');
+    expect(superseded.status).toBe(409);
+    const conflict = await json(superseded);
+    expect(conflict.code).toBe('conflict');
+    expect((conflict.details as { reason: string }).reason).toBe('superseded');
+    const future = await record(count, 'code=422');
+    expect(future.status).toBe(422);
+    const invalid = await json(future);
+    expect(invalid.code).toBe('validation_error');
+    expect((invalid.details as { field: string }).field).toBe('counted_at');
+
+    const reconcile = (body?: unknown, prefer?: string) =>
+      fetch(`${ADMIN}/admin/cycle-counts/${COUNT_ID}/reconcile`, {
+        method: 'POST',
+        headers: prefer ? { ...adminHeaders, prefer } : adminHeaders,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    // the body is optional: a plain reconcile, then an approval
+    for (const body of [undefined, { approve: true }]) {
+      const res = await reconcile(body);
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      const after = await json(res);
+      expect(after.status).toBe('applied');
+      expect(after.delta).toBe(-2);
+      expect(typeof after.stock_movement_id).toBe('string');
+    }
+    expect((await reconcile({ approve: 'yes' })).status).toBe(400);
+    for (const code of [403, 404, 409]) {
+      const refused = await reconcile(undefined, `code=${code}`);
+      expect(refused.status).toBe(code);
+      expect(typeof (await json(refused)).code).toBe('string');
+    }
+  });
+});
+
 describe('Store API mock (0.3.0 currency query)', () => {
   it('accepts a valid currency and rejects a malformed one', async () => {
     const ok = await fetch(`${STORE}/store/products/classic-tee?currency=EUR`, {

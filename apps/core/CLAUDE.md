@@ -111,7 +111,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `registerFraudCheck()` (it registers with the checkout's `setFraudCheck` seam itself, #231) — and the
   cart's `promotionsDiscountEvaluator` over window 9's promotions engine (#230; for tax-inclusive stores it
   converts prices, fixed amounts and minimum subtotals gross → net for the engine and the allocations back — what
-  a merchant configures and a customer sees is always gross; the engine never changes). Plain registry writes — no I/O, no configuration
+  a merchant configures and a customer sees is always gross; the engine never changes) — and window 11's
+  `stockAwareAllocationPolicy` behind the inventory module's `setAllocationPolicy` seam (#435: which warehouse a
+  placement reserves in follows the fulfillment routing rules, one warehouse per line when one covers it). Plain registry writes — no I/O, no configuration
   read.
 - Payment seam (`src/modules/checkout`): `setPaymentProvider()` registers window 7's `stripe` (#127) next to the
   built-in `manual` provider; `createSession` / `authorize` / `void` / `refund` exchange ids and amounts only (hosted
@@ -134,9 +136,12 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   scoped client + ids (idempotent on the target state); `markShipmentCreated` is a kept no-op. Edits before fulfilment
   recompute totals with the cart's `TaxCalculator` and leave money to window 7 (`order.metadata.edits`).
 - Inventory (`src/modules/inventory`): `on_hand` changes only through `moveStock` (append-only `stock_movement` +
-  one `stock.moved`); reservations are the placement stock check (`reserveForOrder` from the checkout, deterministic
-  lock order variant → warehouse priority → code), released by the orders module's cancel, consumed by window 8 via
-  `consumeForShipment`. A reservation is never a movement.
+  one `stock.moved` v2); stock lies in the SHARED POOL — per (stock item, warehouse), every variant that maps the
+  item sells from it (#456). Reservations are the placement stock check (`reserveForOrder` from the checkout; lock
+  order: variant rows, then pool rows by stock_item_id → warehouse_id; WHICH warehouse is the allocation policy,
+  `setAllocationPolicy` — window 11's engine on a running server, `priorityGreedyPolicy` when nothing is registered), released by the orders module's cancel, consumed by window 8 via `consumeForShipment`. A
+  reservation is never a movement. A movement a store caused is attributed to it; one no store caused is
+  organization scope only — the module never changes scope.
 - Returns (`src/modules/returns`): request → receive (order returned quantities + restock of resellable goods +
   `return.received`) → refund through the `RefundRequester` seam (`setRefundRequester`; manual default calls
   `PaymentProvider.refund`, no refund row — the `refund` table and `refund.*` events are window 7's; idempotent per
@@ -166,7 +171,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `adminRouter()`): window 9's `merchandisingRouter` (#162) and window 17's `marketingAdminRouter` (#181) are
   mounted, and since the quiet-state batch window 9's `mediaRouter` (#168), `pricingRouter` (#137) and
   `promotionsRouter` (#138 / #189), window 8's `shippingAdminRouter` (#131) and window 7's
-  `paymentsAdminRouter` (#126, refunds) and window 8's `fulfillmentAdminRouter` (#133, pick / pack / pick lists);
+  `paymentsAdminRouter` (#126, refunds) and window 8's `fulfillmentAdminRouter` (#133, pick / pack / pick lists)
+  and window 11's `cycleCountsAdminRouter` (#436: `GET` / `POST /admin/cycle-counts`, `POST …/reconcile`, HQ
+  `operations`);
   add one `routers.push(...)` line per new router. Nothing is pending.
 - Provider webhooks mount through `moduleWebhookRouters()` (same file): outside the `/store` and `/admin` chains,
   before any JSON body parser, each router with its own `express.raw()` — the provider's signature over the raw

@@ -13,3 +13,5 @@ packages/contracts/src/generated
 packages/events/src/generated
 docs/plan
 docs/**
+# Lighthouse CI reports a brand perf run leaves behind (gitignored per brand; window 10, 2026-10-10)
+**/.lighthouseci/

@@ -186,3 +186,44 @@
   `exportCustomer`'s description has promised since 0.4.x; the outbox can now carry it. Producer: the core's customers
   module (#414). Consumer: the GDPR export delivery (Integration 2b).
 - Store API 0.5.4, db 0.3.3 unchanged. `CONTRACTS_VERSION = '0.4.14'`; types regenerated.
+
+## 0.4.15 — 2026-10-12 (stock pool step 2, CONTRACT CHANGE #453; contracts-v0.4.15)
+
+- Admin API 0.4.13 (117 operations, was 115): `listStockItems` (`GET /admin/stock-items`, `viewer` on hq; filters `sku`,
+  `store_id`, `shared`) and `mapVariantToStockItem` (`PUT /admin/stock-items/{stockItemId}/variants/{variantId}`,
+  `operations` on hq). The mapping is idempotent (already mapped = 200, nothing written), answers 409 while the variant's
+  current item still holds on-hand stock or an open reservation at any warehouse (quantities are never merged silently),
+  and otherwise writes one audit row and one `stock_item.mapped` v1 outbox event in the same transaction. New schemas
+  `StockItem` (with its mapped `variants` and pool `levels`) and `StockLevel`.
+- `InventoryLevel` is one row per variant and warehouse carrying the numbers of the POOL row of the stock item the variant
+  maps, with a required `stock_item_id`. `id` is the pool row's, so it repeats when two variants in one response share an
+  item: key rows by (`variant_id`, `warehouse_id`) and never sum `on_hand`, `reserved` or `available` across variants
+  (window 4: note for the admin inventory screens). `reserved` counts every store's open reservations on the pool row.
+- Events 0.3.3: `stock.moved` v2 (requires `stock_item_id`; `variant_id` + `store_id` together or absent) and
+  `stock_item.mapped` v1 (ids only). db 0.3.5: migration 0191 (levels keyed by stock item and warehouse; RLS kinds `pool` /
+  `pool_ledger`) and the seed's shared item. Store API 0.5.4 unchanged; no `ERROR_CODES` change.
+- `CONTRACTS_VERSION = '0.4.15'`; types regenerated. Producer: window 1 (inventory rewrite, #456) with window 11
+  (allocation, #435). Consumers: window 4 (admin), every `stock.moved` consumer.
+
+## 0.4.16 — 2026-10-13 (cycle counts, CONTRACT CHANGE #458; contracts-v0.4.16)
+
+- Admin API 0.4.14 (120 operations, was 117), all three `operations` on `organization:hq`, tag `inventory`:
+  `listCycleCounts` (`GET /admin/cycle-counts`; filters `warehouse_id`, `stock_item_id`, `status`; newest count first),
+  `createCycleCount` (`POST /admin/cycle-counts`, 201: writes the count down as `recorded` and changes no stock) and
+  `reconcileCycleCount` (`POST /admin/cycle-counts/{cycleCountId}/reconcile`, optional body `{ approve }`). New schema
+  `CycleCount`. There is no update and no delete: a count is a record.
+- Reconciling turns the discrepancy into exactly one stock movement (reason `cycle_count`, no store, one `stock.moved`
+  in the same transaction) and status `applied`; a zero delta is `applied` with no movement. Above
+  `organization.settings.warehouse.count_tolerance` nothing moves and the answer is a 200 with status `flagged` — not an
+  error — until a call with `approve: true` applies it. Idempotent by count.
+- No new error code (the amendment on #458): a count superseded by an applied count with the same or a later
+  `counted_at` answers 409 `conflict` with `details: { reason: 'superseded', applied_cycle_count_id }`, at record time
+  and at reconcile time; a `counted_at` in the future answers 422 `validation_error` with
+  `details: { field: 'counted_at' }`. `ERROR_CODES` is unchanged (the 0.4.13 precedent: `ActivationBlocked`,
+  `InvalidSettings`).
+- The text is window 11's proposed file verbatim; the landing adds a schema-valid `example` to the three success
+  responses (the mock answers from examples) and nothing else. test/contract.test.ts walks list → record → reconcile on
+  the mock.
+- db 0.3.6: migration 0192 (`cycle_count`, RLS kind `organization_only`). Events 0.3.3 and Store API 0.5.4 unchanged: no
+  new topic, no envelope change — reconciliation emits `stock.moved` v2 through the inventory module.
+- `CONTRACTS_VERSION = '0.4.16'`; types regenerated. Producer: window 11 (hq-warehouse, #436). Consumer: window 4 (admin).

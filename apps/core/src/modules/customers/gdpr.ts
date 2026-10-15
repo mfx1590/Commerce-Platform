@@ -1,4 +1,4 @@
-// GDPR erasure and data export for one customer of one store (#414, Admin API 0.4.11; manager decisions
+// GDPR erasure and data export for one customer of one store (#414, Admin API 0.4.12 / events 0.3.2; manager decisions
 // 2026-10-08, recorded in README.md "Erasure and export"). Both run on the store-scoped tenant client the route
 // hands in, so they can never reach another store's customer.
 //

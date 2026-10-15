@@ -6,9 +6,9 @@ See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 | Spec                     | `info.version` | Operations | Areas                                                                                                  |
 | ------------------------ | -------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
 | `openapi/store-api.yaml` | 0.5.4          | 22         | store, catalog, cart, checkout, orders, customers                                                      |
-| `openapi/admin-api.yaml` | 0.4.12         | 115        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
+| `openapi/admin-api.yaml` | 0.4.14         | 120        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
 
-`CONTRACTS_VERSION` is `0.4.14` (tag contracts-v0.4.14); it ships with events 0.3.2 and db 0.3.3. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
+`CONTRACTS_VERSION` is `0.4.16` (tag contracts-v0.4.16); it ships with events 0.3.3 and db 0.3.6. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
 abandoned-cart recovery (#244/#245); 0.4.6 the pick/pack examples (#261); 0.4.7 the typed review shape (#270),
 the customers additions (#264) and the registry settings operations (#279); 0.4.8 makes `Store.currencies` / `Store.locales`
 required (#279), documents the customer self-service statuses (#303) and lets `createCart` / `completeCart` take an optional
@@ -23,7 +23,14 @@ retryable 502, not a 422; 0.4.13 (Admin API 0.4.11, #417) adds `onboardStore` (o
 `code`, the publishable key shown once) and `activateStore` (409 `details.missing[]`), and the 422 `validation_error` on a wrong-shaped
 `store.settings` value (`onboardStore`, `updateStore`); 0.4.14 (Admin API 0.4.12, #423 + events 0.3.2 #425) adds `inviteUser`'s
 documented 400, `createStore`'s 422 `InvalidSettings` (the settings shape check fires there too) and the
-`customer.export_requested` topic that `exportCustomer` promises. The marketing area (37 operations, 15 components) is specified in
+`customer.export_requested` topic that `exportCustomer` promises; 0.4.15 (Admin API 0.4.13, #453 + events 0.3.3 + db 0.3.5,
+stock pool step 2) adds `listStockItems` and `mapVariantToStockItem` (organization scope; the mapping writes
+`stock_item.mapped`), the `StockItem` / `StockLevel` schemas and a required `InventoryLevel.stock_item_id` — the row
+carries the pool's numbers, keyed by (`variant_id`, `warehouse_id`) — with `stock.moved` v2; 0.4.16 (Admin API 0.4.14,
+#458 + db 0.3.6, cycle counts) adds `listCycleCounts`, `createCycleCount` and `reconcileCycleCount` (`operations` on
+`organization:hq`) with the `CycleCount` schema — a count changes no stock until it is reconciled, a discrepancy above
+the tolerance is a 200 with status `flagged`, and a superseded count is a 409 `conflict` with `details.reason` (no new
+error code). The marketing area (37 operations, 15 components) is specified in
 [docs/marketing-scope.md](../../docs/marketing-scope.md); the search area (6 merchandising operations, 5 components) in
 CONTRACT CHANGE #162; 0.4.1 adds product media (5 operations, 5 components, #168), `getPromotion` / `updatePromotion`
 with `buy_x_get_y` and `stackable` / `exclusive` (#189) and a spelled-out `ProductFeed` (#194); 0.4.2 adds order

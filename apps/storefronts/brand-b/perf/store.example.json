@@ -1,0 +1,26 @@
+{
+  "id": "00000000-0000-4000-8000-000000000032",
+  "code": "brand-b",
+  "name": "Stonecrop",
+  "default_currency": "GBP",
+  "default_locale": "en-GB",
+  "default_country": "GB",
+  "currencies": ["GBP"],
+  "locales": ["en-GB"],
+  "sales_channel": {
+    "id": "32000006-0000-4000-8000-000000000001",
+    "code": "web",
+    "type": "web"
+  },
+  "content_space_id": "brand-b",
+  "search_index": "brand-b_products",
+  "payment": {
+    "methods": ["card", "invoice"]
+  },
+  "theme": {
+    "color": {
+      "primary": "#047857",
+      "primaryForeground": "#ffffff"
+    }
+  }
+}

@@ -6,6 +6,7 @@
 //
 // Marketing owns none of these tables and writes none of them.
 import type { Queryable } from '@platform/db';
+import { availableByVariant } from '../inventory';
 import type { Availability, FeedError, FeedFilters, FeedItem, ProductFeedRow } from './feed-types';
 
 interface ProductRow {
@@ -144,13 +145,14 @@ export async function buildFeedItems(
   );
   const priceOf = new Map(prices.rows.map((p) => [p.variant_id, p]));
 
-  const inventory = await tx.query<{ variant_id: string; available: number }>(
-    `SELECT il.variant_id, SUM(il.available)::int AS available
-       FROM inventory_level il JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
-      WHERE il.variant_id = ANY($1)
-      GROUP BY il.variant_id`,
-    [variantIds],
-  );
+  // The shared stock pool (#456; manager exception, window 17 not active): availability is the inventory
+  // module's read — the pool row(s) of each variant's stock item — instead of a direct read of its table.
+  const inventory = {
+    rows: [...(await availableByVariant(tx, variantIds))].map(([variant_id, available]) => ({
+      variant_id,
+      available,
+    })),
+  };
   const availableOf = new Map(inventory.rows.map((i) => [i.variant_id, i.available]));
 
   const media = await tx.query<MediaRow>(
