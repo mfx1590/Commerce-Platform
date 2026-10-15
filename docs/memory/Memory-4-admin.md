@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-09 · Contracts: contracts-v0.4.14 (Admin API 0.4.12) · Branch: `admin/phase3` · Manager: "Manager session five" · Status: Phase 3 docket COMPLETE — next admin task comes with the warehouse/HQ dashboard work; quiet
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.16 on main (Admin API 0.4.14; 0.4.15/contracts-v0.4.17 after PR #467) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #468 assigned — setup done, PLAN next (after /compact)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -446,6 +446,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#468 (2026-10-15) — stock pool + cycle-count screens (HQ), pool-keyed inventory rows, payment
+  status "voided".** Assigned by "Manager session six". Done so far: merged main e18e73d into
+  admin/phase3, install, packages rebuilt. PR #467 (contracts-v0.4.17, Admin API 0.4.15 with
+  "voided") still OPEN. Next: read #468 + window 11's brief (`git show
+  origin/warehouse/phase3:docs/memory/Memory-11-warehouse.md`, section "For window 4"), send the
+  manager a PLAN (screens, files, tests, missing reads) BEFORE building; missing reads (pool-row
+  movement ledger, reservations with allocation_rule) → ONE `CONTRACT CHANGE:` issue, never an
+  invented endpoint. Rules: unit/component tests OK; ask before any e2e/Lighthouse; shared dev DB is
+  pooled — never reseed/migrate, no docker. One PR "Closes #468".
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
   #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles
