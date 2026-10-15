@@ -769,6 +769,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stock-items/{stockItemId}/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The pool row's ledger — every stock movement of this stock item, newest first
+         * @description HQ only. Includes pool movements no store caused (`store_id` and `variant_id` null: receipts, transfers, cycle counts) and movements a store caused (a sale, a return), which keep the store and variant they were written with. 404 for an unknown stock item.
+         */
+        get: operations["listStockItemMovements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stock-items/{stockItemId}/reservations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Reservations held on this stock item's pool rows, with the allocation rule that placed each
+         * @description HQ only; every store's reservations. `status=open` (default) = not released and not expired; `released` = released or expired; `all` = both. Newest first. 404 for an unknown stock item.
+         */
+        get: operations["listStockItemReservations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cycle-counts/{cycleCountId}/reconcile-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * What reconcileCycleCount would do now — recomputed as-of on-hand, delta and status — without writing
+         * @description Same computation as `reconcileCycleCount` (on-hand as of `counted_at` = on-hand now minus the movements written since; delta = `counted_quantity` minus that; `would_status` from `count_tolerance`), but writes nothing and takes no lock, so a later reconcile or approval may compute a different delta if stock moves in between. An `applied` count answers its stored values with `would_status: applied`. Superseded counts answer the same 409 as `reconcileCycleCount` (`details.reason` = `superseded`); 404 as reconcile (unknown count, or its warehouse is deactivated).
+         */
+        get: operations["previewCycleCountReconcile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/shipping-options": {
         parameters: {
             query?: never;
@@ -2360,6 +2426,79 @@ export interface components {
             approved_at: string | null;
             /** Format: date-time */
             reconciled_at: string | null;
+        };
+        StockMovement: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            /**
+             * Format: uuid
+             * @description null = a pool movement no store caused
+             */
+            store_id: string | null;
+            /** Format: uuid */
+            variant_id: string | null;
+            /** @description Signed; never 0 */
+            delta: number;
+            /** @enum {string} */
+            reason: "receipt" | "sale" | "return" | "adjustment" | "transfer_in" | "transfer_out" | "cycle_count";
+            /** @description e.g. order, shipment, cycle_count */
+            reference_type: string | null;
+            /** Format: uuid */
+            reference_id: string | null;
+            /**
+             * Format: uuid
+             * @description null for a system source
+             */
+            actor_id: string | null;
+            note: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        StockReservation: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            /**
+             * Format: uuid
+             * @description The store that reserved
+             */
+            store_id: string;
+            /** Format: uuid */
+            variant_id: string;
+            /**
+             * Format: uuid
+             * @description null for a cart hold
+             */
+            order_id: string | null;
+            quantity: number;
+            /** @description Why this warehouse: store_country | store_default | same_country | same_region | priority; `split:<rule>` for the second and later warehouse of a split line; `backorder` for a shortfall reserved anyway. null for rows written before 0191. */
+            allocation_rule: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** Format: date-time */
+            released_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CycleCountPreview: {
+            /** Format: uuid */
+            cycle_count_id: string;
+            on_hand_as_of_count: number;
+            /** @description counted_quantity minus on_hand_as_of_count, as of computed_at */
+            delta: number;
+            /** @description organization.settings.warehouse.count_tolerance (unset = 0) */
+            count_tolerance: number;
+            /** @enum {string} */
+            would_status: "applied" | "flagged";
+            /** Format: date-time */
+            computed_at: string;
         };
         ShippingOptionInput: {
             code: string;
@@ -5452,6 +5591,180 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             /** @description `conflict`: a later count of this stock item and warehouse has already been applied (`details.reason` = `superseded`), or the adjustment would take on-hand below zero (the inventory module refuses it; recount) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listStockItemMovements: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 2,
+                     *       "items": [
+                     *         {
+                     *           "id": "73000000-0000-4000-8000-000000000001",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "store_id": null,
+                     *           "variant_id": null,
+                     *           "delta": -2,
+                     *           "reason": "cycle_count",
+                     *           "reference_type": "cycle_count",
+                     *           "reference_id": "72000000-0000-4000-8000-000000000001",
+                     *           "actor_id": "00000000-0000-4000-8000-000000000043",
+                     *           "note": null,
+                     *           "created_at": "2026-10-12T08:31:00Z"
+                     *         },
+                     *         {
+                     *           "id": "73000000-0000-4000-8000-000000000002",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "variant_id": "30000000-0000-4000-8000-000000000301",
+                     *           "delta": -1,
+                     *           "reason": "sale",
+                     *           "reference_type": "order",
+                     *           "reference_id": "30000000-0000-4000-8000-000000000501",
+                     *           "actor_id": null,
+                     *           "note": null,
+                     *           "created_at": "2026-10-11T14:05:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        page: number;
+                        limit: number;
+                        total: number;
+                        items: components["schemas"]["StockMovement"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listStockItemReservations: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                status?: "open" | "released" | "all";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "74000000-0000-4000-8000-000000000001",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "variant_id": "30000000-0000-4000-8000-000000000301",
+                     *           "order_id": "30000000-0000-4000-8000-000000000501",
+                     *           "quantity": 1,
+                     *           "allocation_rule": "store_country",
+                     *           "expires_at": null,
+                     *           "released_at": null,
+                     *           "created_at": "2026-10-11T14:05:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        page: number;
+                        limit: number;
+                        total: number;
+                        items: components["schemas"]["StockReservation"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    previewCycleCountReconcile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "cycle_count_id": "72000000-0000-4000-8000-000000000001",
+                     *       "on_hand_as_of_count": 40,
+                     *       "delta": -2,
+                     *       "count_tolerance": 0,
+                     *       "would_status": "flagged",
+                     *       "computed_at": "2026-10-12T09:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CycleCountPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description A later count of this stock item and warehouse has already been applied, or the stock was corrected by hand after this count (`conflict`, `details.reason` = `superseded`) */
             409: {
                 headers: {
                     [name: string]: unknown;

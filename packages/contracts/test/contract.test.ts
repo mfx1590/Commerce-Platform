@@ -661,6 +661,69 @@ describe('Admin API mock (0.4.14 cycle counts)', () => {
   });
 });
 
+describe('Admin API mock (0.4.16 stock pool reads, #469)', () => {
+  const STOCK_ITEM_ID = '71000000-0000-4000-8000-000000000001';
+  const COUNT_ID = '72000000-0000-4000-8000-000000000001';
+  const WAREHOUSE_ID = '00000000-0000-4000-8000-000000000021';
+
+  it('movements and reservations answer schema-valid pages; a bad filter is refused', async () => {
+    const movements = await fetch(
+      `${ADMIN}/admin/stock-items/${STOCK_ITEM_ID}/movements?warehouse_id=${WAREHOUSE_ID}`,
+      { headers: adminHeaders },
+    );
+    expect(movements.status).toBe(200);
+    const ledger = await json(movements);
+    const moves = ledger.items as Array<{ store_id: string | null; reason: string }>;
+    expect(ledger.total).toBe(moves.length);
+    // a pool movement no store caused, and one a store caused
+    expect(moves.some((m) => m.store_id === null && m.reason === 'cycle_count')).toBe(true);
+    expect(moves.some((m) => typeof m.store_id === 'string')).toBe(true);
+
+    for (const status of ['open', 'released', 'all']) {
+      const res = await fetch(
+        `${ADMIN}/admin/stock-items/${STOCK_ITEM_ID}/reservations?status=${status}`,
+        { headers: adminHeaders },
+      );
+      expect(res.status, status).toBe(200);
+      const page = await json(res);
+      const items = page.items as Array<{ allocation_rule: string | null; quantity: number }>;
+      expect(page.total).toBe(items.length);
+      expect(items[0]?.quantity).toBeGreaterThanOrEqual(1);
+    }
+    const badStatus = await fetch(
+      `${ADMIN}/admin/stock-items/${STOCK_ITEM_ID}/reservations?status=expired`,
+      { headers: adminHeaders },
+    );
+    expect(badStatus.status).toBe(400);
+    for (const path of ['movements', 'reservations']) {
+      for (const code of [403, 404]) {
+        const refused = await fetch(`${ADMIN}/admin/stock-items/${STOCK_ITEM_ID}/${path}`, {
+          headers: { ...adminHeaders, prefer: `code=${code}` },
+        });
+        expect(refused.status, `${path} ${code}`).toBe(code);
+      }
+    }
+  });
+
+  it('the reconcile preview is a GET answering the recomputed delta and would-be status; 404 and 409 as reconcile', async () => {
+    const res = await fetch(`${ADMIN}/admin/cycle-counts/${COUNT_ID}/reconcile-preview`, {
+      headers: adminHeaders,
+    });
+    expect(res.status).toBe(200);
+    const preview = await json(res);
+    expect(preview.cycle_count_id).toBe(COUNT_ID);
+    expect(preview.delta).toBe(-2);
+    expect(preview.would_status).toBe('flagged');
+    for (const code of [403, 404, 409]) {
+      const refused = await fetch(`${ADMIN}/admin/cycle-counts/${COUNT_ID}/reconcile-preview`, {
+        headers: { ...adminHeaders, prefer: `code=${code}` },
+      });
+      expect(refused.status).toBe(code);
+      expect(typeof (await json(refused)).code).toBe('string');
+    }
+  });
+});
+
 describe('Store API mock (0.3.0 currency query)', () => {
   it('accepts a valid currency and rejects a malformed one', async () => {
     const ok = await fetch(`${STORE}/store/products/classic-tee?currency=EUR`, {

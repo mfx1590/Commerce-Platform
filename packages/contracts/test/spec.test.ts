@@ -190,7 +190,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.15/);
+    expect(text).toMatch(/version: 0\.4\.16/);
     for (const tag of [
       'registry',
       'catalog',
@@ -754,5 +754,72 @@ describe('payment_status voided (contracts 0.4.17, #466)', () => {
         ]);
       }
     }
+  });
+});
+
+describe('stock pool reads (contracts 0.4.18, Admin API 0.4.16, #469)', () => {
+  const text = read('admin-api.yaml');
+  const ops = operations(text);
+  const op = (id: string) => ops.find((o) => o.id === id);
+  const permission = (id: string) =>
+    op(id)!
+      .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('listStockItemMovements / listStockItemReservations at viewer and previewCycleCountReconcile at operations, all on hq', () => {
+    expect(ops.length).toBeGreaterThanOrEqual(123);
+    const expected: Record<string, [string, string]> = {
+      listStockItemMovements: ['viewer', 'organization:hq'],
+      listStockItemReservations: ['viewer', 'organization:hq'],
+      previewCycleCountReconcile: ['operations', 'organization:hq'],
+    };
+    for (const [id, perm] of Object.entries(expected)) {
+      expect(op(id), id).toBeDefined();
+      expect(permission(id), id).toEqual(perm);
+      for (const code of ['200', '401', '403', '404']) {
+        expect(op(id)!.body, `${id} lacks ${code}`).toContain(`'${code}':`);
+      }
+      // the mock answers from the example: each success response carries one
+      expect(op(id)!.body, `${id} lacks an example`).toMatch(/\n {14}example:\n/);
+    }
+    expect(text).toMatch(
+      /\n {2}\/admin\/stock-items\/\{stockItemId\}\/movements:\n {4}parameters:[\s\S]*?\n {4}get:\n/,
+    );
+    expect(text).toMatch(
+      /\n {2}\/admin\/stock-items\/\{stockItemId\}\/reservations:\n {4}parameters:[\s\S]*?\n {4}get:\n/,
+    );
+    // the preview is a safe GET: a lost body can never turn it into a reconcile
+    expect(text).toMatch(
+      /\n {2}\/admin\/cycle-counts\/\{cycleCountId\}\/reconcile-preview:\n {4}parameters:[\s\S]*?\n {4}get:\n {6}tags: \[inventory\]\n {6}operationId: previewCycleCountReconcile\n/,
+    );
+    expect(op('previewCycleCountReconcile')!.body).not.toMatch(/requestBody:/);
+    expect(op('previewCycleCountReconcile')!.body).toMatch(/takes no lock/);
+    expect(op('previewCycleCountReconcile')!.body).toMatch(/'409':/);
+    expect(op('listStockItemReservations')!.body).toMatch(
+      /enum: \[open, released, all\], default: open/,
+    );
+  });
+
+  it('StockMovement, StockReservation and CycleCountPreview are components with every property required', () => {
+    for (const name of ['StockMovement', 'StockReservation', 'CycleCountPreview']) {
+      expect(text, name).toMatch(new RegExp(`\\n {4}${name}:\\n {6}type: object\\n`));
+    }
+    const schema = (name: string) => {
+      const start = text.indexOf(`\n    ${name}:\n`);
+      const next = text.slice(start + 1).search(/\n {4}\w+:\n/);
+      return text.slice(start, start + 1 + next);
+    };
+    expect(schema('StockMovement')).toMatch(
+      /enum: \[receipt, sale, return, adjustment, transfer_in, transfer_out, cycle_count\]/,
+    );
+    expect(schema('StockMovement')).toMatch(/store_id:\s*\{\s*type: \[string, 'null'\]/);
+    // allocation_rule is a free string (split:<rule>), not an enum
+    expect(schema('StockReservation')).toMatch(
+      /allocation_rule:\n\s+type: \[string, 'null'\]\n\s+description:/,
+    );
+    expect(schema('StockReservation')).toMatch(/quantity: \{ type: integer, minimum: 1 \}/);
+    expect(schema('CycleCountPreview')).toMatch(
+      /would_status: \{ type: string, enum: \[applied, flagged\] \}/,
+    );
   });
 });
