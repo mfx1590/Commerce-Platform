@@ -37,11 +37,12 @@ are still recorded — and confirms in the transaction that clears the review.
 | From                 | To                               |
 | -------------------- | -------------------------------- |
 | `awaiting`           | `authorized`, `failed`           |
-| `authorized`         | `captured`, `failed`             |
+| `authorized`         | `captured`, `failed`, `voided`   |
 | `captured`           | `partially_refunded`, `refunded` |
 | `partially_refunded` | `refunded`                       |
 | `refunded`           | — (terminal)                     |
 | `failed`             | `authorized`                     |
+| `voided`             | — (terminal)                     |
 
 `fulfillment_status`
 
@@ -95,7 +96,10 @@ is not a 409) and returns the Admin `Order`.
 `cancelOrder` is allowed only while `fulfillment_status = unfulfilled` (409 otherwise — use a return). Every
 **authorised, uncaptured** payment is voided through its `PaymentProvider.void()` (checkout module; `manual` is a
 no-op that always succeeds; a `failed` void → 402 `payment_failed`, nothing written) and the `payment` row goes
-`cancelled`; a captured payment is window 7's to refund on `order.cancelled`. Reservations are released here
+`cancelled`; a captured payment is window 7's to refund on `order.cancelled`. An order whose `payment_status`
+was `authorized` then reads **`voided`** (#466): its own transition, so `order.updated` (`changed_fields:
+['payment_status']`) is written before `order.cancelled` (payload unchanged), both in the cancel's transaction.
+`awaiting` / `failed` (nothing held) and `captured` / refunds (window 7's) keep their value. `voided` is terminal. Reservations are released here
 (`releaseForOrder`, inventory module) before the transition — through this module's own cancel, never from
 window 8's side. The wrappers' idempotency read happens under the row lock (`FOR UPDATE`) so a concurrent change
 cannot turn an intended no-op into a 409 (#174 review).

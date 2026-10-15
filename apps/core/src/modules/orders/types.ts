@@ -36,6 +36,7 @@ export const PAYMENT_STATUSES: readonly PaymentStatus[] = [
   'partially_refunded',
   'refunded',
   'failed',
+  'voided',
 ];
 export const FULFILLMENT_STATUSES: readonly FulfillmentStatus[] = [
   'unfulfilled',
