@@ -101,8 +101,8 @@ describe('HQ route access, per role', () => {
 describe('store route access, per role', () => {
   // Admin API 0.2.1 raised customer reads from `viewer` to `support`, so Customers is no longer
   // part of what merely holding a relation on the store gets you.
-  const viewerOnly = ['catalog', 'orders', 'promotions'];
-  const withCustomers = ['catalog', 'orders', 'customers', 'promotions'];
+  const viewerOnly = ['catalog', 'orders', 'inventory', 'promotions'];
+  const withCustomers = ['catalog', 'orders', 'inventory', 'customers', 'promotions'];
   const staff = [...viewerOnly, 'content', 'marketing', 'settings'];
   const everything = [...withCustomers, 'content', 'marketing', 'settings'];
 

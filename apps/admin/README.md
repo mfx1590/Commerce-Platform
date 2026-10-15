@@ -645,6 +645,55 @@ the Status field of the Store view's General form (store_admin cannot call `acti
 owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
 other fields first and then calls `activateStore`.
 
+## HQ warehouse and store inventory (task 3.4, issue #468; Admin API 0.4.15)
+
+**HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs. The page loads the
+principal first: anyone without `operations` on hq gets the section's refusal and no warehouse
+read is made with their token. The section is gated on
+`operations` because the pool and count work all need it, although `listStockItems` alone is
+viewer on hq — so an analyst sees no warehouse entry (a read-only view is a later follow-up if
+asked; manager decision 2026-10-15).
+
+**Stock items** (`listStockItems`, viewer on hq): one entry per item, with the variants that map it
+per brand and the **pool** numbers per warehouse (reserved = every brand's reservations). Filters:
+sku substring, mapped by a store, shared by more than one store. **Pool a variant** (operations on
+hq, `mapVariantToStockItem`) picks a variant of another item on the page or takes a variant id, and
+asks first, naming both brands — it changes which shelf that brand sells from. The 409 (the
+variant's current item still holds stock or open reservations) is said with `details.on_hand` /
+`details.open_reservations`: move the stock first. 404 = unknown item or variant.
+
+**Cycle counts** (`listCycleCounts`, operations on hq): newest first, filters warehouse / stock
+item / status; `counted_by` null shows as WMS. **Record a count** (`createCycleCount`) changes no
+stock. **Reconcile** (`recorded` counts, no body) answers applied (one movement of the delta, none
+for 0) or flagged (above `count_tolerance`). **Approve** (`flagged` counts, `{ approve: true }`)
+shows the flag's delta labelled "delta when flagged — recomputed on approval; may differ" (plus
+the pool's on-hand now) and says the applied delta afterwards: the core recomputes under the
+row's lock, and no read previews it yet (CONTRACT CHANGE #469 asks for one). The screen advises
+reconciling the **newest** count of a shelf and tags older open counts. Errors, in words
+(`describeCycleCountError` in `src/lib/warehouse`): 409 superseded — a newer applied count
+(`details.applied_cycle_count_id`) or a hand correction after the count (`details.stock_movement_id`),
+the count stays a record; 409 otherwise — on-hand would go negative, count again; 422
+`counted_at` in the future, under the field; 404 — unknown count, warehouse or item, or a
+deactivated warehouse; 400 under the field it names.
+
+**Store · Inventory** (`/{storeId}/inventory`, viewer on the store, `listInventoryLevels`): rows
+keyed by (variant, warehouse) — `id` is the pool row's and repeats when two variants share an
+item — with the pool's numbers, never summed across variants. The "shared with N brands" badge
+needs `listStockItems` (viewer on hq), so only HQ principals see it; a store admin sees the
+stock item id. Warehouse names come from `listWarehouses`, which is also viewer on hq: a store
+principal never calls it and sees a short warehouse id (`Warehouse 00000000`), with the filter
+offering the warehouses its rows are in — until CONTRACT CHANGE #475 puts `warehouse_code` on the
+row. No movement form here: stock is corrected through cycle
+counts in HQ.
+
+Every mutation is refused server-side before the API unless the principal is operations on hq
+(`WAREHOUSE_PERMISSIONS` in the shared guard; reads and mutations pinned against the yaml in
+`test/warehouse-actions.test.ts`). Not yet shown — no Admin API read (CONTRACT CHANGE #469): an
+item's movement ledger and its reservations with `allocation_rule`. Journey `e2e/warehouse.spec.ts`
+writes no stock (the dev database is pooled and shared): the store admin's refusal and the
+inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
+to its confirmation and cancels, and reads the counts.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:

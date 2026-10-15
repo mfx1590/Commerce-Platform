@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.9.
+ * Contract: Admin API 0.4.15.
  */
 
 import 'server-only';
@@ -765,4 +765,74 @@ export async function listAuditLog(
   query: Query,
 ): Promise<ApiResult<AdminResponse<'listAuditLog'>>> {
   return adminCall<'listAuditLog'>({ path: '/admin/audit-log', query });
+}
+
+// ---------------------------------------------------------------------------- warehouse (#468)
+
+/**
+ * Inventory rows of the store's variants (`viewer` on `store:{store_id}`). Each row carries the
+ * POOL row's numbers and `stock_item_id`; `id` is the pool row's and repeats when two variants share
+ * an item — key rows by (variant_id, warehouse_id), never sum across variants.
+ */
+export async function listInventoryLevels(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listInventoryLevels'>>> {
+  return adminCall<'listInventoryLevels'>({ path: '/admin/inventory/levels', query });
+}
+
+/** The organization's stock items, their variants per store and the pool level per warehouse (viewer on hq). */
+export async function listStockItems(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listStockItems'>>> {
+  return adminCall<'listStockItems'>({ path: '/admin/stock-items', query });
+}
+
+/**
+ * Pools a variant onto a stock item (operations on hq). Idempotent; 409 while the variant's
+ * current item still holds stock or open reservations (`details.on_hand`, `open_reservations`).
+ */
+export async function mapVariantToStockItem(
+  stockItemId: string,
+  variantId: string,
+): Promise<ApiResult<AdminResponse<'mapVariantToStockItem'>>> {
+  return adminCall<'mapVariantToStockItem'>({
+    path: buildPath('/admin/stock-items/{stockItemId}/variants/{variantId}', {
+      stockItemId,
+      variantId,
+    }),
+    method: 'PUT',
+  });
+}
+
+/** Cycle counts, newest first (operations on hq). */
+export async function listCycleCounts(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listCycleCounts'>>> {
+  return adminCall<'listCycleCounts'>({ path: '/admin/cycle-counts', query });
+}
+
+/** `createCycleCount`'s request body, straight from the generated operation. */
+export type CycleCountBody =
+  operations['createCycleCount']['requestBody']['content']['application/json'];
+
+/** Writes a count down (status `recorded`); changes no stock. */
+export async function createCycleCount(
+  body: CycleCountBody,
+): Promise<ApiResult<AdminResponse<'createCycleCount'>>> {
+  return adminCall<'createCycleCount'>({ path: '/admin/cycle-counts', method: 'POST', body });
+}
+
+/**
+ * Reconciles a count: `applied` or `flagged`. `approve` applies whatever the delta is now
+ * (recomputed under the pool row's lock) and records the approver. No body when not approving.
+ */
+export async function reconcileCycleCount(
+  cycleCountId: string,
+  approve = false,
+): Promise<ApiResult<AdminResponse<'reconcileCycleCount'>>> {
+  return adminCall<'reconcileCycleCount'>({
+    path: buildPath('/admin/cycle-counts/{cycleCountId}/reconcile', { cycleCountId }),
+    method: 'POST',
+    ...(approve ? { body: { approve: true } } : {}),
+  });
 }
