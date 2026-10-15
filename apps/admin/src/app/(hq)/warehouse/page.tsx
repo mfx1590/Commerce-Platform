@@ -114,6 +114,27 @@ export default async function WarehousePage({ searchParams }: { searchParams: Pr
   const brand = (storeId: string) => storeLabel.get(storeId) ?? storeId;
   const warehouseName = (id: string) => warehouseLabel.get(id) ?? id;
 
+  // Sections are awaited here, not nested as async components: one async boundary per page.
+  const body =
+    tab === 'items'
+      ? await StockItems({
+          raw,
+          canOperate: access.canOperate,
+          brand,
+          warehouseName,
+          storeOptions: stores.ok ? stores.data.items.map((s) => ({ id: s.id, name: s.name })) : [],
+        })
+      : await CycleCounts({
+          raw,
+          canOperate: access.canOperate,
+          warehouseName,
+          warehouseOptions: warehouses.ok
+            ? warehouses.data.items
+                .filter((w) => w.is_active)
+                .map((w) => ({ value: w.id, label: w.name }))
+            : [],
+        });
+
   return (
     <HqSectionGuard id="warehouse">
       <div className="space-y-6">
@@ -133,30 +154,7 @@ export default async function WarehousePage({ searchParams }: { searchParams: Pr
             Cycle counts
           </Link>
         </nav>
-        {tab === 'items' ? (
-          <StockItems
-            raw={raw}
-            canOperate={access.canOperate}
-            brand={brand}
-            warehouseName={warehouseName}
-            storeOptions={
-              stores.ok ? stores.data.items.map((s) => ({ id: s.id, name: s.name })) : []
-            }
-          />
-        ) : (
-          <CycleCounts
-            raw={raw}
-            canOperate={access.canOperate}
-            warehouseName={warehouseName}
-            warehouseOptions={
-              warehouses.ok
-                ? warehouses.data.items
-                    .filter((w) => w.is_active)
-                    .map((w) => ({ value: w.id, label: w.name }))
-                : []
-            }
-          />
-        )}
+        {body}
       </div>
     </HqSectionGuard>
   );

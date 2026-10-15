@@ -149,9 +149,13 @@ export function describeCycleCountError(
   }
   if (status === 400 || status === 422) {
     const mapped = mapServerError({ status: 400, error }, knownFields);
-    return mapped.formError === null && Object.keys(mapped.fieldErrors).length === 0
-      ? { fieldErrors: {}, formError: `The request was not accepted: ${error.message}` }
-      : mapped;
+    // A field the form owns goes under it; anything else is said as a refused request.
+    return Object.keys(mapped.fieldErrors).length > 0
+      ? mapped
+      : {
+          fieldErrors: {},
+          formError: `The request was not accepted: ${mapped.formError ?? error.message}`,
+        };
   }
   return mapServerError(failure, knownFields);
 }
