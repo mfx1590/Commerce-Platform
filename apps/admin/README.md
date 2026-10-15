@@ -676,6 +676,24 @@ the count stays a record; 409 otherwise — on-hand would go negative, count aga
 `counted_at` in the future, under the field; 404 — unknown count, warehouse or item, or a
 deactivated warehouse; 400 under the field it names.
 
+**Ledger and reservations** (Admin API 0.4.16, #469): each stock item links to its
+**Movements** (`listStockItemMovements`, newest first, warehouse filter) — signed delta, reason in
+words, who caused it (the brand and its variant, or **pool** when no store did: receipts, transfers,
+counts), reference, actor (`system` when none) — and its **Reservations**
+(`listStockItemReservations`, `open` by default, or `released` / `all`) — brand, variant sku, order
+or "cart hold", quantity, and why that warehouse was chosen: the store's country, the store's
+default warehouse, same country / same region as the address, warehouse priority, "split — further
+warehouse, by …" for `split:<rule>`, "backorder — reserved beyond stock"; an unknown rule is shown
+as it is. Both are `?item=&view=` cards under the list, paged by `dpage`. Both reads are viewer on
+hq; the section stays gated on `operations` (manager, 2026-10-15).
+
+**Approve previews first:** opening the dialog calls `previewCycleCountReconcile` (through a server
+action guarded on operations on hq) and shows the delta as it would be applied now, the would-be
+status against the tolerance, and when it was computed — "recomputed again on approval — may differ
+(the preview holds no lock)". A superseded count is said and Approve is not offered (the preview's
+only documented 409 is superseded, so any 409 there reads that way); any other failure falls back
+to the flag's delta with the same warning.
+
 **Store · Inventory** (`/{storeId}/inventory`, viewer on the store, `listInventoryLevels`): rows
 keyed by (variant, warehouse) — `id` is the pool row's and repeats when two variants share an
 item — with the pool's numbers, never summed across variants. The "shared with N brands" badge
@@ -688,8 +706,7 @@ counts in HQ.
 
 Every mutation is refused server-side before the API unless the principal is operations on hq
 (`WAREHOUSE_PERMISSIONS` in the shared guard; reads and mutations pinned against the yaml in
-`test/warehouse-actions.test.ts`). Not yet shown — no Admin API read (CONTRACT CHANGE #469): an
-item's movement ledger and its reservations with `allocation_rule`. Journey `e2e/warehouse.spec.ts`
+`test/warehouse-actions.test.ts`). Journey `e2e/warehouse.spec.ts`
 writes no stock (the dev database is pooled and shared): the store admin's refusal and the
 inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
 to its confirmation and cancels, and reads the counts.

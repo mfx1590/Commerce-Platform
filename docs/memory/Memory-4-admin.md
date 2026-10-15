@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens) — plan sent
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens) — built, gate + e2e next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -448,7 +448,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 ## In progress
 - **#468 follow-up B — PR "Refs #468" on the #476 reads (2026-10-15).** #474 MERGED = ce0b823
   (#468 closed). admin/phase3 = main ce0b823, Admin API 0.4.16 / contracts-v0.4.18; install + package
-  build done. PLAN sent to the manager — wait for its answer before building. (1) ledger
+  build done. PLAN APPROVED (manager: log one line per path of the conditional approve step; keep
+  the `operations` gate). BUILT: f2f48a1 screens, 74ff8fd tests, then e2e + docs. Gotcha: the
+  preview's 409 has no spec example, so Prism sends `code: string` and no `details.reason` →
+  the action reads ANY preview 409 as superseded (its only documented 409). (1) ledger
   (`listStockItemMovements`) and (2) reservations with allocation_rule in words
   (`listStockItemReservations`, open/released/all) as `?item=&view=` cards on the stock items tab;
   (3) approve dialog uses `previewCycleCountReconcile` via a guarded server action (409 superseded

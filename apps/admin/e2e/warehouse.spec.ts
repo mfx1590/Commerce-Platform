@@ -65,6 +65,26 @@ test.describe('warehouse', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toHaveCount(0);
 
+    // The item's ledger and its reservations (#469 reads; viewer on hq, read-only).
+    const sku = (await item
+      .getByRole('table', { name: /^Pool levels of / })
+      .getAttribute('aria-label'))!.replace(/^Pool levels of /, '');
+    await item.getByRole('link', { name: `Movements of ${sku}` }).click();
+    await page.waitForURL(/[?&]view=movements/);
+    await expect(
+      page.getByRole('table', { name: `Movements of ${sku}` }).or(page.getByText('No movements.')),
+    ).toBeVisible();
+    await page
+      .getByRole('navigation', { name: `Details of ${sku}` })
+      .getByRole('link', { name: 'Reservations' })
+      .click();
+    await page.waitForURL(/[?&]view=reservations/);
+    await expect(
+      page
+        .getByRole('table', { name: `Reservations of ${sku}` })
+        .or(page.getByText('No open reservations.')),
+    ).toBeVisible();
+
     await page.getByRole('link', { name: 'Cycle counts' }).click();
     await page.waitForURL(/\/warehouse\?tab=counts$/);
     await expect(page.getByRole('note')).toContainText(/reconcile the newest/);
@@ -72,5 +92,20 @@ test.describe('warehouse', () => {
     await expect(
       page.getByRole('table', { name: 'Cycle counts' }).or(page.getByText('No counts match.')),
     ).toBeVisible();
+
+    // The approve dialog previews the recomputed delta (a GET; nothing is written). Conditional on
+    // the shared data having a flagged count, so the log says which path ran.
+    const approve = page.getByRole('button', { name: /^Approve the count of / }).first();
+    if ((await approve.count()) === 0) {
+      console.info('warehouse e2e: approve preview SKIPPED — no flagged count on this database');
+      return;
+    }
+    console.info('warehouse e2e: approve preview OPENED on the first flagged count');
+    await approve.click();
+    const confirm = page.getByRole('alertdialog', { name: /^Confirm approving the count of / });
+    await expect(confirm).toContainText(/Delta now:|Delta when flagged:|can never be applied/);
+    // Never approve on the shared database: Cancel (or Close, when the count is superseded).
+    await confirm.getByRole('button', { name: /^(Cancel|Close)$/ }).click();
+    await expect(confirm).toHaveCount(0);
   });
 });
