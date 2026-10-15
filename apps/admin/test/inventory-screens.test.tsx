@@ -54,6 +54,7 @@ const shared = [
     stock_item_id: ITEM,
     sku: 'A-TEE-M-RED',
     warehouse_id: WAREHOUSE,
+    warehouse_code: 'wh-eu',
     ...numbers,
   },
   {
@@ -63,6 +64,7 @@ const shared = [
     stock_item_id: ITEM,
     sku: 'B-TEE-M-RED',
     warehouse_id: WAREHOUSE,
+    warehouse_code: 'wh-eu',
     ...numbers,
   },
 ];
