@@ -206,6 +206,11 @@ export function olderOpenCounts(
   return older;
 }
 
+/** A warehouse the principal cannot name (no hq read): the start of its id. */
+export function shortWarehouseLabel(id: string): string {
+  return `Warehouse ${id.slice(0, 8)}`;
+}
+
 /** A signed delta as people read it: +3, −2, 0. */
 export function formatDelta(delta: number | null): string {
   if (delta === null) return '—';

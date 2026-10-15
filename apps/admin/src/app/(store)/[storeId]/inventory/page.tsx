@@ -4,7 +4,7 @@ import { RequestErrorPanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { listInventoryLevels, listStockItems, listWarehouses } from '@/lib/api/admin';
 import { loadPrincipal } from '@/lib/principal';
-import { warehouseAccess } from '@/lib/warehouse';
+import { shortWarehouseLabel, warehouseAccess } from '@/lib/warehouse';
 import { InventoryTable } from './inventory-table';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +24,8 @@ function param(raw: Params, key: string): string {
  * Store · Inventory (#468): one row per (variant, warehouse), carrying the POOL row's numbers. Two
  * variants that share a stock item show the same numbers — never summed. The "shared with N brands"
  * badge needs `listStockItems` (viewer on organization:hq), so only HQ principals see it; a store
- * admin sees the stock item id. Stock is corrected in HQ · Warehouse (cycle counts), not here.
+ * admin sees the stock item id. Warehouse names need `listWarehouses` (also viewer on hq): a store
+ * admin sees a short warehouse id instead. Stock is corrected in HQ · Warehouse (cycle counts), not here.
  */
 export default async function InventoryPage({
   params,
@@ -55,13 +56,24 @@ export default async function InventoryPage({
       page,
       limit: LIMIT,
     }),
-    listWarehouses(),
+    // Both are viewer on organization:hq: a store principal's token never calls them.
+    hq ? listWarehouses() : Promise.resolve(null),
     hq ? listStockItems({ store_id: storeId, shared: 'true', limit: 100 }) : Promise.resolve(null),
   ]);
 
-  const warehouseNames: Record<string, string> = Object.fromEntries(
-    warehouses.ok ? warehouses.data.items.map((w) => [w.id, w.name]) : [],
-  );
+  // Names come from listWarehouses (HQ only). A store principal has no read that names a
+  // warehouse, so it sees a short id, and the filter offers the warehouses its rows are in.
+  const named: Record<string, string> =
+    warehouses !== null && warehouses.ok
+      ? Object.fromEntries(warehouses.data.items.map((w) => [w.id, w.name]))
+      : {};
+  const warehouseNames: Record<string, string> = { ...named };
+  for (const id of [
+    ...(levels.ok ? levels.data.items.map((level) => level.warehouse_id) : []),
+    ...(warehouseId === '' ? [] : [warehouseId]),
+  ]) {
+    warehouseNames[id] ??= shortWarehouseLabel(id);
+  }
   // Stock item id → number of brands mapping it; only shared items are listed (shared=true).
   const sharedBrands: Record<string, number> | null =
     shared === null || !shared.ok

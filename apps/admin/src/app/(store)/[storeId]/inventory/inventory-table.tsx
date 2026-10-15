@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import type { AdminComponents } from '@/lib/api/admin-client';
-import { inventoryRowKey } from '@/lib/warehouse';
+import { inventoryRowKey, shortWarehouseLabel } from '@/lib/warehouse';
 
 type InventoryLevel = AdminComponents['InventoryLevel'];
 
@@ -40,7 +40,7 @@ export function InventoryTable({
             return (
               <tr key={inventoryRowKey(row)} data-row-key={inventoryRowKey(row)}>
                 <td className="py-2 font-mono text-xs">{row.sku}</td>
-                <td>{warehouseNames[row.warehouse_id] ?? row.warehouse_id}</td>
+                <td>{warehouseNames[row.warehouse_id] ?? shortWarehouseLabel(row.warehouse_id)}</td>
                 <td className="space-x-2">
                   <span className="text-muted font-mono text-xs" title={row.stock_item_id}>
                     {row.stock_item_id.slice(0, 8)}

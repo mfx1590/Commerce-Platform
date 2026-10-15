@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed — issue #468 follow-up (review of #474)
+
+- `/warehouse` reads nothing for a principal without `operations` on hq: the principal is loaded
+  first and the guard answers alone (no `listStores` / `listWarehouses` / `listStockItems` /
+  `listCycleCounts` with a token the section refuses).
+- Store inventory calls `listWarehouses` (viewer on hq) for HQ principals only; a store principal
+  sees a short warehouse id and the filter offers the warehouses in its rows, instead of a 403,
+  raw ids and an empty filter.
+
 ### Added — issue #468: HQ warehouse (stock pool, cycle counts), store inventory, payment status voided (Admin API 0.4.15)
 
 - `/warehouse` (operations on hq): stock items with variants per brand and pool levels per

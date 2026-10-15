@@ -152,11 +152,29 @@ describe('the inventory page', () => {
     );
   }
 
-  it('a store admin sees the stock item id and never calls listStockItems', async () => {
+  it('a store admin sees the stock item id and never calls the hq reads (listStockItems, listWarehouses)', async () => {
     await renderPage();
     expect(api.listStockItems).not.toHaveBeenCalled();
+    expect(api.listWarehouses).not.toHaveBeenCalled();
     expect(screen.queryByText(/Shared with/)).toBeNull();
-    expect(screen.getAllByRole('row')).toHaveLength(3);
+    const table = screen.getByRole('table', { name: 'Inventory levels' });
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    // No read names the warehouse for a store principal: a short id, and the filter offers it.
+    expect(within(table).getAllByText('Warehouse 00000000')).toHaveLength(2);
+    expect(
+      within(screen.getByLabelText('Warehouse')).getByRole('option', {
+        name: 'Warehouse 00000000',
+      }),
+    ).toHaveValue(WAREHOUSE);
+  });
+
+  it('an HQ principal gets the warehouse names', async () => {
+    principalOf.current = 'operations';
+    await renderPage();
+    expect(api.listWarehouses).toHaveBeenCalled();
+    const table = screen.getByRole('table', { name: 'Inventory levels' });
+    expect(within(table).getAllByText('Main DC')).toHaveLength(2);
+    expect(screen.getByRole('option', { name: 'Main DC' })).toHaveValue(WAREHOUSE);
   });
 
   it('an HQ principal gets the shared badge (listStockItems for this store, shared only)', async () => {

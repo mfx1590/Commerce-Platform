@@ -647,7 +647,9 @@ other fields first and then calls `activateStore`.
 
 ## HQ warehouse and store inventory (task 3.4, issue #468; Admin API 0.4.15)
 
-**HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs. The section is gated on
+**HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs. The page loads the
+principal first: anyone without `operations` on hq gets the section's refusal and no warehouse
+read is made with their token. The section is gated on
 `operations` because the pool and count work all need it, although `listStockItems` alone is
 viewer on hq — so an analyst sees no warehouse entry (a read-only view is a later follow-up if
 asked; manager decision 2026-10-15).
@@ -678,7 +680,10 @@ deactivated warehouse; 400 under the field it names.
 keyed by (variant, warehouse) — `id` is the pool row's and repeats when two variants share an
 item — with the pool's numbers, never summed across variants. The "shared with N brands" badge
 needs `listStockItems` (viewer on hq), so only HQ principals see it; a store admin sees the
-stock item id. No movement form here: stock is corrected through cycle counts in HQ.
+stock item id. Warehouse names come from `listWarehouses`, which is also viewer on hq: a store
+principal never calls it and sees a short warehouse id (`Warehouse 00000000`), with the filter
+offering the warehouses its rows are in. No movement form here: stock is corrected through cycle
+counts in HQ.
 
 Every mutation is refused server-side before the API unless the principal is operations on hq
 (`WAREHOUSE_PERMISSIONS` in the shared guard; reads and mutations pinned against the yaml in

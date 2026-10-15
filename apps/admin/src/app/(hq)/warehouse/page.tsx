@@ -93,14 +93,20 @@ export default async function WarehousePage({ searchParams }: { searchParams: Pr
   const raw = await searchParams;
   const tab = param(raw, 'tab') === 'counts' ? 'counts' : 'items';
 
-  const [principal, stores, warehouses] = await Promise.all([
-    loadPrincipal(),
-    listStores({ limit: 100 }),
-    listWarehouses(),
-  ]);
+  // The principal first: nobody the section guard refuses reaches a single warehouse read with
+  // their token (the guard asks for the same `operations` on hq as `warehouseAccess`).
+  const principal = await loadPrincipal();
   const access = principal.ok
     ? warehouseAccess(principal.data)
     : { canReadStockItems: false, canOperate: false };
+  if (!access.canOperate) {
+    return (
+      <HqSectionGuard id="warehouse">
+        <></>
+      </HqSectionGuard>
+    );
+  }
+  const [stores, warehouses] = await Promise.all([listStores({ limit: 100 }), listWarehouses()]);
   const storeLabel = new Map(
     stores.ok ? stores.data.items.map((store) => [store.id, store.name] as const) : [],
   );

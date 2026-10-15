@@ -223,18 +223,24 @@ describe('stock items', () => {
     expect(api.listStockItems).toHaveBeenCalledWith({ page: 1, limit: 25 });
   });
 
-  it('operations is offered the pool action; analyst only reads', async () => {
+  it('operations is offered the pool action', async () => {
     await renderPage();
     expect(screen.getAllByRole('button', { name: /Pool a variant onto/ })).toHaveLength(2);
-    vi.clearAllMocks();
-    document.body.innerHTML = '';
-    principalOf.current = 'analyst';
-    api.listStores.mockResolvedValue(ok({ items: [], page: 1, limit: 100, total: 0 }));
-    api.listWarehouses.mockResolvedValue(ok({ items: [] }));
-    api.listStockItems.mockResolvedValue(ok({ items: [pooled], page: 1, limit: 25, total: 1 }));
-    await renderPage();
-    expect(screen.queryByRole('button', { name: /Pool a variant onto/ })).toBeNull();
   });
+
+  it.each(['storeAdmin', 'storeStaff', 'analyst', 'finance'] as const)(
+    '%s (no operations on hq) makes no warehouse read with their token, on either tab',
+    async (role) => {
+      principalOf.current = role;
+      await renderPage();
+      await renderPage({ tab: 'counts' });
+      expect(api.listStores).not.toHaveBeenCalled();
+      expect(api.listWarehouses).not.toHaveBeenCalled();
+      expect(api.listStockItems).not.toHaveBeenCalled();
+      expect(api.listCycleCounts).not.toHaveBeenCalled();
+      expect(screen.queryByRole('list', { name: 'Stock items' })).toBeNull();
+    },
+  );
 
   it('a 403 from listStockItems renders the refusal panel', async () => {
     api.listStockItems.mockResolvedValue({

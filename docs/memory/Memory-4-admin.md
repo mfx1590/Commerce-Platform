@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.16 on main (Admin API 0.4.14; 0.4.15/contracts-v0.4.17 after PR #467) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #468 in review — PR #474
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 (#468) review MERGE, in the merge queue; follow-up PR "Refs #468" prepared locally, pushed only after the merge is confirmed
 
 ## Identity (does not change)
 Owned paths (write):
@@ -448,7 +448,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 ## In progress
 - **#468 (2026-10-15) — stock pool + cycle-count screens (HQ), pool-keyed inventory rows, payment
   status "voided".** Assigned by "Manager session six". Done so far: merged main f2c7df5 (#467
-  merged: Admin API 0.4.15, voided) into admin/phase3 (local, unpushed), install, packages rebuilt.
+  merged: Admin API 0.4.15, voided) into admin/phase3 (pushed with PR #474), install, packages rebuilt.
   **PLAN APPROVED by the manager 2026-10-15 (Q1/Q2/Q3 all yes). BUILT** (local commits e6312ef
   wrappers/guard/actions, 684d45a HQ /warehouse, d61a5bc store /inventory + Voided, e449462 tests,
   then contract test + e2e spec + docs). CONTRACT CHANGE **#469** filed (item movements, item
@@ -481,6 +481,18 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   machine: `pnpm --filter @platform/auth-sdk fga:seed` in wt-admin first (rewrites the store/model ids
   after an OpenFGA restart). Review of #474 in progress — push nothing until the verdict (this note
   is a local commit only).
+- **#468 follow-up — PR "Refs #468" (manager review of #474, 2026-10-15)**, built locally while #474
+  sits in the queue; push only after the manager confirms #474's merge, merging main first.
+  (1) `/warehouse` loads the principal FIRST and returns the guard alone unless `operations` on hq —
+  no listStores/listWarehouses/listStockItems/listCycleCounts with a refused token (test per role,
+  both tabs). (2) Store inventory: listWarehouses is viewer on hq → called for HQ principals only;
+  a store principal sees `Warehouse <8 chars of id>` (`shortWarehouseLabel`) and the filter offers
+  the warehouses in its rows (no store-readable warehouse name exists in Admin API 0.4.15 — a
+  `warehouse_code` on InventoryLevel would need a CONTRACT CHANGE; not filed, offered to the manager).
+  (3) This header corrected. Then the #469 screens once the manager says #469 has landed.
+  Gate (local, while window 1 held the machine): lint 0, typecheck 0; full admin unit run 759/781 —
+  20 of the 22 were 5 s timeouts across unrelated files (CPU starvation, the #398-era class); the 14
+  failed files rerun alone 261/261. Rerun the full suite when the machine is quiet before pushing.
   Plan: HQ /warehouse (tabs Stock items | Cycle counts, replaces placeholder), NEW store screen
   /[storeId]/inventory (none existed — F1), orders voided (neutral, filter), wrappers + guard rows
   + src/app/actions/warehouse.ts. F2: listStockItems is viewer on hq → "shared with N brands"
