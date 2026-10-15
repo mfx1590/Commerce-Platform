@@ -481,18 +481,29 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   machine: `pnpm --filter @platform/auth-sdk fga:seed` in wt-admin first (rewrites the store/model ids
   after an OpenFGA restart). Review of #474 in progress — push nothing until the verdict (this note
   is a local commit only).
-- **#468 follow-up — PR "Refs #468" (manager review of #474, 2026-10-15)**, built locally while #474
-  sits in the queue; push only after the manager confirms #474's merge, merging main first.
+  **#474 REFUSED by the queue (2026-10-15):** CI "admin e2e against the core (advisory)" red, both in
+  my core-only warehouse tests that never ran locally. (1) `getByLabel('Variant')` also matched
+  "Or a variant id" (substring), so with only the shared item listed no id was typed and the dialog
+  never opened → exact labels, the shared item picked by its badge, dialog located at page level.
+  (2) Two owner sign-ins in one file + hq-roles + hq-onboarding spent both TOTP windows ("refused
+  twice") → ONE owner journey per file (both tabs), and `e2e/owner.ts` now tracks the steps it
+  tried and waits for a fresh 30 s step (extending the test's timeout by its 100 s budget).
+  Manager then (messages crossed): the review follow-ups (1–3) go INTO #474 too — e2e fix on top of
+  90bbb49, one push, PR body gets an "After review" section. Lesson: a core-only test that cannot run locally must
+  still be read against the core's data shape (one shared item ⇒ no pick list).
+- **#474 review follow-ups (manager review, 2026-10-15) — pushed INTO #474** (not a separate PR,
+  manager decision after the queue refused #474).
   (1) `/warehouse` loads the principal FIRST and returns the guard alone unless `operations` on hq —
   no listStores/listWarehouses/listStockItems/listCycleCounts with a refused token (test per role,
   both tabs). (2) Store inventory: listWarehouses is viewer on hq → called for HQ principals only;
   a store principal sees `Warehouse <8 chars of id>` (`shortWarehouseLabel`) and the filter offers
   the warehouses in its rows (no store-readable warehouse name exists in Admin API 0.4.15 — a
-  `warehouse_code` on InventoryLevel would need a CONTRACT CHANGE; not filed, offered to the manager).
+  `warehouse_code` on InventoryLevel → CONTRACT CHANGE **#475** filed on the manager's YES; keep the
+  short-id label until it lands, then use warehouse_code for every principal).
   (3) This header corrected. Then the #469 screens once the manager says #469 has landed.
-  Gate (local, while window 1 held the machine): lint 0, typecheck 0; full admin unit run 759/781 —
-  20 of the 22 were 5 s timeouts across unrelated files (CPU starvation, the #398-era class); the 14
-  failed files rerun alone 261/261. Rerun the full suite when the machine is quiet before pushing.
+  First gate: lint 0, typecheck 0; full admin unit 759/781 — 20 of 22 were 5 s timeouts (CPU
+  starvation from the MANAGER's gate run on the same laptop); the 14 files alone 261/261. Mock e2e
+  after the warehouse fix: 26 passed + 7 skipped (core-only), 0 failed.
   Plan: HQ /warehouse (tabs Stock items | Cycle counts, replaces placeholder), NEW store screen
   /[storeId]/inventory (none existed — F1), orders voided (neutral, filter), wrappers + guard rows
   + src/app/actions/warehouse.ts. F2: listStockItems is viewer on hq → "shared with N brands"
