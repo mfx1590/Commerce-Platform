@@ -17,6 +17,7 @@ import {
 import { describeCycleCountError, describeMapError } from '@/lib/warehouse';
 import { SEED, type PrincipalKey } from './fixtures/principals';
 import type * as SectionGuard from '@/components/shell/section-guard';
+import type { AdminError } from '@/lib/api/admin-client';
 
 vi.mock('server-only', () => ({}));
 const refresh = vi.hoisted(() => vi.fn());
@@ -50,7 +51,12 @@ const api = vi.hoisted(() => ({
 vi.mock('@/lib/api/admin', () => api);
 
 const ok = <T,>(data: T) => ({ ok: true as const, status: 200, data });
-const err = (status: number, code: string, message: string, details?: unknown) => ({
+const err = (
+  status: number,
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+): { status: number; error: AdminError } => ({
   status,
   error: { code, message, ...(details === undefined ? {} : { details }) },
 });

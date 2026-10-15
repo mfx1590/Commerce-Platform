@@ -449,7 +449,20 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 - **#468 (2026-10-15) — stock pool + cycle-count screens (HQ), pool-keyed inventory rows, payment
   status "voided".** Assigned by "Manager session six". Done so far: merged main f2c7df5 (#467
   merged: Admin API 0.4.15, voided) into admin/phase3 (local, unpushed), install, packages rebuilt.
-  **PLAN sent to the manager 2026-10-15 — waiting for its answer; build nothing until it arrives.**
+  **PLAN APPROVED by the manager 2026-10-15 (Q1/Q2/Q3 all yes). BUILT** (local commits e6312ef
+  wrappers/guard/actions, 684d45a HQ /warehouse, d61a5bc store /inventory + Voided, e449462 tests,
+  then contract test + e2e spec + docs). CONTRACT CHANGE **#469** filed (item movements, item
+  reservations with allocation_rule, `GET …/reconcile-preview` — a GET so a dropped body can never
+  turn a preview into a write; implementer window 1; manager decides same day). Approve ships the
+  "delta when flagged — recomputed on approval; may differ" label regardless. Unit/component +
+  Prism contract (port 4220) run freely; **mock e2e + advisory core leg: ask the manager ONCE when
+  ready, it hands over the machine.** Push the main merge only with the first real push. Report PR
+  up + head sha, then checks finished. Decisions: warehouse section stays `operations` (counts and
+  pool work), though listStockItems alone is viewer; "Voided" is the one capitalised status label
+  (issue wording; STATUS_LABELS override) — flagged in the PR.
+  Gate 2026-10-15: lint 0, typecheck 0, admin unit 776/776, Prism contract warehouse 9/9.
+  **#469 ACCEPTED** (a+b window 1, c window 11; Admin API 0.4.16 / contracts 0.4.18): the movements,
+  reservations and reconcile-preview screens are a SMALL FOLLOW-UP PR after #469 lands — never in #468.
   Plan: HQ /warehouse (tabs Stock items | Cycle counts, replaces placeholder), NEW store screen
   /[storeId]/inventory (none existed — F1), orders voided (neutral, filter), wrappers + guard rows
   + src/app/actions/warehouse.ts. F2: listStockItems is viewer on hq → "shared with N brands"

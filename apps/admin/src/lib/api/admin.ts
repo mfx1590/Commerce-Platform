@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.9.
+ * Contract: Admin API 0.4.15.
  */
 
 import 'server-only';
