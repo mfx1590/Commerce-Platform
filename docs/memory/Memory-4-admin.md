@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens + warehouse_code) — mock e2e, then PR
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens + warehouse_code) — PR up (see In progress)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -460,6 +460,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   default worker count flaked 3–9 timeouts per run (slow multi-step tests: onboarding wizard,
   catalog matrix — files pass alone; Duration 32–41 s vs 24 s before) → `npx vitest run
   --maxWorkers=4` 816/816 (53 s). Watch CI's unit job.
+  Mock e2e 2026-10-16: 26 passed + 7 skipped (core-only), 0 failed — app built (130 s) and started
+  by hand on :3200 (Playwright's 180 s build+start wait timed out), mocks on :4411/:4414: after the
+  sleep Windows reserved 4302–4401 (and 4162–4261) → EACCES on 4311/4314. Check `netsh int ipv4
+  show excludedportrange protocol=tcp` before picking ports. Machine freed (3200/4411/4414/9000).
   Found by the gate: ApproveButton shared ONE transition for the preview and the approval → the
   button read "Approving…" while only the preview had resolved → split into two transitions; tests
   wait for Approve to be enabled. Also fixed `test/contract-form.test.tsx` (sync read after an async
