@@ -436,6 +436,7 @@ describe('admin services and RLS', () => {
     for (const i of onlyA.items) {
       expect(i.store_id).toBe(A);
       expect(i.warehouse_id).toBe(EU);
+      expect(i.warehouse_code).toBe('wh-eu'); // #475: a store principal can name the warehouse
     }
     const onlyB = await listInventoryLevels(b, { limit: 100, warehouse_id: EU });
     for (const i of onlyB.items) expect(i.store_id).toBe(B);
@@ -446,6 +447,10 @@ describe('admin services and RLS', () => {
     const bySku = await listInventoryLevels(org, { sku: v!.sku });
     expect(bySku.items.every((i) => i.sku === v!.sku)).toBe(true);
     expect(bySku.items.map((i) => i.warehouse_id).sort()).toEqual([EU, US].sort());
+    expect(Object.fromEntries(bySku.items.map((i) => [i.warehouse_id, i.warehouse_code]))).toEqual({
+      [EU]: 'wh-eu',
+      [US]: 'wh-us',
+    });
     const low = await listInventoryLevels(org, { below_available: 1, limit: 100 });
     expect(low.items.every((i) => i.available < 1)).toBe(true);
     // store A's client cannot filter its way into store B's rows

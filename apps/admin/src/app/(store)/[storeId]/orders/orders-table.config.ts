@@ -35,6 +35,7 @@ export const PAYMENT_STATUSES = [
   'partially_refunded',
   'refunded',
   'failed',
+  'voided',
 ] as const;
 export const FULFILLMENT_STATUSES = [
   'unfulfilled',
@@ -64,6 +65,8 @@ export const STATUS_TONES: Record<string, PillTone> = {
   partially_refunded: 'warning',
   refunded: 'neutral',
   failed: 'danger',
+  // the authorization was released by cancelOrder before any capture (#466) — terminal, not an error
+  voided: 'neutral',
   // fulfilment + shipment
   unfulfilled: 'neutral',
   partially_fulfilled: 'warning',

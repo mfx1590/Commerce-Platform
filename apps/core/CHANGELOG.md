@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-15 · `InventoryLevel.warehouse_code` (CONTRACT CHANGE #475, contracts 0.4.19)
+
+- Every `InventoryLevel` (`GET /admin/inventory/levels`, the `POST /admin/inventory/movements` response) carries
+  the required, read-only `warehouse_code`, joined from `warehouse` in the query that already reads the row (no
+  extra round trip; `ensureLevel`'s locked read joins it too — the lock stays on the pool row). A store
+  principal reads the codes of the warehouses its own rows reference; no permission widens.
+- Test (#476 review): a reservation that expired without being released is `released`, not `open`.
+
 ### 2026-10-15 · HQ reads of a pool row: its ledger and its reservations (CONTRACT CHANGE #469, contracts 0.4.18)
 
 - `GET /admin/stock-items/{stockItemId}/movements` (`listStockItemMovements`) and

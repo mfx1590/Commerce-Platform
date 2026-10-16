@@ -127,7 +127,9 @@ variant stays `in_stock` with `available_quantity: 0`).
 
 - `GET /admin/inventory/levels` (`listInventoryLevels`, `viewer` on `store:{store_id}`, `store_id` an optional
   query — the permission and scoping are unchanged): **one row per (variant, warehouse)** of the variants the
-  caller may see, each carrying the numbers of its item's pool row and `stock_item_id`. `id` is the pool row's:
+  caller may see, each carrying the numbers of its item's pool row, `stock_item_id` and `warehouse_code` (the
+  warehouse row's code, read in the same query — CONTRACT CHANGE #475; a store principal learns only the codes of
+  warehouses its own rows already reference). `id` is the pool row's:
   two variants that share an item repeat it and show the same numbers — key rows by (`variant_id`,
   `warehouse_id`) and never sum across variants. Filters `store_id`, `warehouse_id`, `variant_id`, `sku`
   (the variant's, substring), `below_available`; `sort` sku | available | on_hand + `order`.
@@ -135,7 +137,8 @@ variant stays `in_stock` with `available_quantity: 0`).
   only): body `variant_id`, `warehouse_id`, `delta`, `reason` ∈ receipt | adjustment | transfer_in | transfer_out
   | cycle_count, `note`. Addressed by variant, the movement lands on that variant's stock item and is **store-less**
   (no store caused it): ledger `store_id` / `variant_id` NULL, envelope store null. One audit row
-  (`stock_movement.create`, no store) keeps the variant it was addressed by. 201 `InventoryLevel`.
+  (`stock_movement.create`, no store) keeps the variant it was addressed by. 201 `InventoryLevel` (with
+  `warehouse_code`, from the same locked read of the pool row).
 - `GET /admin/stock-items` (`listStockItems`, `viewer` on `organization:hq`; organization scope): the pool by
   item sku — each item with the variants mapped to it (`variant_id`, `store_id`, the variant's own sku) and its
   level per active warehouse. Filters `sku` (substring), `store_id` (items a variant of that store maps),

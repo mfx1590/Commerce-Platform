@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Fixed — issue #468 follow-up (review of #474)
+
+- `/warehouse` reads nothing for a principal without `operations` on hq: the principal is loaded
+  first and the guard answers alone (no `listStores` / `listWarehouses` / `listStockItems` /
+  `listCycleCounts` with a token the section refuses).
+- Store inventory calls `listWarehouses` (viewer on hq) for HQ principals only; a store principal
+  sees a short warehouse id and the filter offers the warehouses in its rows, instead of a 403,
+  raw ids and an empty filter.
+
+### Added — issue #468: HQ warehouse (stock pool, cycle counts), store inventory, payment status voided (Admin API 0.4.15)
+
+- `/warehouse` (operations on hq): stock items with variants per brand and pool levels per
+  warehouse; "Pool a variant" (`mapVariantToStockItem`) asks first naming both brands, 409 "move the
+  stock first" with on-hand/open reservations, 404 in words. Cycle counts: list (warehouse, item,
+  status), Record (`createCycleCount`), Reconcile (applied / flagged), Approve (`approve: true`)
+  with the flag's delta labelled "recomputed on approval; may differ"; 409 superseded (both
+  causes), 409 negative on-hand, 422 `counted_at`, 404, 400 said as window 11's brief writes them;
+  "reconcile the newest count of a shelf", older open counts tagged.
+- `/{storeId}/inventory` (new Store section, viewer): rows keyed by (variant, warehouse) with the
+  pool's numbers, never summed; "Shared with N brands" only for viewers on hq.
+- Orders: payment status `voided` (#466) — lowercase like every status label, neutral tone, in the
+  payment filter.
+- Wrappers `listInventoryLevels`, `listStockItems`, `mapVariantToStockItem`, `listCycleCounts`,
+  `createCycleCount`, `reconcileCycleCount`; guard rows (operations on hq); `src/lib/warehouse`.
+  Tests: `test/warehouse-actions.test.ts` (25), `test/warehouse-screens.test.tsx` (30),
+  `test/inventory-screens.test.tsx` (7), navigation/role-access lists + inventory, Prism contract
+  `test-contract/warehouse.test.tsx` (9, port 4220), e2e `e2e/warehouse.spec.ts` (4, not yet run).
+- CONTRACT CHANGE #469 filed: item movement ledger, item reservations with `allocation_rule`,
+  reconcile preview — nothing calls them yet.
+
 ### Added — issue #428 B: brand onboarding wizard and readiness panel; #420 activation 409
 
 - `/onboarding`: legal entity → store basics → primary domain → review → `onboardStore`; the 201's

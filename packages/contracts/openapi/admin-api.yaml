@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.16
+  version: 0.4.17
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -28,6 +28,8 @@ info:
     `/admin/stock-items/{stockItemId}` (`viewer` on `organization:hq`) with `StockMovement` / `StockReservation`, and
     `previewCycleCountReconcile` (`operations` on `organization:hq`, a safe GET that writes nothing and takes no lock)
     with `CycleCountPreview`. Additive.
+    0.4.17 (#475) adds the required, read-only `warehouse_code` to `InventoryLevel` (the warehouse row's `code`), so
+    a store-scoped caller can name the warehouse without `listWarehouses`. No permission changes.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -1749,6 +1751,7 @@ paths:
                         stock_item_id: 71000000-0000-4000-8000-000000000001,
                         sku: TEE-M-RED,
                         warehouse_id: 00000000-0000-4000-8000-000000000021,
+                        warehouse_code: wh-eu,
                         on_hand: 12,
                         reserved: 1,
                         incoming: 0,
@@ -1796,6 +1799,7 @@ paths:
                   stock_item_id: 71000000-0000-4000-8000-000000000001,
                   sku: TEE-M-RED,
                   warehouse_id: 00000000-0000-4000-8000-000000000021,
+                  warehouse_code: wh-eu,
                   on_hand: 22,
                   reserved: 1,
                   incoming: 0,
@@ -5337,6 +5341,7 @@ components:
           stock_item_id,
           sku,
           warehouse_id,
+          warehouse_code,
           on_hand,
           reserved,
           incoming,
@@ -5349,6 +5354,10 @@ components:
         stock_item_id: { type: string, format: uuid }
         sku: { type: string }
         warehouse_id: { type: string, format: uuid }
+        warehouse_code:
+          type: string
+          readOnly: true
+          description: The warehouse's `code` (from the warehouse row), so a store-scoped caller can name the warehouse without `listWarehouses` (viewer on organization:hq).
         on_hand: { type: integer }
         reserved: { type: integer }
         incoming: { type: integer }
