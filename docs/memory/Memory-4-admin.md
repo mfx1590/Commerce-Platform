@@ -464,6 +464,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   by hand on :3200 (Playwright's 180 s build+start wait timed out), mocks on :4411/:4414: after the
   sleep Windows reserved 4302–4401 (and 4162–4261) → EACCES on 4311/4314. Check `netsh int ipv4
   show excludedportrange protocol=tcp` before picking ports. Machine freed (3200/4411/4414/9000).
+  **PR #481 opened 2026-10-16** (Refs #468; code + main merge dc99138; head = this memory commit).
+  Next: report PR + head + "machine free" to the manager, then "checks finished". Push nothing more
+  unless the manager says so.
   Found by the gate: ApproveButton shared ONE transition for the preview and the approval → the
   button read "Approving…" while only the preview had resolved → split into two transitions; tests
   wait for Approve to be enabled. Also fixed `test/contract-form.test.tsx` (sync read after an async
