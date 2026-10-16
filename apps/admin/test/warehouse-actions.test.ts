@@ -303,11 +303,21 @@ describe('previewCycleCountAction', () => {
     );
   });
 
-  it('a 409 without details.reason is still superseded (the preview has no other 409)', async () => {
+  it('a 409 without details.reason (the mock) falls back to superseded', async () => {
     api.previewCycleCountReconcile.mockResolvedValue(fail(409, 'conflict', 'conflict'));
     const result = await actions.previewCycleCountAction(COUNT);
     expect(result).toMatchObject({ status: 'error', superseded: true });
     expect(result.status === 'error' && result.formError).toMatch(/can never be applied/);
+  });
+
+  it('a 409 with another details.reason is not mislabelled as superseded', async () => {
+    api.previewCycleCountReconcile.mockResolvedValue(
+      fail(409, 'conflict', 'on hand would go below zero', { reason: 'negative_on_hand' }),
+    );
+    const result = await actions.previewCycleCountAction(COUNT);
+    expect(result).toMatchObject({ status: 'error' });
+    expect(result).not.toHaveProperty('superseded');
+    expect(result.status === 'error' && result.formError).toMatch(/below zero/);
   });
 
   it('404 is said, and is not superseded', async () => {

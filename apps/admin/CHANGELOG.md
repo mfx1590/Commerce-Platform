@@ -2,8 +2,15 @@
 
 ## Unreleased
 
-### Added — #468 follow-up: stock item ledger, reservations, approve preview (Admin API 0.4.16)
+### Added — #468 follow-up: stock item ledger, reservations, approve preview (Admin API 0.4.16), warehouse codes (0.4.17)
 
+- Store inventory names each row's warehouse by its `warehouse_code` (#475) for store
+  principals instead of a short id; HQ principals keep the names from `listWarehouses`.
+- The approve preview reads a 409 by its `details.reason`; only a reason-less 409 (the mock) is
+  taken as superseded.
+- `ApproveButton`: preview and approval in separate transitions (the button no longer reads
+  "Approving…" while only the preview has resolved); `test/contract-form.test.tsx` waits for
+  the async validation message.
 - `/warehouse?item=&view=movements`: an item's ledger (`listStockItemMovements`) — brand or pool,
   reason in words, signed delta, reference, actor; warehouse filter, own paging (`dpage`).
 - `/warehouse?item=&view=reservations`: its reservations (`listStockItemReservations`, open /

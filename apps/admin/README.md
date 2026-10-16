@@ -690,18 +690,19 @@ hq; the section stays gated on `operations` (manager, 2026-10-15).
 **Approve previews first:** opening the dialog calls `previewCycleCountReconcile` (through a server
 action guarded on operations on hq) and shows the delta as it would be applied now, the would-be
 status against the tolerance, and when it was computed — "recomputed again on approval — may differ
-(the preview holds no lock)". A superseded count is said and Approve is not offered (the preview's
-only documented 409 is superseded, so any 409 there reads that way); any other failure falls back
-to the flag's delta with the same warning.
+(the preview holds no lock)". A superseded count (`details.reason: superseded`) is said and Approve is
+not offered; a 409 with another reason is described as such; only a 409 with no reason at all
+(the Prism mock's generated body) is read as superseded, the one 409 the spec documents. Any
+other failure falls back to the flag's delta with the same warning.
 
 **Store · Inventory** (`/{storeId}/inventory`, viewer on the store, `listInventoryLevels`): rows
 keyed by (variant, warehouse) — `id` is the pool row's and repeats when two variants share an
 item — with the pool's numbers, never summed across variants. The "shared with N brands" badge
 needs `listStockItems` (viewer on hq), so only HQ principals see it; a store admin sees the
 stock item id. Warehouse names come from `listWarehouses`, which is also viewer on hq: a store
-principal never calls it and sees a short warehouse id (`Warehouse 00000000`), with the filter
-offering the warehouses its rows are in — until CONTRACT CHANGE #475 puts `warehouse_code` on the
-row. No movement form here: stock is corrected through cycle
+principal never calls it and sees the row's `warehouse_code` (Admin API 0.4.17, #475), with the
+filter offering the warehouses its rows are in; only a filtered warehouse with no rows on the
+page falls back to a short id (`Warehouse 00000000`). No movement form here: stock is corrected through cycle
 counts in HQ.
 
 Every mutation is refused server-side before the API unless the principal is operations on hq

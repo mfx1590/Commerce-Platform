@@ -249,7 +249,10 @@ export function allocationRuleLabel(rule: string | null): string {
 
 export const RESERVATION_STATUSES = ['open', 'released', 'all'] as const;
 
-/** A warehouse the principal cannot name (no hq read): the start of its id. */
+/**
+ * A warehouse nothing on the page names: no hq read and no row carrying its `warehouse_code` (a
+ * filtered warehouse with no rows). The start of its id.
+ */
 export function shortWarehouseLabel(id: string): string {
   return `Warehouse ${id.slice(0, 8)}`;
 }

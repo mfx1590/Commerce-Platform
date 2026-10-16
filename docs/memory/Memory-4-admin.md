@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens) — built, gate + e2e next
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens + warehouse_code) — mock e2e, then PR
 
 ## Identity (does not change)
 Owned paths (write):
@@ -451,7 +451,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   build done. PLAN APPROVED (manager: log one line per path of the conditional approve step; keep
   the `operations` gate). BUILT: f2f48a1 screens, 74ff8fd tests, then e2e + docs. Gotcha: the
   preview's 409 has no spec example, so Prism sends `code: string` and no `details.reason` →
-  the action reads ANY preview 409 as superseded (its only documented 409).
+  the action reads a preview 409 by `details.reason` ('superseded' → said, Approve hidden; another
+  reason → described, not superseded) and only a REASON-LESS 409 (the mock) as superseded
+  (manager 2026-10-16). Item (4) included: #477 MERGED 2f82b92 (contracts-v0.4.19, Admin API
+  0.4.17); store inventory shows `warehouse_code`, short id only for a filtered warehouse with
+  no rows. Main 2f82b92 merged into admin/phase3, install + rebuild done.
+  Gate after the merge: lint 0, typecheck 0, contract 14/14, ownership OK. Full admin unit at the
+  default worker count flaked 3–9 timeouts per run (slow multi-step tests: onboarding wizard,
+  catalog matrix — files pass alone; Duration 32–41 s vs 24 s before) → `npx vitest run
+  --maxWorkers=4` 816/816 (53 s). Watch CI's unit job.
   Found by the gate: ApproveButton shared ONE transition for the preview and the approval → the
   button read "Approving…" while only the preview had resolved → split into two transitions; tests
   wait for Approve to be enabled. Also fixed `test/contract-form.test.tsx` (sync read after an async

@@ -117,14 +117,22 @@ export async function previewCycleCountAction(
   if (!UUID.safeParse(cycleCountId).success) return invalid('That count is not valid.');
   const result = await previewCycleCountReconcile(cycleCountId);
   if (!result.ok) {
-    // The preview writes nothing, so its only 409 is superseded (the spec documents no other):
-    // read it that way even when `details.reason` is missing (Prism's generated 409 has none).
+    // A 409 is read by its `details.reason` when it carries one ('superseded' → said, no Approve;
+    // any other reason is described as such, never mislabelled). Only a 409 with NO reason — the
+    // Prism mock's generated body — falls back to superseded, the one 409 the spec documents.
     if (result.status === 409) {
       const details = (result.error.details as Record<string, unknown> | undefined) ?? {};
-      const superseded = isSuperseded(result.error)
-        ? result
-        : { ...result, error: { ...result.error, details: { ...details, reason: 'superseded' } } };
-      return { ...actionError(describeCycleCountError(superseded)), superseded: true as const };
+      const reason = details['reason'];
+      if (typeof reason !== 'string' || reason === '') {
+        const assumed = {
+          ...result,
+          error: { ...result.error, details: { ...details, reason: 'superseded' } },
+        };
+        return { ...actionError(describeCycleCountError(assumed)), superseded: true as const };
+      }
+      if (isSuperseded(result.error)) {
+        return { ...actionError(describeCycleCountError(result)), superseded: true as const };
+      }
     }
     return actionError(describeCycleCountError(result), refusalOf(result.status, result.error));
   }

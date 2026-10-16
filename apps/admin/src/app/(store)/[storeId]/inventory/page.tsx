@@ -25,7 +25,7 @@ function param(raw: Params, key: string): string {
  * variants that share a stock item show the same numbers — never summed. The "shared with N brands"
  * badge needs `listStockItems` (viewer on organization:hq), so only HQ principals see it; a store
  * admin sees the stock item id. Warehouse names need `listWarehouses` (also viewer on hq): a store
- * admin sees a short warehouse id instead. Stock is corrected in HQ · Warehouse (cycle counts), not here.
+ * admin sees the row's `warehouse_code` instead. Stock is corrected in HQ · Warehouse (cycle counts), not here.
  */
 export default async function InventoryPage({
   params,
@@ -61,19 +61,18 @@ export default async function InventoryPage({
     hq ? listStockItems({ store_id: storeId, shared: 'true', limit: 100 }) : Promise.resolve(null),
   ]);
 
-  // Names come from listWarehouses (HQ only). A store principal has no read that names a
-  // warehouse, so it sees a short id, and the filter offers the warehouses its rows are in.
+  // Names come from listWarehouses (HQ only); every row carries its warehouse's code (Admin API
+  // 0.4.17, #475), so a store principal sees the code, and the filter offers its rows' warehouses.
+  // Only a filtered warehouse with no rows on this page has neither: its short id.
   const named: Record<string, string> =
     warehouses !== null && warehouses.ok
       ? Object.fromEntries(warehouses.data.items.map((w) => [w.id, w.name]))
       : {};
   const warehouseNames: Record<string, string> = { ...named };
-  for (const id of [
-    ...(levels.ok ? levels.data.items.map((level) => level.warehouse_id) : []),
-    ...(warehouseId === '' ? [] : [warehouseId]),
-  ]) {
-    warehouseNames[id] ??= shortWarehouseLabel(id);
+  for (const level of levels.ok ? levels.data.items : []) {
+    warehouseNames[level.warehouse_id] ??= level.warehouse_code;
   }
+  if (warehouseId !== '') warehouseNames[warehouseId] ??= shortWarehouseLabel(warehouseId);
   // Stock item id → number of brands mapping it; only shared items are listed (shared=true).
   const sharedBrands: Record<string, number> | null =
     shared === null || !shared.ok
