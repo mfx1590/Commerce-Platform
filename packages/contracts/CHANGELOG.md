@@ -259,3 +259,15 @@
 - No events, db or Store API change; no new error code. A store-scoped variant of (a)/(b) is out of scope.
 - `CONTRACTS_VERSION = '0.4.18'`; types regenerated. Producers: window 1 (inventory module, a + b), window 11
   (hq-warehouse, c). Consumer: window 4 (admin, #468 follow-up).
+
+## 0.4.19 — 2026-10-15 (InventoryLevel.warehouse_code, CONTRACT CHANGE #475; contracts-v0.4.19)
+
+- Admin API 0.4.17: `InventoryLevel` gains `warehouse_code` (string, `readOnly`, REQUIRED) — the `code` of the
+  warehouse the row already names by `warehouse_id`, so a store principal (store_admin, store_staff) can name the
+  warehouse without `listWarehouses` (`viewer` on `organization:hq`, a 403 for them). No operation, parameter,
+  permission or error code changes; no migration (a join to `warehouse.code`).
+- Examples: `warehouse_code: wh-eu` on the `InventoryLevel` of `listInventoryLevels` (200) and
+  `createStockMovement` (201) — the only two operations answering an `InventoryLevel`.
+- Required in the response, so it lands with the producer (manager decision on #475). `CONTRACTS_VERSION =
+'0.4.19'`; types regenerated. Producer: window 1 (core inventory module, the level projection selects
+  `warehouse.code`). Consumer: window 4 (admin Store · Inventory warehouse column and filter).

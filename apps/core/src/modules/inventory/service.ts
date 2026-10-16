@@ -35,11 +35,11 @@ import type {
 } from './types';
 
 const POOL_COLS = `il.id, il.organization_id, il.stock_item_id, il.warehouse_id, il.on_hand, il.reserved,
-  il.incoming, il.available, si.sku AS item_sku`;
+  il.incoming, il.available, si.sku AS item_sku, w.code AS warehouse_code`;
 
 /** One row per (variant, warehouse): the variant's identity with the numbers of its item's pool row. */
 const LEVEL_COLS = `il.id, il.organization_id, v.store_id, v.id AS variant_id, il.stock_item_id, il.warehouse_id,
-  il.on_hand, il.reserved, il.incoming, il.available, v.sku`;
+  w.code AS warehouse_code, il.on_hand, il.reserved, il.incoming, il.available, v.sku`;
 
 export function toAdminLevel(l: LevelRow): AdminInventoryLevel {
   return {
@@ -49,6 +49,7 @@ export function toAdminLevel(l: LevelRow): AdminInventoryLevel {
     stock_item_id: l.stock_item_id,
     sku: l.sku,
     warehouse_id: l.warehouse_id,
+    warehouse_code: l.warehouse_code,
     on_hand: l.on_hand,
     reserved: l.reserved,
     incoming: l.incoming,
@@ -134,6 +135,7 @@ export async function ensureLevel(
   );
   const r = await tx.query<PoolLevel>(
     `SELECT ${POOL_COLS} FROM inventory_level il JOIN stock_item si ON si.id = il.stock_item_id
+     JOIN warehouse w ON w.id = il.warehouse_id
      WHERE il.stock_item_id = $1 AND il.warehouse_id = $2${lock ? ' FOR UPDATE OF il' : ''}`,
     [input.stockItemId, input.warehouseId],
   );
@@ -319,6 +321,7 @@ export async function createStockMovement(
       variant_id: variant.variantId,
       stock_item_id: level.stock_item_id,
       warehouse_id: level.warehouse_id,
+      warehouse_code: level.warehouse_code,
       on_hand: level.on_hand,
       reserved: level.reserved,
       incoming: level.incoming,
