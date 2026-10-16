@@ -3,7 +3,7 @@
  * reconcile and approve — every error from window 11's brief rendered — and the guard that keeps a
  * store admin out.
  */
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -465,6 +465,12 @@ describe('ApproveButton', () => {
     await user.click(screen.getByRole('button', { name: 'Approve the count of TEE-M-RED' }));
     return user;
   };
+  // The preview resolves inside its own transition: Approve is enabled once it has settled.
+  const approveButton = async () => {
+    const button = screen.getByRole('button', { name: 'Yes, approve' });
+    await waitFor(() => expect(button).toBeEnabled());
+    return button;
+  };
   const dialog = () =>
     screen.getByRole('alertdialog', { name: 'Confirm approving the count of TEE-M-RED' });
 
@@ -484,7 +490,7 @@ describe('ApproveButton', () => {
       'Computed at 2026-10-15 09:00; recomputed again on approval — may differ (the preview holds no lock).',
     );
     expect(actions.reconcileCycleCountAction).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Yes, approve' }));
+    await user.click(await approveButton());
     expect(actions.reconcileCycleCountAction).toHaveBeenCalledWith(counts[0]!.id, true);
     expect(await screen.findByText('Approved — applied −3.')).toBeInTheDocument();
   });
@@ -497,7 +503,7 @@ describe('ApproveButton', () => {
     });
     const user = await open();
     await screen.findByText(/Delta now:/);
-    await user.click(screen.getByRole('button', { name: 'Yes, approve' }));
+    await user.click(await approveButton());
     expect(
       await screen.findByText('Approved — applied −4 (changed since the preview).'),
     ).toBeInTheDocument();
@@ -534,7 +540,7 @@ describe('ApproveButton', () => {
     );
     expect(dialog()).toHaveTextContent('On hand now: 39.');
     expect(dialog()).toHaveTextContent(/No preview: Not found/);
-    expect(screen.getByRole('button', { name: 'Yes, approve' })).toBeEnabled();
+    await approveButton();
   });
 
   it('a 403 on the preview is the refusal panel, not a dialog', async () => {
@@ -566,7 +572,7 @@ describe('ApproveButton', () => {
     );
     const user = await open();
     await screen.findByText(/Delta now:/);
-    await user.click(screen.getByRole('button', { name: 'Yes, approve' }));
+    await user.click(await approveButton());
     expect(
       await screen.findByText(/newer count of this shelf is already applied/),
     ).toBeInTheDocument();

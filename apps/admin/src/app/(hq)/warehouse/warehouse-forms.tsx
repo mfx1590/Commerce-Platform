@@ -371,7 +371,8 @@ export function ApproveButton({
   onHandNow: number | null;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [previewing, startPreview] = useTransition();
+  const [approving, startApproval] = useTransition();
   const [asking, setAsking] = useState(false);
   const [preview, setPreview] = useState<Preview>({ state: 'loading' });
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -381,7 +382,7 @@ export function ApproveButton({
     setAsking(true);
     setFailure(null);
     setPreview({ state: 'loading' });
-    startTransition(async () => {
+    startPreview(async () => {
       const result = await previewCycleCountAction(cycleCountId);
       if (result.status === 'success') {
         setPreview({
@@ -460,9 +461,9 @@ export function ApproveButton({
               <div className="flex gap-2">
                 <Button
                   size="sm"
-                  disabled={pending}
+                  disabled={previewing || approving}
                   onClick={() =>
-                    startTransition(async () => {
+                    startApproval(async () => {
                       setFailure(null);
                       const result = await reconcileCycleCountAction(cycleCountId, true);
                       setAsking(false);
@@ -480,12 +481,12 @@ export function ApproveButton({
                     })
                   }
                 >
-                  {pending && preview.state !== 'loading' ? 'Approving…' : 'Yes, approve'}
+                  {approving ? 'Approving…' : 'Yes, approve'}
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={pending}
+                  disabled={approving}
                   onClick={() => setAsking(false)}
                 >
                   Cancel

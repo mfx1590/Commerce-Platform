@@ -451,7 +451,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   build done. PLAN APPROVED (manager: log one line per path of the conditional approve step; keep
   the `operations` gate). BUILT: f2f48a1 screens, 74ff8fd tests, then e2e + docs. Gotcha: the
   preview's 409 has no spec example, so Prism sends `code: string` and no `details.reason` →
-  the action reads ANY preview 409 as superseded (its only documented 409). (1) ledger
+  the action reads ANY preview 409 as superseded (its only documented 409).
+  Found by the gate: ApproveButton shared ONE transition for the preview and the approval → the
+  button read "Approving…" while only the preview had resolved → split into two transitions; tests
+  wait for Approve to be enabled. Also fixed `test/contract-form.test.tsx` (sync read after an async
+  resolver, #398 class). Gate 2026-10-16: lint 0, typecheck 0, admin unit 814/814 (24 s). Two
+  earlier runs were void: the laptop slept mid-run (Duration 12672 s / 20962 s → 5 s timeouts);
+  check `Duration` before believing a timeout. #477 (warehouse_code REQUIRED on InventoryLevel,
+  Admin API 0.4.17): the manager added the field to my inventory fixtures on its branch (4605aa6);
+  every NEW InventoryLevel fixture needs it after merging main. (1) ledger
   (`listStockItemMovements`) and (2) reservations with allocation_rule in words
   (`listStockItemReservations`, open/released/all) as `?item=&view=` cards on the stock items tab;
   (3) approve dialog uses `previewCycleCountReconcile` via a guarded server action (409 superseded
