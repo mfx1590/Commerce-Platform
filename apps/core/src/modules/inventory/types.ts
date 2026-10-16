@@ -54,6 +54,8 @@ export interface PoolLevel {
   available: number;
   /** The stock ITEM's sku (unique per organization) — not a variant's. */
   item_sku: string;
+  /** `warehouse.code` of the row's warehouse (#475). */
+  warehouse_code: string;
 }
 
 /**
@@ -73,6 +75,8 @@ export interface LevelRow {
   available: number;
   /** The variant's own sku in its store. */
   sku: string;
+  /** `warehouse.code` of the row's warehouse (#475), read in the same query. */
+  warehouse_code: string;
 }
 
 export interface MoveStockResult {
