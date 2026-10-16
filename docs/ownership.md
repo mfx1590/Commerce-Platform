@@ -17,7 +17,7 @@ Branch prefix → allowed write paths. Everything else is read-only for that bra
 | `brands/` | 10 — Brand storefronts (A, B, C…) | `apps/storefronts/<brand>/**`, `cms/brand-*/**` |
 | `warehouse/` | 11 — Shared warehouse / WMS | `apps/core/src/modules/hq-warehouse/**`, `apps/wms-adapter/**` |
 | `data/` | 12 — Data platform, BI & AI | `data/**`, `apps/analytics-ingest/**`, `apps/admin/src/app/(hq)/bi/** (embed only)` |
-| `customers/` | 13 — Customer accounts & identity | `apps/core/src/modules/customers/**`, `apps/storefront-starter/src/app/[locale]/(account)/**` (Phase 2 exception, issue 303: window 1 builds the Store API customer self-service in the customers module under its apps/core row; window 13 inherits it in Phase 3) |
+| `customers/` | 13 — Customer accounts & identity | `apps/core/src/modules/customers/**`, `apps/core/src/http/customer-routes.ts`, `apps/core/src/jobs/customer-*.ts`, `apps/core/test/customers-api.test.ts`, `apps/core/test/admin-customers.test.ts`, `apps/storefront-starter/src/app/[locale]/(account)/**`, `apps/storefront-starter/src/components/account-*.tsx` (window 13 owns the customer module since Phase 3, issues 470-473; route mounting in admin-routes.ts and store-routes.ts stays window 1 via REQUEST; brand copies of the account pages stay window 10) |
 | `events/` | 14 — Event bus & outbox relay | `apps/core/src/outbox/**`, `infra/redpanda/**`, `packages/events/** (exception this phase only)` |
 | `accounting/` | 15 — Automatic accounting | `apps/accounting/**` |
 | `engagement/` | 16 — CRM, notifications & support | `apps/notifications/**`, `apps/support/**`, `data/cdp/**` |
