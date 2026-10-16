@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Added — #468 follow-up: stock item ledger, reservations, approve preview (Admin API 0.4.16), warehouse codes (0.4.17)
+
+- Store inventory names each row's warehouse by its `warehouse_code` (#475) for store
+  principals instead of a short id; HQ principals keep the names from `listWarehouses`.
+- The approve preview reads a 409 by its `details.reason`; only a reason-less 409 (the mock) is
+  taken as superseded.
+- `ApproveButton`: preview and approval in separate transitions (the button no longer reads
+  "Approving…" while only the preview has resolved); `test/contract-form.test.tsx` waits for
+  the async validation message.
+- `/warehouse?item=&view=movements`: an item's ledger (`listStockItemMovements`) — brand or pool,
+  reason in words, signed delta, reference, actor; warehouse filter, own paging (`dpage`).
+- `/warehouse?item=&view=reservations`: its reservations (`listStockItemReservations`, open /
+  released / all) with the brand, variant sku, order or cart hold and `allocation_rule` in words.
+- Approve: `previewCycleCountReconcile` (server action, operations on hq) shows the recomputed delta,
+  status and tolerance before confirming, "may differ" kept; superseded → said, no Approve; other
+  failure → the flag's delta. Wrappers + pins + guard row; unit, component and Prism contract tests;
+  the owner core journey opens the ledger, the reservations and (when a flagged count exists) the
+  approve preview, read-only, logging which path ran.
+
 ### Fixed — issue #468 follow-up (review of #474)
 
 - `/warehouse` reads nothing for a principal without `operations` on hq: the principal is loaded

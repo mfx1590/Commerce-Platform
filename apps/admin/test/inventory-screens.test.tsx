@@ -137,9 +137,10 @@ describe('InventoryTable', () => {
     expect(table).not.toHaveTextContent('74');
   });
 
-  it('no badge when the principal cannot read stock items', () => {
+  it('no badge when the principal cannot read stock items; the warehouse is its code', () => {
     render(<InventoryTable rows={shared} warehouseNames={{}} sharedBrands={null} />);
     expect(screen.queryByText(/Shared with/)).toBeNull();
+    expect(screen.getAllByText('wh-eu')).toHaveLength(2);
     expect(screen.getAllByText(ITEM.slice(0, 8))).toHaveLength(2);
   });
 });
@@ -161,13 +162,23 @@ describe('the inventory page', () => {
     expect(screen.queryByText(/Shared with/)).toBeNull();
     const table = screen.getByRole('table', { name: 'Inventory levels' });
     expect(within(table).getAllByRole('row')).toHaveLength(3);
-    // No read names the warehouse for a store principal: a short id, and the filter offers it.
-    expect(within(table).getAllByText('Warehouse 00000000')).toHaveLength(2);
+    // The row's warehouse_code names the warehouse for a store principal (Admin API 0.4.17).
+    expect(within(table).getAllByText('wh-eu')).toHaveLength(2);
+    expect(within(table).queryByText(/Warehouse 0000/)).toBeNull();
+    expect(
+      within(screen.getByLabelText('Warehouse')).getByRole('option', { name: 'wh-eu' }),
+    ).toHaveValue(WAREHOUSE);
+  });
+
+  it('a filtered warehouse with no rows on the page keeps a short id in the filter', async () => {
+    const other = '00000000-0000-4000-8000-000000000099';
+    api.listInventoryLevels.mockResolvedValue(ok({ items: [], page: 1, limit: 50, total: 0 }));
+    await renderPage({ warehouse_id: other });
     expect(
       within(screen.getByLabelText('Warehouse')).getByRole('option', {
         name: 'Warehouse 00000000',
       }),
-    ).toHaveValue(WAREHOUSE);
+    ).toHaveValue(other);
   });
 
   it('an HQ principal gets the warehouse names', async () => {

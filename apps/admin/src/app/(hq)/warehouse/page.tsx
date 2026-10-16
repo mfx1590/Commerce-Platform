@@ -11,8 +11,10 @@ import {
   formatDelta,
   mappingStores,
   olderOpenCounts,
+  RESERVATION_STATUSES,
   warehouseAccess,
 } from '@/lib/warehouse';
+import { StockItemDetail, type DetailView } from './stock-item-detail';
 import {
   ApproveButton,
   PoolVariantForm,
@@ -193,6 +195,41 @@ async function StockItems({
     limit: LIMIT,
   });
   const items: StockItem[] = result.ok ? result.data.items : [];
+
+  // One item's ledger or reservations, opened from its row (`?item=&view=`; `dpage` pages it).
+  const detailItem = uuidParam(raw, 'item');
+  const viewParam = param(raw, 'view');
+  const view: DetailView | null =
+    detailItem !== '' && (viewParam === 'movements' || viewParam === 'reservations')
+      ? viewParam
+      : null;
+  const statusParam = param(raw, 'status');
+  const reservationStatus =
+    RESERVATION_STATUSES.find((s) => s === statusParam) ?? ('open' as const);
+  const listBase = { sku, store_id: storeId, shared: shared ? 'true' : '', page: String(page) };
+  const detailBase = {
+    ...listBase,
+    item: detailItem,
+    view: view ?? '',
+    warehouse_id: uuidParam(raw, 'warehouse_id'),
+    ...(view === 'reservations' ? { status: reservationStatus } : {}),
+  };
+  const detail =
+    view === null
+      ? null
+      : await StockItemDetail({
+          stockItemId: detailItem,
+          item: items.find((i) => i.id === detailItem),
+          view,
+          warehouseId: uuidParam(raw, 'warehouse_id'),
+          status: reservationStatus,
+          page: Math.max(1, Number.parseInt(param(raw, 'dpage'), 10) || 1),
+          brand,
+          warehouseName,
+          hrefFor: (extra) => href(detailBase, extra),
+        });
+  const detailHref = (itemId: string, v: DetailView) => href(listBase, { item: itemId, view: v });
+
   const choicesFor = (item: StockItem): VariantChoice[] =>
     items
       .filter((other) => other.id !== item.id)
@@ -205,148 +242,171 @@ async function StockItems({
       );
 
   return (
-    <Card>
-      <CardHeader
-        title="Stock items"
-        description="One shelf per item and warehouse. Variants of several brands can sell from the same item; the numbers are the pool's, never a sum per brand."
-      />
-      <CardBody className="space-y-4">
-        <form
-          method="get"
-          action="/warehouse"
-          className="flex flex-wrap items-end gap-3 text-sm"
-          aria-label="Filter stock items"
-        >
-          <label className="flex flex-col gap-1">
-            <span className="text-muted text-xs">SKU contains</span>
-            <input
-              name="sku"
-              defaultValue={sku}
-              className="border-line rounded-md border px-2 py-1"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-muted text-xs">Mapped by store</span>
-            <select
-              name="store_id"
-              defaultValue={storeId}
-              className="border-line rounded-md border px-2 py-1"
-            >
-              <option value="">Any store</option>
-              {storeOptions.map((store) => (
-                <option key={store.id} value={store.id}>
-                  {store.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="checkbox" name="shared" value="true" defaultChecked={shared} />
-            <span>Shared by more than one store</span>
-          </label>
-          <button type="submit" className="text-accent hover:underline">
-            Apply
-          </button>
-        </form>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader
+          title="Stock items"
+          description="One shelf per item and warehouse. Variants of several brands can sell from the same item; the numbers are the pool's, never a sum per brand."
+        />
+        <CardBody className="space-y-4">
+          <form
+            method="get"
+            action="/warehouse"
+            className="flex flex-wrap items-end gap-3 text-sm"
+            aria-label="Filter stock items"
+          >
+            <label className="flex flex-col gap-1">
+              <span className="text-muted text-xs">SKU contains</span>
+              <input
+                name="sku"
+                defaultValue={sku}
+                className="border-line rounded-md border px-2 py-1"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-muted text-xs">Mapped by store</span>
+              <select
+                name="store_id"
+                defaultValue={storeId}
+                className="border-line rounded-md border px-2 py-1"
+              >
+                <option value="">Any store</option>
+                {storeOptions.map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="shared" value="true" defaultChecked={shared} />
+              <span>Shared by more than one store</span>
+            </label>
+            <button type="submit" className="text-accent hover:underline">
+              Apply
+            </button>
+          </form>
 
-        {!result.ok ? (
-          <RequestErrorPanel status={result.status} error={result.error} />
-        ) : items.length === 0 ? (
-          <p className="text-muted text-sm">No stock items match.</p>
-        ) : (
-          <ul className="divide-line divide-y" aria-label="Stock items">
-            {items.map((item) => {
-              const brands = mappingStores(item).map(brand);
-              return (
-                <li key={item.id} className="space-y-2 py-3" aria-label={`Stock item ${item.sku}`}>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-mono text-sm font-medium">{item.sku}</span>
-                    <span>{item.name}</span>
-                    {brands.length > 1 && (
-                      <Badge tone="accent">Shared with {brands.length} brands</Badge>
-                    )}
-                    {item.barcode !== null && (
-                      <span className="text-muted text-xs">barcode {item.barcode}</span>
-                    )}
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <table className="text-sm" aria-label={`Variants mapping ${item.sku}`}>
-                      <thead className="text-muted text-left text-xs">
-                        <tr>
-                          <th className="py-1">Brand</th>
-                          <th>Variant SKU</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {item.variants.length === 0 ? (
+          {!result.ok ? (
+            <RequestErrorPanel status={result.status} error={result.error} />
+          ) : items.length === 0 ? (
+            <p className="text-muted text-sm">No stock items match.</p>
+          ) : (
+            <ul className="divide-line divide-y" aria-label="Stock items">
+              {items.map((item) => {
+                const brands = mappingStores(item).map(brand);
+                return (
+                  <li
+                    key={item.id}
+                    className="space-y-2 py-3"
+                    aria-label={`Stock item ${item.sku}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="font-mono text-sm font-medium">{item.sku}</span>
+                      <span>{item.name}</span>
+                      {brands.length > 1 && (
+                        <Badge tone="accent">Shared with {brands.length} brands</Badge>
+                      )}
+                      {item.barcode !== null && (
+                        <span className="text-muted text-xs">barcode {item.barcode}</span>
+                      )}
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <table className="text-sm" aria-label={`Variants mapping ${item.sku}`}>
+                        <thead className="text-muted text-left text-xs">
                           <tr>
-                            <td colSpan={2} className="text-muted py-1">
-                              No variant maps this item.
-                            </td>
+                            <th className="py-1">Brand</th>
+                            <th>Variant SKU</th>
                           </tr>
-                        ) : (
-                          item.variants.map((v) => (
-                            <tr key={v.variant_id}>
-                              <td className="py-0.5">{brand(v.store_id)}</td>
-                              <td className="font-mono text-xs">{v.sku}</td>
+                        </thead>
+                        <tbody>
+                          {item.variants.length === 0 ? (
+                            <tr>
+                              <td colSpan={2} className="text-muted py-1">
+                                No variant maps this item.
+                              </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                    <table className="text-sm" aria-label={`Pool levels of ${item.sku}`}>
-                      <thead className="text-muted text-left text-xs">
-                        <tr>
-                          <th className="py-1">Warehouse</th>
-                          <th>On hand</th>
-                          <th>Reserved (all brands)</th>
-                          <th>Incoming</th>
-                          <th>Available</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {item.levels.length === 0 ? (
+                          ) : (
+                            item.variants.map((v) => (
+                              <tr key={v.variant_id}>
+                                <td className="py-0.5">{brand(v.store_id)}</td>
+                                <td className="font-mono text-xs">{v.sku}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                      <table className="text-sm" aria-label={`Pool levels of ${item.sku}`}>
+                        <thead className="text-muted text-left text-xs">
                           <tr>
-                            <td colSpan={5} className="text-muted py-1">
-                              Not stocked in any warehouse.
-                            </td>
+                            <th className="py-1">Warehouse</th>
+                            <th>On hand</th>
+                            <th>Reserved (all brands)</th>
+                            <th>Incoming</th>
+                            <th>Available</th>
                           </tr>
-                        ) : (
-                          item.levels.map((level) => (
-                            <tr key={level.warehouse_id}>
-                              <td className="py-0.5">{warehouseName(level.warehouse_id)}</td>
-                              <td>{level.on_hand}</td>
-                              <td>{level.reserved}</td>
-                              <td>{level.incoming}</td>
-                              <td>{level.available}</td>
+                        </thead>
+                        <tbody>
+                          {item.levels.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="text-muted py-1">
+                                Not stocked in any warehouse.
+                              </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  {canOperate && (
-                    <PoolVariantForm
-                      stockItemId={item.id}
-                      itemSku={item.sku}
-                      itemBrands={brands}
-                      choices={choicesFor(item)}
-                    />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {result.ok && (
-          <Pager
-            page={page}
-            total={result.data.total}
-            base={{ sku, store_id: storeId, shared: shared ? 'true' : '' }}
-          />
-        )}
-      </CardBody>
-    </Card>
+                          ) : (
+                            item.levels.map((level) => (
+                              <tr key={level.warehouse_id}>
+                                <td className="py-0.5">{warehouseName(level.warehouse_id)}</td>
+                                <td>{level.on_hand}</td>
+                                <td>{level.reserved}</td>
+                                <td>{level.incoming}</td>
+                                <td>{level.available}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex gap-4 text-sm">
+                      <Link
+                        href={detailHref(item.id, 'movements')}
+                        className="text-accent hover:underline"
+                        aria-label={`Movements of ${item.sku}`}
+                      >
+                        Movements
+                      </Link>
+                      <Link
+                        href={detailHref(item.id, 'reservations')}
+                        className="text-accent hover:underline"
+                        aria-label={`Reservations of ${item.sku}`}
+                      >
+                        Reservations
+                      </Link>
+                    </div>
+                    {canOperate && (
+                      <PoolVariantForm
+                        stockItemId={item.id}
+                        itemSku={item.sku}
+                        itemBrands={brands}
+                        choices={choicesFor(item)}
+                      />
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {result.ok && (
+            <Pager
+              page={page}
+              total={result.data.total}
+              base={{ sku, store_id: storeId, shared: shared ? 'true' : '' }}
+            />
+          )}
+        </CardBody>
+      </Card>
+      {detail}
+    </div>
   );
 }
 
