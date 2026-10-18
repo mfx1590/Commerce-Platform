@@ -1,5 +1,10 @@
 # Changelog — @platform/storefront-starter
 
+## Unreleased — 2026-10-18 (window 13, #473 PR: #501 review nits)
+
+- The export download link carries the locale prefix (`exportDownloadPath`; no middleware redirect any more) and the
+  exports panel's status rule is the pure `exportStatus`, both unit-tested in `account/account.test.ts`.
+
 ## Unreleased — 2026-10-18 (window 13, #472: data exports)
 
 - **Your data exports** on `/account` (`src/components/account-exports.tsx`, Store API 0.5.8 `listMyExports`): each

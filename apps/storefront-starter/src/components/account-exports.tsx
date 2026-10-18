@@ -3,6 +3,7 @@
 import { buttonVariants } from '@platform/ui';
 import type { StoreComponents } from '@platform/contracts';
 import { useLocale, useTranslations } from 'next-intl';
+import { exportDownloadPath, exportStatus } from '@/app/[locale]/(account)/account/account.config';
 
 type CustomerExportSummary = StoreComponents['schemas']['CustomerExportSummary'];
 
@@ -32,18 +33,15 @@ export function ExportsList({ items }: { items: CustomerExportSummary[] }) {
             <div className="flex flex-col gap-0.5">
               <span>{t('requested', { date: date(item.requested_at) })}</span>
               <span className="text-xs text-muted-foreground">
-                {item.status === 'ready'
-                  ? t('until', { date: date(item.expires_at) })
-                  : item.status === 'pending'
-                    ? t('pending')
-                    : item.reason === 'too_large'
-                      ? t('tooLarge')
-                      : t('expired')}
+                {(() => {
+                  const s = exportStatus(item);
+                  return s.key === 'until' ? t('until', { date: date(s.date) }) : t(s.key);
+                })()}
               </span>
             </div>
             {item.status === 'ready' ? (
               <a
-                href={`/account/exports/${item.id}`}
+                href={exportDownloadPath(locale, item.id)}
                 download={`customer-export-${item.id}.json`}
                 className={buttonVariants({ variant: 'outline', size: 'sm' })}
               >

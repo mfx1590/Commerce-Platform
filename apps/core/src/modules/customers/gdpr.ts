@@ -29,6 +29,7 @@ import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { consentLedger, type ConsentDecision } from './consent-ledger';
+import { eraseIdentity, unlinkIdentity, type EraseIdentityResult } from './identity';
 import { resolveIn } from './service';
 import type { CustomerIdentity, CustomerScope } from './types';
 
@@ -47,21 +48,16 @@ export interface EraseResult {
 }
 
 /**
- * Deletes the identity row when nothing references it any more. Another store's customer (invisible here under
- * RLS) or a merged identity still pointing at it makes the DELETE fail with a foreign-key violation: that is the
- * signal to keep the row, so the delete runs under a savepoint and only that outcome is swallowed.
+ * Cross-brand erasure of one identity (#473): every store row of the person, each through `eraseIn`, then the
+ * identity. Built for the owner's decision on self-service deletion and NOT wired to `eraseMe` (per brand until
+ * decided). Takes an organization client (HQ / jobs); a store client cannot see the identity.
  */
-async function deleteIdentityIfOrphaned(tx: Queryable, identityId: string): Promise<boolean> {
-  await tx.query('SAVEPOINT erase_identity');
-  try {
-    const r = await tx.query('DELETE FROM customer_identity WHERE id = $1', [identityId]);
-    await tx.query('RELEASE SAVEPOINT erase_identity');
-    return (r.rowCount ?? 0) > 0;
-  } catch (err) {
-    await tx.query('ROLLBACK TO SAVEPOINT erase_identity');
-    if ((err as { code?: string }).code === '23503') return false; // still referenced: keep it
-    throw err;
-  }
+export async function eraseCustomerIdentity(
+  client: ScopedClient,
+  identityId: string,
+  actor: Actor,
+): Promise<EraseIdentityResult> {
+  return eraseIdentity(client, identityId, actor, eraseIn);
 }
 
 export async function eraseCustomer(
@@ -130,6 +126,10 @@ async function eraseIn(
       'DELETE FROM customer_export WHERE customer_id = $1 AND store_id = $2',
       [customerId, storeId],
     );
+    // the cross-brand identity (#473): unlinked through the organization-scope function — this transaction
+    // cannot see the table — and deleted when nothing else references it (another brand's row of the same
+    // person, or a merged guest identity, keeps it)
+    const identityDeleted = row.identity_id ? await unlinkIdentity(tx, customerId) : false;
     const erased = await tx.query<{ updated_at: Date }>(
       `UPDATE customer
        SET status = 'erased', email = $3, first_name = NULL, last_name = NULL, phone = NULL,
@@ -139,10 +139,6 @@ async function eraseIn(
        RETURNING updated_at`,
       [customerId, storeId, erasedEmail(customerId)],
     );
-    const identityDeleted = row.identity_id
-      ? await deleteIdentityIfOrphaned(tx, row.identity_id)
-      : false;
-
     await writeAudit(tx, {
       organizationId,
       storeId,

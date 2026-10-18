@@ -44,6 +44,7 @@ export type {
 export {
   buildCustomerExport,
   eraseCustomer,
+  eraseCustomerIdentity,
   eraseMe,
   erasedEmail,
   requestCustomerExport,
@@ -54,6 +55,9 @@ export type {
   CustomerExportOrderLine,
   EraseResult,
 } from './gdpr';
+// Cross-brand identity (#473)
+export { getCustomerIdentity, unlinkIdentity } from './identity';
+export type { CustomerIdentityView, EraseIdentityResult } from './identity';
 // Consent ledger (#471)
 export { adminListCustomerConsents, getMyConsents, putMyConsents } from './consent';
 export type { CustomerConsent, PutMyConsentsInput } from './consent';
@@ -74,6 +78,7 @@ export type {
 export {
   customersAdminRouter,
   CUSTOMER_CONSENTS_PATH,
+  CUSTOMER_IDENTITY_PATH,
   CUSTOMER_EXPORT_PATH,
   CUSTOMER_EXPORTS_PATH,
   sendExport,
