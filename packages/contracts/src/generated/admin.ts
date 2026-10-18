@@ -1150,6 +1150,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/customers/{customerId}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        /** The customer's export requests in this store, newest first (ids, status, timestamps, sizes — never the bundle) */
+        get: operations["listCustomerExports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/customers/{customerId}/exports/{exportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        /** Downloads one ready export bundle (customer-export/v1 as an attachment); every download is audited */
+        get: operations["getCustomerExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/customer-groups": {
         parameters: {
             query?: never;
@@ -1780,7 +1821,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, internal */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, expired, internal */
             code: string;
             message: string;
             details?: {
@@ -2667,6 +2708,22 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        CustomerExportSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "pending" | "ready" | "expired";
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            ready_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @description compressed size of the bundle; null until ready or after purge */
+            size_bytes: number | null;
+            /** @enum {string|null} */
+            reason: "customer_gone" | "too_large" | null;
+        };
         StaffUser: {
             /** Format: uuid */
             id: string;
@@ -3356,6 +3413,24 @@ export interface components {
                  *       "message": "handle already exists",
                  *       "details": {
                  *         "field": "handle"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The export has expired or was purged — `expired`; `details.expires_at` says when */
+        Gone: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "expired",
+                 *       "message": "This export has expired",
+                 *       "details": {
+                 *         "expires_at": "2026-11-17T10:00:00Z"
                  *       }
                  *     }
                  */
@@ -6842,6 +6917,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -6869,6 +6945,73 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listCustomerExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: (components["schemas"]["CustomerExportSummary"] & {
+                            /** Format: uuid */
+                            requested_by: string;
+                            /** @enum {string} */
+                            requested_by_type: "staff" | "customer";
+                            download_count: number;
+                        })[];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getCustomerExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            410: components["responses"]["Gone"];
         };
     };
     listCustomerGroups: {

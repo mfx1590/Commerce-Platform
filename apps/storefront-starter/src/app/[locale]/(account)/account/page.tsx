@@ -4,6 +4,7 @@ import { Link } from '@/i18n/navigation';
 import { DeleteAddressButton, EditAddressForm } from '@/components/account-address-forms';
 import { AddAddressForm, ProfileForm, SignOutButton } from '@/components/account-forms';
 import { ConsentsForm } from '@/components/account-consents';
+import { ExportsList } from '@/components/account-exports';
 import { DeleteAccountForm, RequestExportForm } from '@/components/account-privacy';
 import { AddressCard } from '@/components/order-summary';
 import { requireCustomerToken } from '@/lib/auth/require-customer';
@@ -23,11 +24,14 @@ export default async function AccountPage({
   const { error } = await searchParams;
   const token = await requireCustomerToken('/account');
 
-  const [customer, addresses, consents] = await Promise.all([
+  const [customer, addresses, consents, exports] = await Promise.all([
     storeApi().getMe({ token, cache: 'no-store' }),
     storeApi().listMyAddresses({ token, cache: 'no-store' }),
     // #471: through the client's generic request (the typed method is window 3's file)
     storeApi().request<Result<'getMyConsents'>>('GET', '/store/customers/me/consents', {
+      options: { token, cache: 'no-store' },
+    }),
+    storeApi().request<Result<'listMyExports'>>('GET', '/store/customers/me/exports', {
       options: { token, cache: 'no-store' },
     }),
   ]);
@@ -105,6 +109,7 @@ export default async function AccountPage({
         </h2>
         <ConsentsForm items={consents.items} policyVersion={privacyPolicyVersion()} />
         <RequestExportForm />
+        <ExportsList items={exports.items} />
         <DeleteAccountForm />
       </section>
     </div>

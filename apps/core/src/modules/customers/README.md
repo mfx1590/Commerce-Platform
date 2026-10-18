@@ -11,21 +11,23 @@ the subject and the email come from the **token only** — never from a request 
 
 ## Public API (`index.ts`)
 
-| Function                                                                | Route                                                                     | What it does                                                                                                                    |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `resolveCustomer(client, scope, identity)`                              | `GET /store/customers/me` (and every `/me`)                               | the customer of the token in this store, created on first use (`marketing_consent` false)                                       |
-| `registerCustomer(client, scope, identity, input)`                      | `POST /store/customers`                                                   | resolve-or-provision, then names and consent; `{ customer, created }` — the route answers 201 or 200                            |
-| `updateCustomer(client, scope, identity, patch)`                        | `PATCH /store/customers/me`                                               | resolve-or-provision, then names, phone and consent; an empty string clears a column                                            |
-| `listCustomerAddresses(client, scope, identity)`                        | `GET /store/customers/me/addresses`                                       | the customer's addresses, default shipping first, then oldest first                                                             |
-| `addCustomerAddress(client, scope, identity, input)`                    | `POST /store/customers/me/addresses`                                      | validates, decides the default flags under a lock on the customer row, inserts (201)                                            |
-| `updateCustomerAddress(client, scope, identity, addressId, patch)`      | `PATCH /store/customers/me/addresses/{addressId}` (#470, Store API 0.5.6) | a present field replaces, `null` clears a nullable one, a default flag moves under the same lock; 404 for another customer's id |
-| `deleteCustomerAddress(client, scope, identity, addressId)`             | `DELETE /store/customers/me/addresses/{addressId}` (200 `{ items }`)      | deletes; a default it held moves to the oldest remaining address; answers the remaining list                                    |
-| `requestCustomerExport(client, storeId, customerId, actor)` (`gdpr.ts`) | `POST /store/customers/me/export` (202) and Admin `exportCustomer`        | one `customer.export_requested` v2 per call: `requested_by` + `requested_by_type` (`customer` / `staff`)                        |
-| `getMyConsents(client, scope, identity)` (`consent.ts`)                 | `GET /store/customers/me/consents` (#471, Store API 0.5.7)                | one item per purpose of the closed set; `granted: null` = never asked                                                           |
-| `putMyConsents(client, scope, identity, input)` (`consent.ts`)          | `PUT /store/customers/me/consents`                                        | records each CHANGED answer in the ledger under the policy version the client sent; answers the state                           |
-| `eraseMe(client, scope, identity)` (`gdpr.ts`)                          | `DELETE /store/customers/me` (202)                                        | the customer erases their own row in this store (see "Erasure and export"); replay = no-op                                      |
-| `findCustomerForSubject(client, storeId, subject)`                      | `GET /store/orders/{orderId}`                                             | read-only `{ id, status }` or null — for routes that must not create a customer                                                 |
-| `customerEmailHash(email)`                                              | —                                                                         | `email_hash` of the events contract (sha256 of the trimmed, lowercased email)                                                   |
+| Function                                                                | Route                                                                     | What it does                                                                                                                     |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveCustomer(client, scope, identity)`                              | `GET /store/customers/me` (and every `/me`)                               | the customer of the token in this store, created on first use (`marketing_consent` false)                                        |
+| `registerCustomer(client, scope, identity, input)`                      | `POST /store/customers`                                                   | resolve-or-provision, then names and consent; `{ customer, created }` — the route answers 201 or 200                             |
+| `updateCustomer(client, scope, identity, patch)`                        | `PATCH /store/customers/me`                                               | resolve-or-provision, then names, phone and consent; an empty string clears a column                                             |
+| `listCustomerAddresses(client, scope, identity)`                        | `GET /store/customers/me/addresses`                                       | the customer's addresses, default shipping first, then oldest first                                                              |
+| `addCustomerAddress(client, scope, identity, input)`                    | `POST /store/customers/me/addresses`                                      | validates, decides the default flags under a lock on the customer row, inserts (201)                                             |
+| `updateCustomerAddress(client, scope, identity, addressId, patch)`      | `PATCH /store/customers/me/addresses/{addressId}` (#470, Store API 0.5.6) | a present field replaces, `null` clears a nullable one, a default flag moves under the same lock; 404 for another customer's id  |
+| `deleteCustomerAddress(client, scope, identity, addressId)`             | `DELETE /store/customers/me/addresses/{addressId}` (200 `{ items }`)      | deletes; a default it held moves to the oldest remaining address; answers the remaining list                                     |
+| `requestCustomerExport(client, storeId, customerId, actor)` (`gdpr.ts`) | `POST /store/customers/me/export` (202) and Admin `exportCustomer`        | one `customer.export_requested` v2 per call: `requested_by` + `requested_by_type` (`customer` / `staff`)                         |
+| `getMyConsents(client, scope, identity)` (`consent.ts`)                 | `GET /store/customers/me/consents` (#471, Store API 0.5.7)                | one item per purpose of the closed set; `granted: null` = never asked                                                            |
+| `putMyConsents(client, scope, identity, input)` (`consent.ts`)          | `PUT /store/customers/me/consents`                                        | records each CHANGED answer in the ledger under the policy version the client sent; answers the state                            |
+| `listMyExports(client, scope, identity)` (`export-delivery.ts`)         | `GET /store/customers/me/exports` (#472, Store API 0.5.8)                 | the customer's export requests, newest first: status, dates, size — never the bundle                                             |
+| `getMyExport(client, scope, identity, exportId)` (`export-delivery.ts`) | `GET /store/customers/me/exports/{exportId}`                              | the ready bundle as a JSON attachment (own only, else 404; pending 404; expired / purged **410 `expired`**); counted and audited |
+| `eraseMe(client, scope, identity)` (`gdpr.ts`)                          | `DELETE /store/customers/me` (202)                                        | the customer erases their own row in this store (see "Erasure and export"); replay = no-op                                       |
+| `findCustomerForSubject(client, storeId, subject)`                      | `GET /store/orders/{orderId}`                                             | read-only `{ id, status }` or null — for routes that must not create a customer                                                  |
+| `customerEmailHash(email)`                                              | —                                                                         | `email_hash` of the events contract (sha256 of the trimmed, lowercased email)                                                    |
 
 `identity` is `{ subject, email?, emailVerified }` from a verified token (`src/http/customer-routes.ts` builds it;
 `emailVerified` is true only for an explicit `email_verified: true` claim, absent = false). `scope` is
@@ -139,6 +141,48 @@ lock `resolveIn` holds. The same answer again writes nothing — not even under 
 - Nothing in the ledger, the projection, the events or the audit rows is personal data; a policy version is a
   label, never free text from the customer (100 characters at most).
 
+## Export delivery (#472, db 0195 `customer_export`, events `customer.export_ready`, Store API 0.5.8, Admin API 0.4.20 — CONTRACT CHANGE #498)
+
+The consumer of `customer.export_requested`: **`src/jobs/customer-export.ts`** (Medusa job contract, every five
+minutes under `MEDUSA_WORKER_MODE = shared | worker`, `CORE_CUSTOMER_EXPORT_CRON`; one-shot CLI with `--now` /
+`--ttl-days` / `--max-bytes`) runs `export-delivery.ts` per store, on the notifications app's CLAIM / DELIVER
+split:
+
+- **CLAIM** (one transaction, no I/O): every `customer.export_requested` outbox row of the store with no
+  `customer_export` row for its `event_id` becomes one `pending` row (`UNIQUE (event_id)` + `ON CONFLICT DO
+NOTHING`: idempotent on the event id — a replayed event or a re-run never builds twice; no cursor table; v1
+  events, which carried a staff id only, are claimed as `staff`).
+- **BUILD** (one transaction per row): `buildCustomerExport` → JSON → gzip → under the **hard size cap**
+  (`CORE_CUSTOMER_EXPORT_MAX_BYTES`, default 8 MiB compressed; manager decision 2026-10-18: one customer cannot
+  fill the database) → `ready` with the bundle in `bytea`, its sha256 and size, `expires_at = ready_at +
+CORE_CUSTOMER_EXPORT_TTL_DAYS` (30), and ONE `customer.export_ready` (ids and timestamps) in the same
+  transaction. A customer gone by then (unknown / erased) → `expired` / `customer_gone`; a bundle above the cap →
+  `expired` / `too_large`; neither emits an event. The build reads outside the row's transaction; the transaction
+  then locks the row and re-checks it is still `pending` — an erasure in between has deleted it, and nothing is
+  written.
+- **PURGE**: `ready` rows past `expires_at` lose bundle, size and digest (`expired`, `purged_at`); the bare row
+  (ids, timestamps, status — no personal data) stays as the record that the request was served, so a later
+  download answers 410 rather than 404. Retention of those rows is on the lawyer list.
+
+| Operation                                                    | Who           | What                                                                                                                      |
+| ------------------------------------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `GET /store/customers/me/exports` (`listMyExports`)          | customer      | own requests, newest first (`CustomerExportSummary`: status, dates, `size_bytes`, `reason`)                               |
+| `GET /store/customers/me/exports/{exportId}` (`getMyExport`) | customer      | the bundle (`application/json`, `Content-Disposition: attachment`, `Cache-Control: no-store`); own only                   |
+| Admin `listCustomerExports` (`customersAdminRouter`)         | `store_admin` | the same plus `requested_by`, `requested_by_type`, `download_count`; 404 for unknown / another store's / erased customers |
+| Admin `getCustomerExport`                                    | `store_admin` | the bundle, audited with the staff actor                                                                                  |
+
+- **Every download** verifies the stored sha256 (a mismatch is never served: 500 by id), decompresses, adds one to
+  `download_count` and writes one audit row `customer_export.download` (export id, actor, byte count — never the
+  content), in one transaction.
+- **Erase** (admin and self-service alike) deletes every export of the customer **including ready bundles** in
+  the erasure transaction (`exports_deleted` in the audit row): a bundle is the customer's whole personal data.
+  The request events in the outbox stay (ids only); a job run after the erasure claims them again and files
+  them as `expired` / `customer_gone` — bare rows, no bundle, no event.
+- **Mail**: the notifications app tells the customer on `customer.export_ready` (REQUEST #499, window 17): the
+  address read from the customer row at send time, no token and no credentialed link in the mail — the download is
+  signed-in, from the account page.
+- Nothing here logs a bundle: the job's summary line carries counts and export ids.
+
 ## Admin API (#414, Admin API 0.4.11) — `admin.ts`, `gdpr.ts`
 
 Store-scoped tenant client (RLS) for everything; the routes live in `src/http/admin-routes.ts`, permissions from
@@ -249,7 +293,11 @@ de-DE): the starter's i18n test refuses literal copy in `src/components`. **Your
 `account-consents.tsx`): one row per purpose with its state (never asked / allowed on a date / declined on a date)
 and a checkbox; the form carries the privacy-policy version the page displays — `PRIVACY_POLICY_VERSION` in the
 starter's environment (`privacyPolicyVersion()` in `account.config.ts`, `unversioned` when unset; keep it equal
-to the store's `settings.privacy.policy_version`) — and an unticked box is sent as an explicit `false`. The server actions
+to the store's `settings.privacy.policy_version`) — and an unticked box is sent as an explicit `false`. **Your data exports** (#472, `account-exports.tsx`): the
+requests with their state (being prepared / ready until a date / expired / too large) and a Download link for the
+ready ones, served by the route handler `account/exports/[exportId]/route.ts` — it calls `getMyExport` with the
+session token (never in the browser) and streams the JSON as an attachment, passing the Store API's 404 / 410
+through. The server actions
 live in the route group (`account/actions.ts`) and call the Store API client's generic `request` — the client's
 typed methods are window 3's file. Pure rules (`account.config.ts`): the edit form sends every field, blank
 optional ones as `null`; a default checkbox is sent only as `true` (a default is moved by ticking it on another
@@ -267,6 +315,9 @@ rule, the only-address `false`, 404 for another customer / store / unknown id), 
 the consent ledger (#471: never asked → flip → same answer → opt-out, append-only, validation, per brand,
 disabled 401, erase + export, the store's policy version, the 0194 backfill on seeded projections, and the
 re-consent-audience proof against window 17's `segmentQuery` with the `never_asked` assertion as `it.todo(#491)`),
+export delivery (#472: claim → build → ready with the event and the 30-day expiry, replay builds nothing, list and
+download for the customer only with the audit row, purge → 410 `expired`, the size cap → `too_large`, a customer
+gone → `customer_gone`, erase deletes bundles),
 and the no-PII check over the outbox, the audit log and the console. HTTP behaviour, the verifier seam, the
 self-service acceptance of #470 (own addresses only, brand-b key + brand-a token = 401, `DELETE /me` leaves no
 PII and keeps the order, export v2 by the customer) and the live Keycloak test: `test/customers-api.test.ts`.
