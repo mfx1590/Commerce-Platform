@@ -17,6 +17,7 @@ import {
   customerEmailHash,
   deleteCustomerAddress,
   eraseCustomer,
+  eraseCustomerIdentity,
   eraseMe,
   findCustomerForSubject,
   getMyConsents,
@@ -367,7 +368,7 @@ describe('email collision: the token email is already on a row of this store', (
         store_id: A,
         payload: {
           customer_id: guestId,
-          identity_id: null,
+          identity_id: expect.any(String), // linked on adoption (#473): the token is verified
           email_hash: customerEmailHash('guest.shopper@example.test'),
           status: 'registered',
           customer_group_id: null,
@@ -1345,6 +1346,191 @@ describe('consent ledger (#471, db 0194, Store API 0.5.7)', () => {
     ).toMatchObject({
       granted: false,
       policy_version: 'pre-ledger',
+    });
+  });
+});
+
+describe('cross-brand identity (#473, db 0196 customer_identity closed to store sessions)', () => {
+  /** An organization-scope session on the APP role: sees the identity table under RLS (HQ does). */
+  const orgApp = () => createOrganizationClient(db.app, { organizationId: ORG });
+  const identityRows = async () =>
+    (
+      await orgApp().query<{
+        id: string;
+        email_hash: string;
+        keycloak_subject: string | null;
+        merged_into_id: string | null;
+      }>(
+        `SELECT id, email_hash, keycloak_subject, merged_into_id FROM customer_identity ORDER BY created_at, id`,
+      )
+    ).rows;
+  const identityOf = async (customerId: string) =>
+    (
+      await owner.query<{ identity_id: string | null }>(
+        'SELECT identity_id FROM customer WHERE id = $1',
+        [customerId],
+      )
+    ).rows[0]!.identity_id;
+
+  it('the same subject on brand-a and brand-b (verified) → ONE identity, two customer rows; a store session cannot see the table, an organization session can; the created event carries identity_id', async () => {
+    const sam = who('sam', { emailVerified: true });
+    const inA = await resolveCustomer(a, scopeA, sam);
+    const inB = await resolveCustomer(b, scopeB, sam);
+    const idA = await identityOf(inA.id);
+    expect(idA).toEqual(expect.any(String));
+    expect(await identityOf(inB.id)).toBe(idA);
+    const rows = (await identityRows()).filter((r) => r.keycloak_subject === 'sub-sam');
+    expect(rows).toEqual([
+      {
+        id: idA,
+        email_hash: customerEmailHash('sam@example.test'),
+        keycloak_subject: 'sub-sam',
+        merged_into_id: null,
+      },
+    ]);
+    // RLS: the store sessions see nothing of the table (organization_only), not even their own person's row
+    expect((await a.query('SELECT 1 FROM customer_identity')).rows).toEqual([]);
+    expect((await b.query('SELECT 1 FROM customer_identity')).rows).toEqual([]);
+    // and cannot write it either: the only way in is the function
+    await expect(
+      a.query(
+        `INSERT INTO customer_identity (organization_id, email_hash, keycloak_subject) VALUES ($1, 'x', 'sub-x')`,
+        [ORG],
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    const created = (await events(inA.id)).find((e) => e.topic === 'customer.created');
+    expect(created?.payload).toMatchObject({ identity_id: idA });
+    // the Store API shape carries no identity
+    expect(Object.keys(inA)).not.toContain('identity_id');
+    expect(JSON.stringify(await buildCustomerExport(a, A, inA.id))).not.toContain(idA);
+  });
+
+  it('an unverified token never links; the first VERIFIED sign-in of an older row links it and says so (customer.updated identity_id); two subjects with the same verified email are two identities', async () => {
+    const tom = who('tom');
+    const row = await resolveCustomer(a, scopeA, tom);
+    expect(await identityOf(row.id)).toBeNull();
+    expect((await identityRows()).filter((r) => r.keycloak_subject === 'sub-tom')).toEqual([]);
+    const e0 = (await events(row.id)).length;
+    await resolveCustomer(a, scopeA, { ...tom, emailVerified: true });
+    const linked = await identityOf(row.id);
+    expect(linked).toEqual(expect.any(String));
+    const ev = await events(row.id);
+    expect(ev).toHaveLength(e0 + 1);
+    expect(ev[ev.length - 1]).toMatchObject({
+      topic: 'customer.updated',
+      payload: expect.objectContaining({ identity_id: linked, changed_fields: ['identity_id'] }),
+    });
+    expect((await events(row.id)).length).toBe(e0 + 1);
+    await resolveCustomer(a, scopeA, { ...tom, emailVerified: true }); // already linked: nothing more
+    expect((await events(row.id)).length).toBe(e0 + 1);
+
+    // a second Keycloak account with the SAME verified email, in store B: its own identity (no unique violation)
+    const twin = await resolveCustomer(b, scopeB, {
+      subject: 'sub-tom-twin',
+      email: 'tom@example.test',
+      emailVerified: true,
+    });
+    const twinId = await identityOf(twin.id);
+    expect(twinId).not.toBe(linked);
+    const same = (await identityRows()).filter(
+      (r) => r.email_hash === customerEmailHash('tom@example.test'),
+    );
+    expect(same.map((r) => r.keycloak_subject).sort()).toEqual(['sub-tom', 'sub-tom-twin']);
+  });
+
+  it('guest merge: exactly one subjectless identity with the email_hash is merged into the subject identity (customers re-pointed); two candidates → no merge, both untouched', async () => {
+    // one guest identity for ghostly@ with a guest row pointing at it
+    const guestIdentity = (
+      await owner.query<{ id: string }>(
+        'INSERT INTO customer_identity (organization_id, email_hash) VALUES ($1, $2) RETURNING id',
+        [ORG, customerEmailHash('ghostly@example.test')],
+      )
+    ).rows[0]!.id;
+    const guestRow = await insertRow(A, 'ghostly@example.test');
+    await owner.query('UPDATE customer SET identity_id = $2 WHERE id = $1', [
+      guestRow,
+      guestIdentity,
+    ]);
+    const me = await resolveCustomer(a, scopeA, who('ghostly', { emailVerified: true }));
+    expect(me.id).toBe(guestRow); // adopted
+    const subjectIdentity = await identityOf(guestRow);
+    expect(subjectIdentity).not.toBe(guestIdentity);
+    const [guest] = (await identityRows()).filter((r) => r.id === guestIdentity);
+    expect(guest).toMatchObject({ merged_into_id: subjectIdentity });
+
+    // ambiguity: two subjectless identities for twins@ — a fresh verified sign-in links its own identity, merges none
+    for (let i = 0; i < 2; i += 1) {
+      await owner.query(
+        'INSERT INTO customer_identity (organization_id, email_hash) VALUES ($1, $2)',
+        [ORG, customerEmailHash('twins@example.test')],
+      );
+    }
+    const fresh = await resolveCustomer(a, scopeA, who('twins', { emailVerified: true }));
+    const freshId = await identityOf(fresh.id);
+    const twins = (await identityRows()).filter(
+      (r) => r.email_hash === customerEmailHash('twins@example.test'),
+    );
+    expect(twins).toHaveLength(3);
+    expect(twins.filter((r) => r.keycloak_subject === null).map((r) => r.merged_into_id)).toEqual([
+      null,
+      null,
+    ]);
+    expect(twins.find((r) => r.id === freshId)).toMatchObject({ keycloak_subject: 'sub-twins' });
+  });
+
+  it('erase per store keeps the identity while another brand references it; the last erasure deletes it; eraseCustomerIdentity erases every brand in one transaction and deletes the identity (not wired to deleteMe)', async () => {
+    const uma = who('uma', { emailVerified: true });
+    const inA = await resolveCustomer(a, scopeA, uma);
+    const inB = await resolveCustomer(b, scopeB, uma);
+    const id = (await identityOf(inA.id))!;
+    expect(await identityOf(inB.id)).toBe(id);
+    expect(await eraseCustomer(a, A, inA.id, { id: null, type: 'system' })).toEqual({
+      erased: true,
+    });
+    expect((await identityRows()).some((r) => r.id === id)).toBe(true); // brand-b still references it
+    expect(await identityOf(inA.id)).toBeNull();
+    expect((await audits(inA.id)).find((x) => x.action === 'customer.erase')?.after).toMatchObject({
+      identity_unlinked: true,
+      identity_deleted: false,
+    });
+    expect(await eraseMe(b, scopeB, uma)).toEqual({ erased: true });
+    expect((await identityRows()).some((r) => r.id === id)).toBe(false);
+
+    // the cross-brand erasure, from an organization session
+    const vic = who('vic', { emailVerified: true });
+    const vA = await resolveCustomer(a, scopeA, vic);
+    const vB = await resolveCustomer(b, scopeB, vic);
+    const vId = (await identityOf(vA.id))!;
+    const result = await eraseCustomerIdentity(orgApp(), vId, { id: null, type: 'system' });
+    expect(result).toEqual({
+      erased: [
+        { store_id: A, customer_id: vA.id },
+        { store_id: B, customer_id: vB.id },
+      ].sort((x, y) => (x.store_id < y.store_id ? -1 : 1)),
+      identityDeleted: true,
+    });
+    for (const c of [vA.id, vB.id]) {
+      expect((await events(c)).filter((e) => e.topic === 'customer.erased')).toHaveLength(1);
+      await expect(
+        resolveCustomer(c === vA.id ? a : b, c === vA.id ? scopeA : scopeB, vic),
+      ).rejects.toMatchObject({
+        code: 'unauthorized',
+      });
+    }
+    expect((await identityRows()).some((r) => r.id === vId)).toBe(false);
+    await expect(
+      eraseCustomerIdentity(orgApp(), vId, { id: null, type: 'system' }),
+    ).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    // the self-service route stays per brand: a fresh person deleted in A keeps their B row (owner decision pending)
+    const wes = who('wes', { emailVerified: true });
+    await resolveCustomer(a, scopeA, wes);
+    const wB = await resolveCustomer(b, scopeB, wes);
+    expect(await eraseMe(a, scopeA, wes)).toEqual({ erased: true });
+    expect((await rowsOf(B, 'wes@example.test'))[0]).toMatchObject({
+      id: wB.id,
+      status: 'registered',
     });
   });
 });

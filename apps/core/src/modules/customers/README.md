@@ -141,6 +141,38 @@ lock `resolveIn` holds. The same answer again writes nothing — not even under 
 - Nothing in the ledger, the projection, the events or the audit rows is personal data; a policy version is a
   label, never free text from the customer (100 characters at most).
 
+## Cross-brand identity (#473, db 0196 — CONTRACT CHANGE #504)
+
+One `customer_identity` row per person of the organization, keyed by the customers-realm **subject** (one realm
+serves every brand, so the `sub` is the same person everywhere); the per-brand `customer` rows point at it
+(model B, the window 13 decisions). The table is **closed to store sessions** (RLS `organization_only`): a brand
+must never learn that a person shops at another brand — not a count, not a hash. Store-scoped code never reads
+it; it calls two `SECURITY DEFINER` functions that run in organization scope (0191's pattern) and return an id:
+
+- `app.link_customer_identity(customer_id, subject, email_hash)` (the organization and the caller's store scope come from the session — a customer outside the caller's stores is a 42501, never a silent no-op) — `resolveIn` calls it for a **verified
+  email only**, when the row has no identity yet or was just adopted: at provisioning, on adoption, or on the first
+  verified sign-in of an older row (then one `customer.updated` with `changed_fields: ['identity_id']`). By subject,
+  created on a miss (race-safe); a guest-only identity with the same `email_hash` is merged into it
+  (`merged_into_id`, its customers re-pointed) **only when exactly one** unmerged subjectless candidate exists — two
+  or more: no merge, ambiguity is never guessed. Two Keycloak accounts with the same verified email are two
+  identities (`email_hash` is no longer unique; a shared mailbox is two people). An unverified token never links or
+  adopts.
+- `app.unlink_customer_identity(customer_id)` — at erasure (`eraseIn`, both entry points): clears the
+  pointer, deletes the identity when no customer row and no merged identity references it (`identity_unlinked` /
+  `identity_deleted` in the audit row). Another brand's row of the same person keeps it.
+
+**HQ read:** Admin `GET /admin/customer-identities/{identityId}` (`getCustomerIdentity`, `support` on
+`organization:hq`, on `customersAdminRouter`): `{ id, customers: [{ store_id, customer_id }] }` — ids only, a merged
+identity resolved to its target; a store-scoped principal gets 403 (`organizationClientFor`). The Store API carries
+no identity (the `Customer` shape never had one; the export bundle neither). The per-store Admin `Customer` shape
+keeps its `identity_id` field by contract — an opaque id that only the HQ read resolves (addendum question on #504).
+
+**Cross-brand erasure** (`eraseCustomerIdentity(orgClient, identityId, actor)`): every store row of the person in
+one transaction, each through `eraseIn` (addresses, consents, exports with bundles, the tombstone subject, ONE
+`customer.erased` per row), then the merged guest identities and the identity row. Built and tested for the owner's
+decision on self-service deletion; **not wired to `deleteMe`**, which keeps erasing the requesting brand's row
+(lawyer list). The admin per-store erase keeps the other brand's row and the identity.
+
 ## Export delivery (#472, db 0195 `customer_export`, events `customer.export_ready`, Store API 0.5.8, Admin API 0.4.20 — CONTRACT CHANGE #498)
 
 The consumer of `customer.export_requested`: **`src/jobs/customer-export.ts`** (Medusa job contract, every five
@@ -228,9 +260,9 @@ outbox for a person who asked to be deleted; `POST /me/export` follows the same 
   onto the erased row; one that held the lock first wins, and the erasure then deletes what it wrote (tested
   both ways).
 - every `customer_address` row of the customer is deleted;
-- `identity_id` → null, and the organization-level `customer_identity` row is deleted when nothing references it
-  any more (another store's customer of the same person, or a merged identity, keeps it — tried under a
-  savepoint, a foreign-key refusal means "keep");
+- `identity_id` → null through `app.unlink_customer_identity` (#473), which deletes the organization-level
+  `customer_identity` row when nothing references it any more (another store's customer of the same person, or a
+  merged identity, keeps it);
 - **orders are kept unchanged**, linked by `customer_id` only. Basis: invoices and transaction records are
   retained under the legal-obligation exception (GDPR art. 17(3)(b)) — manager decision A, on the owner's
   lawyer-review list; if the review says otherwise it becomes a follow-up (scrub the order email / shipping
@@ -295,7 +327,8 @@ and a checkbox; the form carries the privacy-policy version the page displays �
 starter's environment (`privacyPolicyVersion()` in `account.config.ts`, `unversioned` when unset; keep it equal
 to the store's `settings.privacy.policy_version`) — and an unticked box is sent as an explicit `false`. **Your data exports** (#472, `account-exports.tsx`): the
 requests with their state (being prepared / ready until a date / expired / too large) and a Download link for the
-ready ones, served by the route handler `account/exports/[exportId]/route.ts` — it calls `getMyExport` with the
+ready ones (the link carries the locale prefix — `exportDownloadPath`; the status line is the pure
+`exportStatus`, unit-tested), served by the route handler `account/exports/[exportId]/route.ts` — it calls `getMyExport` with the
 session token (never in the browser) and streams the JSON as an attachment, passing the Store API's 404 / 410
 through. The server actions
 live in the route group (`account/actions.ts`) and call the Store API client's generic `request` — the client's
@@ -315,6 +348,10 @@ rule, the only-address `false`, 404 for another customer / store / unknown id), 
 the consent ledger (#471: never asked → flip → same answer → opt-out, append-only, validation, per brand,
 disabled 401, erase + export, the store's policy version, the 0194 backfill on seeded projections, and the
 re-consent-audience proof against window 17's `segmentQuery` with the `never_asked` assertion as `it.todo(#491)`),
+cross-brand identity (#473: one identity for one subject on two brands, the store session sees nothing of the
+table and cannot write it, unverified never links, the first verified sign-in links an older row, two subjects
+with one email = two identities, the guest merge and the ambiguous no-merge, per-store erase keeps a referenced
+identity, `eraseCustomerIdentity` across brands with `deleteMe` staying per brand),
 export delivery (#472: claim → build → ready with the event and the 30-day expiry, replay builds nothing, list and
 download for the customer only with the audit row, purge → 410 `expired`, the size cap → `too_large`, a customer
 gone → `customer_gone`, erase deletes bundles),

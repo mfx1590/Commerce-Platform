@@ -8,7 +8,7 @@ import { handle } from '../../http/errors';
 import { loadSpec } from '../../http/openapi';
 import { requirePermission, resolveObject } from '../../http/permissions';
 import { enumParam, one, throwIfProblems, uuidParam } from '../../http/query';
-import { requirePrincipal, storeClientFor } from '../../http/staff-auth';
+import { organizationClientFor, requirePrincipal, storeClientFor } from '../../http/staff-auth';
 import { adminListCustomerConsents } from './consent';
 import { CONSENT_PURPOSES } from './consent-ledger';
 import {
@@ -16,13 +16,17 @@ import {
   adminListCustomerExports,
   type ExportDownload,
 } from './export-delivery';
+import { getCustomerIdentity } from './identity';
 
 export const CUSTOMER_CONSENTS_PATH = '/admin/stores/:storeId/customers/:customerId/consents';
 export const CUSTOMER_EXPORTS_PATH = '/admin/stores/:storeId/customers/:customerId/exports';
 export const CUSTOMER_EXPORT_PATH =
   '/admin/stores/:storeId/customers/:customerId/exports/:exportId';
 
-type Operation = 'listCustomerConsents' | 'listCustomerExports' | 'getCustomerExport';
+export const CUSTOMER_IDENTITY_PATH = '/admin/customer-identities/:identityId';
+
+type Operation =
+  'listCustomerConsents' | 'listCustomerExports' | 'getCustomerExport' | 'getCustomerIdentity';
 
 /** Sends a bundle as a JSON attachment: never cached, never inline (the browser must not render it as a page). */
 export function sendExport(
@@ -99,6 +103,16 @@ export function customersAdminRouter(): Router {
           p.actor,
         ),
       );
+    }),
+  );
+  // #473: the HQ-only identity read (support on organization:hq) — ids only, on an organization client
+  r.get(
+    CUSTOMER_IDENTITY_PATH,
+    permission('getCustomerIdentity'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const identityId = uuidParam(req.params, 'identityId');
+      res.json(await getCustomerIdentity(organizationClientFor(p), identityId));
     }),
   );
   return r;

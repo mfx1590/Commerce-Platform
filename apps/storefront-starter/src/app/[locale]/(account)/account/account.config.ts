@@ -14,6 +14,22 @@ export function privacyPolicyVersion(): string {
   return v === undefined || v === '' ? 'unversioned' : v;
 }
 
+/** What the exports panel says about one export (#472 / #501 review nit: the rule is pure, so it is tested). */
+export function exportStatus(item: {
+  status: 'pending' | 'ready' | 'expired';
+  reason: 'customer_gone' | 'too_large' | null;
+  expires_at: string | null;
+}): { key: 'until' | 'pending' | 'tooLarge' | 'expired'; date: string | null } {
+  if (item.status === 'ready') return { key: 'until', date: item.expires_at };
+  if (item.status === 'pending') return { key: 'pending', date: null };
+  return { key: item.reason === 'too_large' ? 'tooLarge' : 'expired', date: null };
+}
+
+/** The download path of one export, under the locale the customer is browsing (#501 review nit). */
+export function exportDownloadPath(locale: string, exportId: string): string {
+  return `/${locale}/account/exports/${exportId}`;
+}
+
 /** The purposes the consents form shows, in order (the Store API's closed set). */
 export const CONSENT_PURPOSES = ['marketing_email'] as const;
 
