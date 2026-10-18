@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 3 (window 12)
 
+### 2026-10-18 · Admin API report operations (#479)
+
+- `proposed/admin-api.reports.yaml`: `getStoreSalesReport`, `getStoreStockReport`, `getHqSalesReport`,
+  `getHqFinanceReport` with `SalesReport`, `StockReport`, `FinanceReport` (+ `SalesFigures`, `StockPosition`,
+  `FinanceFigures`) and the `ReportFrom` / `ReportTo` / `ReportCurrency` parameters (CONTRACT CHANGE, Admin API 0.4.18).
+- Core reporting module: `service.ts`, `routes.ts` (`reportingAdminRouter()`), `testing/fixtures.ts` shared by both
+  test files; `reports.test.ts` (19 cases). Mounting is a REQUEST to window 1.
+
 ### 2026-10-18 · Migration 0200 landed (db 0.3.8, CONTRACT CHANGE #485)
 
 - The views live in `packages/db/migrations/0200_reporting_views.sql`; `proposed/` is deleted.
