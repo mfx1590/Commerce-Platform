@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 3 (window 12)
 
+### 2026-10-18 · BI section in the admin (#480)
+
+- `apps/admin/src/app/(hq)/bi`: the placeholder replaced by the HQ BI page — currency tabs (never a sum), KPI cards,
+  net revenue and orders per day per store (a local SVG chart), a per-store table; finance cards only for finance
+  principals (fees labelled unreconciled); a per-store stock tab (first page). Wrappers in `_api.ts` over window 4's
+  `adminCall`; helpers in `_lib/report.ts`; doc in `(hq)/bi/README.md`.
+- Tests: `apps/admin/test/bi` (helpers; the page per principal with the real section guard) and
+  `apps/admin/test-contract/bi` (the wrappers against Prism).
+- Core: a test that an HQ analyst reads a store's stock; `REFUND_REASONS.includes` in the finance report.
+
 ### 2026-10-18 · Report operations landed (Admin API 0.4.19, CONTRACT CHANGE #493; mount REQUEST #494)
 
 - The four operations live in `packages/contracts/openapi/admin-api.yaml`; `proposed/admin-api.reports.yaml` is deleted.
