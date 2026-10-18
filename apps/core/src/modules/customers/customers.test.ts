@@ -6,18 +6,25 @@ import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { segmentQuery, type SegmentRules } from '../marketing';
 import {
   ADDRESS_LIMIT,
   addCustomerAddress,
   buildCustomerExport,
+  buildPendingExports,
+  claimExportRequests,
   customerEmailHash,
   deleteCustomerAddress,
   eraseCustomer,
   eraseMe,
   findCustomerForSubject,
   getMyConsents,
+  getMyExport,
   listCustomerAddresses,
+  listMyExports,
+  purgeExpiredExports,
+  requestCustomerExport,
   putMyConsents,
   registerCustomer,
   resolveCustomer,
@@ -1339,6 +1346,206 @@ describe('consent ledger (#471, db 0194, Store API 0.5.7)', () => {
       granted: false,
       policy_version: 'pre-ledger',
     });
+  });
+});
+
+describe('export delivery (#472, db 0195 customer_export, Store API 0.5.8)', () => {
+  const T0 = new Date('2026-10-18T10:00:00.000Z');
+  const DAY = 86_400_000;
+  const exportRows = async (customerId: string) =>
+    (
+      await owner.query<{
+        id: string;
+        status: string;
+        reason: string | null;
+        bundle: Buffer | null;
+        bundle_size: number | null;
+        expires_at: Date | null;
+        purged_at: Date | null;
+        download_count: number;
+        event_id: string;
+      }>(
+        `SELECT id, status, reason, bundle, bundle_size, expires_at, purged_at, download_count, event_id
+         FROM customer_export WHERE customer_id = $1 ORDER BY created_at, id`,
+        [customerId],
+      )
+    ).rows;
+  const readyEvents = async (customerId: string) =>
+    (await events(customerId)).filter((e) => e.topic === 'customer.export_ready');
+  const asCustomer = (id: string) => ({ id, type: 'customer' as const, requestId: 'req-export' });
+
+  it('claim → build → ready: one row per request event (replay never builds twice), the bundle is the export, one customer.export_ready, expires in 30 days; list and download for the customer only', async () => {
+    const mia = who('mia');
+    const me = await registerCustomer(a, scopeA, mia, {
+      email: 'mia@example.test',
+      first_name: 'Mia',
+    });
+    await addCustomerAddress(a, scopeA, mia, {
+      first_name: 'Mia',
+      last_name: 'Mason',
+      line1: 'Exportlane 5',
+      city: 'Amsterdam',
+      postal_code: '1015 CJ',
+      country: 'NL',
+    });
+    // two requests (the customer, then "staff"), as the Store / Admin routes record them
+    await requestCustomerExport(a, A, me.customer.id, asCustomer(me.customer.id));
+    await requestCustomerExport(a, A, me.customer.id, {
+      id: '00000000-0000-4000-8000-000000000044',
+      type: 'staff',
+      requestId: 'req-export',
+    });
+
+    expect(await claimExportRequests(a, A)).toEqual({ scanned: 2, claimed: 2 });
+    expect(await claimExportRequests(a, A)).toEqual({ scanned: 0, claimed: 0 });
+    let rows = await exportRows(me.customer.id);
+    expect(rows.map((r) => r.status)).toEqual(['pending', 'pending']);
+    expect((await listMyExports(a, scopeA, mia)).map((x) => x.status)).toEqual([
+      'pending',
+      'pending',
+    ]);
+    // pending: nothing to download yet
+    await expect(getMyExport(a, scopeA, mia, rows[0]!.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+
+    const built = await buildPendingExports(a, A, { now: T0 });
+    expect(built.built.sort()).toEqual(rows.map((r) => r.id).sort());
+    expect(built.expired).toEqual([]);
+    expect(await buildPendingExports(a, A, { now: T0 })).toEqual({ built: [], expired: [] });
+    rows = await exportRows(me.customer.id);
+    expect(rows.map((r) => r.status)).toEqual(['ready', 'ready']);
+    expect(rows[0]!.expires_at).toEqual(new Date(T0.getTime() + 30 * DAY));
+    const bundle = JSON.parse(gunzipSync(rows[0]!.bundle!).toString('utf8'));
+    expect(bundle).toMatchObject({
+      format: 'customer-export/v1',
+      store_id: A,
+      customer: { id: me.customer.id, email: 'mia@example.test', first_name: 'Mia' },
+    });
+    expect(bundle.addresses.map((x: { line1: string }) => x.line1)).toEqual(['Exportlane 5']);
+    const ready = await readyEvents(me.customer.id);
+    expect(ready).toHaveLength(2);
+    expect(ready.map((e) => e.payload.requested_by_type).sort()).toEqual(['customer', 'staff']);
+    expect(ready[0]!.payload).toEqual({
+      export_id: expect.any(String),
+      customer_id: me.customer.id,
+      requested_by: expect.any(String),
+      requested_by_type: expect.any(String),
+      expires_at: new Date(T0.getTime() + 30 * DAY).toISOString(),
+    });
+
+    // the list and the download (own only)
+    const listed = await listMyExports(a, scopeA, mia);
+    expect(listed[0]).toEqual({
+      id: expect.any(String),
+      status: 'ready',
+      requested_at: expect.any(String),
+      ready_at: T0.toISOString(),
+      expires_at: new Date(T0.getTime() + 30 * DAY).toISOString(),
+      // matched by id: the two bundles differ by a byte (their own generated_at)
+      size_bytes: rows.find((r) => r.id === listed[0]!.id)!.bundle_size,
+      reason: null,
+    });
+    const file = await getMyExport(a, scopeA, mia, rows[0]!.id);
+    expect(file.filename).toBe(`customer-export-${rows[0]!.id}.json`);
+    expect(JSON.parse(file.body.toString('utf8'))).toEqual(bundle);
+    expect((await exportRows(me.customer.id))[0]!.download_count).toBe(1);
+    const audit = await owner.query<{
+      action: string;
+      actor_type: string;
+      after: Record<string, unknown>;
+    }>(
+      `SELECT action, actor_type, after FROM audit_log WHERE entity_type = 'customer_export' AND entity_id = $1`,
+      [rows[0]!.id],
+    );
+    expect(audit.rows).toEqual([
+      {
+        action: 'customer_export.download',
+        actor_type: 'customer',
+        after: { bytes: file.body.length },
+      },
+    ]);
+    await expect(getMyExport(a, scopeA, who('nico'), rows[0]!.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(getMyExport(b, scopeB, mia, rows[0]!.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    expect(await listMyExports(b, scopeB, mia)).toEqual([]);
+
+    // purge after the TTL: the bundle goes, the bare row stays, the download is 410 `expired` with the date
+    expect(await purgeExpiredExports(a, A, new Date(T0.getTime() + 30 * DAY - 1))).toBe(0);
+    expect(await purgeExpiredExports(a, A, new Date(T0.getTime() + 30 * DAY))).toBe(2);
+    rows = await exportRows(me.customer.id);
+    expect(rows.map((r) => [r.status, r.bundle, r.purged_at !== null])).toEqual([
+      ['expired', null, true],
+      ['expired', null, true],
+    ]);
+    await expect(getMyExport(a, scopeA, mia, rows[0]!.id)).rejects.toMatchObject({
+      code: 'expired',
+      status: 410,
+      details: { expires_at: new Date(T0.getTime() + 30 * DAY).toISOString() },
+    });
+    expect((await listMyExports(a, scopeA, mia))[0]).toMatchObject({
+      status: 'expired',
+      size_bytes: null,
+    });
+    // nothing personal in the outbox or the audit rows
+    const docs = await owner.query<{ doc: string }>(
+      `SELECT payload::text AS doc FROM outbox WHERE aggregate_id = $1
+       UNION ALL SELECT coalesce(after::text, '') FROM audit_log WHERE entity_id = ANY($2)`,
+      [me.customer.id, rows.map((r) => r.id)],
+    );
+    for (const pii of ['mia@', 'Mia', 'Exportlane'])
+      expect(docs.rows.map((r) => r.doc).join()).not.toContain(pii);
+  });
+
+  it('the size cap: a bundle above maxBytes becomes expired / too_large with no bundle and no event; a customer gone by build time becomes expired / customer_gone', async () => {
+    const olga = who('olga');
+    const me = await resolveCustomer(a, scopeA, olga);
+    await requestCustomerExport(a, A, me.id, asCustomer(me.id));
+    await claimExportRequests(a, A);
+    const capped = await buildPendingExports(a, A, { now: T0, maxBytes: 16 });
+    expect(capped.built).toEqual([]);
+    expect(capped.expired).toEqual([{ id: expect.any(String), reason: 'too_large' }]);
+    expect((await exportRows(me.id))[0]).toMatchObject({
+      status: 'expired',
+      reason: 'too_large',
+      bundle: null,
+    });
+    expect(await readyEvents(me.id)).toEqual([]);
+    expect((await listMyExports(a, scopeA, olga))[0]).toMatchObject({
+      status: 'expired',
+      reason: 'too_large',
+    });
+
+    // gone: request, erase, then the job runs — the request event is still in the outbox
+    const pia = who('pia');
+    const p = await resolveCustomer(a, scopeA, pia);
+    await requestCustomerExport(a, A, p.id, asCustomer(p.id));
+    expect(await eraseMe(a, scopeA, pia)).toEqual({ erased: true });
+    expect(await claimExportRequests(a, A)).toMatchObject({ claimed: 1 });
+    const gone = await buildPendingExports(a, A, { now: T0 });
+    expect(gone.expired).toEqual([{ id: expect.any(String), reason: 'customer_gone' }]);
+    expect((await exportRows(p.id))[0]).toMatchObject({
+      status: 'expired',
+      reason: 'customer_gone',
+      bundle: null,
+    });
+    expect(await readyEvents(p.id)).toEqual([]);
+  });
+
+  it('erase deletes every export of the customer, ready bundles included, counted in the audit row', async () => {
+    const quin = who('quin');
+    const me = await resolveCustomer(a, scopeA, quin);
+    await requestCustomerExport(a, A, me.id, asCustomer(me.id));
+    await claimExportRequests(a, A);
+    expect((await buildPendingExports(a, A, { now: T0 })).built).toHaveLength(1);
+    expect((await exportRows(me.id))[0]).toMatchObject({ status: 'ready' });
+    expect(await eraseMe(a, scopeA, quin)).toEqual({ erased: true });
+    expect(await exportRows(me.id)).toEqual([]);
+    const audit = (await audits(me.id)).find((x) => x.action === 'customer.erase');
+    expect(audit?.after).toMatchObject({ exports_deleted: 1 });
   });
 });
 

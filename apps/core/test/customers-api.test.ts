@@ -28,6 +28,7 @@ import {
 import { mountCustomerRoutes } from '../src/http/customer-routes';
 import { customerGateWith, getOrderRouteWith } from '../src/http/store-routes';
 import { paymentProvider } from '../src/modules/checkout';
+import { runCustomerExports } from '../src/jobs/customer-export';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -1218,6 +1219,75 @@ describe('consents (#471, Store API 0.5.7): GET / PUT /store/customers/me/consen
   });
 });
 
+describe('export delivery (#472, Store API 0.5.8): the job, GET /store/customers/me/exports and the download', () => {
+  it('requests → the job builds → list shows ready → the bundle downloads as a JSON attachment; malformed / foreign ids 404; expired 410; a brand-b key refuses the token', async () => {
+    const T0 = new Date('2026-10-18T12:00:00.000Z');
+    PERSONAS.exporter = {
+      subject: 'sub-exporter',
+      storeCode: 'brand-a',
+      email: 'exporter@example.test',
+    };
+    await as('exporter', 'patch', '/store/customers/me').send({ first_name: 'Exa' });
+    expect((await as('exporter', 'post', '/store/customers/me/export')).status).toBe(202);
+    const empty = await as('exporter', 'get', '/store/customers/me/exports');
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ items: [] });
+
+    // the job (the same function the Medusa job and the CLI run), with an injected clock
+    const run = await runCustomerExports({ now: T0, organizationId: ORG });
+    expect(run.stores).toBeGreaterThanOrEqual(2);
+    expect(run.claimed).toBeGreaterThanOrEqual(1);
+    const again = await runCustomerExports({ now: T0, organizationId: ORG });
+    expect(again.claimed).toBe(0);
+    expect(again.built).toEqual([]);
+
+    const list = await as('exporter', 'get', '/store/customers/me/exports');
+    expect(list.status).toBe(200);
+    spec.assertItems('CustomerExportSummary', list.body);
+    expect(list.body.items).toHaveLength(1);
+    const item = list.body.items[0];
+    expect(item).toMatchObject({ status: 'ready', ready_at: T0.toISOString(), reason: null });
+
+    const file = await as('exporter', 'get', `/store/customers/me/exports/${item.id}`);
+    expect(file.status).toBe(200);
+    expect(file.headers['content-type']).toMatch(/^application\/json/);
+    expect(file.headers['content-disposition']).toBe(
+      `attachment; filename="customer-export-${item.id}.json"`,
+    );
+    expect(file.headers['cache-control']).toBe('no-store');
+    expect(file.body).toMatchObject({
+      format: 'customer-export/v1',
+      store_id: A,
+      customer: { email: 'exporter@example.test', first_name: 'Exa' },
+    });
+
+    expect((await as('exporter', 'get', '/store/customers/me/exports/not-a-uuid')).status).toBe(
+      404,
+    );
+    expect((await as('jane', 'get', `/store/customers/me/exports/${item.id}`)).status).toBe(404);
+    for (const path of ['/store/customers/me/exports', `/store/customers/me/exports/${item.id}`]) {
+      expect((await as('exporter', 'get', path, KEY_B)).status).toBe(401);
+    }
+
+    // past the TTL: the next run purges; the download is 410 `expired`, the list says expired
+    const later = await runCustomerExports({
+      now: new Date(T0.getTime() + 31 * 86_400_000),
+      organizationId: ORG,
+    });
+    expect(later.purged).toBeGreaterThanOrEqual(1);
+    const gone = await as('exporter', 'get', `/store/customers/me/exports/${item.id}`);
+    expect(gone.status).toBe(410);
+    spec.assertSchema('Error', gone.body);
+    expect(gone.body).toMatchObject({ code: 'expired', details: { expires_at: item.expires_at } });
+    expect(
+      (await as('exporter', 'get', '/store/customers/me/exports')).body.items[0],
+    ).toMatchObject({
+      status: 'expired',
+      size_bytes: null,
+    });
+  });
+});
+
 describe('nothing personal is logged', () => {
   it('no log line carries an email, a token or a name across every customer route, errors included', async () => {
     const logged: string[] = [];
@@ -1262,6 +1332,9 @@ describe('nothing personal is logged', () => {
         consents: [{ purpose: 'marketing_email', granted: false }],
       });
       await as('jane', 'get', '/store/customers/me/consents');
+      await as('jane', 'get', '/store/customers/me/exports');
+      await as('jane', 'get', '/store/customers/me/exports/00000000-0000-4000-8000-0000000000ee');
+      await runCustomerExports({ organizationId: ORG });
       await as('deleter', 'delete', '/store/customers/me');
       await as('deleter', 'delete', '/store/customers/me');
       await as('deleter', 'get', '/store/customers/me');
@@ -1305,6 +1378,8 @@ describe('the core answers these paths itself', () => {
       'DELETE /store/customers/me',
       'GET /store/customers/me/consents',
       'PUT /store/customers/me/consents',
+      'GET /store/customers/me/exports',
+      'GET /store/customers/me/exports/{exportId}',
     ]);
 
     const seen: string[] = [];
@@ -1346,6 +1421,7 @@ describe('the core answers these paths itself', () => {
           policy_version: 'v1',
           consents: [{ purpose: 'marketing_email', granted: true }],
         }),
+        await call('get', '/store/customers/me/exports'),
         await call('delete', '/store/customers/me', 'leaver'),
       ]) {
         expect(res.status).toBeLessThan(300);
@@ -1367,6 +1443,8 @@ describe('the core answers these paths itself', () => {
         ['delete', '/store/customers/me/export'],
         ['post', '/store/customers/me/consents'],
         ['delete', '/store/customers/me/consents'],
+        ['post', '/store/customers/me/exports'],
+        ['delete', '/store/customers/me/exports/00000000-0000-4000-8000-000000000001'],
         ['post', '/store/customers/someone-else'],
       ];
       for (const [method, path] of undefinedOperations) {

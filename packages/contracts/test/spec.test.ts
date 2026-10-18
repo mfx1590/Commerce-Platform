@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { RELATIONS } from '../src/index.js';
+import { ERROR_CODES, RELATIONS } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (f: string) => readFileSync(resolve(here, '../openapi', f), 'utf8');
@@ -160,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.7/);
+    expect(text).toMatch(/version: 0\.5\.8/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -193,7 +193,7 @@ describe('store-api.yaml customer self-service (0.5.6, #482)', () => {
     text.slice(text.indexOf(`\n  ${path}:\n`), text.indexOf(`\n  ${next}:\n`));
 
   it('the four operations exist on the right paths with the right methods', () => {
-    expect(ops.length).toBe(28); // 26 at 0.5.6; +getMyConsents / putMyConsents at 0.5.7 (#489)
+    expect(ops.length).toBe(30); // 26 at 0.5.6; +getMyConsents / putMyConsents at 0.5.7 (#489); +listMyExports / getMyExport at 0.5.8 (#498)
     const me = block('/store/customers/me', '/store/customers/me/addresses');
     expect(me).toMatch(/^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMe$/m);
     const one = block('/store/customers/me/addresses/{addressId}', '/store/customers/me/export');
@@ -202,7 +202,7 @@ describe('store-api.yaml customer self-service (0.5.6, #482)', () => {
     expect(one).toMatch(
       /^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMyAddress$/m,
     );
-    const exp = block('/store/customers/me/export', '/store/customers/me/orders');
+    const exp = block('/store/customers/me/export', '/store/customers/me/exports');
     expect(exp).toMatch(/^ {4}post:\n {6}tags: \[customers\]\n {6}operationId: requestMyExport$/m);
     expect(exp).not.toMatch(/^ {4}(get|patch|delete):$/m);
     expect(text).toMatch(/AddressId:\n\s+name: addressId\n\s+in: path\n\s+required: true/);
@@ -244,7 +244,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.19/);
+    expect(text).toMatch(/version: 0\.4\.20/);
     for (const tag of [
       'registry',
       'catalog',
@@ -623,7 +623,7 @@ describe('admin-api.yaml', () => {
     }
     // the shared 422 and its machine code
     expect(component('Unprocessable')).toMatch(/code: provider_unsupported/);
-    expect(text).toMatch(/payment_failed, provider_unsupported, internal/);
+    expect(text).toMatch(/payment_failed, provider_unsupported, expired, internal/); // expired: 0.4.23 (#498)
   });
 
   it('0.4.9 (#350): the Order status enum is the documented five-state lifecycle', () => {
@@ -914,7 +914,7 @@ describe('customer consent ledger (contracts 0.4.21, Store API 0.5.7, Admin API 
   const sbody = (id: string) => storeOps.find((o) => o.id === id)!.body;
 
   it('getMyConsents / putMyConsents on /store/customers/me/consents, customer-token secured, with the /me 409', () => {
-    expect(storeOps.length).toBe(28);
+    expect(storeOps.length).toBe(30); // +listMyExports / getMyExport at 0.5.8 (#498)
     const start = store.indexOf('\n  /store/customers/me/consents:\n');
     expect(start).toBeGreaterThan(0);
     const path = store.slice(start, store.indexOf('\n  /store/customers/me/export:\n'));
@@ -947,15 +947,14 @@ describe('customer consent ledger (contracts 0.4.21, Store API 0.5.7, Admin API 
     expect(schema).toMatch(/enum: \[storefront, admin, import, null\]/);
   });
 
-  it('listCustomerConsents: store-scoped, support, documents 401/403/404, ledger rows are never null', () => {
-    expect(store).toMatch(/version: 0\.5\.7/);
+  it('listCustomerConsents: store-scoped, support, documents 400/401/403/404, ledger rows are never null', () => {
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/consents:\n/,
     );
     const op = adminOps.find((o) => o.id === 'listCustomerConsents')!;
     expect(op).toBeDefined();
     expect(op.body).toMatch(/x-permission: \{ relation: support, object: 'store:\{storeId\}' \}/);
-    for (const code of ['401', '403', '404']) expect(op.body, code).toContain(`'${code}':`);
+    for (const code of ['400', '401', '403', '404']) expect(op.body, code).toContain(`'${code}':`);
     expect(op.body).toMatch(
       /required: \[id, purpose, granted, source, policy_version, recorded_at\]/,
     );
@@ -975,9 +974,8 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
       .slice(1);
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
-    expect(text).toMatch(/^ {2}version: 0\.4\.19$/m);
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(128);
+    expect(ops.length).toBe(130); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1040,6 +1038,110 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
       const section = text.indexOf(`\n  ${m[1]}:\n`);
       expect(section, m[1]).toBeGreaterThan(0);
       expect(text.indexOf(`\n    ${m[2]}:\n`, section), `${m[1]}/${m[2]}`).toBeGreaterThan(section);
+    }
+  });
+});
+
+describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20, #498)', () => {
+  const store = read('store-api.yaml');
+  const admin = read('admin-api.yaml');
+  const storeOps = operations(store);
+  const adminOps = operations(admin);
+  const sbody = (id: string) => storeOps.find((o) => o.id === id)!.body;
+  const abody = (id: string) => adminOps.find((o) => o.id === id)!.body;
+  const permission = (id: string) =>
+    abody(id)
+      .match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('versions, and the closed error list gains expired with a shared 410 Gone in both specs', () => {
+    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.20$/m);
+    expect(ERROR_CODES).toContain('expired');
+    for (const [name, text] of [
+      ['store', store],
+      ['admin', admin],
+    ] as const) {
+      expect(text, name).toMatch(/description: '[^']*\bconflict\b[^']*, expired, internal'/);
+      const start = text.indexOf('\n    Gone:\n');
+      expect(start, name).toBeGreaterThan(text.indexOf('\n  responses:\n'));
+      const gone = text.slice(start, text.indexOf('\n  schemas:\n', start));
+      expect(gone, name).toContain("schema: { $ref: '#/components/schemas/Error' }");
+      expect(gone, name).toMatch(/code: expired,/);
+      expect(gone, name).toMatch(/details: \{ expires_at: '[^']+' \}/);
+      // the summary component exists in both
+      expect(text, name).toMatch(
+        /\n {4}CustomerExportSummary:\n {6}type: object\n {6}required: \[id, status, requested_at, ready_at, expires_at, size_bytes, reason\]\n/,
+      );
+      expect(text, name).toMatch(/status: \{ type: string, enum: \[pending, ready, expired\] \}/);
+      expect(text, name).toMatch(/enum: \[customer_gone, too_large, null\]/);
+    }
+  });
+
+  it('listMyExports / getMyExport: customer-token secured, the /me 409, 404 and 410 on the download', () => {
+    expect(storeOps.length).toBe(30);
+    const list = store.slice(
+      store.indexOf('\n  /store/customers/me/exports:\n'),
+      store.indexOf('\n  /store/customers/me/exports/{exportId}:\n'),
+    );
+    expect(list).toMatch(/^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: listMyExports$/m);
+    expect(list).not.toMatch(/^ {4}(post|put|patch|delete):$/m);
+    const one = store.slice(
+      store.indexOf('\n  /store/customers/me/exports/{exportId}:\n'),
+      store.indexOf('\n  /store/customers/me/orders:\n'),
+    );
+    expect(one).toMatch(/name: exportId, in: path, required: true/);
+    expect(one).toMatch(/^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: getMyExport$/m);
+    expect(one).not.toMatch(/^ {4}(post|put|patch|delete):$/m);
+    for (const id of ['listMyExports', 'getMyExport']) {
+      expect(sbody(id), id).toMatch(/security:\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]/);
+      expect(sbody(id), id).toMatch(/'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/);
+      expect(sbody(id), id).toMatch(/'409':[\s\S]*code: conflict/);
+    }
+    expect(sbody('listMyExports')).toContain("$ref: '#/components/schemas/CustomerExportSummary'");
+    expect(sbody('listMyExports')).toMatch(/'200':[\s\S]*example:\n\s+items:/);
+    expect(sbody('getMyExport')).toMatch(
+      /'404': \{ \$ref: '#\/components\/responses\/NotFound' \}/,
+    );
+    expect(sbody('getMyExport')).toMatch(/'410': \{ \$ref: '#\/components\/responses\/Gone' \}/);
+    expect(sbody('getMyExport')).toMatch(/Content-Disposition:/);
+  });
+
+  it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
+    expect(adminOps.length).toBe(130);
+    expect(admin).toMatch(
+      /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
+    );
+    expect(admin).toMatch(
+      /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports\/\{exportId\}:\n/,
+    );
+    for (const id of ['listCustomerExports', 'getCustomerExport']) {
+      expect(permission(id), id).toEqual(['store_admin', 'store:{storeId}']);
+      for (const code of ['200', '400', '401', '403', '404']) {
+        expect(abody(id), `${id} ${code}`).toContain(`'${code}':`);
+      }
+      expect(abody(id), id).not.toMatch(/requestBody:/);
+    }
+    expect(abody('getCustomerExport')).toMatch(
+      /'410': \{ \$ref: '#\/components\/responses\/Gone' \}/,
+    );
+    expect(abody('listCustomerExports')).toContain(
+      "- $ref: '#/components/schemas/CustomerExportSummary'",
+    );
+    expect(abody('listCustomerExports')).toMatch(
+      /required: \[requested_by, requested_by_type, download_count\]/,
+    );
+    expect(abody('listCustomerConsents')).toMatch(
+      /'400': \{ \$ref: '#\/components\/responses\/BadRequest' \}/,
+    );
+    for (const text of [store, admin]) {
+      for (const m of text.matchAll(/\$ref: '#\/components\/(\w+)\/(\w+)'/g)) {
+        const section = text.indexOf(`\n  ${m[1]}:\n`);
+        expect(section, m[1]).toBeGreaterThan(0);
+        expect(text.indexOf(`\n    ${m[2]}:\n`, section), `${m[1]}/${m[2]}`).toBeGreaterThan(
+          section,
+        );
+      }
     }
   });
 });

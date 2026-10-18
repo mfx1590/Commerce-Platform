@@ -41,6 +41,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
 - `audit_log` and `stock_movement` are append-only for the app role (no UPDATE/DELETE grants).
 - `cycle_count` (0192, 0.3.6) is organization scope only (RLS kind `organization_only`: a store-scoped client reads and writes none) and has no DELETE grant for the app role.
 - `customer_consent` (0194, 0.3.9) is append-only for the app role (no UPDATE grant; DELETE only for erasure) and RLS kind `store`; `customer.consent` stays the projection, rewritten from the newest ledger row in the same transaction.
+- `customer_export` (0195, 0.3.10) is RLS kind `store`, one row per `customer.export_requested` event (`event_id` UNIQUE): insert with `ON CONFLICT (event_id) DO NOTHING`; the bundle (gzip JSON, personal data) is NULL once purged and every export of a customer is deleted in the erasure transaction. Never log or audit the bundle.
 - The `rpt_*` reporting views (0200, 0.3.8) are `security_invoker = true` and SELECT-only for the app role: read them through a scoped client; never recreate one without `security_invoker`.
 - Money is `*_minor bigint` + `currency char(3)`. Ids are uuid. See docs/domain.md.
 

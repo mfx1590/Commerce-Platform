@@ -231,6 +231,15 @@
       "policy": "Privacy policy version {version}",
       "save": "Save consents",
       "saved": "Your consents are saved."
+    },
+    "exports": {
+      "title": "Your data exports",
+      "requested": "Requested {date}",
+      "until": "Ready — available until {date}",
+      "pending": "Being prepared; we will email you when it is ready",
+      "expired": "Expired",
+      "tooLarge": "Too large to deliver online — please contact us",
+      "download": "Download"
     }
   }
 }

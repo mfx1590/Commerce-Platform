@@ -446,6 +446,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/store/customers/me/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The customer's export requests in THIS store, newest first: status `pending` (being built), `ready`
+         *     (downloadable until `expires_at`) or `expired` (purged after 30 days, or never built — `reason`
+         *     `customer_gone` / `too_large`). Ids, timestamps and sizes only; the bundle is `getMyExport`.
+         */
+        get: operations["listMyExports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/store/customers/me/exports/{exportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * @description Downloads the bundle (`customer-export/v1`, `application/json`, sent as an attachment) of one of the
+         *     customer's own ready exports. Another customer's export, an unknown id and a malformed id are the same
+         *     404; a pending export is a 404 too (nothing to download yet); an expired or purged export is a 410
+         *     `expired`.
+         */
+        get: operations["getMyExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/store/customers/me/orders": {
         parameters: {
             query?: never;
@@ -467,7 +512,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, internal */
+            /** @description Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, expired, internal */
             code: string;
             message: string;
             details?: {
@@ -751,6 +796,22 @@ export interface components {
         CustomerConsents: {
             items: components["schemas"]["CustomerConsent"][];
         };
+        CustomerExportSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "pending" | "ready" | "expired";
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            ready_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @description compressed size of the bundle; null until ready or after purge */
+            size_bytes: number | null;
+            /** @enum {string|null} */
+            reason: "customer_gone" | "too_large" | null;
+        };
     };
     responses: {
         /** @description Validation error */
@@ -814,6 +875,24 @@ export interface components {
                  *       "code": "conflict",
                  *       "message": "Conflict",
                  *       "details": {}
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The export has expired or was purged — `expired`; `details.expires_at` says when */
+        Gone: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "expired",
+                 *       "message": "This export has expired",
+                 *       "details": {
+                 *         "expires_at": "2026-11-17T10:00:00Z"
+                 *       }
                  *     }
                  */
                 "application/json": components["schemas"]["Error"];
@@ -2020,6 +2099,105 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    listMyExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "30000000-0000-4000-8000-000000000e01",
+                     *           "status": "ready",
+                     *           "requested_at": "2026-10-18T10:00:00Z",
+                     *           "ready_at": "2026-10-18T10:05:00Z",
+                     *           "expires_at": "2026-11-17T10:05:00Z",
+                     *           "size_bytes": 4096,
+                     *           "reason": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: components["schemas"]["CustomerExportSummary"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle */
+            200: {
+                headers: {
+                    /** @description attachment; filename="customer-export-<id>.json" */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            410: components["responses"]["Gone"];
         };
     };
     listMyOrders: {
