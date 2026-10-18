@@ -9,9 +9,8 @@ import type { Queryable, ScopedClient } from '@platform/db';
 import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
+import { recordConsent, storePolicyVersion } from './consent-ledger';
 import type {
-  AddressInput,
-  AddressPatch,
   Customer,
   CustomerAddress,
   CustomerAddressRow,
@@ -21,9 +20,9 @@ import type {
   CustomerScope,
   RegisterCustomerInput,
 } from './types';
+import { CUSTOMER_COLS, type AddressInput, type AddressPatch } from './types';
 
-const COLS = `id, organization_id, store_id, identity_id, keycloak_subject, email, first_name, last_name, phone,
-  customer_group_id, status, consent`;
+const COLS = CUSTOMER_COLS;
 
 /** Where a consent decision made through the Store API is recorded as coming from (docs/domain.md `consent`). */
 const CONSENT_SOURCE = 'storefront';
@@ -194,6 +193,7 @@ type ProfilePatch = CustomerPatch;
  */
 async function applyProfile(
   tx: Queryable,
+  scope: CustomerScope,
   id: string,
   patch: ProfilePatch,
 ): Promise<{ row: CustomerRow; changed: string[] }> {
@@ -216,36 +216,35 @@ async function applyProfile(
   if (firstName !== before.first_name) changed.push('first_name');
   if (lastName !== before.last_name) changed.push('last_name');
   if (phone !== before.phone) changed.push('phone');
-  const consentChanges =
-    patch.marketing_consent !== undefined &&
-    patch.marketing_consent !== marketingConsent(before.consent);
-  if (consentChanges) changed.push('marketing_consent');
-  if (changed.length === 0) return { row: before, changed };
-  const updated = await tx.query<CustomerRow>(
-    `UPDATE customer
-     SET first_name = $2, last_name = $3, phone = $5,
-         consent = CASE WHEN $4::jsonb IS NULL THEN consent
-                        ELSE jsonb_set(coalesce(consent, '{}'::jsonb), '{marketing_email}', $4::jsonb) END
-     WHERE id = $1 RETURNING ${COLS}`,
-    [
-      id,
-      firstName,
-      lastName,
-      consentChanges
-        ? JSON.stringify({
-            granted: patch.marketing_consent,
-            at: new Date().toISOString(),
-            source: CONSENT_SOURCE,
-          })
-        : null,
-      phone,
-    ],
-  );
-  return { row: updated.rows[0]!, changed };
+  let row = before;
+  if (changed.length > 0) {
+    const updated = await tx.query<CustomerRow>(
+      `UPDATE customer SET first_name = $2, last_name = $3, phone = $4, updated_at = now()
+       WHERE id = $1 RETURNING ${COLS}`,
+      [id, firstName, lastName, phone],
+    );
+    row = updated.rows[0]!;
+  }
+  // The one-checkbox consent (`marketing_consent`) goes through the ledger (#471): one row per CHANGED answer,
+  // source storefront, the store's current policy version; the projection is rewritten by the same call. A first
+  // explicit `false` is recorded too (a refusal is a decision — manager 2026-10-18; it changes #303's rule).
+  if (patch.marketing_consent !== undefined) {
+    const consent = await recordConsent(tx, scope, row, {
+      purpose: 'marketing_email',
+      granted: patch.marketing_consent,
+      source: CONSENT_SOURCE,
+      policyVersion: await storePolicyVersion(tx, scope.storeId),
+    });
+    if (consent.changed) {
+      changed.push('marketing_consent');
+      row = consent.row;
+    }
+  }
+  return { row, changed };
 }
 
 /** One audit row and one event for whatever happened to the row in this transaction — or nothing at all. */
-async function record(
+export async function record(
   tx: Queryable,
   scope: CustomerScope,
   row: CustomerRow,
@@ -321,7 +320,7 @@ export async function resolveIn(
   let row = located.row;
   const changed = [...located.changed];
   if (patch) {
-    const applied = await applyProfile(tx, row.id, patch);
+    const applied = await applyProfile(tx, scope, row.id, patch);
     row = applied.row;
     changed.push(...applied.changed);
   }

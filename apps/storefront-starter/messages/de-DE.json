@@ -218,6 +218,19 @@
       "deleting": "Ihr Konto wird gelöscht.",
       "confirmLabel": "Geben Sie {word} ein, um zu bestätigen",
       "deleteButton": "Mein Konto löschen"
+    },
+    "consents": {
+      "title": "Ihre Einwilligungen",
+      "intro": "Sagen Sie uns, was Sie erlauben. Ihre Antwort wird mit Datum und der Version der Datenschutzerklärung gespeichert, die Sie gesehen haben; Sie können sie hier jederzeit ändern.",
+      "purpose": {
+        "marketing_email": "Angebote und Neuigkeiten per E-Mail"
+      },
+      "neverAsked": "Sie haben sich noch nicht entschieden",
+      "granted": "Erlaubt am {date}",
+      "declined": "Abgelehnt am {date}",
+      "policy": "Datenschutzerklärung Version {version}",
+      "save": "Einwilligungen speichern",
+      "saved": "Ihre Einwilligungen sind gespeichert."
     }
   }
 }

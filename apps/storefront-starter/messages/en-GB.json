@@ -218,6 +218,19 @@
       "deleting": "Your account is being deleted.",
       "confirmLabel": "Type {word} to confirm",
       "deleteButton": "Delete my account"
+    },
+    "consents": {
+      "title": "Your consents",
+      "intro": "Tell us what you allow. Your answer is recorded with the date and the version of the privacy policy you saw; you can change it here at any time.",
+      "purpose": {
+        "marketing_email": "Offers and news by email"
+      },
+      "neverAsked": "You have not decided yet",
+      "granted": "Allowed on {date}",
+      "declined": "Declined on {date}",
+      "policy": "Privacy policy version {version}",
+      "save": "Save consents",
+      "saved": "Your consents are saved."
     }
   }
 }

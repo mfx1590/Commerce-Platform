@@ -81,6 +81,10 @@ export interface RegisterCustomerInput {
 
 export type CustomerStatus = 'guest' | 'registered' | 'disabled' | 'erased';
 
+/** The columns every read of `customer` selects into a `CustomerRow` (service.ts and consent-ledger.ts). */
+export const CUSTOMER_COLS = `id, organization_id, store_id, identity_id, keycloak_subject, email, first_name, last_name, phone,
+  customer_group_id, status, consent`;
+
 export interface CustomerRow {
   id: string;
   organization_id: string;

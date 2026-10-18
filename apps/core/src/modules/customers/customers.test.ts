@@ -4,15 +4,21 @@
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { segmentQuery, type SegmentRules } from '../marketing';
 import {
   ADDRESS_LIMIT,
   addCustomerAddress,
+  buildCustomerExport,
   customerEmailHash,
   deleteCustomerAddress,
   eraseCustomer,
   eraseMe,
   findCustomerForSubject,
+  getMyConsents,
   listCustomerAddresses,
+  putMyConsents,
   registerCustomer,
   resolveCustomer,
   updateCustomer,
@@ -311,13 +317,30 @@ describe('registerCustomer', () => {
     expect(await rowsOf(A, 'margaret@example.test')).toEqual([]);
   });
 
-  it('a "false" on a customer who was never asked records no consent decision', async () => {
+  it('a "false" on a customer who was never asked IS recorded (#471 — a refusal is a decision; this changes #303\'s rule): one ledger row, the projection block, source storefront, the store\'s policy version', async () => {
     const { customer } = await registerCustomer(a, scopeA, who('barbara'), {
       email: 'barbara@example.test',
       marketing_consent: false,
     });
     expect(customer.marketing_consent).toBe(false);
-    expect((await rowsOf(A, 'barbara@example.test'))[0]!.consent).toEqual({});
+    expect((await rowsOf(A, 'barbara@example.test'))[0]!.consent).toEqual({
+      marketing_email: { granted: false, at: expect.any(String), source: 'storefront' },
+    });
+    const ledger = await owner.query(
+      `SELECT purpose, granted, source, policy_version FROM customer_consent WHERE customer_id = $1`,
+      [customer.id],
+    );
+    // brand-a's seed has no settings.privacy.policy_version: the core records "unversioned"
+    expect(ledger.rows).toEqual([
+      {
+        purpose: 'marketing_email',
+        granted: false,
+        source: 'storefront',
+        policy_version: 'unversioned',
+      },
+    ]);
+    const ev = await events(customer.id);
+    expect(ev[0]!.payload).toMatchObject({ marketing_consent: false });
   });
 });
 
@@ -1045,6 +1068,327 @@ describe('deleteMe / the erasure tombstone (#470, #482)', () => {
   });
 });
 
+describe('consent ledger (#471, db 0194, Store API 0.5.7)', () => {
+  const ledgerOf = async (customerId: string) =>
+    (
+      await owner.query<{
+        purpose: string;
+        granted: boolean;
+        source: string;
+        policy_version: string;
+        recorded_at: Date;
+      }>(
+        `SELECT purpose, granted, source, policy_version, recorded_at FROM customer_consent
+         WHERE customer_id = $1 ORDER BY recorded_at, id`,
+        [customerId],
+      )
+    ).rows;
+
+  it('never asked = no row, granted null; a flip writes ONE ledger row + the projection in one transaction, with the version the client sent; the same answer again writes nothing', async () => {
+    const cleo = who('cleo');
+    const me = await resolveCustomer(a, scopeA, cleo);
+    expect(await getMyConsents(a, scopeA, cleo)).toEqual([
+      {
+        purpose: 'marketing_email',
+        granted: null,
+        source: null,
+        policy_version: null,
+        recorded_at: null,
+      },
+    ]);
+    expect(await ledgerOf(me.id)).toEqual([]);
+    const e0 = (await events(me.id)).length;
+
+    const granted = await putMyConsents(a, scopeA, cleo, {
+      policy_version: '2026-10',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    expect(granted).toEqual([
+      {
+        purpose: 'marketing_email',
+        granted: true,
+        source: 'storefront',
+        policy_version: '2026-10',
+        recorded_at: expect.any(String),
+      },
+    ]);
+    const [row] = await ledgerOf(me.id);
+    expect(row).toMatchObject({ granted: true, source: 'storefront', policy_version: '2026-10' });
+    // the projection carries the ledger row's own timestamp — window 17's segments read exactly this shape
+    const projected = (await rowsOf(A, 'cleo@example.test'))[0]!.consent;
+    expect(projected).toEqual({
+      marketing_email: { granted: true, at: row!.recorded_at.toISOString(), source: 'storefront' },
+    });
+    expect((await resolveCustomer(a, scopeA, cleo)).marketing_consent).toBe(true);
+    const ev = await events(me.id);
+    expect(ev).toHaveLength(e0 + 1);
+    expect(ev[ev.length - 1]).toMatchObject({
+      topic: 'customer.updated',
+      payload: expect.objectContaining({
+        marketing_consent: true,
+        changed_fields: ['marketing_consent'],
+      }),
+    });
+
+    // the same answer under a NEWER policy version: nothing written (the answer did not change)
+    expect(
+      await putMyConsents(a, scopeA, cleo, {
+        policy_version: '2026-11',
+        consents: [{ purpose: 'marketing_email', granted: true }],
+      }),
+    ).toEqual(granted);
+    expect(await ledgerOf(me.id)).toHaveLength(1);
+    expect(await events(me.id)).toHaveLength(e0 + 1);
+
+    // the opt-out: a second row; the projection follows; the first row is untouched (append-only)
+    const declined = await putMyConsents(a, scopeA, cleo, {
+      policy_version: '2026-11',
+      consents: [{ purpose: 'marketing_email', granted: false }],
+    });
+    expect(declined[0]).toMatchObject({ granted: false, policy_version: '2026-11' });
+    expect((await ledgerOf(me.id)).map((r) => [r.granted, r.policy_version])).toEqual([
+      [true, '2026-10'],
+      [false, '2026-11'],
+    ]);
+    expect((await rowsOf(A, 'cleo@example.test'))[0]!.consent).toMatchObject({
+      marketing_email: { granted: false },
+    });
+    // the app role cannot rewrite a decision (append-only ledger)
+    await expect(
+      a.query(`UPDATE customer_consent SET granted = true WHERE customer_id = $1`, [me.id]),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('validation: a blank policy_version, an empty list, an unknown or repeated purpose and a non-boolean are a 400 naming the field; nothing written', async () => {
+    const dot = who('dot');
+    const me = await resolveCustomer(a, scopeA, dot);
+    for (const [input, field] of [
+      [
+        { policy_version: '  ', consents: [{ purpose: 'marketing_email', granted: true }] },
+        'policy_version',
+      ],
+      [{ policy_version: 'v1', consents: [] }, 'consents'],
+      [
+        { policy_version: 'v1', consents: [{ purpose: 'marketing_sms', granted: true }] },
+        'consents.0.purpose',
+      ],
+      [
+        {
+          policy_version: 'v1',
+          consents: [
+            { purpose: 'marketing_email', granted: true },
+            { purpose: 'marketing_email', granted: false },
+          ],
+        },
+        'consents.1.purpose',
+      ],
+      [
+        {
+          policy_version: 'v1',
+          consents: [{ purpose: 'marketing_email', granted: 'yes' as unknown as boolean }],
+        },
+        'consents.0.granted',
+      ],
+    ] as const) {
+      await expect(putMyConsents(a, scopeA, dot, input)).rejects.toMatchObject({
+        code: 'validation_error',
+        details: { [field]: expect.any(String) },
+      });
+    }
+    expect(await ledgerOf(me.id)).toEqual([]);
+  });
+
+  it("per brand: the same subject in store B has its own ledger and never sees store A's answer; a disabled customer cannot read or answer (401)", async () => {
+    const eve = who('eve');
+    await putMyConsents(a, scopeA, eve, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    expect((await getMyConsents(b, scopeB, eve))[0]).toMatchObject({ granted: null });
+    const inB = await resolveCustomer(b, scopeB, eve);
+    expect(await ledgerOf(inB.id)).toEqual([]);
+    await owner.query(`UPDATE customer SET status = 'disabled' WHERE id = $1`, [inB.id]);
+    await expect(getMyConsents(b, scopeB, eve)).rejects.toMatchObject({ code: 'unauthorized' });
+    await expect(
+      putMyConsents(b, scopeB, eve, {
+        policy_version: 'v1',
+        consents: [{ purpose: 'marketing_email', granted: true }],
+      }),
+    ).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('erase deletes the ledger and counts it in the audit row; the export carries the ledger oldest first', async () => {
+    const fay = who('fay');
+    const me = await resolveCustomer(a, scopeA, fay);
+    await putMyConsents(a, scopeA, fay, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    await putMyConsents(a, scopeA, fay, {
+      policy_version: 'v2',
+      consents: [{ purpose: 'marketing_email', granted: false }],
+    });
+    const bundle = await buildCustomerExport(a, A, me.id);
+    expect(bundle.consents.map((c) => [c.purpose, c.granted, c.source, c.policy_version])).toEqual([
+      ['marketing_email', true, 'storefront', 'v1'],
+      ['marketing_email', false, 'storefront', 'v2'],
+    ]);
+    expect(bundle.consents[0]).not.toHaveProperty('id');
+
+    expect(await eraseMe(a, scopeA, fay)).toEqual({ erased: true });
+    expect(await ledgerOf(me.id)).toEqual([]);
+    const audit = (await audits(me.id)).find((x) => x.action === 'customer.erase');
+    expect(audit?.after).toMatchObject({ consents_deleted: 2 });
+    const docs = await owner.query<{ doc: string }>(
+      `SELECT payload::text AS doc FROM outbox WHERE aggregate_id = $1`,
+      [me.id],
+    );
+    expect(docs.rows.map((r) => r.doc).join()).not.toContain('fay@');
+  });
+
+  it('the store\'s settings.privacy.policy_version is what the one-checkbox shortcut records; blank or missing = "unversioned"', async () => {
+    await owner.query(
+      `UPDATE store SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{privacy}', '{"policy_version": " 2026-10 "}'::jsonb) WHERE id = $1`,
+      [B],
+    );
+    try {
+      const gil = who('gil');
+      const me = await registerCustomer(b, scopeB, gil, {
+        email: 'gil@example.test',
+        marketing_consent: true,
+      });
+      expect((await ledgerOf(me.customer.id))[0]).toMatchObject({
+        policy_version: '2026-10',
+        source: 'storefront',
+      });
+    } finally {
+      await owner.query(`UPDATE store SET settings = settings - 'privacy' WHERE id = $1`, [B]);
+    }
+  });
+
+  it("backfill (migration 0194): one ledger row per existing projection with the projection's own timestamp and source, policy_version pre-ledger; running it twice adds nothing; erased rows and never-asked rows are skipped", async () => {
+    const sql = readFileSync(
+      fileURLToPath(
+        new URL('../../../../../packages/db/migrations/0194_customer_consent.sql', import.meta.url),
+      ),
+      'utf8',
+    );
+    const backfill = sql.slice(sql.indexOf('INSERT INTO customer_consent'));
+    expect(backfill).toMatch(/^INSERT INTO customer_consent/);
+    const at = '2026-09-01T10:00:00.000Z';
+    const legacyIn = await insertRow(A, 'legacy.in@example.test', {
+      subject: 'sub-legacy-in',
+      status: 'registered',
+    });
+    const legacyOut = await insertRow(A, 'legacy.out@example.test', {
+      subject: 'sub-legacy-out',
+      status: 'registered',
+    });
+    const legacyErased = await insertRow(A, 'legacy.erased@example.test', {
+      subject: 'sub-legacy-erased',
+      status: 'erased',
+    });
+    const never = await insertRow(A, 'legacy.never@example.test', {
+      subject: 'sub-legacy-never',
+      status: 'registered',
+    });
+    await owner.query(`UPDATE customer SET consent = $2::jsonb WHERE id = $1`, [
+      legacyIn,
+      JSON.stringify({ marketing_email: { granted: true, at, source: 'storefront' } }),
+    ]);
+    await owner.query(`UPDATE customer SET consent = $2::jsonb WHERE id = $1`, [
+      legacyOut,
+      JSON.stringify({ marketing_email: { granted: false, at, source: 'weird' } }),
+    ]);
+    await owner.query(`UPDATE customer SET consent = $2::jsonb WHERE id = $1`, [
+      legacyErased,
+      JSON.stringify({ marketing_email: { granted: true, at, source: 'storefront' } }),
+    ]);
+    await owner.query(backfill);
+    await owner.query(backfill);
+    expect(await ledgerOf(legacyIn)).toEqual([
+      {
+        purpose: 'marketing_email',
+        granted: true,
+        source: 'storefront',
+        policy_version: 'pre-ledger',
+        recorded_at: new Date(at),
+      },
+    ]);
+    expect(await ledgerOf(legacyOut)).toEqual([
+      {
+        purpose: 'marketing_email',
+        granted: false,
+        source: 'import',
+        policy_version: 'pre-ledger',
+        recorded_at: new Date(at),
+      },
+    ]);
+    expect(await ledgerOf(legacyErased)).toEqual([]);
+    expect(await ledgerOf(never)).toEqual([]);
+    // the ledger and the API agree afterwards
+    expect(
+      (
+        await getMyConsents(a, scopeA, {
+          subject: 'sub-legacy-out',
+          email: 'legacy.out@example.test',
+          emailVerified: false,
+        })
+      )[0],
+    ).toMatchObject({
+      granted: false,
+      policy_version: 'pre-ledger',
+    });
+  });
+});
+
+describe("re-consent audiences (#489 condition, window 17's segment evaluation read-only)", () => {
+  const consentRule = (op: 'granted' | 'not_granted' | 'never_asked'): SegmentRules =>
+    ({
+      v: 1,
+      all: [{ any: [{ field: 'consent', op, value: 'email' }] }],
+    }) as unknown as SegmentRules;
+  const ids = async (op: 'granted' | 'not_granted' | 'never_asked') => {
+    const q = segmentQuery(consentRule(op), 'c.id');
+    // `$1` is the store id in window 17's FROM block; the rule parameters follow (as previewSegment binds them)
+    return new Set((await a.query<{ id: string }>(q.text, [A, ...q.params])).rows.map((r) => r.id));
+  };
+
+  it('granted → the granted customer only; not_granted → the never-asked AND the refuser (a suppression list, not an invitation)', async () => {
+    const hal = who('hal.granted');
+    const ivy = who('ivy.refused');
+    const jon = who('jon.never');
+    const [h, i, j] = await Promise.all([
+      resolveCustomer(a, scopeA, hal),
+      resolveCustomer(a, scopeA, ivy),
+      resolveCustomer(a, scopeA, jon),
+    ]);
+    await putMyConsents(a, scopeA, hal, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    await putMyConsents(a, scopeA, ivy, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: false }],
+    });
+    const granted = await ids('granted');
+    expect(granted.has(h.id)).toBe(true);
+    expect(granted.has(i.id)).toBe(false);
+    expect(granted.has(j.id)).toBe(false);
+    const notGranted = await ids('not_granted');
+    expect(notGranted.has(h.id)).toBe(false);
+    expect(notGranted.has(i.id)).toBe(true);
+    expect(notGranted.has(j.id)).toBe(true);
+    // the ledger tells the two apart, which the projection alone cannot for a re-consent audience
+    expect((await getMyConsents(a, scopeA, ivy))[0]!.granted).toBe(false);
+    expect((await getMyConsents(a, scopeA, jon))[0]!.granted).toBeNull();
+  });
+
+  it.todo(
+    "never_asked → the never-asked customer ONLY: the refuser is never in a re-consent audience (REQUEST #491 — window 17's operator; until it lands no re-consent send may use not_granted)",
+  );
+});
+
 describe('no personal data leaves the row', () => {
   it('no event, no audit row and no log line carries an email, a name or a subject', async () => {
     const logged: string[] = [];
@@ -1098,6 +1442,10 @@ describe('no personal data leaves the row', () => {
         updateCustomerAddress(a, scopeA, privateIdentity, mine!.id, { country: 'Hiddenland' }),
       ).rejects.toMatchObject({ code: 'validation_error' });
       await deleteCustomerAddress(a, scopeA, privateIdentity, mine!.id);
+      await putMyConsents(a, scopeA, privateIdentity, {
+        policy_version: 'secret-policy-9',
+        consents: [{ purpose: 'marketing_email', granted: false }],
+      });
       await eraseMe(a, scopeA, privateIdentity);
       await eraseMe(a, scopeA, privateIdentity);
     } finally {

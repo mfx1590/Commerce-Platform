@@ -106,7 +106,7 @@ let db: TestDatabase;
 let app: express.Express;
 let owner: ReturnType<typeof createOrganizationClient>;
 
-type Method = 'get' | 'post' | 'patch' | 'delete';
+type Method = 'get' | 'post' | 'patch' | 'delete' | 'put';
 const as = (token: string | null, method: Method, path: string, key: string = KEY_A) => {
   const req = request(app)[method](path).set('X-Publishable-Key', key);
   return token ? req.set('Authorization', `Bearer ${token}`) : req;
@@ -1144,6 +1144,80 @@ describe('account self-service (#470, Store API 0.5.6): edit / delete an address
   });
 });
 
+describe('consents (#471, Store API 0.5.7): GET / PUT /store/customers/me/consents', () => {
+  it('GET: one item per purpose, granted null until asked; PUT records the answer under the version sent, answers the state, 400 names the field; a brand-b key refuses the token', async () => {
+    const before = await as('nina', 'get', '/store/customers/me/consents');
+    expect(before.status).toBe(200);
+    spec.assertSchema('CustomerConsents', before.body);
+    expect(before.body).toEqual({
+      items: [
+        {
+          purpose: 'marketing_email',
+          granted: null,
+          source: null,
+          policy_version: null,
+          recorded_at: null,
+        },
+      ],
+    });
+
+    const put = await as('nina', 'put', '/store/customers/me/consents').send({
+      policy_version: '2026-10',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    expect(put.status).toBe(200);
+    spec.assertSchema('CustomerConsents', put.body);
+    expect(put.body.items[0]).toMatchObject({
+      purpose: 'marketing_email',
+      granted: true,
+      source: 'storefront',
+      policy_version: '2026-10',
+    });
+    expect((await as('nina', 'get', '/store/customers/me/consents')).body).toEqual(put.body);
+    expect((await as('nina', 'get', '/store/customers/me')).body.marketing_consent).toBe(true);
+
+    for (const [body, field] of [
+      [{ consents: [{ purpose: 'marketing_email', granted: true }] }, 'policy_version'],
+      [{ policy_version: 'v', consents: [] }, 'consents'],
+      [
+        { policy_version: 'v', consents: [{ purpose: 'marketing_sms', granted: true }] },
+        'consents.0.purpose',
+      ],
+      // a non-JSON body is parsed as {}: the schema's required fields are what the 400 names
+      ['not an object', 'policy_version'],
+    ] as const) {
+      const bad = await as('nina', 'put', '/store/customers/me/consents').send(body);
+      expect(bad.status, field).toBe(400);
+      spec.assertSchema('Error', bad.body);
+      expect(bad.body.code).toBe('validation_error');
+      expect(Object.keys(bad.body.details).join(',')).toContain(field);
+    }
+    // store_code binding
+    for (const method of ['get', 'put'] as const) {
+      const res = await as('nina', method, '/store/customers/me/consents', KEY_B).send(
+        method === 'put'
+          ? { policy_version: 'v', consents: [{ purpose: 'marketing_email', granted: false }] }
+          : undefined,
+      );
+      expect(res.status).toBe(401);
+    }
+    expect((await as('nina', 'get', '/store/customers/me/consents')).body.items[0].granted).toBe(
+      true,
+    );
+    // the unticked box: an explicit refusal is recorded, not "never asked"
+    const refused = await as('nina', 'put', '/store/customers/me/consents').send({
+      policy_version: '2026-10',
+      consents: [{ purpose: 'marketing_email', granted: false }],
+    });
+    expect(refused.body.items[0]).toMatchObject({ granted: false });
+    const ledger = await owner.query(
+      `SELECT granted FROM customer_consent WHERE customer_id = (SELECT id FROM customer WHERE keycloak_subject = 'sub-nina' AND store_id = $1) ORDER BY recorded_at, id`,
+      [A],
+    );
+    expect(ledger.rows.map((r: { granted: boolean }) => r.granted)).toEqual([true, false]);
+  });
+});
+
 describe('nothing personal is logged', () => {
   it('no log line carries an email, a token or a name across every customer route, errors included', async () => {
     const logged: string[] = [];
@@ -1183,6 +1257,11 @@ describe('nothing personal is logged', () => {
         ...address,
         line1: 'Lastlane 1',
       });
+      await as('jane', 'put', '/store/customers/me/consents').send({
+        policy_version: 'hush-policy-7',
+        consents: [{ purpose: 'marketing_email', granted: false }],
+      });
+      await as('jane', 'get', '/store/customers/me/consents');
       await as('deleter', 'delete', '/store/customers/me');
       await as('deleter', 'delete', '/store/customers/me');
       await as('deleter', 'get', '/store/customers/me');
@@ -1203,6 +1282,7 @@ describe('nothing personal is logged', () => {
       'quietlane',
       'lastlane',
       '6 5555',
+      'hush-policy',
     ]) {
       expect(all).not.toContain(secret);
     }
@@ -1223,6 +1303,8 @@ describe('the core answers these paths itself', () => {
       'DELETE /store/customers/me/addresses/{addressId}',
       'POST /store/customers/me/export',
       'DELETE /store/customers/me',
+      'GET /store/customers/me/consents',
+      'PUT /store/customers/me/consents',
     ]);
 
     const seen: string[] = [];
@@ -1259,6 +1341,11 @@ describe('the core answers these paths itself', () => {
         }),
         await call('delete', `/store/customers/me/addresses/${added.body.id}`),
         await call('post', '/store/customers/me/export'),
+        await call('get', '/store/customers/me/consents'),
+        await call('put', '/store/customers/me/consents').send({
+          policy_version: 'v1',
+          consents: [{ purpose: 'marketing_email', granted: true }],
+        }),
         await call('delete', '/store/customers/me', 'leaver'),
       ]) {
         expect(res.status).toBeLessThan(300);
@@ -1278,6 +1365,8 @@ describe('the core answers these paths itself', () => {
         ['get', '/store/customers/me/addresses/00000000-0000-4000-8000-000000000001'],
         ['get', '/store/customers/me/export'],
         ['delete', '/store/customers/me/export'],
+        ['post', '/store/customers/me/consents'],
+        ['delete', '/store/customers/me/consents'],
         ['post', '/store/customers/someone-else'],
       ];
       for (const [method, path] of undefinedOperations) {

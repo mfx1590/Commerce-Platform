@@ -21,6 +21,8 @@ the subject and the email come from the **token only** — never from a request 
 | `updateCustomerAddress(client, scope, identity, addressId, patch)`      | `PATCH /store/customers/me/addresses/{addressId}` (#470, Store API 0.5.6) | a present field replaces, `null` clears a nullable one, a default flag moves under the same lock; 404 for another customer's id |
 | `deleteCustomerAddress(client, scope, identity, addressId)`             | `DELETE /store/customers/me/addresses/{addressId}` (200 `{ items }`)      | deletes; a default it held moves to the oldest remaining address; answers the remaining list                                    |
 | `requestCustomerExport(client, storeId, customerId, actor)` (`gdpr.ts`) | `POST /store/customers/me/export` (202) and Admin `exportCustomer`        | one `customer.export_requested` v2 per call: `requested_by` + `requested_by_type` (`customer` / `staff`)                        |
+| `getMyConsents(client, scope, identity)` (`consent.ts`)                 | `GET /store/customers/me/consents` (#471, Store API 0.5.7)                | one item per purpose of the closed set; `granted: null` = never asked                                                           |
+| `putMyConsents(client, scope, identity, input)` (`consent.ts`)          | `PUT /store/customers/me/consents`                                        | records each CHANGED answer in the ledger under the policy version the client sent; answers the state                           |
 | `eraseMe(client, scope, identity)` (`gdpr.ts`)                          | `DELETE /store/customers/me` (202)                                        | the customer erases their own row in this store (see "Erasure and export"); replay = no-op                                      |
 | `findCustomerForSubject(client, storeId, subject)`                      | `GET /store/orders/{orderId}`                                             | read-only `{ id, status }` or null — for routes that must not create a customer                                                 |
 | `customerEmailHash(email)`                                              | —                                                                         | `email_hash` of the events contract (sha256 of the trimmed, lowercased email)                                                   |
@@ -53,9 +55,11 @@ are `updateCustomer`, `listCustomerAddresses` and `addCustomerAddress` (part B).
 - **A token without an email** reads an existing customer; it cannot create one (401, `reason: no_email`).
 - **`registerCustomer`'s body `email`** is a confirmation, not an input: it must equal the token's email
   (trimmed, case-insensitive), otherwise 400 `validation_error` and nothing is written.
-- **Consent** is recorded only when the answer changes (`consent.marketing_email = { granted, at, source:
-'storefront' }`). A `false` on a customer who was never asked records nothing, so "never asked" stays different
-  from "opted out" — the marketing module's re-consent segments depend on that difference.
+- **Consent** goes through the ledger (#471, below): `marketing_consent` on `registerCustomer` / `updateMe` is
+  the one-checkbox shortcut — recorded when the answer CHANGES, as a ledger row (source `storefront`, the store's
+  current policy version) plus the projection block `consent.marketing_email = { granted, at, source }`. Since
+  #471 a FIRST explicit `false` is recorded too (a refusal is a decision — it changes #303's "a false on a
+  never-asked customer records nothing" rule). "Never asked" is still no row and no block.
 - The email is stored trimmed and lowercased, and it is **not rewritten** when the customer later changes their
   email at Keycloak (see "Known gaps"). Wherever the row's email meets an order's email it is compared
   case-insensitively (`lower()` on both sides) — an order keeps the checkout email as typed.
@@ -98,6 +102,42 @@ are `updateCustomer`, `listCustomerAddresses` and `addCustomerAddress` (part B).
   405, no new error code.
 - **The customer on carts and orders (#310):** `createCart` and `completeCart` accept the same token and
   resolve-or-provision the customer the same way; see the checkout README "Customer link at placement".
+
+## Consent ledger (#471, db 0194 `customer_consent`, Store API 0.5.7, Admin API 0.4.18 — CONTRACT CHANGE #489)
+
+**The record of truth** for a customer's consent decisions in one store: `customer_consent` (store-scoped RLS, the
+app role cannot UPDATE — append-only; DELETE stays for erasure). One row per decision that CHANGED the answer:
+`purpose` (closed set: `marketing_email` until the lawyer review — a new purpose is a contract change), `granted`,
+`source` (`storefront` | `admin` | `import`), `policy_version` (the privacy-policy version the customer saw,
+required, non-blank), `recorded_at`. `customer.consent[purpose] = { granted, at, source }` stays the
+**current-state projection** window 17's segments read; `recordConsent` (`consent-ledger.ts`, THE one writer)
+inserts the row and rewrites the block with the row's own timestamp in the same transaction, under the customer-row
+lock `resolveIn` holds. The same answer again writes nothing — not even under a newer policy version.
+
+| Operation                                                        | Who                    | What                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /store/customers/me/consents` (`getMyConsents`)             | customer               | one item per purpose: `granted` `true` / `false` / **`null` = never asked** (no row), with `source`, `policy_version`, `recorded_at` of the newest row                                                                                                                                                                                                             |
+| `PUT /store/customers/me/consents` (`putMyConsents`)             | customer               | `{ policy_version, consents: [{ purpose, granted }] }` — the version the storefront DISPLAYED, required; one ledger row per changed answer, source `storefront`; answers the state; one `customer.updated` (`['marketing_consent']`) when anything changed; 400 naming the field for a blank version, an empty list, an unknown or repeated purpose, a non-boolean |
+| `marketing_consent` on `registerCustomer` / `updateMe`           | customer               | the shortcut: same ledger write with the STORE's current version — `store.settings.privacy.policy_version`, read forgivingly, `unversioned` when unset (free-form settings: no registry change needed; a shape entry for window 1 is optional, #489)                                                                                                               |
+| Admin `listCustomerConsents` (`customersAdminRouter`, `http.ts`) | `support` on the store | the ledger, newest first, `?purpose=` optional; 404 for unknown, another store's (RLS) and erased customers. Mounted through `src/http/module-routers.ts` (REQUEST to window 1)                                                                                                                                                                                    |
+
+- **Never asked ≠ refused.** A refusal (`granted: false`) is recorded (decided 2026-10-18) so it can be proven;
+  never asked is the absence of a row. Window 17's `not_granted` segment (`IS DISTINCT FROM 'true'`) covers BOTH
+  — right for a suppression list, wrong for a "please opt in" audience: **a refuser must never be in a re-consent
+  audience** (the condition on #489). That needs a `never_asked` operator in the segment grammar — REQUEST #491
+  (window 17), on the launch list before any re-consent send. `customers.test.ts` "re-consent audiences" proves
+  granted / not_granted against window 17's `segmentQuery` today and keeps the never_asked assertion as
+  `it.todo` naming #491.
+- **Per brand.** The ledger carries `store_id`; the same subject in another store has its own ledger and sees
+  `null` there. Nothing propagates across stores.
+- **Erase** deletes the customer's ledger rows (`consents_deleted` in the `customer.erase` audit row) and empties
+  the projection; **export** carries the ledger as `consents` (oldest first, no ids) — the bundle format stays
+  `customer-export/v1` (nothing consumed it before #472).
+- **Backfill (migration 0194):** one ledger row per projection that existed before the ledger — the projection's
+  own `at` as `recorded_at` (never now()), its `source` (anything unknown → `import`), `policy_version`
+  `pre-ledger`; erased rows and never-asked rows skipped; idempotent (tested on seeded projections, run twice).
+- Nothing in the ledger, the projection, the events or the audit rows is personal data; a policy version is a
+  label, never free text from the customer (100 characters at most).
 
 ## Admin API (#414, Admin API 0.4.11) — `admin.ts`, `gdpr.ts`
 
@@ -205,7 +245,11 @@ The account page (`src/app/[locale]/(account)/account/page.tsx`, `force-dynamic`
 the LOCAL session cookie only and the customer lands on `/account/deleted`, which offers the Keycloak SSO sign-out
 as a button — a redirect cannot POST to `/auth/sign-out`, and Keycloak's session is the customer's to end; the
 erased account answers 401 to that login either way). Copy lives in the `account.*` message catalogs (en-GB,
-de-DE): the starter's i18n test refuses literal copy in `src/components`. The server actions
+de-DE): the starter's i18n test refuses literal copy in `src/components`. **Your consents** (#471,
+`account-consents.tsx`): one row per purpose with its state (never asked / allowed on a date / declined on a date)
+and a checkbox; the form carries the privacy-policy version the page displays — `PRIVACY_POLICY_VERSION` in the
+starter's environment (`privacyPolicyVersion()` in `account.config.ts`, `unversioned` when unset; keep it equal
+to the store's `settings.privacy.policy_version`) — and an unticked box is sent as an explicit `false`. The server actions
 live in the route group (`account/actions.ts`) and call the Store API client's generic `request` — the client's
 typed methods are window 3's file. Pure rules (`account.config.ts`): the edit form sends every field, blank
 optional ones as `null`; a default checkbox is sent only as `true` (a default is moved by ticking it on another
@@ -220,6 +264,9 @@ two identities racing for one guest row, disabled / erased, `updateCustomer` (cl
 isolation), address edit / delete (#470: replace / clear / cannot blank, no-op, flag moves and the oldest-heir
 rule, the only-address `false`, 404 for another customer / store / unknown id), `eraseMe` and the tombstone
 (replay no-op, the same subject 401 everywhere with no fresh row — for the admin erase too, adopt-then-erase),
+the consent ledger (#471: never asked → flip → same answer → opt-out, append-only, validation, per brand,
+disabled 401, erase + export, the store's policy version, the 0194 backfill on seeded projections, and the
+re-consent-audience proof against window 17's `segmentQuery` with the `never_asked` assertion as `it.todo(#491)`),
 and the no-PII check over the outbox, the audit log and the console. HTTP behaviour, the verifier seam, the
 self-service acceptance of #470 (own addresses only, brand-b key + brand-a token = 401, `DELETE /me` leaves no
 PII and keeps the order, export v2 by the customer) and the live Keycloak test: `test/customers-api.test.ts`.

@@ -7,7 +7,11 @@ import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminNotFound, coreErrorHandler, DevTokenVerifier } from '../src/http';
 import { closePool, initDb, tenantClient } from '../src/lib/db';
-import { buildCustomerExport, customerEmailHash } from '../src/modules/customers';
+import {
+  buildCustomerExport,
+  customerEmailHash,
+  customersAdminRouter,
+} from '../src/modules/customers';
 import { inMemoryStoreRegistrar } from '../src/modules/registry';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -78,6 +82,8 @@ beforeAll(async () => {
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier(), { storeRegistrar: inMemoryStoreRegistrar() });
+  // #471: the module's own Admin router (mounted in production through src/http/module-routers.ts, window 1)
+  app.use(customersAdminRouter());
   app.use('/admin', adminNotFound);
   app.use(coreErrorHandler);
 }, 180_000);
@@ -387,6 +393,7 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
         after: {
           status: 'erased',
           addresses_deleted: 1,
+          consents_deleted: 0,
           identity_unlinked: true,
           identity_deleted: false,
         },
@@ -432,6 +439,83 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
     ).toBe(404);
     const untouched = await db.owner.query('SELECT status FROM customer WHERE id = $1', [ERIN_B]);
     expect(untouched.rows[0].status).toBe('registered');
+  });
+});
+
+describe('listCustomerConsents (#471, Admin API 0.4.18)', () => {
+  const LIV = '50000000-0000-4000-8000-000000000031'; // brand-a, registered
+  const LIV_B = '50000000-0000-4000-8000-000000000032'; // brand-b, same subject
+  beforeAll(async () => {
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, keycloak_subject, email, status)
+       VALUES ($1, $3, $4, 'kc-liv', 'liv@example.com', 'registered'),
+              ($2, $3, $5, 'kc-liv', 'liv@example.com', 'registered')`,
+      [LIV, LIV_B, ORG, A, B],
+    );
+    await db.owner.query(
+      `INSERT INTO customer_consent (organization_id, store_id, customer_id, purpose, granted, source, policy_version, recorded_at)
+       VALUES ($1, $2, $3, 'marketing_email', true,  'storefront', 'v1', '2026-10-01T10:00:00Z'),
+              ($1, $2, $3, 'marketing_email', false, 'admin',      'v2', '2026-10-02T10:00:00Z'),
+              ($1, $4, $5, 'marketing_email', true,  'import',     'pre-ledger', '2026-09-01T10:00:00Z')`,
+      [ORG, A, LIV, B, LIV_B],
+    );
+  });
+
+  it("support: the ledger of THIS store's customer, newest first, contract shape; ?purpose filters; a bad purpose is a 400", async () => {
+    const res = await support.get(`/admin/stores/${A}/customers/${LIV}/consents`);
+    expect(res.status).toBe(200);
+    expect(
+      res.body.items.map((c: { granted: boolean; policy_version: string; source: string }) => [
+        c.granted,
+        c.policy_version,
+        c.source,
+      ]),
+    ).toEqual([
+      [false, 'v2', 'admin'],
+      [true, 'v1', 'storefront'],
+    ]);
+    expect(res.body.items[0]).toEqual({
+      id: expect.any(String),
+      purpose: 'marketing_email',
+      granted: false,
+      source: 'admin',
+      policy_version: 'v2',
+      recorded_at: '2026-10-02T10:00:00.000Z',
+    });
+    expect(
+      (await support.get(`/admin/stores/${A}/customers/${LIV}/consents?purpose=marketing_email`))
+        .body.items,
+    ).toHaveLength(2);
+    expect(
+      (await support.get(`/admin/stores/${A}/customers/${LIV}/consents?purpose=marketing_sms`))
+        .status,
+    ).toBe(400);
+    expect(JSON.stringify(res.body)).not.toContain('liv@example.com');
+  });
+
+  it("store-scoped: brand-b's customer through brand-a's path is a 404 and vice versa; an erased customer is a 404; analyst 403; a brand-a-only admin cannot reach brand-b (403)", async () => {
+    expect((await support.get(`/admin/stores/${A}/customers/${LIV_B}/consents`)).status).toBe(404);
+    expect((await support.get(`/admin/stores/${B}/customers/${LIV}/consents`)).status).toBe(404);
+    expect(
+      (await support.get(`/admin/stores/${B}/customers/${LIV_B}/consents`)).body.items,
+    ).toHaveLength(1);
+    expect((await analyst.get(`/admin/stores/${A}/customers/${LIV}/consents`)).status).toBe(403);
+    expect((await aOnlyAdmin.get(`/admin/stores/${B}/customers/${LIV_B}/consents`)).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await request(app)
+          .post(`/admin/stores/${A}/customers/${LIV}/erase`)
+          .set('Authorization', 'Bearer dev:seed-store-admin')
+          .send({})
+      ).status,
+    ).toBe(202);
+    expect((await support.get(`/admin/stores/${A}/customers/${LIV}/consents`)).status).toBe(404);
+    expect(
+      (await db.owner.query('SELECT 1 FROM customer_consent WHERE customer_id = $1', [LIV]))
+        .rowCount,
+    ).toBe(0);
   });
 });
 

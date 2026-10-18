@@ -2,6 +2,20 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-18 · consent ledger (#471, window 13; CONTRACT CHANGE #489: db 0194 `customer_consent`, Store API 0.5.7, Admin API 0.4.18)
+
+- `customer_consent` is the record of truth (append-only, store-scoped, one row per changed answer with source and
+  the policy version the customer saw); `customer.consent` stays the projection window 17's segments read,
+  rewritten by the one writer `recordConsent` in the same transaction. Store API `GET` / `PUT
+/store/customers/me/consents` (`granted: null` = never asked); `registerCustomer` / `updateMe.marketing_consent`
+  record through the ledger with the store's `settings.privacy.policy_version` (`unversioned` when unset). Admin
+  `listCustomerConsents` (support) as `customersAdminRouter()` — mounted through `module-routers.ts` (REQUEST to
+  window 1). Erase deletes the ledger (`consents_deleted`); the export bundle carries `consents`.
+- **Rule change (manager 2026-10-18):** a first explicit `false` is now recorded — a refusal is a decision. A
+  refuser must never be in a re-consent audience: window 17's `never_asked` operator (REQUEST #491) must land before
+  any re-consent send; the proof test keeps that assertion as `it.todo`.
+- Migration 0194 backfills one ledger row per existing projection (`pre-ledger`, the projection's own timestamp).
+
 ### 2026-10-18 · account self-service (#470, window 13; CONTRACT CHANGE #482: Store API 0.5.6, contracts 0.4.20, events 0.3.5)
 
 - Store API: `PATCH` / `DELETE /store/customers/me/addresses/{addressId}` (`updateMyAddress`: partial patch, a

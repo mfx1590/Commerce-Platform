@@ -3,6 +3,20 @@
 // client reference (the Next.js gotcha in Memory-main).
 import type { Body } from '@/lib/store-api';
 
+/**
+ * The privacy-policy version this storefront shows (#471): sent with every consent answer, so the ledger records
+ * the version the customer SAW. Set `PRIVACY_POLICY_VERSION` in the environment when the policy changes; it
+ * should match the store's `settings.privacy.policy_version` (what the one-checkbox profile shortcut records).
+ * Server only — the page reads it and passes it down.
+ */
+export function privacyPolicyVersion(): string {
+  const v = process.env.PRIVACY_POLICY_VERSION?.trim();
+  return v === undefined || v === '' ? 'unversioned' : v;
+}
+
+/** The purposes the consents form shows, in order (the Store API's closed set). */
+export const CONSENT_PURPOSES = ['marketing_email'] as const;
+
 /** What the customer must type to delete their account — compared exactly, no trimming of the inside. */
 export const DELETE_CONFIRMATION = 'DELETE';
 

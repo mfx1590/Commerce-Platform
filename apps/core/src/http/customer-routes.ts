@@ -11,7 +11,9 @@ import {
   deleteCustomerAddress,
   eraseMe,
   findCustomerForSubject,
+  getMyConsents,
   listCustomerAddresses,
+  putMyConsents,
   registerCustomer,
   requestCustomerExport,
   resolveCustomer,
@@ -22,6 +24,7 @@ import {
   type CustomerIdentity,
   type CustomerPatch,
   type CustomerScope,
+  type PutMyConsentsInput,
   type RegisterCustomerInput,
 } from '../modules/customers';
 import { listStoreOrders } from '../modules/orders';
@@ -121,6 +124,9 @@ export const CUSTOMER_STORE_PATHS = [
   'DELETE /store/customers/me/addresses/{addressId}',
   'POST /store/customers/me/export',
   'DELETE /store/customers/me',
+  // Store API 0.5.7 (#471 / #489): the consent ledger.
+  'GET /store/customers/me/consents',
+  'PUT /store/customers/me/consents',
 ] as const;
 
 /**
@@ -242,6 +248,22 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
     res.status(202).end();
   });
 
+  // Consent ledger (#471). The body rules come after the token, as everywhere.
+  const getMyConsentsRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    res.json({ items: await getMyConsents(t.client, scopeOf(t), identity) });
+  });
+
+  const putMyConsentsRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    loadSpec('store-api.yaml').validateBody('putMyConsents', req.body);
+    res.json({
+      items: await putMyConsents(t.client, scopeOf(t), identity, req.body as PutMyConsentsInput),
+    });
+  });
+
   const deleteMeRoute: RequestHandler = handle(async (req, res) => {
     const t = requireTenant(req);
     const identity = await requireCustomer(req, t, verifier);
@@ -261,6 +283,8 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   app.patch('/store/customers/me/addresses/:addressId', json, updateMyAddressRoute);
   app.delete('/store/customers/me/addresses/:addressId', deleteMyAddressRoute);
   app.post('/store/customers/me/export', requestMyExportRoute);
+  app.get('/store/customers/me/consents', getMyConsentsRoute);
+  app.put('/store/customers/me/consents', json, putMyConsentsRoute);
   app.delete('/store/customers/me', deleteMeRoute);
   // Terminal: every operation of this prefix is answered above, so whatever is left — an unknown path, or
   // PUT / DELETE / … on a known one — is a 404 here. It must never fall through to the Store API fallback proxy
