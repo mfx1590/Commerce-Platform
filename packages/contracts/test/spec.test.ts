@@ -244,7 +244,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.18/);
+    expect(text).toMatch(/version: 0\.4\.19/);
     for (const tag of [
       'registry',
       'catalog',
@@ -257,6 +257,7 @@ describe('admin-api.yaml', () => {
       'audit',
       'marketing',
       'search',
+      'reports',
     ]) {
       expect(text, tag).toMatch(new RegExp(`tags: \\[[^\\]]*\\b${tag}\\b`));
     }
@@ -947,7 +948,6 @@ describe('customer consent ledger (contracts 0.4.21, Store API 0.5.7, Admin API 
   });
 
   it('listCustomerConsents: store-scoped, support, documents 401/403/404, ledger rows are never null', () => {
-    expect(admin).toMatch(/version: 0\.4\.18/);
     expect(store).toMatch(/version: 0\.5\.7/);
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/consents:\n/,
@@ -962,5 +962,84 @@ describe('customer consent ledger (contracts 0.4.21, Store API 0.5.7, Admin API 
     expect(op.body).toMatch(/granted: \{ type: boolean \}/);
     expect(op.body).not.toMatch(/'null'/);
     expect(op.body).toMatch(/name: purpose,\s+in: query,\s+required: false/);
+  });
+});
+
+describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
+  const text = read('admin-api.yaml');
+  const ops = operations(text);
+  const op = (id: string) => ops.find((o) => o.id === id);
+  const permission = (id: string) =>
+    op(id)!
+      .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
+    expect(text).toMatch(/^ {2}version: 0\.4\.19$/m);
+    expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
+    expect(ops.length).toBe(128);
+    const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
+      getStoreSalesReport: {
+        path: '/admin/stores/{storeId}/reports/sales',
+        perm: ['viewer', 'store:{storeId}'],
+        codes: ['200', '400', '401', '403', '404'],
+      },
+      getStoreStockReport: {
+        path: '/admin/stores/{storeId}/reports/stock',
+        perm: ['viewer', 'store:{storeId}'],
+        codes: ['200', '400', '401', '403', '404'],
+      },
+      getHqSalesReport: {
+        path: '/admin/hq/reports/sales',
+        perm: ['analyst', 'organization:hq'],
+        codes: ['200', '400', '401', '403'],
+      },
+      getHqFinanceReport: {
+        path: '/admin/hq/reports/finance',
+        perm: ['finance', 'organization:hq'],
+        codes: ['200', '400', '401', '403'],
+      },
+    };
+    for (const [id, { path, perm, codes }] of Object.entries(expected)) {
+      expect(op(id), id).toBeDefined();
+      expect(permission(id), id).toEqual(perm);
+      const start = text.indexOf(`\n  ${path}:\n`);
+      expect(start, path).toBeGreaterThan(0);
+      const block = text.slice(start, text.indexOf(`operationId: ${id}\n`, start));
+      expect(block, path).toMatch(/\n {4}get:\n {6}tags: \[reports\]\n {6}$/);
+      for (const code of codes) expect(op(id)!.body, `${id} lacks ${code}`).toContain(`'${code}':`);
+      // the mock answers from the example: each success response carries one
+      expect(op(id)!.body, `${id} lacks an example`).toMatch(/\n {14}example:\n/);
+      expect(op(id)!.body, id).not.toMatch(/requestBody:/);
+    }
+    for (const id of ['getStoreSalesReport', 'getHqSalesReport', 'getHqFinanceReport']) {
+      for (const p of ['ReportFrom', 'ReportTo', 'ReportCurrency']) {
+        expect(op(id)!.body, `${id} ${p}`).toContain(`$ref: '#/components/parameters/${p}'`);
+      }
+    }
+  });
+
+  it('the report components exist, fees are unreconciled, and every $ref resolves', () => {
+    expect(text).toMatch(/\n {4}ReportFrom:\n {6}name: from\n {6}in: query\n {6}required: true\n/);
+    expect(text).toMatch(/\n {4}ReportTo:\n {6}name: to\n {6}in: query\n {6}required: true\n/);
+    expect(text).toMatch(
+      /\n {4}ReportCurrency:\n {6}name: currency\n {6}in: query\n {6}required: false\n/,
+    );
+    for (const name of [
+      'SalesFigures',
+      'SalesReport',
+      'StockPosition',
+      'StockReport',
+      'FinanceFigures',
+      'FinanceReport',
+    ]) {
+      expect(text, name).toMatch(new RegExp(`\\n {4}${name}:\\n`));
+    }
+    expect(text).toMatch(/fees_reconciled: \{ type: boolean, const: false \}/);
+    for (const m of text.matchAll(/\$ref: '#\/components\/(\w+)\/(\w+)'/g)) {
+      const section = text.indexOf(`\n  ${m[1]}:\n`);
+      expect(section, m[1]).toBeGreaterThan(0);
+      expect(text.indexOf(`\n    ${m[2]}:\n`, section), `${m[1]}/${m[2]}`).toBeGreaterThan(section);
+    }
   });
 });
