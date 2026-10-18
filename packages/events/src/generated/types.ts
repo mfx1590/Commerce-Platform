@@ -143,6 +143,15 @@ requested_by: string
 requested_at: string
 }
 /**
+ * A GDPR data export was requested for one customer of one store — by staff (Admin API exportCustomer) or by the customer (Store API requestMyExport). The consumer builds the bundle through the core and delivers it; the payload carries ids only, never personal data. v2 adds requested_by_type; requested_by is the staff_user id or the customer id accordingly.
+ */
+export interface CustomerExportRequestedV2 {
+customer_id: string
+requested_by: string
+requested_by_type: ("staff" | "customer")
+requested_at: string
+}
+/**
  * Customer profile, group, consent, or identity link changed.
  */
 export interface CustomerUpdatedV1 {
@@ -646,6 +655,7 @@ export interface EventPayloads {
   'customer.created@1': CustomerCreatedV1;
   'customer.erased@1': CustomerErasedV1;
   'customer.export_requested@1': CustomerExportRequestedV1;
+  'customer.export_requested@2': CustomerExportRequestedV2;
   'customer.updated@1': CustomerUpdatedV1;
   'feed.published@1': FeedPublishedV1;
   'fulfillment.packed@1': FulfillmentPackedV1;
@@ -686,7 +696,7 @@ export interface LatestPayloads {
   'cart.abandoned': CartAbandonedV1;
   'customer.created': CustomerCreatedV1;
   'customer.erased': CustomerErasedV1;
-  'customer.export_requested': CustomerExportRequestedV1;
+  'customer.export_requested': CustomerExportRequestedV2;
   'customer.updated': CustomerUpdatedV1;
   'feed.published': FeedPublishedV1;
   'fulfillment.packed': FulfillmentPackedV1;

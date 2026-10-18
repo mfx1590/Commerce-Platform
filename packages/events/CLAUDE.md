@@ -9,7 +9,8 @@ order.{placed,confirmed,cancelled,completed,updated}, payment.{authorized,captur
 shipment.{created,shipped,delivered}, return.{requested,received}, stock.moved, since 0.2.0 (marketing)
 campaign.{launched,ended}, feed.published, attribution.recorded, referral.converted, review.published, cart.abandoned,
 since 0.3.0 fulfillment.{requested,picking,packed}, since 0.3.1 shipment.label_created, since 0.3.2 customer.export_requested,
-and since 0.3.3 stock_item.mapped plus stock.moved v2 (keyed by the stock item; `makeEvent` writes v2, v1 stays frozen).
+since 0.3.3 stock_item.mapped plus stock.moved v2 (keyed by the stock item; `makeEvent` writes v2, v1 stays frozen),
+and since 0.3.5 customer.export_requested v2 (`requested_by_type` staff | customer; v1 stays frozen).
 
 ## Owner
 

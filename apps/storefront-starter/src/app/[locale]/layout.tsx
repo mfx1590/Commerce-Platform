@@ -15,11 +15,11 @@ import './globals.css';
 
 /**
  * Namespaces the `'use client'` components need: `variant-picker` (pdp), `cart-line` (cart),
- * `checkout-forms` (checkout). Everything else renders on the server and never reaches the browser.
+ * `checkout-forms` (checkout), `account-address-forms` / `account-privacy` (account, window 13). Everything else renders on the server and never reaches the browser.
  * Keep this in step with the components — `test/i18n.test.ts` fails if a client component asks for a
  * namespace that is not listed here.
  */
-const CLIENT_NAMESPACES = ['common', 'pdp', 'cart', 'checkout', 'totals'] as const;
+const CLIENT_NAMESPACES = ['common', 'pdp', 'cart', 'checkout', 'totals', 'account'] as const;
 
 function pickNamespaces(
   messages: Record<string, unknown>,

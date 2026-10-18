@@ -181,5 +181,43 @@
       "generic": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
       "correctFields": "Bitte korrigieren Sie die markierten Felder."
     }
+  },
+  "account": {
+    "address": {
+      "edit": "Bearbeiten",
+      "editForm": "Adresse bearbeiten",
+      "save": "Adresse speichern",
+      "cancel": "Abbrechen",
+      "remove": "Entfernen",
+      "removeForm": "Adresse entfernen",
+      "removeQuestion": "Diese Adresse entfernen?",
+      "removeYes": "Ja, entfernen",
+      "keep": "Behalten",
+      "updated": "Adresse aktualisiert.",
+      "removed": "Adresse entfernt.",
+      "useDelivery": "Als meine Lieferadresse verwenden",
+      "useBilling": "Als meine Rechnungsadresse verwenden",
+      "firstName": "Vorname",
+      "lastName": "Nachname",
+      "company": "Firma (optional)",
+      "line1": "Adresse",
+      "line2": "Wohnung, Etage (optional)",
+      "postalCode": "Postleitzahl",
+      "city": "Stadt",
+      "country": "Ländercode",
+      "region": "Bundesland (optional)",
+      "phone": "Telefon (optional)"
+    },
+    "privacy": {
+      "exportForm": "Meine Daten herunterladen",
+      "exportIntro": "Erhalten Sie eine Kopie der Daten, die dieser Shop über Sie speichert: Ihr Profil, Adressen, Einwilligungen und Bestellungen. Wir bereiten die Datei vor und schicken Ihnen eine E-Mail, sobald sie zum Download bereit ist.",
+      "exportRequested": "Ihr Export wurde angefordert. Wir schicken Ihnen eine E-Mail, sobald er bereit ist.",
+      "exportButton": "Meine Daten herunterladen",
+      "deleteForm": "Mein Konto löschen",
+      "deleteIntro": "Damit löschen Sie Ihr Konto in diesem Shop: Ihr Profil, Ihre gespeicherten Adressen und Ihre Einwilligungen werden gelöscht und Sie werden abgemeldet. Ihre Bestellungen bleiben gesetzlich vorgeschrieben gespeichert. Das kann nicht rückgängig gemacht werden.",
+      "deleting": "Ihr Konto wird gelöscht.",
+      "confirmLabel": "Geben Sie {word} ein, um zu bestätigen",
+      "deleteButton": "Mein Konto löschen"
+    }
   }
 }

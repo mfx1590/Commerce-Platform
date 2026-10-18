@@ -3,14 +3,17 @@ export {
   ADDRESS_LIMIT,
   addCustomerAddress,
   customerEmailHash,
+  deleteCustomerAddress,
   findCustomerForSubject,
   listCustomerAddresses,
   registerCustomer,
   resolveCustomer,
   updateCustomer,
+  updateCustomerAddress,
 } from './service';
 export type {
   AddressInput,
+  AddressPatch,
   Customer,
   CustomerAddress,
   CustomerIdentity,
@@ -38,7 +41,13 @@ export type {
   CustomerSortField,
 } from './admin';
 // GDPR erasure and export (#414)
-export { buildCustomerExport, eraseCustomer, erasedEmail, requestCustomerExport } from './gdpr';
+export {
+  buildCustomerExport,
+  eraseCustomer,
+  eraseMe,
+  erasedEmail,
+  requestCustomerExport,
+} from './gdpr';
 export type {
   CustomerExport,
   CustomerExportOrder,

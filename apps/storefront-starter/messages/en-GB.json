@@ -181,5 +181,43 @@
       "generic": "Something went wrong. Please try again.",
       "correctFields": "Please correct the highlighted fields."
     }
+  },
+  "account": {
+    "address": {
+      "edit": "Edit",
+      "editForm": "Edit address",
+      "save": "Save address",
+      "cancel": "Cancel",
+      "remove": "Remove",
+      "removeForm": "Remove address",
+      "removeQuestion": "Remove this address?",
+      "removeYes": "Yes, remove",
+      "keep": "Keep it",
+      "updated": "Address updated.",
+      "removed": "Address removed.",
+      "useDelivery": "Use as my delivery address",
+      "useBilling": "Use as my billing address",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "company": "Company (optional)",
+      "line1": "Address",
+      "line2": "Apartment, suite (optional)",
+      "postalCode": "Postal code",
+      "city": "City",
+      "country": "Country code",
+      "region": "Region (optional)",
+      "phone": "Phone (optional)"
+    },
+    "privacy": {
+      "exportForm": "Download my data",
+      "exportIntro": "Get a copy of the data this shop holds about you: your profile, addresses, consent and orders. We prepare the file and email you when it is ready to download.",
+      "exportRequested": "Your export has been requested. We will email you when it is ready.",
+      "exportButton": "Download my data",
+      "deleteForm": "Delete my account",
+      "deleteIntro": "This deletes your account in this shop: your profile, your saved addresses and your consent choices are erased and you are signed out. Your orders stay on record as the law requires. This cannot be undone.",
+      "deleting": "Your account is being deleted.",
+      "confirmLabel": "Type {word} to confirm",
+      "deleteButton": "Delete my account"
+    }
   }
 }

@@ -2,22 +2,34 @@
 // 2026-10-08, recorded in README.md "Erasure and export"). Both run on the store-scoped tenant client the route
 // hands in, so they can never reach another store's customer.
 //
-// ERASURE (`eraseCustomer`, store_admin, 202): one transaction — the customer row keeps its id, store, group
-// and timestamps; every personal field is replaced (email → `erased+<customer_id>@invalid`, names / phone /
-// Keycloak subject → null, consent / metadata → {}), the addresses are deleted, the organization-level
+// ERASURE (`eraseCustomer`, store_admin, 202; `eraseMe`, the customer's own `DELETE /store/customers/me`, #470):
+// one transaction — the customer row keeps its id, store, group and timestamps; every personal field is
+// replaced (email → `erased+<customer_id>@invalid`, names / phone → null, consent / metadata → {}), the
+// addresses are deleted, the organization-level
 // `customer_identity` is unlinked and deleted when nothing else references it, and ONE `customer.erased` outbox
-// row tells every consumer to delete its copies. ORDERS ARE KEPT UNCHANGED, linked by `customer_id` only:
+// row tells every consumer to delete its copies. The KEYCLOAK SUBJECT STAYS on the erased row as an erasure
+// tombstone (manager decision 2026-10-18, #482, on the owner's lawyer list): it is an opaque IdP identifier,
+// not personal data, and it is what makes the same login a 401 on every route afterwards and a repeated
+// `DELETE /me` a 202 no-op — with the subject nulled and the email replaced, nothing would find the erased
+// row and the next `/me` would silently provision a fresh account. The Keycloak user itself is deleted by a
+// separate job (REQUEST #483); the tombstone is meaningless once that has happened.
+//
+// ORDERS ARE KEPT UNCHANGED, linked by `customer_id` only:
 // invoices and transaction records are retained under the legal-obligation exception (GDPR art. 17(3)(b)) —
 // manager decision A, on the owner's lawyer-review list. Replay-safe: an erased customer is a no-op (no second
 // event).
 //
 // EXPORT (`buildCustomerExport`): everything held about the customer in this store — the record, the addresses,
 // the consent object and the customer's orders with their lines. `exportCustomer` (the 202 + the
-// `customer.export_requested` hand-over event, events 0.3.2 / #425) is `requestCustomerExport` below.
+// `customer.export_requested` hand-over event, events 0.3.2 / #425; v2 since #482 carries who asked:
+// `requested_by_type` staff or customer) is `requestCustomerExport` below — the Admin API and the customer's own
+// `POST /store/customers/me/export` both go through it.
 import type { Queryable, ScopedClient } from '@platform/db';
 import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
+import { resolveIn } from './service';
+import type { CustomerIdentity, CustomerScope } from './types';
 
 const notFound = (id: string) =>
   new AppError('not_found', 'customer not found', { customer_id: id });
@@ -58,7 +70,42 @@ export async function eraseCustomer(
   actor: Actor,
 ): Promise<EraseResult> {
   const organizationId = client.context.organizationId;
+  return client.transaction((tx) => eraseIn(tx, organizationId, storeId, customerId, actor));
+}
+
+/**
+ * `DELETE /store/customers/me` (#470, Store API 0.5.6): the customer erases their own row in THIS store — only
+ * this store's (whether a deletion spans every brand of the organization is the owner's open decision). A
+ * subject with NO row here is a 202 no-op: nothing is provisioned (#487 review — provisioning first would put
+ * a `customer.created` with the real email hash into the outbox for a person who asked to be deleted), and so
+ * is an already erased row (the tombstone subject finds it before `resolveIn` would answer 401). Otherwise
+ * `resolveIn` locks the row and judges its status, then the erasure runs under that lock.
+ */
+export async function eraseMe(
+  client: ScopedClient,
+  scope: CustomerScope,
+  identity: CustomerIdentity,
+): Promise<EraseResult> {
   return client.transaction(async (tx) => {
+    const existing = await tx.query<{ status: string }>(
+      'SELECT status FROM customer WHERE store_id = $1 AND keycloak_subject = $2',
+      [scope.storeId, identity.subject],
+    );
+    if (!existing.rows[0] || existing.rows[0].status === 'erased') return { erased: false };
+    const { row } = await resolveIn(tx, scope, identity);
+    const actor: Actor = { id: row.id, type: 'customer', requestId: scope.requestId ?? null };
+    return eraseIn(tx, scope.organizationId, scope.storeId, row.id, actor);
+  });
+}
+
+async function eraseIn(
+  tx: Queryable,
+  organizationId: string,
+  storeId: string,
+  customerId: string,
+  actor: Actor,
+): Promise<EraseResult> {
+  {
     const r = await tx.query<{ id: string; status: string; identity_id: string | null }>(
       `SELECT id, status, identity_id FROM customer WHERE id = $1 AND store_id = $2 FOR NO KEY UPDATE`,
       [customerId, storeId],
@@ -74,7 +121,7 @@ export async function eraseCustomer(
     const erased = await tx.query<{ updated_at: Date }>(
       `UPDATE customer
        SET status = 'erased', email = $3, first_name = NULL, last_name = NULL, phone = NULL,
-           keycloak_subject = NULL, identity_id = NULL, consent = '{}'::jsonb, metadata = '{}'::jsonb,
+           identity_id = NULL, consent = '{}'::jsonb, metadata = '{}'::jsonb,
            updated_at = now()
        WHERE id = $1 AND store_id = $2
        RETURNING updated_at`,
@@ -115,7 +162,7 @@ export async function eraseCustomer(
       }),
     ]);
     return { erased: true };
-  });
+  }
 }
 
 // ------------------------------------------------------------------------------------------------- export
@@ -310,8 +357,11 @@ export async function requestCustomerExport(
   actor: Actor,
 ): Promise<void> {
   const requestedBy = actor.id;
-  // `requested_by` is a staff user by contract: an export is never requested by the system actor.
-  if (!requestedBy) throw new AppError('forbidden', 'an export must be requested by a staff user');
+  // `requested_by` is a staff user or the customer (events v2, #482): never the system actor.
+  if (!requestedBy || actor.type === 'system') {
+    throw new AppError('forbidden', 'an export must be requested by a staff user or the customer');
+  }
+  const requestedByType = actor.type;
   const organizationId = client.context.organizationId;
   await client.transaction(async (tx) => {
     const r = await tx.query<{ status: string }>(
@@ -340,6 +390,7 @@ export async function requestCustomerExport(
         payload: {
           customer_id: customerId,
           requested_by: requestedBy,
+          requested_by_type: requestedByType,
           requested_at: requestedAt.toISOString(),
         },
       }),

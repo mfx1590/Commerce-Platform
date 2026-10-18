@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.5
+  version: 0.5.6
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -13,6 +13,7 @@ info:
     0.5.0 adds the typed review shape — Product.review_summary and GET /store/products/{handle}/reviews (additive).
     0.5.4 adds the optional `Store.payment.methods` (`card` | `invoice`) the checkout may offer (#354/#358, additive).
     0.5.5 adds `voided` to the order's `payment_status` (authorized → voided when the order is cancelled; terminal; #466, additive).
+    0.5.6 adds customer self-service — updateMyAddress, deleteMyAddress (200 with the remaining addresses), requestMyExport and deleteMe (#482, additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -687,6 +688,34 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
               example: { code: conflict, message: This email already has an account, details: {} }
         '400': { $ref: '#/components/responses/BadRequest' }
+    delete:
+      tags: [customers]
+      operationId: deleteMe
+      summary: Delete my account (GDPR erasure of this store's customer row)
+      description: |
+        Erases the customer row of the token in THIS store, the same way the Admin API `eraseCustomer` does:
+        status `erased`, email replaced by a placeholder, names, phone and consent cleared, every address
+        deleted, orders kept (linked by customer id only, legal-obligation retention). One `customer.erased`
+        event. The Keycloak subject stays on the erased row as an erasure tombstone (an opaque IdP id, no
+        personal data) so the same login is a 401 everywhere afterwards instead of silently creating a new
+        account; the Keycloak user itself is deleted by a separate job. Only this store's row is erased: a
+        customer of several brands of the same organization deletes each account separately (owner decision
+        pending). Replaying the call on an already erased account is a 202 no-op.
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '202': { description: Erasure done (or already done) }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
 
   /store/customers/me/addresses:
     get:
@@ -739,7 +768,7 @@ paths:
         The first address a customer adds becomes the default for shipping and billing; later ones are
         neither unless the body says so. `is_default_shipping` / `is_default_billing` set that flag on the
         new address and clear it on the customer's others, in one transaction. At most 50 addresses per
-        customer (the 51st is a 400). No operation changes or deletes an address yet.
+        customer (the 51st is a 400). `updateMyAddress` changes one, `deleteMyAddress` removes one.
       security:
         - publishableKey: []
           customerToken: []
@@ -781,6 +810,150 @@ paths:
                 is_default_shipping: true
                 is_default_billing: true
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
+
+  /store/customers/me/addresses/{addressId}:
+    parameters:
+      - { $ref: '#/components/parameters/AddressId' }
+    patch:
+      tags: [customers]
+      operationId: updateMyAddress
+      description: |
+        Changes one of the customer's addresses. Every field is optional; a present field replaces the stored
+        one (`company`, `line2`, `region`, `phone` accept `null`; a required address field cannot be blanked —
+        400 naming the field). `is_default_shipping` / `is_default_billing` `true` makes this address the
+        default and clears the flag on the customer's others, in one transaction; `false` hands the flag to
+        the customer's OLDEST OTHER address — on the customer's only address it is ignored (a customer with
+        addresses always has a default). An address of another customer, an unknown id and a malformed id are
+        the same 404.
+      security:
+        - publishableKey: []
+          customerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                first_name: { type: string }
+                last_name: { type: string }
+                company: { type: [string, 'null'] }
+                line1: { type: string }
+                line2: { type: [string, 'null'] }
+                city: { type: string }
+                region: { type: [string, 'null'] }
+                postal_code: { type: string }
+                country: { type: string, pattern: '^[A-Z]{2}$' }
+                phone: { type: [string, 'null'] }
+                is_default_shipping: { type: boolean }
+                is_default_billing: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerAddress' }
+              example:
+                id: 30000000-0000-4000-8000-000000000601
+                first_name: Jane
+                last_name: Doe
+                company: null
+                line1: Keizersgracht 2
+                line2: null
+                city: Amsterdam
+                region: null
+                postal_code: 1015 CC
+                country: NL
+                phone: null
+                is_default_shipping: true
+                is_default_billing: true
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
+    delete:
+      tags: [customers]
+      operationId: deleteMyAddress
+      description: |
+        Removes one of the customer's addresses. When the removed address was the default for shipping or
+        billing, the customer's OLDEST remaining address takes that flag (a customer with addresses always has
+        a default; none left means no default). Answers the customer's remaining addresses, the
+        `listMyAddresses` shape (`items` is empty when none is left), so the client sees where the default
+        flags went. An address of another customer, or an unknown id, is a 404.
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '200':
+          description: The remaining addresses
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/CustomerAddress' }
+              example:
+                items:
+                  - id: 30000000-0000-4000-8000-000000000602
+                    first_name: Jane
+                    last_name: Doe
+                    company: null
+                    line1: Prinsengracht 263
+                    line2: null
+                    city: Amsterdam
+                    region: null
+                    postal_code: 1016 GV
+                    country: NL
+                    phone: null
+                    is_default_shipping: true
+                    is_default_billing: true
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
+
+  /store/customers/me/export:
+    post:
+      tags: [customers]
+      operationId: requestMyExport
+      summary: Request a copy of my data (GDPR export)
+      description: |
+        Records the request: one `customer.export_requested` event (v2, `requested_by_type: customer`), ids
+        only. The bundle is built and delivered by the core's export job; the customer is told by email when
+        it is ready. Every call is its own request (no dedupe).
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '202': { description: Export requested }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409':
           description: >-
@@ -857,6 +1030,11 @@ components:
   parameters:
     CartId:
       name: cartId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AddressId:
+      name: addressId
       in: path
       required: true
       schema: { type: string, format: uuid }

@@ -11,6 +11,7 @@ import { AppError, conflict, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import type {
   AddressInput,
+  AddressPatch,
   Customer,
   CustomerAddress,
   CustomerAddressRow,
@@ -125,8 +126,12 @@ async function locate(
   identity: CustomerIdentity,
 ): Promise<Located> {
   for (let pass = 0; pass < 2; pass += 1) {
+    // Locked (FOR NO KEY UPDATE): the status is judged on the row as it is AFTER any concurrent erase or disable
+    // has committed, and every write of this transaction happens under that lock. Without it a request that
+    // waited behind `deleteMe` would read the active row, then lock and write personal data onto the erased one
+    // (#487 review). The lock is cheap: one customer, one transaction at a time.
     const mine = await tx.query<CustomerRow>(
-      `SELECT ${COLS} FROM customer WHERE store_id = $1 AND keycloak_subject = $2`,
+      `SELECT ${COLS} FROM customer WHERE store_id = $1 AND keycloak_subject = $2 FOR NO KEY UPDATE`,
       [scope.storeId, identity.subject],
     );
     const existing = mine.rows[0];
@@ -306,7 +311,7 @@ async function record(
   ]);
 }
 
-async function resolveIn(
+export async function resolveIn(
   tx: Queryable,
   scope: CustomerScope,
   identity: CustomerIdentity,
@@ -533,4 +538,179 @@ export async function findCustomerForSubject(
     [storeId, subject],
   );
   return r.rows[0] ?? null;
+}
+
+/**
+ * The customer's address row by id, locked, or 404. The customer row is locked first (`FOR NO KEY UPDATE`): it is
+ * the lock for everything about this customer's defaults, exactly as in `addCustomerAddress`. Another customer's
+ * address and an unknown id are the same 404 — the predicate is on BOTH ids, under RLS, so the caller never
+ * learns whether the id exists at all.
+ */
+async function lockAddress(
+  tx: Queryable,
+  customerId: string,
+  addressId: string,
+): Promise<CustomerAddressRow> {
+  await tx.query('SELECT id FROM customer WHERE id = $1 FOR NO KEY UPDATE', [customerId]);
+  const r = await tx.query<CustomerAddressRow>(
+    `SELECT ${ADDRESS_COLS} FROM customer_address WHERE id = $1 AND customer_id = $2 FOR UPDATE`,
+    [addressId, customerId],
+  );
+  const row = r.rows[0];
+  if (!row) throw new AppError('not_found', 'address not found', { address_id: addressId });
+  return row;
+}
+
+type DefaultFlag = 'is_default_shipping' | 'is_default_billing';
+const DEFAULT_FLAGS: readonly DefaultFlag[] = ['is_default_shipping', 'is_default_billing'];
+
+/**
+ * `PATCH /store/customers/me/addresses/{addressId}` (Store API 0.5.6, #482): a present field replaces the stored
+ * one; `null` clears a nullable one; a required field cannot be blanked (400 naming it). A default flag `true`
+ * moves that default here (clear-then-set, one transaction, under the customer-row lock); `false` gives the flag
+ * up only when another address can take it — the OLDEST other address does, so a customer with addresses always
+ * has a default (the rule of `addCustomerAddress`); on the customer's only address `false` is ignored. A patch
+ * that changes nothing writes nothing. Otherwise one audit row (`customer_address.update`: ids, flags and the
+ * NAMES of the changed columns) and one `customer.updated` (`['addresses']`).
+ */
+export async function updateCustomerAddress(
+  client: ScopedClient,
+  scope: CustomerScope,
+  identity: CustomerIdentity,
+  addressId: string,
+  patch: AddressPatch,
+): Promise<CustomerAddress> {
+  const problems: Record<string, string> = {};
+  const values: Partial<Omit<CustomerAddressRow, 'id' | 'customer_id' | DefaultFlag>> = {};
+  for (const field of [
+    'first_name',
+    'last_name',
+    'line1',
+    'city',
+    'postal_code',
+    'country',
+  ] as const) {
+    const v = patch[field];
+    if (v === undefined) continue;
+    if (v === null) {
+      problems[field] = 'required';
+      continue;
+    }
+    values[field] = requiredText(v, field, problems);
+  }
+  for (const field of ['company', 'line2', 'region', 'phone'] as const) {
+    const v = text(patch[field], field, problems);
+    if (v !== undefined) values[field] = v;
+  }
+  if (values.country !== undefined && !problems.country && !COUNTRY.test(values.country)) {
+    problems.country = 'ISO 3166-1 alpha-2';
+  }
+  for (const flag of DEFAULT_FLAGS) {
+    if (patch[flag] !== undefined && typeof patch[flag] !== 'boolean') problems[flag] = 'boolean';
+  }
+  if (Object.keys(problems).length) throw validationError('invalid address', problems);
+
+  return client.transaction(async (tx) => {
+    const { row } = await resolveIn(tx, scope, identity);
+    const current = await lockAddress(tx, row.id, addressId);
+    const changed: string[] = [];
+    const next: Record<string, string | boolean | null> = {};
+    for (const [k, v] of Object.entries(values) as Array<[keyof typeof values, string | null]>) {
+      if (current[k] !== v) {
+        changed.push(k);
+        next[k] = v;
+      }
+    }
+    for (const flag of DEFAULT_FLAGS) {
+      const wanted = patch[flag];
+      if (wanted === undefined || wanted === current[flag]) continue;
+      if (wanted) {
+        await tx.query(
+          `UPDATE customer_address SET ${flag} = false WHERE customer_id = $1 AND ${flag} AND id <> $2`,
+          [row.id, current.id],
+        );
+        changed.push(flag);
+        next[flag] = true;
+      } else {
+        // Giving a flag up: the oldest OTHER address takes it; with no other address the `false` is ignored.
+        const heir = await tx.query(
+          `UPDATE customer_address SET ${flag} = true WHERE id = (
+             SELECT id FROM customer_address WHERE customer_id = $1 AND id <> $2 ORDER BY created_at, id LIMIT 1
+           )`,
+          [row.id, current.id],
+        );
+        if (heir.rowCount) {
+          changed.push(flag);
+          next[flag] = false;
+        }
+      }
+    }
+    if (changed.length === 0) return toAddress(current);
+
+    const keys = Object.keys(next);
+    const sets = keys.map((k, i) => `${k} = $${i + 2}`);
+    const updated = await tx.query<CustomerAddressRow>(
+      `UPDATE customer_address SET ${sets.join(', ')}, updated_at = now() WHERE id = $1 RETURNING ${ADDRESS_COLS}`,
+      [current.id, ...keys.map((k) => next[k])],
+    );
+    const address = updated.rows[0]!;
+    await record(tx, scope, row, 'existing', ['addresses'], {
+      action: 'customer_address.update',
+      entityType: 'customer_address',
+      entityId: address.id,
+      after: {
+        customer_id: row.id,
+        changed_fields: changed.sort(),
+        is_default_shipping: address.is_default_shipping,
+        is_default_billing: address.is_default_billing,
+      },
+    });
+    return toAddress(address);
+  });
+}
+
+/**
+ * `DELETE /store/customers/me/addresses/{addressId}` (200 `{ items }`: the remaining addresses in the order of
+ * `listCustomerAddresses`, so the page sees where a default went). A default the deleted address held moves to
+ * the customer's OLDEST remaining address (none left: no default). One audit row (`customer_address.delete`:
+ * ids, which flags moved and to which address) and one `customer.updated` (`['addresses']`).
+ */
+export async function deleteCustomerAddress(
+  client: ScopedClient,
+  scope: CustomerScope,
+  identity: CustomerIdentity,
+  addressId: string,
+): Promise<CustomerAddress[]> {
+  return client.transaction(async (tx) => {
+    const { row } = await resolveIn(tx, scope, identity);
+    const current = await lockAddress(tx, row.id, addressId);
+    await tx.query('DELETE FROM customer_address WHERE id = $1', [current.id]);
+    let heir: string | null = null;
+    const moved: string[] = [];
+    for (const flag of DEFAULT_FLAGS) {
+      if (!current[flag]) continue;
+      const r = await tx.query<{ id: string }>(
+        `UPDATE customer_address SET ${flag} = true WHERE id = (
+           SELECT id FROM customer_address WHERE customer_id = $1 ORDER BY created_at, id LIMIT 1
+         ) RETURNING id`,
+        [row.id],
+      );
+      if (r.rows[0]) {
+        heir = r.rows[0].id;
+        moved.push(flag);
+      }
+    }
+    await record(tx, scope, row, 'existing', ['addresses'], {
+      action: 'customer_address.delete',
+      entityType: 'customer_address',
+      entityId: current.id,
+      after: { customer_id: row.id, defaults_moved: moved, defaults_moved_to: heir },
+    });
+    const remaining = await tx.query<CustomerAddressRow>(
+      `SELECT ${ADDRESS_COLS} FROM customer_address WHERE customer_id = $1
+       ORDER BY is_default_shipping DESC, created_at, id`,
+      [row.id],
+    );
+    return remaining.rows.map(toAddress);
+  });
 }
