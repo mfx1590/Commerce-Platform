@@ -1551,8 +1551,10 @@ describe('cross-brand identity (#473, db 0196 customer_identity closed to store 
     expect(subjects.map((r) => r.keycloak_subject).sort()).toEqual(['sub-dup1', 'sub-dup2']);
     expect(subjects.every((r) => r.merged_into_id === null)).toBe(true);
     const guest = rows.find((r) => r.id === guestIdentity)!;
-    expect([id1, id2]).toContain(guest.merged_into_id); // merged exactly once, into one of the two
-    expect(await identityOf(guestRow)).toBe(guest.merged_into_id); // its customer re-pointed to the winner
+    // merged exactly once, into one of the two (which one depends on the interleaving; 0197's lock order makes
+    // every interleaving deadlock-free: a merge whose guest row another sign-in holds is left to that sign-in)
+    expect([id1, id2]).toContain(guest.merged_into_id);
+    expect(await identityOf(guestRow)).toBe(id1); // the adopter keeps its own row, in every order
     expect(rows).toHaveLength(3);
   });
 

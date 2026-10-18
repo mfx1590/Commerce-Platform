@@ -1,5 +1,9 @@
 # Changelog — @platform/db
 
+## 0.3.12 — 2026-10-19
+
+- `0197_customer_identity_link_lock_order.sql`: `app.link_customer_identity` takes the guest merge's locks in one order — the guest's customer rows first (`FOR UPDATE SKIP LOCKED`), the identity second; a guest whose rows another transaction holds is left to that transaction (contention = no merge, #504). Fixes the 40P01 deadlock main's unit job hit at ebb203f on the concurrent guest-merge test. The re-point also filters `organization_id`. Manager fix.
+
 ## 0.1.0 — 2026-09-04
 
 - Scaffold created by the main window (Phase 0).
