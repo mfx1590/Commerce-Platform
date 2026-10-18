@@ -326,10 +326,12 @@ export async function hqFinanceReport(
   }
   for (const f of refunds.rows) {
     const r = row(f.store_id, f.currency);
-    const reason = String(f.reason) as RefundReason;
+    const reason = String(f.reason);
     r.refunds = int(r.refunds + int(f.refunds));
     r.refunded_minor = int(r.refunded_minor + int(f.refunded_minor));
-    if (reason in r.refunded_by_reason) r.refunded_by_reason[reason] = int(f.refunded_minor);
+    if ((REFUND_REASONS as readonly string[]).includes(reason)) {
+      r.refunded_by_reason[reason as RefundReason] = int(f.refunded_minor);
+    }
   }
   const list = [...rows.values()].sort(
     (a, b) => a.store_id.localeCompare(b.store_id) || a.currency.localeCompare(b.currency),
