@@ -85,3 +85,12 @@ it updates the row as the count is reconciled.
 Known and accepted: "movements since `counted_at`" compares with `stock_movement.created_at`, which is the writing
 transaction's start time — a movement that began before the count and committed after it is treated as before the
 count.
+
+## Reporting views (0200, db 0.3.8)
+
+Five read-only aggregate views for reporting v1 (CONTRACT CHANGE #485, window 12): `rpt_sales_daily`,
+`rpt_payments_daily`, `rpt_refunds_daily`, `rpt_stock_position` and `rpt_customers_daily`. Every view is
+`security_invoker = true`, so a query through it runs the base tables' row-level security as the caller: read them
+through a scoped client like any table (a store session sees its own stores, organization scope sees all, no context
+sees nothing). `platform_app` has SELECT only. Days are UTC, money is bigint minor units grouped by currency, and no
+column carries PII. Grain, filters and the cohort/cash refund example: `data/reporting/README.md`.
