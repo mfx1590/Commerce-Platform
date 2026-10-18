@@ -14,9 +14,10 @@ Issue #480 (reporting v1, 12.3). HQ sales, finance and stock from the Admin API 
   table holds that currency only: amounts are never added across currencies or drawn on a shared axis.
 - **Sales:** KPI cards (orders, total, refunded, net), net revenue per day and orders per day (one line per store),
   and a per-store table. Net is cohort-attributed (refunds counted on the order's day).
-- **Finance** (only when `/admin/me` gives `finance`, owner included): captured, PSP fees labelled
-  **unreconciled**, payments whose fee is not known yet, refunds by reason. For anyone else the card is not rendered
-  and `getHqFinanceReport` is never requested.
+- **Finance** (only when `/admin/me` gives `finance`): captured, PSP fees labelled **unreconciled**, payments whose
+  fee is not known yet, refunds by reason. For anyone else the card is not rendered and `getHqFinanceReport` is
+  never requested. Because BI itself is analyst-gated (manager decision 2026-10-18), the finance cards show for the
+  **owner only** (finance + analyst); a finance-only principal gets BI's 403 and uses window 4's Finance section.
 - **Stock:** a store tab (`?stock=<storeId>`, default the first store by code) with the first 20 pool rows of
   `getStoreStockReport`. HQ analysts read it through `store.viewer ⊇ analyst from organization`.
 

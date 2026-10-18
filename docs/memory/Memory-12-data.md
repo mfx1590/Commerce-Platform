@@ -33,10 +33,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   REFUND_REASONS.includes.
 
 ## In progress
-- #480: committed locally; DO NOT push until the manager confirms the `data/` ownership row (test/bi, test-contract/bi,
-  e2e/bi) is on main. Then merge main, push, PR "Closes #480", report number + head sha, then checks.
-- Playwright on the kept core (owner sees brands A, B, C; store-admin token → 403 state) in `apps/admin/e2e/bi/`:
-  only after the manager's go (one window measures at a time).
+- #480: ownership row on main (e930aa3). PR "Closes #480" pushed from data/phase3; report number + head sha, then
+  checks. `apps/admin/e2e/bi/bi.spec.ts` ran ONCE on the kept core with the manager's go (2026-10-18): 2 passed
+  (store-admin 403; owner sees brands A, B, C, finance card, EUR tab). First invocation failed on two spec locators
+  (the HQ layout guard answers a store-only user before the BI guard; the shell has its own img), fixed and re-run.
+  Core stopped afterwards, "machine free" reported.
 
 ## Next — Phase 3
 - [ ] After #480: ask the manager for the next docket (reporting v1 is then complete).
@@ -64,9 +65,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   `pnpm --filter @platform/contracts generate` and commit the generated files.
 
 ## Blocked / waiting
-- #480 push: the ownership row on main (manager).
-- Nit the manager raised that is NOT mine: apps/core/CHANGELOG.md and apps/core/src/http/README.md call HQ finance
-  `analyst` (it is `finance`) — window 1's files; reported to the manager instead of editing.
+- PR for #480: the manager's review and merge.
+- apps/core/CHANGELOG.md and apps/core/src/http/README.md call HQ finance `analyst` (it is `finance`): window 1's
+  files, the manager routes it to window 1 — not mine.
 
 ## Gotchas learned
 - The local owner role `platform` is SUPERUSER + BYPASSRLS (checked in pg_roles), so it owns the views: a view
@@ -83,6 +84,10 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - Seeded store-admin holds brands A AND B; a single-store admin needs its own staff_user + role_assignment.
 - Admin server pages nest async components (guard → body): a test expands function components (awaiting async ones)
   before `render`; a page file may only export Next's page fields, so the body lives in `_components/`.
+- Admin e2e against the core: a store-only principal on an HQ route is refused by the HQ LAYOUT guard ("This is an HQ
+  section…"), not the section guard; scope chart locators to `figure` (the shell renders an img). Core mode:
+  start `pnpm --filter @platform/core dev` detached, `E2E_API=core CORE_URL=http://localhost:9000 pnpm --filter
+  @platform/admin e2e bi`, then stop only your own tsx-watch tree (check the command line before killing).
 - The admin is dark-only (`--color-surface` #131a22): validate chart colours against that surface, not a light one.
 - Bash heredocs/`node -e` strings eat backticks: write markdown with backticks through the Write/Edit tools.
 
