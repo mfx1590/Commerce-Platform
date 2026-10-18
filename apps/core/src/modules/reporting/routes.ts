@@ -1,10 +1,9 @@
 // The Admin API report operations (#479, window 12). Same chain as the other module routers: `permission(op)` (the
 // operation's `x-permission`, read from admin-api.yaml — never hard-coded) → handler (scoped client → service →
-// contract shape). The four operations reach admin-api.yaml with the integration PR that lands this router
-// (CONTRACT CHANGE; proposed copy in data/reporting/proposed/admin-api.reports.yaml).
+// contract shape). The four operations are in admin-api.yaml (Admin API 0.4.19, CONTRACT CHANGE #493).
 //
-// Mounting: one line in `src/http/module-routers.ts` (window 1, REQUEST). The tests mount the router themselves on a
-// bare Express app behind the real middleware chain.
+// Mounting: one line in `src/http/module-routers.ts` (window 1, REQUEST #494); the tests go through that same
+// `moduleAdminRouters()` list behind the real middleware chain.
 import { Router, type Request, type RequestHandler } from 'express';
 import {
   handle,

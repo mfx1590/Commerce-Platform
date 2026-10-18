@@ -1,23 +1,9 @@
-// #479: the four Admin API report operations on a seeded throwaway database (0200 views) with the shared reporting
-// fixtures. The operations are not in admin-api.yaml until the integration PR lands them, so this file merges the
-// proposed fragment (data/reporting/proposed/admin-api.reports.yaml) into a copy of the contracts and points
-// CONTRACTS_OPENAPI_DIR at it — the router then reads its `x-permission` from the spec exactly as it will after
-// landing, and every response is validated against the proposed schemas. Drop the merge when the yaml has landed.
-import {
-  copyFileSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// #479: the four Admin API report operations (Admin API 0.4.19, CONTRACT CHANGE #493) on a seeded throwaway
+// database (0200 views) with the shared reporting fixtures. The HTTP tests go through the production router list
+// (`moduleAdminRouters()`, window 1's mount, REQUEST #494) behind the real middleware chain, and validate every
+// response against admin-api.yaml.
 import express from 'express';
 import request from 'supertest';
-import { parse, stringify } from 'yaml';
 import {
   createOrganizationClient,
   createTenantClient,
@@ -26,23 +12,17 @@ import {
 } from '@platform/db';
 import type { TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { coreErrorHandler, DevTokenVerifier, loadSpec, openApiDir } from '../../http';
+import { coreErrorHandler, DevTokenVerifier, loadSpec, moduleAdminRouters } from '../../http';
 import { closePool, initDb } from '../../lib/db';
 import { mountCoreMiddleware } from '../../server';
 import {
   hqFinanceReport,
   hqSalesReport,
   parseReportWindow,
-  reportingAdminRouter,
   storeSalesReport,
   storeStockReport,
 } from './index';
 import { createReportingDatabase, insertReportingFixtures } from './testing/fixtures';
-
-const FRAGMENT = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../../data/reporting/proposed/admin-api.reports.yaml',
-);
 
 const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
@@ -52,16 +32,18 @@ const PII =
   /email|name|phone|address|provider_.*id|idempotency|keycloak|subject|metadata|consent|note|customer/;
 
 type Row = Record<string, unknown>;
-type Doc = {
-  tags: unknown[];
-  paths: Record<string, Record<string, unknown>>;
-  components: { parameters: Record<string, unknown>; schemas: Record<string, unknown> };
-};
+type Paths = Record<string, Record<string, unknown>>;
+
+const OPERATIONS = [
+  'getStoreSalesReport',
+  'getStoreStockReport',
+  'getHqSalesReport',
+  'getHqFinanceReport',
+];
 
 let db: TestDatabase;
 let hq: ScopedClient;
 let a: ScopedClient;
-let specDir: string;
 let app: express.Express;
 
 const as = (subject: string) => (path: string) =>
@@ -69,31 +51,6 @@ const as = (subject: string) => (path: string) =>
 
 async function rows(client: ScopedClient, sql: string, params: unknown[] = []): Promise<Row[]> {
   return (await client.query<Row>(sql, params)).rows;
-}
-
-/** A copy of the contracts' openapi directory with the proposed reports fragment merged into admin-api.yaml. */
-function mergedSpecDir(): string {
-  if (!existsSync(FRAGMENT)) {
-    throw new Error(
-      `reports.test: the proposed fragment moved or is missing — expected ${FRAGMENT}`,
-    );
-  }
-  const source = openApiDir();
-  const dir = mkdtempSync(join(tmpdir(), 'reporting-openapi-'));
-  for (const f of readdirSync(source)) copyFileSync(join(source, f), join(dir, f));
-  const doc = parse(readFileSync(join(source, 'admin-api.yaml'), 'utf8')) as Doc;
-  const fragment = parse(readFileSync(FRAGMENT, 'utf8')) as Doc;
-  doc.tags.push(...fragment.tags);
-  for (const [p, item] of Object.entries(fragment.paths)) {
-    if (doc.paths[p])
-      throw new Error(`reports.test: ${p} already in admin-api.yaml — drop the merge`);
-    doc.paths[p] = item;
-  }
-  for (const [k, v] of Object.entries(fragment.components.parameters))
-    doc.components.parameters[k] = v;
-  for (const [k, v] of Object.entries(fragment.components.schemas)) doc.components.schemas[k] = v;
-  writeFileSync(join(dir, 'admin-api.yaml'), stringify(doc));
-  return dir;
 }
 
 function piiKeys(value: unknown, path = ''): string[] {
@@ -114,8 +71,6 @@ function expectSchema(name: string, body: unknown): void {
 }
 
 beforeAll(async () => {
-  specDir = mergedSpecDir();
-  process.env.CONTRACTS_OPENAPI_DIR = specDir;
   process.env.CORE_DEV_TOKENS = '1';
   db = await createReportingDatabase('reports');
   await initDb({ connectionString: db.app.options.connectionString! });
@@ -138,16 +93,13 @@ beforeAll(async () => {
   );
 
   app = express();
-  mountCoreMiddleware(app, new DevTokenVerifier());
-  app.use(reportingAdminRouter());
+  mountCoreMiddleware(app, new DevTokenVerifier(), { moduleRouters: moduleAdminRouters() });
   app.use(coreErrorHandler);
 }, 240_000);
 
 afterAll(async () => {
   await closePool();
   await db?.drop();
-  if (specDir) rmSync(specDir, { recursive: true, force: true });
-  delete process.env.CONTRACTS_OPENAPI_DIR;
 });
 
 describe('report window', () => {
@@ -351,20 +303,33 @@ describe('the router: permissions and the wire shape', () => {
     expect((await request(app).get(`/admin/hq/reports/sales${q}`)).status).toBe(401);
   });
 
-  it('every example in the proposed fragment validates against its schema', () => {
-    const fragment = parse(readFileSync(FRAGMENT, 'utf8')) as Doc;
-    let checked = 0;
-    for (const item of Object.values(fragment.paths)) {
-      const op = item.get as {
-        responses: Record<
+  it('the four operations are in admin-api.yaml with the planned permissions, and their examples validate', () => {
+    const paths = loadSpec('admin-api.yaml').doc.paths as Paths;
+    const found = new Map<string, { op: Record<string, unknown>; path: string }>();
+    for (const [path, item] of Object.entries(paths)) {
+      const op = item.get as { operationId?: string } | undefined;
+      if (op?.operationId && OPERATIONS.includes(op.operationId)) {
+        found.set(op.operationId, { op: op as Record<string, unknown>, path });
+      }
+    }
+    expect([...found.keys()].sort()).toEqual([...OPERATIONS].sort());
+    const perms = Object.fromEntries(
+      OPERATIONS.map((id) => [id, loadSpec('admin-api.yaml').permission(id)]),
+    );
+    expect(perms).toEqual({
+      getStoreSalesReport: { relation: 'viewer', object: 'store:{storeId}' },
+      getStoreStockReport: { relation: 'viewer', object: 'store:{storeId}' },
+      getHqSalesReport: { relation: 'analyst', object: 'organization:hq' },
+      getHqFinanceReport: { relation: 'finance', object: 'organization:hq' },
+    });
+    for (const { op } of found.values()) {
+      const ok = (
+        op.responses as Record<
           string,
           { content?: Record<string, { schema: { $ref: string }; example: unknown }> }
-        >;
-      };
-      const ok = op.responses['200']!.content!['application/json']!;
+        >
+      )['200']!.content!['application/json']!;
       expectSchema(ok.schema.$ref.split('/').pop()!, ok.example);
-      checked += 1;
     }
-    expect(checked).toBe(4);
   });
 });

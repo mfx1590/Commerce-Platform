@@ -2,6 +2,12 @@
 
 ## Unreleased — Phase 3 (window 12)
 
+### 2026-10-18 · Report operations landed (Admin API 0.4.19, CONTRACT CHANGE #493; mount REQUEST #494)
+
+- The four operations live in `packages/contracts/openapi/admin-api.yaml`; `proposed/admin-api.reports.yaml` is deleted.
+- `reports.test.ts` runs on the real spec and through the production router list (`moduleAdminRouters()`): no
+  fragment merge, no `CONTRACTS_OPENAPI_DIR` copy; it checks the four operations and their permissions in the spec.
+
 ### 2026-10-18 · Admin API report operations (#479)
 
 - `proposed/admin-api.reports.yaml`: `getStoreSalesReport`, `getStoreStockReport`, `getHqSalesReport`,

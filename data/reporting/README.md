@@ -6,11 +6,11 @@ the tenant-scoped client, exposed as Admin API report operations (#479) and rend
 
 ## Files
 
-| Path                                              | What                                                                                                                                                                                                    |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/db/migrations/0200_reporting_views.sql` | The views (db 0.3.8, CONTRACT CHANGE #485, landed by the main window). Schema changes go through a new CONTRACT CHANGE.                                                                                 |
-| `proposed/admin-api.reports.yaml`                 | #479: the four report operations and their schemas, proposed (Admin API 0.4.18). The main window merges it into `packages/contracts/openapi/admin-api.yaml`, runs `generate`, and this copy is deleted. |
-| `apps/core/src/modules/reporting/`                | The report service and `reportingAdminRouter()`, and the tests: `reporting-views.test.ts` (views) and `reports.test.ts` (operations).                                                                   |
+| Path                                              | What                                                                                                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/db/migrations/0200_reporting_views.sql` | The views (db 0.3.8, CONTRACT CHANGE #485, landed by the main window). Schema changes go through a new CONTRACT CHANGE.               |
+| `packages/contracts/openapi/admin-api.yaml`       | #479: the four report operations and their schemas (Admin API 0.4.19, CONTRACT CHANGE #493, landed by the main window).               |
+| `apps/core/src/modules/reporting/`                | The report service and `reportingAdminRouter()`, and the tests: `reporting-views.test.ts` (views) and `reports.test.ts` (operations). |
 
 ## Security
 
