@@ -135,3 +135,20 @@
   before 0194 (table dropped, migration unrecorded), seeded with projections (granted, refused, unknown source
   without `at`, never asked, non-boolean, erased); `migrate` applies only 0194 and writes exactly the three expected
   rows; the backfill statement run again adds nothing (33 cases).
+
+## 0.3.10 — 2026-10-18 (CONTRACT CHANGE #498, customer export delivery; window 13, #472; contracts-v0.4.23)
+
+- Migration 0195: `customer_export` — one row per `customer.export_requested` event (`event_id` UNIQUE = the export
+  job's idempotency), `requested_by` / `requested_by_type` (`staff | customer`) and `requested_at` from the event,
+  `status` `pending | ready | expired` (default `pending`), `reason` (`customer_gone` | `too_large`), `format`, the
+  bundle as gzip JSON in `bytea` with `bundle_sha256` and `bundle_size` (compressed bytes) until object storage
+  exists (#361), `ready_at` / `expires_at` / `purged_at`, `download_count`. The SQL is the issue's diff verbatim
+  (header prepended, the issue-number placeholder filled in). RLS kind `store`; `set_updated_at` trigger; grants
+  from 0009's default privileges (UPDATE and DELETE stay: the job moves the status and purges the bundle, erasure
+  deletes every export of the customer in the erasure transaction). Indexes `customer_export_customer_idx`
+  (customer, `created_at DESC`), partial `customer_export_pending_idx` (store, status) on `pending` and partial
+  `customer_export_expiry_idx` (`expires_at`) on `ready`.
+- No backfill (the job's first run picks up earlier requests from the outbox), no seed change. The event the job
+  emits is events 0.3.6 `customer.export_ready`.
+- No rls.test.ts case in this landing (the landing was assembled without a database); the export job's tests in the
+  core customers module run on the landed migration.

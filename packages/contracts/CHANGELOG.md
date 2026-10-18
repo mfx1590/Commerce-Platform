@@ -315,3 +315,53 @@
   part of this landing (#491).
 - `CONTRACTS_VERSION = '0.4.21'`; types regenerated. Producer: window 13 (core customers module, `consent.ts`).
   Consumers: the storefronts' Privacy section (window 13), the admin customer view.
+
+## 0.4.22 — 2026-10-18 (reporting v1 reads, CONTRACT CHANGE #493; contracts-v0.4.22)
+
+- Admin API 0.4.19, four reads under the new `reports` tag over the reporting views (the fragment
+  `data/reporting/proposed/admin-api.reports.yaml` merged verbatim):
+  - `getStoreSalesReport` — `GET /admin/stores/{storeId}/reports/sales` (`viewer` on `store:{storeId}`): one row per
+    UTC day and currency over `[from, to)`, `totals` per store and currency, `currency_totals` per currency;
+    `net_minor` is cohort-attributed. 400 / 401 / 403 / 404.
+  - `getStoreStockReport` — `GET /admin/stores/{storeId}/reports/stock` (`viewer` on `store:{storeId}`): the current
+    position of the pool rows the store sells from, paged (`Page` / `Limit`). 400 / 401 / 403 / 404.
+  - `getHqSalesReport` — `GET /admin/hq/reports/sales` (`analyst` on `organization:hq`): the store report for every
+    store. 400 / 401 / 403.
+  - `getHqFinanceReport` — `GET /admin/hq/reports/finance` (`finance` on `organization:hq`): captured payments by
+    capture day, PSP fees known so far and succeeded refunds by refund day (with `refunded_by_reason`), per store and
+    currency; `fees_reconciled` is `const: false` until Integration 4. No ledger figures in v1. 400 / 401 / 403.
+  - New query parameters `ReportFrom` (required, inclusive), `ReportTo` (required, exclusive, at most 366 days after
+    `from`) and `ReportCurrency` (optional, `^[A-Z]{3}$`); new schemas `SalesFigures`, `SalesReport`,
+    `StockPosition`, `StockReport`, `FinanceFigures`, `FinanceReport`. Amounts are integer minor units beside their
+    currency, never summed across currencies; no customer field. No new error code.
+- Examples on every 200 (the mock answers from them); `test:contract` reads all four and checks the 400 on a missing
+  `to` or a lower-case currency and the documented refusals.
+- `CONTRACTS_VERSION = '0.4.22'`; types regenerated. No events or db change.
+  Producer: window 12 (core reporting module, `reportingAdminRouter`, which reads each `x-permission` from this
+  spec). Consumers: the admin BI section (#480).
+
+## 0.4.23 — 2026-10-18 (customer export delivery, CONTRACT CHANGE #498; contracts-v0.4.23)
+
+- `ERROR_CODES` gains `expired` (before `internal`); the `Error.code` description in both specs lists it. New shared
+  response `Gone` (410, `expired`, `details.expires_at` says when) in both specs.
+- Store API 0.5.8 (30 operations, was 28), both customer-token secured with the `/me` resolve-or-provision 409:
+  - `listMyExports` — `GET /store/customers/me/exports`: the customer's export requests in this store, newest first,
+    as `CustomerExportSummary` (`status` `pending | ready | expired`, `requested_at`, `ready_at`, `expires_at`,
+    `size_bytes`, `reason` `customer_gone | too_large | null`). Ids, timestamps and sizes only. 401 / 409.
+  - `getMyExport` — `GET /store/customers/me/exports/{exportId}`: downloads one of the customer's own ready bundles
+    (`customer-export/v1`, `application/json`, `Content-Disposition: attachment`). Another customer's, unknown,
+    malformed or pending → 404; expired / purged → 410 `expired`. 401 / 404 / 409 / 410.
+- Admin API 0.4.20 (130 operations, was 128), both `store_admin` on `store:{storeId}`:
+  - `listCustomerExports` — `GET /admin/stores/{storeId}/customers/{customerId}/exports`: the summaries plus
+    `requested_by`, `requested_by_type`, `download_count`; never the bundle. 400 / 401 / 403 / 404.
+  - `getCustomerExport` — `GET …/customers/{customerId}/exports/{exportId}`: downloads one ready bundle (every
+    download is audited). 400 / 401 / 403 / 404 / 410.
+  - `CustomerExportSummary` added to the Admin components (same shape as the Store API's).
+  - #496 follow-up: `listCustomerConsents` documents `400` (a bad `?purpose`, a non-uuid `customerId`); the mock now
+    answers the house 400 instead of Prism's own 422.
+- events 0.3.6: `customer.export_ready` v1 (ids and `expires_at` only). db 0.3.10: migration 0195 `customer_export`.
+- `CONTRACTS_VERSION = '0.4.23'`; types regenerated; spec tests pin the versions, operation counts (Store 30,
+  Admin 130), the permissions, the error list and the `Gone` component; `test:contract` reads both lists and
+  downloads, and drives the documented 400 / 403 / 404 / 409 / 410.
+  Producer: window 13 (core customers module, export job #472). Consumers: the storefronts' Privacy section, the
+  admin customer view; the mail is window 17's (`customer.export_ready`).

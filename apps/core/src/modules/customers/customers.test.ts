@@ -1442,7 +1442,8 @@ describe('export delivery (#472, db 0195 customer_export, Store API 0.5.8)', () 
       requested_at: expect.any(String),
       ready_at: T0.toISOString(),
       expires_at: new Date(T0.getTime() + 30 * DAY).toISOString(),
-      size_bytes: rows[0]!.bundle_size,
+      // matched by id: the two bundles differ by a byte (their own generated_at)
+      size_bytes: rows.find((r) => r.id === listed[0]!.id)!.bundle_size,
       reason: null,
     });
     const file = await getMyExport(a, scopeA, mia, rows[0]!.id);

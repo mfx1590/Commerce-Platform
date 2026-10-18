@@ -2,6 +2,13 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-18 · the report routes mounted (REQUEST #494, #479)
+
+- `moduleAdminRouters()` mounts window 12's `reportingAdminRouter()`: `GET /admin/stores/:storeId/reports/sales` and
+  `…/stock` (`viewer` on the store), `GET /admin/hq/reports/sales` and `…/finance` (`analyst` on
+  `organization:hq`). Eleven module routers. The mount test checks an analyst 200 with a `SalesReport`, a store
+  admin 403, no token 401.
+
 ### 2026-10-18 · the consent ledger route mounted (REQUEST #492, #471)
 
 - `moduleAdminRouters()` mounts window 13's `customersAdminRouter()`: `GET

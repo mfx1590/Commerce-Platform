@@ -824,7 +824,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(10);
+    expect(moduleAdminRouters()).toHaveLength(11);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -915,6 +915,16 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     );
     expect(unknown.status).toBe(404);
     expect(unknown.body.message).not.toMatch(/is not implemented/);
+  });
+
+  it('reports (#479, REQUEST #494): the reporting router answers behind our staff auth, analyst on the HQ', async () => {
+    // window 12: reportingAdminRouter — getHqSalesReport is `analyst` on organization:hq in the spec
+    const path = '/admin/hq/reports/sales?from=2026-10-01&to=2026-10-18';
+    const sales = await analyst.get(path);
+    expect(sales.status).toBe(200);
+    spec.assertSchema('SalesReport', sales.body);
+    expect((await storeAdmin.get(path)).status).toBe(403);
+    expect((await request(app).get(path)).status).toBe(401);
   });
 
   it('cycle counts (#436): the hq-warehouse router answers behind our staff auth, HQ operations only', async () => {

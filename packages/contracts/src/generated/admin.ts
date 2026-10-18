@@ -1150,6 +1150,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/customers/{customerId}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        /** The customer's export requests in this store, newest first (ids, status, timestamps, sizes — never the bundle) */
+        get: operations["listCustomerExports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/customers/{customerId}/exports/{exportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        /** Downloads one ready export bundle (customer-export/v1 as an attachment); every download is audited */
+        get: operations["getCustomerExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/customer-groups": {
         parameters: {
             query?: never;
@@ -1681,12 +1722,106 @@ export interface paths {
         patch: operations["updateSegmentTemplate"];
         trace?: never;
     };
+    "/admin/stores/{storeId}/reports/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Daily sales of one store per currency (rpt_sales_daily)
+         * @description One row per UTC day and currency over `[from, to)`. Orders that are cancelled, or whose payment is voided or
+         *     failed, are not sales; `awaiting` orders are. `net_minor` is cohort-attributed: total minus the succeeded
+         *     refunds of the orders placed that day, whenever the refund happened. Amounts are never summed across
+         *     currencies: `totals` has one entry per currency.
+         */
+        get: operations["getStoreSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/reports/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Stock position of the pool rows this store sells from (rpt_stock_position)
+         * @description The current position (no date range) of every pool row whose stock item one of this store's variants maps,
+         *     ordered by `sku`, then `warehouse_code`. On a shared item `reserved` is held by every store that maps it.
+         */
+        get: operations["getStoreStockReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/hq/reports/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Daily sales of every store per currency (rpt_sales_daily, organization scope)
+         * @description As `getStoreSalesReport`, for every store of the organization: rows per store, day and currency; `totals`
+         *     per store and currency; `currency_totals` per currency across stores. Amounts are never summed across
+         *     currencies.
+         */
+        get: operations["getHqSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/hq/reports/finance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Captured payments, PSP fees and refunds per store and currency (cash view)
+         * @description Payments captured in `[from, to)` by capture day (rpt_payments_daily) and succeeded refunds by refund day
+         *     (rpt_refunds_daily), per store and currency, plus `currency_totals` per currency across stores. PSP fees are
+         *     the fees known so far and are NOT reconciled (`fees_reconciled` is false until Integration 4);
+         *     `fee_unknown` counts captured payments without a fee yet. Amounts are never summed across currencies. No
+         *     ledger figures in v1.
+         */
+        get: operations["getHqFinanceReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, internal */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, expired, internal */
             code: string;
             message: string;
             details?: {
@@ -2573,6 +2708,22 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        CustomerExportSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "pending" | "ready" | "expired";
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            ready_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @description compressed size of the bundle; null until ready or after purge */
+            size_bytes: number | null;
+            /** @enum {string|null} */
+            reason: "customer_gone" | "too_large" | null;
+        };
         StaffUser: {
             /** Format: uuid */
             id: string;
@@ -3074,6 +3225,111 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description Integer minor units of one currency. Never a sum across currencies. */
+        SalesFigures: {
+            orders: number;
+            /** @description sum of order subtotals */
+            gross_minor: number;
+            discount_minor: number;
+            shipping_minor: number;
+            tax_minor: number;
+            total_minor: number;
+            /** @description succeeded refunds of these orders */
+            refunded_minor: number;
+            /** @description total_minor − refunded_minor */
+            net_minor: number;
+        };
+        /**
+         * @description Sales from the `rpt_sales_daily` view over `[from, to)` (UTC days). Every amount sits beside its `currency`;
+         *     amounts are never summed across currencies.
+         */
+        SalesReport: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: date-time */
+            generated_at: string;
+            rows: (components["schemas"]["SalesFigures"] & {
+                /** Format: uuid */
+                store_id: string;
+                /** Format: date */
+                day: string;
+                currency: string;
+            })[];
+            /** @description One entry per store and currency. */
+            totals: (components["schemas"]["SalesFigures"] & {
+                /** Format: uuid */
+                store_id: string;
+                currency: string;
+            })[];
+            /** @description One entry per currency, across the stores in `rows`. */
+            currency_totals: (components["schemas"]["SalesFigures"] & {
+                currency: string;
+            })[];
+        };
+        StockPosition: {
+            /** Format: uuid */
+            stock_item_id: string;
+            sku: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            warehouse_code: string;
+            on_hand: number;
+            /** @description held by every store that maps the item */
+            reserved: number;
+            incoming: number;
+            /** @description on_hand − reserved */
+            available: number;
+        };
+        /** @description The pool rows a store sells from (`rpt_stock_position`), now. */
+        StockReport: components["schemas"]["Page"] & {
+            /** Format: date-time */
+            generated_at: string;
+            items: components["schemas"]["StockPosition"][];
+        };
+        /** @description Integer minor units of one currency. Never a sum across currencies. */
+        FinanceFigures: {
+            captured_count: number;
+            captured_minor: number;
+            /** @description PSP fees known so far — unreconciled */
+            fee_minor: number;
+            /** @description captured payments whose fee is not known yet */
+            fee_unknown: number;
+            refunds: number;
+            refunded_minor: number;
+            refunded_by_reason: {
+                return: number;
+                cancellation: number;
+                goodwill: number;
+                chargeback: number;
+            };
+        };
+        /**
+         * @description Cash view over `[from, to)` (UTC days): payments by capture day, succeeded refunds by refund day. Every amount
+         *     sits beside its `currency`; amounts are never summed across currencies. Fees are unreconciled
+         *     (`fees_reconciled: false`) until Integration 4.
+         */
+        FinanceReport: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: date-time */
+            generated_at: string;
+            /** @constant */
+            fees_reconciled: false;
+            /** @description One entry per store and currency. */
+            rows: (components["schemas"]["FinanceFigures"] & {
+                /** Format: uuid */
+                store_id: string;
+                currency: string;
+            })[];
+            /** @description One entry per currency, across stores. */
+            currency_totals: (components["schemas"]["FinanceFigures"] & {
+                currency: string;
+            })[];
+        };
     };
     responses: {
         /** @description Validation error */
@@ -3163,6 +3419,24 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The export has expired or was purged — `expired`; `details.expires_at` says when */
+        Gone: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "expired",
+                 *       "message": "This export has expired",
+                 *       "details": {
+                 *         "expires_at": "2026-11-17T10:00:00Z"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description The store's provider or carrier cannot perform this operation (e.g. the manual provider / carrier) */
         Unprocessable: {
             headers: {
@@ -3232,6 +3506,12 @@ export interface components {
         Limit: number;
         /** @description Sort direction. Ignored unless `sort` is present. */
         Order: "asc" | "desc";
+        /** @description First UTC day of the report, inclusive. */
+        ReportFrom: string;
+        /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+        ReportTo: string;
+        /** @description Only rows in this currency. */
+        ReportCurrency: string;
     };
     requestBodies: never;
     headers: never;
@@ -6637,6 +6917,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -6664,6 +6945,73 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listCustomerExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: (components["schemas"]["CustomerExportSummary"] & {
+                            /** Format: uuid */
+                            requested_by: string;
+                            /** @enum {string} */
+                            requested_by_type: "staff" | "customer";
+                            download_count: number;
+                        })[];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getCustomerExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            410: components["responses"]["Gone"];
         };
     };
     listCustomerGroups: {
@@ -8497,6 +8845,289 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getStoreSalesReport: {
+        parameters: {
+            query: {
+                /** @description First UTC day of the report, inclusive. */
+                from: components["parameters"]["ReportFrom"];
+                /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+                to: components["parameters"]["ReportTo"];
+                /** @description Only rows in this currency. */
+                currency?: components["parameters"]["ReportCurrency"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-03-01",
+                     *       "to": "2026-03-02",
+                     *       "generated_at": "2026-03-10T09:00:00Z",
+                     *       "rows": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "day": "2026-03-01",
+                     *           "currency": "EUR",
+                     *           "orders": 2,
+                     *           "gross_minor": 12000,
+                     *           "discount_minor": 100,
+                     *           "shipping_minor": 200,
+                     *           "tax_minor": 100,
+                     *           "total_minor": 12200,
+                     *           "refunded_minor": 2500,
+                     *           "net_minor": 9700
+                     *         }
+                     *       ],
+                     *       "totals": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "currency": "EUR",
+                     *           "orders": 2,
+                     *           "gross_minor": 12000,
+                     *           "discount_minor": 100,
+                     *           "shipping_minor": 200,
+                     *           "tax_minor": 100,
+                     *           "total_minor": 12200,
+                     *           "refunded_minor": 2500,
+                     *           "net_minor": 9700
+                     *         }
+                     *       ],
+                     *       "currency_totals": [
+                     *         {
+                     *           "currency": "EUR",
+                     *           "orders": 2,
+                     *           "gross_minor": 12000,
+                     *           "discount_minor": 100,
+                     *           "shipping_minor": 200,
+                     *           "tax_minor": 100,
+                     *           "total_minor": 12200,
+                     *           "refunded_minor": 2500,
+                     *           "net_minor": 9700
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SalesReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getStoreStockReport: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "generated_at": "2026-03-10T09:00:00Z",
+                     *       "items": [
+                     *         {
+                     *           "stock_item_id": "00000000-0000-4000-8000-000000000051",
+                     *           "sku": "shared-tee-m",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "warehouse_code": "wh-eu",
+                     *           "on_hand": 40,
+                     *           "reserved": 3,
+                     *           "incoming": 0,
+                     *           "available": 37
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StockReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getHqSalesReport: {
+        parameters: {
+            query: {
+                /** @description First UTC day of the report, inclusive. */
+                from: components["parameters"]["ReportFrom"];
+                /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+                to: components["parameters"]["ReportTo"];
+                /** @description Only rows in this currency. */
+                currency?: components["parameters"]["ReportCurrency"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-03-01",
+                     *       "to": "2026-03-02",
+                     *       "generated_at": "2026-03-10T09:00:00Z",
+                     *       "rows": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000032",
+                     *           "day": "2026-03-01",
+                     *           "currency": "GBP",
+                     *           "orders": 1,
+                     *           "gross_minor": 5900,
+                     *           "discount_minor": 50,
+                     *           "shipping_minor": 100,
+                     *           "tax_minor": 50,
+                     *           "total_minor": 6000,
+                     *           "refunded_minor": 600,
+                     *           "net_minor": 5400
+                     *         }
+                     *       ],
+                     *       "totals": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000032",
+                     *           "currency": "GBP",
+                     *           "orders": 1,
+                     *           "gross_minor": 5900,
+                     *           "discount_minor": 50,
+                     *           "shipping_minor": 100,
+                     *           "tax_minor": 50,
+                     *           "total_minor": 6000,
+                     *           "refunded_minor": 600,
+                     *           "net_minor": 5400
+                     *         }
+                     *       ],
+                     *       "currency_totals": [
+                     *         {
+                     *           "currency": "GBP",
+                     *           "orders": 1,
+                     *           "gross_minor": 5900,
+                     *           "discount_minor": 50,
+                     *           "shipping_minor": 100,
+                     *           "tax_minor": 50,
+                     *           "total_minor": 6000,
+                     *           "refunded_minor": 600,
+                     *           "net_minor": 5400
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SalesReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getHqFinanceReport: {
+        parameters: {
+            query: {
+                /** @description First UTC day of the report, inclusive. */
+                from: components["parameters"]["ReportFrom"];
+                /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+                to: components["parameters"]["ReportTo"];
+                /** @description Only rows in this currency. */
+                currency?: components["parameters"]["ReportCurrency"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-03-01",
+                     *       "to": "2026-04-01",
+                     *       "generated_at": "2026-04-02T09:00:00Z",
+                     *       "fees_reconciled": false,
+                     *       "rows": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "currency": "EUR",
+                     *           "captured_count": 2,
+                     *           "captured_minor": 14000,
+                     *           "fee_minor": 290,
+                     *           "fee_unknown": 1,
+                     *           "refunds": 1,
+                     *           "refunded_minor": 2500,
+                     *           "refunded_by_reason": {
+                     *             "return": 0,
+                     *             "cancellation": 0,
+                     *             "goodwill": 2500,
+                     *             "chargeback": 0
+                     *           }
+                     *         }
+                     *       ],
+                     *       "currency_totals": [
+                     *         {
+                     *           "currency": "EUR",
+                     *           "captured_count": 2,
+                     *           "captured_minor": 14000,
+                     *           "fee_minor": 290,
+                     *           "fee_unknown": 1,
+                     *           "refunds": 1,
+                     *           "refunded_minor": 2500,
+                     *           "refunded_by_reason": {
+                     *             "return": 0,
+                     *             "cancellation": 0,
+                     *             "goodwill": 2500,
+                     *             "chargeback": 0
+                     *           }
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["FinanceReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }
