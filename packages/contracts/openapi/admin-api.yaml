@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.19
+  version: 0.4.20
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -2909,6 +2909,7 @@ paths:
                       policy_version: '2026-10',
                       recorded_at: '2026-10-18T10:00:00Z',
                     }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -2927,6 +2928,64 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/customers/{customerId}/exports:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: listCustomerExports
+      summary: The customer's export requests in this store, newest first (ids, status, timestamps, sizes — never the bundle)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/CustomerExportSummary'
+                        - type: object
+                          required: [requested_by, requested_by_type, download_count]
+                          properties:
+                            requested_by: { type: string, format: uuid }
+                            requested_by_type: { type: string, enum: [staff, customer] }
+                            download_count: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/customers/{customerId}/exports/{exportId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: exportId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: getCustomerExport
+      summary: Downloads one ready export bundle (customer-export/v1 as an attachment); every download is audited
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: The bundle
+          headers:
+            Content-Disposition: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /admin/stores/{storeId}/customer-groups:
     parameters:
@@ -4633,6 +4692,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { code: conflict, message: handle already exists, details: { field: handle } }
+    Gone:
+      description: The export has expired or was purged — `expired`; `details.expires_at` says when
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: expired,
+              message: This export has expired,
+              details: { expires_at: '2026-11-17T10:00:00Z' },
+            }
     Unprocessable:
       description: The store's provider or carrier cannot perform this operation (e.g. the manual provider / carrier)
       content:
@@ -4682,7 +4752,7 @@ components:
         code:
           {
             type: string,
-            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, internal',
+            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, expired, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -5847,6 +5917,22 @@ components:
         status: { type: string, enum: [guest, registered, disabled, erased] }
         consent: { type: object, additionalProperties: true }
         created_at: { type: string, format: date-time }
+
+    CustomerExportSummary:
+      type: object
+      required: [id, status, requested_at, ready_at, expires_at, size_bytes, reason]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, ready, expired] }
+        requested_at: { type: string, format: date-time }
+        ready_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
+        size_bytes:
+          {
+            type: [integer, 'null'],
+            description: compressed size of the bundle; null until ready or after purge,
+          }
+        reason: { type: [string, 'null'], enum: [customer_gone, too_large, null] }
 
     StaffUser:
       type: object

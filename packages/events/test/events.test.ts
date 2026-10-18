@@ -7,6 +7,7 @@ import {
   makeEvent,
   toOutboxRow,
   type AggregateType,
+  type CustomerExportReadyV1,
   type CustomerExportRequestedV2,
   type EventEnvelope,
   type EventTopic,
@@ -85,10 +86,11 @@ describe('event schemas', () => {
       'fulfillment.picking',
       'fulfillment.packed',
       'shipment.label_created',
+      'customer.export_ready',
     ]) {
       expect(EVENT_TOPICS).toContain(t);
     }
-    expect(EVENT_TOPICS).toHaveLength(37);
+    expect(EVENT_TOPICS).toHaveLength(38);
   });
 
   it('compiles every schema and has a v1 for every topic', () => {
@@ -376,6 +378,49 @@ describe('event schemas', () => {
     ).toMatch(/additional properties/);
     // a v2 payload is not a v1 payload (v1 never knew requested_by_type)
     expect(v.validatePayload('customer.export_requested', 1, byCustomer).ok).toBe(false);
+  });
+
+  it('customer.export_ready v1 (0.3.6, #498): ids and expires_at only, closed requested_by_type, no personal data', () => {
+    const ready: CustomerExportReadyV1 = {
+      export_id: '30000000-0000-4000-8000-000000000e01',
+      customer_id: ID,
+      requested_by: ID,
+      requested_by_type: 'customer',
+      expires_at: '2026-11-17T10:05:00.000Z',
+    };
+    const e = makeEvent({
+      topic: 'customer.export_ready',
+      organizationId: ORG,
+      storeId: STORE,
+      aggregateType: 'customer',
+      aggregateId: ID,
+      payload: ready,
+    });
+    expect(e.version).toBe(1);
+    expect(LATEST_VERSION['customer.export_ready']).toBe(1);
+    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+    expect(
+      v.validatePayload('customer.export_ready', 1, { ...ready, requested_by_type: 'staff' }),
+    ).toEqual({ ok: true, errors: [] });
+    const { export_id: _id, ...noExport } = ready;
+    expect(v.validatePayload('customer.export_ready', 1, noExport).errors.join()).toMatch(
+      /export_id/,
+    );
+    const { expires_at: _exp, ...noExpiry } = ready;
+    expect(v.validatePayload('customer.export_ready', 1, noExpiry).ok).toBe(false);
+    expect(
+      v.validatePayload('customer.export_ready', 1, { ...ready, requested_by_type: 'system' }).ok,
+    ).toBe(false);
+    for (const extra of [
+      { email: 'someone@example.com' },
+      { bundle: 'H4sI' },
+      { download_url: 'x' },
+    ]) {
+      expect(
+        v.validatePayload('customer.export_ready', 1, { ...ready, ...extra }).errors.join(),
+        Object.keys(extra)[0],
+      ).toMatch(/additional properties/);
+    }
   });
 
   it('stock.moved v2 (0.3.3, #453) is keyed by the stock item; a store and its variant come together or not at all', () => {

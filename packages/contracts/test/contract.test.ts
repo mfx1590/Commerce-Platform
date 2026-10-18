@@ -787,8 +787,8 @@ describe('Store + Admin API mock (0.4.21 customer consent ledger, #489)', () => 
       `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents?purpose=sms`,
       { headers: adminHeaders },
     );
-    // the operation documents no 400 (as the issue specifies), so Prism refuses the bad enum with its own 422
-    expect(badPurpose.status).toBe(422);
+    // 0.4.23 (#496 follow-up): the operation documents 400, so the bad enum is the house 400
+    expect(badPurpose.status).toBe(400);
     for (const code of [403, 404]) {
       const refused = await fetch(
         `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents`,
@@ -864,5 +864,56 @@ describe('Admin API mock (0.4.19 report operations, #493)', () => {
       });
       expect(refused.status, `stock ${code}`).toBe(code);
     }
+  });
+});
+
+describe('Store + Admin API mock (0.4.23 customer exports, #498)', () => {
+  const customerHeaders = { ...storeHeaders, authorization: 'Bearer customer' };
+  const CUSTOMER_ID = '30000000-0000-4000-8000-000000000a01';
+  const EXPORT_ID = '30000000-0000-4000-8000-000000000e01';
+
+  it('listMyExports answers summaries; getMyExport downloads, or answers 404 / 409 / 410', async () => {
+    const list = await fetch(`${STORE}/store/customers/me/exports`, { headers: customerHeaders });
+    expect(list.status).toBe(200);
+    const items = (await json(list)).items as Array<{ id: string; status: string }>;
+    expect(items[0]?.status).toBe('ready');
+
+    const one = await fetch(`${STORE}/store/customers/me/exports/${EXPORT_ID}`, {
+      headers: customerHeaders,
+    });
+    expect(one.status).toBe(200);
+    expect(typeof (await json(one))).toBe('object');
+
+    for (const code of [404, 409, 410]) {
+      const refused = await fetch(`${STORE}/store/customers/me/exports/${EXPORT_ID}`, {
+        headers: { ...customerHeaders, prefer: `code=${code}` },
+      });
+      expect(refused.status, String(code)).toBe(code);
+      if (code === 410) {
+        const body = await json(refused);
+        expect(body.code).toBe('expired');
+        expect((body.details as { expires_at?: string }).expires_at).toBeTruthy();
+      }
+    }
+  });
+
+  it('listCustomerExports / getCustomerExport answer; refusals 400 / 403 / 404 and the 410 expired', async () => {
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/exports`;
+    const list = await fetch(base, { headers: adminHeaders });
+    expect(list.status).toBe(200);
+    expect(Array.isArray((await json(list)).items)).toBe(true);
+    const one = await fetch(`${base}/${EXPORT_ID}`, { headers: adminHeaders });
+    expect(one.status).toBe(200);
+    for (const path of [base, `${base}/${EXPORT_ID}`]) {
+      for (const code of [400, 403, 404]) {
+        const refused = await fetch(path, { headers: { ...adminHeaders, prefer: `code=${code}` } });
+        expect(refused.status, `${path} ${code}`).toBe(code);
+      }
+    }
+    const gone = await fetch(`${base}/${EXPORT_ID}`, {
+      headers: { ...adminHeaders, prefer: 'code=410' },
+    });
+    expect(gone.status).toBe(410);
+    expect((await json(gone)).code).toBe('expired');
   });
 });

@@ -70,3 +70,17 @@
 - Producers: the core's customers module (window 13) — the admin `exportCustomer` path with
   `requested_by_type: staff`, `requestMyExport` with `customer`. No consumer yet (13.3 / #472 is the first and reads
   v2).
+
+## 0.3.6 — 2026-10-18 (CONTRACT CHANGE #498, customer export delivery; contracts-v0.4.23)
+
+- One additive v1 schema: `customer.export_ready` — a GDPR export bundle is built and downloadable (Store API
+  `getMyExport`, Admin API `getCustomerExport`) until `expires_at`. Payload is ids and timestamps only:
+  `export_id`, `customer_id`, `requested_by`, `requested_by_type` (`staff` | `customer`, closed enum), `expires_at`;
+  `additionalProperties: false` — never the bundle, never personal data. `aggregate_type` `customer`,
+  `aggregate_id` the customer id (as `customer.export_requested`). `LATEST_VERSION['customer.export_ready']` is 1.
+- Envelope v1 (additive, as in 0.2.0): topic enum gains `customer.export_ready` next to
+  `customer.export_requested` (38 topics, was 37).
+- Producer: the core's customers module export job (window 13, #472), one event in the same transaction as the move
+  to `ready` (none for `too_large` / `customer_gone`). Consumer: the notifications app (window 17) mails the
+  customer, reading the address from the customer row at send time; nobody else is required to handle it
+  (unknown-topic rule).

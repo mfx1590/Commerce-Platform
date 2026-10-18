@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.7
+  version: 0.5.8
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -1064,6 +1064,95 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
               example: { code: conflict, message: This email already has an account, details: {} }
 
+  /store/customers/me/exports:
+    get:
+      tags: [customers]
+      operationId: listMyExports
+      description: |
+        The customer's export requests in THIS store, newest first: status `pending` (being built), `ready`
+        (downloadable until `expires_at`) or `expired` (purged after 30 days, or never built — `reason`
+        `customer_gone` / `too_large`). Ids, timestamps and sizes only; the bundle is `getMyExport`.
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/CustomerExportSummary' }
+              example:
+                items:
+                  - {
+                      id: 30000000-0000-4000-8000-000000000e01,
+                      status: ready,
+                      requested_at: '2026-10-18T10:00:00Z',
+                      ready_at: '2026-10-18T10:05:00Z',
+                      expires_at: '2026-11-17T10:05:00Z',
+                      size_bytes: 4096,
+                      reason: null,
+                    }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
+
+  /store/customers/me/exports/{exportId}:
+    parameters:
+      - { name: exportId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: getMyExport
+      description: |
+        Downloads the bundle (`customer-export/v1`, `application/json`, sent as an attachment) of one of the
+        customer's own ready exports. Another customer's export, an unknown id and a malformed id are the same
+        404; a pending export is a 404 too (nothing to download yet); an expired or purged export is a 410
+        `expired`.
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '200':
+          description: The bundle
+          headers:
+            Content-Disposition:
+              {
+                schema: { type: string },
+                description: 'attachment; filename="customer-export-<id>.json"',
+              }
+          content:
+            application/json:
+              schema:
+                {
+                  type: object,
+                  additionalProperties: true,
+                  description: 'customer-export/v1 (apps/core/src/modules/customers/README.md "Erasure and export")',
+                }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
+        '410': { $ref: '#/components/responses/Gone' }
+
   /store/customers/me/orders:
     get:
       tags: [customers, orders]
@@ -1179,6 +1268,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { code: conflict, message: Conflict, details: {} }
+    Gone:
+      description: The export has expired or was purged — `expired`; `details.expires_at` says when
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: expired,
+              message: This export has expired,
+              details: { expires_at: '2026-11-17T10:00:00Z' },
+            }
 
   schemas:
     Error:
@@ -1188,7 +1288,7 @@ components:
         code:
           {
             type: string,
-            description: 'Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, internal',
+            description: 'Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, expired, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -1674,6 +1774,21 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/CustomerConsent' }
+    CustomerExportSummary:
+      type: object
+      required: [id, status, requested_at, ready_at, expires_at, size_bytes, reason]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, ready, expired] }
+        requested_at: { type: string, format: date-time }
+        ready_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
+        size_bytes:
+          {
+            type: [integer, 'null'],
+            description: compressed size of the bundle; null until ready or after purge,
+          }
+        reason: { type: [string, 'null'], enum: [customer_gone, too_large, null] }
 
   examples:
     StoreBrandA:

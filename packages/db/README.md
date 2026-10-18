@@ -100,6 +100,15 @@ The migration backfills one row per existing projection with the projection's ow
 `policy_version 'pre-ledger'`; it is idempotent and, like 0190's backfill, runs as a migration role that bypasses
 row security.
 
+## Customer export (0195, db 0.3.10)
+
+`customer_export` holds the delivered GDPR exports (CONTRACT CHANGE #498, window 13): one row per
+`customer.export_requested` event (`event_id` UNIQUE, the export job's idempotency), per store (RLS kind `store`).
+`status` moves `pending` → `ready` (bundle built: gzip JSON in `bundle`, with `bundle_sha256`, `bundle_size`,
+`ready_at`, `expires_at`) or `pending` → `expired` with a `reason` (`customer_gone`, `too_large`); after the TTL the
+bundle is purged (`bundle` NULL, `purged_at`, `status expired`) and the bare row stays. Erasure deletes every export
+of the customer, bundle included, in the erasure transaction. The bundle is personal data: never log it.
+
 ## Reporting views (0200, db 0.3.8)
 
 Five read-only aggregate views for reporting v1 (CONTRACT CHANGE #485, window 12): `rpt_sales_daily`,
