@@ -8,9 +8,10 @@
 // `marketingAdminRouter` (#181); window 8's `shippingAdminRouter` (#131); window 7's `paymentsAdminRouter`
 // (#126). `moduleWebhookRouters()`: window 7's `paymentsWebhookRouter` (#125) and window 8's
 // `shippingWebhookRouter` (#131); window 8's `fulfillmentAdminRouter` (pick / pack / pick lists, #133); window 11's
-// `cycleCountsAdminRouter` (#436). Nothing is pending. Boot-time registrations (payment providers, carrier rates, tax, fraud, price lists, promotions) are
+// `cycleCountsAdminRouter` (#436); window 13's `customersAdminRouter` (#471, REQUEST #492). Nothing is pending. Boot-time registrations (payment providers, carrier rates, tax, fraud, price lists, promotions) are
 // not routers: they live in src/wiring.ts (`registerModuleSeams()`).
 import type { Router } from 'express';
+import { customersAdminRouter } from '../modules/customers';
 import { fulfillmentAdminRouter } from '../modules/fulfillment';
 import { cycleCountsAdminRouter } from '../modules/hq-warehouse';
 import { marketingAdminRouter } from '../modules/marketing';
@@ -56,6 +57,9 @@ export function moduleAdminRouters(): Router[] {
   // window 11 — cycle counts: GET + POST /admin/cycle-counts, POST /admin/cycle-counts/:cycleCountId/reconcile
   // (Admin API listCycleCounts / createCycleCount / reconcileCycleCount, `operations` on organization:hq, #436)
   routers.push(cycleCountsAdminRouter());
+  // window 13 — consent ledger: GET /admin/stores/:storeId/customers/:customerId/consents (Admin API
+  // listCustomerConsents, `support` on store:{storeId}, #471 / REQUEST #492)
+  routers.push(customersAdminRouter());
   return routers;
 }
 
