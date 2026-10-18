@@ -54,3 +54,21 @@ export type {
   CustomerExportOrderLine,
   EraseResult,
 } from './gdpr';
+// Consent ledger (#471)
+export { adminListCustomerConsents, getMyConsents, putMyConsents } from './consent';
+export type { CustomerConsent, PutMyConsentsInput } from './consent';
+export {
+  CONSENT_PURPOSES,
+  CONSENT_SOURCES,
+  consentLedger,
+  DEFAULT_POLICY_VERSION,
+  recordConsent,
+  storePolicyVersion,
+} from './consent-ledger';
+export type {
+  ConsentAnswer,
+  ConsentDecision,
+  ConsentPurpose,
+  ConsentSource,
+} from './consent-ledger';
+export { customersAdminRouter, CUSTOMER_CONSENTS_PATH } from './http';

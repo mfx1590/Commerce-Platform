@@ -3,10 +3,12 @@ import type { Metadata } from 'next';
 import { Link } from '@/i18n/navigation';
 import { DeleteAddressButton, EditAddressForm } from '@/components/account-address-forms';
 import { AddAddressForm, ProfileForm, SignOutButton } from '@/components/account-forms';
+import { ConsentsForm } from '@/components/account-consents';
 import { DeleteAccountForm, RequestExportForm } from '@/components/account-privacy';
 import { AddressCard } from '@/components/order-summary';
 import { requireCustomerToken } from '@/lib/auth/require-customer';
-import { storeApi } from '@/lib/store-api';
+import { storeApi, type Result } from '@/lib/store-api';
+import { privacyPolicyVersion } from './account.config';
 
 export const metadata: Metadata = { title: 'Your account' };
 
@@ -21,9 +23,13 @@ export default async function AccountPage({
   const { error } = await searchParams;
   const token = await requireCustomerToken('/account');
 
-  const [customer, addresses] = await Promise.all([
+  const [customer, addresses, consents] = await Promise.all([
     storeApi().getMe({ token, cache: 'no-store' }),
     storeApi().listMyAddresses({ token, cache: 'no-store' }),
+    // #471: through the client's generic request (the typed method is window 3's file)
+    storeApi().request<Result<'getMyConsents'>>('GET', '/store/customers/me/consents', {
+      options: { token, cache: 'no-store' },
+    }),
   ]);
 
   return (
@@ -97,6 +103,7 @@ export default async function AccountPage({
         <h2 id="privacy" className="text-xl font-semibold">
           Privacy
         </h2>
+        <ConsentsForm items={consents.items} policyVersion={privacyPolicyVersion()} />
         <RequestExportForm />
         <DeleteAccountForm />
       </section>

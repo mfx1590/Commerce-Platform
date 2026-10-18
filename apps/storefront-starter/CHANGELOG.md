@@ -1,5 +1,13 @@
 # Changelog — @platform/storefront-starter
 
+## Unreleased — 2026-10-18 (window 13, #471: consent ledger)
+
+- **Your consents** on `/account` (`src/components/account-consents.tsx`, Store API 0.5.7 `getMyConsents` /
+  `putMyConsents`): one row per purpose with its state — never asked, allowed on a date, declined on a date — and
+  a checkbox; an unticked box is an explicit "no". The form sends the privacy-policy version the page displays:
+  `PRIVACY_POLICY_VERSION` in the environment (`unversioned` when unset; keep it equal to the store's
+  `settings.privacy.policy_version`). Catalog namespace `account.consents` (en-GB, de-DE).
+
 ## Unreleased — 2026-10-18 (window 13, #470: account self-service)
 
 - **Address book: edit and remove.** Each saved address has an edit form (every field, blank optional ones clear;
