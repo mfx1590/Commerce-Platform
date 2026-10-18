@@ -2,6 +2,12 @@
 
 ## Unreleased — Phase 3 (window 12)
 
+### 2026-10-18 · Migration 0200 landed (db 0.3.8, CONTRACT CHANGE #485)
+
+- The views live in `packages/db/migrations/0200_reporting_views.sql`; `proposed/` is deleted.
+- `reporting-views.test.ts` runs on the landed migration (createTestDatabase + seed) and fails loudly if one of the
+  five views is missing; it no longer reads a proposed file.
+
 ### 2026-10-18 · Reporting views, proposed migration 0200 (#478)
 
 - `proposed/0200_reporting_views.sql`: `rpt_sales_daily`, `rpt_payments_daily`, `rpt_refunds_daily`,

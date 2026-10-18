@@ -1,19 +1,13 @@
-// The proposed reporting views (data/reporting/proposed/0200, #478) on a seeded throwaway database. Every view is
-// security_invoker: it must return exactly what a direct aggregate over its source tables returns for the same
-// session (brand A store scope, and HQ), nothing for no context or another organization, and never one sum across two
-// currencies. The direct aggregates are computed here in TypeScript from the source rows, not with the views' SQL.
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// The reporting views (packages/db migration 0200, db 0.3.8, #478 / CONTRACT CHANGE #485) on a seeded throwaway
+// database. Every view is security_invoker: it must return exactly what a direct aggregate over its source tables
+// returns for the same session (brand A store scope, and HQ), nothing for no context or another organization, and
+// never one sum across two currencies. The direct aggregates are computed here in TypeScript from the source rows,
+// not with the views' SQL.
 import { createOrganizationClient, createTenantClient, seed, SEED_IDS } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REPORTING_VIEWS } from './index';
 
-const PROPOSED = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../../../data/reporting/proposed/0200_reporting_views.sql',
-);
 const VIEWS = REPORTING_VIEWS;
 
 const ORG = SEED_IDS.organization;
@@ -330,15 +324,19 @@ async function fixtures(): Promise<void> {
 }
 
 beforeAll(async () => {
-  if (!existsSync(PROPOSED)) {
-    throw new Error(
-      `reporting-views.test: the proposed migration moved or is missing — expected ${PROPOSED}`,
-    );
-  }
   db = await createTestDatabase('reporting');
   try {
     await seed(db.owner);
-    await db.owner.query(readFileSync(PROPOSED, 'utf8'));
+    // Fail loudly if migration 0200 is not among the migrations createTestDatabase ran.
+    const found = await db.owner.query<{ relname: string }>(
+      `SELECT relname FROM pg_class WHERE relkind = 'v' AND relname = ANY($1)`,
+      [[...VIEWS]],
+    );
+    if (found.rowCount !== VIEWS.length) {
+      throw new Error(
+        `reporting-views.test: migration 0200 views missing — found ${found.rows.map((r) => r.relname).join(', ') || 'none'}`,
+      );
+    }
   } catch (err) {
     await db.drop();
     throw err;

@@ -6,10 +6,10 @@ the tenant-scoped client, exposed as Admin API report operations (#479) and rend
 
 ## Files
 
-| Path                                                      | What                                                                                                                                                                             |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `proposed/0200_reporting_views.sql`                       | The migration, proposed. The main window lands it in `packages/db/migrations` (db 0.3.8) through the `CONTRACT CHANGE: reporting views` issue; until then this is the only copy. |
-| `apps/core/src/modules/reporting/reporting-views.test.ts` | Applies the proposed file to a seeded throwaway database and reconciles every view (fails loudly if this file moves).                                                            |
+| Path                                                      | What                                                                                                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/db/migrations/0200_reporting_views.sql`         | The migration (db 0.3.8, CONTRACT CHANGE #485, landed by the main window). Schema changes to the views go through a new CONTRACT CHANGE. |
+| `apps/core/src/modules/reporting/reporting-views.test.ts` | Reconciles every view on a seeded throwaway database migrated through 0200 (fails loudly if a view is missing).                          |
 
 ## Security
 
