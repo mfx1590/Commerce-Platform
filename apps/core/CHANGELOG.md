@@ -16,6 +16,16 @@
   `store:{storeId}`). Ten module routers. The mount test checks support and a store admin 200, store staff 403, no
   token 401, an unknown customer the route's own 404.
 
+### 2026-10-18 · cross-brand identity (#473, window 13; CONTRACT CHANGE #504: db 0196, Admin API `getCustomerIdentity`)
+
+- `customer_identity` is written at last — by `app.link_customer_identity` from `resolveIn`, for a verified email
+  only (provisioning, adoption, the first verified sign-in of an older row → `customer.updated` `identity_id`); key
+  = the Keycloak subject; a guest-only identity is merged by email_hash only when exactly one candidate matches. The
+  table is closed to store sessions (RLS `organization_only`); erasure unlinks through
+  `app.unlink_customer_identity`. Admin HQ-only `GET /admin/customer-identities/{identityId}` (support on
+  organization:hq, ids only) on `customersAdminRouter`. `eraseCustomerIdentity` (every brand, one transaction) is
+  built and tested, not wired to `deleteMe` (owner decision pending).
+
 ### 2026-10-18 · export delivery (#472, window 13; CONTRACT CHANGE #498: db 0195 `customer_export`, events `customer.export_ready`, Store API 0.5.8, Admin API 0.4.20, error code `expired`)
 
 - `src/jobs/customer-export.ts` (Medusa job every five minutes + one-shot CLI) consumes `customer.export_requested`:

@@ -1,7 +1,13 @@
 // Pure rules of the account self-service forms (#470). Picked up once window 3's vitest include covers
 // `src/**/*.test.ts` (REQUEST filed with #470); until then: run with an include override.
 import { describe, expect, it } from 'vitest';
-import { addressPatchFromForm, DELETE_CONFIRMATION, isDeleteConfirmed } from './account.config';
+import {
+  addressPatchFromForm,
+  DELETE_CONFIRMATION,
+  exportDownloadPath,
+  exportStatus,
+  isDeleteConfirmed,
+} from './account.config';
 
 const form = (entries: Record<string, string>): FormData => {
   const fd = new FormData();
@@ -57,6 +63,38 @@ describe('addressPatchFromForm', () => {
     const off = addressPatchFromForm(form(full)).patch!;
     expect(off.is_default_shipping).toBeUndefined();
     expect(off.is_default_billing).toBeUndefined();
+  });
+});
+
+describe('exports panel (#472)', () => {
+  it('says ready-until for a ready export, being prepared for a pending one, too large or expired for the rest', () => {
+    expect(
+      exportStatus({ status: 'ready', reason: null, expires_at: '2026-11-17T10:00:00Z' }),
+    ).toEqual({
+      key: 'until',
+      date: '2026-11-17T10:00:00Z',
+    });
+    expect(exportStatus({ status: 'pending', reason: null, expires_at: null })).toEqual({
+      key: 'pending',
+      date: null,
+    });
+    expect(exportStatus({ status: 'expired', reason: 'too_large', expires_at: null })).toEqual({
+      key: 'tooLarge',
+      date: null,
+    });
+    expect(exportStatus({ status: 'expired', reason: 'customer_gone', expires_at: null })).toEqual({
+      key: 'expired',
+      date: null,
+    });
+    expect(
+      exportStatus({ status: 'expired', reason: null, expires_at: '2026-10-01T10:00:00Z' }),
+    ).toEqual({ key: 'expired', date: null });
+  });
+
+  it('links the download under the locale the customer is browsing (no middleware redirect)', () => {
+    expect(exportDownloadPath('de-DE', '30000000-0000-4000-8000-000000000e01')).toBe(
+      '/de-DE/account/exports/30000000-0000-4000-8000-000000000e01',
+    );
   });
 });
 

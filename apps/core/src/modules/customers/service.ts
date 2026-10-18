@@ -319,6 +319,26 @@ export async function resolveIn(
   const located = await locate(tx, scope, identity);
   let row = located.row;
   const changed = [...located.changed];
+  // The cross-brand identity (#473): linked ONLY for a verified email, when the row has no identity yet — at
+  // provisioning, on adoption, or on the first verified sign-in of an older row. The function runs in organization
+  // scope and answers an id; this transaction never reads the identity table (closed to store sessions).
+  if (
+    identity.emailVerified &&
+    identity.email &&
+    (row.identity_id === null || located.outcome === 'adopted') &&
+    row.keycloak_subject === identity.subject
+  ) {
+    const linked = await tx.query<{ id: string }>(
+      // the organization and the caller's store scope come from the session, never from arguments (0196)
+      'SELECT app.link_customer_identity($1, $2, $3) AS id',
+      [row.id, identity.subject, customerEmailHash(identity.email)],
+    );
+    const identityId = linked.rows[0]?.id ?? null;
+    if (identityId !== null && identityId !== row.identity_id) {
+      row = { ...row, identity_id: identityId };
+      if (located.outcome === 'existing') changed.push('identity_id');
+    }
+  }
   if (patch) {
     const applied = await applyProfile(tx, scope, row.id, patch);
     row = applied.row;

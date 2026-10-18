@@ -1103,9 +1103,10 @@ describe('account self-service (#470, Store API 0.5.6): edit / delete an address
     expect(order.rows[0]).toEqual({ customer_id: dora.id, email: 'dora@example.test' });
     const erased = (await outboxOf(dora.id)).filter((e) => e.topic === 'customer.erased');
     expect(erased).toHaveLength(1);
+    // dora's email is verified: she is linked (#473), and the erasure names the identity — an id, not a person
     expect(erased[0]!.payload).toEqual({
       customer_id: dora.id,
-      identity_id: null,
+      identity_id: expect.any(String),
       erased_at: expect.any(String),
     });
     const docs = await owner.query<{ doc: string }>(

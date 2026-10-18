@@ -443,6 +443,60 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
   });
 });
 
+describe('getCustomerIdentity (#473, Admin API HQ-only, support on organization:hq)', () => {
+  const PERSON = '50000000-0000-4000-8000-000000000401';
+  const MERGED = '50000000-0000-4000-8000-000000000402';
+  const P_A = '50000000-0000-4000-8000-000000000051';
+  const P_B = '50000000-0000-4000-8000-000000000052';
+  const owner = as('seed-owner');
+  beforeAll(async () => {
+    await db.owner.query(
+      `INSERT INTO customer_identity (id, organization_id, email_hash, keycloak_subject, merged_into_id)
+       VALUES ($1, $3, $4, 'kc-person', NULL), ($2, $3, $4, NULL, $1)`,
+      [PERSON, MERGED, ORG, customerEmailHash('person@example.com')],
+    );
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, identity_id, keycloak_subject, email, status)
+       VALUES ($1, $3, $4, $6, 'kc-person', 'person@example.com', 'registered'),
+              ($2, $3, $5, $6, 'kc-person', 'person@example.com', 'registered')`,
+      [P_A, P_B, ORG, A, B, PERSON],
+    );
+  });
+
+  it("an HQ principal reads ids only — both brands' rows, never a hash, a subject or an email; a merged identity answers its target; unknown → 404", async () => {
+    const res = await owner.get(`/admin/customer-identities/${PERSON}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      id: PERSON,
+      customers: [
+        { store_id: A, customer_id: P_A },
+        { store_id: B, customer_id: P_B },
+      ].sort((x, y) => (x.store_id < y.store_id ? -1 : 1)),
+    });
+    for (const secret of [
+      'person@example.com',
+      'kc-person',
+      customerEmailHash('person@example.com'),
+    ]) {
+      expect(JSON.stringify(res.body)).not.toContain(secret);
+    }
+    expect((await owner.get(`/admin/customer-identities/${MERGED}`)).body.id).toBe(PERSON);
+    expect(
+      (await owner.get('/admin/customer-identities/50000000-0000-4000-8000-0000000004ee')).status,
+    ).toBe(404);
+    expect((await owner.get('/admin/customer-identities/not-a-uuid')).status).toBe(400);
+  });
+
+  it('a store-scoped principal never reaches it (403), whatever the store; a per-store customer read names no other store and no other customer (identity_id itself stays on the Admin Customer shape by contract — an opaque id only the HQ read resolves; addendum question on #504)', async () => {
+    expect((await aOnlyAdmin.get(`/admin/customer-identities/${PERSON}`)).status).toBe(403);
+    const read = await support.get(`/admin/stores/${A}/customers/${P_A}`);
+    expect(read.status).toBe(200);
+    expect(JSON.stringify(read.body)).not.toContain(P_B);
+    expect(JSON.stringify(read.body)).not.toContain(B);
+    expect(JSON.stringify(read.body)).not.toContain('kc-person');
+  });
+});
+
 describe('listCustomerExports / getCustomerExport (#472, Admin API 0.4.20)', () => {
   const NED = '50000000-0000-4000-8000-000000000041'; // brand-a, registered
   const NED_EVENT = '50000000-0000-4000-8000-0000000000a1';
