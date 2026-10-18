@@ -2,6 +2,13 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-18 · the consent ledger route mounted (REQUEST #492, #471)
+
+- `moduleAdminRouters()` mounts window 13's `customersAdminRouter()`: `GET
+/admin/stores/:storeId/customers/:customerId/consents` (Admin API `listCustomerConsents`, `support` on
+  `store:{storeId}`). Ten module routers. The mount test checks support and a store admin 200, store staff 403, no
+  token 401, an unknown customer the route's own 404.
+
 ### 2026-10-18 · consent ledger (#471, window 13; CONTRACT CHANGE #489: db 0194 `customer_consent`, Store API 0.5.7, Admin API 0.4.18)
 
 - `customer_consent` is the record of truth (append-only, store-scoped, one row per changed answer with source and
