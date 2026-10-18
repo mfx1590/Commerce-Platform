@@ -124,6 +124,12 @@ async function eraseIn(
       'DELETE FROM customer_consent WHERE customer_id = $1 AND store_id = $2',
       [customerId, storeId],
     );
+    // every export of the customer, ready bundles included: a bundle is the customer's whole personal data
+    // (#472, manager decision 2026-10-18); the request events in the outbox stay (ids only)
+    const exports = await tx.query(
+      'DELETE FROM customer_export WHERE customer_id = $1 AND store_id = $2',
+      [customerId, storeId],
+    );
     const erased = await tx.query<{ updated_at: Date }>(
       `UPDATE customer
        SET status = 'erased', email = $3, first_name = NULL, last_name = NULL, phone = NULL,
@@ -149,6 +155,7 @@ async function eraseIn(
         status: 'erased',
         addresses_deleted: addresses.rowCount ?? 0,
         consents_deleted: consents.rowCount ?? 0,
+        exports_deleted: exports.rowCount ?? 0,
         identity_unlinked: row.identity_id !== null,
         identity_deleted: identityDeleted,
       },

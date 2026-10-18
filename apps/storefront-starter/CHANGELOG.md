@@ -1,5 +1,13 @@
 # Changelog — @platform/storefront-starter
 
+## Unreleased — 2026-10-18 (window 13, #472: data exports)
+
+- **Your data exports** on `/account` (`src/components/account-exports.tsx`, Store API 0.5.8 `listMyExports`): each
+  request with its state (being prepared / ready until a date / expired / too large) and a Download link for the
+  ready ones. The download is the route handler `src/app/[locale]/(account)/account/exports/[exportId]/route.ts`:
+  it calls `getMyExport` with the session token (never in the browser) and streams the JSON as an attachment,
+  `no-store`; the Store API's 404 / 410 pass through. Catalog namespace `account.exports` (en-GB, de-DE).
+
 ## Unreleased — 2026-10-18 (window 13, #471: consent ledger)
 
 - **Your consents** on `/account` (`src/components/account-consents.tsx`, Store API 0.5.7 `getMyConsents` /

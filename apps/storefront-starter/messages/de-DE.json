@@ -231,6 +231,15 @@
       "policy": "Datenschutzerklärung Version {version}",
       "save": "Einwilligungen speichern",
       "saved": "Ihre Einwilligungen sind gespeichert."
+    },
+    "exports": {
+      "title": "Ihre Datenexporte",
+      "requested": "Angefordert am {date}",
+      "until": "Bereit — verfügbar bis {date}",
+      "pending": "Wird vorbereitet; wir schicken Ihnen eine E-Mail, sobald er bereit ist",
+      "expired": "Abgelaufen",
+      "tooLarge": "Zu groß für den Online-Download — bitte kontaktieren Sie uns",
+      "download": "Herunterladen"
     }
   }
 }
