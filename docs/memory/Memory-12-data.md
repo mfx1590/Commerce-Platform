@@ -25,7 +25,7 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   PR "Refs #479" (sha in the manager report).
 
 ## In progress
-- #479: PR up; CONTRACT CHANGE (yaml, Admin API 0.4.18) + REQUEST (mount line) filed; manager lands yaml + router +
+- #479: PR up; CONTRACT CHANGE issue 493 (yaml, Admin API 0.4.18) + REQUEST issue 494 (mount line, window 1) filed; manager lands yaml + router +
   mount as one integration PR. After landing: reports.test.ts drops the fragment merge (CONTRACTS_OPENAPI_DIR copy),
   proposed/admin-api.reports.yaml deleted — one cleanup commit when the manager asks.
 
@@ -45,7 +45,7 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - My CHANGELOG is `data/reporting/CHANGELOG.md` (apps/core/CHANGELOG.md is window 1's).
 
 ## Blocked / waiting
-- Integration PR for #479 (manager): yaml + router + window 1 mount line.
+- Integration PR for #479 (manager): issue 493 yaml + router + issue 494 mount line, all in one PR (the router throws at construction until the yaml has the operations).
 
 - 2026-10-18 (manager, on the #479 plan): Q1 `from`/`to` format date (UTC days, from inclusive, to exclusive, ≤366
   days); Q2 currency per row + per-currency totals, no top-level currency, schema descriptions say never summed across
