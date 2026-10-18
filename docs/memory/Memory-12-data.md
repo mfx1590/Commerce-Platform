@@ -23,7 +23,7 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   Commit: see the PR "Refs #478" (sha in the manager report).
 
 ## In progress
-- #478 PR up; CONTRACT CHANGE issue for migration 0200 (db 0.3.8) filed; waiting for the manager to land it as one
+- #478 PR up; CONTRACT CHANGE issue 485 for migration 0200 (db 0.3.8) filed; waiting for the manager to land it as one
   integration PR with the tests.
 
 ## Next — Phase 3
@@ -45,7 +45,7 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - My CHANGELOG is `data/reporting/CHANGELOG.md` (apps/core/CHANGELOG.md is window 1's).
 
 ## Blocked / waiting
-- Migration 0200 lands only via the manager's integration PR.
+- Issue 485 `CONTRACT CHANGE: reporting views — migration 0200` (db 0.3.8): migration 0200 lands only via the manager's integration PR with the tests. Meanwhile: the test applies the proposed file to throwaway DBs; 12.2 builds against Prism + throwaway DBs.
 
 ## Gotchas learned
 - The local owner role `platform` is SUPERUSER + BYPASSRLS (checked in pg_roles), so it owns the views: a view WITHOUT security_invoker returns
