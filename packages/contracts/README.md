@@ -3,12 +3,12 @@
 OpenAPI contracts for the Store API and Admin API, generated types, and Prism mocks. Owner: main window.
 See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 
-| Spec                     | `info.version` | Operations | Areas                                                                                                  |
-| ------------------------ | -------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
-| `openapi/store-api.yaml` | 0.5.7          | 28         | store, catalog, cart, checkout, orders, customers                                                      |
-| `openapi/admin-api.yaml` | 0.4.18         | 124        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search |
+| Spec                     | `info.version` | Operations | Areas                                                                                                           |
+| ------------------------ | -------------- | ---------- | --------------------------------------------------------------------------------------------------------------- |
+| `openapi/store-api.yaml` | 0.5.7          | 28         | store, catalog, cart, checkout, orders, customers                                                               |
+| `openapi/admin-api.yaml` | 0.4.19         | 128        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search, reports |
 
-`CONTRACTS_VERSION` is `0.4.21` (tag contracts-v0.4.21); it ships with events 0.3.5 and db 0.3.9. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
+`CONTRACTS_VERSION` is `0.4.22` (tag contracts-v0.4.22); it ships with events 0.3.5 and db 0.3.9. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
 abandoned-cart recovery (#244/#245); 0.4.6 the pick/pack examples (#261); 0.4.7 the typed review shape (#270),
 the customers additions (#264) and the registry settings operations (#279); 0.4.8 makes `Store.currencies` / `Store.locales`
 required (#279), documents the customer self-service statuses (#303) and lets `createCart` / `completeCart` take an optional
@@ -41,7 +41,10 @@ store-scoped caller names the warehouse without `listWarehouses`; no permission 
 the remaining `{ items }`), `requestMyExport` (202, `customer.export_requested` v2) and `deleteMe` (202, erasure); 0.4.21 (Store API 0.5.7 +
 Admin API 0.4.18, #489 + db 0.3.9) adds the consent ledger — `getMyConsents` / `putMyConsents` (`CustomerConsent`,
 `granted` `null` = never asked, `false` = refused; `policy_version` required on the answer) and
-`listCustomerConsents` (`support` on the store, newest first, 404 for an erased customer). The marketing area (37 operations, 15 components) is specified in
+`listCustomerConsents` (`support` on the store, newest first, 404 for an erased customer); 0.4.22 (Admin API 0.4.19,
+#493) adds the reporting v1 reads under `reports` — `getStoreSalesReport` / `getStoreStockReport` (`viewer` on the
+store), `getHqSalesReport` (`analyst` on `organization:hq`) and `getHqFinanceReport` (`finance` on `organization:hq`,
+fees unreconciled), amounts per currency, never summed across currencies. The marketing area (37 operations, 15 components) is specified in
 [docs/marketing-scope.md](../../docs/marketing-scope.md); the search area (6 merchandising operations, 5 components) in
 CONTRACT CHANGE #162; 0.4.1 adds product media (5 operations, 5 components, #168), `getPromotion` / `updatePromotion`
 with `buy_x_get_y` and `stackable` / `exclusive` (#189) and a spelled-out `ProductFeed` (#194); 0.4.2 adds order

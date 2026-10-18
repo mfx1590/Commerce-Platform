@@ -6,10 +6,11 @@ the tenant-scoped client, exposed as Admin API report operations (#479) and rend
 
 ## Files
 
-| Path                                                      | What                                                                                                                                     |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/db/migrations/0200_reporting_views.sql`         | The migration (db 0.3.8, CONTRACT CHANGE #485, landed by the main window). Schema changes to the views go through a new CONTRACT CHANGE. |
-| `apps/core/src/modules/reporting/reporting-views.test.ts` | Reconciles every view on a seeded throwaway database migrated through 0200 (fails loudly if a view is missing).                          |
+| Path                                              | What                                                                                                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/db/migrations/0200_reporting_views.sql` | The views (db 0.3.8, CONTRACT CHANGE #485, landed by the main window). Schema changes go through a new CONTRACT CHANGE.               |
+| `packages/contracts/openapi/admin-api.yaml`       | #479: the four report operations and their schemas (Admin API 0.4.19, CONTRACT CHANGE #493, landed by the main window).               |
+| `apps/core/src/modules/reporting/`                | The report service and `reportingAdminRouter()`, and the tests: `reporting-views.test.ts` (views) and `reports.test.ts` (operations). |
 
 ## Security
 
@@ -64,6 +65,13 @@ Refunds of excluded orders (for example a cancellation refund) are in `rpt_refun
 Reconciliation, as the tests assert: per row `net_minor = total_minor − refunded_minor`; per currency
 `sum(net_minor)` = `sum("order".total_minor) − sum(succeeded refund.amount_minor)` over the counted orders;
 `rpt_stock_position` matches `inventory_level` row for row.
+
+## Report operations (#479)
+
+Four read-only Admin API operations over these views — store sales and stock (`viewer` on the store), HQ sales
+(`analyst`), HQ finance (`finance`: captured, fees with `fees_reconciled: false`, refunds by reason; no ledger in v1).
+`from`/`to` are UTC days (from inclusive, to exclusive, at most 366 days). Details:
+`apps/core/src/modules/reporting/README.md`.
 
 ## Performance
 
