@@ -291,3 +291,27 @@
   registered and frozen; `makeEvent` writes v2. No db change.
 - `CONTRACTS_VERSION = '0.4.20'`; types regenerated. Producer: window 13 (core customers module, the admin export
   path too: `requested_by_type: staff`). Consumers: the storefronts' account page (window 13).
+
+## 0.4.21 — 2026-10-18 (customer consent ledger, CONTRACT CHANGE #489; contracts-v0.4.21)
+
+- Store API 0.5.7, two operations on `/store/customers/me/consents` (publishable key + customer token, 401 and the
+  resolve-or-provision 409 like every `/store/customers/me*` operation):
+  - `getMyConsents` — `GET`: the current decision per purpose in this store, `CustomerConsents` `{ items }`, one item
+    per purpose of the closed set (`marketing_email` only until the lawyer review).
+  - `putMyConsents` — `PUT`: `{ policy_version (required, non-blank), consents: [{ purpose, granted }] (≥ 1) }`; one
+    ledger row per purpose whose answer changes, an unchanged answer writes nothing, a first explicit `false` is
+    recorded; 200 with the current state, 400 naming the field.
+  - New schemas `CustomerConsent` (`granted` `true | false | null` — `null` = never asked, distinct from a refusal;
+    `source` / `policy_version` / `recorded_at` nullable for the never-asked item) and `CustomerConsents`.
+  - `updateMe` gains a description: `marketing_consent` stays the one-checkbox shortcut (shape unchanged) and also
+    writes the ledger (`source: storefront`, the store's `settings.privacy.policy_version`, `unversioned` when unset).
+- Admin API 0.4.18: `listCustomerConsents` — `GET /admin/stores/{storeId}/customers/{customerId}/consents` (`support`
+  on `store:{storeId}`, the record's gate), the ledger newest first, optional `purpose` query; 401 / 403 / 404 (404
+  as `getCustomer`: unknown, another store's, or erased — the ledger is gone).
+- Examples on every 2xx (the mock answers from them); `test:contract` walks get → put (and three bad bodies), the
+  /me 409, and the admin list with its 403 / 404.
+- db 0.3.9: migration 0194 `customer_consent` (append-only, RLS store, backfilled from the projection). No event
+  change: `customer.updated` keeps `changed_fields: ['marketing_consent']`. The `never_asked` segment operator is NOT
+  part of this landing (#491).
+- `CONTRACTS_VERSION = '0.4.21'`; types regenerated. Producer: window 13 (core customers module, `consent.ts`).
+  Consumers: the storefronts' Privacy section (window 13), the admin customer view.

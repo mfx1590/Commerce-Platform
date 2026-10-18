@@ -734,3 +734,67 @@ describe('Store API mock (0.3.0 currency query)', () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe('Store + Admin API mock (0.4.21 customer consent ledger, #489)', () => {
+  const customerHeaders = { ...storeHeaders, authorization: 'Bearer customer' };
+  const CUSTOMER_ID = '30000000-0000-4000-8000-000000000a01';
+
+  it('getMyConsents and putMyConsents answer schema-valid current states; a bad body is refused', async () => {
+    const got = await fetch(`${STORE}/store/customers/me/consents`, { headers: customerHeaders });
+    expect(got.status).toBe(200);
+    const current = (await json(got)).items as Array<{ purpose: string; granted: boolean | null }>;
+    expect(current[0]?.purpose).toBe('marketing_email');
+
+    const put = await fetch(`${STORE}/store/customers/me/consents`, {
+      method: 'PUT',
+      headers: customerHeaders,
+      body: JSON.stringify({
+        policy_version: '2026-10',
+        consents: [{ purpose: 'marketing_email', granted: false }],
+      }),
+    });
+    expect(put.status).toBe(200);
+    const after = (await json(put)).items as Array<{ granted: boolean | null }>;
+    expect(after[0]?.granted).toBe(false);
+
+    for (const body of [
+      { policy_version: '', consents: [{ purpose: 'marketing_email', granted: true }] },
+      { policy_version: '2026-10', consents: [] },
+      { policy_version: '2026-10', consents: [{ purpose: 'sms', granted: true }] },
+    ]) {
+      const bad = await fetch(`${STORE}/store/customers/me/consents`, {
+        method: 'PUT',
+        headers: customerHeaders,
+        body: JSON.stringify(body),
+      });
+      expect(bad.status, JSON.stringify(body)).toBe(400);
+    }
+    const conflict = await fetch(`${STORE}/store/customers/me/consents`, {
+      headers: { ...customerHeaders, prefer: 'code=409' },
+    });
+    expect(conflict.status).toBe(409);
+  });
+
+  it('listCustomerConsents answers the ledger; refusals 403 and 404', async () => {
+    const res = await fetch(
+      `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents?purpose=marketing_email`,
+      { headers: adminHeaders },
+    );
+    expect(res.status).toBe(200);
+    const items = (await json(res)).items as Array<{ id: string; granted: boolean }>;
+    expect(typeof items[0]?.granted).toBe('boolean');
+    const badPurpose = await fetch(
+      `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents?purpose=sms`,
+      { headers: adminHeaders },
+    );
+    // the operation documents no 400 (as the issue specifies), so Prism refuses the bad enum with its own 422
+    expect(badPurpose.status).toBe(422);
+    for (const code of [403, 404]) {
+      const refused = await fetch(
+        `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents`,
+        { headers: { ...adminHeaders, prefer: `code=${code}` } },
+      );
+      expect(refused.status).toBe(code);
+    }
+  });
+});

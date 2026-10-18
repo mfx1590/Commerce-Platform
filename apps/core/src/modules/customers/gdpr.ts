@@ -28,6 +28,7 @@ import type { Queryable, ScopedClient } from '@platform/db';
 import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
+import { consentLedger, type ConsentDecision } from './consent-ledger';
 import { resolveIn } from './service';
 import type { CustomerIdentity, CustomerScope } from './types';
 
@@ -118,6 +119,11 @@ async function eraseIn(
       'DELETE FROM customer_address WHERE customer_id = $1 AND store_id = $2',
       [customerId, storeId],
     );
+    // the consent ledger (#471) goes with the row; the projection is emptied with `consent = {}` below
+    const consents = await tx.query(
+      'DELETE FROM customer_consent WHERE customer_id = $1 AND store_id = $2',
+      [customerId, storeId],
+    );
     const erased = await tx.query<{ updated_at: Date }>(
       `UPDATE customer
        SET status = 'erased', email = $3, first_name = NULL, last_name = NULL, phone = NULL,
@@ -142,6 +148,7 @@ async function eraseIn(
       after: {
         status: 'erased',
         addresses_deleted: addresses.rowCount ?? 0,
+        consents_deleted: consents.rowCount ?? 0,
         identity_unlinked: row.identity_id !== null,
         identity_deleted: identityDeleted,
       },
@@ -214,6 +221,8 @@ export interface CustomerExport {
   };
   addresses: Record<string, unknown>[];
   consent: Record<string, unknown>;
+  /** The consent ledger (#471), oldest first: every decision with its source and policy version. */
+  consents: Array<Omit<ConsentDecision, 'id'>>;
   orders: CustomerExportOrder[];
 }
 
@@ -296,6 +305,10 @@ export async function buildCustomerExport(
         )
       : { rows: [] };
 
+    const consents = (await consentLedger(tx, customerId))
+      .reverse()
+      .map(({ id: _id, ...decision }) => decision);
+
     return {
       format: 'customer-export/v1',
       generated_at: new Date().toISOString(),
@@ -312,6 +325,7 @@ export async function buildCustomerExport(
       },
       addresses: addresses.rows,
       consent: customer.consent ?? {},
+      consents,
       orders: orders.rows.map((o) => ({
         id: o.id,
         display_id: Number(o.display_id),

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.6
+  version: 0.5.7
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -655,6 +655,10 @@ paths:
     patch:
       tags: [customers]
       operationId: updateMe
+      description: |
+        `marketing_consent` stays the one-checkbox shortcut and a change of it also writes the consent ledger
+        (`source: storefront`, `policy_version` = the store's current `settings.privacy.policy_version`,
+        `unversioned` when unset); `getMyConsents` / `putMyConsents` read and answer per purpose.
       security:
         - publishableKey: []
           customerToken: []
@@ -930,6 +934,101 @@ paths:
                     is_default_billing: true
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
+
+  /store/customers/me/consents:
+    get:
+      tags: [customers]
+      operationId: getMyConsents
+      description: |
+        The customer's current consent decision per purpose in THIS store — one item per purpose of the closed
+        set. `granted` is `null` for a purpose the customer was never asked about (nothing recorded), which is
+        distinct from an opt-out (`false`). `marketing_email` is the only purpose until the lawyer review adds
+        more (a contract change).
+      security:
+        - publishableKey: []
+          customerToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerConsents' }
+              example:
+                items:
+                  - {
+                      purpose: marketing_email,
+                      granted: true,
+                      source: storefront,
+                      policy_version: '2026-10',
+                      recorded_at: '2026-10-18T10:00:00Z',
+                    }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >-
+            The token's email already belongs to another customer row of this store that cannot be adopted
+            (the token's email is not verified, or the row is bound to a different identity) — `conflict`.
+            Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { code: conflict, message: This email already has an account, details: {} }
+    put:
+      tags: [customers]
+      operationId: putMyConsents
+      description: |
+        Records the customer's answer for one or more purposes under the privacy-policy version the storefront
+        displayed (`policy_version`, required — the version the customer saw, not the store's current one).
+        One ledger row per purpose whose answer CHANGES; an unchanged answer writes nothing; the current state
+        (`GET`) is rewritten in the same transaction. A first explicit `false` IS recorded (a refusal is a
+        decision). An unknown purpose, a blank `policy_version` or an empty `consents` list is a 400 naming the
+        field.
+      security:
+        - publishableKey: []
+          customerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [policy_version, consents]
+              properties:
+                policy_version: { type: string, minLength: 1 }
+                consents:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [purpose, granted]
+                    properties:
+                      purpose: { type: string, enum: [marketing_email] }
+                      granted: { type: boolean }
+      responses:
+        '200':
+          description: The current state after the answer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerConsents' }
+              example:
+                items:
+                  - {
+                      purpose: marketing_email,
+                      granted: false,
+                      source: storefront,
+                      policy_version: '2026-10',
+                      recorded_at: '2026-10-18T10:05:00Z',
+                    }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '409':
           description: >-
             The token's email already belongs to another customer row of this store that cannot be adopted
@@ -1556,6 +1655,25 @@ components:
             id: { type: string, format: uuid }
             is_default_shipping: { type: boolean }
             is_default_billing: { type: boolean }
+
+    CustomerConsent:
+      type: object
+      required: [purpose, granted, source, policy_version, recorded_at]
+      properties:
+        purpose: { type: string, enum: [marketing_email] }
+        granted:
+          type: [boolean, 'null']
+          description: null = never asked (no decision recorded); false = refused / opted out.
+        source: { type: [string, 'null'], enum: [storefront, admin, import, null] }
+        policy_version: { type: [string, 'null'] }
+        recorded_at: { type: [string, 'null'], format: date-time }
+    CustomerConsents:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerConsent' }
 
   examples:
     StoreBrandA:

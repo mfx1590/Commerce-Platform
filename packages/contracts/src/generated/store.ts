@@ -330,6 +330,11 @@ export interface paths {
         delete: operations["deleteMe"];
         options?: never;
         head?: never;
+        /**
+         * @description `marketing_consent` stays the one-checkbox shortcut and a change of it also writes the consent ledger
+         *     (`source: storefront`, `policy_version` = the store's current `settings.privacy.policy_version`,
+         *     `unversioned` when unset); `getMyConsents` / `putMyConsents` read and answer per purpose.
+         */
         patch: operations["updateMe"];
         trace?: never;
     };
@@ -387,6 +392,36 @@ export interface paths {
          *     the same 404.
          */
         patch: operations["updateMyAddress"];
+        trace?: never;
+    };
+    "/store/customers/me/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The customer's current consent decision per purpose in THIS store — one item per purpose of the closed
+         *     set. `granted` is `null` for a purpose the customer was never asked about (nothing recorded), which is
+         *     distinct from an opt-out (`false`). `marketing_email` is the only purpose until the lawyer review adds
+         *     more (a contract change).
+         */
+        get: operations["getMyConsents"];
+        /**
+         * @description Records the customer's answer for one or more purposes under the privacy-policy version the storefront
+         *     displayed (`policy_version`, required — the version the customer saw, not the store's current one).
+         *     One ledger row per purpose whose answer CHANGES; an unchanged answer writes nothing; the current state
+         *     (`GET`) is rewritten in the same transaction. A first explicit `false` IS recorded (a refusal is a
+         *     decision). An unknown purpose, a blank `policy_version` or an empty `consents` list is a 400 naming the
+         *     field.
+         */
+        put: operations["putMyConsents"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/store/customers/me/export": {
@@ -701,6 +736,20 @@ export interface components {
             id: string;
             is_default_shipping: boolean;
             is_default_billing: boolean;
+        };
+        CustomerConsent: {
+            /** @enum {string} */
+            purpose: "marketing_email";
+            /** @description null = never asked (no decision recorded); false = refused / opted out. */
+            granted: boolean | null;
+            /** @enum {string|null} */
+            source: "storefront" | "admin" | "import" | null;
+            policy_version: string | null;
+            /** Format: date-time */
+            recorded_at: string | null;
+        };
+        CustomerConsents: {
+            items: components["schemas"]["CustomerConsent"][];
         };
     };
     responses: {
@@ -1808,6 +1857,118 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMyConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "purpose": "marketing_email",
+                     *           "granted": true,
+                     *           "source": "storefront",
+                     *           "policy_version": "2026-10",
+                     *           "recorded_at": "2026-10-18T10:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CustomerConsents"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putMyConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    policy_version: string;
+                    consents: {
+                        /** @enum {string} */
+                        purpose: "marketing_email";
+                        granted: boolean;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description The current state after the answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "purpose": "marketing_email",
+                     *           "granted": false,
+                     *           "source": "storefront",
+                     *           "policy_version": "2026-10",
+                     *           "recorded_at": "2026-10-18T10:05:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CustomerConsents"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
             409: {
                 headers: {

@@ -5,7 +5,7 @@ import { clearSession, getAccessToken } from '@/lib/auth/session';
 import { mapCheckoutError } from '@/lib/checkout';
 import { redirectLocalized } from '@/lib/navigate';
 import { storeApi, type Result } from '@/lib/store-api';
-import { addressPatchFromForm, isDeleteConfirmed } from './account.config';
+import { addressPatchFromForm, CONSENT_PURPOSES, isDeleteConfirmed } from './account.config';
 
 /**
  * Account self-service mutations (#470, Store API 0.5.6): edit / remove an address, request my export, delete
@@ -78,6 +78,35 @@ export async function requestExportAction(
   } catch (error) {
     return { error: mapCheckoutError(error).message };
   }
+  return { ok: true };
+}
+
+export async function updateConsentsAction(
+  _previous: AccountActionState,
+  formData: FormData,
+): Promise<AccountActionState> {
+  const token = await getAccessToken();
+  if (token === null) return EXPIRED;
+  const raw = formData.get('policy_version');
+  const policyVersion = typeof raw === 'string' ? raw.trim() : '';
+  if (policyVersion === '') return { error: 'Please reload the page and try again.' };
+  // An unticked box is an explicit "no": the ledger records a refusal as a decision (#471).
+  const body = {
+    policy_version: policyVersion,
+    consents: CONSENT_PURPOSES.map((purpose) => ({
+      purpose,
+      granted: formData.get(purpose) === 'on',
+    })),
+  };
+  try {
+    await storeApi().request<Result<'putMyConsents'>>('PUT', '/store/customers/me/consents', {
+      body,
+      options: { token },
+    });
+  } catch (error) {
+    return { error: mapCheckoutError(error).message };
+  }
+  revalidatePath('/account');
   return { ok: true };
 }
 
