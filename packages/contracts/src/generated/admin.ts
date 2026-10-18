@@ -1110,6 +1110,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/customers/{customerId}/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        /** The customer's consent ledger in this store — every recorded decision, newest first (personal data — same gate as the record) */
+        get: operations["listCustomerConsents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/customers/{customerId}/export": {
         parameters: {
             query?: never;
@@ -6559,6 +6579,61 @@ export interface operations {
                             is_default_shipping: boolean;
                             is_default_billing: boolean;
                         })[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCustomerConsents: {
+        parameters: {
+            query?: {
+                purpose?: "marketing_email";
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "30000000-0000-4000-8000-000000000d01",
+                     *           "purpose": "marketing_email",
+                     *           "granted": false,
+                     *           "source": "storefront",
+                     *           "policy_version": "2026-10",
+                     *           "recorded_at": "2026-10-18T10:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            purpose: "marketing_email";
+                            granted: boolean;
+                            /** @enum {string} */
+                            source: "storefront" | "admin" | "import";
+                            policy_version: string;
+                            /** Format: date-time */
+                            recorded_at: string;
+                        }[];
                     };
                 };
             };
