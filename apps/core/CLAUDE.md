@@ -174,7 +174,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `paymentsAdminRouter` (#126, refunds) and window 8's `fulfillmentAdminRouter` (#133, pick / pack / pick lists)
   and window 11's `cycleCountsAdminRouter` (#436: `GET` / `POST /admin/cycle-counts`, `POST …/reconcile`, HQ
   `operations`) and window 13's `customersAdminRouter` (#471: `GET …/customers/:customerId/consents`, `support`
-  on the store);
+  on the store) and window 12's `reportingAdminRouter` (#479: store and HQ sales / stock / finance reports);
   add one `routers.push(...)` line per new router. Nothing is pending.
 - Provider webhooks mount through `moduleWebhookRouters()` (same file): outside the `/store` and `/admin` chains,
   before any JSON body parser, each router with its own `express.raw()` — the provider's signature over the raw

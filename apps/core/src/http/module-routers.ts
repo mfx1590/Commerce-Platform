@@ -8,7 +8,8 @@
 // `marketingAdminRouter` (#181); window 8's `shippingAdminRouter` (#131); window 7's `paymentsAdminRouter`
 // (#126). `moduleWebhookRouters()`: window 7's `paymentsWebhookRouter` (#125) and window 8's
 // `shippingWebhookRouter` (#131); window 8's `fulfillmentAdminRouter` (pick / pack / pick lists, #133); window 11's
-// `cycleCountsAdminRouter` (#436); window 13's `customersAdminRouter` (#471, REQUEST #492). Nothing is pending. Boot-time registrations (payment providers, carrier rates, tax, fraud, price lists, promotions) are
+// `cycleCountsAdminRouter` (#436); window 13's `customersAdminRouter` (#471, REQUEST #492); window 12's `reportingAdminRouter` (#479, REQUEST
+// #494). Nothing is pending. Boot-time registrations (payment providers, carrier rates, tax, fraud, price lists, promotions) are
 // not routers: they live in src/wiring.ts (`registerModuleSeams()`).
 import type { Router } from 'express';
 import { customersAdminRouter } from '../modules/customers';
@@ -17,6 +18,7 @@ import { cycleCountsAdminRouter } from '../modules/hq-warehouse';
 import { marketingAdminRouter } from '../modules/marketing';
 import { paymentsAdminRouter, paymentsWebhookRouter } from '../modules/payments';
 import { pricingRouter, promotionsRouter } from '../modules/promotions';
+import { reportingAdminRouter } from '../modules/reporting';
 import { shippingAdminRouter, shippingWebhookRouter } from '../modules/shipping';
 import {
   AlgoliaIndexClient,
@@ -60,6 +62,10 @@ export function moduleAdminRouters(): Router[] {
   // window 13 — consent ledger: GET /admin/stores/:storeId/customers/:customerId/consents (Admin API
   // listCustomerConsents, `support` on store:{storeId}, #471 / REQUEST #492)
   routers.push(customersAdminRouter());
+  // window 12 — reports: GET /admin/stores/:storeId/reports/{sales,stock} (viewer on the store), GET
+  // /admin/hq/reports/{sales,finance} (analyst on organization:hq) (#479 / REQUEST #494). It reads the four
+  // x-permissions from admin-api.yaml when it is built and throws if one is missing.
+  routers.push(reportingAdminRouter());
   return routers;
 }
 
