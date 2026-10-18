@@ -95,3 +95,24 @@ export interface CustomerRow {
   status: CustomerStatus;
   consent: Record<string, unknown> | null;
 }
+
+/**
+ * Body of `updateMyAddress` (Store API 0.5.6, #482): every field optional; a present field replaces the stored
+ * one (`null` clears a nullable one; a required field cannot be blanked — 400). `is_default_shipping` /
+ * `is_default_billing` `true` makes this address the default and clears the flag elsewhere; `false` is ignored
+ * when no other address could take the flag (a customer with addresses always has a default).
+ */
+export interface AddressPatch {
+  first_name?: string | undefined;
+  last_name?: string | undefined;
+  company?: string | null | undefined;
+  line1?: string | undefined;
+  line2?: string | null | undefined;
+  city?: string | undefined;
+  region?: string | null | undefined;
+  postal_code?: string | undefined;
+  country?: string | undefined;
+  phone?: string | null | undefined;
+  is_default_shipping?: boolean | undefined;
+  is_default_billing?: boolean | undefined;
+}

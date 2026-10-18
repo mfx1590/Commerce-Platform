@@ -347,7 +347,8 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
       first_name: null,
       last_name: null,
       phone: null,
-      keycloak_subject: null,
+      // the erasure tombstone (#470 / #482): the opaque IdP id stays so the same login is a 401 everywhere
+      keycloak_subject: 'kc-erin',
       identity_id: null,
       consent: {},
       metadata: {},
@@ -392,7 +393,7 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
       },
     ]);
     const written = JSON.stringify(audit.rows) + JSON.stringify(ev.rows);
-    for (const pii of ['erin@example.com', 'Erin', 'Rae', '+31611111111'])
+    for (const pii of ['erin@example.com', 'Erin', 'Rae', '+31611111111', 'kc-erin'])
       expect(written).not.toContain(pii);
 
     // replay: 202, nothing more written; the erased record stays readable, not updatable, not exportable
@@ -434,7 +435,7 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
   });
 });
 
-describe('exportCustomer (#414, events 0.3.2 customer.export_requested)', () => {
+describe('exportCustomer (#414, customer.export_requested — v2 since #482: requested_by_type)', () => {
   const KIM = '50000000-0000-4000-8000-000000000021'; // brand-a, registered
   const post = (subject: string, path: string) =>
     request(app).post(path).set('Authorization', `Bearer dev:${subject}`).send({});
@@ -470,6 +471,7 @@ describe('exportCustomer (#414, events 0.3.2 customer.export_requested)', () => 
     expect(ev[0]!.payload).toEqual({
       customer_id: KIM,
       requested_by: staff.rows[0]!.id,
+      requested_by_type: 'staff',
       requested_at: expect.any(String),
     });
     expect(JSON.stringify(ev)).not.toContain('kim@example.com');

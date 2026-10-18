@@ -1,7 +1,9 @@
 import { Badge, buttonVariants } from '@platform/ui';
 import type { Metadata } from 'next';
 import { Link } from '@/i18n/navigation';
+import { DeleteAddressButton, EditAddressForm } from '@/components/account-address-forms';
 import { AddAddressForm, ProfileForm, SignOutButton } from '@/components/account-forms';
+import { DeleteAccountForm, RequestExportForm } from '@/components/account-privacy';
 import { AddressCard } from '@/components/order-summary';
 import { requireCustomerToken } from '@/lib/auth/require-customer';
 import { storeApi } from '@/lib/store-api';
@@ -72,16 +74,31 @@ export default async function AccountPage({
                   title={`${address.first_name} ${address.last_name}`}
                   address={address}
                 />
-                {address.is_default_shipping ? (
-                  <Badge variant="neutral" className="mt-2">
-                    Default delivery
-                  </Badge>
-                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {address.is_default_shipping ? (
+                    <Badge variant="neutral">Default delivery</Badge>
+                  ) : null}
+                  {address.is_default_billing ? (
+                    <Badge variant="neutral">Default billing</Badge>
+                  ) : null}
+                </div>
+                <div className="mt-3 flex flex-wrap items-start gap-2">
+                  <EditAddressForm address={address} />
+                  <DeleteAddressButton addressId={address.id} />
+                </div>
               </li>
             ))}
           </ul>
         )}
         <AddAddressForm />
+      </section>
+
+      <section aria-labelledby="privacy" className="flex flex-col gap-6">
+        <h2 id="privacy" className="text-xl font-semibold">
+          Privacy
+        </h2>
+        <RequestExportForm />
+        <DeleteAccountForm />
       </section>
     </div>
   );

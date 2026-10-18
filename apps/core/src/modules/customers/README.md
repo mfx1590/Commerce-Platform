@@ -1,7 +1,9 @@
 # customers
 
-Customer self-service on the Store API (#303): the store-level `customer` row of a signed-in shopper
-(`packages/db` migration 0005). Owner: window 1 (ruling 2026-10-02). The Admin API customer routes are not here.
+Customer self-service on the Store API (#303, #470): the store-level `customer` row of a signed-in shopper
+(`packages/db` migration 0005). Owner: window 13 (customers) since Phase 3 (docs/ownership.md; built by window 1
+until #414). The Admin API customer operations live in `admin.ts` / `gdpr.ts` (below); their routes are in
+`src/http/admin-routes.ts`.
 
 There is **no "register first" step**. Every `/store/customers*` route resolves the customer from the verified
 customers-realm token, and creates the row when it does not exist yet. The store comes from the publishable key;
@@ -9,15 +11,19 @@ the subject and the email come from the **token only** — never from a request 
 
 ## Public API (`index.ts`)
 
-| Function                                             | Route                                       | What it does                                                                                         |
-| ---------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `resolveCustomer(client, scope, identity)`           | `GET /store/customers/me` (and every `/me`) | the customer of the token in this store, created on first use (`marketing_consent` false)            |
-| `registerCustomer(client, scope, identity, input)`   | `POST /store/customers`                     | resolve-or-provision, then names and consent; `{ customer, created }` — the route answers 201 or 200 |
-| `updateCustomer(client, scope, identity, patch)`     | `PATCH /store/customers/me`                 | resolve-or-provision, then names, phone and consent; an empty string clears a column                 |
-| `listCustomerAddresses(client, scope, identity)`     | `GET /store/customers/me/addresses`         | the customer's addresses, default shipping first, then oldest first                                  |
-| `addCustomerAddress(client, scope, identity, input)` | `POST /store/customers/me/addresses`        | validates, decides the default flags under a lock on the customer row, inserts (201)                 |
-| `findCustomerForSubject(client, storeId, subject)`   | `GET /store/orders/{orderId}`               | read-only `{ id, status }` or null — for routes that must not create a customer                      |
-| `customerEmailHash(email)`                           | —                                           | `email_hash` of the events contract (sha256 of the trimmed, lowercased email)                        |
+| Function                                                                | Route                                                                     | What it does                                                                                                                    |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveCustomer(client, scope, identity)`                              | `GET /store/customers/me` (and every `/me`)                               | the customer of the token in this store, created on first use (`marketing_consent` false)                                       |
+| `registerCustomer(client, scope, identity, input)`                      | `POST /store/customers`                                                   | resolve-or-provision, then names and consent; `{ customer, created }` — the route answers 201 or 200                            |
+| `updateCustomer(client, scope, identity, patch)`                        | `PATCH /store/customers/me`                                               | resolve-or-provision, then names, phone and consent; an empty string clears a column                                            |
+| `listCustomerAddresses(client, scope, identity)`                        | `GET /store/customers/me/addresses`                                       | the customer's addresses, default shipping first, then oldest first                                                             |
+| `addCustomerAddress(client, scope, identity, input)`                    | `POST /store/customers/me/addresses`                                      | validates, decides the default flags under a lock on the customer row, inserts (201)                                            |
+| `updateCustomerAddress(client, scope, identity, addressId, patch)`      | `PATCH /store/customers/me/addresses/{addressId}` (#470, Store API 0.5.6) | a present field replaces, `null` clears a nullable one, a default flag moves under the same lock; 404 for another customer's id |
+| `deleteCustomerAddress(client, scope, identity, addressId)`             | `DELETE /store/customers/me/addresses/{addressId}` (200 `{ items }`)      | deletes; a default it held moves to the oldest remaining address; answers the remaining list                                    |
+| `requestCustomerExport(client, storeId, customerId, actor)` (`gdpr.ts`) | `POST /store/customers/me/export` (202) and Admin `exportCustomer`        | one `customer.export_requested` v2 per call: `requested_by` + `requested_by_type` (`customer` / `staff`)                        |
+| `eraseMe(client, scope, identity)` (`gdpr.ts`)                          | `DELETE /store/customers/me` (202)                                        | the customer erases their own row in this store (see "Erasure and export"); replay = no-op                                      |
+| `findCustomerForSubject(client, storeId, subject)`                      | `GET /store/orders/{orderId}`                                             | read-only `{ id, status }` or null — for routes that must not create a customer                                                 |
+| `customerEmailHash(email)`                                              | —                                                                         | `email_hash` of the events contract (sha256 of the trimmed, lowercased email)                                                   |
 
 `identity` is `{ subject, email?, emailVerified }` from a verified token (`src/http/customer-routes.ts` builds it;
 `emailVerified` is true only for an explicit `email_verified: true` claim, absent = false). `scope` is
@@ -72,6 +78,17 @@ are `updateCustomer`, `listCustomerAddresses` and `addCustomerAddress` (part B).
   shipping address, so it moves only when the customer asks.
 - **At most 50 addresses** per customer (`ADDRESS_LIMIT`): the list is unpaginated; a further one is a 400
   `validation_error` with `addresses: "at most 50"`.
+- **Editing and removing an address (#470, Store API 0.5.6).** `updateMyAddress` is a partial patch like
+  `updateMe`: a present field replaces the stored one (trimmed, 200 characters, the country alpha-2), `null`
+  clears `company` / `line2` / `region` / `phone`, a required field cannot be blanked or nulled (400 naming it).
+  A default flag `true` moves that default to this address (clear-then-set under the customer-row lock, as on
+  add); `false` hands the flag to the customer's OLDEST other address — and is ignored on the only address, so a
+  customer with addresses always has a default. A patch that changes nothing writes nothing. `deleteMyAddress`
+  (200 `{ items }`, the remaining addresses in list order — no 204 in the Store API, and the page needs to see where a
+  default went) applies the same heir rule to whatever defaults the deleted address held. Another customer's address id
+  and an unknown id are the same 404 (the lookup is on both ids, under RLS). One audit row per change
+  (`customer_address.update` with the changed column NAMES and the flags, `customer_address.delete` with which
+  defaults moved to which address — never a line, a city or a phone) and one `customer.updated` (`['addresses']`).
 - **Recorded deviation on #303:** `updateMe` answers 400 on a wrong type or a non-object body, and
   `listMyOrders` on an invalid `page` / `limit`; Store API 0.5.1 documents neither 400 — contracts 0.4.9 adds
   both. `listMyAddresses` has no 400 (no query, no body).
@@ -101,11 +118,23 @@ email, a name, a phone or an address (`email_hash` and field names only).
 ### Erasure and export (GDPR; manager decisions 2026-10-08)
 
 **Erasure** is synchronous (one transaction) although the contract says "scheduled": the 202 answers both a fresh
-erasure and the replay on an already erased customer (no-op: nothing written, no second event). In that transaction:
+erasure and the replay on an already erased customer (no-op: nothing written, no second event). Two entry points,
+one shape: the Admin API `eraseCustomer` (store_admin) and the customer's own `DELETE /store/customers/me`
+(`eraseMe`, #470 — actor = the customer; a token whose customer does not exist here yet goes through
+resolve-or-provision first, so a verified email's guest row is adopted and then erased, and a brand-new subject
+gets a row and loses it in the same transaction). In that transaction:
 
 - `status` → `erased`; `email` → **`erased+<customer_id>@invalid`** (the column is NOT NULL and unique per store;
   `.invalid` is reserved by RFC 2606, so the placeholder can never receive mail); `first_name`, `last_name`,
-  `phone`, `keycloak_subject` → null; `consent` and `metadata` → `{}`. The id, store, group and timestamps stay.
+  `phone` → null; `consent` and `metadata` → `{}`. The id, store, group and timestamps stay.
+- **`keycloak_subject` STAYS — the erasure tombstone** (manager decision 2026-10-18, #482, on the owner's lawyer
+  list; until then it was nulled). It is an opaque identifier of the identity provider, not personal data, and it
+  is what keeps the same login a 401 on every route afterwards and a repeated `DELETE /me` a 202 no-op: with the
+  subject nulled and the email replaced, nothing would find the erased row and the next `/me` would silently
+  provision a fresh account for the person who just asked to be deleted. The Keycloak user itself (the PII outside
+  Postgres) is deleted by a separate job on `customer.erased` (REQUEST #483); the tombstone is meaningless once
+  that has happened. Self-service deletion erases ONLY the requesting store's row; whether it should span every
+  brand of the organization is the owner's open decision (#473 picks it up).
 - every `customer_address` row of the customer is deleted;
 - `identity_id` → null, and the organization-level `customer_identity` row is deleted when nothing references it
   any more (another store's customer of the same person, or a merged identity, keeps it — tried under a
@@ -128,8 +157,11 @@ payment_status, fulfillment_status, email, currency, shipping_address, billing_a
 discount_minor, shipping_minor, tax_minor, total_minor, placed_at, lines: [{ sku, title, variant_title,
 quantity, unit_price_minor, discount_minor, tax_minor, total_minor }] }] }` — that store, that customer only
 (RLS plus explicit predicates; the test exports with two stores and two customers). Unknown, another store's or
-erased → 404. `exportCustomer` (202) writes one `customer.export_requested` row per request (no dedupe; ids
-only) — the hand-over to the delivery job of Integration 2b (storage + email), which calls this function.
+erased → 404. `exportCustomer` (202) and the customer's own `POST /store/customers/me/export` (202, #470) write
+one `customer.export_requested` **v2** row per request (no dedupe; ids only): `requested_by` is the staff user id
+or the customer id, `requested_by_type` says which (`staff` / `customer`; events contract #482 — v1 stays in the
+registry, nothing consumes the topic before #472). That is the hand-over to the delivery job (#472), which calls
+`buildCustomerExport` and tells the customer by email.
 
 ## Known gaps
 
@@ -137,9 +169,6 @@ only) — the hand-over to the delivery job of Integration 2b (storage + email),
   email-change sync exists (Phase 3, window 13), `GET /store/customers/me` shows the old address, the
   `email_hash` in events is the old one, and `registerCustomer` compares its body against the token's NEW email.
   Order reads are not affected: they match on the token's verified email, never on the row's.
-- **No operation changes or deletes an address** (Store API 0.5.1 / 0.4.9): the default moves only when a new
-  address is added with a default flag. A `PATCH` / `DELETE …/addresses/{id}` is a new operation, not a status;
-  it is not part of #303.
 - **A linked cart is readable by anyone holding the cart id** (cart ids are the capability today; Phase 3), and
   older guest orders are not back-filled: the read-time match on a verified token email covers them.
 
@@ -153,10 +182,23 @@ when nothing changed.
 | `customer.created` | the row was created (names/consent included)                                  | `customer_id`, `identity_id`, `email_hash`, `status`, `customer_group_id`, `marketing_consent` |
 | `customer.updated` | adoption; names / phone / consent changed; an address added (`['addresses']`) | the same + `changed_fields` (column names)                                                     |
 
-Audit actions: `customer.create`, `customer.link`, `customer.update`, and `customer_address.create` (entity
-`customer_address`, `after` = customer id and the two default flags); actor = the customer (`actor_type`
-`customer`, `actor_id` = the customer id). Neither an event nor an audit row carries an email, a name, a line, a
+Audit actions: `customer.create`, `customer.link`, `customer.update`, `customer_address.create` (entity
+`customer_address`, `after` = customer id and the two default flags), `customer_address.update` (+ the changed
+column names), `customer_address.delete` (which defaults moved, to which address), `customer.export_request`
+and `customer.erase`; actor = the customer (`actor_type` `customer`, `actor_id` = the customer id). Neither an event nor an audit row carries an email, a name, a line, a
 city, a postal code, a phone or the Keycloak subject, and nothing in this module logs (tested).
+
+## Storefront (window 13's part of `apps/storefront-starter`)
+
+The account page (`src/app/[locale]/(account)/account/page.tsx`, `force-dynamic`, nothing personal in
+`searchParams`) renders the address book with an edit form and a remove button per address
+(`src/components/account-address-forms.tsx`) and a **Privacy** section (`account-privacy.tsx`): "Download my data"
+(`requestMyExport`) and "Delete my account" (typed confirmation `DELETE`, then `deleteMe`, then the local session
+is cleared and the customer lands on `/account/deleted`, which offers the Keycloak sign-out). The server actions
+live in the route group (`account/actions.ts`) and call the Store API client's generic `request` — the client's
+typed methods are window 3's file. Pure rules (`account.config.ts`): the edit form sends every field, blank
+optional ones as `null`; a default checkbox is sent only as `true` (a default is moved by ticking it on another
+address, never "given up"). Unit test: `account/account.test.ts` (collected once REQUEST #484 widens the include).
 
 ## Tests
 
@@ -164,4 +206,9 @@ city, a postal code, a phone or the Keycloak subject, and nothing in this module
 requests —, store isolation, register (create / update / no-op / email mismatch), the collision rule including
 two identities racing for one guest row, disabled / erased, `updateCustomer` (clear / no-op / over-long), addresses
 (first = default, explicit flags, six concurrent first addresses → one default each, validation, the cap, store
-isolation), and the no-PII check over the outbox, the audit log and the console. HTTP behaviour, the verifier seam and the live Keycloak test: `test/customers-api.test.ts`.
+isolation), address edit / delete (#470: replace / clear / cannot blank, no-op, flag moves and the oldest-heir
+rule, the only-address `false`, 404 for another customer / store / unknown id), `eraseMe` and the tombstone
+(replay no-op, the same subject 401 everywhere with no fresh row — for the admin erase too, adopt-then-erase),
+and the no-PII check over the outbox, the audit log and the console. HTTP behaviour, the verifier seam, the
+self-service acceptance of #470 (own addresses only, brand-b key + brand-a token = 401, `DELETE /me` leaves no
+PII and keeps the order, export v2 by the customer) and the live Keycloak test: `test/customers-api.test.ts`.

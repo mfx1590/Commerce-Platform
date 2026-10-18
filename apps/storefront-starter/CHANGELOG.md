@@ -1,5 +1,17 @@
 # Changelog — @platform/storefront-starter
 
+## Unreleased — 2026-10-18 (window 13, #470: account self-service)
+
+- **Address book: edit and remove.** Each saved address has an edit form (every field, blank optional ones clear;
+  a default is moved by ticking it on another address) and a two-step remove
+  (`src/components/account-address-forms.tsx`; `updateMyAddress` / `deleteMyAddress`, Store API 0.5.6).
+- **Privacy section** on `/account` (`src/components/account-privacy.tsx`): "Download my data" (`requestMyExport`;
+  the file is announced by email) and "Delete my account" (typed confirmation `DELETE`, then `deleteMe`, the local
+  session is cleared and the customer lands on the new `/account/deleted`, which offers the Keycloak sign-out).
+- Server actions in `src/app/[locale]/(account)/account/actions.ts` through the client's generic `request`;
+  `src/lib/store-api` is unchanged. Pure rules + unit test next to them (collected once REQUEST #484 widens the
+  vitest include).
+
 ## 0.14.3 — 2026-10-10
 
 Issue #446. Test-only.

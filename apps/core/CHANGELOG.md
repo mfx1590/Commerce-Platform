@@ -2,6 +2,18 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-18 · account self-service (#470, window 13; CONTRACT CHANGE #482: Store API 0.5.6, contracts 0.4.20, events 0.3.5)
+
+- Store API: `PATCH` / `DELETE /store/customers/me/addresses/{addressId}` (`updateMyAddress`: partial patch, a
+  default flag moves under the customer-row lock, `false` hands it to the oldest other address; `deleteMyAddress`:
+  200 with the remaining addresses, a held default moves to the oldest remaining one), `POST
+/store/customers/me/export` (`requestMyExport`, 202) and `DELETE /store/customers/me` (`deleteMe`, 202 — #414's
+  erasure for the token's own row in this store; replay no-op). All in `src/http/customer-routes.ts`.
+- `customer.export_requested` **v2**: `requested_by_type` `staff` (Admin `exportCustomer`) or `customer`.
+- **Erasure keeps `keycloak_subject` as a tombstone** (manager decision 2026-10-18, #482, lawyer list; admin and
+  self-service alike): the same login is a 401 everywhere afterwards instead of re-provisioning a fresh account. The
+  Keycloak user is deleted by window 2 (REQUEST #483).
+
 ### 2026-10-15 · `InventoryLevel.warehouse_code` (CONTRACT CHANGE #475, contracts 0.4.19)
 
 - Every `InventoryLevel` (`GET /admin/inventory/levels`, the `POST /admin/inventory/movements` response) carries

@@ -8,11 +8,16 @@ import { verifyCustomerToken, type CustomerClaims } from '@platform/auth-sdk';
 import { fromApiError, validationError } from '../lib/errors';
 import {
   addCustomerAddress,
+  deleteCustomerAddress,
+  eraseMe,
   listCustomerAddresses,
   registerCustomer,
+  requestCustomerExport,
   resolveCustomer,
   updateCustomer,
+  updateCustomerAddress,
   type AddressInput,
+  type AddressPatch,
   type CustomerIdentity,
   type CustomerPatch,
   type CustomerScope,
@@ -21,7 +26,7 @@ import {
 import { listStoreOrders } from '../modules/orders';
 import { handle, routeNotImplemented } from './errors';
 import { loadSpec } from './openapi';
-import { pageParams } from './query';
+import { pageParams, uuidParam } from './query';
 import { requireTenant, type StoreContext } from './tenant';
 
 /** Verifies a customers-realm token and its store binding; throws auth-sdk's `ApiError(401)` otherwise. */
@@ -108,6 +113,11 @@ export const CUSTOMER_STORE_PATHS = [
   'GET /store/customers/me/orders',
   'GET /store/customers/me/addresses',
   'POST /store/customers/me/addresses',
+  // Store API 0.5.6 (#470 / #482): account self-service.
+  'PATCH /store/customers/me/addresses/{addressId}',
+  'DELETE /store/customers/me/addresses/{addressId}',
+  'POST /store/customers/me/export',
+  'DELETE /store/customers/me',
 ] as const;
 
 /**
@@ -178,6 +188,51 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
       .json(await addCustomerAddress(t.client, scopeOf(t), identity, req.body as AddressInput));
   });
 
+  // Account self-service (#470, Store API 0.5.6). The token first, then the id, then the body — as everywhere.
+  const updateMyAddressRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    const addressId = uuidParam(req.params, 'addressId');
+    loadSpec('store-api.yaml').validateBody('updateMyAddress', req.body);
+    res.json(
+      await updateCustomerAddress(
+        t.client,
+        scopeOf(t),
+        identity,
+        addressId,
+        req.body as AddressPatch,
+      ),
+    );
+  });
+
+  const deleteMyAddressRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    const addressId = uuidParam(req.params, 'addressId');
+    // 200 with the remaining addresses (listMyAddresses shape): the page sees where a default went.
+    res.json({ items: await deleteCustomerAddress(t.client, scopeOf(t), identity, addressId) });
+  });
+
+  const requestMyExportRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    const me = await resolveCustomer(t.client, scopeOf(t), identity);
+    // The customer is the requester: `requested_by` = the customer id, `requested_by_type` = customer.
+    await requestCustomerExport(t.client, t.storeId, me.id, {
+      id: me.id,
+      type: 'customer',
+      requestId: t.requestId ?? null,
+    });
+    res.status(202).end();
+  });
+
+  const deleteMeRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    await eraseMe(t.client, scopeOf(t), identity);
+    res.status(202).end();
+  });
+
   // The JSON body parser sits on the routes that read a body, never on the prefix: mounted there it would also
   // parse — and answer 400 for — a malformed body sent along with a GET.
   const json = express.json({ limit: '64kb' });
@@ -187,6 +242,10 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   app.get('/store/customers/me/orders', listMyOrdersRoute);
   app.get('/store/customers/me/addresses', listMyAddressesRoute);
   app.post('/store/customers/me/addresses', json, addMyAddressRoute);
+  app.patch('/store/customers/me/addresses/:addressId', json, updateMyAddressRoute);
+  app.delete('/store/customers/me/addresses/:addressId', deleteMyAddressRoute);
+  app.post('/store/customers/me/export', requestMyExportRoute);
+  app.delete('/store/customers/me', deleteMeRoute);
   // Terminal: every operation of this prefix is answered above, so whatever is left — an unknown path, or
   // PUT / DELETE / … on a known one — is a 404 here. It must never fall through to the Store API fallback proxy
   // (non-production), which would forward the customer's bearer token to the mock.

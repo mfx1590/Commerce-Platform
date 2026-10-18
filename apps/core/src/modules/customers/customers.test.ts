@@ -8,11 +8,15 @@ import {
   ADDRESS_LIMIT,
   addCustomerAddress,
   customerEmailHash,
+  deleteCustomerAddress,
+  eraseCustomer,
+  eraseMe,
   findCustomerForSubject,
   listCustomerAddresses,
   registerCustomer,
   resolveCustomer,
   updateCustomer,
+  updateCustomerAddress,
   type AddressInput,
   type CustomerIdentity,
   type CustomerScope,
@@ -667,6 +671,294 @@ describe('addresses', () => {
   });
 });
 
+describe('address edit and delete (#470, Store API 0.5.6)', () => {
+  const home: AddressInput = {
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    line1: 'Keizersgracht 1',
+    city: 'Amsterdam',
+    postal_code: '1015 CJ',
+    country: 'NL',
+  };
+  const flags = async (customerId: string) =>
+    (
+      await owner.query<{ id: string; is_default_shipping: boolean; is_default_billing: boolean }>(
+        `SELECT id, is_default_shipping, is_default_billing FROM customer_address
+         WHERE customer_id = $1 ORDER BY created_at, id`,
+        [customerId],
+      )
+    ).rows;
+  const pin = (id: string, at: string) =>
+    owner.query('UPDATE customer_address SET created_at = $2 WHERE id = $1', [id, at]);
+
+  it('update: a present field replaces, null clears a nullable one, a required one cannot be blanked; a no-op writes nothing; one audit row with the changed column names', async () => {
+    const ida = who('ida');
+    const me = await resolveCustomer(a, scopeA, ida);
+    const first = await addCustomerAddress(a, scopeA, ida, { ...home, company: 'Old Co' });
+    const e0 = (await events(me.id)).length;
+
+    const edited = await updateCustomerAddress(a, scopeA, ida, first.id, {
+      line1: '  Prinsengracht 9 ',
+      company: null,
+      phone: '+31 6 1234 5678',
+    });
+    expect(edited).toMatchObject({
+      id: first.id,
+      line1: 'Prinsengracht 9',
+      company: null,
+      phone: '+31 6 1234 5678',
+      is_default_shipping: true,
+      is_default_billing: true,
+    });
+    const ev = await events(me.id);
+    expect(ev).toHaveLength(e0 + 1);
+    expect(ev[ev.length - 1]).toMatchObject({
+      topic: 'customer.updated',
+      payload: expect.objectContaining({ changed_fields: ['addresses'] }),
+    });
+    const audit = await owner.query<{ action: string; after: Record<string, unknown> }>(
+      `SELECT action, after FROM audit_log WHERE entity_type = 'customer_address' AND entity_id = $1
+       ORDER BY created_at`,
+      [first.id],
+    );
+    expect(audit.rows.map((r) => r.action)).toEqual([
+      'customer_address.create',
+      'customer_address.update',
+    ]);
+    expect(audit.rows[1]!.after).toEqual({
+      customer_id: me.id,
+      changed_fields: ['company', 'line1', 'phone'],
+      is_default_shipping: true,
+      is_default_billing: true,
+    });
+
+    // the same values again: nothing written
+    expect(
+      await updateCustomerAddress(a, scopeA, ida, first.id, { line1: 'Prinsengracht 9' }),
+    ).toEqual(edited);
+    expect(await events(me.id)).toHaveLength(e0 + 1);
+
+    // validation: a required field blanked or nulled, an over-long value, a bad country — 400 naming the field
+    for (const [patch, field] of [
+      [{ city: '  ' }, 'city'],
+      [{ first_name: null as unknown as string }, 'first_name'],
+      [{ line2: 'x'.repeat(201) }, 'line2'],
+      [{ country: 'Netherlands' }, 'country'],
+    ] as const) {
+      await expect(updateCustomerAddress(a, scopeA, ida, first.id, patch)).rejects.toMatchObject({
+        code: 'validation_error',
+        details: { [field]: expect.any(String) },
+      });
+    }
+    expect(await events(me.id)).toHaveLength(e0 + 1);
+  });
+
+  it('update: a default flag true moves the default here (cleared elsewhere); false hands it to the oldest other address, and is ignored on the only address', async () => {
+    const kay = who('kay');
+    const me = await resolveCustomer(a, scopeA, kay);
+    const one = await addCustomerAddress(a, scopeA, kay, home);
+    // the only address: `false` is ignored, nothing written
+    const e0 = (await events(me.id)).length;
+    expect(
+      await updateCustomerAddress(a, scopeA, kay, one.id, { is_default_shipping: false }),
+    ).toMatchObject({ is_default_shipping: true, is_default_billing: true });
+    expect(await events(me.id)).toHaveLength(e0);
+
+    const two = await addCustomerAddress(a, scopeA, kay, { ...home, line1: 'Second 2' });
+    const three = await addCustomerAddress(a, scopeA, kay, { ...home, line1: 'Third 3' });
+    await pin(one.id, '2026-09-01T10:00:00Z');
+    await pin(two.id, '2026-09-01T10:01:00Z');
+    await pin(three.id, '2026-09-01T10:02:00Z');
+
+    // true on `three`: clear-then-set, `one` loses it
+    expect(
+      await updateCustomerAddress(a, scopeA, kay, three.id, { is_default_shipping: true }),
+    ).toMatchObject({ is_default_shipping: true, is_default_billing: false });
+    expect(await flags(me.id)).toEqual([
+      { id: one.id, is_default_shipping: false, is_default_billing: true },
+      { id: two.id, is_default_shipping: false, is_default_billing: false },
+      { id: three.id, is_default_shipping: true, is_default_billing: false },
+    ]);
+    // false on `three`: the OLDEST other address (`one`) takes shipping back
+    expect(
+      await updateCustomerAddress(a, scopeA, kay, three.id, { is_default_shipping: false }),
+    ).toMatchObject({ is_default_shipping: false });
+    // false on `one` for billing: `two` is the oldest OTHER one
+    expect(
+      await updateCustomerAddress(a, scopeA, kay, one.id, { is_default_billing: false }),
+    ).toMatchObject({ is_default_shipping: true, is_default_billing: false });
+    expect(await flags(me.id)).toEqual([
+      { id: one.id, is_default_shipping: true, is_default_billing: false },
+      { id: two.id, is_default_shipping: false, is_default_billing: true },
+      { id: three.id, is_default_shipping: false, is_default_billing: false },
+    ]);
+    // one shipping default and one billing default, always
+    const rows = await flags(me.id);
+    expect(rows.filter((r) => r.is_default_shipping)).toHaveLength(1);
+    expect(rows.filter((r) => r.is_default_billing)).toHaveLength(1);
+  });
+
+  it("delete: answers the remaining addresses; a default the deleted address held moves to the oldest remaining one; the last address leaves no default; another customer's id, another store and an unknown id are a 404", async () => {
+    const lou = who('lou');
+    const me = await resolveCustomer(a, scopeA, lou);
+    const one = await addCustomerAddress(a, scopeA, lou, home);
+    const two = await addCustomerAddress(a, scopeA, lou, { ...home, line1: 'Second 2' });
+    const three = await addCustomerAddress(a, scopeA, lou, { ...home, line1: 'Third 3' });
+    await pin(one.id, '2026-09-01T10:00:00Z');
+    await pin(two.id, '2026-09-01T10:01:00Z');
+    await pin(three.id, '2026-09-01T10:02:00Z');
+
+    // isolation first: another customer (ida) of the same store, the same subject in store B, an unknown id
+    for (const [client, scope, identity, id] of [
+      [a, scopeA, who('ida'), one.id],
+      [b, scopeB, lou, one.id],
+      [a, scopeA, lou, '00000000-0000-4000-8000-0000000000aa'],
+    ] as const) {
+      await expect(deleteCustomerAddress(client, scope, identity, id)).rejects.toMatchObject({
+        code: 'not_found',
+      });
+      await expect(
+        updateCustomerAddress(client, scope, identity, id, { city: 'X' }),
+      ).rejects.toMatchObject({ code: 'not_found' });
+    }
+    expect(await flags(me.id)).toHaveLength(3);
+
+    const e0 = (await events(me.id)).length;
+    expect((await deleteCustomerAddress(a, scopeA, lou, one.id)).map((x) => x.id)).toEqual([
+      two.id,
+      three.id,
+    ]);
+    expect(await flags(me.id)).toEqual([
+      { id: two.id, is_default_shipping: true, is_default_billing: true },
+      { id: three.id, is_default_shipping: false, is_default_billing: false },
+    ]);
+    const audit = await owner.query<{ after: Record<string, unknown> }>(
+      `SELECT after FROM audit_log WHERE action = 'customer_address.delete' AND entity_id = $1`,
+      [one.id],
+    );
+    expect(audit.rows[0]!.after).toEqual({
+      customer_id: me.id,
+      defaults_moved: ['is_default_shipping', 'is_default_billing'],
+      defaults_moved_to: two.id,
+    });
+    const ev = await events(me.id);
+    expect(ev).toHaveLength(e0 + 1);
+    expect(ev[ev.length - 1]!.payload).toMatchObject({ changed_fields: ['addresses'] });
+
+    await deleteCustomerAddress(a, scopeA, lou, three.id);
+    expect(await deleteCustomerAddress(a, scopeA, lou, two.id)).toEqual([]);
+    expect(await flags(me.id)).toEqual([]);
+    expect(await listCustomerAddresses(a, scopeA, lou)).toEqual([]);
+    await expect(deleteCustomerAddress(a, scopeA, lou, two.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    // the next address is the first again: the default for both
+    expect(await addCustomerAddress(a, scopeA, lou, home)).toMatchObject({
+      is_default_shipping: true,
+      is_default_billing: true,
+    });
+  });
+});
+
+describe('deleteMe / the erasure tombstone (#470, #482)', () => {
+  it('eraseMe: the customer of the token is erased in THIS store only; replay is a no-op; the same subject is a 401 everywhere after and never gets a fresh row', async () => {
+    const zed = who('zed', { emailVerified: true });
+    const me = await registerCustomer(a, scopeA, zed, {
+      email: 'zed@example.test',
+      first_name: 'Zed',
+      marketing_consent: true,
+    });
+    await addCustomerAddress(a, scopeA, zed, {
+      first_name: 'Zed',
+      last_name: 'Zee',
+      line1: 'Zstreet 1',
+      city: 'Zwolle',
+      postal_code: '8011 AA',
+      country: 'NL',
+    });
+    // the same person in store B stays untouched
+    const inB = await resolveCustomer(b, scopeB, zed);
+    const before = await totals();
+
+    expect(await eraseMe(a, scopeA, zed)).toEqual({ erased: true });
+    const [row] = await rowsOf(A, `erased+${me.customer.id}@invalid`);
+    expect(row).toMatchObject({
+      id: me.customer.id,
+      status: 'erased',
+      first_name: null,
+      keycloak_subject: 'sub-zed',
+    });
+    expect((await rowsOf(A, 'zed@example.test')).length).toBe(0);
+    const ev = await events(me.customer.id);
+    expect(ev.filter((e) => e.topic === 'customer.erased')).toHaveLength(1);
+    expect((await audits(me.customer.id)).map((x) => x.action)).toContain('customer.erase');
+    expect((await audits(me.customer.id)).find((x) => x.action === 'customer.erase')).toMatchObject(
+      {
+        actor_type: 'customer',
+        actor_id: me.customer.id,
+      },
+    );
+    expect((await rowsOf(B, 'zed@example.test'))[0]).toMatchObject({
+      id: inB.id,
+      status: 'registered',
+    });
+
+    // replay: nothing written
+    const after = await totals();
+    expect(await eraseMe(a, scopeA, zed)).toEqual({ erased: false });
+    expect(await totals()).toEqual(after);
+    expect(Number(after.customers)).toBe(Number(before.customers));
+
+    // the tombstone: the same login (even with a new email) is refused everywhere, no fresh row
+    for (const identity of [zed, { ...zed, email: 'zed.new@example.test' }]) {
+      await expect(resolveCustomer(a, scopeA, identity)).rejects.toMatchObject({
+        code: 'unauthorized',
+      });
+      await expect(
+        registerCustomer(a, scopeA, identity, { email: identity.email! }),
+      ).rejects.toMatchObject({ code: 'unauthorized' });
+      await expect(listCustomerAddresses(a, scopeA, identity)).rejects.toMatchObject({
+        code: 'unauthorized',
+      });
+    }
+    expect(await totals()).toEqual(after);
+    expect(await findCustomerForSubject(a, A, 'sub-zed')).toEqual({
+      id: me.customer.id,
+      status: 'erased',
+    });
+  });
+
+  it('the admin erase (#414) keeps the tombstone too: one erase shape — the same login is a 401, not a new account', async () => {
+    const yan = who('yan');
+    const me = await resolveCustomer(a, scopeA, yan);
+    expect(await eraseCustomer(a, A, me.id, { id: null, type: 'system' })).toEqual({
+      erased: true,
+    });
+    const count = (await totals()).customers;
+    await expect(resolveCustomer(a, scopeA, yan)).rejects.toMatchObject({ code: 'unauthorized' });
+    expect((await totals()).customers).toBe(count);
+    expect((await rowsOf(A, `erased+${me.id}@invalid`))[0]).toMatchObject({
+      keycloak_subject: 'sub-yan',
+    });
+  });
+
+  it('a token with no row here yet: resolve-or-provision first (a verified email adopts a guest row), then erased in the same transaction', async () => {
+    const guestId = await insertRow(A, 'wim@example.test');
+    const wim = who('wim', { emailVerified: true });
+    expect(await eraseMe(a, scopeA, wim)).toEqual({ erased: true });
+    expect((await rowsOf(A, `erased+${guestId}@invalid`))[0]).toMatchObject({
+      id: guestId,
+      status: 'erased',
+      keycloak_subject: 'sub-wim',
+    });
+    expect((await events(guestId)).map((e) => e.topic)).toEqual([
+      'customer.updated',
+      'customer.erased',
+    ]);
+    await expect(resolveCustomer(a, scopeA, wim)).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+});
+
 describe('no personal data leaves the row', () => {
   it('no event, no audit row and no log line carries an email, a name or a subject', async () => {
     const logged: string[] = [];
@@ -709,6 +1001,19 @@ describe('no personal data leaves the row', () => {
           country: 'NL',
         }),
       ).rejects.toMatchObject({ code: 'validation_error' });
+      // #470: edit, delete, erase
+      const privateIdentity = who('private.person', { subject: 'sub-private' });
+      const [mine] = await listCustomerAddresses(a, scopeA, privateIdentity);
+      await updateCustomerAddress(a, scopeA, privateIdentity, mine!.id, {
+        line1: 'Quietlane 4',
+        phone: '+31 6 5555 5555',
+      });
+      await expect(
+        updateCustomerAddress(a, scopeA, privateIdentity, mine!.id, { country: 'Hiddenland' }),
+      ).rejects.toMatchObject({ code: 'validation_error' });
+      await deleteCustomerAddress(a, scopeA, privateIdentity, mine!.id);
+      await eraseMe(a, scopeA, privateIdentity);
+      await eraseMe(a, scopeA, privateIdentity);
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
@@ -730,6 +1035,9 @@ describe('no personal data leaves the row', () => {
       '9999 zz',
       '6 9999',
       '6 8888',
+      'quietlane',
+      'hiddenland',
+      '6 5555',
     ]) {
       expect(all).not.toContain(secret);
     }
