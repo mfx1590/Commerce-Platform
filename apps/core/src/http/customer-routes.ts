@@ -5,11 +5,12 @@
 // Nothing here logs: no email, no token, no body.
 import express, { type Request, type RequestHandler } from 'express';
 import { verifyCustomerToken, type CustomerClaims } from '@platform/auth-sdk';
-import { fromApiError, validationError } from '../lib/errors';
+import { fromApiError, notFound, validationError } from '../lib/errors';
 import {
   addCustomerAddress,
   deleteCustomerAddress,
   eraseMe,
+  findCustomerForSubject,
   listCustomerAddresses,
   registerCustomer,
   requestCustomerExport,
@@ -26,7 +27,7 @@ import {
 import { listStoreOrders } from '../modules/orders';
 import { handle, routeNotImplemented } from './errors';
 import { loadSpec } from './openapi';
-import { pageParams, uuidParam } from './query';
+import { one, pageParams } from './query';
 import { requireTenant, type StoreContext } from './tenant';
 
 /** Verifies a customers-realm token and its store binding; throws auth-sdk's `ApiError(401)` otherwise. */
@@ -82,6 +83,8 @@ export async function requireCustomer(
     throw fromApiError(err);
   }
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const scopeOf = (t: StoreContext): CustomerScope => ({
   organizationId: t.organizationId,
@@ -189,10 +192,17 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   });
 
   // Account self-service (#470, Store API 0.5.6). The token first, then the id, then the body — as everywhere.
+  // A malformed address id is the same 404 as an unknown one (as `getOrder` does with its id): the contract
+  // documents no 400 for the path, and a caller learns nothing about which ids exist.
+  const addressIdOf = (req: Request): string => {
+    const raw = one(req.params.addressId) ?? '';
+    if (!UUID.test(raw)) throw notFound('address', raw);
+    return raw;
+  };
   const updateMyAddressRoute: RequestHandler = handle(async (req, res) => {
     const t = requireTenant(req);
     const identity = await requireCustomer(req, t, verifier);
-    const addressId = uuidParam(req.params, 'addressId');
+    const addressId = addressIdOf(req);
     loadSpec('store-api.yaml').validateBody('updateMyAddress', req.body);
     res.json(
       await updateCustomerAddress(
@@ -208,7 +218,7 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   const deleteMyAddressRoute: RequestHandler = handle(async (req, res) => {
     const t = requireTenant(req);
     const identity = await requireCustomer(req, t, verifier);
-    const addressId = uuidParam(req.params, 'addressId');
+    const addressId = addressIdOf(req);
     // 200 with the remaining addresses (listMyAddresses shape): the page sees where a default went.
     res.json({ items: await deleteCustomerAddress(t.client, scopeOf(t), identity, addressId) });
   });
@@ -216,6 +226,12 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   const requestMyExportRoute: RequestHandler = handle(async (req, res) => {
     const t = requireTenant(req);
     const identity = await requireCustomer(req, t, verifier);
+    // A subject with no row here is a 202 no-op: an export request never provisions a customer (#487 review).
+    // A row that exists is resolved the usual way (locked, status judged: disabled / erased → 401).
+    if ((await findCustomerForSubject(t.client, t.storeId, identity.subject)) === null) {
+      res.status(202).end();
+      return;
+    }
     const me = await resolveCustomer(t.client, scopeOf(t), identity);
     // The customer is the requester: `requested_by` = the customer id, `requested_by_type` = customer.
     await requestCustomerExport(t.client, t.storeId, me.id, {

@@ -942,20 +942,106 @@ describe('deleteMe / the erasure tombstone (#470, #482)', () => {
     });
   });
 
-  it('a token with no row here yet: resolve-or-provision first (a verified email adopts a guest row), then erased in the same transaction', async () => {
+  it('a subject with no row here is a no-op: nothing provisioned, nothing adopted, nothing written (#487 review)', async () => {
     const guestId = await insertRow(A, 'wim@example.test');
     const wim = who('wim', { emailVerified: true });
-    expect(await eraseMe(a, scopeA, wim)).toEqual({ erased: true });
-    expect((await rowsOf(A, `erased+${guestId}@invalid`))[0]).toMatchObject({
+    const before = await totals();
+    expect(await eraseMe(a, scopeA, wim)).toEqual({ erased: false });
+    expect(await totals()).toEqual(before);
+    // the guest row with wim's verified email is untouched: not adopted, not erased
+    expect((await rowsOf(A, 'wim@example.test'))[0]).toMatchObject({
       id: guestId,
-      status: 'erased',
-      keycloak_subject: 'sub-wim',
+      status: 'guest',
+      keycloak_subject: null,
     });
-    expect((await events(guestId)).map((e) => e.topic)).toEqual([
-      'customer.updated',
-      'customer.erased',
-    ]);
-    await expect(resolveCustomer(a, scopeA, wim)).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(await events(guestId)).toEqual([]);
+  });
+
+  it('deleteMe racing a write (#487 review): a write that starts after the erase sees the erased row (401, no address on it); one that holds the lock first wins and the erasure removes what it wrote', async () => {
+    const home: AddressInput = {
+      first_name: 'Rae',
+      last_name: 'Racer',
+      line1: 'Racestreet 1',
+      city: 'Amsterdam',
+      postal_code: '1015 CJ',
+      country: 'NL',
+    };
+    const addressesOf = async (id: string) =>
+      (await owner.query('SELECT 1 FROM customer_address WHERE customer_id = $1', [id])).rowCount ??
+      0;
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    type Tx = Parameters<Parameters<typeof a.transaction>[0]>[0];
+    /** `a`, with a hook before the first query of every transaction (after BEGIN). */
+    const before = (hook: () => Promise<void>) =>
+      Object.assign(Object.create(a) as typeof a, {
+        transaction: <T>(fn: (tx: Tx) => Promise<T>) =>
+          a.transaction(async (tx) => {
+            await hook();
+            return fn(tx);
+          }),
+      });
+    /** `a`, pausing AFTER the first query of the transaction (the locked read of the customer row). */
+    const afterFirstQuery = (onFirst: () => void, release: Promise<void>) =>
+      Object.assign(Object.create(a) as typeof a, {
+        transaction: <T>(fn: (tx: Tx) => Promise<T>) =>
+          a.transaction(async (tx) => {
+            let n = 0;
+            const slow = Object.assign(Object.create(tx) as Tx, {
+              query: async (...args: Parameters<Tx['query']>) => {
+                const r = await tx.query(...args);
+                if (++n === 1) {
+                  onFirst();
+                  await release;
+                }
+                return r;
+              },
+            });
+            return fn(slow);
+          }),
+      });
+
+    // (1) the add's transaction is open BEFORE the erase commits and reads AFTER it: 401, nothing written
+    const ria = who('ria');
+    const riaRow = await resolveCustomer(a, scopeA, ria);
+    let erased: Promise<unknown> = Promise.resolve();
+    const lateAdd = addCustomerAddress(
+      before(async () => {
+        erased = eraseMe(a, scopeA, ria);
+        await erased;
+      }),
+      scopeA,
+      ria,
+      home,
+    );
+    await expect(lateAdd).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(await erased).toEqual({ erased: true });
+    expect(await addressesOf(riaRow.id)).toBe(0);
+    expect((await rowsOf(A, `erased+${riaRow.id}@invalid`))[0]).toMatchObject({ status: 'erased' });
+
+    // (2) the add holds the customer-row lock first: the erase WAITS, the add lands, the erase then deletes it
+    const rex = who('rex');
+    const rexRow = await resolveCustomer(a, scopeA, rex);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const lockHeld = new Promise<void>((r) => (locked = r));
+    const earlyAdd = addCustomerAddress(afterFirstQuery(locked, gate), scopeA, rex, home);
+    await lockHeld;
+    const lateErase = eraseMe(a, scopeA, rex);
+    expect(
+      await Promise.race([lateErase.then(() => 'done'), sleep(400).then(() => 'waiting')]),
+    ).toBe('waiting');
+    release();
+    expect(await earlyAdd).toMatchObject({ line1: 'Racestreet 1' });
+    expect(await lateErase).toEqual({ erased: true });
+    expect(await addressesOf(rexRow.id)).toBe(0);
+    expect((await rowsOf(A, `erased+${rexRow.id}@invalid`))[0]).toMatchObject({ status: 'erased' });
+    const out = await owner.query<{ doc: string }>(
+      `SELECT payload::text AS doc FROM outbox WHERE aggregate_id = $1
+       UNION ALL SELECT coalesce(after::text, '') FROM audit_log WHERE entity_id = $1`,
+      [rexRow.id],
+    );
+    expect(out.rows.map((r) => r.doc).join('\n')).not.toContain('Racestreet');
   });
 });
 

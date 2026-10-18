@@ -126,8 +126,12 @@ async function locate(
   identity: CustomerIdentity,
 ): Promise<Located> {
   for (let pass = 0; pass < 2; pass += 1) {
+    // Locked (FOR NO KEY UPDATE): the status is judged on the row as it is AFTER any concurrent erase or disable
+    // has committed, and every write of this transaction happens under that lock. Without it a request that
+    // waited behind `deleteMe` would read the active row, then lock and write personal data onto the erased one
+    // (#487 review). The lock is cheap: one customer, one transaction at a time.
     const mine = await tx.query<CustomerRow>(
-      `SELECT ${COLS} FROM customer WHERE store_id = $1 AND keycloak_subject = $2`,
+      `SELECT ${COLS} FROM customer WHERE store_id = $1 AND keycloak_subject = $2 FOR NO KEY UPDATE`,
       [scope.storeId, identity.subject],
     );
     const existing = mine.rows[0];

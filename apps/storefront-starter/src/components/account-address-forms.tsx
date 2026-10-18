@@ -1,6 +1,7 @@
 'use client';
 
 import { Button, Input } from '@platform/ui';
+import { useTranslations } from 'next-intl';
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import {
@@ -75,8 +76,10 @@ function Pending({ children, variant }: { children: React.ReactNode; variant?: '
  * Edit one saved address (#470, Store API 0.5.6 `updateMyAddress`). Collapsed to a button until the customer
  * opens it, so the address book stays a list. The form is pre-filled; the two default checkboxes are shown only
  * when the address does not hold that default yet (a default is moved by ticking it elsewhere, never given up).
+ * Copy comes from the `account.address` catalog (the i18n test refuses literal copy in `src/components`).
  */
 export function EditAddressForm({ address }: { address: CustomerAddress }) {
+  const t = useTranslations('account.address');
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState(updateAddressAction.bind(null, address.id), EMPTY);
   const errors = state.fieldErrors;
@@ -85,18 +88,18 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
   if (!open && state.ok !== true) {
     return (
       <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
-        Edit
+        {t('edit')}
       </Button>
     );
   }
   return (
-    <form action={formAction} className="mt-3 flex flex-col gap-3" aria-label="Edit address">
-      <Notice state={state} success="Address updated." />
+    <form action={formAction} className="mt-3 flex flex-col gap-3" aria-label={t('editForm')}>
+      <Notice state={state} success={t('updated')} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field
           id={`${prefix}-first_name`}
           name="first_name"
-          label="First name"
+          label={t('firstName')}
           errors={errors}
           defaultValue={address.first_name}
           autoComplete="given-name"
@@ -104,7 +107,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
         <Field
           id={`${prefix}-last_name`}
           name="last_name"
-          label="Last name"
+          label={t('lastName')}
           errors={errors}
           defaultValue={address.last_name}
           autoComplete="family-name"
@@ -113,7 +116,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
       <Field
         id={`${prefix}-company`}
         name="company"
-        label="Company (optional)"
+        label={t('company')}
         errors={errors}
         defaultValue={address.company}
         autoComplete="organization"
@@ -121,7 +124,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
       <Field
         id={`${prefix}-line1`}
         name="line1"
-        label="Address"
+        label={t('line1')}
         errors={errors}
         defaultValue={address.line1}
         autoComplete="address-line1"
@@ -129,7 +132,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
       <Field
         id={`${prefix}-line2`}
         name="line2"
-        label="Apartment, suite (optional)"
+        label={t('line2')}
         errors={errors}
         defaultValue={address.line2}
         autoComplete="address-line2"
@@ -138,7 +141,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
         <Field
           id={`${prefix}-postal_code`}
           name="postal_code"
-          label="Postal code"
+          label={t('postalCode')}
           errors={errors}
           defaultValue={address.postal_code}
           autoComplete="postal-code"
@@ -146,7 +149,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
         <Field
           id={`${prefix}-city`}
           name="city"
-          label="City"
+          label={t('city')}
           errors={errors}
           defaultValue={address.city}
           autoComplete="address-level2"
@@ -154,7 +157,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
         <Field
           id={`${prefix}-country`}
           name="country"
-          label="Country code"
+          label={t('country')}
           errors={errors}
           defaultValue={address.country}
           maxLength={2}
@@ -163,7 +166,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
       <Field
         id={`${prefix}-region`}
         name="region"
-        label="Region (optional)"
+        label={t('region')}
         errors={errors}
         defaultValue={address.region}
         autoComplete="address-level1"
@@ -171,7 +174,7 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
       <Field
         id={`${prefix}-phone`}
         name="phone"
-        label="Phone (optional)"
+        label={t('phone')}
         type="tel"
         errors={errors}
         defaultValue={address.phone}
@@ -180,19 +183,19 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
       {address.is_default_shipping ? null : (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="is_default_shipping" className="h-4 w-4" />
-          Use as my delivery address
+          {t('useDelivery')}
         </label>
       )}
       {address.is_default_billing ? null : (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="is_default_billing" className="h-4 w-4" />
-          Use as my billing address
+          {t('useBilling')}
         </label>
       )}
       <div className="flex items-center gap-2">
-        <Pending>Save address</Pending>
+        <Pending>{t('save')}</Pending>
         <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-          Cancel
+          {t('cancel')}
         </Button>
       </div>
     </form>
@@ -200,28 +203,30 @@ export function EditAddressForm({ address }: { address: CustomerAddress }) {
 }
 
 /**
- * Remove one saved address (`deleteMyAddress`, 200 with the remaining addresses). One click asks, the second confirms — a deleted
- * address is gone; when it was a default, the oldest remaining address becomes the default (the API's rule).
+ * Remove one saved address (`deleteMyAddress`, 200 with the remaining addresses). One click asks, the second
+ * confirms — a deleted address is gone; when it was a default, the oldest remaining address becomes the
+ * default (the API's rule).
  */
 export function DeleteAddressButton({ addressId }: { addressId: string }) {
+  const t = useTranslations('account.address');
   const [confirming, setConfirming] = useState(false);
   const [state, formAction] = useActionState(deleteAddressAction.bind(null, addressId), EMPTY);
 
   if (!confirming) {
     return (
       <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(true)}>
-        Remove
+        {t('remove')}
       </Button>
     );
   }
   return (
-    <form action={formAction} className="flex flex-col gap-2" aria-label="Remove address">
-      <Notice state={state} success="Address removed." />
-      <p className="text-sm text-muted-foreground">Remove this address?</p>
+    <form action={formAction} className="flex flex-col gap-2" aria-label={t('removeForm')}>
+      <Notice state={state} success={t('removed')} />
+      <p className="text-sm text-muted-foreground">{t('removeQuestion')}</p>
       <div className="flex items-center gap-2">
-        <Pending variant="destructive">Yes, remove</Pending>
+        <Pending variant="destructive">{t('removeYes')}</Pending>
         <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(false)}>
-          Keep it
+          {t('keep')}
         </Button>
       </div>
     </form>

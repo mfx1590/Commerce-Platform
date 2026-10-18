@@ -120,9 +120,9 @@ email, a name, a phone or an address (`email_hash` and field names only).
 **Erasure** is synchronous (one transaction) although the contract says "scheduled": the 202 answers both a fresh
 erasure and the replay on an already erased customer (no-op: nothing written, no second event). Two entry points,
 one shape: the Admin API `eraseCustomer` (store_admin) and the customer's own `DELETE /store/customers/me`
-(`eraseMe`, #470 — actor = the customer; a token whose customer does not exist here yet goes through
-resolve-or-provision first, so a verified email's guest row is adopted and then erased, and a brand-new subject
-gets a row and loses it in the same transaction). In that transaction:
+(`eraseMe`, #470 — actor = the customer; a subject with NO row in this store is a 202 no-op, nothing is
+provisioned — #487 review: provisioning first would put a `customer.created` with the real email hash into the
+outbox for a person who asked to be deleted; `POST /me/export` follows the same rule). In that transaction:
 
 - `status` → `erased`; `email` → **`erased+<customer_id>@invalid`** (the column is NOT NULL and unique per store;
   `.invalid` is reserved by RFC 2606, so the placeholder can never receive mail); `first_name`, `last_name`,
@@ -133,8 +133,16 @@ gets a row and loses it in the same transaction). In that transaction:
   subject nulled and the email replaced, nothing would find the erased row and the next `/me` would silently
   provision a fresh account for the person who just asked to be deleted. The Keycloak user itself (the PII outside
   Postgres) is deleted by a separate job on `customer.erased` (REQUEST #483); the tombstone is meaningless once
-  that has happened. Self-service deletion erases ONLY the requesting store's row; whether it should span every
-  brand of the organization is the owner's open decision (#473 picks it up).
+  that has happened — until #483 lands the tombstone is pseudonymous (an id that the identity provider can still
+  resolve to a person), not anonymous; after it, it resolves to nothing. Self-service deletion erases ONLY the
+  requesting store's row; whether it should span every brand of the organization is the owner's open decision
+  (#473 picks it up).
+- **Lock before judging the status (#487 review).** `resolveIn` reads the customer's row `FOR NO KEY UPDATE`, so
+  every `/me` write — profile, address add / update / delete, export request, the consent writes of #471 —
+  judges `status` on the row as it is after a concurrent erase or disable has committed, and writes under that
+  lock. A `POST /me/addresses` that waits behind `DELETE /me` therefore answers 401 and never puts an address
+  onto the erased row; one that held the lock first wins, and the erasure then deletes what it wrote (tested
+  both ways).
 - every `customer_address` row of the customer is deleted;
 - `identity_id` → null, and the organization-level `customer_identity` row is deleted when nothing references it
   any more (another store's customer of the same person, or a merged identity, keeps it — tried under a
@@ -193,8 +201,11 @@ city, a postal code, a phone or the Keycloak subject, and nothing in this module
 The account page (`src/app/[locale]/(account)/account/page.tsx`, `force-dynamic`, nothing personal in
 `searchParams`) renders the address book with an edit form and a remove button per address
 (`src/components/account-address-forms.tsx`) and a **Privacy** section (`account-privacy.tsx`): "Download my data"
-(`requestMyExport`) and "Delete my account" (typed confirmation `DELETE`, then `deleteMe`, then the local session
-is cleared and the customer lands on `/account/deleted`, which offers the Keycloak sign-out). The server actions
+(`requestMyExport`) and "Delete my account" (typed confirmation `DELETE`, then `deleteMe`; the action then clears
+the LOCAL session cookie only and the customer lands on `/account/deleted`, which offers the Keycloak SSO sign-out
+as a button — a redirect cannot POST to `/auth/sign-out`, and Keycloak's session is the customer's to end; the
+erased account answers 401 to that login either way). Copy lives in the `account.*` message catalogs (en-GB,
+de-DE): the starter's i18n test refuses literal copy in `src/components`. The server actions
 live in the route group (`account/actions.ts`) and call the Store API client's generic `request` — the client's
 typed methods are window 3's file. Pure rules (`account.config.ts`): the edit form sends every field, blank
 optional ones as `null`; a default checkbox is sent only as `true` (a default is moved by ticking it on another

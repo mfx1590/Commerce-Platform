@@ -75,12 +75,11 @@ export async function eraseCustomer(
 
 /**
  * `DELETE /store/customers/me` (#470, Store API 0.5.6): the customer erases their own row in THIS store — only
- * this store's (whether a deletion spans every brand of the organization is the owner's open decision). The
- * tombstone subject makes the replay a 202 no-op without touching the resolve rule: an erased row is found by
- * the subject BEFORE `resolveIn` would answer 401 for it. A token whose customer does not exist here yet goes
- * through the usual resolve-or-provision (a verified email adopts a guest row, which is then erased — the person
- * wants their data gone; a brand-new subject gets a row and loses it in the same transaction: one
- * `customer.created`, one `customer.erased`, no personal data left behind).
+ * this store's (whether a deletion spans every brand of the organization is the owner's open decision). A
+ * subject with NO row here is a 202 no-op: nothing is provisioned (#487 review — provisioning first would put
+ * a `customer.created` with the real email hash into the outbox for a person who asked to be deleted), and so
+ * is an already erased row (the tombstone subject finds it before `resolveIn` would answer 401). Otherwise
+ * `resolveIn` locks the row and judges its status, then the erasure runs under that lock.
  */
 export async function eraseMe(
   client: ScopedClient,
@@ -88,11 +87,11 @@ export async function eraseMe(
   identity: CustomerIdentity,
 ): Promise<EraseResult> {
   return client.transaction(async (tx) => {
-    const tombstone = await tx.query<{ status: string }>(
+    const existing = await tx.query<{ status: string }>(
       'SELECT status FROM customer WHERE store_id = $1 AND keycloak_subject = $2',
       [scope.storeId, identity.subject],
     );
-    if (tombstone.rows[0]?.status === 'erased') return { erased: false };
+    if (!existing.rows[0] || existing.rows[0].status === 'erased') return { erased: false };
     const { row } = await resolveIn(tx, scope, identity);
     const actor: Actor = { id: row.id, type: 'customer', requestId: scope.requestId ?? null };
     return eraseIn(tx, scope.organizationId, scope.storeId, row.id, actor);

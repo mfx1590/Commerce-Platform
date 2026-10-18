@@ -79,6 +79,7 @@ const PERSONAS: Record<string, Persona> = {
   },
   deleter: { subject: 'sub-deleter', storeCode: 'brand-a', email: 'deleter@example.test' },
   leaver: { subject: 'sub-leaver', storeCode: 'brand-a', email: 'leaver@example.test' },
+  ghost: { subject: 'sub-ghost', storeCode: 'brand-a', email: 'ghost@example.test' },
 };
 
 const fakeVerifier: CustomerTokenVerifier = {
@@ -929,10 +930,16 @@ describe('account self-service (#470, Store API 0.5.6): edit / delete an address
       [work.body.id, true],
       [home.body.id, false],
     ]);
-    // the id is checked before the body: a bad id is a 400 naming it, a bad body a 400 naming the field
-    expect(
-      (await as('nina', 'patch', '/store/customers/me/addresses/not-a-uuid').send({})).status,
-    ).toBe(400);
+    // the id is checked before the body: a malformed id is the same 404 as an unknown one (#487 review — the
+    // contract documents no 400 for the path, as on getOrder); a bad body is a 400 naming the field
+    for (const method of ['patch', 'delete'] as const) {
+      const malformed = await as('nina', method, '/store/customers/me/addresses/not-a-uuid').send(
+        method === 'patch' ? {} : undefined,
+      );
+      expect(malformed.status).toBe(404);
+      spec.assertSchema('Error', malformed.body);
+      expect(malformed.body.code).toBe('not_found');
+    }
     const bad = await as('nina', 'patch', `/store/customers/me/addresses/${work.body.id}`).send({
       country: 'nl',
     });
@@ -1022,6 +1029,33 @@ describe('account self-service (#470, Store API 0.5.6): edit / delete an address
     ]);
     // an unknown token cannot ask for anything
     expect((await as('nobody', 'post', '/store/customers/me/export')).status).toBe(401);
+  });
+
+  it('DELETE /me and POST /me/export for a subject with NO row: 202, nothing provisioned, the outbox stays empty (#487 review)', async () => {
+    const count = await customerCount();
+    const outbox = async () =>
+      Number(
+        (
+          await owner.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM outbox WHERE aggregate_type = 'customer'`,
+          )
+        ).rows[0]!.n,
+      );
+    const events = await outbox();
+    for (const [method, path] of [
+      ['delete', '/store/customers/me'],
+      ['post', '/store/customers/me/export'],
+      ['delete', '/store/customers/me'],
+    ] as const) {
+      const res = await as('ghost', method, path);
+      expect(res.status, `${method} ${path}`).toBe(202);
+      expect(res.text).toBe('');
+    }
+    expect(await customerCount()).toBe(count);
+    expect(await outbox()).toBe(events);
+    // the first ordinary call still provisions as before
+    expect((await as('ghost', 'get', '/store/customers/me')).status).toBe(200);
+    expect(await customerCount()).toBe(count + 1);
   });
 
   it('DELETE /store/customers/me: 202; no PII left in customer or customer_address; the order keeps customer_id; one customer.erased; the replay is a 202 no-op; the same login is a 401 everywhere after', async () => {

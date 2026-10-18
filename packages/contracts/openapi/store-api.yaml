@@ -831,9 +831,10 @@ paths:
         Changes one of the customer's addresses. Every field is optional; a present field replaces the stored
         one (`company`, `line2`, `region`, `phone` accept `null`; a required address field cannot be blanked —
         400 naming the field). `is_default_shipping` / `is_default_billing` `true` makes this address the
-        default and clears the flag on the customer's others, in one transaction; `false` is accepted only
-        when another address holds the flag — on the customer's only address it is ignored (a customer with
-        addresses always has a default). An address of another customer, or an unknown id, is a 404.
+        default and clears the flag on the customer's others, in one transaction; `false` hands the flag to
+        the customer's OLDEST OTHER address — on the customer's only address it is ignored (a customer with
+        addresses always has a default). An address of another customer, an unknown id and a malformed id are
+        the same 404.
       security:
         - publishableKey: []
           customerToken: []
