@@ -27,20 +27,24 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - 12.2 #479: MERGED with integration PR #500 = d95c64e, tagged contracts-v0.4.22 (my PR 495 head 740ecbe + cleanup
   ff05ec8; manager 2c35abc lands CONTRACT CHANGE #493 as Admin API 0.4.19; window 1 mount 1e93817, REQUEST #494;
   #479 #493 #494 closed; PR 495 marked merged).
-- 12.3 #480 (built on data/phase3, commit: see the PR "Refs #480"): `(hq)/bi` page + `_api.ts` + `_lib/report.ts`
+- 12.3 #480: PR #502 (code commits 16517a5 + 5e6a214; head = this memory commit on top of a8a8525, the merge of
+  main e930aa3). `(hq)/bi` page + `_api.ts` + `_lib/report.ts`
   + `_components/{bi-report,series-chart}.tsx` + README; `apps/admin/test/bi/{report,bi-page}.test.ts(x)` (32),
   `apps/admin/test-contract/bi/bi.test.ts` (4, Prism); core: analyst reads a store's stock test,
   REFUND_REASONS.includes.
 
 ## In progress
-- #480: ownership row on main (e930aa3). PR "Closes #480" pushed from data/phase3; report number + head sha, then
-  checks. `apps/admin/e2e/bi/bi.spec.ts` ran ONCE on the kept core with the manager's go (2026-10-18): 2 passed
+- #480: PR #502 (Closes #480), reviewed: BLOCK only on this record, fixed by this memory commit; the manager queues it
+  once checks are green. Push NOTHING else and do not merge main again (the queue does that). `apps/admin/e2e/bi/bi.spec.ts` ran ONCE on the kept core with the manager's go (2026-10-18): 2 passed
   (store-admin 403; owner sees brands A, B, C, finance card, EUR tab). First invocation failed on two spec locators
   (the HQ layout guard answers a store-only user before the BI guard; the shell has its own img), fixed and re-run.
   Core stopped afterwards, "machine free" reported.
 
 ## Next — Phase 3
 - [ ] After #480: ask the manager for the next docket (reporting v1 is then complete).
+- [ ] Nits from the #502 review, for the next PR (not #502): a finance currency with no sales cannot be reached
+      through the tabs (bi-report.tsx ~271, tabs come from sales only); no per-day refunds chart; `codeOf` falls back
+      to `id.slice(0, 8)`.
 
 ## Decisions made (with reasons)
 - #478 (manager 2026-10-18): views tested in `apps/core/src/modules/reporting/reporting-views.test.ts` on the
