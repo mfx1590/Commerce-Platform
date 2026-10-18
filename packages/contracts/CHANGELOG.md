@@ -271,3 +271,23 @@
 - Required in the response, so it lands with the producer (manager decision on #475). `CONTRACTS_VERSION =
 '0.4.19'`; types regenerated. Producer: window 1 (core inventory module, the level projection selects
   `warehouse.code`). Consumer: window 4 (admin Store · Inventory warehouse column and filter).
+
+## 0.4.20 — 2026-10-18 (customer self-service, CONTRACT CHANGE #482; contracts-v0.4.20)
+
+- Store API 0.5.6, four operations (publishable key + customer token, 401 and the resolve-or-provision 409 like every
+  `/store/customers/me*` operation):
+  - `updateMyAddress` — `PATCH /store/customers/me/addresses/{addressId}`: partial (every field optional, `null`
+    clears `company` / `line2` / `region` / `phone`), default flags as `addMyAddress`; 200 `CustomerAddress`,
+    400, 404 (another customer's address or an unknown id).
+  - `deleteMyAddress` — `DELETE /store/customers/me/addresses/{addressId}`: the oldest remaining address takes a
+    removed default flag; **200 `{ items }`** (the remaining addresses, the `listMyAddresses` shape), not 204
+    (manager decision on #482: no Store API 204, the account page needs the new list anyway); 404.
+  - `requestMyExport` — `POST /store/customers/me/export`: 202; one `customer.export_requested` v2
+    (`requested_by_type: customer`) per call, no dedupe.
+  - `deleteMe` — `DELETE /store/customers/me`: 202; erases this store's customer row as the Admin API
+    `eraseCustomer` does; the Keycloak subject stays on the erased row as a tombstone; a replay is a 202 no-op.
+  - New path parameter `AddressId`. Examples on every 2xx with a body (the mock answers from them).
+- events 0.3.5: `customer.export_requested` v2 (`requested_by_type` `staff` | `customer`, required); v1 stays
+  registered and frozen; `makeEvent` writes v2. No db change.
+- `CONTRACTS_VERSION = '0.4.20'`; types regenerated. Producer: window 13 (core customers module, the admin export
+  path too: `requested_by_type: staff`). Consumers: the storefronts' account page (window 13).

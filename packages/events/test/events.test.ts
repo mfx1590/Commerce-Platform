@@ -7,6 +7,7 @@ import {
   makeEvent,
   toOutboxRow,
   type AggregateType,
+  type CustomerExportRequestedV2,
   type EventEnvelope,
   type EventTopic,
   type OrderPlacedV1,
@@ -311,16 +312,12 @@ describe('event schemas', () => {
       requested_by: '00000000-0000-4000-8000-000000000101',
       requested_at: '2026-10-08T12:00:00.000Z',
     };
-    const e = makeEvent({
-      topic: 'customer.export_requested',
-      organizationId: ORG,
-      storeId: STORE,
-      aggregateType: 'customer',
-      aggregateId: ID,
-      payload: exportRequested,
+    // v1 is frozen and still validates its own payload; makeEvent writes v2 since 0.3.5 (#482)
+    expect(v.validatePayload('customer.export_requested', 1, exportRequested)).toEqual({
+      ok: true,
+      errors: [],
     });
-    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
-    expect(LATEST_VERSION['customer.export_requested']).toBe(1);
+    expect(LATEST_VERSION['customer.export_requested']).toBe(2);
     const { requested_by: _drop, ...noRequester } = exportRequested;
     expect(v.validatePayload('customer.export_requested', 1, noRequester).ok).toBe(false);
     expect(
@@ -331,6 +328,54 @@ describe('event schemas', () => {
         })
         .errors.join(),
     ).toMatch(/additional properties/);
+  });
+
+  it('customer.export_requested v2 (0.3.5, #482): requested_by_type is required, closed and ids-only', () => {
+    const byCustomer: CustomerExportRequestedV2 = {
+      customer_id: ID,
+      requested_by: ID,
+      requested_by_type: 'customer',
+      requested_at: '2026-10-18T12:00:00.000Z',
+    };
+    const e = makeEvent({
+      topic: 'customer.export_requested',
+      organizationId: ORG,
+      storeId: STORE,
+      aggregateType: 'customer',
+      aggregateId: ID,
+      payload: byCustomer,
+    });
+    expect(e.version).toBe(2);
+    expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+    const byStaff = {
+      ...byCustomer,
+      requested_by: '00000000-0000-4000-8000-000000000101',
+      requested_by_type: 'staff',
+    };
+    expect(v.validatePayload('customer.export_requested', 2, byStaff)).toEqual({
+      ok: true,
+      errors: [],
+    });
+    const { requested_by_type: _type, ...noType } = byCustomer;
+    expect(v.validatePayload('customer.export_requested', 2, noType).errors.join()).toMatch(
+      /requested_by_type/,
+    );
+    expect(
+      v.validatePayload('customer.export_requested', 2, {
+        ...byCustomer,
+        requested_by_type: 'system',
+      }).ok,
+    ).toBe(false);
+    expect(
+      v
+        .validatePayload('customer.export_requested', 2, {
+          ...byCustomer,
+          email: 'someone@example.com',
+        })
+        .errors.join(),
+    ).toMatch(/additional properties/);
+    // a v2 payload is not a v1 payload (v1 never knew requested_by_type)
+    expect(v.validatePayload('customer.export_requested', 1, byCustomer).ok).toBe(false);
   });
 
   it('stock.moved v2 (0.3.3, #453) is keyed by the stock item; a store and its variant come together or not at all', () => {

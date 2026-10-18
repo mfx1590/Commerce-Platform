@@ -160,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.5/);
+    expect(text).toMatch(/version: 0\.5\.6/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -182,6 +182,60 @@ describe('store-api.yaml', () => {
     );
     expect(store).toMatch(/settings\.payment\.invoice_allowed/);
     expect(text).toMatch(/^ {8}payment: \{ methods: \[card, invoice\] \}$/m);
+  });
+});
+
+describe('store-api.yaml customer self-service (0.5.6, #482)', () => {
+  const text = read('store-api.yaml');
+  const ops = operations(text);
+  const body = (id: string) => ops.find((o) => o.id === id)!.body;
+  const block = (path: string, next: string) =>
+    text.slice(text.indexOf(`\n  ${path}:\n`), text.indexOf(`\n  ${next}:\n`));
+
+  it('the four operations exist on the right paths with the right methods', () => {
+    expect(ops.length).toBe(26);
+    const me = block('/store/customers/me', '/store/customers/me/addresses');
+    expect(me).toMatch(/^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMe$/m);
+    const one = block('/store/customers/me/addresses/{addressId}', '/store/customers/me/export');
+    expect(one).toMatch(/parameters:\n\s+- \{ \$ref: '#\/components\/parameters\/AddressId' \}/);
+    expect(one).toMatch(/^ {4}patch:\n {6}tags: \[customers\]\n {6}operationId: updateMyAddress$/m);
+    expect(one).toMatch(
+      /^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMyAddress$/m,
+    );
+    const exp = block('/store/customers/me/export', '/store/customers/me/orders');
+    expect(exp).toMatch(/^ {4}post:\n {6}tags: \[customers\]\n {6}operationId: requestMyExport$/m);
+    expect(exp).not.toMatch(/^ {4}(get|patch|delete):$/m);
+    expect(text).toMatch(/AddressId:\n\s+name: addressId\n\s+in: path\n\s+required: true/);
+  });
+
+  it('publishable key + customer token, 401 and the resolve-or-provision 409 on each', () => {
+    const required =
+      /security:\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]\n\s+(responses|requestBody):/;
+    for (const id of ['updateMyAddress', 'deleteMyAddress', 'requestMyExport', 'deleteMe']) {
+      expect(body(id), id).toMatch(required);
+      expect(body(id), `${id} 401`).toContain(`'401':`);
+      expect(body(id), `${id} 409`).toMatch(/'409':[\s\S]*code: conflict/);
+    }
+    for (const id of ['updateMyAddress', 'deleteMyAddress']) {
+      expect(body(id), `${id} 404`).toContain(`'404':`);
+    }
+    expect(body('updateMyAddress')).toContain(`'400':`);
+  });
+
+  it('updateMyAddress is a partial PATCH answering the address; deleteMyAddress answers 200 { items }, never 204', () => {
+    const update = body('updateMyAddress');
+    expect(update).toMatch(/'200':[\s\S]*\$ref: '#\/components\/schemas\/CustomerAddress'/);
+    expect(update).not.toMatch(/^\s+required: \[/m);
+    for (const f of ['company', 'line2', 'region', 'phone']) {
+      expect(update, f).toMatch(new RegExp(`${f}: \\{ type: \\[string, 'null'\\] \\}`));
+    }
+    const del = body('deleteMyAddress');
+    expect(del).toMatch(/'200':[\s\S]*required: \[items\][\s\S]*example:\n\s+items:/);
+    expect(del).not.toContain(`'204'`);
+    expect(text).not.toMatch(/'204':/);
+    for (const id of ['requestMyExport', 'deleteMe']) {
+      expect(body(id), id).toMatch(/'202': \{ description: /);
+    }
   });
 });
 

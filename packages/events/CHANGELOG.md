@@ -60,3 +60,13 @@
   that one is a v2. `order.cancelled` v1 is unchanged; 37 topics, unchanged.
 - Producer: the core's orders module (window 1, a later PR): its own `order.updated` with
   `changed_fields: ['payment_status']`, in the same transaction as the void, before the status moves to `cancelled`.
+
+## 0.3.5 — 2026-10-18 (CONTRACT CHANGE #482, customer self-service; contracts-v0.4.20)
+
+- `customer.export_requested` v2: adds the required `requested_by_type` (`staff` | `customer`, closed enum);
+  `requested_by` is the staff_user id or the customer id accordingly (the Store API `requestMyExport` has no staff
+  id). Ids only, `additionalProperties: false`. v1 stays registered and frozen; `makeEvent` writes v2;
+  `LATEST_VERSION['customer.export_requested']` is 2. 37 topics, unchanged.
+- Producers: the core's customers module (window 13) — the admin `exportCustomer` path with
+  `requested_by_type: staff`, `requestMyExport` with `customer`. No consumer yet (13.3 / #472 is the first and reads
+  v2).
