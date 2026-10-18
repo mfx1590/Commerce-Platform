@@ -275,6 +275,15 @@ describe('the router: permissions and the wire shape', () => {
     expect((await as('seed-analyst')(`/admin/hq/reports/finance${q}`)).status).toBe(403);
   });
 
+  it('analyst: reads a store’s stock (store.viewer includes analyst from organization) — the BI stock tab', async () => {
+    for (const store of [A, B]) {
+      const res = await as('seed-analyst')(`/admin/stores/${store}/reports/stock?limit=5`);
+      expect(res.status, store).toBe(200);
+      expectSchema('StockReport', res.body);
+      expect((res.body.items as Row[]).length).toBeGreaterThan(0);
+    }
+  });
+
   it('finance and owner: 200 on HQ finance', async () => {
     for (const subject of ['seed-finance', 'seed-owner']) {
       const res = await as(subject)(`/admin/hq/reports/finance${q}`);
