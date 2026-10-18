@@ -394,6 +394,7 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
           status: 'erased',
           addresses_deleted: 1,
           consents_deleted: 0,
+          exports_deleted: 0,
           identity_unlinked: true,
           identity_deleted: false,
         },
@@ -439,6 +440,126 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
     ).toBe(404);
     const untouched = await db.owner.query('SELECT status FROM customer WHERE id = $1', [ERIN_B]);
     expect(untouched.rows[0].status).toBe('registered');
+  });
+});
+
+describe('listCustomerExports / getCustomerExport (#472, Admin API 0.4.20)', () => {
+  const NED = '50000000-0000-4000-8000-000000000041'; // brand-a, registered
+  const NED_EVENT = '50000000-0000-4000-8000-0000000000a1';
+  const READY = '50000000-0000-4000-8000-000000000e01';
+  const EXPIRED = '50000000-0000-4000-8000-000000000e02';
+  const PENDING = '50000000-0000-4000-8000-000000000e03';
+  const bundle = {
+    format: 'customer-export/v1',
+    store_id: A,
+    customer: { id: NED, email: 'ned@example.com' },
+  };
+  beforeAll(async () => {
+    const { gzipSync } = await import('node:zlib');
+    const { createHash } = await import('node:crypto');
+    const gz = gzipSync(Buffer.from(JSON.stringify(bundle), 'utf8'));
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, keycloak_subject, email, status)
+       VALUES ($1, $2, $3, 'kc-ned', 'ned@example.com', 'registered')`,
+      [NED, ORG, A],
+    );
+    await db.owner.query(
+      `INSERT INTO customer_export (id, organization_id, store_id, customer_id, event_id, requested_by, requested_by_type,
+         requested_at, status, reason, format, bundle, bundle_sha256, bundle_size, ready_at, expires_at, purged_at, created_at)
+       VALUES ($1, $4, $5, $6, $7, $6, 'customer', '2026-10-01T10:00:00Z', 'ready', NULL, 'customer-export/v1', $8, $9, $10,
+               '2026-10-01T10:05:00Z', '2026-10-31T10:05:00Z', NULL, '2026-10-01T10:00:00Z'),
+              ($2, $4, $5, $6, gen_random_uuid(), $6, 'customer', '2026-09-01T10:00:00Z', 'expired', NULL, 'customer-export/v1', NULL, NULL, NULL,
+               '2026-09-01T10:05:00Z', '2026-10-01T10:05:00Z', '2026-10-01T10:05:00Z', '2026-09-01T10:00:00Z'),
+              ($3, $4, $5, $6, gen_random_uuid(), '00000000-0000-4000-8000-000000000044', 'staff', '2026-10-02T10:00:00Z', 'pending', NULL, NULL, NULL, NULL, NULL,
+               NULL, NULL, NULL, '2026-10-02T10:00:00Z')`,
+      [
+        READY,
+        EXPIRED,
+        PENDING,
+        ORG,
+        A,
+        NED,
+        NED_EVENT,
+        gz,
+        createHash('sha256').update(gz).digest('hex'),
+        gz.length,
+      ],
+    );
+  });
+
+  it('store_admin lists newest first with who asked; downloads the ready bundle as an attachment (audited, counted); pending 404; expired 410; support 403', async () => {
+    const list = await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports`);
+    expect(list.status).toBe(200);
+    expect(list.body.items.map((x: { id: string }) => x.id)).toEqual([PENDING, READY, EXPIRED]);
+    expect(list.body.items[1]).toEqual({
+      id: READY,
+      status: 'ready',
+      requested_at: '2026-10-01T10:00:00.000Z',
+      ready_at: '2026-10-01T10:05:00.000Z',
+      expires_at: '2026-10-31T10:05:00.000Z',
+      size_bytes: expect.any(Number),
+      reason: null,
+      requested_by: NED,
+      requested_by_type: 'customer',
+      download_count: 0,
+    });
+    expect(JSON.stringify(list.body)).not.toContain('ned@example.com');
+
+    const file = await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports/${READY}`);
+    expect(file.status).toBe(200);
+    expect(file.headers['content-disposition']).toBe(
+      `attachment; filename="customer-export-${READY}.json"`,
+    );
+    expect(file.body).toEqual(bundle);
+    const audit = await db.owner.query(
+      `SELECT actor_type FROM audit_log WHERE action = 'customer_export.download' AND entity_id = $1`,
+      [READY],
+    );
+    expect(audit.rows).toEqual([{ actor_type: 'staff' }]);
+    expect(
+      (await db.owner.query('SELECT download_count FROM customer_export WHERE id = $1', [READY]))
+        .rows[0],
+    ).toEqual({ download_count: 1 });
+
+    expect(
+      (await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports/${PENDING}`)).status,
+    ).toBe(404);
+    const gone = await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports/${EXPIRED}`);
+    expect(gone.status).toBe(410);
+    expect(gone.body).toMatchObject({
+      code: 'expired',
+      details: { expires_at: '2026-10-01T10:05:00.000Z' },
+    });
+    expect((await support.get(`/admin/stores/${A}/customers/${NED}/exports`)).status).toBe(403);
+    expect((await support.get(`/admin/stores/${A}/customers/${NED}/exports/${READY}`)).status).toBe(
+      403,
+    );
+  });
+
+  it("store-scoped: through brand-b's path the customer is a 404; a brand-a-only admin cannot reach brand-b (403); an erased customer is a 404 and its exports are gone", async () => {
+    expect((await storeAdmin.get(`/admin/stores/${B}/customers/${NED}/exports`)).status).toBe(404);
+    expect(
+      (await storeAdmin.get(`/admin/stores/${B}/customers/${NED}/exports/${READY}`)).status,
+    ).toBe(404);
+    expect((await aOnlyAdmin.get(`/admin/stores/${B}/customers/${NED}/exports`)).status).toBe(403);
+    expect(
+      (
+        await request(app)
+          .post(`/admin/stores/${A}/customers/${NED}/erase`)
+          .set('Authorization', 'Bearer dev:seed-store-admin')
+          .send({})
+      ).status,
+    ).toBe(202);
+    expect((await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports`)).status).toBe(404);
+    expect(
+      (await db.owner.query('SELECT 1 FROM customer_export WHERE customer_id = $1', [NED]))
+        .rowCount,
+    ).toBe(0);
+    const erase = await db.owner.query<{ after: Record<string, unknown> }>(
+      `SELECT after FROM audit_log WHERE action = 'customer.erase' AND entity_id = $1`,
+      [NED],
+    );
+    expect(erase.rows[0]!.after).toMatchObject({ exports_deleted: 3 });
   });
 });
 

@@ -12,7 +12,10 @@ import {
   eraseMe,
   findCustomerForSubject,
   getMyConsents,
+  getMyExport,
   listCustomerAddresses,
+  listMyExports,
+  sendExport,
   putMyConsents,
   registerCustomer,
   requestCustomerExport,
@@ -127,6 +130,9 @@ export const CUSTOMER_STORE_PATHS = [
   // Store API 0.5.7 (#471 / #489): the consent ledger.
   'GET /store/customers/me/consents',
   'PUT /store/customers/me/consents',
+  // Store API 0.5.8 (#472 / #498): export delivery.
+  'GET /store/customers/me/exports',
+  'GET /store/customers/me/exports/{exportId}',
 ] as const;
 
 /**
@@ -264,6 +270,22 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
     });
   });
 
+  // Export delivery (#472): the list, and the bundle as an attachment. A malformed export id is the same 404 as
+  // an unknown one (as the address id); an expired or purged one is 410 `expired`.
+  const listMyExportsRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    res.json({ items: await listMyExports(t.client, scopeOf(t), identity) });
+  });
+
+  const getMyExportRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    const raw = one(req.params.exportId) ?? '';
+    if (!UUID.test(raw)) throw notFound('export', raw);
+    sendExport(res, await getMyExport(t.client, scopeOf(t), identity, raw));
+  });
+
   const deleteMeRoute: RequestHandler = handle(async (req, res) => {
     const t = requireTenant(req);
     const identity = await requireCustomer(req, t, verifier);
@@ -285,6 +307,8 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   app.post('/store/customers/me/export', requestMyExportRoute);
   app.get('/store/customers/me/consents', getMyConsentsRoute);
   app.put('/store/customers/me/consents', json, putMyConsentsRoute);
+  app.get('/store/customers/me/exports', listMyExportsRoute);
+  app.get('/store/customers/me/exports/:exportId', getMyExportRoute);
   app.delete('/store/customers/me', deleteMeRoute);
   // Terminal: every operation of this prefix is answered above, so whatever is left — an unknown path, or
   // PUT / DELETE / … on a known one — is a 404 here. It must never fall through to the Store API fallback proxy

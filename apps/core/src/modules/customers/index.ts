@@ -71,4 +71,31 @@ export type {
   ConsentPurpose,
   ConsentSource,
 } from './consent-ledger';
-export { customersAdminRouter, CUSTOMER_CONSENTS_PATH } from './http';
+export {
+  customersAdminRouter,
+  CUSTOMER_CONSENTS_PATH,
+  CUSTOMER_EXPORT_PATH,
+  CUSTOMER_EXPORTS_PATH,
+  sendExport,
+} from './http';
+// Export delivery (#472)
+export {
+  adminGetCustomerExport,
+  adminListCustomerExports,
+  buildPendingExports,
+  claimExportRequests,
+  DEFAULT_EXPORT_MAX_BYTES,
+  DEFAULT_EXPORT_TTL_DAYS,
+  EXPORT_CLAIM_LOOKBACK,
+  EXPORT_FORMAT,
+  getMyExport,
+  listMyExports,
+  purgeExpiredExports,
+} from './export-delivery';
+export type {
+  AdminCustomerExportSummary,
+  BuildOptions,
+  BuildResult,
+  CustomerExportSummary,
+  ExportDownload,
+} from './export-delivery';

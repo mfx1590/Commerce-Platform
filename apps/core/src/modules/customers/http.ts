@@ -11,10 +11,35 @@ import { enumParam, one, throwIfProblems, uuidParam } from '../../http/query';
 import { requirePrincipal, storeClientFor } from '../../http/staff-auth';
 import { adminListCustomerConsents } from './consent';
 import { CONSENT_PURPOSES } from './consent-ledger';
+import {
+  adminGetCustomerExport,
+  adminListCustomerExports,
+  type ExportDownload,
+} from './export-delivery';
 
 export const CUSTOMER_CONSENTS_PATH = '/admin/stores/:storeId/customers/:customerId/consents';
+export const CUSTOMER_EXPORTS_PATH = '/admin/stores/:storeId/customers/:customerId/exports';
+export const CUSTOMER_EXPORT_PATH =
+  '/admin/stores/:storeId/customers/:customerId/exports/:exportId';
 
-function permission(operationId: 'listCustomerConsents'): RequestHandler {
+type Operation = 'listCustomerConsents' | 'listCustomerExports' | 'getCustomerExport';
+
+/** Sends a bundle as a JSON attachment: never cached, never inline (the browser must not render it as a page). */
+export function sendExport(
+  res: {
+    setHeader(name: string, value: string): unknown;
+    status(code: number): { send(body: Buffer): unknown };
+  },
+  file: ExportDownload,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.status(200).send(file.body);
+}
+
+function permission(operationId: Operation): RequestHandler {
   const perm = loadSpec('admin-api.yaml').permission(operationId);
   return requirePermission(perm.relation, (req: Request) =>
     resolveObject(perm.object, { storeId: one(req.params.storeId) }),
@@ -41,6 +66,39 @@ export function customersAdminRouter(): Router {
           purpose,
         ),
       });
+    }),
+  );
+  // #472: the customer's exports (store_admin)
+  r.get(
+    CUSTOMER_EXPORTS_PATH,
+    permission('listCustomerExports'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      const customerId = uuidParam(req.params, 'customerId');
+      res.json({
+        items: await adminListCustomerExports(storeClientFor(p, storeId), storeId, customerId),
+      });
+    }),
+  );
+  r.get(
+    CUSTOMER_EXPORT_PATH,
+    permission('getCustomerExport'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      const customerId = uuidParam(req.params, 'customerId');
+      const exportId = uuidParam(req.params, 'exportId');
+      sendExport(
+        res,
+        await adminGetCustomerExport(
+          storeClientFor(p, storeId),
+          storeId,
+          customerId,
+          exportId,
+          p.actor,
+        ),
+      );
     }),
   );
   return r;

@@ -9,6 +9,17 @@
   `store:{storeId}`). Ten module routers. The mount test checks support and a store admin 200, store staff 403, no
   token 401, an unknown customer the route's own 404.
 
+### 2026-10-18 · export delivery (#472, window 13; CONTRACT CHANGE #498: db 0195 `customer_export`, events `customer.export_ready`, Store API 0.5.8, Admin API 0.4.20, error code `expired`)
+
+- `src/jobs/customer-export.ts` (Medusa job every five minutes + one-shot CLI) consumes `customer.export_requested`:
+  claim (one `customer_export` row per event, idempotent on `event_id`), build (`buildCustomerExport` → gzip →
+  `bytea` + sha256 under a hard size cap `CORE_CUSTOMER_EXPORT_MAX_BYTES`, 30-day TTL, one `customer.export_ready`),
+  purge (bundle, size and digest gone after the TTL; the bare row stays). Store `GET /store/customers/me/exports`
+  and `…/exports/{exportId}` (the bundle as a JSON attachment; expired / purged → 410 `expired`); Admin
+  `listCustomerExports` / `getCustomerExport` (store_admin) on `customersAdminRouter`. Every download is counted and
+  audited. Erase deletes every export of the customer, bundles included (`exports_deleted`).
+- `src/lib/errors.ts`: `expired` → 410 (the new contract code; integration exception, named in the commit).
+
 ### 2026-10-18 · consent ledger (#471, window 13; CONTRACT CHANGE #489: db 0194 `customer_consent`, Store API 0.5.7, Admin API 0.4.18)
 
 - `customer_consent` is the record of truth (append-only, store-scoped, one row per changed answer with source and
