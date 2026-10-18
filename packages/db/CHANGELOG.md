@@ -100,3 +100,15 @@
   and no backfill (manager decision on #466); the core starts writing the value in a later PR.
 - test/rls.test.ts: the re-added check keeps its name and carries `voided`; an order row updates to `voided`; unknown
   values (`cancelled`, the payment row's word, and `void`) are still refused by it.
+
+## 0.3.8 — 2026-10-18 (CONTRACT CHANGE #485, reporting views; window 12, #478)
+
+- Migration 0200 reporting views: `rpt_sales_daily`, `rpt_payments_daily`, `rpt_refunds_daily`, `rpt_stock_position`,
+  `rpt_customers_daily`; security_invoker, SELECT-only for platform_app; partial indexes payment (store_id,
+  captured_at), refund (store_id, created_at). The SQL is window 12's proposed file verbatim (header replaced). Every
+  view is `security_invoker = true`, so the base tables' row-level security runs as the caller: a store session sees
+  only its own stores' rows, no context sees nothing. No new role, no SECURITY DEFINER, no materialisation. The
+  migration revokes everything 0009's default privileges would grant and grants `platform_app` SELECT only. Money
+  columns are bigint minor units grouped by currency; no column carries PII. Grain and filters: data/reporting/README.md.
+- No seed change and no new event. The views' reconciliation and isolation tests live in the core reporting module
+  (window 12); its commit in this landing runs them on the landed migration.
