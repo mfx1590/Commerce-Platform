@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.20
+  version: 0.4.21
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -3017,6 +3017,52 @@ paths:
                   - { id: 40000000-0000-4000-8000-000000000001, code: vip, name: VIP }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/customer-identities/{identityId}:
+    parameters:
+      - { name: identityId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: getCustomerIdentity
+      summary: HQ-only — the per-brand customer rows one person's identity links (ids only; no hash, no subject, no email)
+      description: |
+        For HQ support resolving "is this the same person" and for the erasure / BI joins. Answers store and customer
+        ids only. A merged identity answers the identity it was merged into. A store-scoped principal (a store admin,
+        whatever its relations on its own stores) gets 403: the read needs `support` on `organization:hq`. 404 means
+        the identity is unknown.
+      x-permission: { relation: support, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, customers]
+                properties:
+                  id: { type: string, format: uuid }
+                  customers:
+                    type: array
+                    items:
+                      type: object
+                      required: [store_id, customer_id]
+                      properties:
+                        store_id: { type: string, format: uuid }
+                        customer_id: { type: string, format: uuid }
+              example:
+                id: 50000000-0000-4000-8000-000000000301
+                customers:
+                  - {
+                      store_id: 00000000-0000-4000-8000-000000000031,
+                      customer_id: 50000000-0000-4000-8000-000000000011,
+                    }
+                  - {
+                      store_id: 00000000-0000-4000-8000-000000000032,
+                      customer_id: 50000000-0000-4000-8000-000000000012,
+                    }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- roles
   /admin/users:

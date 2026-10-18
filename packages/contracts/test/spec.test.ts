@@ -244,7 +244,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.20/);
+    expect(text).toMatch(/version: 0\.4\.21/);
     for (const tag of [
       'registry',
       'catalog',
@@ -975,7 +975,7 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(130); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498)
+    expect(ops.length).toBe(131); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1056,7 +1056,6 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
 
   it('versions, and the closed error list gains expired with a shared 410 Gone in both specs', () => {
     expect(store).toMatch(/^ {2}version: 0\.5\.8$/m);
-    expect(admin).toMatch(/^ {2}version: 0\.4\.20$/m);
     expect(ERROR_CODES).toContain('expired');
     for (const [name, text] of [
       ['store', store],
@@ -1108,7 +1107,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
-    expect(adminOps.length).toBe(130);
+    expect(adminOps.length).toBe(131); // +getCustomerIdentity at 0.4.21 (#504)
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
     );
@@ -1143,5 +1142,56 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
         );
       }
     }
+  });
+});
+
+describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
+  const admin = read('admin-api.yaml');
+  const store = read('store-api.yaml');
+  const adminOps = operations(admin);
+  const abody = (id: string) => adminOps.find((o) => o.id === id)!.body;
+  const permission = (id: string) =>
+    abody(id)
+      .match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
+    expect(admin).toMatch(/^ {2}version: 0\.4\.21$/m);
+    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m); // Store API unchanged (#504)
+    expect(adminOps.length).toBe(131); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504)
+    const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
+    expect(start).toBeGreaterThan(0);
+    // next to /admin/users
+    expect(admin.indexOf('\n  /admin/users:\n')).toBeGreaterThan(start);
+    const item = admin.slice(start, admin.indexOf('\n  /admin/users:\n'));
+    expect(item).toMatch(/name: identityId, in: path, required: true/);
+    expect(item).toMatch(
+      /^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: getCustomerIdentity$/m,
+    );
+    expect(item).not.toMatch(/^ {4}(post|put|patch|delete):$/m);
+    expect(permission('getCustomerIdentity')).toEqual(['support', 'organization:hq']);
+    const body = abody('getCustomerIdentity');
+    for (const code of ['200', '401', '403', '404']) expect(body, code).toContain(`'${code}':`);
+    expect(body).not.toMatch(/requestBody:/);
+    // condition 4: a store-scoped principal is a 403, an unknown identity a 404
+    expect(body).toMatch(/store-scoped principal[\s\S]*403/);
+    expect(body).toMatch(/404 means\s+the identity is unknown/);
+    // ids only: no hash, no subject, no email in the answer
+    expect(body).toMatch(/required: \[id, customers\]/);
+    expect(body).toMatch(/required: \[store_id, customer_id\]/);
+    const schema = body.slice(body.indexOf("'200':"), body.indexOf("'401':"));
+    expect(schema).not.toMatch(/email|subject|hash|identity_id/);
+    expect(body).toMatch(/\n {14}example:\n/);
+    for (const m of admin.matchAll(/\$ref: '#\/components\/(\w+)\/(\w+)'/g)) {
+      const section = admin.indexOf(`\n  ${m[1]}:\n`);
+      expect(section, m[1]).toBeGreaterThan(0);
+      expect(admin.indexOf(`\n    ${m[2]}:\n`, section), `${m[1]}/${m[2]}`).toBeGreaterThan(
+        section,
+      );
+    }
+  });
+
+  it('the Store API carries no identity_id (Store API unchanged)', () => {
+    expect(store).not.toMatch(/identity_id/);
   });
 });
