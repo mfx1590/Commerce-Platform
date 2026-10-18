@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.17
+  version: 0.4.18
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -2851,6 +2851,57 @@ paths:
                       phone: null,
                       is_default_shipping: true,
                       is_default_billing: true,
+                    }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/customers/{customerId}/consents:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: listCustomerConsents
+      summary: The customer's consent ledger in this store — every recorded decision, newest first (personal data — same gate as the record)
+      x-permission: { relation: support, object: 'store:{storeId}' }
+      parameters:
+        - {
+            name: purpose,
+            in: query,
+            required: false,
+            schema: { type: string, enum: [marketing_email] },
+          }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, purpose, granted, source, policy_version, recorded_at]
+                      properties:
+                        id: { type: string, format: uuid }
+                        purpose: { type: string, enum: [marketing_email] }
+                        granted: { type: boolean }
+                        source: { type: string, enum: [storefront, admin, import] }
+                        policy_version: { type: string }
+                        recorded_at: { type: string, format: date-time }
+              example:
+                items:
+                  - {
+                      id: 30000000-0000-4000-8000-000000000d01,
+                      purpose: marketing_email,
+                      granted: false,
+                      source: storefront,
+                      policy_version: '2026-10',
+                      recorded_at: '2026-10-18T10:00:00Z',
                     }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }

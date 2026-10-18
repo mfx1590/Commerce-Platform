@@ -160,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.6/);
+    expect(text).toMatch(/version: 0\.5\.7/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -193,7 +193,7 @@ describe('store-api.yaml customer self-service (0.5.6, #482)', () => {
     text.slice(text.indexOf(`\n  ${path}:\n`), text.indexOf(`\n  ${next}:\n`));
 
   it('the four operations exist on the right paths with the right methods', () => {
-    expect(ops.length).toBe(26);
+    expect(ops.length).toBe(28); // 26 at 0.5.6; +getMyConsents / putMyConsents at 0.5.7 (#489)
     const me = block('/store/customers/me', '/store/customers/me/addresses');
     expect(me).toMatch(/^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMe$/m);
     const one = block('/store/customers/me/addresses/{addressId}', '/store/customers/me/export');
@@ -244,7 +244,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.17/);
+    expect(text).toMatch(/version: 0\.4\.18/);
     for (const tag of [
       'registry',
       'catalog',
@@ -902,5 +902,65 @@ describe('InventoryLevel.warehouse_code (contracts 0.4.19, Admin API 0.4.17, #47
       expect(body, id).toMatch(/warehouse_code: wh-eu,/);
     }
     expect(text.split("$ref: '#/components/schemas/InventoryLevel'").length - 1).toBe(2);
+  });
+});
+
+describe('customer consent ledger (contracts 0.4.21, Store API 0.5.7, Admin API 0.4.18, #489)', () => {
+  const store = read('store-api.yaml');
+  const admin = read('admin-api.yaml');
+  const storeOps = operations(store);
+  const adminOps = operations(admin);
+  const sbody = (id: string) => storeOps.find((o) => o.id === id)!.body;
+
+  it('getMyConsents / putMyConsents on /store/customers/me/consents, customer-token secured, with the /me 409', () => {
+    expect(storeOps.length).toBe(28);
+    const start = store.indexOf('\n  /store/customers/me/consents:\n');
+    expect(start).toBeGreaterThan(0);
+    const path = store.slice(start, store.indexOf('\n  /store/customers/me/export:\n'));
+    expect(path).toMatch(/^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: getMyConsents$/m);
+    expect(path).toMatch(/^ {4}put:\n {6}tags: \[customers\]\n {6}operationId: putMyConsents$/m);
+    for (const id of ['getMyConsents', 'putMyConsents']) {
+      expect(sbody(id), id).toMatch(/security:\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]/);
+      expect(sbody(id), id).toContain("$ref: '#/components/schemas/CustomerConsents'");
+      expect(sbody(id), id).toMatch(/'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/);
+      expect(sbody(id), id).toMatch(/'409':[\s\S]*code: conflict/);
+      expect(sbody(id), id).toMatch(/'200':[\s\S]*example:/);
+    }
+    const put = sbody('putMyConsents');
+    expect(put).toMatch(/required: \[policy_version, consents\]/);
+    expect(put).toMatch(/policy_version: \{ type: string, minLength: 1 \}/);
+    expect(put).toMatch(/minItems: 1/);
+    expect(put).toMatch(/'400': \{ \$ref: '#\/components\/responses\/BadRequest' \}/);
+    // updateMe's one-checkbox shortcut is unchanged in shape and says it writes the ledger
+    expect(sbody('updateMe')).toMatch(/marketing_consent: \{ type: boolean \}/);
+    expect(sbody('updateMe')).toMatch(/consent ledger/);
+  });
+
+  it('CustomerConsent: granted true | false | null (null = never asked), the closed purpose set', () => {
+    const start = store.indexOf('\n    CustomerConsent:\n');
+    expect(start).toBeGreaterThan(0);
+    const schema = store.slice(start, store.indexOf('\n    CustomerConsents:\n'));
+    expect(schema).toMatch(/required: \[purpose, granted, source, policy_version, recorded_at\]/);
+    expect(schema).toMatch(/purpose: \{ type: string, enum: \[marketing_email\] \}/);
+    expect(schema).toMatch(/granted:\n {10}type: \[boolean, 'null'\]/);
+    expect(schema).toMatch(/enum: \[storefront, admin, import, null\]/);
+  });
+
+  it('listCustomerConsents: store-scoped, support, documents 401/403/404, ledger rows are never null', () => {
+    expect(admin).toMatch(/version: 0\.4\.18/);
+    expect(store).toMatch(/version: 0\.5\.7/);
+    expect(admin).toMatch(
+      /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/consents:\n/,
+    );
+    const op = adminOps.find((o) => o.id === 'listCustomerConsents')!;
+    expect(op).toBeDefined();
+    expect(op.body).toMatch(/x-permission: \{ relation: support, object: 'store:\{storeId\}' \}/);
+    for (const code of ['401', '403', '404']) expect(op.body, code).toContain(`'${code}':`);
+    expect(op.body).toMatch(
+      /required: \[id, purpose, granted, source, policy_version, recorded_at\]/,
+    );
+    expect(op.body).toMatch(/granted: \{ type: boolean \}/);
+    expect(op.body).not.toMatch(/'null'/);
+    expect(op.body).toMatch(/name: purpose,\s+in: query,\s+required: false/);
   });
 });

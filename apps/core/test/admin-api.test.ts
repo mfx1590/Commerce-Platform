@@ -824,7 +824,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(9);
+    expect(moduleAdminRouters()).toHaveLength(10);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -890,6 +890,31 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
       const anonymous = await request(app).get(`/admin/stores/${A}/${path}`);
       expect(anonymous.status).toBe(401);
     }
+  });
+
+  it('consent ledger (#471, REQUEST #492): the customers router answers behind our staff auth, support on the store', async () => {
+    // window 13: customersAdminRouter — listCustomerConsents is `support` on store:{storeId} in the spec
+    const customerId = '00000000-0000-4000-8000-00000000c492';
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, email, status)
+       VALUES ($1, $2, $3, 'consent-mount@example.com', 'registered') ON CONFLICT (id) DO NOTHING`,
+      [customerId, SEED_IDS.organization, A],
+    );
+    const path = `/admin/stores/${A}/customers/${customerId}/consents`;
+    const read = await support.get(path);
+    expect(read.status).toBe(200);
+    expect(read.body).toHaveProperty('items');
+    expect(Array.isArray(read.body.items)).toBe(true);
+    // a store admin satisfies `support` on its own store (ADR 0002 stub); store staff does not
+    expect((await storeAdmin.get(path)).status).toBe(200);
+    expect((await storeStaff.get(path)).status).toBe(403);
+    expect((await request(app).get(path)).status).toBe(401);
+    // the route answers itself — an unknown customer is its 404, not the terminal "not implemented" one
+    const unknown = await support.get(
+      `/admin/stores/${A}/customers/00000000-0000-4000-8000-00000000dead/consents`,
+    );
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.message).not.toMatch(/is not implemented/);
   });
 
   it('cycle counts (#436): the hq-warehouse router answers behind our staff auth, HQ operations only', async () => {

@@ -112,3 +112,26 @@
   columns are bigint minor units grouped by currency; no column carries PII. Grain and filters: data/reporting/README.md.
 - No seed change and no new event. The views' reconciliation and isolation tests live in the core reporting module
   (window 12); its commit in this landing runs them on the landed migration.
+
+## 0.3.9 — 2026-10-18 (CONTRACT CHANGE #489, customer consent ledger; window 13, #471; contracts-v0.4.21)
+
+- Migration 0194: `customer_consent` — the append-only, store-scoped record of truth for a customer's consent
+  decisions (`purpose` = `marketing_email` only until the lawyer review; `granted` boolean; `source`
+  `storefront | admin | import`; non-blank `policy_version`; `recorded_at`). The SQL is the issue's diff verbatim
+  (header replaced). RLS kind `store`; `REVOKE UPDATE` from `platform_app` (a decision is never edited), DELETE
+  kept for erasure; index `customer_consent_customer_idx` (customer, purpose, `recorded_at DESC`).
+  `customer.consent` (0005) stays the current-state projection window 17's segments read; the core rewrites it from
+  the newest ledger row in the same transaction.
+- Backfill: one row per existing `customer.consent.marketing_email` projection with a boolean `granted` (erased
+  customers skipped), `recorded_at` = the projection's own `at` (missing → the row's `updated_at`, never now()),
+  `source` from the block (unknown/missing → `import`), `policy_version` `'pre-ledger'`. Idempotent: a customer
+  with any ledger row for the purpose is skipped. Like 0190's backfill it runs as the migration role, which must
+  bypass row security.
+- No seed change and no new event.
+- test/rls.test.ts: a store session reads and records only its own store's consent rows, another store's are
+  invisible (and refused on insert), no context sees none; the purpose and policy-version CHECKs; UPDATE refused
+  for `platform_app` in store and organization scope (grants DELETE, INSERT, SELECT); DELETE works in the same store
+  and deletes nothing from another. Backfill on its own throwaway database: migrated, then returned to the state
+  before 0194 (table dropped, migration unrecorded), seeded with projections (granted, refused, unknown source
+  without `at`, never asked, non-boolean, erased); `migrate` applies only 0194 and writes exactly the three expected
+  rows; the backfill statement run again adds nothing (33 cases).

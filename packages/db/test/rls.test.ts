@@ -1,5 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createOrganizationClient, createTenantClient } from '../src/index.js';
+import { createOrganizationClient, createTenantClient, migrate } from '../src/index.js';
 import { createTestDatabase, type TestDatabase } from '../src/testing.js';
 
 const ORG = '10000000-0000-4000-8000-000000000001';
@@ -1092,4 +1094,221 @@ describe('row-level security (platform_app role)', () => {
       /cycle_count_stock_movement_id_key/,
     );
   });
+  it('customer_consent (0194): a store session reads and records only its own store consent rows; another store is invisible', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    const made = await hq.query<{ id: string; store_id: string }>(
+      `INSERT INTO customer (organization_id, store_id, email, status)
+       VALUES ($1, $2, 'consent-a@example.test', 'registered'), ($1, $3, 'consent-b@example.test', 'registered')
+       RETURNING id, store_id`,
+      [ORG, STORE_A, STORE_B],
+    );
+    const custA = made.rows.find((r) => r.store_id === STORE_A)!.id;
+    const custB = made.rows.find((r) => r.store_id === STORE_B)!.id;
+    const record = `INSERT INTO customer_consent (organization_id, store_id, customer_id, purpose, granted, source, policy_version)
+                    VALUES ($1, $2, $3, 'marketing_email', $4, 'storefront', '2026-10') RETURNING id`;
+
+    expect((await a.query(record, [ORG, STORE_A, custA, true])).rowCount).toBe(1);
+    expect((await b.query(record, [ORG, STORE_B, custB, false])).rowCount).toBe(1);
+    // store A cannot record a decision for store B
+    await expect(a.query(record, [ORG, STORE_B, custB, true])).rejects.toThrow(
+      /row-level security/,
+    );
+
+    const seenA = await a.query<{ store_id: string; customer_id: string }>(
+      'SELECT store_id, customer_id FROM customer_consent',
+    );
+    expect(seenA.rows).toEqual([{ store_id: STORE_A, customer_id: custA }]);
+    const bFromA = await a.query('SELECT id FROM customer_consent WHERE customer_id = $1', [custB]);
+    expect(bFromA.rowCount).toBe(0);
+    const seenB = await b.query<{ customer_id: string }>(
+      'SELECT customer_id FROM customer_consent',
+    );
+    expect(seenB.rows.map((r) => r.customer_id)).toEqual([custB]);
+    // no context sees nothing
+    expect((await db.app.query('SELECT id FROM customer_consent')).rowCount).toBe(0);
+
+    // the closed sets and the non-blank policy version hold
+    await expect(
+      a.query(
+        `INSERT INTO customer_consent (organization_id, store_id, customer_id, purpose, granted, source, policy_version)
+         VALUES ($1, $2, $3, 'sms', true, 'storefront', '2026-10')`,
+        [ORG, STORE_A, custA],
+      ),
+    ).rejects.toThrow(/customer_consent_purpose_check/);
+    await expect(
+      a.query(
+        `INSERT INTO customer_consent (organization_id, store_id, customer_id, purpose, granted, source, policy_version)
+         VALUES ($1, $2, $3, 'marketing_email', true, 'storefront', '')`,
+        [ORG, STORE_A, custA],
+      ),
+    ).rejects.toThrow(/customer_consent_policy_version_check/);
+  });
+
+  it('customer_consent (0194): append-only for platform_app — UPDATE is refused, DELETE (erasure) works in the same store only', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const b = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_B] });
+    const cust = (
+      await hq.query<{ id: string }>(
+        `INSERT INTO customer (organization_id, store_id, email, status)
+         VALUES ($1, $2, 'consent-erase@example.test', 'registered') RETURNING id`,
+        [ORG, STORE_A],
+      )
+    ).rows[0]!.id;
+    const row = (
+      await a.query<{ id: string }>(
+        `INSERT INTO customer_consent (organization_id, store_id, customer_id, purpose, granted, source, policy_version)
+         VALUES ($1, $2, $3, 'marketing_email', true, 'admin', '2026-10') RETURNING id`,
+        [ORG, STORE_A, cust],
+      )
+    ).rows[0]!.id;
+
+    await expect(
+      a.query('UPDATE customer_consent SET granted = false WHERE id = $1', [row]),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      hq.query('UPDATE customer_consent SET granted = false WHERE id = $1', [row]),
+    ).rejects.toThrow(/permission denied/);
+    const grants = await db.owner.query<{ privilege_type: string }>(
+      `SELECT privilege_type FROM information_schema.role_table_grants
+        WHERE table_name = 'customer_consent' AND grantee = 'platform_app'
+          AND privilege_type IN ('DELETE', 'INSERT', 'SELECT', 'UPDATE') ORDER BY privilege_type`,
+    );
+    expect(grants.rows.map((r) => r.privilege_type)).toEqual(['DELETE', 'INSERT', 'SELECT']);
+
+    // another store deletes nothing; the same store erases the customer's rows
+    const fromB = await b.query('DELETE FROM customer_consent WHERE customer_id = $1', [cust]);
+    expect(fromB.rowCount).toBe(0);
+    const erased = await a.query(
+      'DELETE FROM customer_consent WHERE customer_id = $1 AND store_id = $2',
+      [cust, STORE_A],
+    );
+    expect(erased.rowCount).toBe(1);
+    expect((await a.query('SELECT id FROM customer_consent WHERE id = $1', [row])).rowCount).toBe(
+      0,
+    );
+  });
+});
+
+describe('customer_consent backfill (0194) on a database that already has projections', () => {
+  let pre: TestDatabase;
+
+  afterAll(async () => {
+    await pre?.drop();
+  });
+
+  it('creates one pre-ledger row per projection with its own timestamp and source; running it again adds nothing', async () => {
+    pre = await createTestDatabase('platform_test_consent');
+    // Back to the state before 0194: the table gone and the migration unrecorded (no later migration depends on it).
+    await pre.owner.query('DROP TABLE customer_consent');
+    await pre.owner.query(`DELETE FROM schema_migrations WHERE name = '0194_customer_consent.sql'`);
+
+    const hq = createOrganizationClient(pre.owner, { organizationId: ORG });
+    const ids: Record<string, string> = {};
+    await hq.transaction(async (tx) => {
+      await tx.query(`INSERT INTO organization (id, slug, name) VALUES ($1, 'hq', 'HQ')`, [ORG]);
+      await tx.query(
+        `INSERT INTO legal_entity (id, organization_id, code, name, country, currency) VALUES ($1, $2, 'le-a', 'A BV', 'NL', 'EUR')`,
+        [LE, ORG],
+      );
+      await tx.query(
+        `INSERT INTO store (id, organization_id, legal_entity_id, code, name, default_currency, default_locale, default_country)
+         VALUES ($1, $2, $3, 'brand-a', 'brand-a', 'EUR', 'en-GB', 'NL')`,
+        [STORE_A, ORG, LE],
+      );
+      const customers: [string, string, unknown, string?][] = [
+        // key, status, consent block, updated_at
+        [
+          'granted',
+          'registered',
+          { marketing_email: { granted: true, at: '2026-09-01T08:00:00Z', source: 'storefront' } },
+        ],
+        [
+          'refused',
+          'registered',
+          { marketing_email: { granted: false, at: '2026-09-02T09:30:00Z', source: 'admin' } },
+        ],
+        // unknown source → import; missing `at` → the row's updated_at
+        [
+          'legacy',
+          'guest',
+          { marketing_email: { granted: true, source: 'newsletter-tool' } },
+          '2026-08-15T12:00:00Z',
+        ],
+        ['never-asked', 'registered', {}],
+        ['not-a-boolean', 'registered', { marketing_email: { granted: 'yes' } }],
+        [
+          'erased',
+          'erased',
+          { marketing_email: { granted: true, at: '2026-09-03T10:00:00Z', source: 'storefront' } },
+        ],
+      ];
+      for (const [key, status, consent, updatedAt] of customers) {
+        const r = await tx.query<{ id: string }>(
+          `INSERT INTO customer (organization_id, store_id, email, status, consent, updated_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, COALESCE($6::timestamptz, now())) RETURNING id`,
+          [ORG, STORE_A, `${key}@example.test`, status, JSON.stringify(consent), updatedAt ?? null],
+        );
+        ids[key] = r.rows[0]!.id;
+      }
+    });
+
+    const applied = await migrate(pre.owner);
+    expect(applied.applied).toEqual(['0194_customer_consent.sql']);
+
+    const ledger = async () =>
+      (
+        await hq.query<{
+          customer_id: string;
+          purpose: string;
+          granted: boolean;
+          source: string;
+          policy_version: string;
+          recorded_at: Date;
+        }>(
+          `SELECT customer_id, purpose, granted, source, policy_version, recorded_at
+             FROM customer_consent ORDER BY recorded_at`,
+        )
+      ).rows.map((r) => ({ ...r, recorded_at: r.recorded_at.toISOString() }));
+    const expected = [
+      {
+        customer_id: ids.legacy,
+        purpose: 'marketing_email',
+        granted: true,
+        source: 'import',
+        policy_version: 'pre-ledger',
+        recorded_at: '2026-08-15T12:00:00.000Z',
+      },
+      {
+        customer_id: ids.granted,
+        purpose: 'marketing_email',
+        granted: true,
+        source: 'storefront',
+        policy_version: 'pre-ledger',
+        recorded_at: '2026-09-01T08:00:00.000Z',
+      },
+      {
+        customer_id: ids.refused,
+        purpose: 'marketing_email',
+        granted: false,
+        source: 'admin',
+        policy_version: 'pre-ledger',
+        recorded_at: '2026-09-02T09:30:00.000Z',
+      },
+    ];
+    expect(await ledger()).toEqual(expected);
+
+    // the backfill statement again (as the migration runs it): idempotent
+    const sql = await readFile(
+      fileURLToPath(new URL('../migrations/0194_customer_consent.sql', import.meta.url)),
+      'utf8',
+    );
+    const backfill = sql.slice(sql.indexOf('INSERT INTO customer_consent'));
+    expect(backfill.startsWith('INSERT INTO customer_consent (organization_id')).toBe(true);
+    const again = await pre.owner.query(backfill);
+    expect(again.rowCount).toBe(0);
+    expect(await ledger()).toEqual(expected);
+  }, 60_000);
 });
