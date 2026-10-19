@@ -10,10 +10,16 @@ import type { Address, NotificationData, NotificationKind } from './types.js';
 export interface Loaded<K extends NotificationKind> {
   /** The recipient. Goes to the transport and nowhere else. */
   to: string;
-  /** `"order".locale` as checkout stored it; `pickLocale` decides what that means for a template. */
-  locale: string;
+  /**
+   * `"order".locale` as checkout stored it; `pickLocale` decides what that means for a template. `null` when
+   * the source carries no locale (a customer row) — the consumer then falls back to the store's default.
+   */
+  locale: string | null;
   data: NotificationData[K];
 }
+
+/** `null` = the source row does not exist; `{ skip }` = it exists but must not be mailed (the reason is stored). */
+export type LoadOutcome<K extends NotificationKind> = Loaded<K> | { skip: string } | null;
 
 interface OrderRow {
   display_id: number;
@@ -153,6 +159,64 @@ export async function loadShipmentShipped(
         quantity: i.quantity,
       })),
       shippingAddress: sh.shipping_address ?? {},
+    },
+  };
+}
+
+interface ExportRow {
+  status: string;
+  expires_at: Date | null;
+  requested_by_type: 'staff' | 'customer';
+}
+
+interface CustomerRow {
+  email: string;
+  first_name: string | null;
+  status: string;
+}
+
+/**
+ * The data-export notice (#499). The event's aggregate is the customer; the event's payload names WHICH export
+ * (`export_id`) — the only thing read from it. Everything the mail says comes from `customer_export` and the
+ * `customer` row at send time: an export that is no longer `ready` is not announced, and an erased customer
+ * (placeholder address `erased+<id>@invalid`, exports deleted with the row) or a disabled one (cannot sign in
+ * to download) is skipped with the reason on the delivery row.
+ */
+export async function loadExportReady(
+  db: Queryable,
+  storeId: string,
+  customerId: string,
+  eventId: string,
+): Promise<LoadOutcome<'export_ready'>> {
+  const ev = await db.query<{ export_id: string | null }>(
+    `SELECT payload->>'export_id' AS export_id FROM outbox WHERE id = $1 AND store_id = $2`,
+    [eventId, storeId],
+  );
+  const exportId = ev.rows[0]?.export_id;
+  if (!exportId) return null;
+  const exp = await db.query<ExportRow>(
+    `SELECT status, expires_at, requested_by_type FROM customer_export
+      WHERE id = $1 AND store_id = $2 AND customer_id = $3`,
+    [exportId, storeId, customerId],
+  );
+  const e = exp.rows[0];
+  if (!e) return null;
+  if (e.status !== 'ready' || !e.expires_at) return { skip: 'export_not_ready' };
+  const cust = await db.query<CustomerRow>(
+    `SELECT email, first_name, status FROM customer WHERE id = $1 AND store_id = $2`,
+    [customerId, storeId],
+  );
+  const c = cust.rows[0];
+  if (!c) return null;
+  if (c.status === 'erased' || c.email.endsWith('@invalid')) return { skip: 'customer_erased' };
+  if (c.status === 'disabled') return { skip: 'customer_disabled' };
+  return {
+    to: c.email,
+    locale: null,
+    data: {
+      expiresAt: e.expires_at.toISOString(),
+      requestedByType: e.requested_by_type,
+      firstName: c.first_name,
     },
   };
 }

@@ -1,5 +1,9 @@
 # Changelog — @platform/db
 
+## 0.3.14 — 2026-10-19
+
+- `0198_notification_delivery_kind.sql` (CONTRACT CHANGE #511, window 17 #499): `notification_delivery.kind`'s CHECK gains `export_ready` (form b: the database keeps the closed list; each new email kind lands with its event). No data change. Manager landing.
+
 ## 0.3.13 — 2026-10-19
 
 - `0199_customer_erasure_claim.sql` (CONTRACT CHANGE #512, window 2 #483): one row per settled `customer.erased` outbox event — event_id UNIQUE (the replay guard: Keycloak is never called again for a settled event), event_seq, customer_id, outcome (nothing_to_delete | kept_live_elsewhere | deleted | already_gone), live_rows; store RLS; written once (UPDATE and DELETE revoked from platform_app). No personal data. Manager landing.

@@ -35,11 +35,12 @@ export function safeUrl(value: string | null | undefined): string | null {
   return /^https?:\/\/[^\s]+$/i.test(value) ? value : null;
 }
 
-export function footerLines(ctx: RenderContext): string[] {
+/** `reason` replaces the "why you receive this" line; default: because you placed an order. */
+export function footerLines(ctx: RenderContext, reason?: string): string[] {
   const s = strings[ctx.locale];
   const l = ctx.brand.legal;
   return [
-    s.automated,
+    reason ?? s.automated,
     `${l.company} · ${l.address}`,
     ...(l.vatNumber ? [`${s.vat} ${l.vatNumber}`] : []),
     `${s.imprint}: ${l.imprintUrl}`,
@@ -47,14 +48,14 @@ export function footerLines(ctx: RenderContext): string[] {
   ];
 }
 
-function footerHtml(ctx: RenderContext): string {
+function footerHtml(ctx: RenderContext, reason?: string): string {
   const s = strings[ctx.locale];
   const l = ctx.brand.legal;
   const links = [
     [s.imprint, safeUrl(l.imprintUrl)],
     [s.privacy, safeUrl(l.privacyUrl)],
   ] as const;
-  return tpl`<p style="margin:0 0 8px;">${s.automated}</p>
+  return tpl`<p style="margin:0 0 8px;">${reason ?? s.automated}</p>
     <p style="margin:0 0 8px;">
       ${l.company} · ${l.address}${l.vatNumber ? raw(tpl` · ${s.vat} ${l.vatNumber}`) : ''}
     </p>
@@ -71,7 +72,7 @@ function footerHtml(ctx: RenderContext): string {
     </p>`;
 }
 
-export function layout(ctx: RenderContext, title: string, body: string): string {
+export function layout(ctx: RenderContext, title: string, body: string, reason?: string): string {
   const s = strings[ctx.locale];
   return tpl`<!doctype html>
     <html lang="${s.lang}">
@@ -113,7 +114,7 @@ export function layout(ctx: RenderContext, title: string, body: string): string 
                   <td
                     style="padding:16px 32px 24px;font-size:12px;line-height:1.5;color:#71717a;border-top:1px solid #e4e4e7;"
                   >
-                    ${raw(footerHtml(ctx))}
+                    ${raw(footerHtml(ctx, reason))}
                   </td>
                 </tr>
               </table>

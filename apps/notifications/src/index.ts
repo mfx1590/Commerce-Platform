@@ -21,8 +21,9 @@ export type {
 export { fixtureFor, FIXTURES, pickLocale, render, strings } from './templates/index.js';
 export { applyLegalEntity, BRAND_CODES, brandProfile, envKeyFor, parseSender } from './brands.js';
 export { formatDate, formatMinor, escapeHtml } from './format.js';
-export { loadOrderConfirmation, loadShipmentShipped } from './render-data.js';
-export type { Loaded } from './render-data.js';
+export { loadExportReady, loadOrderConfirmation, loadShipmentShipped } from './render-data.js';
+export type { Loaded, LoadOutcome } from './render-data.js';
+export { renderExportReady } from './templates/index.js';
 export {
   createTransport,
   DevSinkTransport,
@@ -58,6 +59,7 @@ export type {
   BrandProfile,
   ConsumedTopic,
   DeliveryMeta,
+  ExportReadyData,
   LegalFooter,
   Locale,
   Logger,
