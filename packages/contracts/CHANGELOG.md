@@ -365,3 +365,19 @@
   downloads, and drives the documented 400 / 403 / 404 / 409 / 410.
   Producer: window 13 (core customers module, export job #472). Consumers: the storefronts' Privacy section, the
   admin customer view; the mail is window 17's (`customer.export_ready`).
+
+## 0.4.24 — 2026-10-18 (cross-brand identity, CONTRACT CHANGE #504; contracts-v0.4.24)
+
+- Admin API 0.4.21 (131 operations, was 130): `getCustomerIdentity` — `GET /admin/customer-identities/{identityId}`
+  (tag `customers`, next to `/admin/users`), `support` on `organization:hq`. Answers
+  `{ id, customers: [{ store_id, customer_id }] }` — ids only, no email hash, no subject, no email; a merged identity
+  answers the identity it was merged into. Per the manager's condition 4 a store-scoped principal gets 403 (the read
+  needs the HQ relation) and 404 means an unknown identity. 401 / 403 / 404; an example on the 200 (the mock answers
+  from it).
+- Store API unchanged (0.5.8); events unchanged. db 0.3.11: migration 0196 (`customer_identity` closed to store
+  sessions, keyed by subject, written through `app.link_customer_identity` / `app.unlink_customer_identity`).
+- `CONTRACTS_VERSION = '0.4.24'`; types regenerated; spec tests pin the Admin version, the operation count (131), the
+  permission, the path, the documented codes and the ids-only answer; `test:contract` reads the identity and drives
+  the 401 / 403 / 404.
+  Producer: window 13 (core customers module, `customersAdminRouter`, #473). Consumers: HQ support, the erasure /
+  BI joins.

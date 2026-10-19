@@ -1,5 +1,9 @@
 # Changelog — @platform/db
 
+## 0.3.12 — 2026-10-19
+
+- `0197_customer_identity_link_lock_order.sql`: `app.link_customer_identity` takes the guest merge's locks in one order — the guest's customer rows first (`FOR UPDATE SKIP LOCKED`), the identity second; a guest whose rows another transaction holds is left to that transaction (contention = no merge, #504). Fixes the 40P01 deadlock main's unit job hit at ebb203f on the concurrent guest-merge test. The re-point also filters `organization_id`. Manager fix.
+
 ## 0.1.0 — 2026-09-04
 
 - Scaffold created by the main window (Phase 0).
@@ -152,3 +156,29 @@
   emits is events 0.3.6 `customer.export_ready`.
 - No rls.test.ts case in this landing (the landing was assembled without a database); the export job's tests in the
   core customers module run on the landed migration.
+
+## 0.3.11 — 2026-10-18 (CONTRACT CHANGE #504, cross-brand identity link; window 13, #473; contracts-v0.4.24)
+
+- Migration 0196: `customer_identity` closed to store sessions and written at last. The SQL is the issue's diff with
+  the manager's conditions applied (header prepended, the issue-number placeholder filled in):
+  - RLS kind `organization_only` (0192's kind): `apply_rls` drops the existing `tenant_isolation` policy before it
+    creates the new one, so 0009's `organization` policy is replaced — a store session reads and writes no identity.
+  - Keyed by subject: the inline UNIQUE `customer_identity_organization_id_email_hash_key` (name checked in
+    pg_constraint on dev) is dropped; `customer_identity_email_hash_idx` (organization, email_hash) and the partial
+    UNIQUE `customer_identity_subject_key` (organization, keycloak_subject) WHERE the subject is set are added. Two
+    subjects with the same verified email are two identities.
+  - `app.link_customer_identity(p_customer_id, p_subject, p_email_hash) RETURNS uuid` and
+    `app.unlink_customer_identity(p_customer_id) RETURNS boolean`: SECURITY DEFINER, pinned `search_path`,
+    `SET app.scope = 'organization'` (0191's pattern). Condition 1: no organization parameter — the caller's
+    `app.organization_id` is used, and the target customer must be in it and, for a store-scoped caller (non-empty
+    `app.store_ids`), in one of the caller's stores; otherwise SQLSTATE 42501 and nothing changes. Condition 2: the
+    guest merge locks its candidates `FOR UPDATE` before counting, merges only `WHERE merged_into_id IS NULL`, and
+    re-points customers only when that UPDATE hit a row; exactly one candidate merges, two or more never do.
+  - EXECUTE revoked from PUBLIC and granted to `platform_app` (0110's pattern).
+- No backfill (the table is empty on dev; existing customers are linked on their next verified sign-in), no seed
+  change, no event change.
+- test/rls.test.ts: one case, as 0192's — the policy is the `organization_only` predicate and the only one on the
+  table; organization scope writes and reads identities, two subjects may share an email_hash, a subject is one
+  identity; single- and multi-store sessions read, insert and update none; no context and another organization see
+  none. The two functions' scope and merge cases (condition 3) are window 13's tests in the core customers module.
+  Not run in this landing (assembled without a database).

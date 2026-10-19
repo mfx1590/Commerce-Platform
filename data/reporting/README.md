@@ -68,6 +68,8 @@ Reconciliation, as the tests assert: per row `net_minor = total_minor − refund
 
 ## Report operations (#479)
 
+The admin BI section (`apps/admin/src/app/(hq)/bi`, #480) renders them; see its README.
+
 Four read-only Admin API operations over these views — store sales and stock (`viewer` on the store), HQ sales
 (`analyst`), HQ finance (`finance`: captured, fees with `fees_reconciled: false`, refunds by reason; no ledger in v1).
 `from`/`to` are UTC days (from inclusive, to exclusive, at most 366 days). Details:

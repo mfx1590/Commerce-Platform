@@ -1478,6 +1478,86 @@ describe('cross-brand identity (#473, db 0196 customer_identity closed to store 
     expect(twins.find((r) => r.id === freshId)).toMatchObject({ keycloak_subject: 'sub-twins' });
   });
 
+  it("the functions trust the session, not their arguments (#504 condition 1): a store client on another store's customer gets 42501 and nothing changes; an organization client may call both", async () => {
+    const xan = who('xan', { emailVerified: true });
+    const inB = await resolveCustomer(b, scopeB, xan);
+    const idB = await identityOf(inB.id);
+    expect(idB).toEqual(expect.any(String));
+    const hash = customerEmailHash('xan@example.test');
+    // brand-a's session, brand-b's customer id: refused by the function itself, not silently ignored
+    await expect(
+      a.query('SELECT app.link_customer_identity($1, $2, $3) AS id', [inB.id, 'sub-xan', hash]),
+    ).rejects.toMatchObject({ code: '42501' });
+    await expect(
+      a.query('SELECT app.unlink_customer_identity($1) AS deleted', [inB.id]),
+    ).rejects.toMatchObject({
+      code: '42501',
+    });
+    expect(await identityOf(inB.id)).toBe(idB);
+    expect((await identityRows()).filter((r) => r.keycloak_subject === 'sub-xan')).toHaveLength(1);
+    // an organization session (empty store scope) may call both
+    const org = orgApp();
+    expect(
+      (
+        await org.query<{ deleted: boolean }>(
+          'SELECT app.unlink_customer_identity($1) AS deleted',
+          [inB.id],
+        )
+      ).rows[0],
+    ).toEqual({
+      deleted: true,
+    });
+    expect(await identityOf(inB.id)).toBeNull();
+    const relinked = await org.query<{ id: string }>(
+      'SELECT app.link_customer_identity($1, $2, $3) AS id',
+      [inB.id, 'sub-xan', hash],
+    );
+    expect(relinked.rows[0]!.id).toEqual(expect.any(String));
+    expect(await identityOf(inB.id)).toBe(relinked.rows[0]!.id);
+  });
+
+  it('the concurrent guest merge (#504 condition 2): two verified sign-ins with the same email at once end with exactly ONE merge', async () => {
+    const guestIdentity = (
+      await owner.query<{ id: string }>(
+        'INSERT INTO customer_identity (organization_id, email_hash) VALUES ($1, $2) RETURNING id',
+        [ORG, customerEmailHash('dup@example.test')],
+      )
+    ).rows[0]!.id;
+    const guestRow = await insertRow(A, 'dup@example.test');
+    await owner.query('UPDATE customer SET identity_id = $2 WHERE id = $1', [
+      guestRow,
+      guestIdentity,
+    ]);
+    // sub-dup1 adopts the brand-a guest row, sub-dup2 gets a fresh brand-b row — both link with the same email_hash
+    const [one, two] = await Promise.all([
+      resolveCustomer(a, scopeA, {
+        subject: 'sub-dup1',
+        email: 'dup@example.test',
+        emailVerified: true,
+      }),
+      resolveCustomer(b, scopeB, {
+        subject: 'sub-dup2',
+        email: 'dup@example.test',
+        emailVerified: true,
+      }),
+    ]);
+    const id1 = await identityOf(one.id);
+    const id2 = await identityOf(two.id);
+    expect(id1).not.toBe(id2);
+    const rows = (await identityRows()).filter(
+      (r) => r.email_hash === customerEmailHash('dup@example.test'),
+    );
+    const subjects = rows.filter((r) => r.keycloak_subject !== null);
+    expect(subjects.map((r) => r.keycloak_subject).sort()).toEqual(['sub-dup1', 'sub-dup2']);
+    expect(subjects.every((r) => r.merged_into_id === null)).toBe(true);
+    const guest = rows.find((r) => r.id === guestIdentity)!;
+    // merged exactly once, into one of the two (which one depends on the interleaving; 0197's lock order makes
+    // every interleaving deadlock-free: a merge whose guest row another sign-in holds is left to that sign-in)
+    expect([id1, id2]).toContain(guest.merged_into_id);
+    expect(await identityOf(guestRow)).toBe(id1); // the adopter keeps its own row, in every order
+    expect(rows).toHaveLength(3);
+  });
+
   it('erase per store keeps the identity while another brand references it; the last erasure deletes it; eraseCustomerIdentity erases every brand in one transaction and deletes the identity (not wired to deleteMe)', async () => {
     const uma = who('uma', { emailVerified: true });
     const inA = await resolveCustomer(a, scopeA, uma);

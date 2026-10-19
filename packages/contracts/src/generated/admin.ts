@@ -1209,6 +1209,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/customer-identities/{identityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * HQ-only — the per-brand customer rows one person's identity links (ids only; no hash, no subject, no email)
+         * @description For HQ support resolving "is this the same person" and for the erasure / BI joins. Answers store and customer
+         *     ids only. A merged identity answers the identity it was merged into. A store-scoped principal (a store admin,
+         *     whatever its relations on its own stores) gets 403: the read needs `support` on `organization:hq`. 404 means
+         *     the identity is unknown.
+         */
+        get: operations["getCustomerIdentity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users": {
         parameters: {
             query?: never;
@@ -7054,6 +7079,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getCustomerIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "50000000-0000-4000-8000-000000000301",
+                     *       "customers": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "customer_id": "50000000-0000-4000-8000-000000000011"
+                     *         },
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000032",
+                     *           "customer_id": "50000000-0000-4000-8000-000000000012"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        customers: {
+                            /** Format: uuid */
+                            store_id: string;
+                            /** Format: uuid */
+                            customer_id: string;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listUsers: {

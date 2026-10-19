@@ -1190,6 +1190,72 @@ describe('row-level security (platform_app role)', () => {
       0,
     );
   });
+
+  // --- customer identity (0196): the cross-brand link, RLS kind organization_only (as cycle_count, 0192) --------
+  it('customer_identity (0196): organization_only — no store session reads or writes an identity; the key is the subject', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const both = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A, STORE_B] });
+    const insert = `INSERT INTO customer_identity (organization_id, email_hash, keycloak_subject)
+                    VALUES ($1, $2, $3) RETURNING id`;
+
+    // the policy is 0192's kind and replaced 0009's `organization` policy (one policy, scope-gated)
+    const policy = await db.owner.query<{ qual: string; with_check: string }>(
+      `SELECT qual, with_check FROM pg_policies WHERE tablename = 'customer_identity'`,
+    );
+    expect(policy.rows).toHaveLength(1);
+    expect(policy.rows[0]?.qual).toMatch(/current_organization_id\(\)/);
+    expect(policy.rows[0]?.qual).toMatch(/current_scope\(\) = 'organization'/);
+    expect(policy.rows[0]?.qual).not.toMatch(/can_access_store/);
+    expect(policy.rows[0]?.with_check).toBe(policy.rows[0]?.qual);
+
+    // organization scope writes identities and reads them back; two subjects may share an email_hash now
+    const one = (
+      await hq.query<{ id: string }>(insert, [ORG, 'identity-rls-hash', 'kc-identity-rls-1'])
+    ).rows[0]!.id;
+    const two = (
+      await hq.query<{ id: string }>(insert, [ORG, 'identity-rls-hash', 'kc-identity-rls-2'])
+    ).rows[0]!.id;
+    const read = await hq.query<{ id: string }>(
+      `SELECT id FROM customer_identity WHERE email_hash = 'identity-rls-hash' ORDER BY keycloak_subject`,
+    );
+    expect(read.rows.map((r) => r.id)).toEqual([one, two]);
+    // ...but a subject is one identity per organization
+    await expect(
+      hq.query(insert, [ORG, 'identity-rls-other', 'kc-identity-rls-1']),
+    ).rejects.toThrow(/customer_identity_subject_key/);
+
+    // a store session — single- or multi-store — reaches no identity, writes none, updates none
+    for (const store of [a, both]) {
+      expect((await store.query('SELECT id FROM customer_identity')).rows).toHaveLength(0);
+      const byId = await store.query('SELECT id FROM customer_identity WHERE id = $1', [one]);
+      expect(byId.rows).toHaveLength(0);
+      await expect(store.query(insert, [ORG, 'identity-rls-store', null])).rejects.toThrow(
+        /row-level security/,
+      );
+      const edited = await store.query(
+        `UPDATE customer_identity SET email_hash = 'store' WHERE id = $1`,
+        [one],
+      );
+      expect(edited.rowCount).toBe(0);
+    }
+    // no context at all reads nothing either
+    expect((await db.app.query('SELECT id FROM customer_identity')).rows).toHaveLength(0);
+
+    // the store's attempt left no trace
+    const after = await hq.query<{ email_hash: string }>(
+      'SELECT email_hash FROM customer_identity WHERE id = $1',
+      [one],
+    );
+    expect(after.rows).toEqual([{ email_hash: 'identity-rls-hash' }]);
+
+    // another organization reads none, and cannot write one in this organization's name
+    const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
+    expect((await other.query('SELECT id FROM customer_identity')).rows).toHaveLength(0);
+    await expect(other.query(insert, [ORG, 'identity-rls-foreign', null])).rejects.toThrow(
+      /row-level security/,
+    );
+  });
 });
 
 describe('customer_consent backfill (0194) on a database that already has projections', () => {

@@ -917,3 +917,28 @@ describe('Store + Admin API mock (0.4.23 customer exports, #498)', () => {
     expect((await json(gone)).code).toBe('expired');
   });
 });
+
+describe('Admin API mock (0.4.21 customer identity, #504)', () => {
+  const IDENTITY_ID = '50000000-0000-4000-8000-000000000301';
+  const path = `${ADMIN}/admin/customer-identities/${IDENTITY_ID}`;
+
+  it('getCustomerIdentity answers ids only: the identity and its per-store customer rows', async () => {
+    const res = await fetch(path, { headers: adminHeaders });
+    expect(res.status).toBe(200);
+    const identity = await json(res);
+    expect(identity.id).toBe(IDENTITY_ID);
+    const customers = identity.customers as Array<Record<string, unknown>>;
+    expect(customers.length).toBeGreaterThan(0);
+    for (const c of customers) expect(Object.keys(c).sort()).toEqual(['customer_id', 'store_id']);
+    expect(Object.keys(identity).sort()).toEqual(['customers', 'id']);
+  });
+
+  it('refusals: 401 without a token, 403 for a store-scoped principal, 404 for an unknown identity', async () => {
+    const anonymous = await fetch(path);
+    expect(anonymous.status).toBe(401);
+    for (const code of [403, 404]) {
+      const refused = await fetch(path, { headers: { ...adminHeaders, prefer: `code=${code}` } });
+      expect(refused.status, String(code)).toBe(code);
+    }
+  });
+});
