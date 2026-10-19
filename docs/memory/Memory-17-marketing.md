@@ -126,7 +126,10 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   `LoadOutcome = Loaded | { skip } | null`); template `export-ready.ts` (no token, no link with credentials, no
   export id — the brand's `/account` page; "available until <expires_at>" in the store zone; footer reason per
   kind); `DeliveryMeta.displayId: number | null`; staff-requested gets the same mail. **Found: 0180's
-  `kind` CHECK refuses a third kind** → CONTRACT CHANGE **#511** (recommended: drop the CHECK; alt: extend);
+  `kind` CHECK refuses a third kind** → CONTRACT CHANGE **#511**, manager chose form (b) = EXTEND the CHECK;
+  landed as db 0.3.14 / 0198 on `origin/integration/notifications-export-ready` = 56bfa09 (stacked on
+  `integration/customers-erasure`, PR #514, so #499 merges after #514). Cut `marketing/phase3-export-ready`
+  from 56bfa09, #499 as ONE commit, proposed copy deleted, tests on the landed migration. Earlier it was
   built against the proposed copy `apps/notifications/migrations/0198_notification_delivery_kind.sql`
   applied by `consumer.test.ts` (#244 pattern). Waiting for the manager's (a)/(b) answer; PR after #491.
 - Open for the owner: the live Resend send at the 2b gate closes #360.

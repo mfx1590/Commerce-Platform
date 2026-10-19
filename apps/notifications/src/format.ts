@@ -49,3 +49,12 @@ export class RawHtml {
 export function raw(value: string): RawHtml {
   return new RawHtml(value);
 }
+
+/** Date and time of day, for a deadline ("available until …"), in the store's zone. */
+export function formatDateTime(iso: string, locale: string, timeZone: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'long',
+    timeStyle: 'short',
+    timeZone,
+  }).format(new Date(iso));
+}

@@ -59,6 +59,11 @@ export const FIXTURES: NotificationData = {
     ],
     shippingAddress: { ...ADDRESS },
   },
+  export_ready: {
+    expiresAt: '2026-11-07T09:30:00.000Z',
+    requestedByType: 'customer',
+    firstName: 'Ada',
+  },
 };
 
 export function fixtureFor<K extends NotificationKind>(kind: K): NotificationData[K] {

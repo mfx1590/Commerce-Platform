@@ -290,6 +290,7 @@ async function deliveries(): Promise<DeliveryRow[]> {
 
 beforeAll(async () => {
   db = await createTestDatabase('platform_notif');
+  // `notification_delivery.kind` admits `export_ready` since packages/db 0198 (db 0.3.14, #511).
   await seed(db.owner);
   hq = createOrganizationClient(db.app, { organizationId: ORG, actorId: null });
   stores = await resolveStores(hq, ['brand-a']);
@@ -303,7 +304,8 @@ beforeEach(async () => {
   transport = new RecordingTransport();
   await db.owner.query(
     `DELETE FROM notification_delivery; DELETE FROM marketing_cursor; DELETE FROM outbox;
-     DELETE FROM shipment_item; DELETE FROM shipment; DELETE FROM order_line_item; DELETE FROM "order"`,
+     DELETE FROM shipment_item; DELETE FROM shipment; DELETE FROM order_line_item; DELETE FROM "order";
+     DELETE FROM customer_export; DELETE FROM customer`,
   );
 });
 
@@ -593,6 +595,152 @@ describe('staff auth (dev tokens)', () => {
     });
     expect(await auth.authenticate('Bearer jwt-ok')).toEqual({ subject: 'seed-owner' });
     await expect(auth.authenticate('Bearer jwt-other')).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe('customer.export_ready → data-export notice (#499)', () => {
+  /** A customer row the way window 13 leaves it; `erased` gets the placeholder address of gdpr.ts. */
+  async function makeCustomer(
+    opts: { status?: 'registered' | 'erased' | 'disabled'; email?: string } = {},
+  ): Promise<string> {
+    const status = opts.status ?? 'registered';
+    const res = await db.owner.query<{ id: string }>(
+      `INSERT INTO customer (organization_id, store_id, email, first_name, status, consent, metadata)
+       VALUES ($1, $2, $3, $4, $5, '{}', '{}') RETURNING id`,
+      [
+        ORG,
+        A,
+        opts.email ?? (status === 'erased' ? 'placeholder' : 'cora@example.test'),
+        status === 'erased' ? null : 'Cora',
+        status,
+      ],
+    );
+    const id = res.rows[0]!.id;
+    if (status === 'erased') {
+      await db.owner.query(`UPDATE customer SET email = $2 WHERE id = $1`, [
+        id,
+        `erased+${id}@invalid`,
+      ]);
+    }
+    return id;
+  }
+
+  /** A ready export row and its `customer.export_ready` event, as export-delivery.ts emits it. */
+  async function makeExport(
+    customerId: string,
+    opts: { status?: 'ready' | 'expired'; requestedByType?: 'customer' | 'staff' } = {},
+  ): Promise<{ exportId: string; eventId: string }> {
+    const status = opts.status ?? 'ready';
+    const requestedByType = opts.requestedByType ?? 'customer';
+    const expiresAt = '2026-11-07T09:30:00.000Z';
+    const row = await db.owner.query<{ id: string }>(
+      `INSERT INTO customer_export (organization_id, store_id, customer_id, event_id, requested_by,
+                                    requested_by_type, requested_at, status, format, ready_at, expires_at)
+       VALUES ($1, $2, $3, gen_random_uuid(), $4, $5, now(), $6, 'customer-export/v1', now(), $7)
+       RETURNING id`,
+      [
+        ORG,
+        A,
+        customerId,
+        requestedByType === 'staff' ? SEED_IDS.users.support : customerId,
+        requestedByType,
+        status,
+        expiresAt,
+      ],
+    );
+    const exportId = row.rows[0]!.id;
+    const eventId = await insertOutbox(
+      makeEvent({
+        topic: 'customer.export_ready',
+        organizationId: ORG,
+        storeId: A,
+        aggregateType: 'customer',
+        aggregateId: customerId,
+        payload: {
+          export_id: exportId,
+          customer_id: customerId,
+          requested_by: requestedByType === 'staff' ? SEED_IDS.users.support : customerId,
+          requested_by_type: requestedByType,
+          expires_at: expiresAt,
+        },
+      }),
+    );
+    return { exportId, eventId };
+  }
+
+  it('sends one notice per event to the customer row address, with no token, link or export id', async () => {
+    const customerId = await makeCustomer();
+    const { exportId, eventId } = await makeExport(customerId);
+    const report = await runOnce(deps(), stores);
+    expect(report.stores[0]).toMatchObject({ claimed: 1, sent: 1, skipped: 0 });
+    const { email, meta } = transport.sent[0]!;
+    expect(meta).toEqual({
+      eventId,
+      kind: 'export_ready',
+      storeCode: 'brand-a',
+      locale: 'en-GB',
+      displayId: null,
+    });
+    expect(email.to).toBe('cora@example.test');
+    expect(email.subject).toBe('Your Brand A data export is ready');
+    expect(email.text).toContain('Hi Cora,');
+    expect(email.text).toContain('Sign in to your account on Brand A to download it.');
+    expect(email.text).toContain('It is available until 7 November 2026 at 10:30.');
+    expect(email.text).toContain('Your account: https://brand-a.example/account');
+    expect(email.html).toContain('href="https://brand-a.example/account"');
+    for (const part of [email.subject, email.text, email.html]) {
+      expect(part).not.toContain(exportId);
+      expect(part).not.toContain(customerId);
+      expect(part.toLowerCase()).not.toContain('token');
+      expect(part).not.toContain('/exports');
+    }
+    expect((await deliveries())[0]).toMatchObject({
+      kind: 'export_ready',
+      status: 'sent',
+      locale: 'en-GB',
+    });
+
+    // exactly once: a second run and a replay send nothing
+    expect((await runOnce(deps(), stores)).stores[0]).toMatchObject({ claimed: 0, sent: 0 });
+    await db.owner.query(`UPDATE marketing_cursor SET seq = 0 WHERE store_id = $1`, [A]);
+    expect((await runOnce(deps(), stores)).stores[0]).toMatchObject({
+      scanned: 1,
+      claimed: 0,
+      sent: 0,
+    });
+    expect(transport.sent).toHaveLength(1);
+  });
+
+  it('a staff-requested export gets the same notice — the customer is the data subject either way', async () => {
+    const customerId = await makeCustomer();
+    await makeExport(customerId, { requestedByType: 'staff' });
+    expect((await runOnce(deps(), stores)).stores[0]).toMatchObject({ sent: 1 });
+    expect(transport.sent[0]!.email.to).toBe('cora@example.test');
+  });
+
+  it('skips an erased customer, a disabled one, a missing one and an export that is no longer ready, each with its reason', async () => {
+    const erased = await makeCustomer({ status: 'erased' });
+    const { eventId: e1 } = await makeExport(erased);
+    const disabled = await makeCustomer({ status: 'disabled', email: 'dan@example.test' });
+    const { eventId: e2 } = await makeExport(disabled);
+    const expiredOwner = await makeCustomer({ email: 'eve@example.test' });
+    const { eventId: e3 } = await makeExport(expiredOwner, { status: 'expired' });
+    const gone = await makeCustomer({ email: 'fay@example.test' });
+    const { eventId: e4 } = await makeExport(gone);
+    await db.owner.query(`DELETE FROM customer_export WHERE customer_id = $1`, [gone]);
+    await db.owner.query(`DELETE FROM customer WHERE id = $1`, [gone]);
+
+    const report = await runOnce(deps(), stores);
+    expect(report.stores[0]).toMatchObject({ claimed: 4, sent: 0, skipped: 4 });
+    expect(transport.calls).toBe(0);
+    const rows = await deliveries();
+    const byEvent = new Map(rows.map((r) => [r.event_id, r]));
+    expect(byEvent.get(e1)).toMatchObject({ status: 'skipped', last_error: 'customer_erased' });
+    expect(byEvent.get(e2)).toMatchObject({ status: 'skipped', last_error: 'customer_disabled' });
+    expect(byEvent.get(e3)).toMatchObject({ status: 'skipped', last_error: 'export_not_ready' });
+    expect(byEvent.get(e4)).toMatchObject({ status: 'skipped', last_error: 'source_not_found' });
+    // a skipped row is final: the next run does not look at it again
+    expect((await runOnce(deps(), stores)).stores[0]).toMatchObject({ claimed: 0, skipped: 0 });
   });
 });
 

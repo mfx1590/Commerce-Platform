@@ -184,3 +184,44 @@ describe('brands', () => {
     expect(out.text).toContain('[registered address — set NOTIFICATIONS_BRAND_A_LEGAL_ADDRESS');
   });
 });
+
+describe('export ready (#499)', () => {
+  it('renders the notice with the account link and the deadline, and nothing that could fetch the bundle', () => {
+    const out = render('export_ready', fixtureFor('export_ready'), ctx('en-GB'));
+    expect(out.subject).toBe('Your Brand A data export is ready');
+    expect(out.text).toContain('Hi Ada,');
+    expect(out.text).toContain(
+      'Your copy of your data is ready. Sign in to your account on Brand A to download it.',
+    );
+    expect(out.text).toContain('It is available until 7 November 2026 at 10:30.');
+    expect(out.text).toContain('Your account: https://brand-a.example/account');
+    expect(out.text).toContain('because a copy of your data was requested');
+    expect(out.text).not.toContain('because you placed an order');
+    expect(out.html).toContain('href="https://brand-a.example/account"');
+    expect(out.html).toContain('Go to my account');
+    expect(out.html.toLowerCase()).not.toContain('token');
+    expect(out.html).not.toContain('/exports');
+  });
+
+  it('renders de-DE', () => {
+    const out = render('export_ready', fixtureFor('export_ready'), ctx('de-DE'));
+    expect(out.subject).toBe('Ihr Datenexport bei Brand A ist bereit');
+    expect(out.text).toContain('Hallo Ada,');
+    expect(out.text).toContain('Sie steht bis 7. November 2026 um 10:30 zur Verfügung.');
+    expect(out.html).toContain('Zu meinem Konto');
+    expect(out.text).toContain('weil für Ihr Konto eine Kopie Ihrer Daten angefordert wurde');
+  });
+
+  it('greets generically without a first name and drops the link for a non-http website', () => {
+    const data = fixtureFor('export_ready');
+    data.firstName = null;
+    const out = render('export_ready', data, {
+      brand: { ...brand, websiteUrl: 'javascript:alert(1)' },
+      locale: 'en-GB',
+      timeZone: 'UTC',
+    });
+    expect(out.text).toContain('Hello,');
+    expect(out.text).not.toContain('Your account:');
+    expect(out.html).not.toContain('javascript:');
+  });
+});

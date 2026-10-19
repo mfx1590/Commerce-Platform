@@ -4,9 +4,9 @@ The transactional email worker (#360, Integration 2b go-live requirement): consu
 `shipment.shipped` from the outbox table and sends **one email per event, exactly once**, through a pluggable
 transport. Owner: window 17 (marketing). Run/test commands and the public API: `CLAUDE.md`.
 
-Today it sends two emails for brand A in two locales (en-GB, de-DE): the order confirmation and the shipping
-notice. The storefront's confirmation page still says nothing about an email — window 3 flips the copy
-(#351) once sends are proven real at the 2b gate.
+Today it sends three emails for brand A in two locales (en-GB, de-DE): the order confirmation, the shipping
+notice and the data-export notice (#499, on `customer.export_ready`). The storefront's confirmation page still
+says nothing about an email — window 3 flips the copy (#351) once sends are proven real at the 2b gate.
 
 ## How it runs
 
@@ -19,6 +19,7 @@ store codes it is configured for; it polls the outbox every `NOTIFICATIONS_POLL_
 | `GET /health`                                    | anyone         | `{ status, transport, stores, last_run }` — the last run's per-store counts  |
 | `GET /preview/order-confirmation?store=&locale=` | staff (Bearer) | the template on sample data, as HTML; `&format=text` for the plain-text part |
 | `GET /preview/shipment-shipped?store=&locale=`   | staff (Bearer) | same for the shipping notice                                                 |
+| `GET /preview/export-ready?store=&locale=`       | staff (Bearer) | same for the data-export notice                                              |
 
 `pnpm --filter @platform/notifications once` runs a single pass and prints the report — the way to drive it
 from a script or a test job without a long-lived process.
@@ -61,13 +62,13 @@ Two phases per store and run, in `src/consumer.ts`:
 
 What the row statuses mean, and what the worker does about them:
 
-| Status    | `attempted_at` | Meaning                                                                      | Next run                                                                                                                    |
-| --------- | -------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `pending` | null           | claimed, not attempted                                                       | attempts it                                                                                                                 |
-| `pending` | set            | **stuck**: the process died between the send and the mark                    | **never resent**; counted on `/health` and a `warn` line — the owner decides, because the email may already be in the inbox |
-| `failed`  | set            | the provider refused it (`last_error` = status + error name, never the body) | retried while `attempts < NOTIFICATIONS_MAX_ATTEMPTS`; then reported as `exhausted`                                         |
-| `sent`    | set            | the provider accepted it (`provider`, `provider_message_id`)                 | nothing                                                                                                                     |
-| `skipped` | null           | the source row was gone (an order deleted before the worker got to it)       | nothing                                                                                                                     |
+| Status    | `attempted_at` | Meaning                                                                                                                                                               | Next run                                                                                                                    |
+| --------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `pending` | null           | claimed, not attempted                                                                                                                                                | attempts it                                                                                                                 |
+| `pending` | set            | **stuck**: the process died between the send and the mark                                                                                                             | **never resent**; counted on `/health` and a `warn` line — the owner decides, because the email may already be in the inbox |
+| `failed`  | set            | the provider refused it (`last_error` = status + error name, never the body)                                                                                          | retried while `attempts < NOTIFICATIONS_MAX_ATTEMPTS`; then reported as `exhausted`                                         |
+| `sent`    | set            | the provider accepted it (`provider`, `provider_message_id`)                                                                                                          | nothing                                                                                                                     |
+| `skipped` | null           | must not be mailed; `last_error` says why: `source_not_found` (the order / export / customer row is gone), `customer_erased`, `customer_disabled`, `export_not_ready` | nothing                                                                                                                     |
 
 The **lookback**: the outbox's `seq` is assigned when the producer's transaction inserts, not when it commits,
 so a row with a lower `seq` can become visible after a higher one was read and moved the cursor past it. Every
@@ -100,7 +101,8 @@ notifications/<event_id>` (Resend de-duplicates for 24 h — a retry after a tim
 
 ## Templates and brands
 
-Templates are TypeScript functions in `src/templates/` — `order-confirmation.ts`, `shipment-shipped.ts` —
+Templates are TypeScript functions in `src/templates/` — `order-confirmation.ts`, `shipment-shipped.ts`,
+`export-ready.ts` —
 over a shared `layout.ts` (table-based HTML with inline styles, and a plain-text alternative) and
 `strings.ts` (every user-visible string per locale: en-GB, de-DE). Every value reaching HTML is escaped
 (`format.ts`); only absolute http(s) URLs become links. Money is formatted **from minor units by
@@ -135,9 +137,11 @@ curl -H 'Authorization: Bearer dev:seed-owner' 'http://localhost:4030/preview/or
 ## Schema
 
 `notification_delivery` is `packages/db/migrations/0180_notification_delivery.sql` (db 0.3.3, CONTRACT CHANGE
-#393, landed in #397). It travelled the #244 way: proposed as a copy inside this app, applied by the tests to
-their throwaway database until the main window landed it, then deleted — the tests now run on the real
-migration. It carries no address — a report over it can say how many confirmations went out and how many are
+#393, landed in #397) plus `0198_notification_delivery_kind.sql` (db 0.3.14, CONTRACT CHANGE #511): 0180's
+`kind` CHECK listed the two kinds of that day, 0198 extends it to `export_ready` — a new kind is a template here
+AND a line in that CHECK. Both travelled the #244 way: proposed as a copy inside this app, applied by the tests
+to their throwaway database until the main window landed them, then deleted — the tests run on the real
+migrations. It carries no address — a report over it can say how many confirmations went out and how many are
 stuck without knowing who any of them went to. The cursor is a `marketing_cursor` row (migration 0170, #244),
 which this app may write because it is marketing's table.
 
@@ -167,6 +171,19 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/notifications
   seeded database: exactly once (second run, cursor reset), locale fallback, skipped source, both events of
   one order in order, retry and exhaustion, stuck rows never resent, store/topic isolation, the lookback, the
   dev-token path against `staff_user`, and the PII sweep.
+
+## The data-export notice (#499)
+
+`customer.export_ready` v1 (window 13's export delivery, #472/#498) carries ids and timestamps only. The worker
+reads the event's `export_id` to know **which** export, then renders from the rows: `customer_export` (must
+still be `ready`; `expires_at`, `requested_by_type`) and the `customer` row (the address, the first name) at
+send time. The mail says the copy is ready, that it is available until the deadline (store timezone), and
+links to the brand's `/account` page — **no token, no download link, no export id** (manager decision
+2026-10-18: nothing in a mailbox may fetch the bundle; the Privacy section of the account page lists the export
+behind the customer's own sign-in). A staff-requested export gets the same notice — the customer is the data
+subject either way. Skipped, with the reason on the row: an erased customer (`erased+<id>@invalid`, exports
+deleted with the row), a disabled one (cannot sign in to download), an export that expired before the worker
+got to it, a missing row. The customer row has no locale, so the store's default decides the template.
 
 ## What is not here (and where it is tracked)
 
