@@ -149,15 +149,20 @@ serves every brand, so the `sub` is the same person everywhere); the per-brand `
 must never learn that a person shops at another brand — not a count, not a hash. Store-scoped code never reads
 it; it calls two `SECURITY DEFINER` functions that run in organization scope (0191's pattern) and return an id:
 
-- `app.link_customer_identity(org, customer_id, subject, email_hash)` — `resolveIn` calls it for a **verified
+- `app.link_customer_identity(customer_id, subject, email_hash)` — the organization and the caller's store scope
+  come from the SESSION, never from arguments (0196, #504 condition 1): a customer outside the caller's stores is a
+  42501 from the function, never a silent no-op. `resolveIn` calls it for a **verified
   email only**, when the row has no identity yet or was just adopted: at provisioning, on adoption, or on the first
   verified sign-in of an older row (then one `customer.updated` with `changed_fields: ['identity_id']`). By subject,
   created on a miss (race-safe); a guest-only identity with the same `email_hash` is merged into it
   (`merged_into_id`, its customers re-pointed) **only when exactly one** unmerged subjectless candidate exists — two
-  or more: no merge, ambiguity is never guessed. Two Keycloak accounts with the same verified email are two
+  or more: no merge, ambiguity is never guessed. **Contention = no merge** (0197, #506): the function locks the
+  guest identity's customer rows `FOR UPDATE SKIP LOCKED` before the identity; when another transaction holds one of
+  them, this call links without merging — the lock order of two simultaneous sign-ins (one adopting the guest row,
+  one holding the identity) deadlocked otherwise. Two Keycloak accounts with the same verified email are two
   identities (`email_hash` is no longer unique; a shared mailbox is two people). An unverified token never links or
   adopts.
-- `app.unlink_customer_identity(org, customer_id)` — at erasure (`eraseIn`, both entry points): clears the
+- `app.unlink_customer_identity(customer_id)` — same scope rule; at erasure (`eraseIn`, both entry points): clears the
   pointer, deletes the identity when no customer row and no merged identity references it (`identity_unlinked` /
   `identity_deleted` in the audit row). Another brand's row of the same person keeps it.
 
