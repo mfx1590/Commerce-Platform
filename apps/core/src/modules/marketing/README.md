@@ -189,15 +189,15 @@ document (`proposed/` removed).
 An **AND of ORs** over a **closed** predicate set. Every group in `all` must match; a group matches when any one
 of its predicates does. `all: []` matches every customer of the store — a new segment starts there.
 
-| field                | operators               | value                                    |
-| -------------------- | ----------------------- | ---------------------------------------- |
-| `orders_count`       | `gte` `lte` `eq`        | integer                                  |
-| `total_spent_minor`  | `gte` `lte` `eq`        | integer, minor units                     |
-| `last_order_at`      | `after` `before`        | RFC-3339, normalised to ISO-8601 on save |
-| `tags`               | `includes` `excludes`   | string                                   |
-| `consent`            | `granted` `not_granted` | `email` \| `sms`                         |
-| `country`            | `in` `not_in`           | array of ISO-3166-1 alpha-2              |
-| `customer_group_ids` | `in` `not_in`           | array of uuid                            |
+| field                | operators                             | value                                    |
+| -------------------- | ------------------------------------- | ---------------------------------------- |
+| `orders_count`       | `gte` `lte` `eq`                      | integer                                  |
+| `total_spent_minor`  | `gte` `lte` `eq`                      | integer, minor units                     |
+| `last_order_at`      | `after` `before`                      | RFC-3339, normalised to ISO-8601 on save |
+| `tags`               | `includes` `excludes`                 | string                                   |
+| `consent`            | `granted` `not_granted` `never_asked` | `email` \| `sms`                         |
+| `country`            | `in` `not_in`                         | array of ISO-3166-1 alpha-2              |
+| `customer_group_ids` | `in` `not_in`                         | array of uuid                            |
 
 **Anything else is a 400** naming the exact path (`rules.all[0].any[2].op`). A segment that silently ignored a
 rule it did not understand would send the wrong campaign to the wrong people and nobody would find out; a
@@ -210,8 +210,13 @@ runs both the parser and the schema over the same fixtures so they can never dri
 Decided with the manager on 2026-09-19 after checking the schema rather than the contract's description:
 
 - `orders_count` / `total_spent_minor` / `last_order_at` — aggregated from `"order"`, **excluding cancelled**.
-- `consent` — `customer.consent` jsonb, `{marketing_email: {granted: true}}`; the contract's `email`/`sms`
-  map to `marketing_email` / `marketing_sms`.
+- `consent` — `customer.consent` jsonb, `{marketing_email: {granted, at, source}}` (window 13's projection of
+  the consent ledger, #489); the contract's `email`/`sms` map to `marketing_email` / `marketing_sms`.
+  `granted` = `granted` is boolean `true`. `not_granted` = anything else, **including no decision** — the
+  suppression list for a marketing send. `never_asked` = **no block for the channel at all** (no decision was
+  ever recorded). Since #471 a first explicit "no" is recorded as `{granted: false}`, so a customer who
+  refused, or who opted out after a grant, is `not_granted` and is **never** `never_asked`: a re-consent
+  ("please opt in") audience is `never_asked`, never `not_granted` (#491, the #489 condition).
 - `country` — **the default shipping address only** (`customer_address.is_default_shipping`). A stale secondary
   address must never pull someone into a geo campaign. "Any address ever" would be a separate additive
   predicate later, deliberately not built now.
@@ -222,8 +227,9 @@ Decided with the manager on 2026-09-19 after checking the schema rather than the
 
 **Every predicate is total.** A customer with no orders, no address, no tags and no consent block still
 evaluates to true or false — never an error, and never a NULL that quietly drops them. That last one is not
-theoretical: `not_granted` is `IS DISTINCT FROM`, because `NOT (NULL = 'true')` is NULL, which silently excluded
-exactly the never-asked customers a re-consent campaign exists to reach. A test covers it.
+theoretical: `not_granted` is `IS DISTINCT FROM`, because `NOT (NULL = 'true')` is NULL, which silently dropped
+the never-asked customers from the suppression list. A test covers it. `never_asked` is `c.consent->'<channel>'
+IS NULL` — two-valued by construction, and the only operator a re-consent campaign may use (#491).
 
 Nothing from a rule is ever interpolated into SQL — values are bound as parameters, and only field and operator
 names (already checked against the closed set) reach the query string.

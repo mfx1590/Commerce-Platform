@@ -1857,9 +1857,46 @@ describe("re-consent audiences (#489 condition, window 17's segment evaluation r
     expect((await getMyConsents(a, scopeA, jon))[0]!.granted).toBeNull();
   });
 
-  it.todo(
-    "never_asked → the never-asked customer ONLY: the refuser is never in a re-consent audience (REQUEST #491 — window 17's operator; until it lands no re-consent send may use not_granted)",
-  );
+  // Written by window 17 with its operator (#491, named integration exception agreed with the manager): the
+  // assertion window 13 wrote against the grammar, now real.
+  it('never_asked → the never-asked customer ONLY: the refuser and the opted-out are never in a re-consent audience (#491)', async () => {
+    const kim = who('kim.granted');
+    const lou = who('lou.refused');
+    const mo = who('mo.never');
+    const nia = who('nia.optedout');
+    const [k, l, m, n] = await Promise.all([
+      resolveCustomer(a, scopeA, kim),
+      resolveCustomer(a, scopeA, lou),
+      resolveCustomer(a, scopeA, mo),
+      resolveCustomer(a, scopeA, nia),
+    ]);
+    await putMyConsents(a, scopeA, kim, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    await putMyConsents(a, scopeA, lou, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: false }],
+    });
+    await putMyConsents(a, scopeA, nia, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    await putMyConsents(a, scopeA, nia, {
+      policy_version: 'v1',
+      consents: [{ purpose: 'marketing_email', granted: false }],
+    });
+
+    const neverAsked = await ids('never_asked');
+    expect(neverAsked.has(m.id)).toBe(true);
+    expect(neverAsked.has(k.id)).toBe(false);
+    expect(neverAsked.has(l.id)).toBe(false);
+    expect(neverAsked.has(n.id)).toBe(false);
+    // and the suppression list still holds all three non-granted customers
+    const notGranted = await ids('not_granted');
+    expect([l.id, m.id, n.id].every((id) => notGranted.has(id))).toBe(true);
+    expect(notGranted.has(k.id)).toBe(false);
+  });
 });
 
 describe('no personal data leaves the row', () => {
