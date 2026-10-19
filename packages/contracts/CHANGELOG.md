@@ -381,3 +381,12 @@
   the 401 / 403 / 404.
   Producer: window 13 (core customers module, `customersAdminRouter`, #473). Consumers: HQ support, the erasure /
   BI joins.
+
+## 0.4.25 — 2026-10-19 (segment consent never_asked, CONTRACT CHANGE #508, REQUEST #491; contracts-v0.4.25)
+
+- Admin API 0.4.22: the `SegmentPredicate` consent `op` gains `never_asked` — the projection has no block for the
+  channel (no decision ever recorded). The re-consent audience is the never-asked customers only; a refusal
+  (`granted: false`) and an opt-out after a grant are `not_granted`, never `never_asked`. `not_granted` stays the
+  suppression list for sends. Additive: rules with the old two values stay valid. Operations unchanged (131).
+- `CONTRACTS_VERSION = '0.4.25'`; types regenerated; a spec test pins the version and the enum.
+  Producer: window 17 (segment grammar, segment-sql, the admin rule builder). Store API, events and db unchanged.
