@@ -186,3 +186,198 @@
   `exportCustomer`'s description has promised since 0.4.x; the outbox can now carry it. Producer: the core's customers
   module (#414). Consumer: the GDPR export delivery (Integration 2b).
 - Store API 0.5.4, db 0.3.3 unchanged. `CONTRACTS_VERSION = '0.4.14'`; types regenerated.
+
+## 0.4.15 — 2026-10-12 (stock pool step 2, CONTRACT CHANGE #453; contracts-v0.4.15)
+
+- Admin API 0.4.13 (117 operations, was 115): `listStockItems` (`GET /admin/stock-items`, `viewer` on hq; filters `sku`,
+  `store_id`, `shared`) and `mapVariantToStockItem` (`PUT /admin/stock-items/{stockItemId}/variants/{variantId}`,
+  `operations` on hq). The mapping is idempotent (already mapped = 200, nothing written), answers 409 while the variant's
+  current item still holds on-hand stock or an open reservation at any warehouse (quantities are never merged silently),
+  and otherwise writes one audit row and one `stock_item.mapped` v1 outbox event in the same transaction. New schemas
+  `StockItem` (with its mapped `variants` and pool `levels`) and `StockLevel`.
+- `InventoryLevel` is one row per variant and warehouse carrying the numbers of the POOL row of the stock item the variant
+  maps, with a required `stock_item_id`. `id` is the pool row's, so it repeats when two variants in one response share an
+  item: key rows by (`variant_id`, `warehouse_id`) and never sum `on_hand`, `reserved` or `available` across variants
+  (window 4: note for the admin inventory screens). `reserved` counts every store's open reservations on the pool row.
+- Events 0.3.3: `stock.moved` v2 (requires `stock_item_id`; `variant_id` + `store_id` together or absent) and
+  `stock_item.mapped` v1 (ids only). db 0.3.5: migration 0191 (levels keyed by stock item and warehouse; RLS kinds `pool` /
+  `pool_ledger`) and the seed's shared item. Store API 0.5.4 unchanged; no `ERROR_CODES` change.
+- `CONTRACTS_VERSION = '0.4.15'`; types regenerated. Producer: window 1 (inventory rewrite, #456) with window 11
+  (allocation, #435). Consumers: window 4 (admin), every `stock.moved` consumer.
+
+## 0.4.16 — 2026-10-13 (cycle counts, CONTRACT CHANGE #458; contracts-v0.4.16)
+
+- Admin API 0.4.14 (120 operations, was 117), all three `operations` on `organization:hq`, tag `inventory`:
+  `listCycleCounts` (`GET /admin/cycle-counts`; filters `warehouse_id`, `stock_item_id`, `status`; newest count first),
+  `createCycleCount` (`POST /admin/cycle-counts`, 201: writes the count down as `recorded` and changes no stock) and
+  `reconcileCycleCount` (`POST /admin/cycle-counts/{cycleCountId}/reconcile`, optional body `{ approve }`). New schema
+  `CycleCount`. There is no update and no delete: a count is a record.
+- Reconciling turns the discrepancy into exactly one stock movement (reason `cycle_count`, no store, one `stock.moved`
+  in the same transaction) and status `applied`; a zero delta is `applied` with no movement. Above
+  `organization.settings.warehouse.count_tolerance` nothing moves and the answer is a 200 with status `flagged` — not an
+  error — until a call with `approve: true` applies it. Idempotent by count.
+- No new error code (the amendment on #458): a count superseded by an applied count with the same or a later
+  `counted_at` answers 409 `conflict` with `details: { reason: 'superseded', applied_cycle_count_id }`, at record time
+  and at reconcile time; a `counted_at` in the future answers 422 `validation_error` with
+  `details: { field: 'counted_at' }`. `ERROR_CODES` is unchanged (the 0.4.13 precedent: `ActivationBlocked`,
+  `InvalidSettings`).
+- The text is window 11's proposed file verbatim; the landing adds a schema-valid `example` to the three success
+  responses (the mock answers from examples) and nothing else. test/contract.test.ts walks list → record → reconcile on
+  the mock.
+- db 0.3.6: migration 0192 (`cycle_count`, RLS kind `organization_only`). Events 0.3.3 and Store API 0.5.4 unchanged: no
+  new topic, no envelope change — reconciliation emits `stock.moved` v2 through the inventory module.
+- `CONTRACTS_VERSION = '0.4.16'`; types regenerated. Producer: window 11 (hq-warehouse, #436). Consumer: window 4 (admin).
+
+## 0.4.17 — 2026-10-15 (Order.payment_status `voided`, CONTRACT CHANGE #466; contracts-v0.4.17)
+
+- Admin API 0.4.15 and Store API 0.5.5: the order's `payment_status` (`OrderSummary`, so `Order` too, in the Admin
+  API; the order read in the Store API) gains `voided` — the authorization was released by `cancelOrder` before any
+  capture (the payment row is `cancelled`). authorized → voided when an order is cancelled; `voided` is terminal.
+  Additive: no operation, parameter, example or error code changes. `listOrders`' `payment_status` query parameter is
+  a free string, so `voided` is filterable as is.
+- Contract only: the core starts writing the value in a later PR (window 1, after #465). No backfill (manager decision
+  on #466).
+- events 0.3.4: `order.updated` v1's `payment_status` enum gains `voided` in place (the decision: every producer and
+  reader is inside apps/core, no consumer before Phase 4). db 0.3.7: migration 0193 widens
+  `order_payment_status_check`.
+- `CONTRACTS_VERSION = '0.4.17'`; types regenerated. Producer: window 1 (core, `cancelOrder`). Consumers: window 4
+  (admin orders table, label "Voided", neutral tone), the storefronts' order read.
+
+## 0.4.18 — 2026-10-15 (stock pool reads, CONTRACT CHANGE #469; contracts-v0.4.18)
+
+- Admin API 0.4.16, three HQ-only reads (additive):
+  - `listStockItemMovements` — `GET /admin/stock-items/{stockItemId}/movements` (`viewer` on `organization:hq`;
+    `warehouse_id`, page, limit): the pool row's ledger, newest first, pool movements (no store) and store-caused ones.
+  - `listStockItemReservations` — `GET /admin/stock-items/{stockItemId}/reservations` (`viewer` on
+    `organization:hq`; `warehouse_id`, `status` = `open` (default) | `released` | `all`, page, limit): every
+    store's reservations with the `allocation_rule` that placed each (a free string because of `split:<rule>`).
+  - `previewCycleCountReconcile` — `GET /admin/cycle-counts/{cycleCountId}/reconcile-preview` (`operations` on
+    `organization:hq`): what `reconcileCycleCount` would do now, without writing and without the pool row's lock;
+    404 and 409 (`superseded`) as reconcile. A separate safe GET, not a flag on the POST (manager decision on #469).
+  - New components `StockMovement`, `StockReservation`, `CycleCountPreview`; examples on every 200 (the mock answers
+    from them).
+- No events, db or Store API change; no new error code. A store-scoped variant of (a)/(b) is out of scope.
+- `CONTRACTS_VERSION = '0.4.18'`; types regenerated. Producers: window 1 (inventory module, a + b), window 11
+  (hq-warehouse, c). Consumer: window 4 (admin, #468 follow-up).
+
+## 0.4.19 — 2026-10-15 (InventoryLevel.warehouse_code, CONTRACT CHANGE #475; contracts-v0.4.19)
+
+- Admin API 0.4.17: `InventoryLevel` gains `warehouse_code` (string, `readOnly`, REQUIRED) — the `code` of the
+  warehouse the row already names by `warehouse_id`, so a store principal (store_admin, store_staff) can name the
+  warehouse without `listWarehouses` (`viewer` on `organization:hq`, a 403 for them). No operation, parameter,
+  permission or error code changes; no migration (a join to `warehouse.code`).
+- Examples: `warehouse_code: wh-eu` on the `InventoryLevel` of `listInventoryLevels` (200) and
+  `createStockMovement` (201) — the only two operations answering an `InventoryLevel`.
+- Required in the response, so it lands with the producer (manager decision on #475). `CONTRACTS_VERSION =
+'0.4.19'`; types regenerated. Producer: window 1 (core inventory module, the level projection selects
+  `warehouse.code`). Consumer: window 4 (admin Store · Inventory warehouse column and filter).
+
+## 0.4.20 — 2026-10-18 (customer self-service, CONTRACT CHANGE #482; contracts-v0.4.20)
+
+- Store API 0.5.6, four operations (publishable key + customer token, 401 and the resolve-or-provision 409 like every
+  `/store/customers/me*` operation):
+  - `updateMyAddress` — `PATCH /store/customers/me/addresses/{addressId}`: partial (every field optional, `null`
+    clears `company` / `line2` / `region` / `phone`), default flags as `addMyAddress`; 200 `CustomerAddress`,
+    400, 404 (another customer's address or an unknown id).
+  - `deleteMyAddress` — `DELETE /store/customers/me/addresses/{addressId}`: the oldest remaining address takes a
+    removed default flag; **200 `{ items }`** (the remaining addresses, the `listMyAddresses` shape), not 204
+    (manager decision on #482: no Store API 204, the account page needs the new list anyway); 404.
+  - `requestMyExport` — `POST /store/customers/me/export`: 202; one `customer.export_requested` v2
+    (`requested_by_type: customer`) per call, no dedupe.
+  - `deleteMe` — `DELETE /store/customers/me`: 202; erases this store's customer row as the Admin API
+    `eraseCustomer` does; the Keycloak subject stays on the erased row as a tombstone; a replay is a 202 no-op.
+  - New path parameter `AddressId`. Examples on every 2xx with a body (the mock answers from them).
+- events 0.3.5: `customer.export_requested` v2 (`requested_by_type` `staff` | `customer`, required); v1 stays
+  registered and frozen; `makeEvent` writes v2. No db change.
+- `CONTRACTS_VERSION = '0.4.20'`; types regenerated. Producer: window 13 (core customers module, the admin export
+  path too: `requested_by_type: staff`). Consumers: the storefronts' account page (window 13).
+
+## 0.4.21 — 2026-10-18 (customer consent ledger, CONTRACT CHANGE #489; contracts-v0.4.21)
+
+- Store API 0.5.7, two operations on `/store/customers/me/consents` (publishable key + customer token, 401 and the
+  resolve-or-provision 409 like every `/store/customers/me*` operation):
+  - `getMyConsents` — `GET`: the current decision per purpose in this store, `CustomerConsents` `{ items }`, one item
+    per purpose of the closed set (`marketing_email` only until the lawyer review).
+  - `putMyConsents` — `PUT`: `{ policy_version (required, non-blank), consents: [{ purpose, granted }] (≥ 1) }`; one
+    ledger row per purpose whose answer changes, an unchanged answer writes nothing, a first explicit `false` is
+    recorded; 200 with the current state, 400 naming the field.
+  - New schemas `CustomerConsent` (`granted` `true | false | null` — `null` = never asked, distinct from a refusal;
+    `source` / `policy_version` / `recorded_at` nullable for the never-asked item) and `CustomerConsents`.
+  - `updateMe` gains a description: `marketing_consent` stays the one-checkbox shortcut (shape unchanged) and also
+    writes the ledger (`source: storefront`, the store's `settings.privacy.policy_version`, `unversioned` when unset).
+- Admin API 0.4.18: `listCustomerConsents` — `GET /admin/stores/{storeId}/customers/{customerId}/consents` (`support`
+  on `store:{storeId}`, the record's gate), the ledger newest first, optional `purpose` query; 401 / 403 / 404 (404
+  as `getCustomer`: unknown, another store's, or erased — the ledger is gone).
+- Examples on every 2xx (the mock answers from them); `test:contract` walks get → put (and three bad bodies), the
+  /me 409, and the admin list with its 403 / 404.
+- db 0.3.9: migration 0194 `customer_consent` (append-only, RLS store, backfilled from the projection). No event
+  change: `customer.updated` keeps `changed_fields: ['marketing_consent']`. The `never_asked` segment operator is NOT
+  part of this landing (#491).
+- `CONTRACTS_VERSION = '0.4.21'`; types regenerated. Producer: window 13 (core customers module, `consent.ts`).
+  Consumers: the storefronts' Privacy section (window 13), the admin customer view.
+
+## 0.4.22 — 2026-10-18 (reporting v1 reads, CONTRACT CHANGE #493; contracts-v0.4.22)
+
+- Admin API 0.4.19, four reads under the new `reports` tag over the reporting views (the fragment
+  `data/reporting/proposed/admin-api.reports.yaml` merged verbatim):
+  - `getStoreSalesReport` — `GET /admin/stores/{storeId}/reports/sales` (`viewer` on `store:{storeId}`): one row per
+    UTC day and currency over `[from, to)`, `totals` per store and currency, `currency_totals` per currency;
+    `net_minor` is cohort-attributed. 400 / 401 / 403 / 404.
+  - `getStoreStockReport` — `GET /admin/stores/{storeId}/reports/stock` (`viewer` on `store:{storeId}`): the current
+    position of the pool rows the store sells from, paged (`Page` / `Limit`). 400 / 401 / 403 / 404.
+  - `getHqSalesReport` — `GET /admin/hq/reports/sales` (`analyst` on `organization:hq`): the store report for every
+    store. 400 / 401 / 403.
+  - `getHqFinanceReport` — `GET /admin/hq/reports/finance` (`finance` on `organization:hq`): captured payments by
+    capture day, PSP fees known so far and succeeded refunds by refund day (with `refunded_by_reason`), per store and
+    currency; `fees_reconciled` is `const: false` until Integration 4. No ledger figures in v1. 400 / 401 / 403.
+  - New query parameters `ReportFrom` (required, inclusive), `ReportTo` (required, exclusive, at most 366 days after
+    `from`) and `ReportCurrency` (optional, `^[A-Z]{3}$`); new schemas `SalesFigures`, `SalesReport`,
+    `StockPosition`, `StockReport`, `FinanceFigures`, `FinanceReport`. Amounts are integer minor units beside their
+    currency, never summed across currencies; no customer field. No new error code.
+- Examples on every 200 (the mock answers from them); `test:contract` reads all four and checks the 400 on a missing
+  `to` or a lower-case currency and the documented refusals.
+- `CONTRACTS_VERSION = '0.4.22'`; types regenerated. No events or db change.
+  Producer: window 12 (core reporting module, `reportingAdminRouter`, which reads each `x-permission` from this
+  spec). Consumers: the admin BI section (#480).
+
+## 0.4.23 — 2026-10-18 (customer export delivery, CONTRACT CHANGE #498; contracts-v0.4.23)
+
+- `ERROR_CODES` gains `expired` (before `internal`); the `Error.code` description in both specs lists it. New shared
+  response `Gone` (410, `expired`, `details.expires_at` says when) in both specs.
+- Store API 0.5.8 (30 operations, was 28), both customer-token secured with the `/me` resolve-or-provision 409:
+  - `listMyExports` — `GET /store/customers/me/exports`: the customer's export requests in this store, newest first,
+    as `CustomerExportSummary` (`status` `pending | ready | expired`, `requested_at`, `ready_at`, `expires_at`,
+    `size_bytes`, `reason` `customer_gone | too_large | null`). Ids, timestamps and sizes only. 401 / 409.
+  - `getMyExport` — `GET /store/customers/me/exports/{exportId}`: downloads one of the customer's own ready bundles
+    (`customer-export/v1`, `application/json`, `Content-Disposition: attachment`). Another customer's, unknown,
+    malformed or pending → 404; expired / purged → 410 `expired`. 401 / 404 / 409 / 410.
+- Admin API 0.4.20 (130 operations, was 128), both `store_admin` on `store:{storeId}`:
+  - `listCustomerExports` — `GET /admin/stores/{storeId}/customers/{customerId}/exports`: the summaries plus
+    `requested_by`, `requested_by_type`, `download_count`; never the bundle. 400 / 401 / 403 / 404.
+  - `getCustomerExport` — `GET …/customers/{customerId}/exports/{exportId}`: downloads one ready bundle (every
+    download is audited). 400 / 401 / 403 / 404 / 410.
+  - `CustomerExportSummary` added to the Admin components (same shape as the Store API's).
+  - #496 follow-up: `listCustomerConsents` documents `400` (a bad `?purpose`, a non-uuid `customerId`); the mock now
+    answers the house 400 instead of Prism's own 422.
+- events 0.3.6: `customer.export_ready` v1 (ids and `expires_at` only). db 0.3.10: migration 0195 `customer_export`.
+- `CONTRACTS_VERSION = '0.4.23'`; types regenerated; spec tests pin the versions, operation counts (Store 30,
+  Admin 130), the permissions, the error list and the `Gone` component; `test:contract` reads both lists and
+  downloads, and drives the documented 400 / 403 / 404 / 409 / 410.
+  Producer: window 13 (core customers module, export job #472). Consumers: the storefronts' Privacy section, the
+  admin customer view; the mail is window 17's (`customer.export_ready`).
+
+## 0.4.24 — 2026-10-18 (cross-brand identity, CONTRACT CHANGE #504; contracts-v0.4.24)
+
+- Admin API 0.4.21 (131 operations, was 130): `getCustomerIdentity` — `GET /admin/customer-identities/{identityId}`
+  (tag `customers`, next to `/admin/users`), `support` on `organization:hq`. Answers
+  `{ id, customers: [{ store_id, customer_id }] }` — ids only, no email hash, no subject, no email; a merged identity
+  answers the identity it was merged into. Per the manager's condition 4 a store-scoped principal gets 403 (the read
+  needs the HQ relation) and 404 means an unknown identity. 401 / 403 / 404; an example on the 200 (the mock answers
+  from it).
+- Store API unchanged (0.5.8); events unchanged. db 0.3.11: migration 0196 (`customer_identity` closed to store
+  sessions, keyed by subject, written through `app.link_customer_identity` / `app.unlink_customer_identity`).
+- `CONTRACTS_VERSION = '0.4.24'`; types regenerated; spec tests pin the Admin version, the operation count (131), the
+  permission, the path, the documented codes and the ids-only answer; `test:contract` reads the identity and drives
+  the 401 / 403 / 404.
+  Producer: window 13 (core customers module, `customersAdminRouter`, #473). Consumers: HQ support, the erasure /
+  BI joins.

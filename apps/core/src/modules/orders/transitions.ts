@@ -15,11 +15,13 @@ export const STATUS_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStat
 
 export const PAYMENT_TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
   awaiting: ['authorized', 'failed'],
-  authorized: ['captured', 'failed'],
+  authorized: ['captured', 'failed', 'voided'],
   captured: ['partially_refunded', 'refunded'],
   partially_refunded: ['refunded'],
   refunded: [],
   failed: ['authorized'],
+  // released by cancelOrder before any capture (#466); terminal — a late capture finds no transition
+  voided: [],
 };
 
 export const FULFILLMENT_TRANSITIONS: Readonly<

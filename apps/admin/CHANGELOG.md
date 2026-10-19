@@ -2,6 +2,94 @@
 
 ## Unreleased
 
+### Added — #468 follow-up: stock item ledger, reservations, approve preview (Admin API 0.4.16), warehouse codes (0.4.17)
+
+- Store inventory names each row's warehouse by its `warehouse_code` (#475) for store
+  principals instead of a short id; HQ principals keep the names from `listWarehouses`.
+- The approve preview reads a 409 by its `details.reason`; only a reason-less 409 (the mock) is
+  taken as superseded.
+- `ApproveButton`: preview and approval in separate transitions (the button no longer reads
+  "Approving…" while only the preview has resolved); `test/contract-form.test.tsx` waits for
+  the async validation message.
+- `/warehouse?item=&view=movements`: an item's ledger (`listStockItemMovements`) — brand or pool,
+  reason in words, signed delta, reference, actor; warehouse filter, own paging (`dpage`).
+- `/warehouse?item=&view=reservations`: its reservations (`listStockItemReservations`, open /
+  released / all) with the brand, variant sku, order or cart hold and `allocation_rule` in words.
+- Approve: `previewCycleCountReconcile` (server action, operations on hq) shows the recomputed delta,
+  status and tolerance before confirming, "may differ" kept; superseded → said, no Approve; other
+  failure → the flag's delta. Wrappers + pins + guard row; unit, component and Prism contract tests;
+  the owner core journey opens the ledger, the reservations and (when a flagged count exists) the
+  approve preview, read-only, logging which path ran.
+
+### Fixed — issue #468 follow-up (review of #474)
+
+- `/warehouse` reads nothing for a principal without `operations` on hq: the principal is loaded
+  first and the guard answers alone (no `listStores` / `listWarehouses` / `listStockItems` /
+  `listCycleCounts` with a token the section refuses).
+- Store inventory calls `listWarehouses` (viewer on hq) for HQ principals only; a store principal
+  sees a short warehouse id and the filter offers the warehouses in its rows, instead of a 403,
+  raw ids and an empty filter.
+
+### Added — issue #468: HQ warehouse (stock pool, cycle counts), store inventory, payment status voided (Admin API 0.4.15)
+
+- `/warehouse` (operations on hq): stock items with variants per brand and pool levels per
+  warehouse; "Pool a variant" (`mapVariantToStockItem`) asks first naming both brands, 409 "move the
+  stock first" with on-hand/open reservations, 404 in words. Cycle counts: list (warehouse, item,
+  status), Record (`createCycleCount`), Reconcile (applied / flagged), Approve (`approve: true`)
+  with the flag's delta labelled "recomputed on approval; may differ"; 409 superseded (both
+  causes), 409 negative on-hand, 422 `counted_at`, 404, 400 said as window 11's brief writes them;
+  "reconcile the newest count of a shelf", older open counts tagged.
+- `/{storeId}/inventory` (new Store section, viewer): rows keyed by (variant, warehouse) with the
+  pool's numbers, never summed; "Shared with N brands" only for viewers on hq.
+- Orders: payment status `voided` (#466) — lowercase like every status label, neutral tone, in the
+  payment filter.
+- Wrappers `listInventoryLevels`, `listStockItems`, `mapVariantToStockItem`, `listCycleCounts`,
+  `createCycleCount`, `reconcileCycleCount`; guard rows (operations on hq); `src/lib/warehouse`.
+  Tests: `test/warehouse-actions.test.ts` (25), `test/warehouse-screens.test.tsx` (30),
+  `test/inventory-screens.test.tsx` (7), navigation/role-access lists + inventory, Prism contract
+  `test-contract/warehouse.test.tsx` (9, port 4220), e2e `e2e/warehouse.spec.ts` (4, not yet run).
+- CONTRACT CHANGE #469 filed: item movement ledger, item reservations with `allocation_rule`,
+  reconcile preview — nothing calls them yet.
+
+### Added — issue #428 B: brand onboarding wizard and readiness panel; #420 activation 409
+
+- `/onboarding`: legal entity → store basics → primary domain → review → `onboardStore`; the 201's
+  publishable key shown once (state only, gone on Done); the 200 repeat says so with no key;
+  400/409/422 `details` mapped onto the owning step. `/onboarding/{storeId}`: status + Activate
+  listing exactly `details.missing`. `/stores/new` redirects to the wizard.
+- #420: `activateStore`/`updateStore` 409 `details.missing` / `details.status: archived` said in
+  words under Status (`activationBlocked`, `ActionResult.missing`); the HQ store form activates via
+  `activateStore` after saving the other fields; the Store view keeps `updateStore` (store_admin).
+- Wrappers `onboardStore`, `activateStore`; guard rows (owner on hq). Tests: `test/onboarding.test.ts`
+  (23), `test/onboarding-screens.test.tsx` (9), settings #420 case, Prism contract
+  `test-contract/onboarding.test.tsx` (6, port 4219), e2e `e2e/hq-onboarding.spec.ts`.
+
+### Changed — issue #431: the customers journey asserts the real detail only
+
+- The core serves the admin customer routes since #429, so the not-available branch of the
+  customers e2e journey (and `EXPECT.customersRoute`) is gone; the placeholder itself stays covered
+  by `test/api-mode.test.tsx`.
+
+### Added — issue #428 A: HQ roles (Admin API 0.4.12)
+
+- `/roles` (owner on hq): staff users; per person relations with Assign (model-grantable pairs only)
+  and Revoke (asks first; ends their sessions); their audit entries per store (`actor_id`); Invite
+  (`inviteUser`, then `assignRole` for the optional initial relation — the contract's invite takes
+  no role; a failed grant is reported with the user shown).
+- Wrappers `listUsers`, `inviteUser`, `listUserRoles`, `assignRole`, `revokeRole`, `listAuditLog`;
+  `src/lib/roles` (grantable pairs, schemas); `ROLES_PERMISSIONS` in the shared guard
+  (organization-scoped operations pass no store id).
+- Tests: `test/roles-actions.test.ts` (14), `test/roles-screens.test.tsx` (12), Prism contract
+  `test-contract/roles.test.tsx` (7, port 4218), e2e `e2e/hq-roles.spec.ts` (+ `e2e/owner.ts`).
+
+### Fixed — issue #430: the customers e2e journey reads the core's real customer
+
+- Core mode links the seeded customers-realm user to brand-a through the Store API first
+  (`e2e/core-customer.ts`: `test-cli` customers-realm token + seeded publishable key,
+  `POST /store/customers`, idempotent), then asserts the real list, detail ("Jane Doe"), consent and
+  the gated erase. A core without the admin customer routes (main before #429) still gets the
+  not-available assertions; the placeholder itself stays covered by `test/api-mode.test.tsx`.
+
 ### Fixed — issue #398: tests no longer read a transition-set state synchronously
 
 - Assertions on state a server action's result sets inside `startTransition(async …)` (refusal

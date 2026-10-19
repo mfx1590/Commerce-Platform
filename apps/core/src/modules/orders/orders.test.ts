@@ -77,7 +77,7 @@ beforeAll(async () => {
   const vs = await owner.query<{ id: string }>(
     `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
      JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
-     WHERE v.store_id = $1 AND (SELECT coalesce(sum(il.available), 0) FROM inventory_level il WHERE il.variant_id = v.id) >= 20
+     WHERE v.store_id = $1 AND (SELECT coalesce(sum(il.available), 0) FROM inventory_level il WHERE il.stock_item_id = v.stock_item_id) >= 20
      ORDER BY v.sku`,
     [A],
   );
@@ -460,7 +460,7 @@ describe('the automatic lifecycle (#350)', () => {
 });
 
 describe('cancelOrder', () => {
-  it('voids the authorised payment through the provider once, marks the payment cancelled, emits order.cancelled; idempotent; replay matches', async () => {
+  it('voids the authorised payment through the provider once, marks the payment cancelled, payment_status voided; order.updated then order.cancelled; idempotent; replay matches', async () => {
     let voids = 0;
     setPaymentProvider({
       ...manualPaymentProvider,
@@ -474,13 +474,31 @@ describe('cancelOrder', () => {
     const order = await placeOrder();
     await confirmOrder(a, order.id, actor);
     const cancelled = await cancelOrder(a, order.id, { reason: 'customer request', actor });
-    expect(cancelled).toMatchObject({ status: 'cancelled', cancel_reason: 'customer request' });
+    expect(cancelled).toMatchObject({
+      status: 'cancelled',
+      payment_status: 'voided',
+      cancel_reason: 'customer request',
+    });
     expect(cancelled.payments[0]!.status).toBe('cancelled');
     expect(voids).toBe(1);
     const events = await stream(order.id);
-    const last = events.at(-1)!;
-    expect(last.topic).toBe('order.cancelled');
-    expect(last.payload).toMatchObject({
+    // #466: the payment outcome first, as its own order.updated, then order.cancelled (payload unchanged)
+    const [voided, last] = events.slice(-2);
+    expect(events.slice(-3).map((e) => e.topic)).toEqual([
+      'order.confirmed',
+      'order.updated',
+      'order.cancelled',
+    ]);
+    expect(voided!.payload).toEqual({
+      order_id: order.id,
+      display_id: order.display_id,
+      status: 'confirmed',
+      payment_status: 'voided',
+      fulfillment_status: 'unfulfilled',
+      changed_fields: ['payment_status'],
+    });
+    expect(last!.payload).not.toHaveProperty('payment_status');
+    expect(last!.payload).toMatchObject({
       order_id: order.id,
       display_id: order.display_id,
       legal_entity_id: SEED_IDS.legalEntities.brandA,
@@ -523,11 +541,37 @@ describe('cancelOrder', () => {
       code: 'payment_failed',
       message: 'PSP down',
     });
-    expect((await row(other.id)).status).toBe('confirmed');
+    expect(await row(other.id)).toMatchObject({
+      status: 'confirmed',
+      payment_status: 'authorized',
+    });
     expect((await stream(other.id)).map((e) => e.topic)).toEqual([
       'order.placed',
       'order.confirmed',
     ]);
+  });
+
+  it('the manual provider: a cancel while authorised reads voided (#466); voided is terminal', async () => {
+    setPaymentProvider(manualPaymentProvider); // its void is a no-op that always succeeds
+    const order = await placeOrder();
+    const cancelled = await cancelOrder(a, order.id, { reason: 'changed my mind', actor });
+    expect(cancelled).toMatchObject({ status: 'cancelled', payment_status: 'voided' });
+    expect(cancelled.payments.map((p) => p.status)).toEqual(['cancelled']);
+    expect(await row(order.id)).toMatchObject({ status: 'cancelled', payment_status: 'voided' });
+    // a late capture report finds no way out of voided
+    await expect(markPaymentCaptured(a, order.id, actor)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { field: 'payment_status', from: 'voided', to: 'captured' },
+    });
+  });
+
+  it('a cancel leaves a payment_status with nothing to release as it is: failed stays failed, no payment order.updated', async () => {
+    const order = await placeOrder();
+    await markPaymentFailed(a, order.id, actor);
+    const before = (await stream(order.id)).length;
+    const cancelled = await cancelOrder(a, order.id, { reason: 'payment failed', actor });
+    expect(cancelled).toMatchObject({ status: 'cancelled', payment_status: 'failed' });
+    expect((await stream(order.id)).slice(before).map((e) => e.topic)).toEqual(['order.cancelled']);
   });
 });
 

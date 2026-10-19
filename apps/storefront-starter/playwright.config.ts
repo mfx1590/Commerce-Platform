@@ -93,6 +93,10 @@ export default defineConfig({
         // Said out loud rather than inherited: e2e/runtime-origin.spec.ts compares what is served
         // against this value, and the build is made with a different one.
         SITE_URL: RUNTIME_SITE_URL,
+        // The e2e server is `next start` — production mode — where an unset client id fails closed
+        // (#441). The starter shares the dev realm's brand-A client; a brand's own (preserved)
+        // playwright.config / next.config names its own.
+        KEYCLOAK_CLIENT_ID: process.env.KEYCLOAK_CLIENT_ID ?? 'storefront-brand-a',
         // The indexable configuration, as in `perf`. Without it `/robots.txt` is a bare
         // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
         // build origin is absent from it could not fail whatever robots.txt did (#309 review).

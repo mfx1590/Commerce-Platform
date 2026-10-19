@@ -316,9 +316,25 @@ export interface paths {
         get: operations["getMe"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete my account (GDPR erasure of this store's customer row)
+         * @description Erases the customer row of the token in THIS store, the same way the Admin API `eraseCustomer` does:
+         *     status `erased`, email replaced by a placeholder, names, phone and consent cleared, every address
+         *     deleted, orders kept (linked by customer id only, legal-obligation retention). One `customer.erased`
+         *     event. The Keycloak subject stays on the erased row as an erasure tombstone (an opaque IdP id, no
+         *     personal data) so the same login is a 401 everywhere afterwards instead of silently creating a new
+         *     account; the Keycloak user itself is deleted by a separate job. Only this store's row is erased: a
+         *     customer of several brands of the same organization deletes each account separately (owner decision
+         *     pending). Replaying the call on an already erased account is a 202 no-op.
+         */
+        delete: operations["deleteMe"];
         options?: never;
         head?: never;
+        /**
+         * @description `marketing_consent` stays the one-checkbox shortcut and a change of it also writes the consent ledger
+         *     (`source: storefront`, `policy_version` = the store's current `settings.privacy.policy_version`,
+         *     `unversioned` when unset); `getMyConsents` / `putMyConsents` read and answer per purpose.
+         */
         patch: operations["updateMe"];
         trace?: never;
     };
@@ -335,9 +351,140 @@ export interface paths {
          * @description The first address a customer adds becomes the default for shipping and billing; later ones are
          *     neither unless the body says so. `is_default_shipping` / `is_default_billing` set that flag on the
          *     new address and clear it on the customer's others, in one transaction. At most 50 addresses per
-         *     customer (the 51st is a 400). No operation changes or deletes an address yet.
+         *     customer (the 51st is a 400). `updateMyAddress` changes one, `deleteMyAddress` removes one.
          */
         post: operations["addMyAddress"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/store/customers/me/addresses/{addressId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                addressId: components["parameters"]["AddressId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description Removes one of the customer's addresses. When the removed address was the default for shipping or
+         *     billing, the customer's OLDEST remaining address takes that flag (a customer with addresses always has
+         *     a default; none left means no default). Answers the customer's remaining addresses, the
+         *     `listMyAddresses` shape (`items` is empty when none is left), so the client sees where the default
+         *     flags went. An address of another customer, or an unknown id, is a 404.
+         */
+        delete: operations["deleteMyAddress"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Changes one of the customer's addresses. Every field is optional; a present field replaces the stored
+         *     one (`company`, `line2`, `region`, `phone` accept `null`; a required address field cannot be blanked —
+         *     400 naming the field). `is_default_shipping` / `is_default_billing` `true` makes this address the
+         *     default and clears the flag on the customer's others, in one transaction; `false` hands the flag to
+         *     the customer's OLDEST OTHER address — on the customer's only address it is ignored (a customer with
+         *     addresses always has a default). An address of another customer, an unknown id and a malformed id are
+         *     the same 404.
+         */
+        patch: operations["updateMyAddress"];
+        trace?: never;
+    };
+    "/store/customers/me/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The customer's current consent decision per purpose in THIS store — one item per purpose of the closed
+         *     set. `granted` is `null` for a purpose the customer was never asked about (nothing recorded), which is
+         *     distinct from an opt-out (`false`). `marketing_email` is the only purpose until the lawyer review adds
+         *     more (a contract change).
+         */
+        get: operations["getMyConsents"];
+        /**
+         * @description Records the customer's answer for one or more purposes under the privacy-policy version the storefront
+         *     displayed (`policy_version`, required — the version the customer saw, not the store's current one).
+         *     One ledger row per purpose whose answer CHANGES; an unchanged answer writes nothing; the current state
+         *     (`GET`) is rewritten in the same transaction. A first explicit `false` IS recorded (a refusal is a
+         *     decision). An unknown purpose, a blank `policy_version` or an empty `consents` list is a 400 naming the
+         *     field.
+         */
+        put: operations["putMyConsents"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/store/customers/me/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a copy of my data (GDPR export)
+         * @description Records the request: one `customer.export_requested` event (v2, `requested_by_type: customer`), ids
+         *     only. The bundle is built and delivered by the core's export job; the customer is told by email when
+         *     it is ready. Every call is its own request (no dedupe).
+         */
+        post: operations["requestMyExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/store/customers/me/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The customer's export requests in THIS store, newest first: status `pending` (being built), `ready`
+         *     (downloadable until `expires_at`) or `expired` (purged after 30 days, or never built — `reason`
+         *     `customer_gone` / `too_large`). Ids, timestamps and sizes only; the bundle is `getMyExport`.
+         */
+        get: operations["listMyExports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/store/customers/me/exports/{exportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * @description Downloads the bundle (`customer-export/v1`, `application/json`, sent as an attachment) of one of the
+         *     customer's own ready exports. Another customer's export, an unknown id and a malformed id are the same
+         *     404; a pending export is a 404 too (nothing to download yet); an expired or purged export is a 410
+         *     `expired`.
+         */
+        get: operations["getMyExport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -365,7 +512,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, internal */
+            /** @description Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, expired, internal */
             code: string;
             message: string;
             details?: {
@@ -587,7 +734,7 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "confirmed" | "processing" | "completed" | "cancelled";
             /** @enum {string} */
-            payment_status: "awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed";
+            payment_status: "awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed" | "voided";
             /** @enum {string} */
             fulfillment_status: "unfulfilled" | "partially_fulfilled" | "fulfilled" | "partially_returned" | "returned";
             total: components["schemas"]["Money"];
@@ -634,6 +781,36 @@ export interface components {
             id: string;
             is_default_shipping: boolean;
             is_default_billing: boolean;
+        };
+        CustomerConsent: {
+            /** @enum {string} */
+            purpose: "marketing_email";
+            /** @description null = never asked (no decision recorded); false = refused / opted out. */
+            granted: boolean | null;
+            /** @enum {string|null} */
+            source: "storefront" | "admin" | "import" | null;
+            policy_version: string | null;
+            /** Format: date-time */
+            recorded_at: string | null;
+        };
+        CustomerConsents: {
+            items: components["schemas"]["CustomerConsent"][];
+        };
+        CustomerExportSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "pending" | "ready" | "expired";
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            ready_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @description compressed size of the bundle; null until ready or after purge */
+            size_bytes: number | null;
+            /** @enum {string|null} */
+            reason: "customer_gone" | "too_large" | null;
         };
     };
     responses: {
@@ -703,9 +880,28 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The export has expired or was purged — `expired`; `details.expires_at` says when */
+        Gone: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "expired",
+                 *       "message": "This export has expired",
+                 *       "details": {
+                 *         "expires_at": "2026-11-17T10:00:00Z"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         CartId: string;
+        AddressId: string;
         Page: number;
         Limit: number;
         /**
@@ -1414,6 +1610,41 @@ export interface operations {
             };
         };
     };
+    deleteMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Erasure done (or already done) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     updateMe: {
         parameters: {
             query?: never;
@@ -1583,6 +1814,390 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    deleteMyAddress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                addressId: components["parameters"]["AddressId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The remaining addresses */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "30000000-0000-4000-8000-000000000602",
+                     *           "first_name": "Jane",
+                     *           "last_name": "Doe",
+                     *           "company": null,
+                     *           "line1": "Prinsengracht 263",
+                     *           "line2": null,
+                     *           "city": "Amsterdam",
+                     *           "region": null,
+                     *           "postal_code": "1016 GV",
+                     *           "country": "NL",
+                     *           "phone": null,
+                     *           "is_default_shipping": true,
+                     *           "is_default_billing": true
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: components["schemas"]["CustomerAddress"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateMyAddress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                addressId: components["parameters"]["AddressId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    first_name?: string;
+                    last_name?: string;
+                    company?: string | null;
+                    line1?: string;
+                    line2?: string | null;
+                    city?: string;
+                    region?: string | null;
+                    postal_code?: string;
+                    country?: string;
+                    phone?: string | null;
+                    is_default_shipping?: boolean;
+                    is_default_billing?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "30000000-0000-4000-8000-000000000601",
+                     *       "first_name": "Jane",
+                     *       "last_name": "Doe",
+                     *       "company": null,
+                     *       "line1": "Keizersgracht 2",
+                     *       "line2": null,
+                     *       "city": "Amsterdam",
+                     *       "region": null,
+                     *       "postal_code": "1015 CC",
+                     *       "country": "NL",
+                     *       "phone": null,
+                     *       "is_default_shipping": true,
+                     *       "is_default_billing": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CustomerAddress"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMyConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "purpose": "marketing_email",
+                     *           "granted": true,
+                     *           "source": "storefront",
+                     *           "policy_version": "2026-10",
+                     *           "recorded_at": "2026-10-18T10:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CustomerConsents"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putMyConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    policy_version: string;
+                    consents: {
+                        /** @enum {string} */
+                        purpose: "marketing_email";
+                        granted: boolean;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description The current state after the answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "purpose": "marketing_email",
+                     *           "granted": false,
+                     *           "source": "storefront",
+                     *           "policy_version": "2026-10",
+                     *           "recorded_at": "2026-10-18T10:05:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CustomerConsents"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    requestMyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Export requested */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMyExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "30000000-0000-4000-8000-000000000e01",
+                     *           "status": "ready",
+                     *           "requested_at": "2026-10-18T10:00:00Z",
+                     *           "ready_at": "2026-10-18T10:05:00Z",
+                     *           "expires_at": "2026-11-17T10:05:00Z",
+                     *           "size_bytes": 4096,
+                     *           "reason": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: components["schemas"]["CustomerExportSummary"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMyExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle */
+            200: {
+                headers: {
+                    /** @description attachment; filename="customer-export-<id>.json" */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The token's email already belongs to another customer row of this store that cannot be adopted (the token's email is not verified, or the row is bound to a different identity) — `conflict`. Nothing is written. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "This email already has an account",
+                     *       "details": {}
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            410: components["responses"]["Gone"];
         };
     };
     listMyOrders: {

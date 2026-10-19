@@ -48,6 +48,7 @@ let a: ReturnType<typeof createTenantClient>;
 let b: ReturnType<typeof createTenantClient>;
 let org: ReturnType<typeof createTenantClient>;
 let owner: ReturnType<typeof createOrganizationClient>;
+let hq: ReturnType<typeof createOrganizationClient>;
 let scopeA: { organizationId: string; storeId: string; salesChannelId: string | null };
 let standardOptionId: string;
 let n = 0;
@@ -63,8 +64,8 @@ interface V {
 async function variantsA(): Promise<V[]> {
   const r = await owner.query<V>(
     `SELECT v.id, v.sku, p.handle,
-            coalesce((SELECT on_hand FROM inventory_level WHERE variant_id = v.id AND warehouse_id = $2), 0)::int AS eu,
-            coalesce((SELECT on_hand FROM inventory_level WHERE variant_id = v.id AND warehouse_id = $3), 0)::int AS us
+            coalesce((SELECT on_hand FROM inventory_level WHERE stock_item_id = v.stock_item_id AND warehouse_id = $2), 0)::int AS eu,
+            coalesce((SELECT on_hand FROM inventory_level WHERE stock_item_id = v.stock_item_id AND warehouse_id = $3), 0)::int AS us
      FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
      JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
      WHERE v.store_id = $1 AND v.manage_inventory AND NOT v.allow_backorder ORDER BY v.sku`,
@@ -76,7 +77,7 @@ async function variantsA(): Promise<V[]> {
 const level = async (variantId: string, warehouseId: string) =>
   (
     await owner.query<{ on_hand: number; reserved: number; available: number }>(
-      `SELECT on_hand, reserved, available FROM inventory_level WHERE variant_id = $1 AND warehouse_id = $2`,
+      `SELECT on_hand, reserved, available FROM inventory_level WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1) AND warehouse_id = $2`,
       [variantId, warehouseId],
     )
   ).rows[0] ?? { on_hand: 0, reserved: 0, available: 0 };
@@ -84,7 +85,7 @@ const level = async (variantId: string, warehouseId: string) =>
 const setStock = (variantId: string, eu: number, us: number) =>
   owner.query(
     `UPDATE inventory_level SET on_hand = CASE warehouse_id WHEN $2::uuid THEN $3::int ELSE $4::int END, reserved = 0
-     WHERE variant_id = $1`,
+     WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1)`,
     [variantId, EU, eu, us],
   );
 
@@ -92,6 +93,7 @@ beforeAll(async () => {
   db = await createTestDatabase('core_inventory');
   await seed(db.owner, { log: () => {} });
   owner = createOrganizationClient(db.owner, { organizationId: ORG });
+  hq = createOrganizationClient(db.app, { organizationId: ORG });
   a = createTenantClient(db.app, { organizationId: ORG, storeIds: [A] });
   b = createTenantClient(db.app, { organizationId: ORG, storeIds: [B] });
   org = createTenantClient(db.app, {
@@ -156,7 +158,7 @@ describe('moveStock', () => {
         actor,
       }),
     );
-    expect(r.level).toMatchObject({ on_hand: 12, reserved: 0, available: 12, sku: v!.sku });
+    expect(r.level).toMatchObject({ on_hand: 12, reserved: 0, available: 12, item_sku: v!.sku });
     const after = await owner.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM outbox WHERE topic = 'stock.moved'`,
     );
@@ -167,7 +169,9 @@ describe('moveStock', () => {
     );
     expect(ev.rows[0]!.payload).toMatchObject({
       stock_movement_id: r.movementId,
+      stock_item_id: r.level.stock_item_id,
       variant_id: v!.id,
+      store_id: A,
       sku: v!.sku,
       warehouse_id: EU,
       delta: 7,
@@ -432,6 +436,7 @@ describe('admin services and RLS', () => {
     for (const i of onlyA.items) {
       expect(i.store_id).toBe(A);
       expect(i.warehouse_id).toBe(EU);
+      expect(i.warehouse_code).toBe('wh-eu'); // #475: a store principal can name the warehouse
     }
     const onlyB = await listInventoryLevels(b, { limit: 100, warehouse_id: EU });
     for (const i of onlyB.items) expect(i.store_id).toBe(B);
@@ -442,6 +447,10 @@ describe('admin services and RLS', () => {
     const bySku = await listInventoryLevels(org, { sku: v!.sku });
     expect(bySku.items.every((i) => i.sku === v!.sku)).toBe(true);
     expect(bySku.items.map((i) => i.warehouse_id).sort()).toEqual([EU, US].sort());
+    expect(Object.fromEntries(bySku.items.map((i) => [i.warehouse_id, i.warehouse_code]))).toEqual({
+      [EU]: 'wh-eu',
+      [US]: 'wh-us',
+    });
     const low = await listInventoryLevels(org, { below_available: 1, limit: 100 });
     expect(low.items.every((i) => i.available < 1)).toBe(true);
     // store A's client cannot filter its way into store B's rows
@@ -452,7 +461,7 @@ describe('admin services and RLS', () => {
   it('createStockMovement (operations) adjusts on_hand and returns the InventoryLevel shape', async () => {
     const [v] = await variantsA();
     const before = await level(v!.id, US);
-    const out = await createStockMovement(org, {
+    const out = await createStockMovement(hq, {
       organizationId: ORG,
       variantId: v!.id,
       warehouseId: US,
@@ -467,7 +476,58 @@ describe('admin services and RLS', () => {
       warehouse_id: US,
       on_hand: before.on_hand + 3,
     });
+    expect(out.stock_item_id).toEqual(expect.any(String));
     expect(out.available).toBe(out.on_hand - out.reserved);
+    // an HQ movement is one no store caused (#456, D4): the ledger row and the event carry no store, and the
+    // audit row keeps the variant it was addressed by
+    const mv = await owner.query<{
+      id: string;
+      store_id: string | null;
+      variant_id: string | null;
+    }>(
+      `SELECT id, store_id, variant_id FROM stock_movement
+       WHERE stock_item_id = $1 AND warehouse_id = $2 AND reason = 'cycle_count' ORDER BY created_at DESC LIMIT 1`,
+      [out.stock_item_id, US],
+    );
+    expect(mv.rows[0]).toMatchObject({ store_id: null, variant_id: null });
+    const ev = await owner.query<{
+      store_id: string | null;
+      version: number;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT store_id, version, payload FROM outbox WHERE topic = 'stock.moved' AND aggregate_id = $1`,
+      [mv.rows[0]!.id],
+    );
+    expect(ev.rows[0]).toMatchObject({ store_id: null, version: 2 });
+    expect(ev.rows[0]!.payload).not.toHaveProperty('variant_id');
+    expect(ev.rows[0]!.payload).not.toHaveProperty('store_id');
+    const audit = await owner.query<{
+      action: string;
+      store_id: string | null;
+      after: Record<string, unknown>;
+    }>(`SELECT action, store_id, after FROM audit_log WHERE entity_id = $1`, [mv.rows[0]!.id]);
+    expect(audit.rows).toEqual([
+      {
+        action: 'stock_movement.create',
+        store_id: null,
+        after: expect.objectContaining({
+          addressed_variant_id: v!.id,
+          addressed_store_id: A,
+          delta: 3,
+        }),
+      },
+    ]);
+    // organization scope only: a store-scoped client is refused before anything is read or written
+    await expect(
+      createStockMovement(org, {
+        organizationId: ORG,
+        variantId: v!.id,
+        warehouseId: US,
+        delta: 1,
+        reason: 'receipt',
+        actor,
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
   });
 });
 

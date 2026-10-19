@@ -3,6 +3,7 @@
 // active warehouses. A product with no price in any enabled currency is not sellable and is not indexed.
 // Reads run on the caller's tenant client: RLS guarantees the rows belong to the store (store isolation).
 import type { Queryable } from '@platform/db';
+import { availableByVariant as poolAvailableByVariant } from '../inventory';
 import { DESCRIPTION_MAX_CHARS, type SearchRecord, type SearchVariant } from './types';
 
 interface ProductRow {
@@ -234,14 +235,13 @@ export async function loadSearchRecords(
         [variantIds],
       )
     : { rows: [] as PriceRow[] };
-  const inventory = variantIds.length
-    ? await tx.query<InventoryRow>(
-        `SELECT il.variant_id, il.available
-         FROM inventory_level il JOIN warehouse w ON w.id = il.warehouse_id AND w.is_active
-         WHERE il.variant_id = ANY($1)`,
-        [variantIds],
-      )
-    : { rows: [] as InventoryRow[] };
+  // The shared stock pool (#456; manager exception, window 9 not active): availability is the inventory module's
+  // read — the pool row(s) of each variant's stock item — instead of a direct read of its table.
+  const inventory = {
+    rows: [...(await poolAvailableByVariant(tx, variantIds))].map(
+      ([variant_id, available]): InventoryRow => ({ variant_id, available }),
+    ),
+  };
 
   const categoryMap = new Map(categories.rows.map((c) => [c.id, c]));
   const variantsByProduct = groupBy(variants.rows, (v) => v.product_id);

@@ -69,8 +69,11 @@ describe('client-side validation comes from the contract schema', () => {
     await user.type(screen.getByLabelText(/Code/), 'Brand D');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
+    // The resolver validates asynchronously (#398 class): wait for the message, then read the rest.
+    expect(
+      await screen.findByText(/lower-case letters, numbers and single hyphens/),
+    ).toBeInTheDocument();
     expect(action).not.toHaveBeenCalled();
-    expect(screen.getByText(/lower-case letters, numbers and single hyphens/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Code/)).toHaveAttribute('aria-invalid', 'true');
   });
 

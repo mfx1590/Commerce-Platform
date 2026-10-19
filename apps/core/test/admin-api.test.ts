@@ -129,15 +129,16 @@ describe('X-Contracts-Version (#284)', () => {
 
 describe('unmounted /admin paths (#265)', () => {
   it('answer the contract 404 to any authenticated staff user and 401 to everyone else; mounted routes keep their auth', async () => {
-    // Window 4's exact request: customers is window 13's module, not mounted in the core.
-    const path = `/admin/stores/${A}/customers`;
+    // Window 4's original request was the customers list; since #414 that route is mounted, so a store-scoped path
+    // that no router handles stands in for it (same shape: store id in the path, query string).
+    const path = `/admin/stores/${A}/unmounted-probe`;
     const query = '?page=1&limit=20&sort=created_at&order=desc';
     // No permission is checked for a route that does not exist: every role gets the same 404, never a 403 —
     // store staff asking through a store they cannot see (brand-b) included.
     for (const res of [
       await storeAdmin.get(path + query),
       await analyst.get(path + query),
-      await storeStaff.get(`/admin/stores/${B}/customers`),
+      await storeStaff.get(`/admin/stores/${B}/unmounted-probe`),
     ]) {
       expect(res.status).toBe(404);
       spec.assertSchema('Error', res.body);
@@ -147,7 +148,7 @@ describe('unmounted /admin paths (#265)', () => {
     }
     // The message names method and path, never the query string.
     expect((await storeAdmin.get(path + query)).body.message).toBe(
-      `GET /admin/stores/${A}/customers is not implemented`,
+      `GET /admin/stores/${A}/unmounted-probe is not implemented`,
     );
     const posted = await owner.post('/admin/nothing-here', { any: 'body' });
     expect(posted.status).toBe(404);
@@ -620,7 +621,7 @@ describe('orders (task 2.3): listOrders, getOrder, cancelOrder', () => {
     const variant = await client.query<{ id: string }>(
       `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
        JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
-       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       JOIN inventory_level il ON il.stock_item_id = v.stock_item_id AND il.available >= 5
        WHERE v.store_id = $1 ORDER BY v.sku LIMIT 1`,
       [A],
     );
@@ -731,6 +732,10 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
     spec.assertPage('InventoryLevel', res.body);
     expect(res.body.items).toHaveLength(5);
     for (const i of res.body.items) expect(i.store_id).toBe(A);
+    // #475: the store principal reads the warehouse's code with every level (required by the spec component)
+    expect(
+      res.body.items.every((i: { warehouse_code: string }) => /^wh-/.test(i.warehouse_code)),
+    ).toBe(true);
     const avail = res.body.items.map((i: { available: number }) => i.available);
     expect([...avail].sort((x, y) => x - y)).toEqual(avail);
 
@@ -739,6 +744,9 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
       '/admin/inventory/levels?limit=100&warehouse_id=' + SEED_IDS.warehouses.eu,
     );
     expect(mine.status).toBe(200);
+    expect(
+      mine.body.items.every((i: { warehouse_code: string }) => i.warehouse_code === 'wh-eu'),
+    ).toBe(true);
     const stores = new Set(mine.body.items.map((i: { store_id: string }) => i.store_id));
     expect(stores.has(SEED_IDS.stores.brandC)).toBe(false);
     // HQ operations sees every store
@@ -769,6 +777,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
     const lvl = levels.body.items[0] as {
       variant_id: string;
       warehouse_id: string;
+      warehouse_code: string;
       on_hand: number;
       sku: string;
     };
@@ -798,6 +807,8 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
     expect(res.body).toMatchObject({
       variant_id: lvl.variant_id,
       sku: lvl.sku,
+      warehouse_id: lvl.warehouse_id,
+      warehouse_code: lvl.warehouse_code,
       on_hand: lvl.on_hand + 5,
     });
     const negative = await operations.post('/admin/inventory/movements', {
@@ -813,7 +824,7 @@ describe('inventory (task 2.4): listInventoryLevels, createStockMovement', () =>
 
 describe('module routers mounted by the server (wiring batch #162 / #181)', () => {
   it('moduleAdminRouters() carries the merchandising and marketing routers and both answer behind our staff auth', async () => {
-    expect(moduleAdminRouters()).toHaveLength(8);
+    expect(moduleAdminRouters()).toHaveLength(11);
     const rules = await storeStaff.get(`/admin/stores/${A}/merchandising/rules`);
     expect(rules.status).toBe(200); // window 9: store_staff read
     expect(rules.body).toHaveProperty('items');
@@ -881,6 +892,60 @@ describe('module routers mounted by the server (wiring batch #162 / #181)', () =
     }
   });
 
+  it('consent ledger (#471, REQUEST #492): the customers router answers behind our staff auth, support on the store', async () => {
+    // window 13: customersAdminRouter — listCustomerConsents is `support` on store:{storeId} in the spec
+    const customerId = '00000000-0000-4000-8000-00000000c492';
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, email, status)
+       VALUES ($1, $2, $3, 'consent-mount@example.com', 'registered') ON CONFLICT (id) DO NOTHING`,
+      [customerId, SEED_IDS.organization, A],
+    );
+    const path = `/admin/stores/${A}/customers/${customerId}/consents`;
+    const read = await support.get(path);
+    expect(read.status).toBe(200);
+    expect(read.body).toHaveProperty('items');
+    expect(Array.isArray(read.body.items)).toBe(true);
+    // a store admin satisfies `support` on its own store (ADR 0002 stub); store staff does not
+    expect((await storeAdmin.get(path)).status).toBe(200);
+    expect((await storeStaff.get(path)).status).toBe(403);
+    expect((await request(app).get(path)).status).toBe(401);
+    // the route answers itself — an unknown customer is its 404, not the terminal "not implemented" one
+    const unknown = await support.get(
+      `/admin/stores/${A}/customers/00000000-0000-4000-8000-00000000dead/consents`,
+    );
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.message).not.toMatch(/is not implemented/);
+  });
+
+  it('reports (#479, REQUEST #494): the reporting router answers behind our staff auth, analyst on the HQ', async () => {
+    // window 12: reportingAdminRouter — getHqSalesReport is `analyst` on organization:hq in the spec
+    const path = '/admin/hq/reports/sales?from=2026-10-01&to=2026-10-18';
+    const sales = await analyst.get(path);
+    expect(sales.status).toBe(200);
+    spec.assertSchema('SalesReport', sales.body);
+    expect((await storeAdmin.get(path)).status).toBe(403);
+    expect((await request(app).get(path)).status).toBe(401);
+  });
+
+  it('cycle counts (#436): the hq-warehouse router answers behind our staff auth, HQ operations only', async () => {
+    // window 11: cycleCountsAdminRouter — every operation is `operations` on organization:hq in the spec
+    const list = await as('seed-operations').get('/admin/cycle-counts');
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveProperty('items');
+    expect((await request(app).get('/admin/cycle-counts')).status).toBe(401);
+    const id = '00000000-0000-4000-8000-00000000dead';
+    // a store role is refused on all three BEFORE anything is read: the body of the refused calls is not even valid
+    expect((await storeAdmin.get('/admin/cycle-counts')).status).toBe(403);
+    expect((await storeAdmin.post('/admin/cycle-counts', {})).status).toBe(403);
+    expect((await storeAdmin.post(`/admin/cycle-counts/${id}/reconcile`, {})).status).toBe(403);
+    // with the permission the routes answer themselves: validation, and an unknown count is a 404 — never the
+    // terminal "not implemented" 404 of an unmounted path
+    expect((await as('seed-operations').post('/admin/cycle-counts', {})).status).toBe(400);
+    const unknown = await as('seed-operations').post(`/admin/cycle-counts/${id}/reconcile`, {});
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.message).not.toMatch(/is not implemented/);
+  });
+
   it('moduleWebhookRouters() (#176 part 3): the Stripe webhook answers outside /store and /admin, on the raw body', async () => {
     expect(moduleWebhookRouters()).toHaveLength(2);
     const previous = process.env.STRIPE_WEBHOOK_SECRET;
@@ -938,7 +1003,7 @@ describe('returns (task 2.5): createReturn, receiveReturn', () => {
     const variant = await client.query<{ id: string }>(
       `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
        JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
-       JOIN inventory_level il ON il.variant_id = v.id AND il.available >= 5
+       JOIN inventory_level il ON il.stock_item_id = v.stock_item_id AND il.available >= 5
        WHERE v.store_id = $1 ORDER BY v.sku DESC LIMIT 1`,
       [A],
     );
@@ -1157,5 +1222,252 @@ describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore
     expect(
       (await owner.post('/admin/stores/00000000-0000-4000-8000-00000000ffff/activate')).status,
     ).toBe(404);
+  });
+});
+
+describe('the shared stock pool (#456, CONTRACT CHANGE #453): listStockItems, mapVariantToStockItem', () => {
+  const operations = as('seed-operations');
+  const put = (subject: string, path: string) =>
+    request(app).put(path).set('Authorization', `Bearer dev:${subject}`).send();
+
+  /** A brand A and a brand B variant, each on its own item (never the first: a seed may already share those). */
+  async function pair(offset: number) {
+    const pick = async (storeId: string) =>
+      (
+        await db.owner.query<{ id: string; sku: string; item: string }>(
+          `SELECT id, sku, stock_item_id AS item FROM product_variant
+           WHERE store_id = $1 AND manage_inventory ORDER BY sku OFFSET $2 LIMIT 1`,
+          [storeId, offset],
+        )
+      ).rows[0]!;
+    return { a: await pick(A), b: await pick(B) };
+  }
+
+  it('GET /admin/stock-items: HQ roles list the pool as a contract Page (viewer on organization:hq); a store admin gets 403; filters', async () => {
+    const res = await analyst.get('/admin/stock-items?limit=5');
+    expect(res.status).toBe(200);
+    spec.assertPage('StockItem', res.body);
+    expect(res.body).toMatchObject({ page: 1, limit: 5 });
+    expect(res.body.total).toBeGreaterThan(5);
+    expect(res.body.items.some((i: { levels: unknown[] }) => i.levels.length > 0)).toBe(true);
+    expect((await storeAdmin.get('/admin/stock-items')).status).toBe(403);
+    expect((await storeStaff.get('/admin/stock-items')).status).toBe(403);
+    expect((await request(app).get('/admin/stock-items')).status).toBe(401);
+
+    const { a } = await pair(3);
+    const bySku = await operations.get(`/admin/stock-items?sku=${encodeURIComponent(a.sku)}`);
+    expect(bySku.body.items.map((i: { id: string }) => i.id)).toEqual([a.item]);
+    expect(bySku.body.items[0].variants).toEqual([{ variant_id: a.id, store_id: A, sku: a.sku }]);
+    const ofB = await operations.get(`/admin/stock-items?store_id=${B}&limit=100`);
+    expect(
+      ofB.body.items.every((i: { variants: { store_id: string }[] }) =>
+        i.variants.some((v) => v.store_id === B),
+      ),
+    ).toBe(true);
+    const bad = await operations.get('/admin/stock-items?store_id=x&shared=maybe');
+    expect(bad.status).toBe(400);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['shared', 'store_id']);
+  });
+
+  it('PUT /admin/stock-items/{id}/variants/{id}: operations only; 409 with stock; 200 StockItem and idempotent; the level list shows one pool row for both variants', async () => {
+    const { a, b } = await pair(4);
+    const path = `/admin/stock-items/${a.item}/variants/${b.id}`;
+    expect((await put('seed-store-admin', path)).status).toBe(403);
+    expect((await put('seed-analyst', path)).status).toBe(403);
+    expect((await request(app).put(path)).status).toBe(401);
+
+    // brand B's own item still holds the seeded stock: quantities are never merged silently
+    await db.owner.query(
+      `UPDATE inventory_level SET on_hand = 3, reserved = 0 WHERE stock_item_id = $1`,
+      [b.item],
+    );
+    const refused = await put('seed-operations', path);
+    expect(refused.status).toBe(409);
+    spec.assertSchema('Error', refused.body);
+    expect(refused.body).toMatchObject({
+      code: 'conflict',
+      details: { stock_item_id: b.item, on_hand: 6, open_reservations: 0 },
+    });
+
+    await db.owner.query(`UPDATE inventory_level SET on_hand = 0 WHERE stock_item_id = $1`, [
+      b.item,
+    ]);
+    const mapped = await put('seed-operations', path);
+    expect(mapped.status).toBe(200);
+    spec.assertSchema('StockItem', mapped.body);
+    expect(mapped.body.id).toBe(a.item);
+    expect(mapped.body.variants.map((v: { variant_id: string }) => v.variant_id).sort()).toEqual(
+      [a.id, b.id].sort(),
+    );
+    const again = await put('seed-operations', path);
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(mapped.body);
+    const events = await db.owner.query(
+      `SELECT 1 FROM outbox WHERE topic = 'stock_item.mapped' AND payload->>'variant_id' = $1`,
+      [b.id],
+    );
+    expect(events.rowCount).toBe(1);
+
+    expect(
+      (
+        await put(
+          'seed-operations',
+          `/admin/stock-items/${a.item}/variants/00000000-0000-4000-8000-00000000ffff`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await put('seed-operations', `/admin/stock-items/not-a-uuid/variants/${b.id}`)).status,
+    ).toBe(400);
+
+    // InventoryLevel: one row per (variant, warehouse); the two variants carry the same pool row
+    const levelOf = async (variantId: string) => {
+      const res = await operations.get(`/admin/inventory/levels?variant_id=${variantId}&limit=10`);
+      spec.assertPage('InventoryLevel', res.body);
+      return res.body.items as {
+        id: string;
+        stock_item_id: string;
+        store_id: string;
+        on_hand: number;
+        warehouse_id: string;
+      }[];
+    };
+    const la = await levelOf(a.id);
+    const lb = await levelOf(b.id);
+    expect(lb.map((l) => l.id).sort()).toEqual(la.map((l) => l.id).sort());
+    expect(lb.every((l) => l.stock_item_id === a.item && l.store_id === B)).toBe(true);
+    expect(la.every((l) => l.stock_item_id === a.item && l.store_id === A)).toBe(true);
+  });
+
+  it('GET /admin/stock-items/{id}/movements and …/reservations (#469): HQ viewer reads, contract Pages, newest first; store roles 403; filters; 404 / 400', async () => {
+    const { a, b } = await pair(6);
+    // brand B's variant joins brand A's item (its own item emptied first, as the mapping requires)
+    await db.owner.query(
+      `UPDATE inventory_level SET on_hand = 0, reserved = 0 WHERE stock_item_id = $1`,
+      [b.item],
+    );
+    expect(
+      (await put('seed-operations', `/admin/stock-items/${a.item}/variants/${b.id}`)).status,
+    ).toBe(200);
+    const EU = SEED_IDS.warehouses.eu;
+    const US = SEED_IDS.warehouses.us;
+    const cartOf = async (storeId: string) => {
+      const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [storeId] });
+      const channel = await client.query<{ id: string }>(
+        `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+        [storeId],
+      );
+      return (
+        await createCart(client, {
+          organizationId: SEED_IDS.organization,
+          storeId,
+          salesChannelId: channel.rows[0]!.id,
+        })
+      ).id;
+    };
+    const reserve = (
+      storeId: string,
+      variantId: string,
+      cartId: string,
+      quantity: number,
+      rule: string,
+      at: string,
+      released: boolean,
+    ) =>
+      db.owner.query(
+        `INSERT INTO reservation (organization_id, store_id, variant_id, stock_item_id, warehouse_id, cart_id,
+                                  quantity, allocation_rule, created_at, released_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10 THEN now() END)`,
+        [
+          SEED_IDS.organization,
+          storeId,
+          variantId,
+          a.item,
+          EU,
+          cartId,
+          quantity,
+          rule,
+          at,
+          released,
+        ],
+      );
+    await reserve(A, a.id, await cartOf(A), 2, 'same_country', '2026-10-15T08:00:00Z', false);
+    await reserve(B, b.id, await cartOf(B), 1, 'same_region', '2026-10-15T09:00:00Z', false);
+    await reserve(A, a.id, await cartOf(A), 3, 'priority', '2026-10-15T07:00:00Z', true);
+    // expired, never released: a hold whose expiry has passed counts as released, not open (#476 review)
+    await db.owner.query(
+      `INSERT INTO reservation (organization_id, store_id, variant_id, stock_item_id, warehouse_id, cart_id,
+                                quantity, allocation_rule, created_at, expires_at, released_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 4, 'priority', '2026-10-15T06:00:00Z', now() - interval '1 minute', NULL)`,
+      [SEED_IDS.organization, B, b.id, a.item, EU, await cartOf(B)],
+    );
+    await db.owner.query(
+      `INSERT INTO stock_movement (organization_id, stock_item_id, warehouse_id, store_id, variant_id, delta, reason, created_at)
+       VALUES ($1, $2, $3, NULL, NULL, 7, 'receipt', '2026-10-15T10:00:00Z'),
+              ($1, $2, $3, $4, $5, -1, 'sale', '2026-10-15T11:00:00Z')`,
+      [SEED_IDS.organization, a.item, EU, A, a.id],
+    );
+
+    const movementsPath = `/admin/stock-items/${a.item}/movements`;
+    const movements = await analyst.get(movementsPath); // viewer on organization:hq
+    expect(movements.status).toBe(200);
+    spec.assertPage('StockMovement', movements.body);
+    const recent = movements.body.items.slice(0, 2) as {
+      store_id: string | null;
+      reason: string;
+      delta: number;
+    }[];
+    expect(recent.map((m) => [m.store_id, m.reason, m.delta])).toEqual([
+      [A, 'sale', -1],
+      [null, 'receipt', 7],
+    ]);
+    expect((await operations.get(`${movementsPath}?warehouse_id=${US}`)).body.total).toBe(0);
+
+    const reservationsPath = `/admin/stock-items/${a.item}/reservations`;
+    const open = await analyst.get(reservationsPath);
+    expect(open.status).toBe(200);
+    spec.assertPage('StockReservation', open.body);
+    expect(
+      open.body.items.map((r: { store_id: string; quantity: number; allocation_rule: string }) => [
+        r.store_id,
+        r.quantity,
+        r.allocation_rule,
+      ]),
+    ).toEqual([
+      [B, 1, 'same_region'],
+      [A, 2, 'same_country'],
+    ]);
+    const released = await operations.get(`${reservationsPath}?status=released`);
+    spec.assertPage('StockReservation', released.body);
+    expect(
+      released.body.items.map((r: { quantity: number; released_at: string | null }) => [
+        r.quantity,
+        r.released_at === null,
+      ]),
+    ).toEqual([
+      [3, false], // released
+      [4, true], // expired, never released
+    ]);
+    expect((await operations.get(`${reservationsPath}?status=all&limit=2`)).body).toMatchObject({
+      total: 4,
+      limit: 2,
+    });
+    expect((await operations.get(`${reservationsPath}?warehouse_id=${US}`)).body.total).toBe(0);
+
+    for (const path of [movementsPath, reservationsPath]) {
+      expect((await storeAdmin.get(path)).status).toBe(403);
+      expect((await storeStaff.get(path)).status).toBe(403);
+      expect((await request(app).get(path)).status).toBe(401);
+    }
+    const unknown = '00000000-0000-4000-8000-00000000ffff';
+    for (const tail of ['movements', 'reservations']) {
+      const missing = await operations.get(`/admin/stock-items/${unknown}/${tail}`);
+      expect(missing.status).toBe(404);
+      spec.assertSchema('Error', missing.body);
+      expect((await operations.get(`/admin/stock-items/not-a-uuid/${tail}`)).status).toBe(400);
+    }
+    const bad = await operations.get(`${reservationsPath}?status=maybe&warehouse_id=x`);
+    expect(bad.status).toBe(400);
+    expect(Object.keys(bad.body.details).sort()).toEqual(['status', 'warehouse_id']);
   });
 });

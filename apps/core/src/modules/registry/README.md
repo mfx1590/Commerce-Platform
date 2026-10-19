@@ -94,11 +94,13 @@ store is a no-op 200; `archived` is a 409 with `details.status`. The prerequisit
 pass `{ registrar }` to it; without one the OpenFGA object counts as missing, never as present.
 
 **`StoreRegistrar`** (`{ ensureStoreObject(storeId), hasStoreObject(storeId) }`): the registry never talks to
-OpenFGA itself. The HTTP layer hands in the OpenFGA adapter (`src/http/store-registrar.ts` — INTERIM until
-window 2's `ensureStoreObject` of `@platform/auth-sdk`, #415, is on main; then the adapter delegates to it);
-tests use `inMemoryStoreRegistrar()` from this module. OpenFGA unreachable = 503, fail closed. The live
-assertion (the seeded owner sees an onboarded store through scope resolution; a store-admin gets 403/404) runs in
-`test/auth-live.test.ts` once #415 has landed (`it.todo` until then).
+OpenFGA itself. The HTTP layer hands in `src/http/store-registrar.ts`, which writes through window 2's
+`ensureStoreObject` of `@platform/auth-sdk` (#415 / #421: read first, write only when missing, a concurrent
+duplicate tolerated, OpenFGA unreachable = 503 fail closed) and checks by reading the same tuple
+(`storeObjectTuple`); tests use `inMemoryStoreRegistrar()` from this module. The live assertion — the seeded
+owner sees an onboarded store through OpenFGA scope resolution, a store admin of other brands gets 403, and
+activation reads the real tuple — is `test/auth-live.test.ts` "#413 onboarding (live)". A store created before
+this task (through `createStore`) is repaired by `pnpm --filter @platform/auth-sdk fga:reconcile --fix`.
 
 Routes (`src/http/admin-routes.ts`): `POST /admin/onboarding/stores` (`onboardStore`, 201 / 200 / 400 / 409 / 422) and `POST /admin/stores/{storeId}/activate` (`activateStore`, 200 / 404 / 409), both `owner` on
 `organization:hq`; `updateStore` gains 404 / 409 / 422 (Admin API 0.4.11, contracts-v0.4.13).

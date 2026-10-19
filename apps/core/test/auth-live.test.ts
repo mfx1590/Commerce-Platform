@@ -228,6 +228,52 @@ describe.runIf(live)(
       });
     }, 90_000);
 
+    it('#413 onboarding (live): the onboarded store is registered in OpenFGA — owner lists, reads and activates it; store-admin → 403', async () => {
+      const owner = await bearer('owner');
+      const created = await request(app)
+        .post('/admin/onboarding/stores')
+        .set('Authorization', owner)
+        .send({
+          legal_entity: {
+            code: 'brand-live-bv',
+            name: 'Brand Live B.V.',
+            country: 'NL',
+            currency: 'EUR',
+          },
+          code: 'brand-live',
+          name: 'Brand Live',
+          default_currency: 'EUR',
+          default_locale: 'en-GB',
+          default_country: 'NL',
+          domain: { hostname: 'brand-live.localhost' },
+        });
+      expect(created.status).toBe(201);
+      spec.assertSchema('StoreOnboarded', created.body);
+      const id = created.body.store.id as string;
+
+      // scope resolution (OpenFGA ListObjects, no cache in this suite) now shows the store to the seeded owner
+      const listed = await request(app).get('/admin/stores?limit=100').set('Authorization', owner);
+      expect(listed.status).toBe(200);
+      expect(listed.body.items.map((s: { code: string }) => s.code)).toContain('brand-live');
+      expect(
+        (await request(app).get(`/admin/stores/${id}`).set('Authorization', owner)).status,
+      ).toBe(200);
+
+      // ... and not to a store admin of brand-a / brand-b
+      const outside = await request(app)
+        .get(`/admin/stores/${id}`)
+        .set('Authorization', await bearer('store-admin'));
+      expect(outside.status).toBe(403);
+      spec.assertSchema('Error', outside.body);
+
+      // the fga_object prerequisite is read from the real OpenFGA: activation passes
+      const active = await request(app)
+        .post(`/admin/stores/${id}/activate`)
+        .set('Authorization', owner);
+      expect(active.status).toBe(200);
+      expect(active.body.status).toBe('active');
+    });
+
     it('GET /admin/audit-log (hq-rbac) receives the scope the middleware resolved: store-admin → 200', async () => {
       const res = await request(app)
         .get('/admin/audit-log')

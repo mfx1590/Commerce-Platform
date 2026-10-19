@@ -35,7 +35,7 @@ export const HQ_SECTIONS: readonly Section[] = [
     label: 'Warehouse',
     scope: 'hq',
     requires: ['operations'],
-    why: 'createStockMovement / receiveReturn — x-permission operations on organization:hq',
+    why: 'listCycleCounts / mapVariantToStockItem / receiveReturn — x-permission operations on organization:hq (#468; listStockItems alone is viewer, but the section is the stock and count work)',
   },
   {
     id: 'finance',
@@ -89,6 +89,13 @@ export const STORE_SECTIONS: readonly Section[] = [
     scope: 'store',
     requires: [VIEWER],
     why: 'listOrders — x-permission viewer on store:{storeId}',
+  },
+  {
+    id: 'inventory',
+    label: 'Inventory',
+    scope: 'store',
+    requires: [VIEWER],
+    why: 'listInventoryLevels — x-permission viewer on store:{store_id} (#468)',
   },
   {
     id: 'customers',

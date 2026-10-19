@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.12
+  version: 0.4.21
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -16,6 +16,25 @@ info:
     0.4.9 (#354, Integration 2a) adds `capturePayment` and `buyShipmentLabel`, the shared `Unprocessable` (422) response,
     and documents the order status lifecycle decided on #350 on the `Order` schema.
     0.4.10: provider_unsupported enters ERROR_CODES; documents the carrier-outage deviation.
+    0.4.13 (#453, stock pool step 2) adds `listStockItems` and `mapVariantToStockItem` under `/admin/stock-items`
+    (organization scope) with `StockItem` / `StockLevel`, and `InventoryLevel` carries the pool row's numbers and a
+    required `stock_item_id`.
+    0.4.14 (#458, cycle counts) adds `listCycleCounts`, `createCycleCount` and `reconcileCycleCount` under
+    `/admin/cycle-counts` (`operations` on `organization:hq`) with `CycleCount`. A superseded count is a 409
+    `conflict` with `details.reason`; no new error code.
+    0.4.15 (#466) adds `voided` to the order's `payment_status` (authorized → voided when `cancelOrder` releases the
+    authorization; terminal; additive).
+    0.4.16 (#469) adds three HQ reads: `listStockItemMovements` and `listStockItemReservations` under
+    `/admin/stock-items/{stockItemId}` (`viewer` on `organization:hq`) with `StockMovement` / `StockReservation`, and
+    `previewCycleCountReconcile` (`operations` on `organization:hq`, a safe GET that writes nothing and takes no lock)
+    with `CycleCountPreview`. Additive.
+    0.4.17 (#475) adds the required, read-only `warehouse_code` to `InventoryLevel` (the warehouse row's `code`), so
+    a store-scoped caller can name the warehouse without `listWarehouses`. No permission changes.
+    0.4.19 (#493, reporting v1) adds four reads under the `reports` tag over the reporting views:
+    `getStoreSalesReport` and `getStoreStockReport` (`viewer` on `store:{storeId}`), `getHqSalesReport` (`analyst` on
+    `organization:hq`) and `getHqFinanceReport` (`finance` on `organization:hq`), with the `ReportFrom` / `ReportTo` /
+    `ReportCurrency` parameters and the `SalesFigures`, `SalesReport`, `StockPosition`, `StockReport`, `FinanceFigures`
+    and `FinanceReport` schemas. Amounts are integer minor units, never summed across currencies. Additive.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -35,6 +54,7 @@ tags:
   - name: audit
   - name: marketing
   - name: search
+  - name: reports
 
 paths:
   # ---------------------------------------------------------------- me
@@ -1734,8 +1754,10 @@ paths:
                         id: 70000000-0000-4000-8000-000000000001,
                         store_id: 00000000-0000-4000-8000-000000000031,
                         variant_id: 30000000-0000-4000-8000-000000000301,
+                        stock_item_id: 71000000-0000-4000-8000-000000000001,
                         sku: TEE-M-RED,
                         warehouse_id: 00000000-0000-4000-8000-000000000021,
+                        warehouse_code: wh-eu,
                         on_hand: 12,
                         reserved: 1,
                         incoming: 0,
@@ -1780,8 +1802,10 @@ paths:
                   id: 70000000-0000-4000-8000-000000000001,
                   store_id: 00000000-0000-4000-8000-000000000031,
                   variant_id: 30000000-0000-4000-8000-000000000301,
+                  stock_item_id: 71000000-0000-4000-8000-000000000001,
                   sku: TEE-M-RED,
                   warehouse_id: 00000000-0000-4000-8000-000000000021,
+                  warehouse_code: wh-eu,
                   on_hand: 22,
                   reserved: 1,
                   incoming: 0,
@@ -1790,6 +1814,426 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- stock pool (CONTRACT CHANGE #453)
+  /admin/stock-items:
+    get:
+      tags: [inventory]
+      operationId: listStockItems
+      summary: The organization's stock items with the variants mapped to each and the pool level per warehouse
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      parameters:
+        - { name: sku, in: query, schema: { type: string }, description: Substring of the item sku }
+        - {
+            name: store_id,
+            in: query,
+            schema: { type: string, format: uuid },
+            description: Only items a variant of this store maps,
+          }
+        - {
+            name: shared,
+            in: query,
+            schema: { type: boolean },
+            description: true = only items mapped by more than one store,
+          }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/StockItem' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/stock-items/{stockItemId}/variants/{variantId}:
+    parameters:
+      - { name: stockItemId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: variantId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [inventory]
+      operationId: mapVariantToStockItem
+      summary: Map a store's variant to this stock item (pooling two brands is only ever this explicit act)
+      description: >
+        Idempotent: a variant already mapped to this item is a 200 with nothing written. Otherwise refused with
+        409 unless the variant's CURRENT stock item has zero on-hand and no open reservation at every warehouse:
+        quantities are never merged silently (stock is moved first, with movements). Writes one audit row
+        (`variant.stock_item_mapped`, before / after stock_item_id) and, in the same transaction, one
+        `stock_item.mapped` v1 outbox event (nothing on the idempotent path). The item the variant leaves is kept.
+      x-permission: { relation: operations, object: 'organization:hq' }
+      responses:
+        '200':
+          description: The stock item, with the variant among `variants`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The variant's current stock item still holds stock or open reservations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: conflict,
+                  message: the variant's current stock item still holds stock,
+                  details:
+                    {
+                      stock_item_id: 71000000-0000-4000-8000-000000000001,
+                      on_hand: 12,
+                      open_reservations: 1,
+                    },
+                }
+
+  # ---------------------------------------------------------------- cycle counts (CONTRACT CHANGE #458)
+  /admin/cycle-counts:
+    get:
+      tags: [inventory]
+      operationId: listCycleCounts
+      summary: Cycle counts of the shared pool, newest count first
+      x-permission: { relation: operations, object: 'organization:hq' }
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { name: stock_item_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [recorded, flagged, applied] } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items: { type: array, items: { $ref: '#/components/schemas/CycleCount' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 72000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    sku: TEE-M-RED
+                    counted_quantity: 38
+                    counted_by: 00000000-0000-4000-8000-000000000043
+                    counted_at: '2026-10-12T08:30:00Z'
+                    source: manual
+                    note: null
+                    status: recorded
+                    on_hand_as_of_count: null
+                    delta: null
+                    stock_movement_id: null
+                    approved_by: null
+                    approved_at: null
+                    reconciled_at: null
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [inventory]
+      operationId: createCycleCount
+      summary: Record that a stock item was counted in a warehouse (changes no stock)
+      description: >
+        Writes the count down with status `recorded`; stock changes only through `reconcileCycleCount`.
+        `counted_at` defaults to now and may not be in the future (422 `validation_error`). Refused with 409
+        `conflict` (`details.reason` = `superseded`) when a
+        count of the same stock item and warehouse with the same or a later `counted_at` has already been applied.
+      x-permission: { relation: operations, object: 'organization:hq' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [warehouse_id, stock_item_id, counted_quantity]
+              properties:
+                warehouse_id: { type: string, format: uuid }
+                stock_item_id: { type: string, format: uuid }
+                counted_quantity: { type: integer, minimum: 0 }
+                counted_at: { type: string, format: date-time }
+                note: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CycleCount' }
+              example:
+                id: 72000000-0000-4000-8000-000000000001
+                warehouse_id: 00000000-0000-4000-8000-000000000021
+                stock_item_id: 71000000-0000-4000-8000-000000000001
+                sku: TEE-M-RED
+                counted_quantity: 38
+                counted_by: 00000000-0000-4000-8000-000000000043
+                counted_at: '2026-10-12T08:30:00Z'
+                source: manual
+                note: null
+                status: recorded
+                on_hand_as_of_count: null
+                delta: null
+                stock_movement_id: null
+                approved_by: null
+                approved_at: null
+                reconciled_at: null
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: conflict,
+                  message: a later count of this stock item and warehouse has already been applied,
+                  details:
+                    {
+                      reason: superseded,
+                      applied_cycle_count_id: 72000000-0000-4000-8000-000000000002,
+                    },
+                }
+        '422':
+          description: '`counted_at` is in the future (`validation_error`)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  code: validation_error,
+                  message: counted_at may not be in the future,
+                  details: { field: counted_at },
+                }
+
+  /admin/cycle-counts/{cycleCountId}/reconcile:
+    parameters:
+      - { name: cycleCountId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [inventory]
+      operationId: reconcileCycleCount
+      summary: Turn the count's discrepancy into one stock movement, or flag it for approval
+      description: >
+        Under the pool row's lock: on-hand as of `counted_at` = on-hand now minus the movements written since;
+        delta = `counted_quantity` minus that. |delta| within `organization.settings.warehouse.count_tolerance`
+        (non-negative integer, units; unset or malformed = 0): exactly one stock movement (reason `cycle_count`,
+        no store, one `stock.moved` in the same transaction) and status `applied` — no movement when the delta
+        is 0. Above the tolerance: nothing moves, status `flagged`, 200. A call with `approve: true` recomputes
+        under the lock and applies whatever the delta is, recording the approver on the count and in the audit
+        log. Idempotent by count: reconciling an `applied` count changes nothing and answers the same count.
+      x-permission: { relation: operations, object: 'organization:hq' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                approve: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The count after reconciliation (`applied` or `flagged`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CycleCount' }
+              example:
+                id: 72000000-0000-4000-8000-000000000001
+                warehouse_id: 00000000-0000-4000-8000-000000000021
+                stock_item_id: 71000000-0000-4000-8000-000000000001
+                sku: TEE-M-RED
+                counted_quantity: 38
+                counted_by: 00000000-0000-4000-8000-000000000043
+                counted_at: '2026-10-12T08:30:00Z'
+                source: manual
+                note: null
+                status: applied
+                on_hand_as_of_count: 40
+                delta: -2
+                stock_movement_id: 73000000-0000-4000-8000-000000000001
+                approved_by: null
+                approved_at: null
+                reconciled_at: '2026-10-12T08:31:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            `conflict`: a later count of this stock item and warehouse has already been applied (`details.reason` =
+            `superseded`), or the adjustment would take on-hand below zero (the inventory module refuses it; recount)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/stock-items/{stockItemId}/movements:
+    parameters:
+      - { name: stockItemId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [inventory]
+      operationId: listStockItemMovements
+      summary: The pool row's ledger — every stock movement of this stock item, newest first
+      description: >
+        HQ only. Includes pool movements no store caused (`store_id` and `variant_id` null: receipts, transfers,
+        cycle counts) and movements a store caused (a sale, a return), which keep the store and variant they were
+        written with. 404 for an unknown stock item.
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [page, limit, total, items]
+                properties:
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+                  items: { type: array, items: { $ref: '#/components/schemas/StockMovement' } }
+              example:
+                page: 1
+                limit: 20
+                total: 2
+                items:
+                  - id: 73000000-0000-4000-8000-000000000001
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    store_id: null
+                    variant_id: null
+                    delta: -2
+                    reason: cycle_count
+                    reference_type: cycle_count
+                    reference_id: 72000000-0000-4000-8000-000000000001
+                    actor_id: 00000000-0000-4000-8000-000000000043
+                    note: null
+                    created_at: '2026-10-12T08:31:00Z'
+                  - id: 73000000-0000-4000-8000-000000000002
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    variant_id: 30000000-0000-4000-8000-000000000301
+                    delta: -1
+                    reason: sale
+                    reference_type: order
+                    reference_id: 30000000-0000-4000-8000-000000000501
+                    actor_id: null
+                    note: null
+                    created_at: '2026-10-11T14:05:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stock-items/{stockItemId}/reservations:
+    parameters:
+      - { name: stockItemId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [inventory]
+      operationId: listStockItemReservations
+      summary: Reservations held on this stock item's pool rows, with the allocation rule that placed each
+      description: >
+        HQ only; every store's reservations. `status=open` (default) = not released and not expired; `released`
+        = released or expired; `all` = both. Newest first. 404 for an unknown stock item.
+      x-permission: { relation: viewer, object: 'organization:hq' }
+      parameters:
+        - { name: warehouse_id, in: query, schema: { type: string, format: uuid } }
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [open, released, all], default: open },
+          }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [page, limit, total, items]
+                properties:
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+                  items: { type: array, items: { $ref: '#/components/schemas/StockReservation' } }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 74000000-0000-4000-8000-000000000001
+                    stock_item_id: 71000000-0000-4000-8000-000000000001
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    variant_id: 30000000-0000-4000-8000-000000000301
+                    order_id: 30000000-0000-4000-8000-000000000501
+                    quantity: 1
+                    allocation_rule: store_country
+                    expires_at: null
+                    released_at: null
+                    created_at: '2026-10-11T14:05:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/cycle-counts/{cycleCountId}/reconcile-preview:
+    parameters:
+      - { name: cycleCountId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [inventory]
+      operationId: previewCycleCountReconcile
+      summary: What reconcileCycleCount would do now — recomputed as-of on-hand, delta and status — without writing
+      description: >
+        Same computation as `reconcileCycleCount` (on-hand as of `counted_at` = on-hand now minus the movements
+        written since; delta = `counted_quantity` minus that; `would_status` from `count_tolerance`), but writes
+        nothing and takes no lock, so a later reconcile or approval may compute a different delta if stock moves
+        in between. An `applied` count answers its stored values with `would_status: applied`. Superseded counts
+        answer the same 409 as `reconcileCycleCount` (`details.reason` = `superseded`); 404 as reconcile
+        (unknown count, or its warehouse is deactivated).
+      x-permission: { relation: operations, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CycleCountPreview' }
+              example:
+                cycle_count_id: 72000000-0000-4000-8000-000000000001
+                on_hand_as_of_count: 40
+                delta: -2
+                count_tolerance: 0
+                would_status: flagged
+                computed_at: '2026-10-12T09:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A later count of this stock item and warehouse has already been applied, or the stock was corrected by hand after this count (`conflict`, `details.reason` = `superseded`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   # ---------------------------------------------------------------- fulfillment
   /admin/stores/{storeId}/shipping-options:
@@ -2418,6 +2862,58 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /admin/stores/{storeId}/customers/{customerId}/consents:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: listCustomerConsents
+      summary: The customer's consent ledger in this store — every recorded decision, newest first (personal data — same gate as the record)
+      x-permission: { relation: support, object: 'store:{storeId}' }
+      parameters:
+        - {
+            name: purpose,
+            in: query,
+            required: false,
+            schema: { type: string, enum: [marketing_email] },
+          }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, purpose, granted, source, policy_version, recorded_at]
+                      properties:
+                        id: { type: string, format: uuid }
+                        purpose: { type: string, enum: [marketing_email] }
+                        granted: { type: boolean }
+                        source: { type: string, enum: [storefront, admin, import] }
+                        policy_version: { type: string }
+                        recorded_at: { type: string, format: date-time }
+              example:
+                items:
+                  - {
+                      id: 30000000-0000-4000-8000-000000000d01,
+                      purpose: marketing_email,
+                      granted: false,
+                      source: storefront,
+                      policy_version: '2026-10',
+                      recorded_at: '2026-10-18T10:00:00Z',
+                    }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /admin/stores/{storeId}/customers/{customerId}/export:
     parameters:
       - { $ref: '#/components/parameters/StoreId' }
@@ -2432,6 +2928,64 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/customers/{customerId}/exports:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: listCustomerExports
+      summary: The customer's export requests in this store, newest first (ids, status, timestamps, sizes — never the bundle)
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/CustomerExportSummary'
+                        - type: object
+                          required: [requested_by, requested_by_type, download_count]
+                          properties:
+                            requested_by: { type: string, format: uuid }
+                            requested_by_type: { type: string, enum: [staff, customer] }
+                            download_count: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/customers/{customerId}/exports/{exportId}:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: exportId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: getCustomerExport
+      summary: Downloads one ready export bundle (customer-export/v1 as an attachment); every download is audited
+      x-permission: { relation: store_admin, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: The bundle
+          headers:
+            Content-Disposition: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/Gone' }
 
   /admin/stores/{storeId}/customer-groups:
     parameters:
@@ -2463,6 +3017,52 @@ paths:
                   - { id: 40000000-0000-4000-8000-000000000001, code: vip, name: VIP }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/customer-identities/{identityId}:
+    parameters:
+      - { name: identityId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [customers]
+      operationId: getCustomerIdentity
+      summary: HQ-only — the per-brand customer rows one person's identity links (ids only; no hash, no subject, no email)
+      description: |
+        For HQ support resolving "is this the same person" and for the erasure / BI joins. Answers store and customer
+        ids only. A merged identity answers the identity it was merged into. A store-scoped principal (a store admin,
+        whatever its relations on its own stores) gets 403: the read needs `support` on `organization:hq`. 404 means
+        the identity is unknown.
+      x-permission: { relation: support, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, customers]
+                properties:
+                  id: { type: string, format: uuid }
+                  customers:
+                    type: array
+                    items:
+                      type: object
+                      required: [store_id, customer_id]
+                      properties:
+                        store_id: { type: string, format: uuid }
+                        customer_id: { type: string, format: uuid }
+              example:
+                id: 50000000-0000-4000-8000-000000000301
+                customers:
+                  - {
+                      store_id: 00000000-0000-4000-8000-000000000031,
+                      customer_id: 50000000-0000-4000-8000-000000000011,
+                    }
+                  - {
+                      store_id: 00000000-0000-4000-8000-000000000032,
+                      customer_id: 50000000-0000-4000-8000-000000000012,
+                    }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------- roles
   /admin/users:
@@ -3823,6 +4423,224 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ---------------------------------------------------------------- reports
+  /admin/stores/{storeId}/reports/sales:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [reports]
+      operationId: getStoreSalesReport
+      summary: Daily sales of one store per currency (rpt_sales_daily)
+      description: |
+        One row per UTC day and currency over `[from, to)`. Orders that are cancelled, or whose payment is voided or
+        failed, are not sales; `awaiting` orders are. `net_minor` is cohort-attributed: total minus the succeeded
+        refunds of the orders placed that day, whenever the refund happened. Amounts are never summed across
+        currencies: `totals` has one entry per currency.
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportCurrency' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesReport' }
+              example:
+                from: '2026-03-01'
+                to: '2026-03-02'
+                generated_at: '2026-03-10T09:00:00Z'
+                rows:
+                  - store_id: 00000000-0000-4000-8000-000000000031
+                    day: '2026-03-01'
+                    currency: EUR
+                    orders: 2
+                    gross_minor: 12000
+                    discount_minor: 100
+                    shipping_minor: 200
+                    tax_minor: 100
+                    total_minor: 12200
+                    refunded_minor: 2500
+                    net_minor: 9700
+                totals:
+                  - store_id: 00000000-0000-4000-8000-000000000031
+                    currency: EUR
+                    orders: 2
+                    gross_minor: 12000
+                    discount_minor: 100
+                    shipping_minor: 200
+                    tax_minor: 100
+                    total_minor: 12200
+                    refunded_minor: 2500
+                    net_minor: 9700
+                currency_totals:
+                  - currency: EUR
+                    orders: 2
+                    gross_minor: 12000
+                    discount_minor: 100
+                    shipping_minor: 200
+                    tax_minor: 100
+                    total_minor: 12200
+                    refunded_minor: 2500
+                    net_minor: 9700
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/stores/{storeId}/reports/stock:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [reports]
+      operationId: getStoreStockReport
+      summary: Stock position of the pool rows this store sells from (rpt_stock_position)
+      description: |
+        The current position (no date range) of every pool row whose stock item one of this store's variants maps,
+        ordered by `sku`, then `warehouse_code`. On a shared item `reserved` is held by every store that maps it.
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StockReport' }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                generated_at: '2026-03-10T09:00:00Z'
+                items:
+                  - stock_item_id: 00000000-0000-4000-8000-000000000051
+                    sku: shared-tee-m
+                    warehouse_id: 00000000-0000-4000-8000-000000000021
+                    warehouse_code: wh-eu
+                    on_hand: 40
+                    reserved: 3
+                    incoming: 0
+                    available: 37
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/hq/reports/sales:
+    get:
+      tags: [reports]
+      operationId: getHqSalesReport
+      summary: Daily sales of every store per currency (rpt_sales_daily, organization scope)
+      description: |
+        As `getStoreSalesReport`, for every store of the organization: rows per store, day and currency; `totals`
+        per store and currency; `currency_totals` per currency across stores. Amounts are never summed across
+        currencies.
+      x-permission: { relation: analyst, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportCurrency' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SalesReport' }
+              example:
+                from: '2026-03-01'
+                to: '2026-03-02'
+                generated_at: '2026-03-10T09:00:00Z'
+                rows:
+                  - store_id: 00000000-0000-4000-8000-000000000032
+                    day: '2026-03-01'
+                    currency: GBP
+                    orders: 1
+                    gross_minor: 5900
+                    discount_minor: 50
+                    shipping_minor: 100
+                    tax_minor: 50
+                    total_minor: 6000
+                    refunded_minor: 600
+                    net_minor: 5400
+                totals:
+                  - store_id: 00000000-0000-4000-8000-000000000032
+                    currency: GBP
+                    orders: 1
+                    gross_minor: 5900
+                    discount_minor: 50
+                    shipping_minor: 100
+                    tax_minor: 50
+                    total_minor: 6000
+                    refunded_minor: 600
+                    net_minor: 5400
+                currency_totals:
+                  - currency: GBP
+                    orders: 1
+                    gross_minor: 5900
+                    discount_minor: 50
+                    shipping_minor: 100
+                    tax_minor: 50
+                    total_minor: 6000
+                    refunded_minor: 600
+                    net_minor: 5400
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/hq/reports/finance:
+    get:
+      tags: [reports]
+      operationId: getHqFinanceReport
+      summary: Captured payments, PSP fees and refunds per store and currency (cash view)
+      description: |
+        Payments captured in `[from, to)` by capture day (rpt_payments_daily) and succeeded refunds by refund day
+        (rpt_refunds_daily), per store and currency, plus `currency_totals` per currency across stores. PSP fees are
+        the fees known so far and are NOT reconciled (`fees_reconciled` is false until Integration 4);
+        `fee_unknown` counts captured payments without a fee yet. Amounts are never summed across currencies. No
+        ledger figures in v1.
+      x-permission: { relation: finance, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/ReportFrom' }
+        - { $ref: '#/components/parameters/ReportTo' }
+        - { $ref: '#/components/parameters/ReportCurrency' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinanceReport' }
+              example:
+                from: '2026-03-01'
+                to: '2026-04-01'
+                generated_at: '2026-04-02T09:00:00Z'
+                fees_reconciled: false
+                rows:
+                  - store_id: 00000000-0000-4000-8000-000000000031
+                    currency: EUR
+                    captured_count: 2
+                    captured_minor: 14000
+                    fee_minor: 290
+                    fee_unknown: 1
+                    refunds: 1
+                    refunded_minor: 2500
+                    refunded_by_reason:
+                      { return: 0, cancellation: 0, goodwill: 2500, chargeback: 0 }
+                currency_totals:
+                  - currency: EUR
+                    captured_count: 2
+                    captured_minor: 14000
+                    fee_minor: 290
+                    fee_unknown: 1
+                    refunds: 1
+                    refunded_minor: 2500
+                    refunded_by_reason:
+                      { return: 0, cancellation: 0, goodwill: 2500, chargeback: 0 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
 components:
   securitySchemes:
     staffToken:
@@ -3860,6 +4678,24 @@ components:
       in: query
       description: Sort direction. Ignored unless `sort` is present.
       schema: { type: string, enum: [asc, desc], default: desc }
+    ReportFrom:
+      name: from
+      in: query
+      required: true
+      description: First UTC day of the report, inclusive.
+      schema: { type: string, format: date }
+    ReportTo:
+      name: to
+      in: query
+      required: true
+      description: UTC day after the last day of the report (exclusive); after `from`, at most 366 days later.
+      schema: { type: string, format: date }
+    ReportCurrency:
+      name: currency
+      in: query
+      required: false
+      description: Only rows in this currency.
+      schema: { type: string, pattern: '^[A-Z]{3}$' }
 
   responses:
     BadRequest:
@@ -3902,6 +4738,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { code: conflict, message: handle already exists, details: { field: handle } }
+    Gone:
+      description: The export has expired or was purged — `expired`; `details.expires_at` says when
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: expired,
+              message: This export has expired,
+              details: { expires_at: '2026-11-17T10:00:00Z' },
+            }
     Unprocessable:
       description: The store's provider or carrier cannot perform this operation (e.g. the manual provider / carrier)
       content:
@@ -3951,7 +4798,7 @@ components:
         code:
           {
             type: string,
-            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, internal',
+            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, expired, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -4678,7 +5525,8 @@ components:
         payment_status:
           {
             type: string,
-            enum: [awaiting, authorized, captured, partially_refunded, refunded, failed],
+            enum: [awaiting, authorized, captured, partially_refunded, refunded, failed, voided],
+            description: '`voided` — the authorization was released by `cancelOrder` before any capture (the payment row is `cancelled`). Terminal.',
           }
         fulfillment_status:
           {
@@ -4859,20 +5707,206 @@ components:
             cancel_reason: { type: [string, 'null'] }
             metadata: { type: object, additionalProperties: true }
 
+    StockItem:
+      type: object
+      required: [id, sku, name, barcode, variants, levels]
+      properties:
+        id: { type: string, format: uuid }
+        sku: { type: string, description: Unique per organization }
+        name: { type: string }
+        barcode: { type: [string, 'null'] }
+        variants:
+          type: array
+          items:
+            type: object
+            required: [variant_id, store_id, sku]
+            properties:
+              variant_id: { type: string, format: uuid }
+              store_id: { type: string, format: uuid }
+              sku: { type: string, description: The variant's own sku in its store }
+        levels:
+          type: array
+          items: { $ref: '#/components/schemas/StockLevel' }
+    StockLevel:
+      type: object
+      required: [warehouse_id, on_hand, reserved, incoming, available]
+      properties:
+        warehouse_id: { type: string, format: uuid }
+        on_hand: { type: integer }
+        reserved: { type: integer, description: Every store's open reservations on this pool row }
+        incoming: { type: integer }
+        available: { type: integer }
     InventoryLevel:
       type: object
+      description: >
+        One variant in one warehouse, carrying the numbers of the POOL row of the stock item the variant maps.
+        `id` is the pool row's, so it repeats when two variants in one response share a stock item: key rows by
+        (`variant_id`, `warehouse_id`) and never sum `on_hand`, `reserved` or `available` across variants.
       required:
-        [id, store_id, variant_id, sku, warehouse_id, on_hand, reserved, incoming, available]
+        [
+          id,
+          store_id,
+          variant_id,
+          stock_item_id,
+          sku,
+          warehouse_id,
+          warehouse_code,
+          on_hand,
+          reserved,
+          incoming,
+          available,
+        ]
       properties:
         id: { type: string, format: uuid }
         store_id: { type: string, format: uuid }
         variant_id: { type: string, format: uuid }
+        stock_item_id: { type: string, format: uuid }
         sku: { type: string }
         warehouse_id: { type: string, format: uuid }
+        warehouse_code:
+          type: string
+          readOnly: true
+          description: The warehouse's `code` (from the warehouse row), so a store-scoped caller can name the warehouse without `listWarehouses` (viewer on organization:hq).
         on_hand: { type: integer }
         reserved: { type: integer }
         incoming: { type: integer }
         available: { type: integer }
+    CycleCount:
+      type: object
+      required:
+        [
+          id,
+          warehouse_id,
+          stock_item_id,
+          sku,
+          counted_quantity,
+          counted_by,
+          counted_at,
+          source,
+          note,
+          status,
+          on_hand_as_of_count,
+          delta,
+          stock_movement_id,
+          approved_by,
+          approved_at,
+          reconciled_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        stock_item_id: { type: string, format: uuid }
+        sku: { type: string, description: The stock item's sku }
+        counted_quantity: { type: integer, minimum: 0 }
+        counted_by: { type: [string, 'null'], format: uuid, description: null for a system source }
+        counted_at: { type: string, format: date-time }
+        source: { type: string, enum: [manual, wms] }
+        note: { type: [string, 'null'] }
+        status: { type: string, enum: [recorded, flagged, applied] }
+        on_hand_as_of_count:
+          { type: [integer, 'null'], description: null until the count is first reconciled }
+        delta: { type: [integer, 'null'], description: counted_quantity minus on_hand_as_of_count }
+        stock_movement_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: set when a non-zero delta was applied,
+          }
+        approved_by: { type: [string, 'null'], format: uuid }
+        approved_at: { type: [string, 'null'], format: date-time }
+        reconciled_at: { type: [string, 'null'], format: date-time }
+    StockMovement:
+      type: object
+      required:
+        [
+          id,
+          stock_item_id,
+          warehouse_id,
+          store_id,
+          variant_id,
+          delta,
+          reason,
+          reference_type,
+          reference_id,
+          actor_id,
+          note,
+          created_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        stock_item_id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        store_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: null = a pool movement no store caused,
+          }
+        variant_id: { type: [string, 'null'], format: uuid }
+        delta: { type: integer, description: Signed; never 0 }
+        reason:
+          {
+            type: string,
+            enum: [receipt, sale, return, adjustment, transfer_in, transfer_out, cycle_count],
+          }
+        reference_type: { type: [string, 'null'], description: 'e.g. order, shipment, cycle_count' }
+        reference_id: { type: [string, 'null'], format: uuid }
+        actor_id: { type: [string, 'null'], format: uuid, description: null for a system source }
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+    StockReservation:
+      type: object
+      required:
+        [
+          id,
+          stock_item_id,
+          warehouse_id,
+          store_id,
+          variant_id,
+          order_id,
+          quantity,
+          allocation_rule,
+          expires_at,
+          released_at,
+          created_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        stock_item_id: { type: string, format: uuid }
+        warehouse_id: { type: string, format: uuid }
+        store_id: { type: string, format: uuid, description: The store that reserved }
+        variant_id: { type: string, format: uuid }
+        order_id: { type: [string, 'null'], format: uuid, description: null for a cart hold }
+        quantity: { type: integer, minimum: 1 }
+        allocation_rule:
+          type: [string, 'null']
+          description: >
+            Why this warehouse: store_country | store_default | same_country | same_region | priority;
+            `split:<rule>` for the second and later warehouse of a split line; `backorder` for a shortfall reserved
+            anyway. null for rows written before 0191.
+        expires_at: { type: [string, 'null'], format: date-time }
+        released_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+    CycleCountPreview:
+      type: object
+      required:
+        [cycle_count_id, on_hand_as_of_count, delta, count_tolerance, would_status, computed_at]
+      properties:
+        cycle_count_id: { type: string, format: uuid }
+        on_hand_as_of_count: { type: integer }
+        delta:
+          {
+            type: integer,
+            description: 'counted_quantity minus on_hand_as_of_count, as of computed_at',
+          }
+        count_tolerance:
+          {
+            type: integer,
+            minimum: 0,
+            description: organization.settings.warehouse.count_tolerance (unset = 0),
+          }
+        would_status: { type: string, enum: [applied, flagged] }
+        computed_at: { type: string, format: date-time }
     ShippingOptionInput:
       type: object
       required: [code, name, price_minor, currency, countries]
@@ -4929,6 +5963,22 @@ components:
         status: { type: string, enum: [guest, registered, disabled, erased] }
         consent: { type: object, additionalProperties: true }
         created_at: { type: string, format: date-time }
+
+    CustomerExportSummary:
+      type: object
+      required: [id, status, requested_at, ready_at, expires_at, size_bytes, reason]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [pending, ready, expired] }
+        requested_at: { type: string, format: date-time }
+        ready_at: { type: [string, 'null'], format: date-time }
+        expires_at: { type: [string, 'null'], format: date-time }
+        size_bytes:
+          {
+            type: [integer, 'null'],
+            description: compressed size of the bundle; null until ready or after purge,
+          }
+        reason: { type: [string, 'null'], enum: [customer_gone, too_large, null] }
 
     StaffUser:
       type: object
@@ -5583,6 +6633,156 @@ components:
         published_at: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    SalesFigures:
+      type: object
+      description: Integer minor units of one currency. Never a sum across currencies.
+      required:
+        [
+          orders,
+          gross_minor,
+          discount_minor,
+          shipping_minor,
+          tax_minor,
+          total_minor,
+          refunded_minor,
+          net_minor,
+        ]
+      properties:
+        orders: { type: integer, minimum: 0 }
+        gross_minor: { type: integer, description: sum of order subtotals }
+        discount_minor: { type: integer }
+        shipping_minor: { type: integer }
+        tax_minor: { type: integer }
+        total_minor: { type: integer }
+        refunded_minor:
+          { type: integer, description: succeeded refunds of these orders, whenever refunded }
+        net_minor: { type: integer, description: total_minor − refunded_minor }
+    SalesReport:
+      type: object
+      description: |
+        Sales from the `rpt_sales_daily` view over `[from, to)` (UTC days). Every amount sits beside its `currency`;
+        amounts are never summed across currencies.
+      required: [from, to, generated_at, rows, totals, currency_totals]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        generated_at: { type: string, format: date-time }
+        rows:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/SalesFigures'
+              - type: object
+                required: [store_id, day, currency]
+                properties:
+                  store_id: { type: string, format: uuid }
+                  day: { type: string, format: date }
+                  currency: { type: string, pattern: '^[A-Z]{3}$' }
+        totals:
+          type: array
+          description: One entry per store and currency.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/SalesFigures'
+              - type: object
+                required: [store_id, currency]
+                properties:
+                  store_id: { type: string, format: uuid }
+                  currency: { type: string, pattern: '^[A-Z]{3}$' }
+        currency_totals:
+          type: array
+          description: One entry per currency, across the stores in `rows`.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/SalesFigures'
+              - type: object
+                required: [currency]
+                properties:
+                  currency: { type: string, pattern: '^[A-Z]{3}$' }
+    StockPosition:
+      type: object
+      required:
+        [stock_item_id, sku, warehouse_id, warehouse_code, on_hand, reserved, incoming, available]
+      properties:
+        stock_item_id: { type: string, format: uuid }
+        sku: { type: string }
+        warehouse_id: { type: string, format: uuid }
+        warehouse_code: { type: string }
+        on_hand: { type: integer }
+        reserved: { type: integer, description: held by every store that maps the item }
+        incoming: { type: integer }
+        available: { type: integer, description: on_hand − reserved }
+    StockReport:
+      description: The pool rows a store sells from (`rpt_stock_position`), now.
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [generated_at, items]
+          properties:
+            generated_at: { type: string, format: date-time }
+            items: { type: array, items: { $ref: '#/components/schemas/StockPosition' } }
+    FinanceFigures:
+      type: object
+      description: Integer minor units of one currency. Never a sum across currencies.
+      required:
+        [
+          captured_count,
+          captured_minor,
+          fee_minor,
+          fee_unknown,
+          refunds,
+          refunded_minor,
+          refunded_by_reason,
+        ]
+      properties:
+        captured_count: { type: integer, minimum: 0 }
+        captured_minor: { type: integer }
+        fee_minor: { type: integer, description: PSP fees known so far — unreconciled }
+        fee_unknown:
+          { type: integer, minimum: 0, description: captured payments whose fee is not known yet }
+        refunds: { type: integer, minimum: 0 }
+        refunded_minor: { type: integer }
+        refunded_by_reason:
+          type: object
+          required: [return, cancellation, goodwill, chargeback]
+          properties:
+            return: { type: integer }
+            cancellation: { type: integer }
+            goodwill: { type: integer }
+            chargeback: { type: integer }
+    FinanceReport:
+      type: object
+      description: |
+        Cash view over `[from, to)` (UTC days): payments by capture day, succeeded refunds by refund day. Every amount
+        sits beside its `currency`; amounts are never summed across currencies. Fees are unreconciled
+        (`fees_reconciled: false`) until Integration 4.
+      required: [from, to, generated_at, fees_reconciled, rows, currency_totals]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        generated_at: { type: string, format: date-time }
+        fees_reconciled: { type: boolean, const: false }
+        rows:
+          type: array
+          description: One entry per store and currency.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/FinanceFigures'
+              - type: object
+                required: [store_id, currency]
+                properties:
+                  store_id: { type: string, format: uuid }
+                  currency: { type: string, pattern: '^[A-Z]{3}$' }
+        currency_totals:
+          type: array
+          description: One entry per currency, across stores.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/FinanceFigures'
+              - type: object
+                required: [currency]
+                properties:
+                  currency: { type: string, pattern: '^[A-Z]{3}$' }
 
   examples:
     StoreBrandA:

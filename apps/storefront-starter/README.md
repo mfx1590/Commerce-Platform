@@ -219,6 +219,23 @@ to the kit for everyone), put business logic in the storefront (pricing, stock, 
 come from the core), or import from the starter after generation — the starter is a template, not a
 dependency.
 
+### What a brand must set (#441, #440)
+
+Nothing in the starter assumes brand A's identity any more; a brand names its own:
+
+| Variable                              | Where a brand sets it                                                                                                                                                                                                                | Unset                                                                                                                                                             |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KEYCLOAK_CLIENT_ID`                  | its `next.config.mjs` (`process.env.KEYCLOAK_CLIENT_ID ??= 'storefront-brand-x'`)                                                                                                                                                    | dev / tests / `next build`: `storefront-brand-a`; **any other server throws `OidcConfigError`** — a borrowed client would bind customer sessions to another store |
+| `SUPPORTED_LOCALES`, `DEFAULT_LOCALE` | its `next.config.mjs` for the app, **and** its `playwright.config.ts` for e2e (the Playwright process never loads next.config; the e2e server and every synced spec take the locale from there), and its test script / CI for vitest | `en-GB,de-DE`, default the first                                                                                                                                  |
+| `E2E_SHIP_ADDRESS_JSON`               | its `playwright.config.ts`                                                                                                                                                                                                           | the starter's NL address                                                                                                                                          |
+
+One definition of the locales — `src/i18n/locale-config.mjs` — serves the app's routing,
+`scripts/e2e-warm.mjs` (the e2e server warms `/<default locale>`; **a redirect is not warm**: it fails
+at once naming the `location`) and the specs (`e2e/support/locale.ts`: `localePath`, `localeUrl`,
+`LOCALES`). A configured locale with no `messages/<locale>.json` fails with a message naming the file
+(`src/i18n/catalogue.ts`), and `test/i18n.test.ts` checks a catalogue exists for every configured
+locale.
+
 ## Routes
 
 | Route group  | Routes                                                                           | Owner                          |
@@ -713,6 +730,15 @@ targets, base URI — but it is **not** XSS protection and should not be describ
 
 ## Performance budget
 
+**A brand measures against its own store (#447).** The gate's Prism mock describes brand A
+(`en-GB`, `de-DE`), and the root layout 404s a locale the store does not offer, so a brand selling
+another locale could never be warmed. A brand ships `perf/store.example.json` — its store as `GET
+/store` would describe it (`code`, `name`, currencies, locales, `default_*` …) — and `perf.mjs` then
+validates it against the spec's `Store` schema (a wrong example fails naming the problems), writes a
+temporary copy of `store-api.yaml` whose `GET /store` example is that file (one line changes;
+`scripts/perf-store-example.mjs`), starts Prism from it on `PERF_MOCK_PORT` (default 4012) and points
+the app at it. No file: the shared mock on `MOCK_API_URL` serves exactly as before.
+
 One command runs the whole gate and exits non-zero if **any** budget is exceeded (task 2.3):
 
 ```bash
@@ -758,23 +784,24 @@ fails if this block drifts from it. Refresh with
 
 | Route                                         | First load (gzipped) | Budget             |
 | --------------------------------------------- | -------------------- | ------------------ |
-| `/[locale]/(account)/account/orders/page`     | 130.5 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/page`            | 133 kB               | 145 kB _(default)_ |
-| `/[locale]/(checkout)/cart/page`              | 139.5 kB             | 145 kB             |
-| `/[locale]/(checkout)/checkout/address/page`  | 133.6 kB             | 139 kB             |
-| `/[locale]/(checkout)/checkout/page`          | 129.2 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/checkout/payment/page`  | 133.6 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/checkout/review/page`   | 133.6 kB             | 139 kB             |
-| `/[locale]/(checkout)/checkout/shipping/page` | 133.6 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/orders/[orderId]/page`  | 130.5 kB             | 145 kB _(default)_ |
-| `/[locale]/(content)/campaign/[slug]/page`    | 131.7 kB             | 145 kB _(default)_ |
-| `/[locale]/(content)/legal/[slug]/page`       | 131.7 kB             | 145 kB _(default)_ |
-| `/[locale]/(content)/pages/[slug]/page`       | 131.7 kB             | 145 kB _(default)_ |
-| `/[locale]/(shop)/categories/[handle]/page`   | 136 kB               | 141 kB             |
-| `/[locale]/(shop)/page`                       | 130.5 kB             | 136 kB             |
-| `/[locale]/(shop)/products/[handle]/page`     | 139 kB               | 144 kB             |
-| `/[locale]/(shop)/products/page`              | 136 kB               | 141 kB             |
-| `/_not-found/page`                            | 102.9 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/deleted/page`    | 130.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/orders/page`     | 130.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/page`            | 134.3 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 140.6 kB             | 145 kB             |
+| `/[locale]/(checkout)/checkout/address/page`  | 133.8 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/page`          | 129.4 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/payment/page`  | 133.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/review/page`   | 134.9 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/shipping/page` | 133.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/orders/[orderId]/page`  | 130.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/campaign/[slug]/page`    | 132.9 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/legal/[slug]/page`       | 132.9 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/pages/[slug]/page`       | 132.9 kB             | 145 kB _(default)_ |
+| `/[locale]/(shop)/categories/[handle]/page`   | 136.3 kB             | 141 kB             |
+| `/[locale]/(shop)/page`                       | 131.2 kB             | 136 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 139.3 kB             | 144 kB             |
+| `/[locale]/(shop)/products/page`              | 136.3 kB             | 141 kB             |
+| `/_not-found/page`                            | 103 kB               | 145 kB _(default)_ |
 
 _Generated by `pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`; budgets live in `bundle-budget.json`._
 <!-- bundle-budget:end -->
