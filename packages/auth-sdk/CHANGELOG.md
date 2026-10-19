@@ -194,3 +194,14 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   for Keycloak (the realm's user profile requires both names) and gets no token, not even through the
   direct grant. `createUser` now splits the display name into `firstName` / `lastName` (a one-word name is
   stored as both); `KeycloakStaffUser.lastName` added.
+
+## Unreleased — 2026-10-19 (auth/phase3)
+
+- #488: the four hq-rbac live tests that change a role (roles.test.ts assign / revoke / organization assign,
+  scope.test.ts cache invalidation) answered 503 locally and passed in CI. Cause: since #415 every role change
+  ends the user's Keycloak sessions through the core-admin service account built from the environment; the
+  core's vitest runs these files too and loads neither the root `.env` nor the auth-sdk vitest env default,
+  so `KEYCLOAK_ADMIN_CLIENT_SECRET` was unset → 503 `identity provider unavailable` (CI runs them through the
+  auth-sdk config, which defaults it). Fix: the two test files default the dev realm secret themselves (as
+  invite.test.ts does) and print the error body on a failed status; the hq-rbac README names the two env
+  lines as required for every role change. Not an OpenFGA problem: these tests seed their own store.
