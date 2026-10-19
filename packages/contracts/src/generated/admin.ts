@@ -2897,7 +2897,7 @@ export interface components {
             /** @enum {string} */
             field: "consent";
             /** @enum {string} */
-            op: "granted" | "not_granted";
+            op: "granted" | "not_granted" | "never_asked";
             /** @enum {string} */
             value: "email" | "sms";
         } | {

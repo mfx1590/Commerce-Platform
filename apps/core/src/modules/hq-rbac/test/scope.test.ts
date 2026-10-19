@@ -16,6 +16,10 @@ import { createHqRbac, createStaffScopeMiddleware, toTenantContext } from '../in
 
 const KC = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
 const API = process.env.OPENFGA_API_URL ?? 'http://localhost:8081';
+// Every role change ends the user's Keycloak sessions through the core-admin service account (#415). The
+// core's vitest runs this file too and loads neither the root .env nor the auth-sdk vitest env, so the dev
+// realm secret is defaulted here — without it every assign/revoke answers 503 (#488).
+process.env.KEYCLOAK_ADMIN_CLIENT_SECRET ??= 'dev-only-core-admin-secret';
 const ORG = SEED_IDS.organization;
 const U = SEED_IDS.users;
 const S = SEED_IDS.stores;
@@ -131,7 +135,7 @@ describe.runIf(live)('staff scope middleware (live Keycloak + Postgres + OpenFGA
       principal: owner,
       body: { relation: 'store_admin', object_type: 'store', object_id: S.brandC },
     });
-    expect(res?.status).toBe(201);
+    expect(res, JSON.stringify(res?.body)).toMatchObject({ status: 201 });
     const after = await mw.resolve(t);
     expect(calls).toBe(4);
     expect(after.storeIds).toEqual([S.brandA, S.brandC].sort());

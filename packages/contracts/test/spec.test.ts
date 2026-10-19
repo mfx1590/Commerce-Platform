@@ -244,7 +244,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.21/);
+    expect(text).toMatch(/version: 0\.4\.22/);
     for (const tag of [
       'registry',
       'catalog',
@@ -1156,7 +1156,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
       .slice(1);
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.21$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.22$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.8$/m); // Store API unchanged (#504)
     expect(adminOps.length).toBe(131); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
@@ -1193,5 +1193,13 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 
   it('the Store API carries no identity_id (Store API unchanged)', () => {
     expect(store).not.toMatch(/identity_id/);
+  });
+});
+
+describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
+  const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
+  it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
+    expect(admin).toMatch(/^ {2}version: 0\.4\.22$/m);
+    expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
   });
 });

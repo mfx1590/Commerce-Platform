@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.21
+  version: 0.4.22
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -6151,7 +6151,7 @@ components:
           required: [field, op, value]
           properties:
             field: { type: string, enum: [consent] }
-            op: { type: string, enum: [granted, not_granted] }
+            op: { type: string, enum: [granted, not_granted, never_asked] }
             value: { type: string, enum: [email, sms] }
         - type: object
           additionalProperties: false

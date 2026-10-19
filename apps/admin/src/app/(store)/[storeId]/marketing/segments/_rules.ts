@@ -83,9 +83,10 @@ export const SEGMENT_FIELDS: readonly FieldSpec[] = [
     ops: [
       { op: 'granted', label: 'granted for' },
       { op: 'not_granted', label: 'not granted for' },
+      { op: 'never_asked', label: 'never asked for' },
     ],
     value: 'consent',
-    hint: 'Someone who was never asked counts as not granted.',
+    hint: '"Not granted" is the suppression list: never asked, refused and opted out. "Never asked" is only those with no recorded decision — the re-consent audience; someone who refused is never in it.',
   },
   {
     field: 'country',

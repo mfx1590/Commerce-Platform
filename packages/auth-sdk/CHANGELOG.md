@@ -214,3 +214,14 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   run retries; a settled event never calls Keycloak again. The core job that calls `runOnce` is window 13's
   (REQUEST #513). Tests: `test/customer-erasure.test.ts` (unit on a scripted db + admin client; live on a
   throw-away database and the test's own customers-realm user, consumer included).
+
+## Unreleased — 2026-10-19 (auth/phase3)
+
+- #488: the four hq-rbac live tests that change a role (roles.test.ts assign / revoke / organization assign,
+  scope.test.ts cache invalidation) answered 503 locally and passed in CI. Cause: since #415 every role change
+  ends the user's Keycloak sessions through the core-admin service account built from the environment; the
+  core's vitest runs these files too and loads neither the root `.env` nor the auth-sdk vitest env default,
+  so `KEYCLOAK_ADMIN_CLIENT_SECRET` was unset → 503 `identity provider unavailable` (CI runs them through the
+  auth-sdk config, which defaults it). Fix: the two test files default the dev realm secret themselves (as
+  invite.test.ts does) and print the error body on a failed status; the hq-rbac README names the two env
+  lines as required for every role change. Not an OpenFGA problem: these tests seed their own store.

@@ -3,6 +3,19 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
+## Phase 3 — marketing/phase3 (contracts-v0.4.12 →)
+
+### 2026-10-19 · `never_asked` consent operator (REQUEST #491, CONTRACT CHANGE #508)
+
+- `consent` gains a third operator: `never_asked` = no block for the channel in `customer.consent` (no decision
+  ever recorded). Since #471 a first explicit refusal is recorded as `{granted: false}`, so `not_granted` is the
+  suppression list (never asked ∪ refused ∪ opted out) and **`never_asked` is the only operator a re-consent
+  audience may use** — a refusal is never in it. `SegmentPredicate` type, `SEGMENT_FIELDS`, `SEGMENT_RULES_SCHEMA`,
+  `segment-sql.ts` (`c.consent->$ch IS NULL`), the admin rule builder's op list + hint, tests (granted / refused /
+  opted-out / never-asked / asked-about-sms-only × the three operators; window 13's `it.todo` in
+  `customers.test.ts` turned into the real assertion by agreement). Lands as an integration PR with the
+  contract line.
+
 ## Phase 2 — marketing/phase2 (contracts-v0.3 → v0.4.5)
 
 ### 2026-09-24 · `getPromotionReport` route (follow-up to #150)
