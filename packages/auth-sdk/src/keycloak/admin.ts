@@ -61,8 +61,11 @@ export interface KeycloakAdmin {
   /** Ends every session of the user (admin `logout`): refresh tokens die; access tokens expire by `exp`. */
   logoutUser(subject: string): Promise<void>;
   listUserSessions(subject: string): Promise<KeycloakUserSession[]>;
-  /** Tests clean up their throwaway users with it; the core never deletes staff users (status = disabled). */
-  deleteUser(subject: string): Promise<void>;
+  /**
+   * Deletes the user; `not_found` when there is none (a replay, or deleted by other means). Staff users are never
+   * deleted by the core (status = disabled); the customers realm uses it after an erasure (#483), tests for cleanup.
+   */
+  deleteUser(subject: string): Promise<'deleted' | 'not_found'>;
 }
 
 interface TokenResponse {
@@ -216,8 +219,9 @@ export function createKeycloakAdmin(opts: KeycloakAdminOptions = {}): KeycloakAd
     },
     async deleteUser(subject) {
       const res = await call('delete user', 'DELETE', `/users/${encodeURIComponent(subject)}`);
-      if (res.status !== 204 && res.status !== 404)
-        throw unavailable('delete user', `${res.status}`);
+      if (res.status === 404) return 'not_found';
+      if (res.status !== 204) throw unavailable('delete user', `${res.status}`);
+      return 'deleted';
     },
   };
 }

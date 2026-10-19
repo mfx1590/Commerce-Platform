@@ -177,13 +177,16 @@ describe.each(REALMS)('production %s realm invariants', (realm) => {
 });
 
 describe('production customers realm (LAUNCH.md 3.2)', () => {
-  it('keeps exactly the three storefront clients with their production callbacks', () => {
+  it('keeps exactly the three storefront clients (plus the core-admin service account, #483) with their production callbacks', () => {
     const prod = production.customers!;
     expect(prod.clients.map((c) => c.clientId).sort()).toEqual([
+      'core-admin',
       'storefront-brand-a',
       'storefront-brand-b',
       'storefront-brand-c',
     ]);
+    expect(prod.clients.find((c) => c.clientId === 'core-admin')!.secret).toBeUndefined();
+    expect(prod.users.map((u) => u.serviceAccountClientId)).toEqual(['core-admin']);
     expect(prod.clients.find((c) => c.clientId === 'storefront-brand-a')!.redirectUris).toEqual([
       'https://shop.example.com/auth/callback',
     ]);

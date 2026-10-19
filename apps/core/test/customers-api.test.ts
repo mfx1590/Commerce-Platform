@@ -28,6 +28,7 @@ import {
 import { mountCustomerRoutes } from '../src/http/customer-routes';
 import { customerGateWith, getOrderRouteWith } from '../src/http/store-routes';
 import { paymentProvider } from '../src/modules/checkout';
+import { runCustomerErasure } from '../src/jobs/customer-erasure';
 import { runCustomerExports } from '../src/jobs/customer-export';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
@@ -1286,6 +1287,36 @@ describe('export delivery (#472, Store API 0.5.8): the job, GET /store/customers
       status: 'expired',
       size_bytes: null,
     });
+  });
+});
+
+describe('customer erasure job (#483 / #513): the customer.erased consumer through the job', () => {
+  it('after a self-service deletion the job deletes the tombstone subject at Keycloak once and settles the event; a second run settles nothing more; the log names no one', async () => {
+    PERSONAS.vanisher = {
+      subject: 'sub-vanisher',
+      storeCode: 'brand-a',
+      email: 'vanisher@example.test',
+    };
+    expect((await as('vanisher', 'get', '/store/customers/me')).status).toBe(200);
+    expect((await as('vanisher', 'delete', '/store/customers/me')).status).toBe(202);
+    const deleted: string[] = [];
+    const keycloak = {
+      realm: 'customers',
+      async deleteUser(subject: string) {
+        deleted.push(subject);
+        return 'deleted' as const;
+      },
+    };
+    const first = await runCustomerErasure({ organizationId: ORG, keycloak });
+    expect(first.processed).toBeGreaterThanOrEqual(1);
+    expect(first.retry).toBe(0);
+    expect(deleted).toContain('sub-vanisher');
+    const settledBefore = deleted.length;
+    const second = await runCustomerErasure({ organizationId: ORG, keycloak });
+    expect(second.processed).toBe(0);
+    expect(deleted).toHaveLength(settledBefore); // nothing deleted twice: the claim is the replay guard
+    expect(JSON.stringify(first)).not.toContain('sub-vanisher');
+    expect(JSON.stringify(first)).not.toContain('vanisher@');
   });
 });
 
