@@ -589,6 +589,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   export's core-admin secret matches .env.example, checked without printing). Admin side: the spec now
   waits for the granted row OR a refusal alert in the form and fails WITH the refusal text (tightened,
   not loosened). Asked the manager whether to push before #525 lands.
+- **NEXT (after the #523 fix): admin commit of the tax-rate landing #520 / CONTRACT CHANGE #522.**
+  Contract on origin/integration/tax-rates 5e15db2 (Admin API 0.4.23: list/create/update/deleteTaxRate,
+  TaxRate; activateStore 409 `missing` + `missing_tax_countries`; delete 409 `last_rate_of_market_country`).
+  PLAN sent 2026-10-20 (Q1 tax section in Store settings, Q2 e2e proves the 409 then creates NL 2100 bp
+  from the readiness panel → "G1 tax:" line). Build on local branch admin/tax-rates from 5e15db2,
+  code-only; cut ONE commit on window 1's sha when the manager sends it; live run only on handover.
 - (#481 review nits: fixed in the #518 PR.)
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
