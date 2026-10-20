@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #518 (Integration 3 G1) — core run green; push held for the manager's review
+Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #518 — PR #523 up (head ad6faf0), in review; pushes held
 
 ## Identity (does not change)
 Owned paths (write):
@@ -576,6 +576,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   new store, 403 on brand-b. Core started by me (`pnpm --filter @platform/core dev`), app built
   (111 s) + started on :3200; both stopped, leftovers killed, 3200/9000 free. Push held until the
   manager reviews.
+  **PR #523 opened 2026-10-20** (Closes #518; code commit ad12abf; opening head ad6faf0 = the run's
+  memory commit; head = this PR-record commit; GitHub closing
+  refs [518] only; #517 in prose). Opus reviews. Hold ALL pushes until the manager confirms the merge
+  (this note is a local commit). Then report "checks finished".
 - (#481 review nits: fixed in the #518 PR.)
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
