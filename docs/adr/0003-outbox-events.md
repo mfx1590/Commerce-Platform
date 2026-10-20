@@ -14,8 +14,11 @@ succeed while the publish fails (or the reverse), and the ledger never reconcile
    `outbox` inside the transaction that changes the state. If the transaction rolls back, so does the event.
    Producers never talk to the broker.
 2. **One relay publishes.** A single process (window 14, Phase 4) reads `outbox WHERE published_at IS NULL ORDER BY
-   seq`, publishes to Redpanda with key = `event_id`, then sets `published_at`. At-least-once; every consumer is
-   idempotent on `event_id`.
+   seq`, publishes to Redpanda, then sets `published_at`. At-least-once; every consumer is idempotent on `event_id`
+   (= the outbox id). *Amended 2026-10-20 (#530, #531): the Kafka message KEY is the partition key of item 3 —
+   `store_id`, or `organization_id` for an organization-scope event — so per-store order holds; the `event_id` /
+   outbox id travels in the envelope and in an `outbox_id` header, and that is what consumers dedupe on. The
+   original "key = `event_id`" contradicted item 3 (the key decides the partition).*
 3. **Redpanda (Kafka API).** Topics = event names (`order.placed`, …), partitioned by `store_id` so per-store order
    is preserved. Retention: forever for accounting-relevant topics (replayable), 30 days otherwise. Schema registry
    holds the same JSON Schemas as `packages/events`.
@@ -30,6 +33,10 @@ succeed while the publish fails (or the reverse), and the ledger never reconcile
    `order.placed`, `order.cancelled`, `payment.captured`, `refund.issued`, `shipment.shipped` (each carries
    `legal_entity_id`). No UI action writes the ledger.
 7. **Phase discipline.** Phases 1–3: the core writes the outbox; nothing consumes it (the table is the audit trail).
+   *Amended 2026-10-20: by the end of Phase 3 three in-process consumers read the outbox inside the core, each with
+   its own claim table (`notification_delivery` 0180, `customer_export` 0195, `customer_erasure_claim` 0199). They
+   stay in Phase 4; the relay publishes every row to the bus IN ADDITION and never touches their claims (manager
+   decision on #530–#534). Moving them onto the bus is a later decision.*
    Phase 4: window 14 builds the relay and schema registry alone, then consumers start. Schema changes are single-
    window (plan 6.6) and tagged `events-vX.Y`.
 
