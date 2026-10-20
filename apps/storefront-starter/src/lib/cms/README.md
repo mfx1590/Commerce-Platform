@@ -15,13 +15,23 @@ const page = await cms.page(locale, slug); // PageDocument | null
 const nav = await cms.navigation(locale); // 'main' by default
 ```
 
-`getCms()` binds `reader.ts` to Next: the environment (`SANITY_*`), the store from `GET /store`
-(`store.code` picks the dataset through `datasetForStore`), and the preview cookie. Everything
-else is in `reader.ts` and is tested with fakes.
+`getCms()` binds `reader.ts` to Next: the environment (`SANITY_*`), the store from `GET /store`,
+and the preview cookie. Everything else is in `reader.ts` and is tested with fakes.
 
-**Reads never throw.** No `SANITY_PROJECT_ID`, an unresolvable store, a store without a dataset, a
-network failure or a 500 from Sanity all yield `null` / `[]`, and the routes render their static
-fallback. The problem is reported with one `console.warn` — once per process for missing
+**Which dataset** (#521): `resolveDataset` from `@platform/cms`, fed by `datasetSource(store)` —
+the store row and nothing else, never a request header, path or query. `store.content_space_id`
+when it is a valid dataset name (a brand onboarded from the admin UI: the wizard sets it, an
+operator creates the dataset of that name), else the seeded `BRAND_DATASETS` by `store.code`, else
+no content. The preview route (`/api/cms/preview`) and the preview-cookie check use the same
+resolution, so the cookie is signed for the dataset the reads use. `test/cms-dataset-resolution.test.ts`
+proves all of it, including the unknown-store paths through the mounted `getCms()` and route
+(empty reader, 503 with no cookie, `[]` routed documents). The sitemap's own `createReader` call in
+`src/lib/sitemap-data.ts` (window 3) still passes `storeCode` only; until it passes
+`content_space_id` too, a UI-onboarded brand's sitemap lists no CMS pages — REQUEST filed.
+
+**Reads never throw.** No `SANITY_PROJECT_ID`, an unresolvable store, a store without a dataset
+(unknown code and no usable `content_space_id`), a network failure or a 500 from Sanity all yield
+`null` / `[]`, and the routes render their static fallback. The problem is reported with one `console.warn` — once per process for missing
 configuration, once per failed request otherwise — carrying the status and Sanity's request id,
 never a token or the response body.
 
