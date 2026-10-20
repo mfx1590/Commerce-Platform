@@ -589,6 +589,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   export's core-admin secret matches .env.example, checked without printing). Admin side: the spec now
   waits for the granted row OR a refusal alert in the form and fails WITH the refusal text (tightened,
   not loosened). Asked the manager whether to push before #525 lands.
+  Manager chose (a): #525 applied on main 35245d5 (both jobs that remove .env; secret masked).
+  Merged main, pushed the fix 396e133 + this record (head = this commit). Next: quote the G1 lines
+  from CI's admin e2e job when green; the manager queues on green.
 - **NEXT (after the #523 fix): admin commit of the tax-rate landing #520 / CONTRACT CHANGE #522.**
   Contract on origin/integration/tax-rates 5e15db2 (Admin API 0.4.23: list/create/update/deleteTaxRate,
   TaxRate; activateStore 409 `missing` + `missing_tax_countries`; delete 409 `last_rate_of_market_country`).
