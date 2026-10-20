@@ -138,6 +138,12 @@ export default defineConfig({
         // Said out loud rather than inherited: e2e/runtime-origin.spec.ts compares what is served
         // against this value, and the build is made with a different one.
         SITE_URL,
+        // The e2e server is `next start` — production mode — where since #441 part 2 an unset
+        // client id **throws `OidcConfigError`** instead of borrowing brand A's. Ported from the
+        // starter's own config at the #445 sync; brand A names itself here rather than relying on
+        // the starter's `?? 'storefront-brand-a'`, which is a default for the starter, not an
+        // identity for this brand.
+        KEYCLOAK_CLIENT_ID: 'storefront-brand-a',
         // The indexable configuration, as in `perf`. Without it `/robots.txt` is a bare
         // `Disallow: /` with no `Sitemap:` line — no origin in it at all — and a test that the
         // build origin is absent from it could not fail whatever robots.txt did (#309 review).

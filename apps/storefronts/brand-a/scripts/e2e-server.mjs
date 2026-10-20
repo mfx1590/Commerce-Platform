@@ -33,6 +33,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { e2eServerEnv } from './e2e-env.mjs';
+import { warmUpPath, warmUpServer } from './e2e-warm.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Resolved, not looked up on PATH — see scripts/perf.mjs for why.
@@ -50,13 +51,6 @@ const appUrl = `http://127.0.0.1:${port}`;
 /** Where Playwright asks "ready?" — keep in step with `READY_URL` in playwright.config.ts. */
 const readyPort = process.env.E2E_READY_PORT ?? String(Number(port) + 1000);
 
-/** A request counts as quick when it answers within this. */
-const QUICK_MS = 1_000;
-/** How many quick page+chunk pairs in a row mean "warm". */
-const WARM_STREAK = 2;
-/** Give up on warming after this long and let Playwright report a failed server. */
-const WARM_DEADLINE_MS = 120_000;
-
 // The backend is the run's, not the shell's: see scripts/e2e-env.mjs.
 const serverEnv = e2eServerEnv(process.env);
 
@@ -69,59 +63,6 @@ async function alreadyServing() {
   } catch {
     return false;
   }
-}
-
-/** One timed GET: `null` when it failed, else milliseconds and the body as text. */
-async function timed(path) {
-  const started = globalThis.performance.now();
-  try {
-    const response = await fetch(appUrl + path, {
-      headers: { 'user-agent': 'e2e-server warm-up' },
-      redirect: 'manual',
-      signal: globalThis.AbortSignal.timeout(30_000),
-    });
-    const body = await response.text();
-    if (response.status >= 400) return null;
-    return { ms: globalThis.performance.now() - started, body };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Warm the server and report what it took. "Warm" is a page and a static chunk each answering
- * under `QUICK_MS`, `WARM_STREAK` times in a row — the two kinds of request the first tests make,
- * and the two that stalled.
- */
-async function warmUp() {
-  const deadline = Date.now() + WARM_DEADLINE_MS;
-  let streak = 0;
-  let attempts = 0;
-  let chunkPath = null;
-
-  while (Date.now() < deadline) {
-    attempts += 1;
-    const page = await timed('/en-GB');
-    if (page !== null && chunkPath === null) {
-      // Any chunk the page itself loads: discovered, not hard-coded, so a renamed hash is fine.
-      chunkPath = /"(\/_next\/static\/chunks\/[^"]+\.js)"/.exec(page.body)?.[1] ?? null;
-    }
-    const chunk = chunkPath === null ? null : await timed(chunkPath);
-
-    const quick = page !== null && chunk !== null && page.ms < QUICK_MS && chunk.ms < QUICK_MS;
-    streak = quick ? streak + 1 : 0;
-    const report = `page ${page === null ? 'failed' : `${Math.round(page.ms)} ms`}, chunk ${
-      chunk === null ? 'failed' : `${Math.round(chunk.ms)} ms`
-    }`;
-    console.error(`[e2e-server] warm-up ${attempts}: ${report}${quick ? '' : ' — not yet'}`);
-    if (streak >= WARM_STREAK) return;
-
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  throw new Error(
-    `[e2e-server] the app on ${appUrl} did not answer a page and a static chunk under ${QUICK_MS} ms ` +
-      `${WARM_STREAK} times in a row within ${WARM_DEADLINE_MS / 1000} s`,
-  );
 }
 
 /** What Playwright polls. Nothing answers here until the app is warm. */
@@ -182,7 +123,8 @@ async function main() {
   };
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, stop);
 
-  await warmUp();
+  // The app's own default locale, a redirect is not warm (#441 part 4): scripts/e2e-warm.mjs.
+  await warmUpServer({ appUrl, path: warmUpPath(serverEnv) });
   serveReady();
 }
 

@@ -40,6 +40,7 @@ export { CmsClient, CmsError, defineQuery, queryUrl } from './client';
 export { createReader, resetCmsWarnings } from './reader';
 export type { CmsReader, RoutedDocument } from './reader';
 export { campaignIsLive } from './schedule';
+export { heroVideo, normalizeHeroVideo } from './hero-video';
 export { queries } from './queries';
 export { cmsTags, CMS_REVALIDATE_SECONDS } from './tags';
 export { PREVIEW_COOKIE, PREVIEW_MAX_AGE_SECONDS } from './preview';

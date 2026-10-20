@@ -57,6 +57,28 @@ export interface paths {
         patch: operations["updateStore"];
         trace?: never;
     };
+    "/admin/stores/{storeId}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a draft or paused store to active once every prerequisite is present
+         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key and the store's OpenFGA object. Missing ones are listed in the 409's `details.missing`. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
+         */
+        post: operations["activateStore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/domains": {
         parameters: {
             query?: never;
@@ -154,6 +176,26 @@ export interface paths {
          *     `revoked_at: null` — the storefront would lose its only credential.
          */
         post: operations["revokeApiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/onboarding/stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Onboard a brand in one transaction (legal entity, store, domain, locales, currencies, web channel, publishable key)
+         * @description Creates the legal entity (inline) or uses an existing one, the store in `draft` with `content_space_id = <code>` and `search_index = <code>_products`, its primary domain, the locales and currencies (the defaults first), one `web` sales channel and one publishable key bound to it — all in one transaction, with the audit row and the `store.created` event — then registers the store's OpenFGA object. Idempotent by `code`: the same input again answers 200 with the same store and `publishable_key: null` (it is shown once, on 201); the same `code` with a different input answers 409. No `Idempotency-Key` header. Activation is a separate step (`activateStore`).
+         */
+        post: operations["onboardStore"];
         delete?: never;
         options?: never;
         head?: never;
@@ -644,6 +686,155 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stock-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The organization's stock items with the variants mapped to each and the pool level per warehouse */
+        get: operations["listStockItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stock-items/{stockItemId}/variants/{variantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+                variantId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Map a store's variant to this stock item (pooling two brands is only ever this explicit act)
+         * @description Idempotent: a variant already mapped to this item is a 200 with nothing written. Otherwise refused with 409 unless the variant's CURRENT stock item has zero on-hand and no open reservation at every warehouse: quantities are never merged silently (stock is moved first, with movements). Writes one audit row (`variant.stock_item_mapped`, before / after stock_item_id) and, in the same transaction, one `stock_item.mapped` v1 outbox event (nothing on the idempotent path). The item the variant leaves is kept.
+         */
+        put: operations["mapVariantToStockItem"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cycle-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cycle counts of the shared pool, newest count first */
+        get: operations["listCycleCounts"];
+        put?: never;
+        /**
+         * Record that a stock item was counted in a warehouse (changes no stock)
+         * @description Writes the count down with status `recorded`; stock changes only through `reconcileCycleCount`. `counted_at` defaults to now and may not be in the future (422 `validation_error`). Refused with 409 `conflict` (`details.reason` = `superseded`) when a count of the same stock item and warehouse with the same or a later `counted_at` has already been applied.
+         */
+        post: operations["createCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cycle-counts/{cycleCountId}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the count's discrepancy into one stock movement, or flag it for approval
+         * @description Under the pool row's lock: on-hand as of `counted_at` = on-hand now minus the movements written since; delta = `counted_quantity` minus that. |delta| within `organization.settings.warehouse.count_tolerance` (non-negative integer, units; unset or malformed = 0): exactly one stock movement (reason `cycle_count`, no store, one `stock.moved` in the same transaction) and status `applied` — no movement when the delta is 0. Above the tolerance: nothing moves, status `flagged`, 200. A call with `approve: true` recomputes under the lock and applies whatever the delta is, recording the approver on the count and in the audit log. Idempotent by count: reconciling an `applied` count changes nothing and answers the same count.
+         */
+        post: operations["reconcileCycleCount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stock-items/{stockItemId}/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The pool row's ledger — every stock movement of this stock item, newest first
+         * @description HQ only. Includes pool movements no store caused (`store_id` and `variant_id` null: receipts, transfers, cycle counts) and movements a store caused (a sale, a return), which keep the store and variant they were written with. 404 for an unknown stock item.
+         */
+        get: operations["listStockItemMovements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stock-items/{stockItemId}/reservations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Reservations held on this stock item's pool rows, with the allocation rule that placed each
+         * @description HQ only; every store's reservations. `status=open` (default) = not released and not expired; `released` = released or expired; `all` = both. Newest first. 404 for an unknown stock item.
+         */
+        get: operations["listStockItemReservations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cycle-counts/{cycleCountId}/reconcile-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * What reconcileCycleCount would do now — recomputed as-of on-hand, delta and status — without writing
+         * @description Same computation as `reconcileCycleCount` (on-hand as of `counted_at` = on-hand now minus the movements written since; delta = `counted_quantity` minus that; `would_status` from `count_tolerance`), but writes nothing and takes no lock, so a later reconcile or approval may compute a different delta if stock moves in between. An `applied` count answers its stored values with `would_status: applied`. Superseded counts answer the same 409 as `reconcileCycleCount` (`details.reason` = `superseded`); 404 as reconcile (unknown count, or its warehouse is deactivated).
+         */
+        get: operations["previewCycleCountReconcile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/shipping-options": {
         parameters: {
             query?: never;
@@ -919,6 +1110,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/customers/{customerId}/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        /** The customer's consent ledger in this store — every recorded decision, newest first (personal data — same gate as the record) */
+        get: operations["listCustomerConsents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/customers/{customerId}/export": {
         parameters: {
             query?: never;
@@ -939,6 +1150,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stores/{storeId}/customers/{customerId}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        /** The customer's export requests in this store, newest first (ids, status, timestamps, sizes — never the bundle) */
+        get: operations["listCustomerExports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/customers/{customerId}/exports/{exportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        /** Downloads one ready export bundle (customer-export/v1 as an attachment); every download is audited */
+        get: operations["getCustomerExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/customer-groups": {
         parameters: {
             query?: never;
@@ -949,6 +1201,31 @@ export interface paths {
             cookie?: never;
         };
         get: operations["listCustomerGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/customer-identities/{identityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * HQ-only — the per-brand customer rows one person's identity links (ids only; no hash, no subject, no email)
+         * @description For HQ support resolving "is this the same person" and for the erasure / BI joins. Answers store and customer
+         *     ids only. A merged identity answers the identity it was merged into. A store-scoped principal (a store admin,
+         *     whatever its relations on its own stores) gets 403: the read needs `support` on `organization:hq`. 404 means
+         *     the identity is unknown.
+         */
+        get: operations["getCustomerIdentity"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1470,12 +1747,106 @@ export interface paths {
         patch: operations["updateSegmentTemplate"];
         trace?: never;
     };
+    "/admin/stores/{storeId}/reports/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Daily sales of one store per currency (rpt_sales_daily)
+         * @description One row per UTC day and currency over `[from, to)`. Orders that are cancelled, or whose payment is voided or
+         *     failed, are not sales; `awaiting` orders are. `net_minor` is cohort-attributed: total minus the succeeded
+         *     refunds of the orders placed that day, whenever the refund happened. Amounts are never summed across
+         *     currencies: `totals` has one entry per currency.
+         */
+        get: operations["getStoreSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/reports/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Stock position of the pool rows this store sells from (rpt_stock_position)
+         * @description The current position (no date range) of every pool row whose stock item one of this store's variants maps,
+         *     ordered by `sku`, then `warehouse_code`. On a shared item `reserved` is held by every store that maps it.
+         */
+        get: operations["getStoreStockReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/hq/reports/sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Daily sales of every store per currency (rpt_sales_daily, organization scope)
+         * @description As `getStoreSalesReport`, for every store of the organization: rows per store, day and currency; `totals`
+         *     per store and currency; `currency_totals` per currency across stores. Amounts are never summed across
+         *     currencies.
+         */
+        get: operations["getHqSalesReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/hq/reports/finance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Captured payments, PSP fees and refunds per store and currency (cash view)
+         * @description Payments captured in `[from, to)` by capture day (rpt_payments_daily) and succeeded refunds by refund day
+         *     (rpt_refunds_daily), per store and currency, plus `currency_totals` per currency across stores. PSP fees are
+         *     the fees known so far and are NOT reconciled (`fees_reconciled` is false until Integration 4);
+         *     `fee_unknown` counts captured payments without a fee yet. Amounts are never summed across currencies. No
+         *     ledger figures in v1.
+         */
+        get: operations["getHqFinanceReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, internal */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, expired, internal */
             code: string;
             message: string;
             details?: {
@@ -1550,6 +1921,7 @@ export interface components {
             theme?: {
                 [key: string]: unknown;
             };
+            /** @description Free-form, but every key the core reads (listed in apps/core/src/modules/registry/README.md) is checked by shape: a wrong type answers 422 validation_error with details.settings naming the key. Unknown keys are preserved. */
             settings?: {
                 [key: string]: unknown;
             };
@@ -1636,6 +2008,53 @@ export interface components {
             country: string;
             currency: string;
             vat_number: string | null;
+        };
+        LegalEntityInput: {
+            code: string;
+            name: string;
+            country: string;
+            currency: string;
+            vat_number?: string | null;
+        };
+        /** @description Exactly one of `legal_entity_id` (existing) and `legal_entity` (created in the same transaction); neither or both is a 400. `content_space_id`, `search_index` and `status` are server-owned (`<code>`, `<code>_products`, `draft`). */
+        StoreOnboardingInput: {
+            /** Format: uuid */
+            legal_entity_id?: string;
+            legal_entity?: components["schemas"]["LegalEntityInput"];
+            code: string;
+            name: string;
+            default_currency: string;
+            default_locale: string;
+            default_country: string;
+            /** @default UTC */
+            timezone: string;
+            /** @description Enabled set; the default is always included first. Omitted = the default only. */
+            currencies?: string[];
+            /** @description Enabled set; the default is always included first. Omitted = the default only. */
+            locales?: string[];
+            /** @description The primary domain (unverified; `verified_at` null) */
+            domain: {
+                hostname: string;
+            };
+            theme?: {
+                [key: string]: unknown;
+            };
+            /** @description Same shape check as StoreInput.settings (422 on a wrong type); unknown keys preserved. */
+            settings?: {
+                [key: string]: unknown;
+            };
+        };
+        ApiKeyCreated: components["schemas"]["ApiKey"] & {
+            /** @description Shown once */
+            key: string;
+        };
+        StoreOnboarded: {
+            store: components["schemas"]["Store"];
+            legal_entity: components["schemas"]["LegalEntity"];
+            domain: components["schemas"]["Domain"];
+            sales_channel: components["schemas"]["SalesChannel"];
+            /** @description The plain key, shown once on 201; null when the call repeated an onboarding already done */
+            publishable_key: null | components["schemas"]["ApiKeyCreated"];
         };
         CategoryInput: {
             handle: string;
@@ -1978,8 +2397,11 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "confirmed" | "processing" | "completed" | "cancelled";
-            /** @enum {string} */
-            payment_status: "awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed";
+            /**
+             * @description `voided` — the authorization was released by `cancelOrder` before any capture (the payment row is `cancelled`). Terminal.
+             * @enum {string}
+             */
+            payment_status: "awaiting" | "authorized" | "captured" | "partially_refunded" | "refunded" | "failed" | "voided";
             /** @enum {string} */
             fulfillment_status: "unfulfilled" | "partially_fulfilled" | "fulfilled" | "partially_returned" | "returned";
             total: components["schemas"]["Money"];
@@ -2103,6 +2525,33 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        StockItem: {
+            /** Format: uuid */
+            id: string;
+            /** @description Unique per organization */
+            sku: string;
+            name: string;
+            barcode: string | null;
+            variants: {
+                /** Format: uuid */
+                variant_id: string;
+                /** Format: uuid */
+                store_id: string;
+                /** @description The variant's own sku in its store */
+                sku: string;
+            }[];
+            levels: components["schemas"]["StockLevel"][];
+        };
+        StockLevel: {
+            /** Format: uuid */
+            warehouse_id: string;
+            on_hand: number;
+            /** @description Every store's open reservations on this pool row */
+            reserved: number;
+            incoming: number;
+            available: number;
+        };
+        /** @description One variant in one warehouse, carrying the numbers of the POOL row of the stock item the variant maps. `id` is the pool row's, so it repeats when two variants in one response share a stock item: key rows by (`variant_id`, `warehouse_id`) and never sum `on_hand`, `reserved` or `available` across variants. */
         InventoryLevel: {
             /** Format: uuid */
             id: string;
@@ -2110,13 +2559,128 @@ export interface components {
             store_id: string;
             /** Format: uuid */
             variant_id: string;
+            /** Format: uuid */
+            stock_item_id: string;
             sku: string;
             /** Format: uuid */
             warehouse_id: string;
+            /** @description The warehouse's `code` (from the warehouse row), so a store-scoped caller can name the warehouse without `listWarehouses` (viewer on organization:hq). */
+            readonly warehouse_code: string;
             on_hand: number;
             reserved: number;
             incoming: number;
             available: number;
+        };
+        CycleCount: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** @description The stock item's sku */
+            sku: string;
+            counted_quantity: number;
+            /**
+             * Format: uuid
+             * @description null for a system source
+             */
+            counted_by: string | null;
+            /** Format: date-time */
+            counted_at: string;
+            /** @enum {string} */
+            source: "manual" | "wms";
+            note: string | null;
+            /** @enum {string} */
+            status: "recorded" | "flagged" | "applied";
+            /** @description null until the count is first reconciled */
+            on_hand_as_of_count: number | null;
+            /** @description counted_quantity minus on_hand_as_of_count */
+            delta: number | null;
+            /**
+             * Format: uuid
+             * @description set when a non-zero delta was applied
+             */
+            stock_movement_id: string | null;
+            /** Format: uuid */
+            approved_by: string | null;
+            /** Format: date-time */
+            approved_at: string | null;
+            /** Format: date-time */
+            reconciled_at: string | null;
+        };
+        StockMovement: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            /**
+             * Format: uuid
+             * @description null = a pool movement no store caused
+             */
+            store_id: string | null;
+            /** Format: uuid */
+            variant_id: string | null;
+            /** @description Signed; never 0 */
+            delta: number;
+            /** @enum {string} */
+            reason: "receipt" | "sale" | "return" | "adjustment" | "transfer_in" | "transfer_out" | "cycle_count";
+            /** @description e.g. order, shipment, cycle_count */
+            reference_type: string | null;
+            /** Format: uuid */
+            reference_id: string | null;
+            /**
+             * Format: uuid
+             * @description null for a system source
+             */
+            actor_id: string | null;
+            note: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        StockReservation: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            stock_item_id: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            /**
+             * Format: uuid
+             * @description The store that reserved
+             */
+            store_id: string;
+            /** Format: uuid */
+            variant_id: string;
+            /**
+             * Format: uuid
+             * @description null for a cart hold
+             */
+            order_id: string | null;
+            quantity: number;
+            /** @description Why this warehouse: store_country | store_default | same_country | same_region | priority; `split:<rule>` for the second and later warehouse of a split line; `backorder` for a shortfall reserved anyway. null for rows written before 0191. */
+            allocation_rule: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** Format: date-time */
+            released_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CycleCountPreview: {
+            /** Format: uuid */
+            cycle_count_id: string;
+            on_hand_as_of_count: number;
+            /** @description counted_quantity minus on_hand_as_of_count, as of computed_at */
+            delta: number;
+            /** @description organization.settings.warehouse.count_tolerance (unset = 0) */
+            count_tolerance: number;
+            /** @enum {string} */
+            would_status: "applied" | "flagged";
+            /** Format: date-time */
+            computed_at: string;
         };
         ShippingOptionInput: {
             code: string;
@@ -2168,6 +2732,22 @@ export interface components {
             };
             /** Format: date-time */
             created_at: string;
+        };
+        CustomerExportSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            status: "pending" | "ready" | "expired";
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            ready_at: string | null;
+            /** Format: date-time */
+            expires_at: string | null;
+            /** @description compressed size of the bundle; null until ready or after purge */
+            size_bytes: number | null;
+            /** @enum {string|null} */
+            reason: "customer_gone" | "too_large" | null;
         };
         StaffUser: {
             /** Format: uuid */
@@ -2317,7 +2897,7 @@ export interface components {
             /** @enum {string} */
             field: "consent";
             /** @enum {string} */
-            op: "granted" | "not_granted";
+            op: "granted" | "not_granted" | "never_asked";
             /** @enum {string} */
             value: "email" | "sms";
         } | {
@@ -2670,6 +3250,111 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description Integer minor units of one currency. Never a sum across currencies. */
+        SalesFigures: {
+            orders: number;
+            /** @description sum of order subtotals */
+            gross_minor: number;
+            discount_minor: number;
+            shipping_minor: number;
+            tax_minor: number;
+            total_minor: number;
+            /** @description succeeded refunds of these orders */
+            refunded_minor: number;
+            /** @description total_minor − refunded_minor */
+            net_minor: number;
+        };
+        /**
+         * @description Sales from the `rpt_sales_daily` view over `[from, to)` (UTC days). Every amount sits beside its `currency`;
+         *     amounts are never summed across currencies.
+         */
+        SalesReport: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: date-time */
+            generated_at: string;
+            rows: (components["schemas"]["SalesFigures"] & {
+                /** Format: uuid */
+                store_id: string;
+                /** Format: date */
+                day: string;
+                currency: string;
+            })[];
+            /** @description One entry per store and currency. */
+            totals: (components["schemas"]["SalesFigures"] & {
+                /** Format: uuid */
+                store_id: string;
+                currency: string;
+            })[];
+            /** @description One entry per currency, across the stores in `rows`. */
+            currency_totals: (components["schemas"]["SalesFigures"] & {
+                currency: string;
+            })[];
+        };
+        StockPosition: {
+            /** Format: uuid */
+            stock_item_id: string;
+            sku: string;
+            /** Format: uuid */
+            warehouse_id: string;
+            warehouse_code: string;
+            on_hand: number;
+            /** @description held by every store that maps the item */
+            reserved: number;
+            incoming: number;
+            /** @description on_hand − reserved */
+            available: number;
+        };
+        /** @description The pool rows a store sells from (`rpt_stock_position`), now. */
+        StockReport: components["schemas"]["Page"] & {
+            /** Format: date-time */
+            generated_at: string;
+            items: components["schemas"]["StockPosition"][];
+        };
+        /** @description Integer minor units of one currency. Never a sum across currencies. */
+        FinanceFigures: {
+            captured_count: number;
+            captured_minor: number;
+            /** @description PSP fees known so far — unreconciled */
+            fee_minor: number;
+            /** @description captured payments whose fee is not known yet */
+            fee_unknown: number;
+            refunds: number;
+            refunded_minor: number;
+            refunded_by_reason: {
+                return: number;
+                cancellation: number;
+                goodwill: number;
+                chargeback: number;
+            };
+        };
+        /**
+         * @description Cash view over `[from, to)` (UTC days): payments by capture day, succeeded refunds by refund day. Every amount
+         *     sits beside its `currency`; amounts are never summed across currencies. Fees are unreconciled
+         *     (`fees_reconciled: false`) until Integration 4.
+         */
+        FinanceReport: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: date-time */
+            generated_at: string;
+            /** @constant */
+            fees_reconciled: false;
+            /** @description One entry per store and currency. */
+            rows: (components["schemas"]["FinanceFigures"] & {
+                /** Format: uuid */
+                store_id: string;
+                currency: string;
+            })[];
+            /** @description One entry per currency, across stores. */
+            currency_totals: (components["schemas"]["FinanceFigures"] & {
+                currency: string;
+            })[];
+        };
     };
     responses: {
         /** @description Validation error */
@@ -2759,6 +3444,24 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The export has expired or was purged — `expired`; `details.expires_at` says when */
+        Gone: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "expired",
+                 *       "message": "This export has expired",
+                 *       "details": {
+                 *         "expires_at": "2026-11-17T10:00:00Z"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description The store's provider or carrier cannot perform this operation (e.g. the manual provider / carrier) */
         Unprocessable: {
             headers: {
@@ -2777,6 +3480,48 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The store cannot become active — `details.missing` lists the prerequisites that are absent (or `details.status` is `archived`) */
+        ActivationBlocked: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "conflict",
+                 *       "message": "store is not ready to activate",
+                 *       "details": {
+                 *         "missing": [
+                 *           "primary_domain",
+                 *           "publishable_key"
+                 *         ]
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description A `store.settings` value has the wrong shape — `details.settings` maps each offending key to what was expected */
+        InvalidSettings: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "validation_error",
+                 *       "message": "invalid store settings",
+                 *       "details": {
+                 *         "settings": {
+                 *           "payment.invoice_allowed": "boolean",
+                 *           "support_refund_limit_minor": "integer >= 0"
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         StoreId: string;
@@ -2786,6 +3531,12 @@ export interface components {
         Limit: number;
         /** @description Sort direction. Ignored unless `sort` is present. */
         Order: "asc" | "desc";
+        /** @description First UTC day of the report, inclusive. */
+        ReportFrom: string;
+        /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+        ReportTo: string;
+        /** @description Only rows in this currency. */
+        ReportCurrency: string;
     };
     requestBodies: never;
     headers: never;
@@ -2936,6 +3687,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidSettings"];
         };
     };
     getStore: {
@@ -2990,6 +3742,35 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ActivationBlocked"];
+            422: components["responses"]["InvalidSettings"];
+        };
+    };
+    activateStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK (status active) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Store"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ActivationBlocked"];
         };
     };
     listDomains: {
@@ -3337,6 +4118,77 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    onboardStore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "legal_entity": {
+                 *         "code": "brand-c-bv",
+                 *         "name": "Brand C B.V.",
+                 *         "country": "NL",
+                 *         "currency": "EUR",
+                 *         "vat_number": null
+                 *       },
+                 *       "code": "brand-c",
+                 *       "name": "Brand C",
+                 *       "default_currency": "EUR",
+                 *       "default_locale": "en-GB",
+                 *       "default_country": "NL",
+                 *       "timezone": "Europe/Amsterdam",
+                 *       "currencies": [
+                 *         "EUR",
+                 *         "GBP"
+                 *       ],
+                 *       "locales": [
+                 *         "en-GB",
+                 *         "nl-NL"
+                 *       ],
+                 *       "domain": {
+                 *         "hostname": "brand-c.localhost"
+                 *       },
+                 *       "settings": {
+                 *         "payment": {
+                 *           "invoice_allowed": false
+                 *         }
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["StoreOnboardingInput"];
+            };
+        };
+        responses: {
+            /** @description Already onboarded with the same input — the same store, `publishable_key` null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreOnboarded"];
+                };
+            };
+            /** @description Created — the publishable key is shown once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreOnboarded"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["InvalidSettings"];
         };
     };
     listWarehouses: {
@@ -4713,8 +5565,10 @@ export interface operations {
                      *           "id": "70000000-0000-4000-8000-000000000001",
                      *           "store_id": "00000000-0000-4000-8000-000000000031",
                      *           "variant_id": "30000000-0000-4000-8000-000000000301",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
                      *           "sku": "TEE-M-RED",
                      *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "warehouse_code": "wh-eu",
                      *           "on_hand": 12,
                      *           "reserved": 1,
                      *           "incoming": 0,
@@ -4765,8 +5619,10 @@ export interface operations {
                      *       "id": "70000000-0000-4000-8000-000000000001",
                      *       "store_id": "00000000-0000-4000-8000-000000000031",
                      *       "variant_id": "30000000-0000-4000-8000-000000000301",
+                     *       "stock_item_id": "71000000-0000-4000-8000-000000000001",
                      *       "sku": "TEE-M-RED",
                      *       "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *       "warehouse_code": "wh-eu",
                      *       "on_hand": 22,
                      *       "reserved": 1,
                      *       "incoming": 0,
@@ -4779,6 +5635,473 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listStockItems: {
+        parameters: {
+            query?: {
+                /** @description Substring of the item sku */
+                sku?: string;
+                /** @description Only items a variant of this store maps */
+                store_id?: string;
+                /** @description true = only items mapped by more than one store */
+                shared?: boolean;
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["StockItem"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    mapVariantToStockItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stockItemId: string;
+                variantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stock item, with the variant among `variants` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The variant's current stock item still holds stock or open reservations */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "the variant's current stock item still holds stock",
+                     *       "details": {
+                     *         "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *         "on_hand": 12,
+                     *         "open_reservations": 1
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listCycleCounts: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                stock_item_id?: string;
+                status?: "recorded" | "flagged" | "applied";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "72000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "sku": "TEE-M-RED",
+                     *           "counted_quantity": 38,
+                     *           "counted_by": "00000000-0000-4000-8000-000000000043",
+                     *           "counted_at": "2026-10-12T08:30:00Z",
+                     *           "source": "manual",
+                     *           "note": null,
+                     *           "status": "recorded",
+                     *           "on_hand_as_of_count": null,
+                     *           "delta": null,
+                     *           "stock_movement_id": null,
+                     *           "approved_by": null,
+                     *           "approved_at": null,
+                     *           "reconciled_at": null
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Page"] & {
+                        items: components["schemas"]["CycleCount"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    warehouse_id: string;
+                    /** Format: uuid */
+                    stock_item_id: string;
+                    counted_quantity: number;
+                    /** Format: date-time */
+                    counted_at?: string;
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "72000000-0000-4000-8000-000000000001",
+                     *       "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *       "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *       "sku": "TEE-M-RED",
+                     *       "counted_quantity": 38,
+                     *       "counted_by": "00000000-0000-4000-8000-000000000043",
+                     *       "counted_at": "2026-10-12T08:30:00Z",
+                     *       "source": "manual",
+                     *       "note": null,
+                     *       "status": "recorded",
+                     *       "on_hand_as_of_count": null,
+                     *       "delta": null,
+                     *       "stock_movement_id": null,
+                     *       "approved_by": null,
+                     *       "approved_at": null,
+                     *       "reconciled_at": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CycleCount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description A later count of this stock item and warehouse has already been applied (`conflict`, `details.reason` = `superseded`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "conflict",
+                     *       "message": "a later count of this stock item and warehouse has already been applied",
+                     *       "details": {
+                     *         "reason": "superseded",
+                     *         "applied_cycle_count_id": "72000000-0000-4000-8000-000000000002"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `counted_at` is in the future (`validation_error`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "code": "validation_error",
+                     *       "message": "counted_at may not be in the future",
+                     *       "details": {
+                     *         "field": "counted_at"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    reconcileCycleCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @default false */
+                    approve?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The count after reconciliation (`applied` or `flagged`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "72000000-0000-4000-8000-000000000001",
+                     *       "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *       "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *       "sku": "TEE-M-RED",
+                     *       "counted_quantity": 38,
+                     *       "counted_by": "00000000-0000-4000-8000-000000000043",
+                     *       "counted_at": "2026-10-12T08:30:00Z",
+                     *       "source": "manual",
+                     *       "note": null,
+                     *       "status": "applied",
+                     *       "on_hand_as_of_count": 40,
+                     *       "delta": -2,
+                     *       "stock_movement_id": "73000000-0000-4000-8000-000000000001",
+                     *       "approved_by": null,
+                     *       "approved_at": null,
+                     *       "reconciled_at": "2026-10-12T08:31:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CycleCount"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `conflict`: a later count of this stock item and warehouse has already been applied (`details.reason` = `superseded`), or the adjustment would take on-hand below zero (the inventory module refuses it; recount) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listStockItemMovements: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 2,
+                     *       "items": [
+                     *         {
+                     *           "id": "73000000-0000-4000-8000-000000000001",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "store_id": null,
+                     *           "variant_id": null,
+                     *           "delta": -2,
+                     *           "reason": "cycle_count",
+                     *           "reference_type": "cycle_count",
+                     *           "reference_id": "72000000-0000-4000-8000-000000000001",
+                     *           "actor_id": "00000000-0000-4000-8000-000000000043",
+                     *           "note": null,
+                     *           "created_at": "2026-10-12T08:31:00Z"
+                     *         },
+                     *         {
+                     *           "id": "73000000-0000-4000-8000-000000000002",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "variant_id": "30000000-0000-4000-8000-000000000301",
+                     *           "delta": -1,
+                     *           "reason": "sale",
+                     *           "reference_type": "order",
+                     *           "reference_id": "30000000-0000-4000-8000-000000000501",
+                     *           "actor_id": null,
+                     *           "note": null,
+                     *           "created_at": "2026-10-11T14:05:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        page: number;
+                        limit: number;
+                        total: number;
+                        items: components["schemas"]["StockMovement"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listStockItemReservations: {
+        parameters: {
+            query?: {
+                warehouse_id?: string;
+                status?: "open" | "released" | "all";
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                stockItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "items": [
+                     *         {
+                     *           "id": "74000000-0000-4000-8000-000000000001",
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "variant_id": "30000000-0000-4000-8000-000000000301",
+                     *           "order_id": "30000000-0000-4000-8000-000000000501",
+                     *           "quantity": 1,
+                     *           "allocation_rule": "store_country",
+                     *           "expires_at": null,
+                     *           "released_at": null,
+                     *           "created_at": "2026-10-11T14:05:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        page: number;
+                        limit: number;
+                        total: number;
+                        items: components["schemas"]["StockReservation"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    previewCycleCountReconcile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cycleCountId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "cycle_count_id": "72000000-0000-4000-8000-000000000001",
+                     *       "on_hand_as_of_count": 40,
+                     *       "delta": -2,
+                     *       "count_tolerance": 0,
+                     *       "would_status": "flagged",
+                     *       "computed_at": "2026-10-12T09:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CycleCountPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description A later count of this stock item and warehouse has already been applied, or the stock was corrected by hand after this count (`conflict`, `details.reason` = `superseded`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listShippingOptions: {
@@ -5569,6 +6892,62 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    listCustomerConsents: {
+        parameters: {
+            query?: {
+                purpose?: "marketing_email";
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "30000000-0000-4000-8000-000000000d01",
+                     *           "purpose": "marketing_email",
+                     *           "granted": false,
+                     *           "source": "storefront",
+                     *           "policy_version": "2026-10",
+                     *           "recorded_at": "2026-10-18T10:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            id: string;
+                            /** @enum {string} */
+                            purpose: "marketing_email";
+                            granted: boolean;
+                            /** @enum {string} */
+                            source: "storefront" | "admin" | "import";
+                            policy_version: string;
+                            /** Format: date-time */
+                            recorded_at: string;
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     exportCustomer: {
         parameters: {
             query?: never;
@@ -5591,6 +6970,73 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listCustomerExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: (components["schemas"]["CustomerExportSummary"] & {
+                            /** Format: uuid */
+                            requested_by: string;
+                            /** @enum {string} */
+                            requested_by_type: "staff" | "customer";
+                            download_count: number;
+                        })[];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getCustomerExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                customerId: string;
+                exportId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            410: components["responses"]["Gone"];
         };
     };
     listCustomerGroups: {
@@ -5633,6 +7079,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getCustomerIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "50000000-0000-4000-8000-000000000301",
+                     *       "customers": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "customer_id": "50000000-0000-4000-8000-000000000011"
+                     *         },
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000032",
+                     *           "customer_id": "50000000-0000-4000-8000-000000000012"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        customers: {
+                            /** Format: uuid */
+                            store_id: string;
+                            /** Format: uuid */
+                            customer_id: string;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listUsers: {
@@ -5717,6 +7212,7 @@ export interface operations {
                     "application/json": components["schemas"]["StaffUser"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
@@ -7423,6 +8919,289 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getStoreSalesReport: {
+        parameters: {
+            query: {
+                /** @description First UTC day of the report, inclusive. */
+                from: components["parameters"]["ReportFrom"];
+                /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+                to: components["parameters"]["ReportTo"];
+                /** @description Only rows in this currency. */
+                currency?: components["parameters"]["ReportCurrency"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-03-01",
+                     *       "to": "2026-03-02",
+                     *       "generated_at": "2026-03-10T09:00:00Z",
+                     *       "rows": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "day": "2026-03-01",
+                     *           "currency": "EUR",
+                     *           "orders": 2,
+                     *           "gross_minor": 12000,
+                     *           "discount_minor": 100,
+                     *           "shipping_minor": 200,
+                     *           "tax_minor": 100,
+                     *           "total_minor": 12200,
+                     *           "refunded_minor": 2500,
+                     *           "net_minor": 9700
+                     *         }
+                     *       ],
+                     *       "totals": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "currency": "EUR",
+                     *           "orders": 2,
+                     *           "gross_minor": 12000,
+                     *           "discount_minor": 100,
+                     *           "shipping_minor": 200,
+                     *           "tax_minor": 100,
+                     *           "total_minor": 12200,
+                     *           "refunded_minor": 2500,
+                     *           "net_minor": 9700
+                     *         }
+                     *       ],
+                     *       "currency_totals": [
+                     *         {
+                     *           "currency": "EUR",
+                     *           "orders": 2,
+                     *           "gross_minor": 12000,
+                     *           "discount_minor": 100,
+                     *           "shipping_minor": 200,
+                     *           "tax_minor": 100,
+                     *           "total_minor": 12200,
+                     *           "refunded_minor": 2500,
+                     *           "net_minor": 9700
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SalesReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getStoreStockReport: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "page": 1,
+                     *       "limit": 20,
+                     *       "total": 1,
+                     *       "generated_at": "2026-03-10T09:00:00Z",
+                     *       "items": [
+                     *         {
+                     *           "stock_item_id": "00000000-0000-4000-8000-000000000051",
+                     *           "sku": "shared-tee-m",
+                     *           "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *           "warehouse_code": "wh-eu",
+                     *           "on_hand": 40,
+                     *           "reserved": 3,
+                     *           "incoming": 0,
+                     *           "available": 37
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StockReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getHqSalesReport: {
+        parameters: {
+            query: {
+                /** @description First UTC day of the report, inclusive. */
+                from: components["parameters"]["ReportFrom"];
+                /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+                to: components["parameters"]["ReportTo"];
+                /** @description Only rows in this currency. */
+                currency?: components["parameters"]["ReportCurrency"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-03-01",
+                     *       "to": "2026-03-02",
+                     *       "generated_at": "2026-03-10T09:00:00Z",
+                     *       "rows": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000032",
+                     *           "day": "2026-03-01",
+                     *           "currency": "GBP",
+                     *           "orders": 1,
+                     *           "gross_minor": 5900,
+                     *           "discount_minor": 50,
+                     *           "shipping_minor": 100,
+                     *           "tax_minor": 50,
+                     *           "total_minor": 6000,
+                     *           "refunded_minor": 600,
+                     *           "net_minor": 5400
+                     *         }
+                     *       ],
+                     *       "totals": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000032",
+                     *           "currency": "GBP",
+                     *           "orders": 1,
+                     *           "gross_minor": 5900,
+                     *           "discount_minor": 50,
+                     *           "shipping_minor": 100,
+                     *           "tax_minor": 50,
+                     *           "total_minor": 6000,
+                     *           "refunded_minor": 600,
+                     *           "net_minor": 5400
+                     *         }
+                     *       ],
+                     *       "currency_totals": [
+                     *         {
+                     *           "currency": "GBP",
+                     *           "orders": 1,
+                     *           "gross_minor": 5900,
+                     *           "discount_minor": 50,
+                     *           "shipping_minor": 100,
+                     *           "tax_minor": 50,
+                     *           "total_minor": 6000,
+                     *           "refunded_minor": 600,
+                     *           "net_minor": 5400
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SalesReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getHqFinanceReport: {
+        parameters: {
+            query: {
+                /** @description First UTC day of the report, inclusive. */
+                from: components["parameters"]["ReportFrom"];
+                /** @description UTC day after the last day of the report (exclusive); after `from`, at most 366 days later. */
+                to: components["parameters"]["ReportTo"];
+                /** @description Only rows in this currency. */
+                currency?: components["parameters"]["ReportCurrency"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "from": "2026-03-01",
+                     *       "to": "2026-04-01",
+                     *       "generated_at": "2026-04-02T09:00:00Z",
+                     *       "fees_reconciled": false,
+                     *       "rows": [
+                     *         {
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "currency": "EUR",
+                     *           "captured_count": 2,
+                     *           "captured_minor": 14000,
+                     *           "fee_minor": 290,
+                     *           "fee_unknown": 1,
+                     *           "refunds": 1,
+                     *           "refunded_minor": 2500,
+                     *           "refunded_by_reason": {
+                     *             "return": 0,
+                     *             "cancellation": 0,
+                     *             "goodwill": 2500,
+                     *             "chargeback": 0
+                     *           }
+                     *         }
+                     *       ],
+                     *       "currency_totals": [
+                     *         {
+                     *           "currency": "EUR",
+                     *           "captured_count": 2,
+                     *           "captured_minor": 14000,
+                     *           "fee_minor": 290,
+                     *           "fee_unknown": 1,
+                     *           "refunds": 1,
+                     *           "refunded_minor": 2500,
+                     *           "refunded_by_reason": {
+                     *             "return": 0,
+                     *             "cancellation": 0,
+                     *             "goodwill": 2500,
+                     *             "chargeback": 0
+                     *           }
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["FinanceReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

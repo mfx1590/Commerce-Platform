@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { RELATIONS } from '../src/index.js';
+import { ERROR_CODES, RELATIONS } from '../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (f: string) => readFileSync(resolve(here, '../openapi', f), 'utf8');
@@ -160,7 +160,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.4/);
+    expect(text).toMatch(/version: 0\.5\.8/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -185,12 +185,66 @@ describe('store-api.yaml', () => {
   });
 });
 
+describe('store-api.yaml customer self-service (0.5.6, #482)', () => {
+  const text = read('store-api.yaml');
+  const ops = operations(text);
+  const body = (id: string) => ops.find((o) => o.id === id)!.body;
+  const block = (path: string, next: string) =>
+    text.slice(text.indexOf(`\n  ${path}:\n`), text.indexOf(`\n  ${next}:\n`));
+
+  it('the four operations exist on the right paths with the right methods', () => {
+    expect(ops.length).toBe(30); // 26 at 0.5.6; +getMyConsents / putMyConsents at 0.5.7 (#489); +listMyExports / getMyExport at 0.5.8 (#498)
+    const me = block('/store/customers/me', '/store/customers/me/addresses');
+    expect(me).toMatch(/^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMe$/m);
+    const one = block('/store/customers/me/addresses/{addressId}', '/store/customers/me/export');
+    expect(one).toMatch(/parameters:\n\s+- \{ \$ref: '#\/components\/parameters\/AddressId' \}/);
+    expect(one).toMatch(/^ {4}patch:\n {6}tags: \[customers\]\n {6}operationId: updateMyAddress$/m);
+    expect(one).toMatch(
+      /^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMyAddress$/m,
+    );
+    const exp = block('/store/customers/me/export', '/store/customers/me/exports');
+    expect(exp).toMatch(/^ {4}post:\n {6}tags: \[customers\]\n {6}operationId: requestMyExport$/m);
+    expect(exp).not.toMatch(/^ {4}(get|patch|delete):$/m);
+    expect(text).toMatch(/AddressId:\n\s+name: addressId\n\s+in: path\n\s+required: true/);
+  });
+
+  it('publishable key + customer token, 401 and the resolve-or-provision 409 on each', () => {
+    const required =
+      /security:\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]\n\s+(responses|requestBody):/;
+    for (const id of ['updateMyAddress', 'deleteMyAddress', 'requestMyExport', 'deleteMe']) {
+      expect(body(id), id).toMatch(required);
+      expect(body(id), `${id} 401`).toContain(`'401':`);
+      expect(body(id), `${id} 409`).toMatch(/'409':[\s\S]*code: conflict/);
+    }
+    for (const id of ['updateMyAddress', 'deleteMyAddress']) {
+      expect(body(id), `${id} 404`).toContain(`'404':`);
+    }
+    expect(body('updateMyAddress')).toContain(`'400':`);
+  });
+
+  it('updateMyAddress is a partial PATCH answering the address; deleteMyAddress answers 200 { items }, never 204', () => {
+    const update = body('updateMyAddress');
+    expect(update).toMatch(/'200':[\s\S]*\$ref: '#\/components\/schemas\/CustomerAddress'/);
+    expect(update).not.toMatch(/^\s+required: \[/m);
+    for (const f of ['company', 'line2', 'region', 'phone']) {
+      expect(update, f).toMatch(new RegExp(`${f}: \\{ type: \\[string, 'null'\\] \\}`));
+    }
+    const del = body('deleteMyAddress');
+    expect(del).toMatch(/'200':[\s\S]*required: \[items\][\s\S]*example:\n\s+items:/);
+    expect(del).not.toContain(`'204'`);
+    expect(text).not.toMatch(/'204':/);
+    for (const id of ['requestMyExport', 'deleteMe']) {
+      expect(body(id), id).toMatch(/'202': \{ description: /);
+    }
+  });
+});
+
 describe('admin-api.yaml', () => {
   const text = read('admin-api.yaml');
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.10/);
+    expect(text).toMatch(/version: 0\.4\.22/);
     for (const tag of [
       'registry',
       'catalog',
@@ -203,6 +257,7 @@ describe('admin-api.yaml', () => {
       'audit',
       'marketing',
       'search',
+      'reports',
     ]) {
       expect(text, tag).toMatch(new RegExp(`tags: \\[[^\\]]*\\b${tag}\\b`));
     }
@@ -424,6 +479,101 @@ describe('admin-api.yaml', () => {
     }
   });
 
+  it('stock pool (0.4.13, #453): listStockItems at viewer and mapVariantToStockItem at operations, both on hq; InventoryLevel requires stock_item_id', () => {
+    const op = (id: string) => ops.find((o) => o.id === id);
+    const permission = (id: string) =>
+      op(id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(op('listStockItems'), 'listStockItems').toBeDefined();
+    expect(op('mapVariantToStockItem'), 'mapVariantToStockItem').toBeDefined();
+    expect(permission('listStockItems')).toEqual(['viewer', 'organization:hq']);
+    expect(permission('mapVariantToStockItem')).toEqual(['operations', 'organization:hq']);
+    for (const id of ['listStockItems', 'mapVariantToStockItem']) {
+      expect(op(id)!.body, `${id} lacks 401`).toMatch(
+        /'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/,
+      );
+      expect(op(id)!.body, `${id} lacks 403`).toMatch(
+        /'403': \{ \$ref: '#\/components\/responses\/Forbidden' \}/,
+      );
+    }
+    expect(text).toMatch(/\n {2}\/admin\/stock-items:\n/);
+    expect(text).toMatch(/\n {2}\/admin\/stock-items\/\{stockItemId\}\/variants\/\{variantId\}:\n/);
+    // the mapping is a state change: it names its outbox event, and refuses with 409 instead of merging quantities
+    expect(op('mapVariantToStockItem')!.body).toMatch(/`stock_item\.mapped` v1 outbox event/);
+    expect(op('mapVariantToStockItem')!.body).toMatch(/'409':/);
+    // InventoryLevel: one row per variant and warehouse carrying the pool's numbers, with the item it maps
+    const start = text.indexOf('\n    InventoryLevel:\n');
+    expect(start).toBeGreaterThan(0);
+    const required = text.slice(
+      text.indexOf('\n      required:', start),
+      text.indexOf('\n      properties:', start),
+    );
+    expect(required).toMatch(/\n\s+variant_id,\n\s+stock_item_id,\n\s+sku,/);
+    expect(text.slice(start, start + 2000)).toMatch(
+      /stock_item_id: \{ type: string, format: uuid \}/,
+    );
+    expect(text).toMatch(/\n {4}StockItem:\n/);
+    expect(text).toMatch(/\n {4}StockLevel:\n/);
+  });
+
+  it('cycle counts (0.4.14, #458): list / create / reconcile at operations on hq; superseded is a 409 conflict with details.reason, no new error code', () => {
+    const op = (id: string) => ops.find((o) => o.id === id);
+    const permission = (id: string) =>
+      op(id)!
+        .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+        .slice(1);
+    expect(ops.length).toBeGreaterThanOrEqual(120);
+    for (const id of ['listCycleCounts', 'createCycleCount', 'reconcileCycleCount']) {
+      expect(op(id), id).toBeDefined();
+      expect(permission(id), id).toEqual(['operations', 'organization:hq']);
+      expect(op(id)!.body, `${id} lacks 401`).toMatch(
+        /'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/,
+      );
+      expect(op(id)!.body, `${id} lacks 403`).toMatch(
+        /'403': \{ \$ref: '#\/components\/responses\/Forbidden' \}/,
+      );
+      // the mock answers from the example: each success response carries one
+      expect(op(id)!.body, `${id} lacks an example`).toMatch(/\n {14}example:\n/);
+    }
+    expect(text).toMatch(/\n {2}\/admin\/cycle-counts:\n/);
+    expect(text).toMatch(/\n {2}\/admin\/cycle-counts\/\{cycleCountId\}\/reconcile:\n/);
+    // a count is never deleted, and nothing but reconcile changes one
+    const start = text.indexOf('\n  /admin/cycle-counts:\n');
+    const block = text.slice(start, text.indexOf('\n  # ----', start + 1));
+    expect(block).not.toMatch(/\n {4}(delete|patch|put):\n/);
+
+    const create = op('createCycleCount')!.body;
+    expect(create).toMatch(/'201':/);
+    expect(create).toMatch(/required: \[warehouse_id, stock_item_id, counted_quantity\]/);
+    expect(create).toMatch(/counted_quantity: \{ type: integer, minimum: 0 \}/);
+    // the decision on #458: superseded and a future counted_at reuse the closed list of codes
+    expect(create).toMatch(/'409':[\s\S]*code: conflict,[\s\S]*reason: superseded,/);
+    expect(create).toMatch(/applied_cycle_count_id: /);
+    expect(create).toMatch(
+      /'422':[\s\S]*code: validation_error,[\s\S]*details: \{ field: counted_at \}/,
+    );
+    expect(text).not.toMatch(/code: superseded/);
+    const codes = text.match(/description: '(validation_error, [^']+)'/)?.[1] ?? '';
+    expect(codes).toMatch(/\bconflict\b/);
+    expect(codes).not.toMatch(/superseded/);
+
+    const reconcile = op('reconcileCycleCount')!.body;
+    expect(reconcile).toMatch(/approve: \{ type: boolean, default: false \}/);
+    expect(reconcile).toMatch(/'200':/);
+    expect(reconcile).toMatch(/'404':/);
+    expect(reconcile).toMatch(/'409':/);
+    // a flagged result is a 200, not an error
+    expect(reconcile).toMatch(/status `flagged`, 200/);
+
+    const schema = text.indexOf('\n    CycleCount:\n');
+    expect(schema).toBeGreaterThan(text.indexOf('\n    InventoryLevel:\n'));
+    const body = text.slice(schema, text.indexOf('\n    ShippingOptionInput:\n', schema));
+    expect(body).toMatch(/status: \{ type: string, enum: \[recorded, flagged, applied\] \}/);
+    expect(body).toMatch(/source: \{ type: string, enum: \[manual, wms\] \}/);
+    expect(body).toMatch(/counted_by: \{ type: \[string, 'null'\], format: uuid/);
+  });
+
   it('0.4.9 (#354): capturePayment and buyShipmentLabel — permissions, 200/409/422, honest examples', () => {
     const op = (id: string) => ops.find((o) => o.id === id)!;
     const permission = (id: string) =>
@@ -473,7 +623,7 @@ describe('admin-api.yaml', () => {
     }
     // the shared 422 and its machine code
     expect(component('Unprocessable')).toMatch(/code: provider_unsupported/);
-    expect(text).toMatch(/payment_failed, provider_unsupported, internal/);
+    expect(text).toMatch(/payment_failed, provider_unsupported, expired, internal/); // expired: 0.4.23 (#498)
   });
 
   it('0.4.9 (#350): the Order status enum is the documented five-state lifecycle', () => {
@@ -637,5 +787,419 @@ describe('admin-api.yaml', () => {
     const withoutRatio = text.replace(/recovery_rate: \{ type: number[^}]*\}/, '');
     expect(withoutRatio).not.toMatch(/type: number/);
     expect(withoutRatio).toMatch(/amount_minor: \{ type: integer/);
+  });
+});
+
+describe('payment_status voided (contracts 0.4.17, #466)', () => {
+  it('both specs list voided in every payment_status enum, after the six existing values', () => {
+    for (const file of ['admin-api.yaml', 'store-api.yaml']) {
+      const enums = [
+        ...read(file).matchAll(/\bpayment_status:\s*\{[^}]*?enum:\s*\[([^\]]*)\]/g),
+      ].map((m) => m[1]!.split(',').map((v) => v.trim()));
+      expect(enums.length, file).toBeGreaterThanOrEqual(1);
+      for (const values of enums) {
+        expect(values, file).toEqual([
+          'awaiting',
+          'authorized',
+          'captured',
+          'partially_refunded',
+          'refunded',
+          'failed',
+          'voided',
+        ]);
+      }
+    }
+  });
+});
+
+describe('stock pool reads (contracts 0.4.18, Admin API 0.4.16, #469)', () => {
+  const text = read('admin-api.yaml');
+  const ops = operations(text);
+  const op = (id: string) => ops.find((o) => o.id === id);
+  const permission = (id: string) =>
+    op(id)!
+      .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('listStockItemMovements / listStockItemReservations at viewer and previewCycleCountReconcile at operations, all on hq', () => {
+    expect(ops.length).toBeGreaterThanOrEqual(123);
+    const expected: Record<string, [string, string]> = {
+      listStockItemMovements: ['viewer', 'organization:hq'],
+      listStockItemReservations: ['viewer', 'organization:hq'],
+      previewCycleCountReconcile: ['operations', 'organization:hq'],
+    };
+    for (const [id, perm] of Object.entries(expected)) {
+      expect(op(id), id).toBeDefined();
+      expect(permission(id), id).toEqual(perm);
+      for (const code of ['200', '401', '403', '404']) {
+        expect(op(id)!.body, `${id} lacks ${code}`).toContain(`'${code}':`);
+      }
+      // the mock answers from the example: each success response carries one
+      expect(op(id)!.body, `${id} lacks an example`).toMatch(/\n {14}example:\n/);
+    }
+    expect(text).toMatch(
+      /\n {2}\/admin\/stock-items\/\{stockItemId\}\/movements:\n {4}parameters:[\s\S]*?\n {4}get:\n/,
+    );
+    expect(text).toMatch(
+      /\n {2}\/admin\/stock-items\/\{stockItemId\}\/reservations:\n {4}parameters:[\s\S]*?\n {4}get:\n/,
+    );
+    // the preview is a safe GET: a lost body can never turn it into a reconcile
+    expect(text).toMatch(
+      /\n {2}\/admin\/cycle-counts\/\{cycleCountId\}\/reconcile-preview:\n {4}parameters:[\s\S]*?\n {4}get:\n {6}tags: \[inventory\]\n {6}operationId: previewCycleCountReconcile\n/,
+    );
+    expect(op('previewCycleCountReconcile')!.body).not.toMatch(/requestBody:/);
+    expect(op('previewCycleCountReconcile')!.body).toMatch(/takes no lock/);
+    expect(op('previewCycleCountReconcile')!.body).toMatch(/'409':/);
+    expect(op('listStockItemReservations')!.body).toMatch(
+      /enum: \[open, released, all\], default: open/,
+    );
+  });
+
+  it('StockMovement, StockReservation and CycleCountPreview are components with every property required', () => {
+    for (const name of ['StockMovement', 'StockReservation', 'CycleCountPreview']) {
+      expect(text, name).toMatch(new RegExp(`\\n {4}${name}:\\n {6}type: object\\n`));
+    }
+    const schema = (name: string) => {
+      const start = text.indexOf(`\n    ${name}:\n`);
+      const next = text.slice(start + 1).search(/\n {4}\w+:\n/);
+      return text.slice(start, start + 1 + next);
+    };
+    expect(schema('StockMovement')).toMatch(
+      /enum: \[receipt, sale, return, adjustment, transfer_in, transfer_out, cycle_count\]/,
+    );
+    expect(schema('StockMovement')).toMatch(/store_id:\s*\{\s*type: \[string, 'null'\]/);
+    // allocation_rule is a free string (split:<rule>), not an enum
+    expect(schema('StockReservation')).toMatch(
+      /allocation_rule:\n\s+type: \[string, 'null'\]\n\s+description:/,
+    );
+    expect(schema('StockReservation')).toMatch(/quantity: \{ type: integer, minimum: 1 \}/);
+    expect(schema('CycleCountPreview')).toMatch(
+      /would_status: \{ type: string, enum: \[applied, flagged\] \}/,
+    );
+  });
+});
+
+describe('InventoryLevel.warehouse_code (contracts 0.4.19, Admin API 0.4.17, #475)', () => {
+  const text = read('admin-api.yaml');
+
+  it('InventoryLevel requires a read-only warehouse_code, and every InventoryLevel example carries it', () => {
+    const start = text.indexOf('\n    InventoryLevel:\n');
+    expect(start).toBeGreaterThan(0);
+    const next = text.slice(start + 1).search(/\n {4}\w+:\n/);
+    const schema = text.slice(start, start + 1 + next);
+    const required = schema.slice(
+      schema.indexOf('\n      required:'),
+      schema.indexOf('\n      properties:'),
+    );
+    expect(required).toMatch(/\n\s+warehouse_id,\n\s+warehouse_code,\n\s+on_hand,/);
+    expect(schema).toMatch(
+      /\n {8}warehouse_code:\n {10}type: string\n {10}readOnly: true\n {10}description: /,
+    );
+    // the two operations answering an InventoryLevel: their examples validate (the mock answers from them)
+    const ops = operations(text);
+    for (const id of ['listInventoryLevels', 'createStockMovement']) {
+      const body = ops.find((o) => o.id === id)!.body;
+      expect(body, id).toContain("$ref: '#/components/schemas/InventoryLevel'");
+      expect(body, id).toMatch(/warehouse_code: wh-eu,/);
+    }
+    expect(text.split("$ref: '#/components/schemas/InventoryLevel'").length - 1).toBe(2);
+  });
+});
+
+describe('customer consent ledger (contracts 0.4.21, Store API 0.5.7, Admin API 0.4.18, #489)', () => {
+  const store = read('store-api.yaml');
+  const admin = read('admin-api.yaml');
+  const storeOps = operations(store);
+  const adminOps = operations(admin);
+  const sbody = (id: string) => storeOps.find((o) => o.id === id)!.body;
+
+  it('getMyConsents / putMyConsents on /store/customers/me/consents, customer-token secured, with the /me 409', () => {
+    expect(storeOps.length).toBe(30); // +listMyExports / getMyExport at 0.5.8 (#498)
+    const start = store.indexOf('\n  /store/customers/me/consents:\n');
+    expect(start).toBeGreaterThan(0);
+    const path = store.slice(start, store.indexOf('\n  /store/customers/me/export:\n'));
+    expect(path).toMatch(/^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: getMyConsents$/m);
+    expect(path).toMatch(/^ {4}put:\n {6}tags: \[customers\]\n {6}operationId: putMyConsents$/m);
+    for (const id of ['getMyConsents', 'putMyConsents']) {
+      expect(sbody(id), id).toMatch(/security:\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]/);
+      expect(sbody(id), id).toContain("$ref: '#/components/schemas/CustomerConsents'");
+      expect(sbody(id), id).toMatch(/'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/);
+      expect(sbody(id), id).toMatch(/'409':[\s\S]*code: conflict/);
+      expect(sbody(id), id).toMatch(/'200':[\s\S]*example:/);
+    }
+    const put = sbody('putMyConsents');
+    expect(put).toMatch(/required: \[policy_version, consents\]/);
+    expect(put).toMatch(/policy_version: \{ type: string, minLength: 1 \}/);
+    expect(put).toMatch(/minItems: 1/);
+    expect(put).toMatch(/'400': \{ \$ref: '#\/components\/responses\/BadRequest' \}/);
+    // updateMe's one-checkbox shortcut is unchanged in shape and says it writes the ledger
+    expect(sbody('updateMe')).toMatch(/marketing_consent: \{ type: boolean \}/);
+    expect(sbody('updateMe')).toMatch(/consent ledger/);
+  });
+
+  it('CustomerConsent: granted true | false | null (null = never asked), the closed purpose set', () => {
+    const start = store.indexOf('\n    CustomerConsent:\n');
+    expect(start).toBeGreaterThan(0);
+    const schema = store.slice(start, store.indexOf('\n    CustomerConsents:\n'));
+    expect(schema).toMatch(/required: \[purpose, granted, source, policy_version, recorded_at\]/);
+    expect(schema).toMatch(/purpose: \{ type: string, enum: \[marketing_email\] \}/);
+    expect(schema).toMatch(/granted:\n {10}type: \[boolean, 'null'\]/);
+    expect(schema).toMatch(/enum: \[storefront, admin, import, null\]/);
+  });
+
+  it('listCustomerConsents: store-scoped, support, documents 400/401/403/404, ledger rows are never null', () => {
+    expect(admin).toMatch(
+      /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/consents:\n/,
+    );
+    const op = adminOps.find((o) => o.id === 'listCustomerConsents')!;
+    expect(op).toBeDefined();
+    expect(op.body).toMatch(/x-permission: \{ relation: support, object: 'store:\{storeId\}' \}/);
+    for (const code of ['400', '401', '403', '404']) expect(op.body, code).toContain(`'${code}':`);
+    expect(op.body).toMatch(
+      /required: \[id, purpose, granted, source, policy_version, recorded_at\]/,
+    );
+    expect(op.body).toMatch(/granted: \{ type: boolean \}/);
+    expect(op.body).not.toMatch(/'null'/);
+    expect(op.body).toMatch(/name: purpose,\s+in: query,\s+required: false/);
+  });
+});
+
+describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
+  const text = read('admin-api.yaml');
+  const ops = operations(text);
+  const op = (id: string) => ops.find((o) => o.id === id);
+  const permission = (id: string) =>
+    op(id)!
+      .body.match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
+    expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
+    expect(ops.length).toBe(131); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504)
+    const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
+      getStoreSalesReport: {
+        path: '/admin/stores/{storeId}/reports/sales',
+        perm: ['viewer', 'store:{storeId}'],
+        codes: ['200', '400', '401', '403', '404'],
+      },
+      getStoreStockReport: {
+        path: '/admin/stores/{storeId}/reports/stock',
+        perm: ['viewer', 'store:{storeId}'],
+        codes: ['200', '400', '401', '403', '404'],
+      },
+      getHqSalesReport: {
+        path: '/admin/hq/reports/sales',
+        perm: ['analyst', 'organization:hq'],
+        codes: ['200', '400', '401', '403'],
+      },
+      getHqFinanceReport: {
+        path: '/admin/hq/reports/finance',
+        perm: ['finance', 'organization:hq'],
+        codes: ['200', '400', '401', '403'],
+      },
+    };
+    for (const [id, { path, perm, codes }] of Object.entries(expected)) {
+      expect(op(id), id).toBeDefined();
+      expect(permission(id), id).toEqual(perm);
+      const start = text.indexOf(`\n  ${path}:\n`);
+      expect(start, path).toBeGreaterThan(0);
+      const block = text.slice(start, text.indexOf(`operationId: ${id}\n`, start));
+      expect(block, path).toMatch(/\n {4}get:\n {6}tags: \[reports\]\n {6}$/);
+      for (const code of codes) expect(op(id)!.body, `${id} lacks ${code}`).toContain(`'${code}':`);
+      // the mock answers from the example: each success response carries one
+      expect(op(id)!.body, `${id} lacks an example`).toMatch(/\n {14}example:\n/);
+      expect(op(id)!.body, id).not.toMatch(/requestBody:/);
+    }
+    for (const id of ['getStoreSalesReport', 'getHqSalesReport', 'getHqFinanceReport']) {
+      for (const p of ['ReportFrom', 'ReportTo', 'ReportCurrency']) {
+        expect(op(id)!.body, `${id} ${p}`).toContain(`$ref: '#/components/parameters/${p}'`);
+      }
+    }
+  });
+
+  it('the report components exist, fees are unreconciled, and every $ref resolves', () => {
+    expect(text).toMatch(/\n {4}ReportFrom:\n {6}name: from\n {6}in: query\n {6}required: true\n/);
+    expect(text).toMatch(/\n {4}ReportTo:\n {6}name: to\n {6}in: query\n {6}required: true\n/);
+    expect(text).toMatch(
+      /\n {4}ReportCurrency:\n {6}name: currency\n {6}in: query\n {6}required: false\n/,
+    );
+    for (const name of [
+      'SalesFigures',
+      'SalesReport',
+      'StockPosition',
+      'StockReport',
+      'FinanceFigures',
+      'FinanceReport',
+    ]) {
+      expect(text, name).toMatch(new RegExp(`\\n {4}${name}:\\n`));
+    }
+    expect(text).toMatch(/fees_reconciled: \{ type: boolean, const: false \}/);
+    for (const m of text.matchAll(/\$ref: '#\/components\/(\w+)\/(\w+)'/g)) {
+      const section = text.indexOf(`\n  ${m[1]}:\n`);
+      expect(section, m[1]).toBeGreaterThan(0);
+      expect(text.indexOf(`\n    ${m[2]}:\n`, section), `${m[1]}/${m[2]}`).toBeGreaterThan(section);
+    }
+  });
+});
+
+describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20, #498)', () => {
+  const store = read('store-api.yaml');
+  const admin = read('admin-api.yaml');
+  const storeOps = operations(store);
+  const adminOps = operations(admin);
+  const sbody = (id: string) => storeOps.find((o) => o.id === id)!.body;
+  const abody = (id: string) => adminOps.find((o) => o.id === id)!.body;
+  const permission = (id: string) =>
+    abody(id)
+      .match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('versions, and the closed error list gains expired with a shared 410 Gone in both specs', () => {
+    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m);
+    expect(ERROR_CODES).toContain('expired');
+    for (const [name, text] of [
+      ['store', store],
+      ['admin', admin],
+    ] as const) {
+      expect(text, name).toMatch(/description: '[^']*\bconflict\b[^']*, expired, internal'/);
+      const start = text.indexOf('\n    Gone:\n');
+      expect(start, name).toBeGreaterThan(text.indexOf('\n  responses:\n'));
+      const gone = text.slice(start, text.indexOf('\n  schemas:\n', start));
+      expect(gone, name).toContain("schema: { $ref: '#/components/schemas/Error' }");
+      expect(gone, name).toMatch(/code: expired,/);
+      expect(gone, name).toMatch(/details: \{ expires_at: '[^']+' \}/);
+      // the summary component exists in both
+      expect(text, name).toMatch(
+        /\n {4}CustomerExportSummary:\n {6}type: object\n {6}required: \[id, status, requested_at, ready_at, expires_at, size_bytes, reason\]\n/,
+      );
+      expect(text, name).toMatch(/status: \{ type: string, enum: \[pending, ready, expired\] \}/);
+      expect(text, name).toMatch(/enum: \[customer_gone, too_large, null\]/);
+    }
+  });
+
+  it('listMyExports / getMyExport: customer-token secured, the /me 409, 404 and 410 on the download', () => {
+    expect(storeOps.length).toBe(30);
+    const list = store.slice(
+      store.indexOf('\n  /store/customers/me/exports:\n'),
+      store.indexOf('\n  /store/customers/me/exports/{exportId}:\n'),
+    );
+    expect(list).toMatch(/^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: listMyExports$/m);
+    expect(list).not.toMatch(/^ {4}(post|put|patch|delete):$/m);
+    const one = store.slice(
+      store.indexOf('\n  /store/customers/me/exports/{exportId}:\n'),
+      store.indexOf('\n  /store/customers/me/orders:\n'),
+    );
+    expect(one).toMatch(/name: exportId, in: path, required: true/);
+    expect(one).toMatch(/^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: getMyExport$/m);
+    expect(one).not.toMatch(/^ {4}(post|put|patch|delete):$/m);
+    for (const id of ['listMyExports', 'getMyExport']) {
+      expect(sbody(id), id).toMatch(/security:\n\s+- publishableKey: \[\]\n\s+customerToken: \[\]/);
+      expect(sbody(id), id).toMatch(/'401': \{ \$ref: '#\/components\/responses\/Unauthorized' \}/);
+      expect(sbody(id), id).toMatch(/'409':[\s\S]*code: conflict/);
+    }
+    expect(sbody('listMyExports')).toContain("$ref: '#/components/schemas/CustomerExportSummary'");
+    expect(sbody('listMyExports')).toMatch(/'200':[\s\S]*example:\n\s+items:/);
+    expect(sbody('getMyExport')).toMatch(
+      /'404': \{ \$ref: '#\/components\/responses\/NotFound' \}/,
+    );
+    expect(sbody('getMyExport')).toMatch(/'410': \{ \$ref: '#\/components\/responses\/Gone' \}/);
+    expect(sbody('getMyExport')).toMatch(/Content-Disposition:/);
+  });
+
+  it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
+    expect(adminOps.length).toBe(131); // +getCustomerIdentity at 0.4.21 (#504)
+    expect(admin).toMatch(
+      /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
+    );
+    expect(admin).toMatch(
+      /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports\/\{exportId\}:\n/,
+    );
+    for (const id of ['listCustomerExports', 'getCustomerExport']) {
+      expect(permission(id), id).toEqual(['store_admin', 'store:{storeId}']);
+      for (const code of ['200', '400', '401', '403', '404']) {
+        expect(abody(id), `${id} ${code}`).toContain(`'${code}':`);
+      }
+      expect(abody(id), id).not.toMatch(/requestBody:/);
+    }
+    expect(abody('getCustomerExport')).toMatch(
+      /'410': \{ \$ref: '#\/components\/responses\/Gone' \}/,
+    );
+    expect(abody('listCustomerExports')).toContain(
+      "- $ref: '#/components/schemas/CustomerExportSummary'",
+    );
+    expect(abody('listCustomerExports')).toMatch(
+      /required: \[requested_by, requested_by_type, download_count\]/,
+    );
+    expect(abody('listCustomerConsents')).toMatch(
+      /'400': \{ \$ref: '#\/components\/responses\/BadRequest' \}/,
+    );
+    for (const text of [store, admin]) {
+      for (const m of text.matchAll(/\$ref: '#\/components\/(\w+)\/(\w+)'/g)) {
+        const section = text.indexOf(`\n  ${m[1]}:\n`);
+        expect(section, m[1]).toBeGreaterThan(0);
+        expect(text.indexOf(`\n    ${m[2]}:\n`, section), `${m[1]}/${m[2]}`).toBeGreaterThan(
+          section,
+        );
+      }
+    }
+  });
+});
+
+describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
+  const admin = read('admin-api.yaml');
+  const store = read('store-api.yaml');
+  const adminOps = operations(admin);
+  const abody = (id: string) => adminOps.find((o) => o.id === id)!.body;
+  const permission = (id: string) =>
+    abody(id)
+      .match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+
+  it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
+    expect(admin).toMatch(/^ {2}version: 0\.4\.22$/m);
+    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m); // Store API unchanged (#504)
+    expect(adminOps.length).toBe(131); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504)
+    const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
+    expect(start).toBeGreaterThan(0);
+    // next to /admin/users
+    expect(admin.indexOf('\n  /admin/users:\n')).toBeGreaterThan(start);
+    const item = admin.slice(start, admin.indexOf('\n  /admin/users:\n'));
+    expect(item).toMatch(/name: identityId, in: path, required: true/);
+    expect(item).toMatch(
+      /^ {4}get:\n {6}tags: \[customers\]\n {6}operationId: getCustomerIdentity$/m,
+    );
+    expect(item).not.toMatch(/^ {4}(post|put|patch|delete):$/m);
+    expect(permission('getCustomerIdentity')).toEqual(['support', 'organization:hq']);
+    const body = abody('getCustomerIdentity');
+    for (const code of ['200', '401', '403', '404']) expect(body, code).toContain(`'${code}':`);
+    expect(body).not.toMatch(/requestBody:/);
+    // condition 4: a store-scoped principal is a 403, an unknown identity a 404
+    expect(body).toMatch(/store-scoped principal[\s\S]*403/);
+    expect(body).toMatch(/404 means\s+the identity is unknown/);
+    // ids only: no hash, no subject, no email in the answer
+    expect(body).toMatch(/required: \[id, customers\]/);
+    expect(body).toMatch(/required: \[store_id, customer_id\]/);
+    const schema = body.slice(body.indexOf("'200':"), body.indexOf("'401':"));
+    expect(schema).not.toMatch(/email|subject|hash|identity_id/);
+    expect(body).toMatch(/\n {14}example:\n/);
+    for (const m of admin.matchAll(/\$ref: '#\/components\/(\w+)\/(\w+)'/g)) {
+      const section = admin.indexOf(`\n  ${m[1]}:\n`);
+      expect(section, m[1]).toBeGreaterThan(0);
+      expect(admin.indexOf(`\n    ${m[2]}:\n`, section), `${m[1]}/${m[2]}`).toBeGreaterThan(
+        section,
+      );
+    }
+  });
+
+  it('the Store API carries no identity_id (Store API unchanged)', () => {
+    expect(store).not.toMatch(/identity_id/);
+  });
+});
+
+describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
+  const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
+  it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
+    expect(admin).toMatch(/^ {2}version: 0\.4\.22$/m);
+    expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
   });
 });

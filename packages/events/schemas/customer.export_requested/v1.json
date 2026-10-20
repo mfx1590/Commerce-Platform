@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/customer.export_requested/v1.json",
+  "title": "customer.export_requested v1",
+  "description": "A GDPR data export was requested for one customer of one store (Admin API exportCustomer). The consumer builds the bundle through the core and delivers it; the payload carries ids only, never personal data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["customer_id", "requested_by", "requested_at"],
+  "properties": {
+    "customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "requested_by": {
+      "description": "staff_user id of the requester",
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "requested_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

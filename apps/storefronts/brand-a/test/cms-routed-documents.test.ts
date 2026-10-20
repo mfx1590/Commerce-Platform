@@ -402,7 +402,14 @@ describe('the routedDocuments path and next/headers', () => {
     const reader = importGraph(path.join(CMS, 'reader.ts'));
     const schedule = importGraph(path.join(CMS, 'schedule.ts'));
 
-    expect(reader.files).toEqual(['client.ts', 'config.ts', 'queries.ts', 'reader.ts', 'tags.ts']);
+    expect(reader.files).toEqual([
+      'client.ts',
+      'config.ts',
+      'hero-video.ts',
+      'queries.ts',
+      'reader.ts',
+      'tags.ts',
+    ]);
     expect(reader.packages).toEqual(['@platform/cms']);
     expect(schedule.files).toEqual(['schedule.ts']);
     expect(schedule.packages).toEqual([]);

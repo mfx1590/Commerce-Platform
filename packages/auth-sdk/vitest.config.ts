@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     // Lets apps/core/src/modules/hq-rbac (tested from here, no deps of its own) resolve the workspace packages.
     alias: [
+      { find: '@platform/auth-sdk/testing', replacement: resolve(__dirname, 'src/testing.ts') },
       { find: '@platform/auth-sdk', replacement: resolve(__dirname, 'src/index.ts') },
       { find: '@platform/db/testing', replacement: pkg('db/src/testing.ts') },
       { find: '@platform/db', replacement: pkg('db/src/index.ts') },
@@ -16,11 +17,20 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts', '../../apps/core/src/modules/hq-rbac/test/**/*.test.ts'],
     fileParallelism: false,
+    // Deletes the shared owner-token file once at the end of a local run that created it (#406).
+    globalSetup: ['test/global-setup.ts'],
     testTimeout: 30_000,
     hookTimeout: 120_000,
     env: {
       DATABASE_URL:
         process.env.DATABASE_URL ?? 'postgres://platform:platform@localhost:5433/platform',
+      // The dev staff realm's core-admin service-account secret (#415); CI runs without a .env.
+      KEYCLOAK_ADMIN_CLIENT_SECRET:
+        process.env.KEYCLOAK_ADMIN_CLIENT_SECRET ?? 'dev-only-core-admin-secret',
+      // The customers realm's service account (#483), same dev-only shape.
+      KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_SECRET:
+        process.env.KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_SECRET ??
+        'dev-only-core-admin-customers-secret',
       DATABASE_URL_APP:
         process.env.DATABASE_URL_APP ??
         'postgres://platform_app:platform_app@localhost:5433/platform',

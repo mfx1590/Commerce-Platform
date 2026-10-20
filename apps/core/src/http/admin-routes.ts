@@ -22,6 +22,7 @@ import {
   type ProductStatus,
 } from '../modules/catalog';
 import {
+  activateStore,
   addDomain,
   createApiKey,
   createSalesChannel,
@@ -33,19 +34,26 @@ import {
   listSalesChannels,
   listStores,
   listWarehouses,
+  onboardStore,
   revokeApiKey,
   updateDomain,
   updateStore,
+  type StoreRegistrar,
   STORE_SORT_FIELDS,
 } from '../modules/registry';
 import { organizationClient, tenantClient } from '../lib/db';
-import { validationError } from '../lib/errors';
+import { AppError, validationError } from '../lib/errors';
 import { handle } from './errors';
 import {
   ADMIN_MOVEMENT_REASONS,
   createStockMovement,
   LEVEL_SORT_FIELDS,
   listInventoryLevels,
+  listStockItemMovements,
+  listStockItemReservations,
+  listStockItems,
+  mapVariantToStockItem,
+  RESERVATION_STATUSES,
 } from '../modules/inventory';
 import { getReturn, receiveReturn, requestReturn } from '../modules/returns';
 import {
@@ -57,6 +65,16 @@ import {
   ORDER_STATUSES,
   PAYMENT_STATUSES,
 } from '../modules/orders';
+import {
+  adminGetCustomer,
+  adminListCustomerAddresses,
+  adminListCustomers,
+  adminUpdateCustomer,
+  CUSTOMER_SORT_FIELDS,
+  eraseCustomer,
+  listCustomerGroups,
+  requestCustomerExport,
+} from '../modules/customers';
 import { loadSpec } from './openapi';
 import { requirePermission, resolveObject } from './permissions';
 import {
@@ -112,8 +130,24 @@ function storeClient(req: Request): { p: StaffPrincipal; storeId: string; client
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function adminRouter(): Router {
+/** Onboarding without a registrar would create stores nobody can see: refused as a 503, never guessed. */
+function requireRegistrar(registrar: StoreRegistrar | undefined): StoreRegistrar {
+  if (!registrar) throw new AppError('internal', 'store registrar not configured', {}, 503);
+  return registrar;
+}
+
+export interface AdminRouterOptions {
+  /**
+   * The OpenFGA side of store onboarding (#413): `ensureStoreObject` after the onboarding transaction and the
+   * `fga_object` activation prerequisite. mountCoreMiddleware() passes the OpenFGA adapter (src/http/store-registrar.ts)
+   * unless a test hands in the in-memory one from the registry module.
+   */
+  storeRegistrar?: StoreRegistrar;
+}
+
+export function adminRouter(opts: AdminRouterOptions = {}): Router {
   const r = Router();
+  const registrar = opts.storeRegistrar;
 
   // ---- inventory (task 2.4, src/modules/inventory) ----------------------------------------------------------
   // listInventoryLevels' x-permission is `viewer` on `store:{store_id}` with store_id an OPTIONAL query: with it
@@ -191,6 +225,88 @@ export function adminRouter(): Router {
           delta: b.delta,
           reason: b.reason,
           note: b.note ?? null,
+          actor: p.actor,
+        }),
+      );
+    }),
+  );
+
+  // ---- the shared stock pool (#456, CONTRACT CHANGE #453): organization scope, HQ roles ---------------------
+  r.get(
+    '/admin/stock-items',
+    permission('listStockItems'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const storeId = one(req.query.store_id);
+      if (storeId !== undefined && !UUID_RE.test(storeId)) problems.store_id = 'uuid';
+      const sharedRaw = one(req.query.shared);
+      if (sharedRaw !== undefined && sharedRaw !== 'true' && sharedRaw !== 'false') {
+        problems.shared = 'true or false';
+      }
+      throwIfProblems(problems);
+      const sku = one(req.query.sku);
+      res.json(
+        await listStockItems(organizationClientFor(p), {
+          ...page,
+          ...(sku !== undefined ? { sku } : {}),
+          ...(storeId !== undefined ? { store_id: storeId } : {}),
+          ...(sharedRaw !== undefined ? { shared: sharedRaw === 'true' } : {}),
+        }),
+      );
+    }),
+  );
+  // #469: the pool row's ledger and what holds its `reserved` — HQ screens, organization scope, every store
+  r.get(
+    '/admin/stock-items/:stockItemId/movements',
+    permission('listStockItemMovements'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const stockItemId = uuidParam(req.params, 'stockItemId');
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const warehouseId = one(req.query.warehouse_id);
+      if (warehouseId !== undefined && !UUID_RE.test(warehouseId)) problems.warehouse_id = 'uuid';
+      throwIfProblems(problems);
+      res.json(
+        await listStockItemMovements(organizationClientFor(p), stockItemId, {
+          ...page,
+          ...(warehouseId !== undefined ? { warehouse_id: warehouseId } : {}),
+        }),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stock-items/:stockItemId/reservations',
+    permission('listStockItemReservations'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const stockItemId = uuidParam(req.params, 'stockItemId');
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const warehouseId = one(req.query.warehouse_id);
+      if (warehouseId !== undefined && !UUID_RE.test(warehouseId)) problems.warehouse_id = 'uuid';
+      const status = enumParam(req.query, 'status', RESERVATION_STATUSES, problems);
+      throwIfProblems(problems);
+      res.json(
+        await listStockItemReservations(organizationClientFor(p), stockItemId, {
+          ...page,
+          ...(warehouseId !== undefined ? { warehouse_id: warehouseId } : {}),
+          ...(status !== undefined ? { status } : {}),
+        }),
+      );
+    }),
+  );
+  r.put(
+    '/admin/stock-items/:stockItemId/variants/:variantId',
+    permission('mapVariantToStockItem'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      res.json(
+        await mapVariantToStockItem(organizationClientFor(p), {
+          stockItemId: uuidParam(req.params, 'stockItemId'),
+          variantId: uuidParam(req.params, 'variantId'),
           actor: p.actor,
         }),
       );
@@ -363,7 +479,132 @@ export function adminRouter(): Router {
     body('updateStore'),
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
-      res.json(await updateStore(client, storeId, req.body, p.actor));
+      res.json(
+        await updateStore(client, storeId, req.body, p.actor, registrar ? { registrar } : {}),
+      );
+    }),
+  );
+  // ---- customers (#414, Admin API 0.4.11): support reads and updates, store_admin erases and exports -------
+  r.get(
+    '/admin/stores/:storeId/customers',
+    permission('listCustomers'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const problems: Record<string, string> = {};
+      const page = pageParams(req.query, 20, problems);
+      const sort = sortParams(req.query, CUSTOMER_SORT_FIELDS, problems);
+      const groupId = one(req.query.group_id);
+      if (groupId !== undefined && !UUID_RE.test(groupId)) problems.group_id = 'uuid';
+      throwIfProblems(problems);
+      res.json(
+        await adminListCustomers(client, storeId, {
+          ...page,
+          ...sort,
+          ...(one(req.query.q) !== undefined ? { q: one(req.query.q)! } : {}),
+          ...(groupId !== undefined ? { group_id: groupId } : {}),
+        }),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customers/:customerId',
+    permission('getCustomer'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(await adminGetCustomer(client, storeId, uuidParam(req.params, 'customerId')));
+    }),
+  );
+  r.patch(
+    '/admin/stores/:storeId/customers/:customerId',
+    permission('updateCustomer'),
+    body('updateCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      res.json(
+        await adminUpdateCustomer(
+          client,
+          storeId,
+          uuidParam(req.params, 'customerId'),
+          req.body,
+          p.actor,
+        ),
+      );
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customers/:customerId/addresses',
+    permission('listCustomerAddresses'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json({
+        items: await adminListCustomerAddresses(
+          client,
+          storeId,
+          uuidParam(req.params, 'customerId'),
+        ),
+      });
+    }),
+  );
+  // GDPR erasure: 202 both for the erasure and for the replay on an erased customer (the contract's
+  // "scheduled"; it runs synchronously, one transaction) — no body.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/erase',
+    permission('eraseCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await eraseCustomer(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
+    }),
+  );
+  // GDPR export: 202 + one `customer.export_requested` per request; the bundle is built by the delivery job.
+  r.post(
+    '/admin/stores/:storeId/customers/:customerId/export',
+    permission('exportCustomer'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await requestCustomerExport(client, storeId, uuidParam(req.params, 'customerId'), p.actor);
+      res.status(202).end();
+    }),
+  );
+  r.get(
+    '/admin/stores/:storeId/customer-groups',
+    permission('listCustomerGroups'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listCustomerGroups(client, storeId) });
+    }),
+  );
+
+  // ---- registry: onboarding (#413, Admin API 0.4.11) ------------------------------------------------------
+  r.post(
+    '/admin/stores/:storeId/activate',
+    permission('activateStore'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      res.json(
+        await activateStore(
+          organizationClientFor(p),
+          storeId,
+          requireRegistrar(registrar),
+          p.actor,
+        ),
+      );
+    }),
+  );
+  r.post(
+    '/admin/onboarding/stores',
+    permission('onboardStore'),
+    body('onboardStore'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const { created, result } = await onboardStore(
+        organizationClientFor(p),
+        req.body,
+        requireRegistrar(registrar),
+        p.actor,
+      );
+      res.status(created ? 201 : 200).json(result);
     }),
   );
 

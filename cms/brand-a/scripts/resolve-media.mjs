@@ -17,6 +17,8 @@
  * read here**: uploading is `upload-media.mjs`'s job, run by the owner.
  *
  * Without a cloud name:
+ * - a hero loop (`heroVideo`) resolves to a Cloudinary `/video/upload/` URL, and is left out with the
+ *   images when no cloud name is set: the poster still carries the hero (#386).
  * - an optional image is left out — the field is deleted, and an `imageBlock` (whose image the schema
  *   requires) is removed from its list as a whole;
  * - a `mediaRequired` image is an error, never a silent skip.
@@ -113,13 +115,61 @@ export function resolveMedia(documents, manifest, { cloudName } = {}) {
     return { ...rest, _type: 'image', cloudinaryUrl: deliveryUrl(cloudName, slot), alt };
   };
 
-  const walk = (value, position, doc, path) => {
+  /**
+   * A hero loop (#386). Unlike an image it has no alt text — the video is `aria-hidden` and the
+   * poster's alt is what the hero says to a screen reader — and no aspect rule, because it is
+   * sized by the poster it plays over.
+   *
+   * The pairing check is the point of this function: `manifest.json` records which still is each
+   * loop's first frame (`poster`), and a loop playing over a different still would flash a
+   * different image at the moment the video takes over. It is checked even when no cloud name is
+   * set, so a mis-paired loop is an authoring error rather than something that only shows up
+   * wherever Cloudinary happens to be configured.
+   */
+  const resolveVideo = (ref, doc, path, parent) => {
+    const where = `${doc._id}${path}`;
+    const slot = bySlot.get(ref.mediaSlot);
+    if (slot === undefined) {
+      errors.push(`${where}: media slot "${ref.mediaSlot}" is not in media/manifest.json`);
+      return DROP;
+    }
+    if (slot.kind !== 'video') {
+      errors.push(`${where}: media slot "${ref.mediaSlot}" is a ${slot.kind}, not a video`);
+      return DROP;
+    }
+    if (parent?._type !== 'hero') {
+      errors.push(`${where}: a video goes on a hero only`);
+      return DROP;
+    }
+    const poster = parent.image?.mediaSlot;
+    if (slot.poster !== undefined && poster !== slot.poster) {
+      errors.push(
+        `${where}: "${ref.mediaSlot}" plays over "${slot.poster}", but the hero image is ` +
+          `"${poster ?? 'missing'}"`,
+      );
+      return DROP;
+    }
+    if (cloudName === undefined) {
+      // Optional, like an optional image: no cloud name, no loop, and the poster carries the hero.
+      dropped += 1;
+      return DROP;
+    }
+    resolved += 1;
+    return { _type: 'heroVideo', cloudinaryUrl: deliveryUrl(cloudName, slot) };
+  };
+
+  const walk = (value, position, doc, path, parent) => {
     if (Array.isArray(value)) {
       return value
-        .map((item, i) => walk(item, undefined, doc, `${path}[${i}]`))
+        .map((item, i) => walk(item, undefined, doc, `${path}[${i}]`, parent))
         .filter((item) => item !== DROP);
     }
     if (value === null || typeof value !== 'object') return value;
+    // Before the image branch: a heroVideo also carries a `mediaSlot`, so it would otherwise be
+    // resolved as an image and rejected as "is a video, not an image".
+    if (typeof value.mediaSlot === 'string' && value._type === 'heroVideo') {
+      return resolveVideo(value, doc, path, parent);
+    }
     if (typeof value.mediaSlot === 'string') return resolveImage(value, position, doc, path);
 
     const out = {};
@@ -130,7 +180,7 @@ export function resolveMedia(documents, manifest, { cloudName } = {}) {
           : key === 'ogImage'
             ? 'ogImage'
             : undefined;
-      const next = walk(child, childPosition, doc, `${path}.${key}`);
+      const next = walk(child, childPosition, doc, `${path}.${key}`, value);
       if (next === DROP) {
         // The schema requires an imageBlock's image, so the block goes with it.
         if (value._type === 'imageBlock' && key === 'image') return DROP;
@@ -141,6 +191,6 @@ export function resolveMedia(documents, manifest, { cloudName } = {}) {
     return out;
   };
 
-  const out = documents.map((doc) => walk(doc, undefined, doc, ''));
+  const out = documents.map((doc) => walk(doc, undefined, doc, '', undefined));
   return { documents: out, dropped, errors, resolved };
 }

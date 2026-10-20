@@ -7,9 +7,16 @@ import { REFRESH_SKEW_MS, joinChunks, openSession, sealSession } from '@/lib/aut
 const SECRET = 'test-session-secret-at-least-32-characters';
 
 const refreshTokens = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/auth/oidc', () => ({ refreshTokens }));
+const sessionIsLive = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/oidc', () => ({
+  refreshTokens,
+  sessionIsLive,
+  // The real one decodes the ID token's `sid`; the fixtures' ID tokens are plain words.
+  sessionIdOf: (idToken: string) => `sid-of-${idToken}`,
+}));
 
 const { middleware, config } = await import('@/middleware');
+const { LIVENESS_TTL_MS, resetLivenessCache } = await import('@/lib/auth/liveness');
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -50,6 +57,9 @@ function setCookieJar(response: Response): Map<string, string> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
+  resetLivenessCache();
+  sessionIsLive.mockResolvedValue(true);
 });
 
 describe('the gate', () => {
@@ -151,6 +161,48 @@ describe('refresh', () => {
 
     expect(refreshTokens).toHaveBeenCalled();
     expect(response.headers.get('location')).toBeNull();
+  });
+});
+
+describe('a session Keycloak no longer has (#353)', () => {
+  it('a copy of a signed-out session is sent to sign in, its cookies cleared', async () => {
+    // The realm answers userinfo 401 once the session was ended at Sign out.
+    sessionIsLive.mockResolvedValue(false);
+    const response = await middleware(await requestWith(session()));
+
+    expect(sessionIsLive).toHaveBeenCalledWith('access-old');
+    expect(response.headers.get('location')).toContain('/api/auth/login');
+    expect(setCookieJar(response).get('admin_session.0')).toEqual('');
+  });
+
+  it('a live answer is remembered for 30 s per session, then asked again', async () => {
+    vi.useFakeTimers({ now: new Date('2026-10-07T10:00:00Z') });
+    const live = session({ expiresAt: Date.now() + 600_000 });
+
+    await middleware(await requestWith(live));
+    await middleware(await requestWith(live));
+    expect(sessionIsLive).toHaveBeenCalledTimes(1);
+
+    // Another session is its own entry.
+    await middleware(
+      await requestWith(session({ idToken: 'id-other', expiresAt: Date.now() + 600_000 })),
+    );
+    expect(sessionIsLive).toHaveBeenCalledTimes(2);
+
+    vi.setSystemTime(Date.now() + LIVENESS_TTL_MS + 1);
+    sessionIsLive.mockResolvedValue(false);
+    const after = await middleware(await requestWith(live));
+    expect(sessionIsLive).toHaveBeenCalledTimes(3);
+    expect(after.headers.get('location')).toContain('/api/auth/login');
+  });
+
+  it('a refresh proves the session live, so the next request does not ask', async () => {
+    refreshTokens.mockResolvedValue(session({ idToken: 'id-new', accessToken: 'access-new' }));
+    await middleware(await requestWith(session({ expiresAt: Date.now() + 1_000 })));
+    expect(sessionIsLive).not.toHaveBeenCalled();
+
+    await middleware(await requestWith(session({ idToken: 'id-new', accessToken: 'access-new' })));
+    expect(sessionIsLive).not.toHaveBeenCalled();
   });
 });
 

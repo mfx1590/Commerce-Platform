@@ -25,6 +25,7 @@ test.describe('medusa rail', () => {
     await expect(serpents).toHaveText([
       'Catalog',
       'Orders',
+      'Inventory',
       'Customers',
       'Promotions',
       'Content',

@@ -2,6 +2,224 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-20 · Integration 3 gate G2: two brands buy from one stock pool through the APIs (#519)
+
+- `test/two-brands-one-pool.test.ts` (unit job, Postgres, dev tokens, own throwaway database): brand A places 2
+  through its Store API (manual payment) → brand B's `available_quantity` drops by 2 → HQ ships A's order through
+  the Admin API (`createShipment` + `updateShipment` → `shipped`) → `on_hand` −2 and one attributed `sale`
+  movement, B unchanged → brand B buys the rest → one more unit is 409 `out_of_stock` in BOTH brands; nothing
+  oversold, nothing lost. Window 11's allocation engine is registered as `createServer()` does. The order ids and
+  the quantities are printed at every step.
+- Docs (#503): the HQ finance report needs `finance` on `organization:hq`, not `analyst` (this CHANGELOG and
+  `src/http/README.md`).
+
+### 2026-10-18 · the report routes mounted (REQUEST #494, #479)
+
+- `moduleAdminRouters()` mounts window 12's `reportingAdminRouter()`: `GET /admin/stores/:storeId/reports/sales` and
+  `…/stock` (`viewer` on the store), `GET /admin/hq/reports/sales` (`analyst` on `organization:hq`) and
+  `…/finance` (`finance` on `organization:hq` — corrected per #503; the spec and the router always said `finance`). Eleven module routers. The mount test checks an analyst 200 with a `SalesReport`, a store
+  admin 403, no token 401.
+
+### 2026-10-18 · the consent ledger route mounted (REQUEST #492, #471)
+
+- `moduleAdminRouters()` mounts window 13's `customersAdminRouter()`: `GET
+/admin/stores/:storeId/customers/:customerId/consents` (Admin API `listCustomerConsents`, `support` on
+  `store:{storeId}`). Ten module routers. The mount test checks support and a store admin 200, store staff 403, no
+  token 401, an unknown customer the route's own 404.
+
+### 2026-10-18 · cross-brand identity (#473, window 13; CONTRACT CHANGE #504: db 0196, Admin API `getCustomerIdentity`)
+
+- `customer_identity` is written at last — by `app.link_customer_identity` from `resolveIn`, for a verified email
+  only (provisioning, adoption, the first verified sign-in of an older row → `customer.updated` `identity_id`); key
+  = the Keycloak subject; a guest-only identity is merged by email_hash only when exactly one candidate matches. The
+  table is closed to store sessions (RLS `organization_only`); erasure unlinks through
+  `app.unlink_customer_identity`. Admin HQ-only `GET /admin/customer-identities/{identityId}` (support on
+  organization:hq, ids only) on `customersAdminRouter`. `eraseCustomerIdentity` (every brand, one transaction) is
+  built and tested, not wired to `deleteMe` (owner decision pending).
+
+### 2026-10-18 · export delivery (#472, window 13; CONTRACT CHANGE #498: db 0195 `customer_export`, events `customer.export_ready`, Store API 0.5.8, Admin API 0.4.20, error code `expired`)
+
+- `src/jobs/customer-export.ts` (Medusa job every five minutes + one-shot CLI) consumes `customer.export_requested`:
+  claim (one `customer_export` row per event, idempotent on `event_id`), build (`buildCustomerExport` → gzip →
+  `bytea` + sha256 under a hard size cap `CORE_CUSTOMER_EXPORT_MAX_BYTES`, 30-day TTL, one `customer.export_ready`),
+  purge (bundle, size and digest gone after the TTL; the bare row stays). Store `GET /store/customers/me/exports`
+  and `…/exports/{exportId}` (the bundle as a JSON attachment; expired / purged → 410 `expired`); Admin
+  `listCustomerExports` / `getCustomerExport` (store_admin) on `customersAdminRouter`. Every download is counted and
+  audited. Erase deletes every export of the customer, bundles included (`exports_deleted`).
+- `src/lib/errors.ts`: `expired` → 410 (the new contract code; integration exception, named in the commit).
+
+### 2026-10-18 · consent ledger (#471, window 13; CONTRACT CHANGE #489: db 0194 `customer_consent`, Store API 0.5.7, Admin API 0.4.18)
+
+- `customer_consent` is the record of truth (append-only, store-scoped, one row per changed answer with source and
+  the policy version the customer saw); `customer.consent` stays the projection window 17's segments read,
+  rewritten by the one writer `recordConsent` in the same transaction. Store API `GET` / `PUT
+/store/customers/me/consents` (`granted: null` = never asked); `registerCustomer` / `updateMe.marketing_consent`
+  record through the ledger with the store's `settings.privacy.policy_version` (`unversioned` when unset). Admin
+  `listCustomerConsents` (support) as `customersAdminRouter()` — mounted through `module-routers.ts` (REQUEST to
+  window 1). Erase deletes the ledger (`consents_deleted`); the export bundle carries `consents`.
+- **Rule change (manager 2026-10-18):** a first explicit `false` is now recorded — a refusal is a decision. A
+  refuser must never be in a re-consent audience: window 17's `never_asked` operator (REQUEST #491) must land before
+  any re-consent send; the proof test keeps that assertion as `it.todo`.
+- Migration 0194 backfills one ledger row per existing projection (`pre-ledger`, the projection's own timestamp).
+
+### 2026-10-18 · account self-service (#470, window 13; CONTRACT CHANGE #482: Store API 0.5.6, contracts 0.4.20, events 0.3.5)
+
+- Store API: `PATCH` / `DELETE /store/customers/me/addresses/{addressId}` (`updateMyAddress`: partial patch, a
+  default flag moves under the customer-row lock, `false` hands it to the oldest other address; `deleteMyAddress`:
+  200 with the remaining addresses, a held default moves to the oldest remaining one), `POST
+/store/customers/me/export` (`requestMyExport`, 202) and `DELETE /store/customers/me` (`deleteMe`, 202 — #414's
+  erasure for the token's own row in this store; replay no-op). All in `src/http/customer-routes.ts`.
+- `customer.export_requested` **v2**: `requested_by_type` `staff` (Admin `exportCustomer`) or `customer`.
+- **Erasure keeps `keycloak_subject` as a tombstone** (manager decision 2026-10-18, #482, lawyer list; admin and
+  self-service alike): the same login is a 401 everywhere afterwards instead of re-provisioning a fresh account. The
+  Keycloak user is deleted by window 2 (REQUEST #483).
+
+### 2026-10-15 · `InventoryLevel.warehouse_code` (CONTRACT CHANGE #475, contracts 0.4.19)
+
+- Every `InventoryLevel` (`GET /admin/inventory/levels`, the `POST /admin/inventory/movements` response) carries
+  the required, read-only `warehouse_code`, joined from `warehouse` in the query that already reads the row (no
+  extra round trip; `ensureLevel`'s locked read joins it too — the lock stays on the pool row). A store
+  principal reads the codes of the warehouses its own rows reference; no permission widens.
+- Test (#476 review): a reservation that expired without being released is `released`, not `open`.
+
+### 2026-10-15 · HQ reads of a pool row: its ledger and its reservations (CONTRACT CHANGE #469, contracts 0.4.18)
+
+- `GET /admin/stock-items/{stockItemId}/movements` (`listStockItemMovements`) and
+  `GET /admin/stock-items/{stockItemId}/reservations` (`listStockItemReservations`), both `viewer` on
+  `organization:hq`, organization scope only (Admin API 0.4.16). Newest first, `warehouse_id` filter, paging;
+  reservations by `status` `open` (default) / `released` / `all`, every store's, with `allocation_rule`;
+  movements include the ones no store caused. 404 for an unknown stock item. Inventory module:
+  `listStockItemMovements`, `listStockItemReservations`, `RESERVATION_STATUSES`.
+
+### 2026-10-15 · a cancelled authorisation reads `voided` (#466, contracts 0.4.17)
+
+- `Order.payment_status` gains `voided` (Admin API 0.4.15, Store API 0.5.5, `order.updated` v1 widened in place,
+  db 0193 — the manager's part of the integration). Payment transitions: `authorized → voided`; `voided` is
+  terminal (a late capture report is a 409).
+- `cancelOrder`: when the order's `payment_status` is `authorized`, after the void (payment rows `cancelled`, as
+  before) it moves `payment_status → voided` as its OWN transition, then `status → cancelled` — so one
+  `order.updated` (`changed_fields: ['payment_status']`) precedes `order.cancelled` (payload unchanged), both in
+  the cancel's transaction. The manual provider's void always succeeds, so a manual-payment cancel reads
+  `voided`. Unchanged: a failed void is 402 `payment_failed` with nothing written; `awaiting` / `failed` /
+  `captured` / refund states keep their value on cancel. No backfill (manager decision on #466).
+
+### 2026-10-15 · a cancel never closes a reservation it cannot un-count (#456 review nit)
+
+- `releaseForOrder` answers 500 `internal` `{ order_id, reservation_id, stock_item_id, warehouse_id }` when an
+  open reservation holds a pool row the session cannot see, and the cancel rolls back. Before, it closed the
+  reservation and skipped `reserved −= q`, so the units stayed out of `available` for every store on that row.
+  The module cannot produce that state (a variant with an open reservation cannot be re-mapped); the new
+  store-scoped test arranges it with the owner role and failed before the fix ("promise resolved 2").
+
+### 2026-10-13 · cycle counts mounted (#436, CONTRACT CHANGE #458)
+
+- `moduleAdminRouters()` (`src/http/module-routers.ts`) mounts window 11's `cycleCountsAdminRouter()`: `GET` and
+  `POST /admin/cycle-counts`, `POST /admin/cycle-counts/:cycleCountId/reconcile` (Admin API `listCycleCounts`,
+  `createCycleCount`, `reconcileCycleCount`; each `operations` on `organization:hq`). Nine module routers now.
+  The mount test checks 401 without a token, 403 for a store role on all three, and that the routes answer
+  themselves (validation, unknown count) rather than the terminal 404 of an unmounted path.
+
+### 2026-10-13 · the stock-aware allocation engine is registered (#435)
+
+- `registerModuleSeams()` (`src/wiring.ts`) registers window 11's `stockAwareAllocationPolicy` behind the
+  inventory module's allocation seam. **What changes for a placement on a running server:** the warehouse is no
+  longer simply the one with the best `priority` number. Warehouses are ranked by the fulfillment routing rules
+  (store override for the destination country → store default → same country → same region → priority); the
+  first one that covers the WHOLE line takes it, and a line is split down the ranking only when no single
+  warehouse can. `reservation.allocation_rule` records `store_country`, `store_default`, `same_country`,
+  `same_region` or `priority` (and `split:<rule>`) instead of only `priority` / `split:priority`. Unchanged: the
+  inventory module locks the pool rows first, validates every decision against them, and decides shortfall itself
+  (409 `out_of_stock`, or a backorder on the item's first pool row in priority order, rule `backorder`). Code that
+  calls `reserveForOrder` without `registerModuleSeams()` (the module's own tests) keeps `priorityGreedyPolicy`.
+- `currentAllocationPolicy()` is exported from the inventory module (the wiring test reads the seam with it).
+- Wording (#459 review nit): the reservations header and the inventory README said every multi-row path calls
+  `lockStock`. The lock ORDER is one for every path; `lockStock` is its routine for ship, a cancelled shipment and
+  the returns restock, placement runs the same three steps inline, and cancel takes only the pool-row step.
+
+### 2026-10-12 · inventory on the shared stock pool (#456; db 0190 + 0191, CONTRACT CHANGE #453, REQUEST #454)
+
+- Stock lies per (stock item, warehouse) and every variant that maps the item sells from it. The inventory
+  module resolves variant → `stock_item_id` and works on the pool row: placement, release, consume, adjust and
+  the availability read. Callers (checkout, orders, returns, shipping) keep their call shapes. Lock order:
+  variant rows (SHARE, id order), then pool rows by (`stock_item_id`, `warehouse_id`).
+- Attribution under the ledger policy: a movement a store caused carries its `store_id` + `variant_id` and is
+  written in that store's scope; a movement no store caused carries neither and is organization scope only. The
+  module never changes the scope it is given. `stock.moved` **v2** (item id + item sku; variant and store only
+  when attributed); v1 is no longer emitted. HQ `createStockMovement` is store-less, organization scope only, with
+  an audit row (`stock_movement.create`) that keeps the addressed variant.
+- `reservation` rows carry `stock_item_id` (the variant's item at reserve time — enforced by the module) and
+  `allocation_rule`.
+- The allocation seam: `setAllocationPolicy(fn)` (+ the `Allocation*` types, `priorityGreedyPolicy`). The module
+  locks first, offers candidates from the locked rows, validates the decision (a bad one is a 500 and the placement
+  rolls back) and keeps the shortfall / 409 / backorder behaviour. Default = the allocation as before.
+- Admin API: `listStockItems` (`GET /admin/stock-items`), `mapVariantToStockItem`
+  (`PUT /admin/stock-items/{stockItemId}/variants/{variantId}`: idempotent; 409 unless the variant's current item
+  has zero on-hand and no open reservation; audit + `stock_item.mapped`), `InventoryLevel.stock_item_id`
+  (`id` is the pool row's and repeats for variants that share an item).
+- `availableByVariant(tx, variantIds)` is the availability read for other modules: the cart uses it, and — by a
+  one-time manager exception — so do `marketing/feed-items.ts` and `search/records.ts` (one statement each; they
+  read `inventory_level` by a column 0191 drops). The catalog read model joins the pool rows; shapes unchanged.
+- A shipment release for a variant re-mapped to another item since the order reserved is refused: 409 `conflict`,
+  decided from the reservation rows before the ledger is read (in store scope the ledger no longer shows the
+  store its movements on an item it stopped mapping — #459 review).
+- One lock routine, `lockStock`: variant rows, then any pool row that has to be created (in `stock_item_id` order,
+  before a lock is held), then every pool row by (`stock_item_id`, `warehouse_id`) — used by placement, cancel,
+  ship, a cancelled shipment and the returns module's restock (#459 review: a shipment cancel could deadlock
+  against a placement; a backorder created its row mid-placement). The backorder target is again the item's first
+  pool row in warehouse priority order.
+- Tests: the existing suites adapted mechanically to the re-keyed tables (reads through the variant's
+  `stock_item_id`); `shared-pool.test.ts` (15, the stores' side as store-scoped clients), `allocation.test.ts` (10).
+
+### 2026-10-08 · admin customer routes + GDPR erasure (#414, Admin API 0.4.11)
+
+- `listCustomers` / `getCustomer` / `updateCustomer` / `listCustomerAddresses` / `listCustomerGroups` are real
+  (customers module `admin.ts`): search by email or name, group filter, contract sort and paging; update of names,
+  phone, the customer group (same store only) and registered ↔ disabled, one `customer.updated` per change, no
+  personal data in audit or event.
+- `eraseCustomer` (`gdpr.ts`, 202): status `erased`, email → `erased+<customer_id>@invalid`, names / phone /
+  subject null, consent / metadata `{}`, addresses deleted, identity unlinked and deleted when orphaned, orders kept
+  (legal retention), one `customer.erased`; a replay is a no-op. `buildCustomerExport` builds the
+  `customer-export/v1` bundle; `exportCustomer` (store_admin, 202) writes one `customer.export_requested` (events
+  0.3.2, contracts-v0.4.14) per request — the hand-over to Integration 2b's delivery job; erased / unknown → 404.
+- The #265 unmounted-path test probes `/admin/stores/{id}/unmounted-probe` (the customers list is mounted now).
+- Review nit from #424: a hostname another store has answers onboarding's 409 with `details.field = 'domain.hostname'`.
+- #413's live half: `src/http/store-registrar.ts` writes through auth-sdk's `ensureStoreObject` (#421) and reads the
+  tuple for `hasStoreObject`; `test/auth-live.test.ts` proves an onboarded store is visible to the seeded owner
+  through OpenFGA, refused to a store admin of other brands, and activatable (the `it.todo` is gone).
+
+### 2026-10-08 · store onboarding workflow (#413, Admin API 0.4.11 / CONTRACT CHANGE #417)
+
+- `onboardStore` (`POST /admin/onboarding/stores`, owner on `organization:hq`): legal entity (inline or
+  existing), the store in `draft` with `content_space_id = <code>` / `search_index = <code>_products`, locales
+  and currencies, the primary domain, the `web` sales channel and one publishable key (shown once) — one
+  transaction with the audit row and `store.created`; then the store's OpenFGA object through the
+  `StoreRegistrar` seam. Idempotent by `code` (same input → 200 with `publishable_key: null`; a different
+  definition → 409 naming what differs).
+- `activateStore` (`POST /admin/stores/{storeId}/activate`): `draft` / `paused` → `active` only when a legal
+  entity, a locale, a currency, a primary domain, a live publishable key and the OpenFGA object are present —
+  409 `details.missing` otherwise, `archived` → 409 `details.status`. `updateStore` with `status: active` runs
+  the same gate (new 404 / 409 / 422 answers).
+- Store settings are checked by shape on create / update / onboarding (registry README "Store settings the core
+  reads"): a wrong type is 422 `validation_error` with `details.settings`; unknown keys preserved;
+  `payment.methods` is derived and refused when written. The seed and every existing writer pass unchanged.
+- `StoreRegistrar`: `src/http/store-registrar.ts` is the interim OpenFGA adapter until `@platform/auth-sdk`'s
+  `ensureStoreObject` (#415) is on main; `inMemoryStoreRegistrar()` for tests; `mountCoreMiddleware` takes
+  `storeRegistrar`. The live visibility assertion is an `it.todo` naming #415 until both are merged.
+- Built against contracts-v0.4.13 (Admin API 0.4.11, #419 = `d11ace5`); the local overlay used while the
+  contract was in review is gone.
+- Decision recorded (manager, 2026-10-08): carts are excluded from the outbox rule by design (checkout README).
+- Folded review nits (manager, 2026-10-08): a no-op `addLocale` / `addCurrency` writes no audit row any more (#318); the foreign-key-refused set removal (409 naming the constraint) has its test (#308).
+
+### 2026-10-07 · the live suite shares the owner's sign-in (#346)
+
+- `test/auth-live.test.ts` signed the TOTP-enrolled `owner` in with its own copy of the dev secret, and Keycloak
+  refuses a one-time code that another suite (hq-rbac's scope test, auth-sdk's realm test) already spent: the
+  required CI job needed a 30–60 s barrier between the two live steps. The suite now takes its staff tokens from
+  `staffToken` in `@platform/auth-sdk/testing`, which signs owner in once per machine and shares the token through
+  a per-user file, 0600 (reused only while Keycloak's `userinfo` accepts it; removed at the end of the run that created
+  it, kept for the job in CI). The local `totp`, the secret and
+  the grant fallbacks leave this package; no production code changes.
+
 ### 2026-10-06 · the order status lifecycle is automatic (#350, Integration 2a)
 
 - Every order stayed `pending` since September: `confirmOrder` had no caller. Now the trigger performs the move

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Controller } from 'react-hook-form';
@@ -69,8 +69,11 @@ describe('client-side validation comes from the contract schema', () => {
     await user.type(screen.getByLabelText(/Code/), 'Brand D');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
+    // The resolver validates asynchronously (#398 class): wait for the message, then read the rest.
+    expect(
+      await screen.findByText(/lower-case letters, numbers and single hyphens/),
+    ).toBeInTheDocument();
     expect(action).not.toHaveBeenCalled();
-    expect(screen.getByText(/lower-case letters, numbers and single hyphens/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Code/)).toHaveAttribute('aria-invalid', 'true');
   });
 
@@ -131,13 +134,13 @@ describe('server errors land on the right control', () => {
 
     render(<StoreForm action={action} />);
     await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(screen.getByText('code already exists')).toBeInTheDocument();
+    expect(await screen.findByText('code already exists')).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText(/Code/));
     await user.type(screen.getByLabelText(/Code/), 'brand-e');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.queryByText('code already exists')).toBeNull();
+    await waitFor(() => expect(screen.queryByText('code already exists')).toBeNull());
   });
 
   it('calls onSuccess only when the server agreed', async () => {

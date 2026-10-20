@@ -27,14 +27,11 @@ export const EXPECT = AGAINST_CORE
       /** `display_name` from the core's `/admin/me` (the DB seed). */
       displayName: 'Sam StoreAdmin',
       primaryDomain: 'shop.brand-a.local',
-      /** The core does not mount this yet; the screen shows the not-implemented panel. */
-      customersRoute: 'GET /admin/stores/{id}/customers',
       keyPattern: /^pk_[a-z0-9_-]{8,}$/i,
     }
   : {
       /** Prism's `/admin/me` example — deliberately not the token's `name` claim. */
       displayName: 'Store Admin',
       primaryDomain: 'shop.brand-a.example',
-      customersRoute: null,
       keyPattern: /^pk_branda_mock_0000000000000000$/,
     };

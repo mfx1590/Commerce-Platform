@@ -87,7 +87,10 @@ one body; `e2e/api-mode.ts` holds the few things that differ (display name, doma
 which routes the core does not mount). **Core-mode journeys write into the shared local
 database**: everything they create is stamped with the run (product handles, promotion codes, key
 names), so reruns never collide, and nothing irreversible is confirmed on seeded data.
-Core mode creates what it reads (#285): the orders journeys place their own guest order through
+Core mode creates what it reads (#285, #430): the customers journey first links the seeded
+customers-realm user (`jane@example.com`) to brand-a through the Store API (`e2e/core-customer.ts`,
+idempotent) and reads that row back (#431: every core serves the admin customer routes since
+#429; the placeholder branch is gone). The orders journeys place their own guest order through
 the Store API (`e2e/core-order.ts`) — one order per journey that needs one (the orders list, and
 since #357 capture → refund and buy label), each taking **one unit** of the first in-stock variant
 among the first 20 brand-a products by ascending price, so every run lowers that variant's
@@ -145,8 +148,15 @@ that started sign-in.
    with `code_challenge_method=S256`.
 3. [`/api/auth/callback`](./src/app/api/auth/callback/route.ts) checks `state`, redeems the code
    with the verifier, and seals the token set into the session cookie.
-4. [`/api/auth/logout`](./src/app/api/auth/logout/route.ts) clears the cookies and ends the realm
-   SSO session, so the next sign-in really asks for credentials.
+4. [`/api/auth/logout`](./src/app/api/auth/logout/route.ts) signs out in a fixed order (#353):
+   it **ends the realm SSO session server-side** first (the refresh token posted to Keycloak's
+   end-session endpoint), then drops the local session (both cookie chunks, `Clear-Site-Data:
+"cookies"`, `no-store`), and only then sends the browser to Keycloak's end-session with
+   `id_token_hint` and the registered `post_logout_redirect_uri` (`<app>/`). Abandoning Keycloak's
+   "Do you want to log out?" page no longer matters: the next admin request meets a real sign-in
+   form. Before #353 the app already cleared its cookies, but the still-live realm session signed
+   the user straight back in on the next request. Keycloak unreachable: the local session is still
+   dropped.
 
 **Where the tokens live.** The whole token set is AES-GCM encrypted with `ADMIN_SESSION_SECRET` and
 stored in an httpOnly, `SameSite=Lax` cookie (`secure` in production). Keycloak tokens exceed the
@@ -162,6 +172,19 @@ leak. Client components reach the API through server actions and route handlers.
 place that refreshes: within 60 s of expiry it redeems the refresh token, updates both the incoming
 request and the response, and a failed refresh starts a clean sign-in rather than rendering with a
 token the API would reject.
+
+**Liveness (#353).** A sealed cookie cannot be revoked, so the middleware also asks Keycloak whether
+the session behind it still exists (`sessionIsLive`, the userinfo endpoint; `src/lib/auth/liveness.ts`). It fails **closed** — a 401, any other answer, or no answer sends the admin to
+sign-in, never a 500 — and a live answer is cached **30 s per Keycloak session id (`sid`), per
+process, best effort**; a successful refresh counts as live. This is the admin app checking its own
+session only: the core is not involved and keeps verifying access tokens offline against the
+realm's keys.
+
+**What a copied cookie can still do.** A copy of the session cookie taken before Sign out is
+accepted by this app for at most 30 s after Sign out (an instance that checked it just before), and
+then sent to sign-in. Its access token is a JWT the core verifies offline, so anything else that
+holds the raw access token can use it against the core until the token expires (`access.token.lifespan` 900 s on the admin-app client). Ending that window would need the core to check the
+session, which is the core's design decision, not this app's.
 
 ## Two views, one app
 
@@ -577,6 +600,129 @@ prefix; choosing `paused` asked first (cancelled — the store stays active). As
 forms at all, every card read-only with the relation named, keys card the store_admin panel.
 No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
 redacted in the DOM before capture; no key value is committed.
+
+## HQ roles (task 3.1 A, issue #428; Admin API 0.4.12)
+
+**HQ · Roles** (`/roles`, owner on `organization:hq`): every staff user with status and last
+sign-in; **Manage** opens one person — their relations (on the organization or a store), **Assign**
+(only pairs the OpenFGA model can grant: `owner`, `finance`, `operations`, `analyst`, `support` on
+the organization; `store_admin`, `store_staff`, `support` on a store — `src/lib/roles`), **Revoke**
+(asks first: it ends the person's sessions), and what they changed (`listAuditLog` per store they
+hold, `actor_id` = them; time, action and entity only — never the before/after bodies). **Invite**
+creates the person (`inviteUser`: email + display name — the contract takes no role) and then grants
+the optional initial relation with `assignRole`; a refused grant is said ("Invited, but the initial
+relation was not granted") and retried from the person's row. Until the invitation email exists
+(SMTP, Integration 2b) the first sign-in is set up by an admin in Keycloak — the screen says so.
+
+Every mutation is refused server-side before the API unless the principal is owner on hq
+(`ROLES_PERMISSIONS` in the shared guard, pinned against the yaml); a taken email (409) lands
+under the email field, a 400 under the field it names, a 403 is the refusal panel. Journey
+`e2e/hq-roles.spec.ts` is read-only (inviting creates a real Keycloak user): the store admin's
+refusal in both modes; in core mode the owner signs in (password + the dev TOTP read from
+`infra/keycloak/README.md` at run time, `e2e/owner.ts`) and reads the users and one person's
+relations.
+
+## HQ onboarding (task 3.1 B, issues #428 and #420; Admin API 0.4.12)
+
+**HQ · Onboarding** (`/onboarding`, owner on `organization:hq`) is a four-step wizard — legal entity
+(existing, or a new one inline) → store basics (code, name, defaults, timezone, enabled currencies
+and locales, optional settings JSON) → primary domain → review — and one `onboardStore` call that
+creates it all in one transaction as a **draft**. Each step checks its own fields before Next; the
+server re-validates, and its answers go back to the step that owns the field (`src/lib/onboarding`):
+a 400's field keys, a 409's `details.differs` (a different definition for the same code) or
+`details.field: domain.hostname` (a hostname another store has), a 422's `details.settings`.
+
+**The key is shown once.** The 201 carries the store's first publishable key; it lives in the
+wizard's state only — never the URL, storage or a log — and "Done" drops it on the way to the
+readiness panel. A 200 is the identical repeat: "already exists", no key. `/stores/new` (the old
+step 1) redirects here.
+
+**Readiness** (`/onboarding/{storeId}`): the store's status and **Activate** (`activateStore`). What
+is missing is exactly the 409's `details.missing`, in words (`MISSING_LABELS`); an empty list is an
+activation. **Activation from the Store view goes through `updateStore` by design; `activateStore` is the HQ
+path.** #420: the same 409 from `updateStore` with `status: active` is said the same way under
+the Status field of the Store view's General form (store_admin cannot call `activateStore`, which is
+owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
+other fields first and then calls `activateStore`.
+
+**Integration 3 G1 (#518) — proven from the UI, core mode.** The owner journey in
+`e2e/hq-onboarding.spec.ts` goes on after Activate, on the same single owner sign-in (a TOTP code
+is refused twice). (a) The key the wizard showed answers `GET /store` on the core as the new store,
+checked from the test with the key in a header, never logged. (b) On HQ · Roles the seeded
+`store-staff` user (`store_staff` on brand-a only, no OTP, used by no other spec) gets
+`store_staff` on the new store, and the Relations list shows it. (c) That user's own token, from
+the staff realm's dev/CI `test-cli` password grant (`staffToken` in `e2e/staff.ts`), lists the new
+store's products: 200 with an empty list, so the token reads the new store and not brand-a. The same
+token is refused on brand-b, where it holds nothing: 403. Each proven step prints one `G1 …` line;
+mock mode skips with its reason. A run adds only its own stamped store and one `store_staff`
+tuple on it; the seeded stores are untouched.
+
+## HQ warehouse and store inventory (task 3.4, issue #468; Admin API 0.4.15)
+
+**HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs. The page loads the
+principal first: anyone without `operations` on hq gets the section's refusal and no warehouse
+read is made with their token. The section is gated on
+`operations` because the pool and count work all need it, although `listStockItems` alone is
+viewer on hq — so an analyst sees no warehouse entry (a read-only view is a later follow-up if
+asked; manager decision 2026-10-15).
+
+**Stock items** (`listStockItems`, viewer on hq): one entry per item, with the variants that map it
+per brand and the **pool** numbers per warehouse (reserved = every brand's reservations). Filters:
+sku substring, mapped by a store, shared by more than one store. **Pool a variant** (operations on
+hq, `mapVariantToStockItem`) picks a variant of another item on the page or takes a variant id, and
+asks first, naming both brands — it changes which shelf that brand sells from. The 409 (the
+variant's current item still holds stock or open reservations) is said with `details.on_hand` /
+`details.open_reservations`: move the stock first. 404 = unknown item or variant.
+
+**Cycle counts** (`listCycleCounts`, operations on hq): newest first, filters warehouse / stock
+item / status; `counted_by` null shows as WMS. **Record a count** (`createCycleCount`) changes no
+stock. **Reconcile** (`recorded` counts, no body) answers applied (one movement of the delta, none
+for 0) or flagged (above `count_tolerance`). **Approve** (`flagged` counts, `{ approve: true }`)
+shows the flag's delta labelled "delta when flagged — recomputed on approval; may differ" (plus
+the pool's on-hand now) and says the applied delta afterwards: the core recomputes under the
+row's lock, and no read previews it yet (CONTRACT CHANGE #469 asks for one). The screen advises
+reconciling the **newest** count of a shelf and tags older open counts. Errors, in words
+(`describeCycleCountError` in `src/lib/warehouse`): 409 superseded — a newer applied count
+(`details.applied_cycle_count_id`) or a hand correction after the count (`details.stock_movement_id`),
+the count stays a record; 409 otherwise — on-hand would go negative, count again; 422
+`counted_at` in the future, under the field; 404 — unknown count, warehouse or item, or a
+deactivated warehouse; 400 under the field it names.
+
+**Ledger and reservations** (Admin API 0.4.16, #469): each stock item links to its
+**Movements** (`listStockItemMovements`, newest first, warehouse filter) — signed delta, reason in
+words, who caused it (the brand and its variant, or **pool** when no store did: receipts, transfers,
+counts), reference, actor (`system` when none) — and its **Reservations**
+(`listStockItemReservations`, `open` by default, or `released` / `all`) — brand, variant sku, order
+or "cart hold", quantity, and why that warehouse was chosen: the store's country, the store's
+default warehouse, same country / same region as the address, warehouse priority, "split — further
+warehouse, by …" for `split:<rule>`, "backorder — reserved beyond stock"; an unknown rule is shown
+as it is. Both are `?item=&view=` cards under the list, paged by `dpage`. Both reads are viewer on
+hq; the section stays gated on `operations` (manager, 2026-10-15).
+
+**Approve previews first:** opening the dialog calls `previewCycleCountReconcile` (through a server
+action guarded on operations on hq) and shows the delta as it would be applied now, the would-be
+status against the tolerance, and when it was computed — "recomputed again on approval — may differ
+(the preview holds no lock)". A superseded count (`details.reason: superseded`) is said and Approve is
+not offered; a 409 with another reason is described as such; only a 409 with no reason at all
+(the Prism mock's generated body) is read as superseded, the one 409 the spec documents. Any
+other failure falls back to the flag's delta with the same warning.
+
+**Store · Inventory** (`/{storeId}/inventory`, viewer on the store, `listInventoryLevels`): rows
+keyed by (variant, warehouse) — `id` is the pool row's and repeats when two variants share an
+item — with the pool's numbers, never summed across variants. The "shared with N brands" badge
+needs `listStockItems` (viewer on hq), so only HQ principals see it; a store admin sees the
+stock item id. Warehouse names come from `listWarehouses`, which is also viewer on hq: a store
+principal never calls it and sees the row's `warehouse_code` (Admin API 0.4.17, #475), with the
+filter offering the warehouses its rows are in; only a filtered warehouse with no rows on the
+page falls back to a short id (`Warehouse 00000000`). No movement form here: stock is corrected through cycle
+counts in HQ.
+
+Every mutation is refused server-side before the API unless the principal is operations on hq
+(`WAREHOUSE_PERMISSIONS` in the shared guard; reads and mutations pinned against the yaml in
+`test/warehouse-actions.test.ts`). Journey `e2e/warehouse.spec.ts`
+writes no stock (the dev database is pooled and shared): the store admin's refusal and the
+inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
+to its confirmation and cancels, and reads the counts.
 
 ## When a screen cannot show what was asked for
 

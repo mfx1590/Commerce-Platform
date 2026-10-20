@@ -14,7 +14,9 @@
     "change": "Change",
     "continueShopping": "Continue shopping",
     "locale": "Language",
-    "currency": "Currency"
+    "currency": "Currency",
+    "pauseVideo": "Pause video",
+    "playVideo": "Play video"
   },
   "home": {
     "intro": "A starter storefront rendering live data from the Store API. Every brand app is generated from this template and overrides tokens, slots and route files — never the shared kit.",

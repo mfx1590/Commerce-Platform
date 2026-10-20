@@ -14,6 +14,7 @@
     "baseUrl": ".",
     "paths": {
       "@platform/auth-sdk": ["../../../../../packages/auth-sdk/src/index.ts"],
+      "@platform/auth-sdk/testing": ["../../../../../packages/auth-sdk/src/testing.ts"],
       "@platform/db": ["../../../../../packages/db/src/index.ts"],
       "@platform/db/testing": ["../../../../../packages/db/src/testing.ts"],
       "@platform/contracts": ["../../../../../packages/contracts/src/index.ts"]

@@ -65,20 +65,44 @@ describe('store navigation per role fixture', () => {
   const brandA = SEED.stores.brandA;
   const cases: Array<[PrincipalKey, string[]]> = [
     // owner is store_admin everywhere (owner from organization)
-    ['owner', ['catalog', 'orders', 'customers', 'promotions', 'content', 'marketing', 'settings']],
+    [
+      'owner',
+      [
+        'catalog',
+        'orders',
+        'inventory',
+        'customers',
+        'promotions',
+        'content',
+        'marketing',
+        'settings',
+      ],
+    ],
     // store_admin implies store_staff and support, so everything is there
     [
       'storeAdmin',
-      ['catalog', 'orders', 'customers', 'promotions', 'content', 'marketing', 'settings'],
+      [
+        'catalog',
+        'orders',
+        'inventory',
+        'customers',
+        'promotions',
+        'content',
+        'marketing',
+        'settings',
+      ],
     ],
     // store_staff authors content and marketing, but Customers now needs `support` (0.2.1)
-    ['storeStaff', ['catalog', 'orders', 'promotions', 'content', 'marketing', 'settings']],
+    [
+      'storeStaff',
+      ['catalog', 'orders', 'inventory', 'promotions', 'content', 'marketing', 'settings'],
+    ],
     // an organization `support` is support on every store, so it reaches customer records
-    ['support', ['catalog', 'orders', 'customers', 'promotions']],
+    ['support', ['catalog', 'orders', 'inventory', 'customers', 'promotions']],
     // the other organization relations imply store viewer and nothing more
-    ['finance', ['catalog', 'orders', 'promotions']],
-    ['operations', ['catalog', 'orders', 'promotions']],
-    ['analyst', ['catalog', 'orders', 'promotions']],
+    ['finance', ['catalog', 'orders', 'inventory', 'promotions']],
+    ['operations', ['catalog', 'orders', 'inventory', 'promotions']],
+    ['analyst', ['catalog', 'orders', 'inventory', 'promotions']],
   ];
 
   it.each(cases)('%s sees exactly %j on brand-a', (key, expected) => {

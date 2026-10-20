@@ -264,6 +264,29 @@ describe('store status changes that take the storefront offline ask first', () =
     expect(statusChangeQuestion(from, to) !== null).toBe(asks);
   });
 
+  it('#420: a draft store that cannot activate shows what is missing under Status and stays editable', async () => {
+    const user = userEvent.setup();
+    const draft = { ...store, status: 'draft' as const };
+    actions.updateStoreSettingsAction.mockResolvedValue({
+      status: 'error',
+      fieldErrors: { status: 'Cannot activate: a primary domain, a live publishable key missing.' },
+      formError: 'Cannot activate: a primary domain, a live publishable key missing.',
+      missing: ['primary_domain', 'publishable_key'],
+    });
+    render(<GeneralSettingsForm storeId={STORE_ID} current={forStoreSettings(draft)} />);
+    await user.selectOptions(screen.getByLabelText(/^Status/), 'active');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(
+      await screen.findAllByText(
+        'Cannot activate: a primary domain, a live publishable key missing.',
+      ),
+    ).not.toHaveLength(0);
+    // Still editable: the fields are there and enabled.
+    expect(screen.getByLabelText(/^Name/)).toBeEnabled();
+    // The transition's pending state clears on a later commit than the error text (#398 class).
+    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
   it('Save on a move to paused asks, and only the confirmation sends', async () => {
     const user = userEvent.setup();
     actions.updateStoreSettingsAction.mockResolvedValue({ status: 'success', data: store });
@@ -336,13 +359,15 @@ describe('API keys: the value is shown once', () => {
       's1',
       expect.objectContaining({ name: 'checkout', type: 'publishable' }),
     );
-    expect(screen.getByTestId('revealed-api-key')).toHaveTextContent(
+    // Set by onSuccess inside the form's async transition: wait for the commit (#398).
+    expect(await screen.findByTestId('revealed-api-key')).toHaveTextContent(
       'pk_brand-a_live_onetimevalue',
     );
     expect(screen.getByRole('alert')).toHaveTextContent(/shown once and cannot be retrieved again/);
     await user.click(screen.getByRole('button', { name: 'Copy' }));
     expect(writeText).toHaveBeenCalledWith('pk_brand-a_live_onetimevalue');
-    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    // Set after the clipboard promise resolves.
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
     // Not in the URL.
     expect(window.location.href).not.toContain('onetimevalue');
   });
@@ -359,6 +384,7 @@ describe('API keys: the value is shown once', () => {
     );
     await user.type(screen.getByLabelText(/^Name/), 'checkout');
     await user.click(screen.getByRole('button', { name: 'Create key' }));
+    await screen.findByTestId('revealed-api-key');
     expect(container.innerHTML).toContain('pk_one_time_value');
 
     await user.click(screen.getByRole('button', { name: 'Done' }));
@@ -378,7 +404,9 @@ describe('API keys: the value is shown once', () => {
     await user.type(screen.getByLabelText(/^Name/), 'checkout');
     await user.click(screen.getByRole('button', { name: 'Create key' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('store_admin');
+    // The refusal is set inside the form's async transition (#398): wait for it, then check that
+    // nothing was revealed.
+    expect(await screen.findByRole('alert')).toHaveTextContent('store_admin');
     expect(screen.queryByTestId('revealed-api-key')).toBeNull();
   });
 

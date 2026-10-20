@@ -5,23 +5,35 @@
 // Nothing here logs: no email, no token, no body.
 import express, { type Request, type RequestHandler } from 'express';
 import { verifyCustomerToken, type CustomerClaims } from '@platform/auth-sdk';
-import { fromApiError, validationError } from '../lib/errors';
+import { fromApiError, notFound, validationError } from '../lib/errors';
 import {
   addCustomerAddress,
+  deleteCustomerAddress,
+  eraseMe,
+  findCustomerForSubject,
+  getMyConsents,
+  getMyExport,
   listCustomerAddresses,
+  listMyExports,
+  sendExport,
+  putMyConsents,
   registerCustomer,
+  requestCustomerExport,
   resolveCustomer,
   updateCustomer,
+  updateCustomerAddress,
   type AddressInput,
+  type AddressPatch,
   type CustomerIdentity,
   type CustomerPatch,
   type CustomerScope,
+  type PutMyConsentsInput,
   type RegisterCustomerInput,
 } from '../modules/customers';
 import { listStoreOrders } from '../modules/orders';
 import { handle, routeNotImplemented } from './errors';
 import { loadSpec } from './openapi';
-import { pageParams } from './query';
+import { one, pageParams } from './query';
 import { requireTenant, type StoreContext } from './tenant';
 
 /** Verifies a customers-realm token and its store binding; throws auth-sdk's `ApiError(401)` otherwise. */
@@ -78,6 +90,8 @@ export async function requireCustomer(
   }
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const scopeOf = (t: StoreContext): CustomerScope => ({
   organizationId: t.organizationId,
   storeId: t.storeId,
@@ -108,6 +122,17 @@ export const CUSTOMER_STORE_PATHS = [
   'GET /store/customers/me/orders',
   'GET /store/customers/me/addresses',
   'POST /store/customers/me/addresses',
+  // Store API 0.5.6 (#470 / #482): account self-service.
+  'PATCH /store/customers/me/addresses/{addressId}',
+  'DELETE /store/customers/me/addresses/{addressId}',
+  'POST /store/customers/me/export',
+  'DELETE /store/customers/me',
+  // Store API 0.5.7 (#471 / #489): the consent ledger.
+  'GET /store/customers/me/consents',
+  'PUT /store/customers/me/consents',
+  // Store API 0.5.8 (#472 / #498): export delivery.
+  'GET /store/customers/me/exports',
+  'GET /store/customers/me/exports/{exportId}',
 ] as const;
 
 /**
@@ -178,6 +203,96 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
       .json(await addCustomerAddress(t.client, scopeOf(t), identity, req.body as AddressInput));
   });
 
+  // Account self-service (#470, Store API 0.5.6). The token first, then the id, then the body — as everywhere.
+  // A malformed address id is the same 404 as an unknown one (as `getOrder` does with its id): the contract
+  // documents no 400 for the path, and a caller learns nothing about which ids exist.
+  const addressIdOf = (req: Request): string => {
+    const raw = one(req.params.addressId) ?? '';
+    if (!UUID.test(raw)) throw notFound('address', raw);
+    return raw;
+  };
+  const updateMyAddressRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    const addressId = addressIdOf(req);
+    loadSpec('store-api.yaml').validateBody('updateMyAddress', req.body);
+    res.json(
+      await updateCustomerAddress(
+        t.client,
+        scopeOf(t),
+        identity,
+        addressId,
+        req.body as AddressPatch,
+      ),
+    );
+  });
+
+  const deleteMyAddressRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    const addressId = addressIdOf(req);
+    // 200 with the remaining addresses (listMyAddresses shape): the page sees where a default went.
+    res.json({ items: await deleteCustomerAddress(t.client, scopeOf(t), identity, addressId) });
+  });
+
+  const requestMyExportRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    // A subject with no row here is a 202 no-op: an export request never provisions a customer (#487 review).
+    // A row that exists is resolved the usual way (locked, status judged: disabled / erased → 401).
+    if ((await findCustomerForSubject(t.client, t.storeId, identity.subject)) === null) {
+      res.status(202).end();
+      return;
+    }
+    const me = await resolveCustomer(t.client, scopeOf(t), identity);
+    // The customer is the requester: `requested_by` = the customer id, `requested_by_type` = customer.
+    await requestCustomerExport(t.client, t.storeId, me.id, {
+      id: me.id,
+      type: 'customer',
+      requestId: t.requestId ?? null,
+    });
+    res.status(202).end();
+  });
+
+  // Consent ledger (#471). The body rules come after the token, as everywhere.
+  const getMyConsentsRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    res.json({ items: await getMyConsents(t.client, scopeOf(t), identity) });
+  });
+
+  const putMyConsentsRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    loadSpec('store-api.yaml').validateBody('putMyConsents', req.body);
+    res.json({
+      items: await putMyConsents(t.client, scopeOf(t), identity, req.body as PutMyConsentsInput),
+    });
+  });
+
+  // Export delivery (#472): the list, and the bundle as an attachment. A malformed export id is the same 404 as
+  // an unknown one (as the address id); an expired or purged one is 410 `expired`.
+  const listMyExportsRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    res.json({ items: await listMyExports(t.client, scopeOf(t), identity) });
+  });
+
+  const getMyExportRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    const raw = one(req.params.exportId) ?? '';
+    if (!UUID.test(raw)) throw notFound('export', raw);
+    sendExport(res, await getMyExport(t.client, scopeOf(t), identity, raw));
+  });
+
+  const deleteMeRoute: RequestHandler = handle(async (req, res) => {
+    const t = requireTenant(req);
+    const identity = await requireCustomer(req, t, verifier);
+    await eraseMe(t.client, scopeOf(t), identity);
+    res.status(202).end();
+  });
+
   // The JSON body parser sits on the routes that read a body, never on the prefix: mounted there it would also
   // parse — and answer 400 for — a malformed body sent along with a GET.
   const json = express.json({ limit: '64kb' });
@@ -187,6 +302,14 @@ export function mountCustomerRoutes(app: express.Express, override?: CustomerTok
   app.get('/store/customers/me/orders', listMyOrdersRoute);
   app.get('/store/customers/me/addresses', listMyAddressesRoute);
   app.post('/store/customers/me/addresses', json, addMyAddressRoute);
+  app.patch('/store/customers/me/addresses/:addressId', json, updateMyAddressRoute);
+  app.delete('/store/customers/me/addresses/:addressId', deleteMyAddressRoute);
+  app.post('/store/customers/me/export', requestMyExportRoute);
+  app.get('/store/customers/me/consents', getMyConsentsRoute);
+  app.put('/store/customers/me/consents', json, putMyConsentsRoute);
+  app.get('/store/customers/me/exports', listMyExportsRoute);
+  app.get('/store/customers/me/exports/:exportId', getMyExportRoute);
+  app.delete('/store/customers/me', deleteMeRoute);
   // Terminal: every operation of this prefix is answered above, so whatever is left — an unknown path, or
   // PUT / DELETE / … on a known one — is a 404 here. It must never fall through to the Store API fallback proxy
   // (non-production), which would forward the customer's bearer token to the mock.

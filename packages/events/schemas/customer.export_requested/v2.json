@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/customer.export_requested/v2.json",
+  "title": "customer.export_requested v2",
+  "description": "A GDPR data export was requested for one customer of one store — by staff (Admin API exportCustomer) or by the customer (Store API requestMyExport). The consumer builds the bundle through the core and delivers it; the payload carries ids only, never personal data. v2 adds requested_by_type; requested_by is the staff_user id or the customer id accordingly.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["customer_id", "requested_by", "requested_by_type", "requested_at"],
+  "properties": {
+    "customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "requested_by": {
+      "description": "staff_user id (requested_by_type staff) or customer id (requested_by_type customer)",
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "requested_by_type": {
+      "type": "string",
+      "enum": ["staff", "customer"]
+    },
+    "requested_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

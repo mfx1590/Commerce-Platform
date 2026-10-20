@@ -314,6 +314,30 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "core-admin",
+      "name": "Core admin service account",
+      "description": "Confidential service account for the core's Keycloak admin calls (inviteUser, session revocation; #415). No browser or password flow. fullScopeAllowed stays true so its realm-management roles reach the token. Dev-only secret; production: Vault (#416).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-only-core-admin-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "consentRequired": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.refresh.tokens": "false",
+        "access.token.lifespan": "300"
+      },
+      "defaultClientScopes": ["roles", "basic"],
+      "optionalClientScopes": [],
+      "protocolMappers": []
     }
   ],
   "users": [
@@ -441,6 +465,14 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "username": "service-account-core-admin",
+      "enabled": true,
+      "serviceAccountClientId": "core-admin",
+      "clientRoles": {
+        "realm-management": ["manage-users", "view-users", "query-users"]
+      }
     }
   ],
   "attributes": {

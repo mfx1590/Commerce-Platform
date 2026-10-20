@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PaymentsPanel } from '@/app/(store)/[storeId]/orders/[orderId]/payments-panel';
@@ -205,7 +205,8 @@ describe('Buy label (shipments)', () => {
     expect(actions.buyShipmentLabelAction).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Yes, buy label' }));
     expect(actions.buyShipmentLabelAction).toHaveBeenCalledWith(STORE, IDS.order, IDS.shipment);
-    expect(refresh).toHaveBeenCalled();
+    // router.refresh() runs after the action resolves, inside the transition.
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
   it('is not offered before packed, nor without the relation', () => {

@@ -13,26 +13,27 @@ migrations/0100_outbox.sql    outbox table + RLS, applied by packages/db
 scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 ```
 
-## Topics (35, all v1)
+## Topics (38; all v1, `stock.moved` and `customer.export_requested` also v2)
 
-| Aggregate      | Topics                                                                                         |
-| -------------- | ---------------------------------------------------------------------------------------------- |
-| store          | `store.created`, `store.updated`                                                               |
-| product        | `product.published`, `product.updated`, `product.archived`                                     |
-| customer       | `customer.created`, `customer.updated`, `customer.erased`                                      |
-| order          | `order.placed`, `order.confirmed`, `order.cancelled`, `order.completed`, `order.updated`       |
-| payment        | `payment.authorized`, `payment.captured`, `payment.failed`                                     |
-| refund         | `refund.issued`, `refund.failed`                                                               |
-| shipment       | `shipment.created`, `shipment.label_created` (0.3.1), `shipment.shipped`, `shipment.delivered` |
-| shipment       | `fulfillment.requested`, `fulfillment.picking`, `fulfillment.packed` (0.3.0)                   |
-| return         | `return.requested`, `return.received`                                                          |
-| stock_movement | `stock.moved`                                                                                  |
-| campaign       | `campaign.launched`, `campaign.ended` (0.2.0)                                                  |
-| feed           | `feed.published` (0.2.0)                                                                       |
-| attribution    | `attribution.recorded` (0.2.0, one per touch, emitted by the core at placement)                |
-| referral       | `referral.converted` (0.2.0)                                                                   |
-| review         | `review.published` (0.2.0)                                                                     |
-| cart           | `cart.abandoned` (0.2.0, emitted by the core's abandoned-cart job)                             |
+| Aggregate      | Topics                                                                                                                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| store          | `store.created`, `store.updated`                                                                                                                                                         |
+| product        | `product.published`, `product.updated`, `product.archived`                                                                                                                               |
+| customer       | `customer.created`, `customer.updated`, `customer.erased`, `customer.export_requested` (0.3.2, ids only; v2 since 0.3.5: `requested_by_type`), `customer.export_ready` (0.3.6, ids only) |
+| order          | `order.placed`, `order.confirmed`, `order.cancelled`, `order.completed`, `order.updated` (0.3.4: voided)                                                                                 |
+| payment        | `payment.authorized`, `payment.captured`, `payment.failed`                                                                                                                               |
+| refund         | `refund.issued`, `refund.failed`                                                                                                                                                         |
+| shipment       | `shipment.created`, `shipment.label_created` (0.3.1), `shipment.shipped`, `shipment.delivered`                                                                                           |
+| shipment       | `fulfillment.requested`, `fulfillment.picking`, `fulfillment.packed` (0.3.0)                                                                                                             |
+| return         | `return.requested`, `return.received`                                                                                                                                                    |
+| stock_movement | `stock.moved` (v2 since 0.3.3: keyed by the stock item; v1 frozen)                                                                                                                       |
+| stock_item     | `stock_item.mapped` (0.3.3, ids only)                                                                                                                                                    |
+| campaign       | `campaign.launched`, `campaign.ended` (0.2.0)                                                                                                                                            |
+| feed           | `feed.published` (0.2.0)                                                                                                                                                                 |
+| attribution    | `attribution.recorded` (0.2.0, one per touch, emitted by the core at placement)                                                                                                          |
+| referral       | `referral.converted` (0.2.0)                                                                                                                                                             |
+| review         | `review.published` (0.2.0)                                                                                                                                                               |
+| cart           | `cart.abandoned` (0.2.0, emitted by the core's abandoned-cart job)                                                                                                                       |
 
 ## Producing an event (apps/core)
 
@@ -78,3 +79,6 @@ await tenant.transaction(async (tx) => {
 2. `pnpm --filter @platform/events generate && pnpm --filter @platform/events test`.
 3. Bump the package version, add a CHANGELOG line, tag `events-vX.Y` at integration time.
    Consumers keep handling v1 until the Integrator retires it.
+
+One exception so far (0.3.4, #466): an additive enum value on `order.updated` v1, whose every producer and reader is
+inside apps/core, was widened in place. Once a consumer outside the core exists, such a widening is a v2.

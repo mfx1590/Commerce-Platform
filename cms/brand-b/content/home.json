@@ -1,0 +1,113 @@
+[
+  {
+    "_id": "page.en-GB.home",
+    "_type": "page",
+    "locale": "en-GB",
+    "title": "Stonecrop",
+    "slug": {
+      "_type": "slug",
+      "current": "home"
+    },
+    "hero": {
+      "_type": "hero",
+      "eyebrow": "Made in Britain",
+      "headline": "Clothes that take the weather",
+      "subheadline": "Hard-wearing everyday pieces, cut in small runs from cloth we can trace. Free UK returns for thirty days.",
+      "layout": "image-right",
+      "ctas": [
+        {
+          "_type": "cta",
+          "_key": "hero-cta",
+          "label": "Shop everything",
+          "href": "/products",
+          "variant": "primary"
+        }
+      ],
+      "image": {
+        "_type": "image",
+        "mediaSlot": "home-hero-01"
+      }
+    },
+    "blocks": [
+      {
+        "_type": "richText",
+        "_key": "block-intro",
+        "content": [
+          {
+            "_type": "block",
+            "_key": "intro-h",
+            "style": "h2",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "intro-h-span",
+                "text": "Built to be worn out, not thrown out"
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "intro-p1",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "intro-p1-span",
+                "text": "We make a short list of things and keep making them. A run is a few hundred pieces, cut in one workshop, so a fault shows up in tens and not in thousands."
+              }
+            ]
+          },
+          {
+            "_type": "block",
+            "_key": "intro-p2",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "intro-p2-span",
+                "text": "Nothing here is designed to be replaced next season. If a seam goes in the first two years we will repair it."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "_type": "imageBlock",
+        "_key": "img-home-hero-02",
+        "image": {
+          "_type": "image",
+          "mediaSlot": "home-hero-02"
+        },
+        "width": "wide"
+      },
+      {
+        "_type": "productStory",
+        "_key": "block-overshirt",
+        "productHandle": "classic-tee",
+        "headline": "The overshirt, in its third winter",
+        "body": [
+          {
+            "_type": "block",
+            "_key": "overshirt-p",
+            "style": "normal",
+            "children": [
+              {
+                "_type": "span",
+                "_key": "overshirt-p-span",
+                "text": "Twelve-ounce cotton drill, woven in Lancashire and washed twice before cutting so it stops shrinking before you own it. The pockets are set low enough to use with gloves on."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "seo": {
+      "metaTitle": "Stonecrop — hard-wearing everyday clothes",
+      "metaDescription": "Everyday clothes made in small runs in Britain, from cloth we can trace. Free UK returns for thirty days.",
+      "ogImage": {
+        "_type": "image",
+        "mediaSlot": "og-default"
+      }
+    }
+  }
+]

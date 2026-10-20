@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-06 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 5b119ff) · Status: **INTEGRATION 2a** — Phase 2 closed (#139–#144); working the manager's 2a docket (#374, then #372's brand A half, then #348).
+Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **ALL MERGED, nothing open (2026-10-08).** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`), #330's rendering (#411 = `f83073e`). **#348 remains reopened: its 30-leg count restarts at `f83073e`**, recorded on the issue, counted by the manager — `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until it completes. REQUESTs **#389 and #390 are FIXED** (window 3). **Budget from 2026-10-08: manager + TWO build windows at a time** (was one).
 
 ## Identity (does not change)
 Owned paths (write):
@@ -17,6 +17,87 @@ Never touches:
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#437 · 3.1 brand B, and #442 its review fixes — ON MAIN.** PR #442's commits landed through the
+  manager's **PR #443 = `933d484`** (`integration/brand-b-images` = my `9ae927a` plus one manager
+  commit `0ca819c`: the eight Dockerfile `COPY` lines, brand B's own Dockerfile on port 3102, the
+  bake target and the compose build service — REQUEST **#439 items 1 and 2**). GitHub marked **#442
+  merged and #437 closed**. Main's record is `088d997`.
+  - **The proof is in CI, which is the whole point of #442's review fix.** The brand-b leg printed
+    the funnel **RAN** line: order placed, **GBP 8719 minor**, → processing → completed, address
+    country GB. That line exists because the review caught me reporting "the lifecycle spec RAN"
+    from a local log, where Playwright's github reporter names no skipped test and a `test.skip()`
+    reason never reaches the output. A proof has to be legible to the person reading the leg.
+  - **`app images` went red on #442 exactly as predicted** (ONBOARDING-GAPS trap 10): a new
+    workspace package must be `COPY`ed in every existing Dockerfile's deps stage, all eight of which
+    are window 5's. A brands window cannot fix it; it is a manager integration landing. **Expect the
+    same on #438's PR for brand C**, and say so in the PR body.
+  - **`brands/phase3` was held from 2026-10-09 until that sha arrived** and is now unblocked:
+    `git merge origin/main` **fast-forwarded** it to `088d997` (phase3 was already an ancestor of
+    main), `pnpm install --frozen-lockfile` → "Already up to date", `packages/*` rebuilt **6/6**.
+    Then `brands/438` merged in as **`35844e2`**, no conflicts, lockfile clean.
+    Gate on the merged branch: lint, `format:check`, typecheck **23/23**, brand B **659 passed / 3
+    skipped**, brand C **583 passed / 3 skipped**. #438 continues here.
+- **#330 · brand A took the hero rendering** — **PR #411 MERGED as `f83073e`** (head `28d83a1` after
+  a memory-only fix; reviewed MERGE on the code — 18 blobs equal, 10 preserved untouched, counts add
+  up). Verified on main: `hero-loop.tsx` and `hero-video.ts` are there.
+  Re-sync at main `2e35674`, 209 copied / 1 merged / 10 preserved / 4 excluded, **zero
+  preserved-file drift**. Brings #403: `hero.tsx` wrapping the poster
+  in `HeroMedia`, the `hero-loop` island, `hero-video.ts`'s reader policy, `media-src` in the CSP, and
+  the loop's messages in both locales. **#386's placed loops now have a renderer.**
+  - **Both of my REQUESTs landed in the same sync:** **#389** (`@lhci/cli` 0.14.0 → **0.15.1**, the
+    six erroring audits) and **#390** (`perf.mjs` warms every measured URL via `warm-urls.mjs`).
+  - **A mock run cannot show the loop, and the first reason is by design:** the island **refuses to
+    mount under `E2E_LOCAL_IMAGES`**, which `scripts/e2e-env.mjs` sets on every e2e run so no request
+    leaves the machine — there is a test for it. Then: no Sanity project locally (the run logs
+    `SANITY_PROJECT_ID is not set`), and no Cloudinary cloud name (the video is dropped at seed time).
+    **Do not go looking for the loop in an e2e or mock run — it is not supposed to be there.**
+    What *is* proved is the island's behaviour by unit test: poster-first, mount after `load`, the
+    pause control, removal when reduced motion turns on later, poster-alone under `reduce`, and the
+    `E2E_LOCAL_IMAGES` refusal.
+  - Gates: lint, `format:check`, typecheck clean; unit **764 passed / 2 skipped** (739 before);
+    mock e2e **83 passed / 35 skipped**, exit 0. **Machine free.**
+  - **#348's count RESTARTS at #411's merge — manager's ruling 2026-10-08, accepting the point I
+    raised.** The #389 LHCI bump (0.14.0 → 0.15.1) changes the measuring tool, and legs either side
+    of it are not measuring the same thing, so the same logic that freezes `numberOfRuns` and
+    `maxNumericValue` mid-count applies to the Lighthouse version. The commit that carries 0.15.1
+    into brand A is **#411's merge**; the manager records the restart on the issue at merge and
+    counts from there. **`numberOfRuns: 5` and `maxNumericValue: 2500` still do not move** until that
+    count completes; re-measuring N is a later PR with its own data. *Generalise it: any change to
+    the measuring tool, the budget, or the run count invalidates an in-flight count — check for one
+    before touching the perf gate.*
+- **#386 · brand A's two hero loops placed.** Content (both locales), the `heroVideo` branch in
+  `cms/brand-a/scripts/resolve-media.mjs`, 9 tests, DESIGN.md §7, both READMEs.
+  **PR #408**: head `916ff01` → `BLOCK` on static review (the missing test, see the gotcha) → fixed
+  and re-pushed as head `c69d6b4` (verified green myself: 14 pass / 0 fail / 0 pending, the live job
+  and brand A's perf leg included). **MERGED as `dea7575`; issue #386 CLOSED.** Verified on main.
+  Built on `brands/phase3`, merged with main `b5473ac`; cms is 0.5.0.
+  - **The swap:** a loop is only valid over the still the manifest names as its `poster`.
+    `home-hero-shirt-loop-8s`'s poster is `home-hero-02`, the hero showed `home-hero-01`, and
+    `home-hero-02` was already on an `imageBlock` below — so the two stills were **swapped**, not one
+    moved onto the other, and no still appears twice — **pinned by
+    `shows no still twice on the home page`**, added after the review caught that it did not exist
+    (see the gotcha below). The campaign hero already
+    showed its poster. **Never "fix" a poster in `media/manifest.json`** to match content: that file
+    mirrors media generated outside the repo, so the poster is the video's real first frame.
+  - **Resolver:** `resolveVideo` runs **before** the image branch, because a `heroVideo` also carries
+    a `mediaSlot` and would otherwise be refused as "is a video, not an image". `walk` now threads the
+    parent object down — that is what makes the pairing checkable at all. The pairing is checked
+    **even with no cloud name**, so a mis-paired loop is an authoring error rather than something that
+    only appears where Cloudinary is configured.
+  - **A loop has no alt text, deliberately** (`aria-hidden`; the poster's alt speaks). The content
+    test exempts videos from the alt rule *and asserts they carry none*, so nobody writes alt text a
+    screen reader never reaches. That pre-existing test went red on the first run — expected, and the
+    right fix was the test, not the manifest.
+  - Counts: resolver now places **22** (18 stills + 4 loops) and drops all 22 without a cloud name,
+    both still passing `validateDocument`. Unit **738 passed / 2 skipped** (730 before).
+  - **Not rendered yet** — window 3's #330. A placed loop is simply not rendered; the poster is the
+    hero. `src/lib/cms`'s `hero-video.ts` and the reader change arrive by **re-sync**, not by hand.
+- **#382 · took the hardened order-lifecycle spec** — one-file re-sync of
+  `e2e/order-lifecycle.spec.ts` from #383, on `brands/phase3` after #379 merged (`7f4f8fe`) and #383
+  merged (`e667d4e`). Only that spec and `starter-manifest.json` moved. **Keep brand A's
+  `STORE_PUBLISHABLE_KEY ??=` line**: the hardened spec now *skips* with a reason when the key is
+  absent, so without brand A's line #372 would silently stop being proven instead of failing loudly.
+  The pair is the point — my line supplies the value, #383 makes its absence legible.
 - **#372 · brand A's half — the re-sync at main `e7f2f3e`.** 202 copied, 1 merged, 10 preserved, 4
   excluded. Brings the starter's #372/#375 half **and** the card-payment work from #365/#367:
   `order-confirmation-header.tsx` + `data-order-status` + `confirmation.bodyByStatus`/`status`
@@ -34,6 +115,36 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
     43 synced tests pass); mock e2e **83 passed / 35 skipped**, exit 0. `order-lifecycle.spec.ts` and
     `card-payment.spec.ts` skip without the core by design — **the core leg on the PR is the proof**.
   - **Machine free** (no core, no Keycloak, no docker touched).
+- **#348 · the perf gate measures five runs, not three.** `lighthouserc.json`: `numberOfRuns` 3→5,
+  **LCP budget unchanged at 2500**. Branch `brands/348` off main (the stated exception while #379 sat
+  in the queue).
+  - **The issue's hypothesis was wrong.** The PLP's LCP element is the **`<h1>` text** "All products",
+    not a product image — TTFB 471 ms, Load Delay 0, Load Time 0, **Render Delay 2060 ms (81%)**. So
+    `fetchpriority`/preload/sizing cannot help this page. The PLP's one `<img>` is a Cloudinary
+    **demo** URL that returns 506 bytes with `naturalWidth: 0` — it does not load, so there is no
+    image to optimise, and **LCP will get WORSE when real imagery lands (#330)**; re-measure then.
+  - **Why the budget could never hold.** From the uploaded `.lighthouseci` artifacts of **16 CI legs
+    (48 runs/page)**: PLP asserted 1977–2452 (median 2168), individual runs 1977–**2970**; PDP
+    asserted 2115–2443, runs 2115–2621. A single PLP run exceeds 2500 **29%** of the time; LHCI
+    asserts **best of N**, so N=3 fails 2.5% per leg — **53% over 30 legs**. The acceptance bar was
+    unreachable because the estimator was noisy, not because the page is slow. **N=5 → 0.21%/leg,
+    6.1% over 30.** (2600 with N=3 gives 3.3% and would have cleared the worst asserted value ever
+    seen, 2570.6, below the worst run 2970 — rejected because N=5 reaches the same place without
+    weakening the budget. Owner chose N=5.)
+  - **Rejected on measurement:** `experimental.inlineCss` does not take effect in Next 15.5 +
+    webpack — served HTML still has `<link rel="stylesheet">`, zero inline `<style>`. The apparent
+    LCP gain was noise. **Check the artefact, not the metric, before believing a fix.**
+  - **Two REQUESTs filed to window 3** (both `scripts/perf.mjs`, the starter's): the pinned
+    `@lhci/cli` 0.14.0 **errors six audits on every run**, including every audit that names the LCP
+    element (`RootCauses`/`frame_sequence`, reproduced locally) — so nobody can diagnose LCP from the
+    gate's own output; and `perf.mjs` **never warms the measured URLs** (CI run 1: TBT 1125 ms vs
+    77/72, benchmarkIndex 1483 vs ~2400) while `e2e-server.mjs` warms twice — the likely root fix for
+    the variance.
+  - **Acceptance still open:** 30 consecutive green brand A perf legs, counted from CI after this
+    lands. Cannot be shown in the PR that makes the change; no laptop Lighthouse substitutes.
+  - **To diagnose LCP in future:** `npx -y lighthouse@12 <url> --only-categories=performance
+    --chrome-flags="--headless=new" --output=json` and read
+    `audits["largest-contentful-paint-element"]`. The gate's own reports cannot tell you.
 - **#374 · the buy test's order total** — `apps/storefronts/brand-a/e2e/journey.spec.ts`. It asserted
   `order total == cart total + delivery row`, which silently claimed delivery is untaxed; #352 (PR
   #373) taxes delivery at the goods' rate, so the core answered 2661 where the spec demanded
@@ -119,96 +230,752 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
   Verified: typecheck clean, 312/312 unit tests green.
 - **#139 · 2.1 Clone the starter into apps/storefronts/brand-a** — commit 59d4830. Clone via `apps/storefronts/brand-a/scripts/sync-from-starter.mjs` (110 starter files; excludes Dockerfile/README/CHANGELOG/CLAUDE.md; preserves identity files + `src/brand/**` on re-sync, `pnpm --filter @platform/storefront-brand-a sync`). Identity: port 3101, `SITE_URL`/`STORE_PUBLISHABLE_KEY` (`pk_brand-a_dev_00000000000000000000`) as `??=` runtime defaults in next.config.mjs, path-depth fixes in tsconfig/tailwind/playwright. Verified: build green, `/health` 200, PLP/PDP/de-DE 200 against the mock, 184 unit tests, root lint+typecheck+format green, `diff -rq` vs starter = exactly the README's documented list. REQUEST #197 filed to window 5 (Dockerfile + image manifest; the `check-image-manifests.sh` CI failure on this PR is the intended prompt).
 
-## In progress — Integration 2a, the manager's docket (opened 2026-10-06)
+## MANAGER (changed 2026-10-09)
 
-Branch `brands/phase3`, cut from `origin/main` 1280fe6 (≥ 4e03a81, contracts-v0.4.11), with the
-Phase 2 memory commit carried across by cherry-pick. Rules for 2a: merge main before pushing, one PR
-per task, **hold each push until the manager confirms the previous merge**, no docker, long runs
-detached to a file with bounded polls, say "machine free" after any core run.
+The manager session is now **"Manager session five"** (repo root). The old **"Project manager
+handoff" is RETIRED** — do not report there. Report to Manager session five when a PR is up and again
+when every check has finished.
 
-1. ~~**#374**~~ — **MERGED.** PR #377, reviewed MERGE by the manager, merged to main as `e1e515f`
-   (the queue merged main into the branch as `06b893e` first). Commits `54a8171` (the fix) and
-   `128542e` (prettier). See Done below.
+**New standing rules from it, beyond CLAUDE.md:**
+- **ONE WINDOW MEASURES AT A TIME.** Ask the manager for the machine **before any build, e2e or
+  Lighthouse run**, and say **"machine free"** after. This is new — I used to just run them.
+- **No closing keyword near any issue number** in a commit message or PR-body sentence unless it
+  really finishes that issue. GitHub parses "closes #N" anywhere in a body (window 4 hit this).
+- **Record the PR in memory AFTER the push**, as `PR #N (code commit <sha>; head = this memory
+  commit)`. This is exactly the lesson two reviews caught me on — the number and sha do not exist
+  until after the push, so the record is a post-push step.
+- Local gate **includes `pnpm format:check`**.
+- Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
+  the owner's instruction is the current one.)
 
-2. **#372, brand A's half — PR #379, updated 2026-10-07 after merging main.** See the #379 status section below for the two red checks and which is mine (only the secret scan was, and the merge fixes it).
-3. **#348 — NEXT, and not started: the owner's day ended before they gave the word.** The manager
-   says continue it locally and hold the push; the owner asked to be the one to start it, and a peer
-   does not override that, so it waits for them. Nothing is half-done — no files touched for #348.
-   **A DECISION from data that already exists, and it gets its OWN PR** (the manager
-   left the choice to me; riding it in a 36-file re-sync body would bury it).
-   The ask is explicit: ten runs' PLP + PDP LCP from the perf-leg logs, then **either** a real LCP
-   improvement on the listing page **or** a measured decision on the threshold — "do not loosen the
-   budget without the numbers". Acceptance also wants 30 consecutive green brand A perf legs.
-   Known so far: run 37301539904/job 111735243808 — PLP LCP 2815/2598/2571, asserted **2570.6** vs
-   `maxNumericValue: 2500` → **FAIL by 71 ms**; PDP passed at 2177 with a worst run of 2458 (42 ms
-   under). Runner CPU benchmark 2066–2463, and the slowest page run had the slowest benchmark —
-   simulated throttling scales LCP with runner speed, so this is runner variance, not a brand A
-   regression. Failure rate 1 in 20 on the brand A leg, 0 in 25 on the starter's.
-   The manager's 2026-10-06 datapoint: **PDP 2565/2648/2642**. Note that PDP is now *worse* than the
-   PLP numbers that failed — so the question may not be "fix the PLP" at all. Window 5's #283 leg
-   now prints per-run numbers, so the ten runs are recoverable from the perf-leg logs of recent PRs.
-   **Datapoints collected so far (all FAILING, and the pattern matters).** LHCI asserts the **best**
-   of three for a `max` assertion, so the asserted value is the *lowest* run:
+## In progress — #438 · 3.2 Brand C by script (generator + brand C generated, 2026-10-09)
 
-   | when | page | three runs | asserted | vs 2500 |
-   | --- | --- | --- | --- | --- |
-   | run 37301539904 (PR #341, **infra-only** diff) | PLP | 2815 / 2598 / 2571 | 2570.6 | **+71 FAIL** |
-   | same run | PDP | — (passed) 2177, worst 2458 | 2177 | −42 pass |
-   | 2026-10-06 (manager) | PDP | 2565 / 2648 / 2642 | 2565 | **+65** |
-   | 2026-10-07 (manager, **docs-only** main commit) | PLP | 2529 / 2567 / 2563 | 2529 | **+29** |
+### STATE: steps 1, 2 and the generator are DONE and green. Nothing pushed.
 
-   **Two things to carry into the decision.**
-   - Two of the three failures are on diffs that **cannot** have touched the storefront (infra-only,
-     docs-only). That is runner variance around a budget the page genuinely sits on — not a brand A
-     regression. The CPU benchmark range (2066–2463) and the fact that the slowest page run had the
-     slowest benchmark both point the same way: simulated throttling scales LCP with runner speed.
-   - **But the assertion already takes the best of three, and even the best is over.** So the PLP
-     really is ~2.53–2.57 s on CI runners, not merely noisy. A threshold bump alone is unlikely to
-     reach the acceptance bar of **30 consecutive green legs** unless it is set well above the worst
-     observed run — which is a big ask to justify. And the PDP has drifted from 2177 to 2565, so
-     **both** brand A pages are now on the budget; "fix the PLP" is no longer the whole question.
-     Expect the honest answer to be a real LCP improvement (or a threshold set from the measured
-     distribution, argued with the worst case, not the median).
+**Now on `brands/phase3`** (merged `origin/main` `088d997`, then `brands/438` as `35844e2`), not on
+the side branch. Commits: `1da91b6` generator, `07c78bc` memory, `1de15cb` content + the generator
+move, `66e83c8` C's docs + gaps 13-19. **Still unpushed** — one push when the machine work is done.
+Gate at `66e83c8`: lint, format:check, typecheck **23/23**, brand B **660 passed / 3 skipped**,
+brand C **583 passed / 3 skipped**.
 
-   First real question to answer with the logs: **what is the LCP element on the PLP** (the first
-   product image?) and is it prioritised, sized and served at the right width — because a genuine fix
-   beats a threshold argument.
+Gate on `brands/438`, all green together: `pnpm lint`, `pnpm format:check`, `pnpm typecheck`
+(**23/23**), brand B **659 passed / 3 skipped**, brand C **583 passed / 3 skipped**,
+`sync-from-starter --check` → "manifest is current".
 
-## #379 status (2026-10-07) — at head `c88df9f`; both red checks fixed, pushing
+`new-brand.mjs` works and all three refusals are verified (no args; missing `--jurisdiction`, naming
+ONBOARDING-GAPS § 2; refusing to overwrite an existing brand). Brand C is generated and reviewed by
+hand.
 
-Merged `origin/main` `5b119ff` (the gitleaks allowlist), cited **PR #379** and reviewed head
-`771f35d` in the CHANGELOG and here, re-ran the gates, one push to `brands/phase3` — #379 updated in
-place at head **`77ab61e`**, no second PR. Static review was **MERGE on the code**; the manager
-confirmed two commits in one push is fine.
+### THE FINDING — the one thing #438 was for
 
-**NEXT ACTION:** nothing held — both red checks on `c88df9f` are addressed and pushed (the literal
-replacements, and the publishable-key line). After that, #379's live job is the proof of #372's
-assertion: report the **brand A leg** specifically to the manager — counts plus the
-`order-lifecycle.spec.ts` line.
+**Brand B proved nothing about cloning, because brand B's locale is one of the starter's.** The
+starter serves `en-GB` and `de-DE`. Brand B sells `en-GB`, so every `en-GB` literal B inherited
+happened to be right. **Brand C sells `en-US` and nothing inherited is right.** Measured by grep,
+not guessed: **8 synced spec files, 43 `en-GB` occurrences**, plus
+`scripts/e2e-server.mjs`'s warm-up and `lighthouserc.json`'s two collect URLs.
 
-#381 (`7a4abb4`) landed and fixed the OpenFGA seed; #379 at `c88df9f` then went red twice again:
+Three distinct consequences, and they need different answers:
 
-- **secret scan — MY FAULT, fixed locally in `f3c2f4d`.** See the "never quote a secret-shaped
-  literal" gotcha below. The manager allowlisted my two paths on main (`ab16125`) because commit
-  messages cannot be rewritten; the replacements still ride in the next push, as asked.
-- **live job, `order-lifecycle.spec.ts` 403 `requires viewer on store:undefined` — FIXED HERE.**
-  The synced spec reads `GET /store` with
-  `'X-Publishable-Key': process.env.STORE_PUBLISHABLE_KEY ?? ''` and never checks the response; CI
-  sets no such variable for the **Playwright process**, so it sent an empty key, took an unchecked
-  401, and asked the Admin API for `viewer on store:undefined`.
-  `next.config.mjs` has always defaulted the key for the **app**, which is why the gap stayed
-  invisible until a spec needed it, and why `journey.spec.ts` (own fallback) never hit it.
-  **Fix:** one line in brand A's `playwright.config.ts` beside the `SITE_URL ??=` line —
-  `process.env.STORE_PUBLISHABLE_KEY ??= <the dev publishable key, same as next.config.mjs>`. That
-  file is preserved, so the sync will not fight it; it fixes every spec, not one; the key is public
-  by design and already in the repo, and the gitleaks `regexes` allowlist covers its shape.
-  *The manager first ruled this window 3's and then reversed to mine — both are recorded because the
-  reasoning is worth keeping: a fallback alone would still leave a spec that does not validate its
-  own setup, which is the vacuous-success trap of [[#374]]. So BOTH happen — my line supplies the
-  value, and **#382** (window 3) hardens the spec to assert `ok()` with status and body on
-  `GET /store` and every admin call, so the next missing variable fails where it happens. #382 does
-  not block #379.*
-  **Keep `playwright.config.ts` and `next.config.mjs` in step on that key.**
+1. **`lighthouserc.json`** (PRESERVED → the brand's) measured `/en-GB/products` — a URL brand C does
+   not serve. A perf score computed over two 404s. **Fixed**: the file moved from
+   `TEMPLATE_FILES.verbatim` to `substituted`, with a locale pair. `numberOfRuns: 5` and the 2500 ms
+   LCP budget (#348) survive — tested. The port stays **3100 for every brand** because
+   `scripts/perf.mjs` starts its own `next start --port ${PERF_PORT ?? 3100}`; that is not a bug.
+2. **`scripts/e2e-server.mjs`** (SYNCED → window 3's) warms `/en-GB` before declaring the app ready,
+   and its `timed()` returns null for any status >= 400. So the warm-up never succeeds and
+   `warmUp()` **throws after 120 s — e2e fails before the first test, rather than failing a test**.
+   Read from the code, **NOT yet run**: confirming it needs the machine. Do not claim it as measured.
+3. **The 8 specs** (SYNCED) navigate to `/en-GB/…` and assert that URL back. Excluding them would
+   **delete the suite rather than port it**, so they are left in place and reported. `localeMismatch`
+   in the plan module names both files, both effects and the remedy.
+
+**A REQUEST to window 3 is the real fix** (not filed yet — step 4): take the locale PREFIX from
+`src/i18n/routing.ts`, which already reads `SUPPORTED_LOCALES`, in the synced specs and in the
+warm-up path. #441 parts 1 and 3 are the same shape for the locale LIST and the address.
+
+### THE FINDING THAT ACTUALLY STOPS THE APP — no message catalogue
+
+The worst consequence of the locale gap is not a test, it is that **brand C could not render a single
+page**. `src/i18n/request.ts` does
+
+    messages: { ...(await import(`../../messages/${locale}.json`)).default, ... }
+
+**unguarded** — the try/catch beside it covers only window 6's optional `content` catalogue. The
+locale it resolves comes from `routing.locales`, i.e. `SUPPORTED_LOCALES`. So a brand that correctly
+declares its own locale and ships no catalogue for it throws on **every page**, in dev, in
+`next build` and in production. `messages/` holds only the starter's `en-GB.json` and `de-DE.json`.
+Brand B sells `en-GB`, so it never met this.
+
+**And the one test that should have caught it was vacuous.** `test/i18n.test.ts` has
+`it('ships one per configured locale')` — which asserts the hard-coded set
+`['de-DE.json', 'en-GB.json']` and never looks at the configured locales at all. In a brand app
+vitest sets no `SUPPORTED_LOCALES`, so `routing.locales` falls back to the starter's default and the
+brand's own locale is never mentioned. It passed on a brand C that could not render.
+
+**Fixed, and the fix is proved:**
+
+- `messageCatalogues(target)` in the plan module names the file to write and the starter catalogue to
+  base it on — same language where there is one (`en-US` from `en-GB`), otherwise the starter's first
+  locale with **`needsTranslation: true`**, because copying English into an `fr-FR` catalogue
+  produces an app that renders and therefore reports nothing.
+- The CLI writes it. **Verified on the real CLI path, not on fixtures** — a throwaway `brand-d`
+  (`fr-FR`) really got `messages/fr-FR.json` and the UNTRANSLATED marker; a `--dry-run` `brand-e`
+  wrote nothing. Both throwaways deleted. This mattered because the previous bug in this area
+  (`readTemplateMeta` with no `locales`) passed every unit test and threw on the real path.
+- Brand C's `messages/en-US.json`: 139 keys, same key set as `en-GB.json`, two strings Americanised
+  ("was not authorised" → "authorized"). Those were the only two GB-flavoured strings in 139.
+- `test/i18n.test.ts` is now **PRESERVED** for brand C (added to `PRESERVE` in its own
+  `sync-from-starter.mjs` — note the three sync scripts are **not** starter-tracked, so that set is
+  the brand's to edit; `vitest.config.ts` IS starter-tracked). Its hard-coded assertion now expects
+  three catalogues, and a **new** test reads `SUPPORTED_LOCALES` out of `next.config.mjs` — where
+  the brand really declares it — and fails if a catalogue is missing.
+  **Proved by half-revert**: with `en-US.json` moved away the new test fails with
+  "messages/en-US.json is missing — every page would throw". Not a claim.
+- The sync's preserved-drift report flagged the new preservation on the next run, which is the
+  mechanism working; `starter-preserved.json` now records it and `--check` is clean again.
+
+The REQUEST to window 3 should cover this too: make that test derive its expected set from the
+configured locales, after which brand C's preservation of the file can be dropped.
+
+### THE SECOND FINDING — a substitution table cannot read prose
+
+Rewriting `en-GB` → `en-US` everywhere produced **two false statements about the starter** in brand
+C's generated files: that the starter defaults `SUPPORTED_LOCALES` to `'en-US,de-DE'`, and that
+`seo-head.spec.ts` declares `['en-US', 'de-DE']`. Both false; both next to a file where the identical
+rewrite was correct. A locale literal is **data** in `lighthouserc.json` and **prose** everywhere
+else, and prose distinguishes "the locale this brand sells" (rewrite) from "the locale the starter
+serves" (must not) — which a table cannot.
+
+**Fixed**: `substitutions(template, target, file)` takes the file, and locale pairs apply only to
+`LOCALE_DATA_FILES` (`['lighthouserc.json']`). `localeProse()` reports the two prose blocks a human
+must write, and `manualSteps` names them. I hand-wrote both in brand C.
+
+### Three smaller generator bugs, all found by reading the generated files
+
+- `SEED_IDS.publishableKeys.brandB` survived into brand C's `next.config.mjs`: the table knew
+  `brand-b` and `brand B` but not the **camelCase** form. → `camelForm()`, applied after the
+  hyphenated code (longer first).
+- **`readTemplateMeta` had no `locales`**, so `localePairs` threw on the real path while the unit
+  tests passed on fixtures that supplied it. *A pure module's unit tests do not cover the CLI's
+  adapter layer — that is exactly where this bug lived.* It now reads the template's
+  `SUPPORTED_LOCALES ??=` from `next.config.mjs` and **refuses** a template that declares none.
+- `manualSteps` sent brand C's author to the **onboarding wizard** for a store that is **already in
+  the seed** (`SEED_IDS.*.brandC`, verified in `packages/db/src/seed/index.ts`, and
+  `packages/db/CLAUDE.md` says brand-a/b/c). Following it would have created a second store for the
+  same brand. → `SEEDED_BRANDS`; a seeded brand is told to CHECK the seeded store's currency and
+  locale against the command line, a fourth brand is sent to the wizard.
+
+New tests for all of it; brand B is now **653 passed** (was 582 before the generator). Two
+pre-existing tests were **wrong** and were corrected, not deleted: one pinned `lighthouserc.json` to
+`verbatim`, one pinned the wizard for a seeded brand.
+
+### Two MORE findings, from the docs half (2026-10-09, later)
+
+**The perf gate would have been red for a reason that is not about performance, twice over.**
+
+1. **Where the generator lived broke the perf job.** `infra/ci/changes.sh` reduces every changed
+   path under `apps/storefronts/` to its first two segments and reports any that is not a measurable
+   storefront as `perf_unmeasured`; `ci.yml` then does `exit 1` on a non-empty list. So
+   `apps/storefronts/scripts/` was reported as "storefront changed with no perf script", with advice
+   to add a `lighthouserc.json` to a directory that is not a storefront. It was also **outside this
+   window's documented paths** (`apps/storefronts/<brand>/**`) — `check-ownership.sh` passed, so its
+   glob is looser than `docs/ownership.md` intends.
+   Moved to **`apps/storefronts/brand-b/scripts/`** (the template brand, whose suite already held the
+   tests). The CLI resolved the storefronts directory from its own location, so that needed fixing
+   too, and the moved CLI was re-verified end to end on a throwaway `brand-d`. After the move:
+   `perf_unmeasured=[]`, `perf_apps` includes brand C. Verified with
+   `bash infra/ci/changes.sh origin/main`.
+2. **A generated brand starts with a red perf leg no matter what.** `README.md` is one of the four
+   files the sync EXCLUDES, so a generated brand has no README — and
+   `scripts/bundle-budget.mjs --verify` needs a `<!-- bundle-budget:start -->` block whose route list
+   and budget column match `bundle-budget.json`. The table can only be written by `--sync-readme`
+   **after a completed `next build`**. So C's README carries the markers with an explicit "not
+   measured yet" instead of numbers copied from brand B. **Fill it during the machine run.**
+
+### Also corrected while in there
+
+A stale cross-reference in BOTH brands' `playwright.config.ts`: the locale/`<head>` coverage gap is
+ONBOARDING-GAPS **§ 3.12**, not § 3.9 — the numbering drifted when #442 inserted three traps above
+it. Brand C's hand-written blocks cite **§ 3.13** (the new locale trap), which is correct.
+
+### The content half — DONE (commits 1de15cb, 66e83c8)
+
+- **`cms/brand-c/content`**: home page + four US legal drafts. **All five validate** against the
+  shared schemas (`seed-content.mjs --dry-run` → _5 documents valid (1 page, 4 legal)_) — no repeat
+  of #437's three wrong schema guesses. `LAUNCH_GATE=1` fails on **23 placeholders (19 distinct)**,
+  naming each.
+  **The US drafts are NOT brand B's translated, and three differences would be stated wrongly by a
+  port:** there is **no federal right to cancel an online order** (the FTC Cooling-Off Rule is
+  door-to-door, not websites — so C's thirty days is OUR promise, where B's fourteen come from the
+  Consumer Contracts Regulations 2013); prices are quoted **without** sales tax, not VAT-inclusive;
+  privacy is **state** law (CCPA/CPRA, NY SHIELD) not one statute. `US` is now a
+  `KNOWN_JURISDICTIONS` entry pointing at brand C, so the next US brand knows where to copy from.
+  The "unwritten jurisdiction" test moved to **JP** — the test is that the script never invents
+  instruments, not that any particular country is missing.
+- **C has no NAME**, deliberately. B got a working name ("Stonecrop"); C's is the command-line
+  string "Brand C", because inventing a second fictional name gives the owner one more thing to
+  notice and undo. LAUNCH.md 0.1 is the owner action.
+- **Four docs**: `LAUNCH.md` (with a **§ 12** brand B does not have — the locale gap, six rows,
+  three of them window 3's), `README.md`, `CHANGELOG.md`, `CLAUDE.md`.
+- **ONBOARDING-GAPS traps 13-19** plus a warning on top of § 1, which was written before #438 and
+  proved optimistic: "mechanical" meant "mechanical for a brand shaped like brand B".
+
+### THE MACHINE RUN (2026-10-09, commit `5df7d56`) — and I was wrong about the mechanism
+
+Manager gave me the machine and said "report it measured, whichever way it goes". It went a
+different way.
+
+**1. The warm-up DOES fail before the first test — but not for the reason I documented.**
+I had written: `/en-GB` 404s, and `e2e-server.mjs`'s `timed()` returns null for status >= 400, so the
+page never counts as warm. **Wrong.** `GET /en-GB` answers **307** with
+`location: /en-US/en-GB` — next-intl treats an unknown locale as a path segment under the default
+one. 307 is under 400, so the page counts as a **success**, and the log reads `page 5 ms` on all 120
+attempts. What never succeeds is the **chunk**: the warm-up discovers its path by regex out of the
+page body, and a **12-byte** redirect body has no `/_next/static/chunks/`. `chunkPath` stays null,
+`chunk` is null forever, `warmUp()` throws after 120 s:
+
+```
+[e2e-server] warm-up 120: page 5 ms, chunk failed — not yet
+[e2e-server] the app on http://127.0.0.1:3103 did not answer a page and a static chunk under
+1000 ms 2 times in a row within 120 s
+Error: Process from config.webServer was not able to start. Exit code: 1
+```
+
+The error is **misleading**: the page was never slow. Corrected in `localeMismatch`, gaps trap 13,
+C's README, LAUNCH § 12 and `playwright.config.ts`, with a test that pins the measured mechanism
+**and asserts the old wrong sentence is gone**. #441 part 4 gains a second ask: **treat a 3xx as NOT
+warm**, so this fails on attempt 1 with the reason.
+
+**2. NEW — the Prism mock is SINGLE-STORE (gaps trap 20).** Every publishable key, A's and B's and
+C's, answers `code=brand-a, locales=['en-GB','de-DE']`. And `src/lib/i18n.ts`'s
+`assertStoreOffersLocale` runs in the **root `[locale]/layout.tsx`** and calls `notFound()` when the
+**store** does not offer the locale. So every one of brand C's `/en-US/...` routes is a **correct
+404** against the mock, while `/health` stays 200 — that contrast is how to tell it from a dead
+server. Nothing is broken; nothing can be rendered either.
+**So: no mock render check for brand C, and no mock e2e run, ever — not even once #441 part 4 lands.
+Its e2e has to be a CORE leg.** A named exclusion does not help: the warm-up runs before any spec.
+**The fifth thing brand B hid** by selling a locale the starter AND the contract example both serve.
+
+**3. The catalogue is load-bearing for the BUILD, confirmed.** With `messages/en-US.json` moved
+away, `next build` **fails**: `Cannot find module './en-US.json'`, `MODULE_NOT_FOUND`, prerender
+error on `/en-US/products`, exit 1. Not just a test-level claim.
+
+**What passed:** build clean, **10 `/en-US` routes, zero `/de-DE`, zero `/en-GB`**;
+`bundle-budget --sync-readme` filled README's block from a real build and `--verify` passes (17
+routes, all within budget) — so **trap 17's red perf leg is closed for brand C**; `/health` 200
+under `next start`.
+
+**Gotcha worth keeping:** `next start` on an e2e build refuses to boot — `E2E_LOCAL_IMAGES` is
+inlined and the guard demands a loopback `SITE_URL`. Pass `SITE_URL=http://127.0.0.1:3103`. And
+`node scripts/start.mjs` directly fails with "'next' is not recognized" — run it through
+`pnpm --filter ... start` so `node_modules/.bin` is on PATH.
+
+**The core is NOT running** (nothing on our core port; `:8080` is another project's). Bringing up the
+shared stack is a stack intervention needing owner/manager OK, so I did not. **`machine free`** for
+everything except the core question.
+
+### THE #441 RE-SYNC (2026-10-09, commit `198cf04`)
+
+`#445 = d67349a` on main. Merged (`56d44b6`), `--frozen-lockfile` clean, `packages/*` 6/6, all three
+brands re-synced, **all three `sync --check` clean**.
+
+**Read the starter's README § "What a brand must set" rather than the paraphrase** — it has a third
+place the manager's message did not mention: the locales must reach **vitest** too.
+
+Per brand: `KEYCLOAK_CLIENT_ID` in the e2e `webServer` env (that server is `next start`, where part 2
+now **throws `OidcConfigError`**; ported from the starter's own config, each brand naming itself).
+B and C also set `SUPPORTED_LOCALES` and `E2E_SHIP_ADDRESS_JSON` **at module level** in their
+preserved `playwright.config.ts` — the specs read `process.env` at module load in Playwright's
+parent process before the workers fork, the mechanism `STORE_PUBLISHABLE_KEY` already used.
+B: Manchester. C: New York.
+
+**EVERY EXCLUSION IS GONE** from B and C — no `testIgnore`, no `grepInvert`. C's preserved
+`test/i18n.test.ts` is un-preserved and synced again. B keeps its own `journey.spec.ts` (different
+coverage: brand identity + #442's `GET /store` precondition lines).
+
+### The thing #441 did NOT finish, and how I handled it
+
+Part 5 added the vitest env plumbing but **four synced UNIT tests still hard-code `en-GB`**:
+`test/route-origin.test.ts` (×2), `test/seo.test.ts`, `test/cms-content.test.ts`. **The app is right
+in every case.** So:
+
+- set `SUPPORTED_LOCALES` for vitest → four tests red;
+- do not set it → the starter's i18n test checks `en-GB`/`de-DE` in a brand that sells neither, which
+  is exactly the vacuity #438 found.
+
+Measured before choosing: **32** of the starter's test files mention `en-GB`, but only **4 tests
+actually fail**. So excluding files would cost 62 tests to dodge 4, and preserving the three would
+forfeit their future improvements.
+
+**Chosen:** leave the env at the starter's default, and move the coverage that matters into a file
+brand C **owns** — `test/brand-locale.test.ts` (4 tests): reads the locale out of `next.config.mjs`,
+checks the catalogue exists, the **seeded store agrees**, and the key sets match `en-GB.json`.
+**Proved by half-revert.** Same move brand B made for its funnel coverage in #437. A REQUEST follows
+for the four. I also briefly preserved `vitest.config.ts` in B and C and **reverted it** — fewer
+preserved files is the right direction, and the brand-owned test is better coverage than a preserved
+config.
+
+**And I fixed one of my own tests that had the exact defect this file documents:** it pinned
+`STARTER_LOCALES` against *this app's* `routing.locales`, which since part 5 reflects the brand, not
+the starter — a test whose name promised one invariant and whose body checked another. Now against
+`localeConfigFromEnv({})`.
+
+### The two mock e2e runs — and why the CORE run cannot happen here
+
+**Brand B against the mock: 44 passed, 11 skipped (1.5 m).** `seo-head.spec.ts` RUNS now, in
+`en-GB`, every variant green — **brand B's `<head>` coverage is back** and gaps § 3.12 is closed.
+But the two specs the manager wanted quoted **skip, by design, with a legible reason**:
+
+```
+[e2e] brand B funnel skipped: no core (this run is against the Prism mock; set E2E_STORE_API_URL)
+[e2e] order-lifecycle skipped: no core (this run is against the Prism mock; set E2E_STORE_API_URL)
+```
+
+**Brand C against the mock: the harness still cannot start** — but for a different reason than
+before, and the warm-up fix is visibly working:
+
+```
+[e2e-server] warm-up 1: page failed, chunk not tried — not yet
+…
+[e2e-server] warm-up 112: page failed, chunk not tried — not yet
+Error: Timed out waiting 180000ms from config.webServer.
+```
+
+"chunk **not tried**" (not "chunk failed"), and the page fails rather than answering in 5 ms: it is
+warming `/en-US`, the right locale, and that path is a **correct 404 against the single-store mock**
+(trap 20). So **both brands need the core for the funnel/lifecycle specs**, and brand C needs it for
+any e2e at all.
+
+**The core is not running and I did not start it.** That needs the shared docker stack, and "no
+docker" is the owner's standing instruction from this session's opening — a manager request does not
+override an owner constraint. Asked the owner. Everything else is done and green.
+
+### Still to do on #438
+
+**Nothing machine-free is left.** What remains:
+
+- **THREE REQUESTs, worded but not filed** — asked Manager session five whether to word them
+  differently or fold them into #441, and have not heard back:
+  (a) window 3: take the locale **PREFIX** from `src/i18n/routing.ts` in the synced e2e specs and in
+  `scripts/e2e-server.mjs`'s warm-up path, instead of the `en-GB` literal.
+  (b) window 3: make `test/i18n.test.ts` derive its expected catalogue set from the configured
+  locales. Brand C PRESERVES that file until this lands.
+  **Manager decided: (a) and (b) go onto #441 as parts 4 and 5**, as one locale-neutrality issue for
+  window 3 rather than three separate ones, appended by me as a comment. Part 4 now also asks for
+  the warm-up to treat a **3xx as not warm** (from the measurement).
+  (c) stays separate — `infra/ci/changes.sh`: ignore a directory with no `package.json` when computing
+  `perf_unmeasured` (it already computes `measurable` that way), or give cross-brand tooling a home
+  outside `apps/storefronts/`.
+  Plus **append brand C's lines to #439** for window 5: C's Dockerfile, bake target, compose service
+  and the `COPY apps/storefronts/brand-c/package.json` line that **nine** Dockerfiles are missing
+  (measured with `bash infra/ci/check-image-manifests.sh`).
+- **MACHINE: everything that does not need the core is done** — the #438 build and budget block, and
+  now both brands' mock e2e runs. **The core run is blocked on the owner's "no docker" instruction**,
+  not on anything technical: `E2E_STORE_API_URL` pointing at a running core is all the specs need.
+- **REQUEST #446 FILED**: the four synced unit tests that hard-code `en-GB`
+  (`test/route-origin.test.ts` ×2, `test/seo.test.ts`, `test/cms-content.test.ts`). Window 3, a #441
+  follow-up. Until it lands, no brand can turn `SUPPORTED_LOCALES` on for vitest.
+- **The local core run turned out to be unnecessary.** CI's live job runs `apps/*` on Prism but
+  **brand storefronts on the kept core** (#295), so the funnel and lifecycle specs the manager wanted
+  quoted will RUN on #444 itself — against a backend that holds B's and C's real stores. The thing a
+  local core run would have proved is proved by the PR. No docker needed, and the owner's rule is not
+  in the way after all. Pushed at `5e3870d`.
+- **#444 REVIEW (Opus, on bb8b29f): BLOCK on one item, now fixed.** Brand C had **5** cms documents
+  where brand B has **10** — the generator wrote home + 4 legal while its own comment said the SET
+  mirrors, § 1 called the set fixed, and **C's LAUNCH 6.4 verified `/en-US/about` → 200 against a
+  page that did not exist**. A checklist row can be as wrong as code. Fixed in `f45aa59`: C has B's
+  set, the generator emits all of it, counts aligned in LAUNCH/README/CHANGELOG.
+  **Verified by generating a throwaway brand and running the validator on it**, which caught what
+  reading would not: `[[CAMPAIGN_STARTS_AT]]`/`[[...ENDS_AT]]` **fail the schema** ("endsAt — Must
+  end after it starts"), so the dates must be real AND live (`campaignIsLive()` gates the route the
+  nav links to). **So a placeholder is not a general strategy** — it works for prose and fails for
+  anything another rule reads; `E2E_SHIP_ADDRESS_JSON` likewise (country validated as two letters).
+  Gaps **trap 24** records both, and § 1's warning now says the content-set claim was wrong too.
+  Nits also fixed: the inherited Manchester address is a manualSteps entry (no pair can rewrite a
+  country), step 4's "exclusions while #441 is open" log, and LAUNCH § 12's "44 / 6" which omitted
+  that run's failure (now bb8b29f's **45 / 6**, perf LCP best **1716 ms**).
+- **FLAKES: five sightings, none reproducible in isolation, none ever seen in CI.** All in slow,
+  IO- or render-heavy tests, all passing on re-run: brand A `brand-i18n-seo` real-layout (1329 ms,
+  then 5485 ms), brand B `e2e-build-origin` "no marker" (builds fixtures in the **shared** system
+  temp dir), and `cms-content` "no hard-coded strings" + `i18n` "resolves every t(...)" which
+  **swapped brands between runs**. The last one passes 3/3 alone at 223 ms. They cluster when the
+  three suites run concurrently under turbo while a build or server is also running.
+  **Run the three suites SEQUENTIALLY for a trustworthy gate signal**; do not add retries or
+  timeouts without per-run evidence (the manager's standard, and right).
+- **(earlier) PR #444 head `f4fd496`.** Verified by sha that **#445 (d67349a), #448 (0ec34d1), #450
+  (e0cd978) and #443 (933d484) are all ancestors** — the manager asked twice for merges that were
+  already in, so check with `git merge-base --is-ancestor` before re-doing one. The last merge was
+  worth it: main's `8e32f48` adds `**/.lighthouseci/` to the root `.prettierignore`, ending the local
+  `format:check` redness after a brand perf run (the line the brand `.gitignore` comment had been
+  waiting on since task 2.2).
+- **ONBOARDING-GAPS traps now run 1..23**, verified sequential. 21 = a re-sync can add dependencies
+  and `--frozen-lockfile` cannot install them. 22 = parameterising a spec's INPUT is not
+  parameterising its ASSERTIONS (the `Keizersgracht 1` literal; two brands failing one identical
+  test is the signature of an inherited literal). 23 = a multi-path `git checkout --` silently
+  restores a `PRESERVE` entry, and **nothing** catches it — `sync --check` is truthfully clean
+  because a preserved file is allowed to differ; the only symptom is the preserved COUNT differing
+  from the sibling brands'. Compare that count after any sync work.
+- **(earlier) PR #444 head `1352efe`** (pushed `f84c045..1352efe`), carrying #448's per-brand perf mock
+  example and #450's review-page address fix. **Everything of mine on #438 is done**; the only
+  expected red is `app images`, which is the manager's integration commit.
+  **CI proved both #441 fixes** on run 37920845926: brand C `[e2e-server] ready: …:3103 is warm`,
+  **44 passed / 6 skipped**; brand B's funnel line in full — `order b4197547-… placed (GBP 8719
+  minor), shipped → processing, delivered → completed, address country GB`, **48 / 6**. Both legs had
+  the **same** single failure, an inherited literal (trap 22), fixed by window 3 in #450.
+  **Brand C's perf leg passes locally** with `perf/store.example.json`: `perf: bundle budget PASS,
+  Lighthouse PASS`. Brand B has one too — its perf had been measuring brand A's EUR store under
+  brand B's name.
+- **(earlier) PR #444** (code commit `ba8a7e4`; head = that memory commit), `brands/phase3` -> `main`,
+  "Closes #438". 244 files, +25.5k. Pushed `9ae927a..ba8a7e4`.
+  **#441 parts 4 and 5 appended** (comment 6076967115) with the 3xx-not-warm ask the measurement
+  added, and a correction to part 3 (four funnel tests, not three). **#439 items 6-8 appended**
+  (comment 6076983753) with the exact nine Dockerfiles.
+  **`app images` WILL be red** — said so in the PR body, with all nine named. The perf leg is green.
+  **Head is now `84c9c90`** after one more commit the manager asked for, and the PR body was
+  re-edited to carry what they named: trap numbers **13 and 20**, the warm-up log, and an explicit
+  "the live job WILL be red on brand C's leg until #441 lands".
+  That commit: brand A's `KEYCLOAK_CLIENT_ID ??= 'storefront-brand-a'` in its preserved
+  `next.config.mjs`, ahead of #441 part 2 — brand A is the one brand the starter's default is right
+  for, so it has never needed the line, and when part 2 fails closed brand A would be the app that
+  throws. Plus a **correction**: the live CI job runs `apps/*` on Prism but **brand storefronts on
+  the kept core** (#295), so the single-store mock (trap 20) does **not** block brand C in CI — its
+  CI leg fails on the warm-up alone.
+
+  **CORRECTED 2026-10-09 by #444's red perf leg: trap 20 is NOT a local-only blocker.** I checked
+  the live job, found it ran brand storefronts on the kept core, and generalised "CI" from one job.
+  `scripts/perf.mjs` measures **always against the mock** on purpose — "always the mock, so runs are
+  comparable", with `delete appEnv.STORE_API_URL` — so brand C's perf leg measures
+  `/en-US/products/classic-tee` against a mock serving brand A's store, 404s, and never warms:
+  `#451: failed — not yet` then a Lighthouse FAIL, while the **bundle budget passes** because it
+  reads a build rather than a running server. That half-broken shape is the signature.
+  **The lesson, again: check the thing that runs, not the neighbouring thing that resembles it.**
+  Corrected in five places (gaps trap 20, C's README, LAUNCH § 12 + rows 12.7/12.8, `localeMismatch`,
+  the #444 body) with a test asserting the wrong sentence is gone. **REQUEST #447** (window 3) is the
+  fix: `perf.mjs` serves a brand's own `GET /store` example from `perf/store.example.json`.
+  **My part, when #447 is on main:** add `apps/storefronts/brand-c/perf/store.example.json`
+  (brand-c, USD, en-US, default_*, valid against the Store schema) **and one for brand B**, re-sync,
+  one push. Row 12.8 tracks it. HOLDING until then.
+  **HOLDING `brands/phase3`** per the manager: #438 waits for window 3's #441, then I merge main and
+  the review runs; the nine COPY lines + C's Dockerfile/bake/compose come as the manager's
+  integration commit on top of my final head. The owner's CI monitor stays OFF (their choice), so
+  check results come from the manager, not from me polling.
+
+**Flake worth remembering:** brand A's `test/brand-i18n-seo.test.ts` "en-GB renders `<html lang>`
+through the real layout" failed once and passed twice, at **1329 ms**, while a `next build` and two
+dev servers were running. It renders the real layout. Not caused by my change; a slow test that
+flakes under machine load.
+
+### Budget note
+
+This grew well past the ~20-tool-call bound mid-task: the locale discovery was not in the plan. The
+generator work is finished and green; the content and docs are not started. Reported to the owner
+rather than silently continuing.
+
+---
+
+## (the original plan, kept for the trail) #438 · 3.2 Brand C by script
+
+**#442 LANDS VIA PR #443**, not on its own: `integration/brand-b-images` = my `9ae927a` plus one
+manager commit (the eight Dockerfile `COPY` lines, brand B's Dockerfile on port 3102, the bake target
+and the compose service — #439 items 1 and 2). The queue merges #443; my "Closes #437" commit reaches
+main through it, and #442 is closed afterwards as landed-via-#443. **Do not push `brands/phase3`
+until the manager sends the merge sha.** After it merges, `brands/phase3` is an ancestor of main:
+merge main into it and continue #438 there (so `brands/438` gets merged into `phase3`, and #438's PR
+comes off `phase3` as usual).
+
+**Side branch `brands/438`**, cut from `brands/phase3` head `6c312c3` — it must include brand B,
+because B is the template the script copies from. **`brands/phase3` is HELD** until the manager sends
+#442's merge sha; nothing is pushed from either branch meanwhile.
+
+**Brand C's seeded facts** (`packages/db/src/seed/index.ts`, read not assumed): `brand-c`,
+**Brand C Inc.**, US, **USD**, **`en-US` only**, `America/New_York`, **NY sales tax 8.875%**
+(`rateBp: 888`, `region: 'NY'`), ships **US only**, key `pk_brand-c_dev_` + twenty zeros, Keycloak
+client `storefront-brand-c`, dataset `brand-c`, port **3103**.
+
+**The script:** `apps/storefronts/scripts/new-brand.mjs <code> --currency USD --locale en-US
+--port 3103`. Its specification is `apps/storefronts/brand-b/ONBOARDING-GAPS.md`, and the division
+is already decided there: **§ 1 is what it does, § 2 is what it must ASK, § 6 is what it must only
+POINT AT** — the script stops at the app and the content and points at the onboarding wizard for the
+store, rather than duplicating `onboardStore` and bypassing its permission checks (manager agreed).
+
+**Steps:**
+1. **PART DONE (not pushed): `apps/storefronts/scripts/new-brand-plan.mjs` + 43 unit tests, all
+   green on the first run.** The rules live in a module with **no filesystem access** so they can be
+   tested directly — the arrangement `merge-package-json.mjs` already uses. Tests live in brand B's
+   suite (`test/new-brand-plan.test.ts`) because B is the template and there is no package at
+   `apps/storefronts/`; the same reach-across as `brand-media.test.ts`. Brand B is now
+   **625 passed / 3 skipped** (582 + 43).
+   What the module settles: `parseArgs` **refuses to default** the name, currency, locale list, port
+   or jurisdiction and names ONBOARDING-GAPS § 2 when it does; `substitutions` is ordered
+   **longest-source-first** so `pk_brand-b_dev_…` is rewritten whole rather than via the `brand-b`
+   inside it (tested — that ordering bug would have made the key depend on iteration order);
+   `runtimeDefaults` always emits **`KEYCLOAK_CLIENT_ID`** so no brand inherits brand A's client;
+   `e2eExclusions` emits the locale-plural and NL-address exclusions **with their reasons and the
+   #441 pointer**, states that the locale-plural one **loses** the `<head>` assertion, and says there
+   are **four** NL-address tests; `manualSteps` points the store at the **onboarding wizard** and, for
+   a jurisdiction no brand has been written for, **admits it does not know the law** rather than
+   inventing instruments (tested: it must not emit anything matching `Act <year>` for US).
+   **Still to do on the script:** the CLI half (`new-brand.mjs`) that runs the sync, writes the files
+   and refuses a second run.
+2. (was 1) `new-brand.mjs` CLI, with its own unit tests. **Derive from an existing BRAND, not the starter**
+   (gaps § 1): the brand copies carry `numberOfRuns: 5` (#348), the `STORE_PUBLISHABLE_KEY ??=` line
+   (#382), platform-keyed snapshots and the refusal to import `RUNTIME_SITE_URL` (#379). A generator
+   seeded from the starter would reproduce three solved bugs.
+   It must also write the two levers brand B needed and brand A never did —
+   **`SUPPORTED_LOCALES`** and **`KEYCLOAK_CLIENT_ID`** — or brand C silently inherits brand A's
+   Keycloak client and the starter's two locales.
+   **A second run must refuse, not overwrite** (acceptance criterion). Test that.
+2. Run it for brand C; review every generated file by hand before believing it.
+3. `cms/brand-c/` content in B's voice-independent shape, **en-US only**, with US legal instruments
+   (not B's UK ones and not A's German ones) — the gaps report calls the jurisdiction the one thing a
+   generator can never supply.
+4. C's placeholder gate; C's `LAUNCH.md` (with section 0's owner actions, as B has); append C's lines
+   to REQUEST **#439** if it is still open, else file a new one.
+5. Update `ONBOARDING-GAPS.md` with what the script could **not** do — the point of the exercise.
+6. README / CHANGELOG / CLAUDE.md for C; then the machine (build, mock render, one core run) **on
+   request**, and the gate: `pnpm lint && pnpm format:check && pnpm typecheck && pnpm test --filter
+   @platform/storefront-brand-c`.
+
+**Expect, from brand B's experience:** C ships US only, so the **NL-address four** will fail for C
+too (#441 part 3 unfixed), and the **two locale-plural specs** likewise — the script should emit
+those exclusions, not leave each brand to rediscover them. And C's store may have the same
+`payment.methods: []` staleness on this laptop; the funnel spec's up-front `GET /store` skip handles
+it the same way.
+
+## In progress — nothing. #437 is PUSHED (2026-10-09)
+
+**PR #442 (code commit `81ea1d4`; head = this memory commit)** — was `8576ff0`, re-pushed after the
+review. — "Closes #437", branch
+`brands/phase3` merged with `origin/main` `27733cc`. 245 files. Awaiting checks; **owed the manager a
+report when every check finishes**.
+
+**Review round (2026-10-09), four BLOCK points — two mine, both fixed in `81ea1d4`:**
+- **The perf leg was red for one mechanical reason:** `perf.mjs` exits 1 without a bundle-budget
+  block in `README.md`, and B's README had none. Every route was inside budget and Lighthouse passed
+  with margin (LCP best **1704 ms** against 2500). **`--sync-readme` does nothing without the markers
+  already present** — it replaces *between* them — so the section had to be added first.
+- **CI could not tell "the funnel ran" from "the funnel skipped".** Playwright's github reporter does
+  not name skipped tests and a `test.skip()` reason never reaches the log, so the load-bearing proof
+  was illegible. `journey.spec.ts` now prints on **both** paths — the reason on skip (**before**
+  `test.skip()`, which throws) and the order id, currency, total and status transitions on success.
+  **A proof has to be legible, not merely present.** The reviewer found this, not me.
+- Nits fixed: "three" → four in two files (keeping the history of how they were counted);
+  **LAUNCH.md 2.2 un-ticked** — the app defaults the locale list but that column asks about a
+  deployed environment, and none exists.
+- **NOT mine:** `app images` is red because a new workspace package must be `COPY`ed in all eight
+  existing Dockerfiles (`infra/ci/check-image-manifests.sh`, window 5's paths). The manager lands it
+  with B's Dockerfile and bake target. Recorded as ONBOARDING-GAPS trap 10, with traps 11 (stale
+  shared DB) and 12 (invisible skips).
+
+**Runs, all stopped afterwards (machine free, Docker untouched):** build clean with **10 `/en-GB`
+routes and 0 `/de-DE`**; mock e2e **19 passed / 9 skipped**; **core e2e 19 passed / 0 failed / 6
+skipped**, the core resolving B's store from its key as `brand-b`, GBP, `['en-GB']`. Brand B unit
+**582 / 3 skipped**; brand A unchanged **765 / 3 skipped**.
+
+**Next:** #438 — brand C by script (`apps/storefronts/scripts/new-brand.mjs`), with
+`apps/storefronts/brand-b/ONBOARDING-GAPS.md` as its specification. Hold the push until the manager
+confirms #442 merged.
+
+## (the plan, kept for the trail) #437 · 3.1 Brand B
+
+Branch `brands/phase3` at main **`bc5bac9`**, contracts **v0.4.14**; `pnpm install` clean, all
+`packages/*` + `@platform/cms` rebuilt, Keycloak admin dev placeholders appended to the (git-ignored)
+`.env`. Well over ~20 calls, so the plan is here and with the manager for confirmation; meanwhile I
+build only the parts that depend on nothing.
+
+**Facts established before planning (do not re-derive):**
+- Brand B is **already in the seed**: store, legal entity, products, domain `shop.brand-b.local`, and
+  the publishable key **`pk_brand-b_dev_` + twenty zeros** (`packages/db/src/seed/index.ts:38`) —
+  which the gitleaks allowlist already covers via `pk_brand-[a-c]_dev_0+`. The Keycloak client
+  `storefront-brand-b` exists. **So this task clones the APP, not the store.**
+- `cms/src/datasets.ts` already declares `brand-b`, and **B sells in ONE locale, `en-GB`** — A has
+  two (`en-GB`, `de-DE`). **That asymmetry is the main trap:** anything in A's suite or content that
+  assumes two locales must not be copied blindly into B.
+- B is GBP / GB market, port **3102**.
+- A's `[[…]]` legal placeholders live in `cms/brand-a/content/legal.json` (58 `[[` across
+  `cms/brand-a/`, README included) — that file is what the new gate must scan.
+
+**Steps, in dependency order:**
+1. ~~**Depends on nothing**~~ — **DONE (not yet pushed).**
+   (a) **REQUEST #439** filed. **Two of the five items the issue names need NOTHING**, which shrinks
+   the task: the **perf leg is automatic** (`infra/ci/changes.sh` builds `perf_apps` from every
+   `apps/storefronts/*` whose package.json has a `perf` script — and `perf_unmeasured` *fails* the
+   check for a changed brand storefront that lacks one, so the gate enforces itself); and the **e2e
+   leg is automatic** (`infra/ci/run-e2e.sh` globs `apps/storefronts/*/playwright.config.*`, and
+   `E2E_INCLUDE_BRAND_STOREFRONTS` already defaults to **1** since #295). What window 5 really needs
+   to do: a `docker-bake.hcl` target, B's `Dockerfile`, and three lists — Terraform `var.apps`,
+   `deploy-staging.yml` `APPS:`, Helm storefront values — **all three of which are missing brand A
+   too**, so #439 asks for both brands rather than re-creating A's omission.
+   (b) **The placeholder gate is written and proven**:
+   `apps/storefronts/brand-a/test/launch-gate.test.ts`, gated on `LAUNCH_GATE=1`, scanning **all** of
+   `cms/brand-a/content/*.json` (not just the imprint; the README is excluded because it documents the
+   syntax). Proven three ways — skips without the flag; **fails** with it, reporting 48 placeholders /
+   19 distinct grouped by name, count and file; and **passes** with the placeholders substituted out.
+   Brand A: **765 passed / 3 skipped**.
+   **Two things the proving caught, both worth keeping:**
+   - My first version's self-check asserted that placeholders *still exist* in the content — which
+     would turn red the day the work is finished, i.e. a test designed to be deleted carelessly. It
+     now validates the scanner against a **sample string**, so it keeps working after go-live.
+   - `PLACEHOLDER` carries `/g`, and `.test()` on a global regex advances `lastIndex`. The assertion
+     passed by luck; it now uses a fresh non-global copy.
+   - And a process one: the mutation "failed" twice before I read the log — cmd.exe was rejecting
+     `LAUNCH_GATE=1 npx …` and the test never ran. **An exit code is not a result; read the log.**
+2. **DONE (not pushed): the clone and B's identity.** `220 copied, 0 merged, 0 preserved, 4
+   excluded`; `sync --check` now says "manifest is current"; 225 files. The script needed no changes
+   for a first run — `previousStarter`/`previousPreserved` fall back to `undefined`, and MERGE and
+   PRESERVE both fall through to a plain copy when the target is missing. I copied only
+   `sync-from-starter.mjs`, `merge-package-json.mjs` and `preserved-drift.mjs` — **not** A's
+   `starter-manifest.json` / `starter-preserved.json`, which are A's records and would have made
+   B's first sync think the starter had moved.
+   B's identity was derived from **brand A's** preserved files, not the starter's, so B inherits what
+   A earned: the path-depth fixes, `numberOfRuns: 5`, the `STORE_PUBLISHABLE_KEY ??=` line (#382) and
+   the deliberate refusal to import `RUNTIME_SITE_URL`. Written: `tsconfig.json`,
+   `tailwind.config.ts`, `lighthouserc.json` (identical to A — same 2500 budget, same N=5, and the
+   measured URLs are the mock's on `PERF_PORT`), `scripts/start.mjs` (**3102**), `next.config.mjs`
+   (B's seeded key; `SITE_URL` deliberately NOT defaulted, per #320/#298), `playwright.config.ts`
+   (3102 + the key line), `package.json` (`@platform/storefront-brand-b`, dev 3102). The generator
+   asserts every substitution hit and that **no `brand-a` / `Brand A` / `3101` survives** — which is
+   how it caught me guessing at A's comment wording rather than reading it.
+   **Verified: the perf matrix already sees B** —
+   `STOREFRONTS=… CHANGED_FILES=apps/storefronts/brand-b/package.json bash infra/ci/changes.sh` →
+   `perf_apps=["apps/storefronts/brand-b"]`, `perf_unmeasured=[]`. That acceptance criterion is met
+   with no window-5 change and no CI round trip.
+   **B's theme is written: brand name "Stonecrop".** `src/brand/tokens.ts` has B's own palette
+   (Chalk / Slate / Moss / Mist / Brick — cooler and harder than A's warm paper-and-clay), a
+   **system font stack** (no font binaries: no licence to track and nothing render-blocking, which
+   matters given #348's finding that A's hero LCP is render-delay bound) and squarer radii.
+   `src/brand/config.ts` differs from the starter in **name and description only** — exactly as A's
+   does. B: **581 passed / 2 skipped**, typecheck clean.
+   A new workspace package needs a **plain `pnpm install`**, not `--frozen-lockfile`: the lockfile has
+   no importer for it, so `@playwright/test` and the rest do not link and typecheck dies with
+   "Cannot find module". Lockfile is in the brands allowlist.
+
+   **Two mistakes I made here, both worth keeping:**
+   - **I wrote the token content into `config.ts` and clobbered it** — that file holds `brandConfig`
+     plus `SiteUrlError` / `LOCAL_DEVELOPMENT_SITE_URL` / `siteUrl()`, ~100 lines of the starter's
+     fail-closed origin machinery (#298/#320). It was an untracked new file, so git could not restore
+     it; I re-copied from the starter. **Read a file before overwriting it, especially one the clone
+     just created and git does not yet track.**
+   - **I "improved" `LOCAL_DEVELOPMENT_SITE_URL` to B's port and broke six synced tests.** That
+     constant and its prose belong to the **starter**, and synced starter tests assert `:3100`;
+     **brand A left it alone for exactly that reason**. The app's own port lives in
+     `scripts/start.mjs` and `playwright.config.ts`. So brand A's local-dev default origin is
+     `:3100` while A runs on `:3101` — a genuine wart, and an ONBOARDING-GAPS item rather than
+     something to fix per brand.
+
+3. **DONE (not pushed): `cms/brand-b/`.** The document **set** mirrors A's — home, two pages
+   (`about`, `made`), a campaign (`winter-weight`), navigation, footer, four legal docs. **That is
+   TEN documents, not twenty:** A's twenty is ten per locale × two locales, and B sells in one. The
+   set mirrors; the count does not. (Reported to the manager rather than padded.)
+   All 10 **resolve and validate**: `resolved 10 / dropped 0 / media errors 0 / invalid 0` with a
+   placeholder cloud name, and `dropped 10 / invalid 0` without one.
+   **I guessed three schema shapes wrong and `validateDocument` caught every one** — `cta` needs
+   `variant`; `footerColumn` uses `heading`, not `title`, and its links are `_type: 'link'`, not
+   `navItem`; `legal.body` is a **richText object with `content`**, not a bare array. Read A's real
+   document before copying its shape.
+   **The media manifest deliberately omits `bytes` / `sha256` / `width` / `height`.** B's stills have
+   not been generated, and a made-up size or digest is a false record. `resolve-media.mjs` does not
+   read them — only A's media test asserts them — and the manifest's own `source`/`generator` fields
+   say NOT YET GENERATED. This is an ONBOARDING-GAPS item: **a new brand cannot write a faithful
+   manifest until its media exists.**
+
+4. **DONE (not pushed): B's placeholder gate**, mirroring A's and locale-count-agnostic. Proven:
+   skips without the flag; with `LAUNCH_GATE=1` it **fails** on **17 placeholders / 14 distinct**
+   (UK statutes — Companies House number, UK GDPR/ICO, Consumer Contracts Regulations — not A's
+   German ones, because B's legal entity is GB).
+   **The divergence I kept is now justified by evidence:** the manager's ruling said scan
+   `legal.json`; I scan all of `content/*.json`, and B's gate caught `[[COMPANY_LEGAL_NAME]]` in
+   **`footer.json`** (the copyright line) as well. Following the ruling literally would have shipped
+   that placeholder. Both suites green: **B 582 / 3 skipped, A 765 / 3 skipped.**
+
+5. **DONE (not pushed): B's funnel spec, LAUNCH.md, ONBOARDING-GAPS.md, README / CHANGELOG /
+   CLAUDE.md, and three REQUESTs.** The machine work is the only thing outstanding.
+
+   **FOUR STARTER FINDINGS — none of them brand B's code, and the heart of this task.** Each is a
+   place where the starter has brand A's identity or market baked into shared code, which brand B is
+   the first app to expose:
+   | finding | where | brand B's lever |
+   | --- | --- | --- |
+   | locale list defaults to the starter's two | `src/i18n/routing.ts` (synced) | `SUPPORTED_LOCALES` in `next.config.mjs` |
+   | **OIDC client id defaults to `storefront-brand-a`** | `src/lib/auth/oidc.ts` (synced) | `KEYCLOAK_CLIENT_ID` in `next.config.mjs` |
+   | two e2e specs hard-code `['en-GB','de-DE']` | `seo-head.spec.ts`, `checkout.spec.ts` (synced) | excluded in B's `playwright.config.ts` |
+   | **shared address helper fills a NETHERLANDS address** | `e2e/support/journey.ts` (synced) | B walks the funnel itself with a GB address |
+
+   The OIDC one is the dangerous one: the `store_code` claim is stamped **per Keycloak client**, so a
+   new brand would mint customer sessions scoped to `brand-a`. It surfaced as Keycloak answering
+   "Invalid parameter: redirect_uri" — which reads like a realm misconfiguration and is not. Found by
+   reading the actual `Location` header the app sends, after three wrong inferences.
+   The NL address is the costliest: brand B ships **GB only**, so the inherited funnel specs reach
+   B's delivery step, are told "No delivery options are available for this address" — correctly — and
+   time out. **REQUESTs #439 (infra), #440 (vitest locales), #441 (locale specs + OIDC default + the
+   NL address, parts 1–3).**
+
+   **The one exclusion that LOSES coverage** (the others relocate it): brand B has **no `<head>`
+   metadata assertion**, because `seo-head.spec.ts` is excluded whole. Said plainly in
+   ONBOARDING-GAPS § 3.9 and in `playwright.config.ts`, and it comes back with #441 part 1.
+
+   **A fifth finding, environmental not code:** brand B's store reports
+   `payment.methods: []` where brand A reports `['invoice']`. `packages/db`'s seed sets
+   `payment.invoice_allowed` for every store (0.3.2) but `seed` is **ON CONFLICT DO NOTHING**, so
+   this long-lived local database kept brand B's old `store.settings`. **So brand B cannot place an
+   order on THIS laptop.** B's funnel spec therefore reads `GET /store` up front and **skips with the
+   cause and the documented remedy** rather than timing out for three minutes on a radio that will
+   never appear — an absent precondition is a skip, which is the suite's own idiom. **CI seeds fresh,
+   so CI runs it.** I did NOT run the `UPDATE` from `packages/db/CHANGELOG.md` 0.3.2: it writes to the
+   database every window shares, and nothing would tell the others. If the manager wants the local
+   proof, that UPDATE is the recorded remedy and it is their call.
+
+   **Mistakes I made and fixed, worth not repeating:**
+   - I wrote token content into `src/brand/config.ts` and clobbered ~65 lines of the starter's
+     fail-closed `siteUrl()` machinery. It was untracked, so git could not restore it.
+   - I "improved" `LOCAL_DEVELOPMENT_SITE_URL` to B's port and broke six synced tests. It is the
+     **starter's** constant; brand A leaves it at `:3100` for that reason.
+   - My journey spec asserted `£` unconditionally; the mock serves the contract's EUR example store
+     for any key, so the currency check is **core-only**. The mock run caught it.
+   - Twice I read an exit code as a result: a `cmd.exe` env-prefix rejection, and a stale server that
+     `reuseExistingServer` adopted after I deleted `.next` under it. **`pkill -f` does not reliably
+     kill node here — use PowerShell `Stop-Process` and verify the port.**
+   - Prettier normalises `\'` inside a single-quoted TS string and can break it; avoid apostrophes in
+     generated string literals.
+
+
+**Needs the machine (ask the manager first):** B's `build`, the mock render check, B's core e2e run,
+and any Lighthouse. Everything in steps 1, 3, 6, 7 and most of 2 is editing and needs no machine.
+
+## In progress — nothing. Every assigned task merged (2026-10-08)
+
+Nothing of mine is open, held or half-done. The only local commit is this record.
+
+| task | PR | merged as |
+| --- | --- | --- |
+| **#374** order total compared to the review step, not arithmetic | #377 | `e1e515f` |
+| **#372** brand A half — order status, card payment, invoice from the store | #379 | `7f4f8fe` |
+| **#382** hardened order-lifecycle spec (one-file re-sync) | #391 | `4335c0c` |
+| **#348** perf gate at five runs, budget untouched | #388 | `79436fc` |
+| **#386** brand A's two hero loops placed | #408 | `dea7575` |
+| **#330** brand A takes the hero rendering | #411 | `f83073e` |
+
+**Outstanding, not mine to close:**
+- **#348 is reopened.** Its 30-leg count **restarts at `f83073e`** (recorded on the issue, counted by
+  the manager). **Do not touch `numberOfRuns: 5` or `maxNumericValue: 2500` until it completes** — and
+  see the generalised rule in the #330 entry: any change to the measuring tool, the budget or the run
+  count invalidates an in-flight count.
+- REQUESTs **#389** and **#390** are **FIXED** by window 3 and merged. Nothing owed.
+
+**The loops are placed and rendered, and still cannot be SEEN anywhere.** Two owner actions stand
+between here and a visible loop, both already on `LAUNCH.md`: a **Sanity project** (without
+`SANITY_PROJECT_ID` there is no CMS content at all) and a **Cloudinary account** (without a cloud name
+`resolve-media.mjs` drops the video at seed time). A third thing is deliberate, not a gap: the island
+**refuses to mount in an e2e build** (`E2E_LOCAL_IMAGES`), so it will never appear in a mock or e2e
+run. Do not treat any of these three as a bug.
+
+**Operating budget changed 2026-10-08:** the owner now runs the **manager plus two build windows**,
+where CLAUDE.md's rule says one. CLAUDE.md is the main window's file, so it may still read "one";
+the owner's instruction is the current one. The ~20-tool-call check-in rule is unchanged.
+
+**Next session:** nothing queued. Likely Phase 3 proper — the gaps below and LAUNCH.md's owner
+actions.
+
 
 ## Phase 3 onboarding — gaps recorded at the end of Phase 2
 For whoever starts the next brand, or takes brand A live. Details and verify commands are in
@@ -250,6 +1017,13 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   (set the admin port too: `mock.mjs` kills both servers if either fails to bind). CI is unaffected —
   `reuseExistingServer` is off there. **Symptom to recognise:** a mock run failing on a feature the
   contract gained recently, with no error in the app's own log.
+  **The same port also makes a UNIT test flake here.** `test/brand-i18n-seo.test.ts`'s "renders
+  `<html lang>` through the real layout" renders the real locale layout, which fetches `GET /store`
+  from `MOCK_API_URL` (default `localhost:4010`) — and `localhost` tries `::1` first on this laptop
+  ([[docker-ipv6-loopback-reset]]). It took 1630 ms on a good run and failed once in about five
+  full-suite runs on 2026-10-07, while passing on its own every time. **Not a code defect and green
+  in CI**, which starts its own mock: if it reddens a local run, re-run before believing it, and do
+  not "fix" the test.
 - **`playwright.config.ts` must never import `RUNTIME_SITE_URL`** from `e2e/support/build-origin`,
   however the starter writes it. The module computes `process.env.SITE_URL ?? ':3100'` in a
   module-level `const`; ES imports evaluate before the importing module's body; brand A's
@@ -265,6 +1039,27 @@ For whoever starts the next brand, or takes brand A live. Details and verify com
   rewritten, so the manager had to allowlist those files on main. Write "the secret-key and
   restricted-key fixtures in `test/payment-options.test.ts`" instead. The scanner reads prose, and
   an explanation of a false positive is indistinguishable from the real thing to a regex.
+- **`scripts/check-ownership.sh` can false-positive on another window's files** when the MAIN
+  CHECKOUT's `main` is stale: it prefers `merge-base main HEAD`, and `main` lives in
+  `C:/Users/mehdi/Desktop/commerce-platform`. **Never move that ref** — it is another session's
+  working tree. *(Happened 2026-10-07 at `13c393d`; the manager pulled it and the check is correct
+  again. Kept because it will recur.)* Diagnose with:
+  `OWNERSHIP_BRANCH=<branch> OWNERSHIP_FILES="$(git diff --name-only origin/main...HEAD)" bash scripts/check-ownership.sh`
+  — **three dots, not two.** Two dots diff the two tips, so once `origin/main` moves ahead of your
+  branch it lists files *other windows* changed and reads exactly like a violation. Three dots diff
+  from the merge base, which is your side only and is what the script itself does.
+  Either form covers only **committed** work, so commit first. CI uses `origin/main`, so CI is unaffected.
+- **A one-off verification script is NOT a test — and must never be described as one.** #408 was
+  BLOCKed for this. While writing #386's content I used a throwaway script in the scratchpad that
+  asserted "no still is used twice on the home page". It passed, once, at that moment. I then wrote
+  "a test pins that" into the PR body, the commit message (`a1c25eb`) **and** this file — three places
+  in the permanent record claiming a standing guarantee that existed nowhere in the repo. The
+  reviewer's failure mode was exact: reverting only the imageBlock half of the swap would have passed
+  every one of the 8 new tests and quietly printed one still twice. **Rule:** if a claim about
+  invariants goes into a PR body, a commit message or this file, the thing enforcing it must be in
+  the repo first. Before writing "a test pins X", grep for the test. And when a check is worth running
+  once, ask whether it is worth running always — it usually is, which is the whole point of putting it
+  in the suite. (Proved the new test fails on exactly that half-revert before trusting it.)
 - **Never let a spec do arithmetic on money** (#374). Adding rows up restates the core's pricing
   rules in a file that does not own them, so the spec breaks the day pricing changes — and it breaks
   *as a red test on correct code*, which costs another window their merge. Compare two pages the app

@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.9.
+ * Contract: Admin API 0.4.22.
  */
 
 import 'server-only';
@@ -173,6 +173,27 @@ export async function revokeApiKey(
 ): Promise<ApiResult<AdminResponse<'revokeApiKey'>>> {
   return adminCall<'revokeApiKey'>({
     path: buildPath('/admin/stores/{storeId}/api-keys/{keyId}/revoke', { storeId, keyId }),
+    method: 'POST',
+  });
+}
+
+/**
+ * One-transaction brand onboarding (owner on hq): 201 with the publishable key shown ONCE; 200 with
+ * `publishable_key: null` on an identical repeat; 409 `details.differs` / `details.field`; 422
+ * `details.settings`.
+ */
+export async function onboardStore(
+  body: AdminComponents['StoreOnboardingInput'],
+): Promise<ApiResult<AdminResponse<'onboardStore'>>> {
+  return adminCall<'onboardStore'>({ path: '/admin/onboarding/stores', method: 'POST', body });
+}
+
+/** Draft/paused → active once every prerequisite exists; 409 `details.missing` / `status`. */
+export async function activateStore(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'activateStore'>>> {
+  return adminCall<'activateStore'>({
+    path: buildPath('/admin/stores/{storeId}/activate', { storeId }),
     method: 'POST',
   });
 }
@@ -683,5 +704,171 @@ export async function getPromotionReport(
   return adminCall<'getPromotionReport'>({
     path: buildPath('/admin/stores/{storeId}/marketing/reports/promotions', { storeId }),
     query: range,
+  });
+}
+
+// ---------------------------------------------------------------------------- roles (task 3.1, #428)
+
+/** Staff users (HQ, owner on organization:hq). `q` matches email or display name. */
+export async function listUsers(query: Query = {}): Promise<ApiResult<AdminResponse<'listUsers'>>> {
+  return adminCall<'listUsers'>({ path: '/admin/users', query });
+}
+
+/**
+ * Creates the Keycloak user and its staff mirror (owner on hq). 409 when the email is taken. The
+ * contract takes no initial role: the form assigns one with `assignRole` after a 201.
+ */
+export async function inviteUser(body: {
+  email: string;
+  display_name: string;
+}): Promise<ApiResult<AdminResponse<'inviteUser'>>> {
+  return adminCall<'inviteUser'>({ path: '/admin/users', method: 'POST', body });
+}
+
+export async function listUserRoles(
+  userId: string,
+): Promise<ApiResult<AdminResponse<'listUserRoles'>>> {
+  return adminCall<'listUserRoles'>({
+    path: buildPath('/admin/users/{userId}/roles', { userId }),
+  });
+}
+
+/** `assignRole`'s inline request body, straight from the generated operation. */
+export type RoleAssignmentBody =
+  operations['assignRole']['requestBody']['content']['application/json'];
+
+/** Grants a relation on a store or on the organization; ends the user's sessions in the core. */
+export async function assignRole(
+  userId: string,
+  body: RoleAssignmentBody,
+): Promise<ApiResult<AdminResponse<'assignRole'>>> {
+  return adminCall<'assignRole'>({
+    path: buildPath('/admin/users/{userId}/roles', { userId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Revokes one assignment; ends the user's sessions in the core. */
+export async function revokeRole(
+  userId: string,
+  assignmentId: string,
+): Promise<ApiResult<AdminResponse<'revokeRole'>>> {
+  return adminCall<'revokeRole'>({
+    path: buildPath('/admin/users/{userId}/roles/{assignmentId}', { userId, assignmentId }),
+    method: 'DELETE',
+  });
+}
+
+/** Audit entries, filtered by actor and/or store (`viewer` on the store; HQ roles see all). */
+export async function listAuditLog(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listAuditLog'>>> {
+  return adminCall<'listAuditLog'>({ path: '/admin/audit-log', query });
+}
+
+// ---------------------------------------------------------------------------- warehouse (#468)
+
+/**
+ * Inventory rows of the store's variants (`viewer` on `store:{store_id}`). Each row carries the
+ * POOL row's numbers and `stock_item_id`; `id` is the pool row's and repeats when two variants share
+ * an item — key rows by (variant_id, warehouse_id), never sum across variants.
+ */
+export async function listInventoryLevels(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listInventoryLevels'>>> {
+  return adminCall<'listInventoryLevels'>({ path: '/admin/inventory/levels', query });
+}
+
+/** The organization's stock items, their variants per store and the pool level per warehouse (viewer on hq). */
+export async function listStockItems(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listStockItems'>>> {
+  return adminCall<'listStockItems'>({ path: '/admin/stock-items', query });
+}
+
+/**
+ * Pools a variant onto a stock item (operations on hq). Idempotent; 409 while the variant's
+ * current item still holds stock or open reservations (`details.on_hand`, `open_reservations`).
+ */
+export async function mapVariantToStockItem(
+  stockItemId: string,
+  variantId: string,
+): Promise<ApiResult<AdminResponse<'mapVariantToStockItem'>>> {
+  return adminCall<'mapVariantToStockItem'>({
+    path: buildPath('/admin/stock-items/{stockItemId}/variants/{variantId}', {
+      stockItemId,
+      variantId,
+    }),
+    method: 'PUT',
+  });
+}
+
+/** Cycle counts, newest first (operations on hq). */
+export async function listCycleCounts(
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listCycleCounts'>>> {
+  return adminCall<'listCycleCounts'>({ path: '/admin/cycle-counts', query });
+}
+
+/** `createCycleCount`'s request body, straight from the generated operation. */
+export type CycleCountBody =
+  operations['createCycleCount']['requestBody']['content']['application/json'];
+
+/** Writes a count down (status `recorded`); changes no stock. */
+export async function createCycleCount(
+  body: CycleCountBody,
+): Promise<ApiResult<AdminResponse<'createCycleCount'>>> {
+  return adminCall<'createCycleCount'>({ path: '/admin/cycle-counts', method: 'POST', body });
+}
+
+/**
+ * Reconciles a count: `applied` or `flagged`. `approve` applies whatever the delta is now
+ * (recomputed under the pool row's lock) and records the approver. No body when not approving.
+ */
+export async function reconcileCycleCount(
+  cycleCountId: string,
+  approve = false,
+): Promise<ApiResult<AdminResponse<'reconcileCycleCount'>>> {
+  return adminCall<'reconcileCycleCount'>({
+    path: buildPath('/admin/cycle-counts/{cycleCountId}/reconcile', { cycleCountId }),
+    method: 'POST',
+    ...(approve ? { body: { approve: true } } : {}),
+  });
+}
+
+// ---------------------------------------------------------------------------- warehouse reads (#469, Admin API 0.4.16)
+
+/** The pool row's ledger: every movement of this stock item, newest first (viewer on hq). */
+export async function listStockItemMovements(
+  stockItemId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listStockItemMovements'>>> {
+  return adminCall<'listStockItemMovements'>({
+    path: buildPath('/admin/stock-items/{stockItemId}/movements', { stockItemId }),
+    query,
+  });
+}
+
+/** Every store's reservations on this item's pool rows, with `allocation_rule` (viewer on hq). */
+export async function listStockItemReservations(
+  stockItemId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listStockItemReservations'>>> {
+  return adminCall<'listStockItemReservations'>({
+    path: buildPath('/admin/stock-items/{stockItemId}/reservations', { stockItemId }),
+    query,
+  });
+}
+
+/**
+ * What `reconcileCycleCount` would do now, without writing (operations on hq). Takes no lock: an
+ * approval right after may still compute another delta.
+ */
+export async function previewCycleCountReconcile(
+  cycleCountId: string,
+): Promise<ApiResult<AdminResponse<'previewCycleCountReconcile'>>> {
+  return adminCall<'previewCycleCountReconcile'>({
+    path: buildPath('/admin/cycle-counts/{cycleCountId}/reconcile-preview', { cycleCountId }),
   });
 }

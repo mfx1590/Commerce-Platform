@@ -52,6 +52,8 @@ export function contentSecurityPolicy({ keycloakUrl, frameHosts }: CspInput): st
     // The CDNs `remotePatterns` allows, plus data:/blob: for inlined placeholders.
     "img-src 'self' data: blob: https://res.cloudinary.com https://images.unsplash.com https://picsum.photos",
     "font-src 'self' data:",
+    // Hero loops (#330) are Cloudinary video delivery URLs; nothing else plays media.
+    "media-src 'self' https://res.cloudinary.com",
     "style-src 'self' 'unsafe-inline'",
     // Not XSS protection: Next's App Router emits inline bootstrap scripts, and removing
     // 'unsafe-inline' needs a nonce threaded through every <Script>. Stated, not implied.

@@ -29,6 +29,10 @@
       "image": {
         "_type": "image",
         "mediaSlot": "campaign-autumn-hero"
+      },
+      "video": {
+        "_type": "heroVideo",
+        "mediaSlot": "campaign-autumn-hero-loop-8s"
       }
     },
     "blocks": [
@@ -143,6 +147,10 @@
       "image": {
         "_type": "image",
         "mediaSlot": "campaign-autumn-hero"
+      },
+      "video": {
+        "_type": "heroVideo",
+        "mediaSlot": "campaign-autumn-hero-loop-8s"
       }
     },
     "blocks": [

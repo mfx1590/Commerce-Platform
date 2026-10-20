@@ -14,6 +14,7 @@ export interface OidcMetadata {
   issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
+  userinfo_endpoint?: string;
   end_session_endpoint?: string;
 }
 
@@ -114,6 +115,60 @@ export async function refreshTokens(refreshToken: string): Promise<Session> {
     }),
   );
   return toSession(tokens);
+}
+
+/**
+ * Ends the realm's SSO session **server-side**, before the browser is sent anywhere (#353).
+ *
+ * Keycloak's front-channel end-session can stop on a "Do you want to log out?" page; a user who
+ * abandons it used to keep a live SSO session, and the next admin request signed them straight back
+ * in. Posting the refresh token to the end-session endpoint (public client: `client_id` is the
+ * authentication) kills the session whatever happens in the browser. True on 2xx; false when
+ * Keycloak refused or could not be reached — the caller drops the local session either way.
+ */
+export async function endKeycloakSession(refreshToken: string): Promise<boolean> {
+  try {
+    const metadata = await discover();
+    if (metadata.end_session_endpoint === undefined) return false;
+    const response = await fetch(metadata.end_session_endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: env.oidcClientId, refresh_token: refreshToken }),
+      cache: 'no-store',
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the realm still knows the session behind this access token: Keycloak's userinfo answers
+ * 401 once the session is ended (sign-out, an admin's "sign out", expiry). Fails **closed**: any
+ * answer but 200, or no answer at all, is "not live" — the admin's own session then goes back to
+ * sign-in. Only the admin app asks this; the core keeps verifying JWTs offline.
+ */
+export async function sessionIsLive(accessToken: string): Promise<boolean> {
+  try {
+    const metadata = await discover();
+    if (metadata.userinfo_endpoint === undefined) return false;
+    const response = await fetch(metadata.userinfo_endpoint, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      cache: 'no-store',
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Keycloak's session id (`sid`) from the ID token, or '' when it carries none. */
+export function sessionIdOf(idToken: string): string {
+  try {
+    return stringClaim(decodeJwtClaims(idToken), 'sid');
+  } catch {
+    return '';
+  }
 }
 
 export async function endSessionUrl(

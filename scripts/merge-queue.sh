@@ -5,6 +5,12 @@
 # wait for CI ignoring the advisory images check, merge with a merge commit. Refuses on red CI.
 # Manager merge queue: for each PR, merge origin/main into the branch (lockfile regenerated), push, merge PR.
 set -uo pipefail
+# Git Bash only. Under WSL every worktree's C:/ gitdir looks missing, so `git worktree prune` below deletes the
+# registration of EVERY window's worktree (2026-10-13: all 14, re-registered by hand). From PowerShell plain
+# `bash` is WSL's: use  & "C:\Program Files\Git\bin\bash.exe" scripts/merge-queue.sh "<pr> <branch>"
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  echo "merge-queue.sh must run in Git Bash, not WSL (see the comment at the top of the script)"; exit 2
+fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$ROOT/../wt-mgr-tmp"
 cd "$ROOT"

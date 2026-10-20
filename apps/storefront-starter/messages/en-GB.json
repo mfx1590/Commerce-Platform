@@ -14,7 +14,9 @@
     "change": "Change",
     "continueShopping": "Continue shopping",
     "locale": "Language",
-    "currency": "Currency"
+    "currency": "Currency",
+    "pauseVideo": "Pause video",
+    "playVideo": "Play video"
   },
   "home": {
     "intro": "A starter storefront rendering live data from the Store API. Every brand app is generated from this template and overrides tokens, slots and route files — never the shared kit.",
@@ -178,6 +180,66 @@
     "errors": {
       "generic": "Something went wrong. Please try again.",
       "correctFields": "Please correct the highlighted fields."
+    }
+  },
+  "account": {
+    "address": {
+      "edit": "Edit",
+      "editForm": "Edit address",
+      "save": "Save address",
+      "cancel": "Cancel",
+      "remove": "Remove",
+      "removeForm": "Remove address",
+      "removeQuestion": "Remove this address?",
+      "removeYes": "Yes, remove",
+      "keep": "Keep it",
+      "updated": "Address updated.",
+      "removed": "Address removed.",
+      "useDelivery": "Use as my delivery address",
+      "useBilling": "Use as my billing address",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "company": "Company (optional)",
+      "line1": "Address",
+      "line2": "Apartment, suite (optional)",
+      "postalCode": "Postal code",
+      "city": "City",
+      "country": "Country code",
+      "region": "Region (optional)",
+      "phone": "Phone (optional)"
+    },
+    "privacy": {
+      "exportForm": "Download my data",
+      "exportIntro": "Get a copy of the data this shop holds about you: your profile, addresses, consent and orders. We prepare the file and email you when it is ready to download.",
+      "exportRequested": "Your export has been requested. We will email you when it is ready.",
+      "exportButton": "Download my data",
+      "deleteForm": "Delete my account",
+      "deleteIntro": "This deletes your account in this shop: your profile, your saved addresses and your consent choices are erased and you are signed out. Your orders stay on record as the law requires. This cannot be undone.",
+      "deleting": "Your account is being deleted.",
+      "confirmLabel": "Type {word} to confirm",
+      "deleteButton": "Delete my account"
+    },
+    "consents": {
+      "title": "Your consents",
+      "intro": "Tell us what you allow. Your answer is recorded with the date and the version of the privacy policy you saw; you can change it here at any time.",
+      "purpose": {
+        "marketing_email": "Offers and news by email"
+      },
+      "neverAsked": "You have not decided yet",
+      "granted": "Allowed on {date}",
+      "declined": "Declined on {date}",
+      "policy": "Privacy policy version {version}",
+      "save": "Save consents",
+      "saved": "Your consents are saved."
+    },
+    "exports": {
+      "title": "Your data exports",
+      "requested": "Requested {date}",
+      "until": "Ready — available until {date}",
+      "pending": "Being prepared; we will email you when it is ready",
+      "expired": "Expired",
+      "tooLarge": "Too large to deliver online — please contact us",
+      "download": "Download"
     }
   }
 }

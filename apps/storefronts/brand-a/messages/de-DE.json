@@ -14,7 +14,9 @@
     "change": "Ändern",
     "continueShopping": "Weiter einkaufen",
     "locale": "Sprache",
-    "currency": "Währung"
+    "currency": "Währung",
+    "pauseVideo": "Video anhalten",
+    "playVideo": "Video abspielen"
   },
   "home": {
     "intro": "Ein Starter-Storefront, der Live-Daten aus der Store-API rendert. Jede Marken-App wird aus dieser Vorlage erzeugt und überschreibt Tokens, Slots und Route-Dateien — nie das gemeinsame Kit.",

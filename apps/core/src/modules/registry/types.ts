@@ -93,3 +93,20 @@ export interface DomainUpdate {
 
 export type Warehouse = AdminComponents['schemas']['Warehouse'];
 export type LegalEntity = AdminComponents['schemas']['LegalEntity'];
+
+// ---- onboarding (#413, Admin API 0.4.11 / contracts-v0.4.13) ---------------------------------------------
+export type LegalEntityInput = AdminComponents['schemas']['LegalEntityInput'];
+export type StoreOnboardingInput = AdminComponents['schemas']['StoreOnboardingInput'];
+export type StoreOnboarded = AdminComponents['schemas']['StoreOnboarded'];
+
+/**
+ * The OpenFGA side of a store (#413 / #415): the `store:<id>#organization@organization:hq` tuple that makes a
+ * store visible to scope resolution at all. The registry never talks to OpenFGA directly — the routes hand in
+ * an implementation (window 2's `ensureStoreObject` once #415 is on main; a fake in tests).
+ */
+export interface StoreRegistrar {
+  /** Writes the tuple; idempotent (a second call on the same store is a no-op). */
+  ensureStoreObject(storeId: string): Promise<void>;
+  /** Whether the tuple exists — the `fga_object` activation prerequisite. */
+  hasStoreObject(storeId: string): Promise<boolean>;
+}

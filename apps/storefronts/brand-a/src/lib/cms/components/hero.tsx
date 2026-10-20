@@ -1,5 +1,7 @@
 import type { Cta, Hero as HeroValue } from '@platform/cms';
 import { buttonVariants } from '@platform/ui';
+import { HeroMedia } from '@/components/hero-media';
+import { heroVideo } from '../hero-video';
 import type { ContentContext } from '../content';
 import { SafeLink } from './safe-link';
 import { SanityImage } from './sanity-image';
@@ -54,7 +56,10 @@ export function Hero({ hero, ctx, as: Heading = 'h1' }: HeroProps) {
         ) : null}
       </div>
       {hero.image ? (
-        <SanityImage image={hero.image} ctx={ctx} priority className="w-full rounded-lg" />
+        // The poster renders as before; the optional loop is an overlay of the same box (#330).
+        <HeroMedia video={heroVideo(hero)}>
+          <SanityImage image={hero.image} ctx={ctx} priority className="w-full rounded-lg" />
+        </HeroMedia>
       ) : null}
     </section>
   );

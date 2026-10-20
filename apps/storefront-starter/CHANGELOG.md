@@ -1,5 +1,147 @@
 # Changelog — @platform/storefront-starter
 
+## Unreleased — 2026-10-18 (window 13, #473 PR: #501 review nits)
+
+- The export download link carries the locale prefix (`exportDownloadPath`; no middleware redirect any more) and the
+  exports panel's status rule is the pure `exportStatus`, both unit-tested in `account/account.test.ts`.
+
+## Unreleased — 2026-10-18 (window 13, #472: data exports)
+
+- **Your data exports** on `/account` (`src/components/account-exports.tsx`, Store API 0.5.8 `listMyExports`): each
+  request with its state (being prepared / ready until a date / expired / too large) and a Download link for the
+  ready ones. The download is the route handler `src/app/[locale]/(account)/account/exports/[exportId]/route.ts`:
+  it calls `getMyExport` with the session token (never in the browser) and streams the JSON as an attachment,
+  `no-store`; the Store API's 404 / 410 pass through. Catalog namespace `account.exports` (en-GB, de-DE).
+
+## Unreleased — 2026-10-18 (window 13, #471: consent ledger)
+
+- **Your consents** on `/account` (`src/components/account-consents.tsx`, Store API 0.5.7 `getMyConsents` /
+  `putMyConsents`): one row per purpose with its state — never asked, allowed on a date, declined on a date — and
+  a checkbox; an unticked box is an explicit "no". The form sends the privacy-policy version the page displays:
+  `PRIVACY_POLICY_VERSION` in the environment (`unversioned` when unset; keep it equal to the store's
+  `settings.privacy.policy_version`). Catalog namespace `account.consents` (en-GB, de-DE).
+
+## Unreleased — 2026-10-18 (window 13, #470: account self-service)
+
+- **Address book: edit and remove.** Each saved address has an edit form (every field, blank optional ones clear;
+  a default is moved by ticking it on another address) and a two-step remove
+  (`src/components/account-address-forms.tsx`; `updateMyAddress` / `deleteMyAddress`, Store API 0.5.6).
+- **Privacy section** on `/account` (`src/components/account-privacy.tsx`): "Download my data" (`requestMyExport`;
+  the file is announced by email) and "Delete my account" (typed confirmation `DELETE`, then `deleteMe`, the local
+  session is cleared and the customer lands on the new `/account/deleted`, which offers the Keycloak sign-out).
+- Server actions in `src/app/[locale]/(account)/account/actions.ts` through the client's generic `request`;
+  `src/lib/store-api` is unchanged. Pure rules + unit test next to them (collected once REQUEST #484 widens the
+  vitest include).
+
+## 0.14.3 — 2026-10-10
+
+Issue #446. Test-only.
+
+- **Four unit tests take the locale from the app's routing, not the starter's literals.**
+  `test/route-origin.test.ts` (the two sign-in fallbacks land on `/<defaultLocale>/account`),
+  `test/seo.test.ts` (alternates: one entry per configured locale, `x-default` on the default, the
+  count is locales + 1 — no longer assuming two) and `test/cms-content.test.ts` (page metadata in
+  the default locale) import `locales` / `defaultLocale` from `src/i18n/routing`. A brand can now
+  pass `SUPPORTED_LOCALES` / `DEFAULT_LOCALE` to vitest (#441 part 5's plumbing) without a red
+  suite. The starter's own run is unchanged: 609 tests, same assertions for `en-GB,de-DE`.
+
+## 0.14.2 — 2026-10-09
+
+Issue #449. Test-only.
+
+- **The checkout journey's review assertion follows the configured address.** `checkout.spec.ts`
+  asserted the NL street literally, so brands B and C — whose journeys type their own
+  `E2E_SHIP_ADDRESS_JSON` (#441 part 3) — failed that one test on the core. It now asserts
+  `reviewAddressLine1(enteredAddress)`: the configured `line1` when the journey typed the address,
+  the contract example cart's (`MOCK_CART_LINE1`) when the backend already had one (the mock).
+  `card-payment.spec.ts` enters the configured postcode. No NL literal is left outside
+  `e2e/support/ship-address.ts`.
+
+## 0.14.1 — 2026-10-09
+
+Issue #447. Tooling only. New dev dependencies, exact and already in the lockfile: `yaml` 2.9.0,
+`ajv` 8.20.0, `ajv-formats` 3.0.1.
+
+- **The perf gate measures a brand against its own store.** With `perf/store.example.json` present,
+  `scripts/perf.mjs` validates it against the Store API spec's `Store` schema, starts Prism on
+  `PERF_MOCK_PORT` (4012) from a temporary spec copy whose `GET /store` example is that file, and
+  runs the build and Lighthouse against it; every exit stops that Prism. Brand C's `/en-US` routes
+  404'd against brand A's example, so its warm-up never succeeded. Without the file nothing changes
+  (the starter and brand A).
+- Tests: `test/perf-store-example.test.ts` — present (the copy carries the example, one line differs),
+  absent (`null`), invalid (not JSON; schema violations named).
+
+## 0.14.0 — 2026-10-09
+
+Issues #441 (parts 1–5) and #440. No contract change. **A production server must now name its
+Keycloak client.** The starter's own behaviour and brand A's are unchanged otherwise (same suites,
+same counts).
+
+- **The OIDC client id fails closed** (`oidcClientId`, `OidcConfigError`): `KEYCLOAK_CLIENT_ID` unset
+  falls back to the documented `storefront-brand-a` only where `siteUrl()` allows its own default
+  (NODE_ENV development / test, `next build`); anywhere else it throws. A brand that forgot it used to
+  sign customers in through brand A's client — sessions bound to `brand-a`'s store. Sign-out drops
+  the local session before resolving the client, so a misconfiguration never keeps anyone signed in.
+  The starter's e2e server (`next start`) gets the client from `playwright.config.ts`.
+- **One locale definition** (`src/i18n/locale-config.mjs`) for routing, the e2e server and the specs.
+  `scripts/e2e-warm.mjs` (moved out of `e2e-server.mjs`) warms `/<default locale>` and **fails at once
+  on a 3xx, naming the `location`** — brand C's `/en-GB` answered `307 → /en-US/en-GB` and the old loop
+  spun 120 times before blaming latency. Every `/en-GB` literal in the synced specs now goes through
+  `e2e/support/locale.ts`; `seo-head.spec.ts` and `checkout.spec.ts` take the locale list from it (the
+  hreflang count follows), and the German test skips with the reason when `de-DE` is not configured.
+- **The checkout journey ships to the brand's address**: `E2E_SHIP_ADDRESS_JSON` (validated), the NL
+  address by default (`e2e/support/ship-address.ts`).
+- **Catalogues follow the configured locales**: `test/i18n.test.ts` checks one exists per configured
+  locale (it passed in a brand with none); `src/i18n/catalogue.ts` fails naming the missing file
+  instead of a bare `MODULE_NOT_FOUND`; `vitest.config.ts` passes `SUPPORTED_LOCALES` (and
+  `DEFAULT_LOCALE` when set) from the environment.
+- Tests: `test/auth.test.ts` (client id), `test/route-origin.test.ts` (sign-out order),
+  `test/locale-config.test.ts`, `test/e2e-warm.test.ts`, `test/ship-address.test.ts`,
+  `test/i18n-request.test.ts`, `test/i18n.test.ts` — each red before its change.
+
+## 0.13.5 — 2026-10-07
+
+Issue #330, the rendering half (window 6's CMS half is #385, `@platform/cms` 0.5.0). No contract change.
+
+- **A hero can play a muted video loop over its poster** (`HeroMedia`, `src/components/hero-media.tsx`,
+  mounted around the hero image in `src/lib/cms/components/hero.tsx`) when the reader hands it a
+  `hero.video`:
+  - the poster renders as before, sizes the box (no layout shift) and stays the LCP candidate;
+  - no `<video>` exists until the page's `load` event, so nothing about it is requested before the
+    first paint; then `muted loop playsInline autoPlay preload="none" aria-hidden`, with a visible
+    pause / play control (WCAG 2.2.2);
+  - **`prefers-reduced-motion: reduce` → the poster alone, the video never requested**; switching the
+    preference on later removes the loop;
+  - the URL goes through the shared Cloudinary loader, width capped at 1600 (`c_limit`);
+  - never in an end-to-end build (`E2E_LOCAL_IMAGES`), so no e2e request leaves the machine.
+- **CSP:** `media-src 'self' https://res.cloudinary.com` — without it `default-src 'self'` would block
+  every loop.
+- Tests: `test/hero-media.test.ts` (jsdom): both motion settings, the late switch to reduce, the
+  control, no video / e2e build, the URL; red when the reduced-motion check is removed. CSP test for
+  `media-src`. Mock journeys unchanged (the e2e runs have no CMS).
+
+## 0.13.4 — 2026-10-07
+
+Issue #390 (REQUEST from window 10). Tooling only.
+
+- **The perf gate warms every measured URL before Lighthouse** (`scripts/warm-urls.mjs`, used by
+  `scripts/perf.mjs`): each URL in `lighthouserc.json` must answer under a second twice in a row —
+  the rule `scripts/e2e-server.mjs` already uses — within 120 s, or the gate fails rather than measure
+  a cold server. `/health` answering never meant the measured routes had been rendered, so run 1 paid
+  their first render (CI: PLP TBT 1125 ms on run 1 against ~75 ms on runs 2 and 3).
+- Tests: `test/warm-urls.test.ts` (streak, reset on a slow or failed answer, deadline).
+
+## 0.13.3 — 2026-10-07
+
+Issue #389 (REQUEST from window 10). Tooling only.
+
+- **The perf gate's Lighthouse CI is pinned to `@lhci/cli` 0.15.1 (Lighthouse 12.6.1)**, in
+  `scripts/perf.mjs` and the `lighthouse` script. 0.14.0's Lighthouse crashed its `TraceElements`
+  gatherer against current Chrome, so six audits errored on every run — among them the three that
+  name the LCP element. Measured locally with the gate itself: all six populate, the assertions pass
+  unchanged, and the PLP's LCP element is its `<h1>` ("All products"), not a product image (PDP: the
+  product's `<h1>`).
+
 ## 0.13.2 — 2026-10-07
 
 Issue #382. Test-only; no app change.

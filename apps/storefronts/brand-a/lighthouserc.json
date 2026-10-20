@@ -5,7 +5,7 @@
         "http://127.0.0.1:3100/en-GB/products",
         "http://127.0.0.1:3100/en-GB/products/classic-tee"
       ],
-      "numberOfRuns": 3,
+      "numberOfRuns": 5,
       "settings": {
         "onlyCategories": ["performance", "accessibility", "best-practices", "seo"],
         "skipAudits": ["uses-http2", "uses-long-cache-ttl"]

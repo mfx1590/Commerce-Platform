@@ -6,6 +6,7 @@
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { segmentQuery } from './segment-sql';
 import {
   createSegment,
   createSegmentTemplate,
@@ -36,7 +37,7 @@ let hq: ReturnType<typeof createOrganizationClient>;
 interface CustomerSpec {
   handle: string;
   storeId?: string;
-  consent?: Record<string, { granted: boolean }>;
+  consent?: Record<string, { granted: boolean; at?: string; source?: string }>;
   tags?: unknown;
   country?: string | null;
   groupId?: string | null;
@@ -337,6 +338,49 @@ describe('consent', () => {
       'not-opted-in',
     );
     expect((await previewSegment(a, A, notGranted.id)).count).toBe(3);
+
+    // never_asked: no block for the channel at all. The refuser has one, and so does the malformed row —
+    // something was recorded for them, so neither is invited to opt in.
+    const neverAsked = await makeSegment(
+      { v: 1, all: [{ any: [{ field: 'consent', op: 'never_asked', value: 'email' }] }] },
+      'never-asked',
+    );
+    expect((await previewSegment(a, A, neverAsked.id)).count).toBe(1);
+  });
+
+  it('never_asked is the never-asked customer only: a refusal and an opt-out are not_granted, never never_asked (#491)', async () => {
+    const granted = await makeCustomer({ handle: 'granted', consent: optedIn });
+    // a first explicit "no" (#471 records it) and an opt-out after a grant look the same in the projection
+    const refused = await makeCustomer({
+      handle: 'refused',
+      consent: {
+        marketing_email: { granted: false, at: '2026-10-18T10:00:00Z', source: 'account' },
+      },
+    });
+    const optedOut = await makeCustomer({
+      handle: 'opted-out',
+      consent: {
+        marketing_email: { granted: false, at: '2026-10-18T11:00:00Z', source: 'unsubscribe' },
+      },
+    });
+    const neverAsked = await makeCustomer({ handle: 'never-asked' }); // {}
+    const smsOnly = await makeCustomer({
+      handle: 'sms-only',
+      consent: { marketing_sms: { granted: true } },
+    }); // asked about sms, never about email
+
+    const ids = async (op: 'granted' | 'not_granted' | 'never_asked'): Promise<Set<string>> => {
+      const q = segmentQuery(
+        { v: 1, all: [{ any: [{ field: 'consent', op, value: 'email' }] }] },
+        'c.id',
+      );
+      return new Set(
+        (await a.query<{ id: string }>(q.text, [A, ...q.params])).rows.map((r) => r.id),
+      );
+    };
+    expect(await ids('granted')).toEqual(new Set([granted]));
+    expect(await ids('not_granted')).toEqual(new Set([refused, optedOut, neverAsked, smsOnly]));
+    expect(await ids('never_asked')).toEqual(new Set([neverAsked, smsOnly]));
   });
 
   it('never counts an erased or disabled customer', async () => {

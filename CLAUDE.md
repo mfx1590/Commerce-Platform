@@ -16,6 +16,7 @@
 
 - After every completed task and before every commit: update your memory file (Done with commit sha, In progress, Next, Decisions, Gotchas). Commit it together with the code.
 - Context getting long: update the memory file first, then run /compact. Prefer /compact after every finished task.
+- Never block on an interactive question dialog: the owner is not watching every window. Send the decision to the manager session as a message (options + your recommendation), continue with what does not depend on it, and act on the answer when it arrives.
 - Never edit another window's memory file. Only the main window edits Memory-main.md.
 
 ## Engineering rules

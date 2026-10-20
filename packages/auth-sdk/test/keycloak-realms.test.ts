@@ -1,12 +1,12 @@
 // Keycloak realm exports (infra/keycloak, issue #10).
 // Static part: always runs, validates the JSON files against the seed contract and the security rules.
 // Live part: runs only when the local Keycloak (KEYCLOAK_URL, default http://localhost:8180) answers.
-import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
+import { OWNER_DEV_TOTP_SECRET, totp, waitForNextTotpStep } from '../src/testing.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const realmDir = resolve(here, '../../../infra/keycloak');
@@ -18,7 +18,11 @@ interface Mapper {
 }
 interface Client {
   clientId: string;
+  description?: string;
   publicClient?: boolean;
+  serviceAccountsEnabled?: boolean;
+  implicitFlowEnabled?: boolean;
+  fullScopeAllowed?: boolean;
   secret?: string;
   standardFlowEnabled?: boolean;
   directAccessGrantsEnabled?: boolean;
@@ -40,9 +44,15 @@ interface Flow {
   authenticationExecutions: Execution[];
 }
 interface User {
-  id: string;
+  id?: string;
   username: string;
-  email: string;
+  email?: string;
+  enabled?: boolean;
+  /** Set on the one service-account user (core-admin, #415); such a user is no staff user. */
+  serviceAccountClientId?: string;
+  clientRoles?: Record<string, string[]>;
+  realmRoles?: string[];
+  groups?: string[];
   requiredActions?: string[];
   credentials?: { type: string; value?: string; secretData?: string; credentialData?: string }[];
 }
@@ -84,10 +94,13 @@ const kebab = (s: string) => s.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`)
 const seededUsernames = Object.keys(SEED_IDS.users).map(kebab).sort();
 
 describe('staff realm export (static)', () => {
+  /** The staff users: every export user that is not a client's service account (#415). */
+  const staffUsers = staff.users.filter((u) => !u.serviceAccountClientId);
+
   it('mirrors SEED_IDS.users: username, email and id == staff_user.keycloak_subject', () => {
-    const usernames = staff.users.map((u) => u.username).sort();
+    const usernames = staffUsers.map((u) => u.username).sort();
     expect(usernames).toEqual(seededUsernames);
-    for (const u of staff.users) {
+    for (const u of staffUsers) {
       expect(u.id).toBe(`seed-${u.username}`);
       expect(u.email).toBe(`${u.username}@example.com`);
       expect(u.requiredActions ?? []).toEqual([]);
@@ -144,6 +157,35 @@ describe('staff realm export (static)', () => {
     );
     const aud = app.protocolMappers?.find((m) => m.protocolMapper === 'oidc-audience-mapper');
     expect(aud?.config['included.custom.audience']).toBe('core-api');
+  });
+
+  it('core-admin is the one service account: confidential, no user flow, realm-management user roles only (#415)', () => {
+    const sa = client(staff, 'core-admin');
+    expect(sa.publicClient).toBe(false);
+    expect(sa.serviceAccountsEnabled).toBe(true);
+    expect(sa.standardFlowEnabled).toBe(false);
+    expect(sa.implicitFlowEnabled).toBe(false);
+    expect(sa.directAccessGrantsEnabled).toBe(false);
+    // Full scope: the service account's client roles reach its token only this way (false → 403 on every
+    // admin call, measured 2026-10-08); the roles themselves are the three below and nothing else.
+    expect(sa.fullScopeAllowed).toBe(true);
+    expect(sa.redirectUris).toEqual([]);
+    expect(sa.webOrigins).toEqual([]);
+    // The dev-only secret (infra/gitleaks.toml allowlists this shape; production replaces it, #416).
+    expect(sa.secret).toMatch(/^dev-only-[a-z-]+$/);
+    expect(staff.clients.filter((c) => c.serviceAccountsEnabled).map((c) => c.clientId)).toEqual([
+      'core-admin',
+    ]);
+    const saUsers = staff.users.filter((u) => u.serviceAccountClientId);
+    expect(saUsers.map((u) => u.serviceAccountClientId)).toEqual(['core-admin']);
+    expect(saUsers[0]!.clientRoles).toEqual({
+      'realm-management': ['manage-users', 'view-users', 'query-users'],
+    });
+    expect(saUsers[0]!.email).toBeUndefined(); // never a staff_user mirror
+    // No realm roles (default-roles-staff, offline_access, uma_authorization must never creep in, #422).
+    expect(saUsers[0]!.realmRoles).toBeUndefined();
+    expect(saUsers[0]!.groups).toBeUndefined();
+    expect(saUsers[0]!.credentials).toBeUndefined();
   });
 
   it('test-cli is the only client with the password grant', () => {
@@ -254,7 +296,8 @@ describe('customers realm export (static)', () => {
   // export declares no clientScopes, so nothing here depends on Keycloak's built-in `email` scope).
   it('every client emits email_verified as a JSON boolean in the access token (#307)', () => {
     expect(customers.clients.map((c) => c.clientId)).toContain('test-cli');
-    for (const c of customers.clients) {
+    // Every client that issues tokens to a person; the core-admin service account issues none (#483).
+    for (const c of customers.clients.filter((x) => !x.serviceAccountsEnabled)) {
       const m = c.protocolMappers?.find((x) => x.config['claim.name'] === 'email_verified');
       expect(m, `${c.clientId}: email_verified mapper`).toBeDefined();
       expect(m!.protocolMapper).toBe('oidc-usermodel-property-mapper');
@@ -285,9 +328,49 @@ describe('customers realm export (static)', () => {
     expect(google?.config.clientSecret).toMatch(/^\$\{[A-Z_]+(:[^}]*)?\}$/);
   });
 
-  it('keeps Jane', () => {
-    expect(customers.users.map((u) => u.email)).toEqual(['jane@example.com']);
+  it('keeps Jane (and the one service account, which is no customer)', () => {
+    expect(customers.users.filter((u) => !u.serviceAccountClientId).map((u) => u.email)).toEqual([
+      'jane@example.com',
+    ]);
   });
+
+  it('core-admin is the one service account here too: deletes the user of an erased customer (#483)', () => {
+    const sa = client(customers, 'core-admin');
+    expect(sa.publicClient).toBe(false);
+    expect(sa.serviceAccountsEnabled).toBe(true);
+    expect(sa.standardFlowEnabled).toBe(false);
+    expect(sa.implicitFlowEnabled).toBe(false);
+    expect(sa.directAccessGrantsEnabled).toBe(false);
+    expect(sa.fullScopeAllowed).toBe(true);
+    expect(sa.redirectUris).toEqual([]);
+    expect(sa.webOrigins).toEqual([]);
+    expect(sa.secret).toMatch(/^dev-only-[a-z-]+$/);
+    expect(sa.secret).not.toBe(client(staff, 'core-admin').secret); // one secret per realm
+    expect(
+      customers.clients.filter((c) => c.serviceAccountsEnabled).map((c) => c.clientId),
+    ).toEqual(['core-admin']);
+    const saUsers = customers.users.filter((u) => u.serviceAccountClientId);
+    expect(saUsers.map((u) => u.serviceAccountClientId)).toEqual(['core-admin']);
+    expect(saUsers[0]!.clientRoles).toEqual({
+      'realm-management': ['manage-users', 'view-users', 'query-users'],
+    });
+    expect(saUsers[0]!.realmRoles).toBeUndefined();
+    expect(saUsers[0]!.email).toBeUndefined();
+    expect(saUsers[0]!.credentials).toBeUndefined();
+  });
+});
+
+describe('import limits (measured 2026-10-08, #415)', () => {
+  it.each([staff, customers])(
+    '$realm: every client description fits Keycloak\x27s 255-character column',
+    (realm) => {
+      // A longer one makes the realm create answer 400 "Database operation failed" — after reimport.mjs has
+      // already deleted the realm, which then stays absent until a good file is imported.
+      for (const c of realm.clients) {
+        expect((c.description ?? '').length, c.clientId).toBeLessThanOrEqual(255);
+      }
+    },
+  );
 });
 
 describe('no secrets in any realm export', () => {
@@ -295,6 +378,14 @@ describe('no secrets in any realm export', () => {
     '$realm: no confidential client secrets, no literal idp secrets',
     (realm) => {
       for (const c of realm.clients) {
+        if (c.serviceAccountsEnabled) {
+          // The one service account (core-admin, #415): confidential by nature; its dev-only secret is the
+          // allowlisted local-development shape (infra/gitleaks.toml) and is replaced from Vault in
+          // production (#416). Any other shape here is a committed secret.
+          expect(c.clientId).toBe('core-admin');
+          expect(c.secret).toMatch(/^dev-only-[a-z-]+$/);
+          continue;
+        }
         expect(c.publicClient, `${c.clientId} must be public`).toBe(true);
         expect(c.secret, `${c.clientId} must not carry a secret`).toBeUndefined();
       }
@@ -333,18 +424,6 @@ async function passwordGrant(realm: string, clientId: string, username: string, 
 function claims(jwt: string): Record<string, unknown> {
   const payload = jwt.split('.')[1] ?? '';
   return JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
-}
-
-/** Dev-only TOTP secret of the pre-enrolled `owner` user (infra/keycloak/README.md, issue #43). */
-const OWNER_DEV_TOTP_SECRET = 'owner-dev-totp-secret-20260905';
-
-/** RFC 6238 TOTP over the raw secret string (HmacSHA1, 6 digits, 30 s) — Keycloak's OTP policy. */
-function totp(secret: string, at = Date.now()): string {
-  const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
-  const h = createHmac('sha1', Buffer.from(secret, 'utf8')).update(counter).digest();
-  const o = h[h.length - 1]! & 0xf;
-  return ((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).toString().padStart(6, '0');
 }
 
 const authorizeUrl = (realm: string, clientId: string, redirectUri: string) =>
@@ -448,18 +527,27 @@ describe.runIf(live)('staff realm (live Keycloak)', () => {
       ?.replace(/&amp;/g, '&');
     expect(otpAction, 'otp form action').toBeDefined();
 
-    let done = await login.postForm(otpAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
-    if (done.status !== 302) {
-      // The current window's code was consumed elsewhere in this run (code reuse is off). The policy's
-      // look-ahead of 1 also accepts the next window's (different) code; the error page re-renders the form.
-      const retryHtml = await done.text();
-      const retryAction = retryHtml
+    // This test is the one place that must spend a code (the challenge is what it tests): the other suites
+    // reuse owner's shared token (#346). Code reuse is off, so a code spent elsewhere in this step is refused
+    // and the error page re-renders the form: try the current step, then the next (look-ahead 1), then wait
+    // for a fresh step nobody can have used yet.
+    const otpFormAction = (html: string) =>
+      html
         .match(/<form[^>]*action="([^"]+)"[^>]*>(?:(?!<\/form>)[\s\S])*name="otp"/)?.[1]
         ?.replace(/&amp;/g, '&');
+    let done = await login.postForm(otpAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
+    if (done.status !== 302) {
+      const retryAction = otpFormAction(await done.text());
       expect(retryAction, 'otp retry form action').toBeDefined();
       done = await login.postForm(retryAction!, {
         otp: totp(OWNER_DEV_TOTP_SECRET, Date.now() + 30_000),
       });
+    }
+    if (done.status !== 302) {
+      const retryAction = otpFormAction(await done.text());
+      expect(retryAction, 'otp second retry form action').toBeDefined();
+      await waitForNextTotpStep();
+      done = await login.postForm(retryAction!, { otp: totp(OWNER_DEV_TOTP_SECRET) });
     }
     expect(done.status).toBe(302);
     const location = done.headers.get('location') ?? '';

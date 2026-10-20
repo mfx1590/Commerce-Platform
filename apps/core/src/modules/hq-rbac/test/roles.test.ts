@@ -1,10 +1,12 @@
 // Role management through the hq-rbac HTTP layer, against docker Postgres (throw-away db) + docker OpenFGA
 // (throw-away store). Issue #12.
 import {
+  ApiError,
   assignRole,
   createOpenFgaClient,
   revokeRole,
   seedOpenFga,
+  type KeycloakAdmin,
   type OpenFgaClient,
   type RolesDeps,
   type StaffPrincipal,
@@ -12,12 +14,16 @@ import {
 import { createOrganizationClient, seed, SEED_IDS, type ScopedClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHqRbac, HQ_RBAC_ROUTES } from '../index.js';
+import { createHqRbac, FINANCE_PING_ROUTE, HQ_RBAC_ROUTES } from '../index.js';
 
 const ORG = SEED_IDS.organization;
 const U = SEED_IDS.users;
 const S = SEED_IDS.stores;
 const API = process.env.OPENFGA_API_URL ?? 'http://localhost:8081';
+// Every role change ends the user's Keycloak sessions through the core-admin service account (#415). The
+// core's vitest runs this file too and loads neither the root .env nor the auth-sdk vitest env, so the dev
+// realm secret is defaulted here — without it every assign/revoke answers 503 (#488).
+process.env.KEYCLOAK_ADMIN_CLIENT_SECRET ??= 'dev-only-core-admin-secret';
 
 async function up(url: string): Promise<boolean> {
   try {
@@ -67,22 +73,114 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
     if (fgaStoreId) await createOpenFgaClient({ apiUrl: API, storeId: fgaStoreId }).deleteStore();
   });
 
+  it('session revocation runs after the tuple and before the mirror: a refused logout compensates and answers 503 with nothing changed; a retry re-runs it (#422)', async () => {
+    const loggedOut: string[] = [];
+    const refusing = {
+      logoutUser: async () => {
+        throw new ApiError(503, 'internal', 'identity provider unavailable', {
+          what: 'logout user',
+        });
+      },
+    } as unknown as KeycloakAdmin;
+    const working = {
+      logoutUser: async (subject: string) => {
+        loggedOut.push(subject);
+      },
+    } as unknown as KeycloakAdmin;
+    const body = { relation: 'store_staff', object_type: 'store', object_id: S.brandA };
+    const tuple = {
+      user: `user:${U.analyst}`,
+      relation: 'store_staff',
+      object: `store:${S.brandA}`,
+    };
+    const rowCount = async () =>
+      (
+        await hq.query(
+          'SELECT 1 FROM role_assignment WHERE staff_user_id = $1 AND relation = $2 AND object_id = $3',
+          [U.analyst, 'store_staff', S.brandA],
+        )
+      ).rowCount;
+    const tupleCount = async () => (await fga.read(tuple)).tuples.length;
+
+    // Keycloak refuses: 503, the tuple written a moment earlier is gone again, no mirror row.
+    const refused = createHqRbac({ pool: db.app, fga, keycloak: refusing });
+    const first = await refused.handle({
+      method: 'POST',
+      path: `/admin/users/${U.analyst}/roles`,
+      principal: owner,
+      body,
+    });
+    expect(first).toMatchObject({ status: 503, body: { code: 'internal' } });
+    expect(await rowCount()).toBe(0);
+    expect(await tupleCount()).toBe(0);
+
+    // The retry (Keycloak back): the whole change including the logout.
+    const ok = createHqRbac({ pool: db.app, fga, keycloak: working });
+    const second = await ok.handle({
+      method: 'POST',
+      path: `/admin/users/${U.analyst}/roles`,
+      principal: owner,
+      body,
+    });
+    expect(second?.status).toBe(201);
+    expect(loggedOut).toEqual(['seed-analyst']);
+    expect(await rowCount()).toBe(1);
+    expect(await tupleCount()).toBe(1);
+    const assignmentId = (second?.body as { id: string }).id;
+
+    // Revoke with Keycloak refusing: 503, the tuple is restored, the row stays.
+    const revokeRefused = await refused.handle({
+      method: 'DELETE',
+      path: `/admin/users/${U.analyst}/roles/${assignmentId}`,
+      principal: owner,
+    });
+    expect(revokeRefused).toMatchObject({ status: 503, body: { code: 'internal' } });
+    expect(await rowCount()).toBe(1);
+    expect(await tupleCount()).toBe(1);
+    const revoked = await ok.handle({
+      method: 'DELETE',
+      path: `/admin/users/${U.analyst}/roles/${assignmentId}`,
+      principal: owner,
+    });
+    expect(revoked, JSON.stringify(revoked?.body)).toEqual({ status: 204 });
+    expect(loggedOut).toEqual(['seed-analyst', 'seed-analyst']);
+    expect(await rowCount()).toBe(0);
+    expect(await tupleCount()).toBe(0);
+  });
+
   it('exposes exactly the contract routes with owner on organization:hq', () => {
     expect(HQ_RBAC_ROUTES.map((r) => `${r.method} ${r.path}`)).toEqual([
       'GET /admin/users',
+      'POST /admin/users', // inviteUser (#415)
       'GET /admin/users/{userId}/roles',
       'POST /admin/users/{userId}/roles',
       'DELETE /admin/users/{userId}/roles/{assignmentId}',
       'GET /admin/audit-log', // task 1.5; its permission is query-dependent (null here, checked in the handler)
-      'GET /admin/finance/ping', // task 1.7 gate test double (not in the contract): finance on organization:hq
     ]);
-    for (const r of HQ_RBAC_ROUTES.filter(
-      (x) => x.operationId !== 'listAuditLog' && x.operationId !== 'financePing',
-    ))
+    for (const r of HQ_RBAC_ROUTES.filter((x) => x.operationId !== 'listAuditLog'))
       expect(r.permission).toEqual({ relation: 'owner', object: 'organization:hq' });
-    expect(HQ_RBAC_ROUTES.find((x) => x.operationId === 'financePing')?.permission).toEqual({
-      relation: 'finance',
-      object: 'organization:hq',
+    // The Phase 1 gate's test double (#16) is NOT in the contract: served by default outside production (dev
+    // stacks and the core's live suite rely on it), never under NODE_ENV=production, where opting in throws (#90).
+    expect(rbac.routes).toEqual([...HQ_RBAC_ROUTES, FINANCE_PING_ROUTE]);
+    expect(createHqRbac({ pool: db.app, fga, financePing: false }).routes).toEqual(HQ_RBAC_ROUTES);
+    const env = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(createHqRbac({ pool: db.app, fga }).routes).toEqual(HQ_RBAC_ROUTES);
+      expect(createHqRbac({ pool: db.app, fga }).routes.map((r) => r.path)).not.toContain(
+        '/admin/finance/ping',
+      );
+      expect(() => createHqRbac({ pool: db.app, fga, financePing: true })).toThrow(
+        'financePing must not be set when NODE_ENV=production',
+      );
+    } finally {
+      process.env.NODE_ENV = env;
+    }
+    expect(FINANCE_PING_ROUTE).toEqual({
+      method: 'GET',
+      path: '/admin/finance/ping',
+      operationId: 'financePing',
+      permission: { relation: 'finance', object: 'organization:hq' },
     });
   });
 
@@ -196,7 +294,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       body,
       requestId: 'req-1',
     });
-    expect(res?.status).toBe(201);
+    expect(res, JSON.stringify(res?.body)).toMatchObject({ status: 201 });
     const a = res!.body as {
       id: string;
       relation: string;
@@ -258,7 +356,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       path: `/admin/users/${U.storeStaff}/roles/${target.id}`,
       principal: owner,
     });
-    expect(res).toEqual({ status: 204 });
+    expect(res, JSON.stringify(res?.body)).toEqual({ status: 204 });
     expect(await check(U.storeStaff, 'store_admin', `store:${S.brandC}`)).toBe(false);
     expect(await countRows('role_assignment WHERE id = $1', [target.id])).toBe(0);
     const auditRows = await hq.query<{ action: string; before: { id: string }; after: null }>(
@@ -289,7 +387,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       principal: owner,
       body: { relation: 'analyst', object_type: 'organization', object_id: ORG },
     });
-    expect(res?.status).toBe(201);
+    expect(res, JSON.stringify(res?.body)).toMatchObject({ status: 201 });
     expect(await check(U.storeStaff, 'analyst', 'organization:hq')).toBe(true);
     expect(await check(U.storeStaff, 'viewer', `store:${S.brandC}`)).toBe(true); // analyst from organization
     await rbac.handle({

@@ -5,12 +5,17 @@
  * not write them, so the access token is renewed here and handed to the current request as well as
  * to the browser. UI permission gating happens later (issue #25) and is only a convenience — the
  * Admin API re-checks every `x-permission` server-side.
+ *
+ * It also refuses a session Keycloak no longer has (#353): a sealed cookie cannot be revoked, so a
+ * copy kept from before Sign out is checked against the realm (`isSessionLive`, cached 30 s per
+ * session, fail closed). A refresh proves the session live by itself.
  */
 
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { isProduction, sessionSecret } from '@/lib/env';
-import { refreshTokens } from '@/lib/auth/oidc';
+import { refreshTokens, sessionIdOf, sessionIsLive } from '@/lib/auth/oidc';
+import { isSessionLive, markLive } from '@/lib/auth/liveness';
 import type { CookieWriter } from '@/lib/auth/session';
 import {
   clearSessionCookies,
@@ -44,14 +49,20 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return toLogin(request);
   }
 
+  const sessionId = sessionIdOf(session.idToken);
+
   if (!isExpiring(session)) {
-    return NextResponse.next();
+    // Keycloak down or the session ended there (Sign out elsewhere, an admin's "sign out"): sign in
+    // again rather than render with a session the realm no longer has — never a 500.
+    const live = await isSessionLive(sessionId, () => sessionIsLive(session.accessToken));
+    return live ? NextResponse.next() : toLogin(request);
   }
 
   let refreshedCookie: string;
   try {
     const refreshed = await refreshTokens(session.refreshToken);
     refreshedCookie = await sealSession(refreshed, secret);
+    markLive(sessionIdOf(refreshed.idToken));
   } catch {
     // The refresh token is spent or Keycloak is down: start a clean sign-in rather than
     // letting the page render with a token the Admin API will reject.

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/customer.export_ready/v1.json",
+  "title": "customer.export_ready v1",
+  "description": "A GDPR export bundle is built and downloadable by the customer (Store API getMyExport, signed in) and by store admins (Admin API getCustomerExport) until expires_at. Ids and timestamps only — never the bundle, never personal data. Consumers: the notifications app tells the customer by email (it reads the address from the customer row at send time; the mail carries no token and no link with credentials).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["export_id", "customer_id", "requested_by", "requested_by_type", "expires_at"],
+  "properties": {
+    "export_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "requested_by": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "requested_by_type": {
+      "type": "string",
+      "enum": ["staff", "customer"]
+    },
+    "expires_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

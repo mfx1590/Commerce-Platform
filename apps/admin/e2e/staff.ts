@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 
 /**
  * Shared by every journey: the seeded staff fixture and the sign-in against the real realm.
@@ -51,4 +51,31 @@ export async function settledRail(page: Page) {
     { timeout: 15_000 },
   );
   return rail;
+}
+
+/** Seeded `store-staff`: `store_staff` on brand-a only; no OTP. Nothing else signs in as it. */
+export const STORE_STAFF = { username: 'store-staff', password: 'store-staff' };
+export const BRAND_B = '00000000-0000-4000-8000-000000000032';
+
+/**
+ * A staff-realm access token for a seeded user without OTP, from the dev/CI-only `test-cli` client's
+ * password grant (as the core's auth-live suite does) — for asserting what the Admin API answers
+ * that user, server-side. Never logged.
+ */
+export async function staffToken(
+  request: APIRequestContext,
+  user: { username: string; password: string },
+): Promise<string> {
+  const keycloak = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
+  const response = await request.post(`${keycloak}/realms/staff/protocol/openid-connect/token`, {
+    form: {
+      grant_type: 'password',
+      client_id: 'test-cli',
+      username: user.username,
+      password: user.password,
+      scope: 'openid',
+    },
+  });
+  if (!response.ok()) throw new Error(`staff token for ${user.username} → ${response.status()}`);
+  return ((await response.json()) as { access_token: string }).access_token;
 }

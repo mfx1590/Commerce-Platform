@@ -34,6 +34,8 @@ import {
   type CustomerTokenVerifier,
   type StaffTokenVerifier,
 } from './http';
+import { openFgaStoreRegistrar } from './http/store-registrar';
+import type { StoreRegistrar } from './modules/registry';
 import { formatReport, verifyBootstrap } from './bootstrap';
 import { closePool, initDb } from './lib/db';
 import { registerModuleSeams } from './wiring';
@@ -54,6 +56,11 @@ export interface CreateServerOptions {
 export interface CoreMiddlewareOptions {
   /** OpenFGA client for hq-rbac's own checks; default `createOpenFgaClient()` from `OPENFGA_*`. */
   fga?: OpenFgaClient;
+  /**
+   * Store onboarding's OpenFGA side (#413): default the adapter over `fga` (src/http/store-registrar.ts; window 2's
+   * `ensureStoreObject` once #415 is on main). Tests pass the registry module's `inMemoryStoreRegistrar()`.
+   */
+  storeRegistrar?: StoreRegistrar;
   /** Scope-cache invalidation on role changes (`KeycloakStaffTokenVerifier.invalidate`). */
   onRoleChange?: (staffUserId: string) => void;
   /** Non-production only: base URL every unhandled `/store/*` request is proxied to (Integration 1). */
@@ -157,6 +164,7 @@ export function mountCoreMiddleware(
   // Refused in production before anything is mounted (code-only test seam, src/http/customer-routes.ts).
   const customerTokenVerifier = customerTokenVerifierFor(opts.customerTokenVerifier);
   const fga = opts.fga ?? createOpenFgaClient();
+  const storeRegistrar = opts.storeRegistrar ?? openFgaStoreRegistrar(fga);
 
   app.use(requestIdMiddleware);
 
@@ -195,7 +203,7 @@ export function mountCoreMiddleware(
   );
   // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): x-permission from the spec (OpenFGA
   // for real tokens), then the module services. Every other /admin path ends in createServer()'s terminal 404.
-  app.use(adminRouter());
+  app.use(adminRouter({ storeRegistrar }));
   // Admin routers other modules export (src/http/module-routers.ts — the named mount point, #162 part 3).
   for (const router of opts.moduleRouters ?? []) app.use(router);
   // Renders AppError as the contract's { code, message, details } for everything above.
