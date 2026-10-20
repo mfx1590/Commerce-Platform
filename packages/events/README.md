@@ -1,6 +1,6 @@
 # @platform/events
 
-Versioned event schemas, generated types, validator, and the outbox migration. Owner: main window.
+Versioned event schemas, generated types, validator, the outbox migration, and (since 0.4.0) the Redpanda topic plan. Owner: main window; window 14 writes here during Phase 4.
 See [CLAUDE.md](./CLAUDE.md) for the public API and producer/consumer rules; ADR 0003 for the outbox pattern.
 
 ## Layout
@@ -82,3 +82,22 @@ await tenant.transaction(async (tx) => {
 
 One exception so far (0.3.4, #466): an additive enum value on `order.updated` v1, whose every producer and reader is
 inside apps/core, was widened in place. Once a consumer outside the core exists, such a widening is a v2.
+
+## Redpanda topics (0.4.0, #530)
+
+One topic per entry of `EVENT_TOPICS`, named verbatim, partitioned by `store_id` (organization-scope events by
+`organization_id`), plus one compacted dead-letter topic per consumer group (`dlq.<groupId>`). The numbers live in
+`infra/redpanda/topics.policy.json`; every choice is explained in `infra/redpanda/README.md`.
+
+```ts
+import { createKafka, ensureTopics, planTopics } from '@platform/events';
+
+const plan = planTopics(policy, { environment: 'local' }); // throws if a schema has no retention class
+const admin = createKafka().admin(); // KAFKA_BROKERS or 127.0.0.1:19092
+await admin.connect();
+const r = await ensureTopics(admin, plan); // created / altered / partitionsRaised / unchanged / warnings
+```
+
+`pnpm --filter @platform/events topics:create [-- --env ci --dry-run]` runs it from the command line. A second run
+changes nothing. `test/topics.test.ts` checks the policy covers every schema and, when the local broker is up, that
+the ensure step is idempotent (under a random prefix, self-cleaning).

@@ -84,3 +84,12 @@
   to `ready` (none for `too_large` / `customer_gone`). Consumer: the notifications app (window 17) mails the
   customer, reading the address from the customer row at send time; nobody else is required to handle it
   (unknown-topic rule).
+
+## 0.4.0 — 2026-10-20 (window 14, #530: Redpanda topics + local/CI config)
+
+- New public API (`src/topics.ts`): `planTopics(policy, { environment, prefix, consumerGroups, topics })` derives one topic per `EVENT_TOPICS` entry (named verbatim) plus one compacted dead-letter topic per consumer group (`dlqTopicName(groupId)` → `dlq.<groupId>`), with partitions/replication per environment and `retention.ms` per class from `infra/redpanda/topics.policy.json`; it throws on a topic without a retention class, an unknown environment, an invalid name or a Kafka metric-name collision. `ensureTopics(admin, plan, { dryRun })` creates missing topics, alters only drifted managed configs, raises partition counts the policy raised, never deletes. `createKafka()` (kafkajs client, `KAFKA_BROKERS` or `127.0.0.1:19092`, `localhost` pinned to IPv4 by `ipv4LoopbackSocketFactory`), `brokersFromEnv`, `partitionKey` (store_id, or organization_id for organization-scope events), `retentionClassOf`, `metricName`, `RETENTION_MS`, `DEFAULT_BROKERS`.
+- New dependency: `kafkajs` 2.2.4 (pure JS; Node 20). Kept behind this package's public API.
+- New script: `pnpm --filter @platform/events topics:create` (builds, then runs `infra/redpanda/create-topics.mjs`).
+- Tests: `test/topics.test.ts` — pure checks (every schema has exactly one retention class, ADR 0003 classes, plan/config derivation, DLQ naming, collisions, the key rule) and a live block against the local broker (`describe.runIf`, random prefix, self-cleaning; skipped with a printed reason when the broker is down).
+- No schema change; envelope and payloads unchanged. Minor bump for the new public API and dependency.
+- Local and CI topics have 1 partition: the compose broker (`--memory=512M`, 4 MiB reserved per partition) has a budget of about 128 partitions in total, measured on 2026-10-20; production has 12. `ensureTopics` retries topics the broker refuses with a retriable error (Redpanda's `INVALID_PARTITIONS` while it reclaims deleted partitions, timeouts, controller moves) up to 6 times and reports the retry as a warning.

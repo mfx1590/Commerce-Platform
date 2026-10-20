@@ -127,3 +127,25 @@ export function toOutboxRow(e: EventEnvelope): {
     occurred_at: e.occurred_at,
   };
 }
+
+// Redpanda topics: plan + idempotent creation (#530). The relay (#531) and the consumer SDK (#533) build on these.
+export {
+  brokersFromEnv,
+  createKafka,
+  DEFAULT_BROKERS,
+  dlqTopicName,
+  ensureTopics,
+  ipv4LoopbackSocketFactory,
+  metricName,
+  partitionKey,
+  planTopics,
+  RETENTION_MS,
+  retentionClassOf,
+  type CreateKafkaOptions,
+  type EnsureOptions,
+  type EnsureResult,
+  type PlanOptions,
+  type RetentionClass,
+  type TopicPolicy,
+  type TopicSpec,
+} from './topics.js';
