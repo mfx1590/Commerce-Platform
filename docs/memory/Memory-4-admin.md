@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #518 — PR #523 up (head ad6faf0), in review; pushes held
+Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #523 green, awaiting merge; #520 tax commit built locally (admin/tax-rates)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -598,6 +598,14 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   PLAN sent 2026-10-20 (Q1 tax section in Store settings, Q2 e2e proves the 409 then creates NL 2100 bp
   from the readiness panel → "G1 tax:" line). Build on local branch admin/tax-rates from 5e15db2,
   code-only; cut ONE commit on window 1's sha when the manager sends it; live run only on handover.
+  PLAN APPROVED (Q1 settings, Q2 refusal first). BUILT on local branch admin/tax-rates (from
+  5e15db2): WIP 127e2c8, ecc47d6, c8c0388 — settings section, readiness tax step, actions, tests
+  (unit 29, component 10, Prism 6 + 1 skipped), e2e "G1 tax:" step, README/CHANGELOG; gate there
+  887/887. Gotcha: Prism answers 500 to createTaxRate/updateTaxRate (no TaxRate example in the spec)
+  — told the manager. When window 1's sha arrives: squash to ONE commit on it, rebased onto
+  whatever carries #523 (both edit hq-onboarding.spec.ts); then ask for the machine.
+  #523: admin e2e GREEN on 005893c (G1 key/role/relation lines in job 118547327054), all checks
+  finished green 2026-10-20; waiting for the manager's merge confirmation — no pushes.
 - (#481 review nits: fixed in the #518 PR.)
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
