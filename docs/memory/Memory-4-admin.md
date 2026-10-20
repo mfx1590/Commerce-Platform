@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #523 green, awaiting merge; #520 tax commit built locally (admin/tax-rates)
+Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #523 MERGED 3a3e6fc; #520 tax commit built locally (admin/tax-rates), waiting for window 1's sha
 
 ## Identity (does not change)
 Owned paths (write):
@@ -605,7 +605,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   — told the manager. When window 1's sha arrives: squash to ONE commit on it, rebased onto
   whatever carries #523 (both edit hq-onboarding.spec.ts); then ask for the machine.
   #523: admin e2e GREEN on 005893c (G1 key/role/relation lines in job 118547327054), all checks
-  finished green 2026-10-20; waiting for the manager's merge confirmation — no pushes.
+  finished green 2026-10-20. **#523 MERGED = 3a3e6fc** (#518 and #525 closed; G1's UI proof on main;
+  CI admin e2e now runs role changes for real). Next: the tax commit (window 1's sha from the manager).
 - (#481 review nits: fixed in the #518 PR.)
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
