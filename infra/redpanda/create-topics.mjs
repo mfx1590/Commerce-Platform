@@ -20,7 +20,9 @@ if (!existsSync(dist)) {
   );
   process.exit(2);
 }
-const { createKafka, ensureTopics, planTopics } = await import(pathToFileURL(dist).href);
+const { brokersFromEnv, createKafka, ensureTopics, planTopics } = await import(
+  pathToFileURL(dist).href
+);
 
 const args = process.argv.slice(2);
 const flag = (name) => {
@@ -43,9 +45,18 @@ const brokers = flag('--brokers')
 const policy = JSON.parse(readFileSync(resolve(here, 'topics.policy.json'), 'utf8'));
 const plan = planTopics(policy, { environment });
 
-const kafka = createKafka(
-  brokers ? { brokers, clientId: 'create-topics' } : { clientId: 'create-topics' },
-);
+// `--env production` against the local broker would raise the shared topics to 12 partitions (and then fail
+// on the dev container's budget): production needs an explicit broker list, and never a loopback one.
+const resolvedBrokers = brokers ?? brokersFromEnv();
+const loopback = resolvedBrokers.some((b) => /^(127\.0\.0\.1|localhost|\[::1\]|::1)(:|$)/i.test(b));
+if (environment === 'production' && (!brokers || loopback)) {
+  console.error(
+    'create-topics: --env production needs --brokers host:port,… naming the production cluster (never a loopback broker)',
+  );
+  process.exit(2);
+}
+
+const kafka = createKafka({ brokers: resolvedBrokers, clientId: 'create-topics' });
 const admin = kafka.admin();
 try {
   await admin.connect();

@@ -12,7 +12,8 @@ since 0.3.0 fulfillment.{requested,picking,packed}, since 0.3.1 shipment.label_c
 since 0.3.3 stock_item.mapped plus stock.moved v2 (keyed by the stock item; `makeEvent` writes v2, v1 stays frozen),
 since 0.3.5 customer.export_requested v2 (`requested_by_type` staff | customer; v1 stays frozen),
 and since 0.3.6 customer.export_ready (ids and `expires_at` only). Since 0.4.0 (#530) also the Redpanda topic plan
-(`planTopics`, `ensureTopics`, `createKafka`; `src/topics.ts`) with the policy in infra/redpanda/topics.policy.json.
+(`planTopics`, `ensureTopics`, `createKafka`; `src/topics.ts`) with the policy in infra/redpanda/topics.policy.json, and since
+0.4.1 (#531) the wire format (`src/relay-message.ts`) and the producer side (`src/publisher.ts`) the relay, the consumer SDK and the replay share.
 
 ## Owner
 
@@ -34,7 +35,8 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `createValidator()` → `{ validateEnvelope(event), validatePayload(topic, version, payload), ajv }`; one instance per process
 - `makeEvent({ topic, organizationId, storeId, aggregateType, aggregateId, payload, actor?, trace? })` → envelope for the latest version
 - `toOutboxRow(envelope)` → the column map for `INSERT INTO outbox`
-- Topics (0.4.0): `planTopics(policy, opts)`, `ensureTopics(admin, plan, { dryRun })`, `createKafka(opts)`, `brokersFromEnv()`, `dlqTopicName(groupId)`, `partitionKey(envelope)`, `retentionClassOf(topic, policy)`, `RETENTION_MS`, `DEFAULT_BROKERS`; types `TopicPolicy`, `TopicSpec`, `EnsureResult`
+- Topics (0.4.0): `planTopics(policy, opts)`, `ensureTopics(admin, plan, { dryRun })`, `createKafka(opts)`, `brokersFromEnv()`, `dlqTopicName(groupId)`, `partitionKey(envelope)`, `retentionClassOf(topic, policy)`, `RETENTION_MS`, `DEFAULT_BROKERS`; types `TopicPolicy`, `TopicSpec`, `EnsureResult`, `TopicAdmin` (the narrow admin slice `ensureTopics` takes)
+- Bus (0.4.1): `outboxRowToEnvelope(row)`, `envelopeToMessage(envelope, producer)` → `{ key, value, headers }`, `decodeMessage(raw)` → `{ envelope, outboxId, headers }`, `HEADER_*` names; `createKafkaPublisher(kafka, opts)` → `MessagePublisher` (send / connect / disconnect), `assertTopicsPresent(admin, topics)`
 
 ## Rules for producers and consumers
 

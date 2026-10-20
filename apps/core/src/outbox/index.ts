@@ -6,3 +6,12 @@ export {
   withEvents,
   type BuildEventInput,
 } from './with-events';
+
+// The relay (#531): reads unpublished rows in seq order and publishes them (apps/core/src/outbox/relay.ts).
+export {
+  relayOnce,
+  runRelayLoop,
+  type RelayOptions,
+  type RelayPassResult,
+  type RelayPublisher,
+} from './relay';

@@ -149,3 +149,30 @@ export {
   type TopicPolicy,
   type TopicSpec,
 } from './topics.js';
+export type { TopicAdmin } from './topics.js';
+
+// The wire format and the producer side (#531): one definition of key / value / headers for the relay (apps/core),
+// the consumer SDK (#533) and the replay (#534).
+export {
+  decodeMessage,
+  envelopeToMessage,
+  HEADER_EVENT_ID,
+  HEADER_OCCURRED_AT,
+  HEADER_ORGANIZATION_ID,
+  HEADER_OUTBOX_ID,
+  HEADER_PRODUCER,
+  HEADER_STORE_ID,
+  HEADER_TOPIC,
+  HEADER_VERSION,
+  outboxRowToEnvelope,
+  type DecodedMessage,
+  type OutboxRow,
+  type RawMessage,
+  type RelayMessage,
+} from './relay-message.js';
+export {
+  assertTopicsPresent,
+  createKafkaPublisher,
+  type KafkaPublisherOptions,
+  type MessagePublisher,
+} from './publisher.js';
