@@ -18,6 +18,7 @@ import { ORDER_PERMISSIONS } from '../orders/permissions';
 import { loadPrincipal } from '../principal';
 import { ROLES_PERMISSIONS } from '../roles/permissions';
 import { REGISTRY_PERMISSIONS } from '../settings';
+import { TAX_PERMISSIONS } from '../tax-rates';
 import { WAREHOUSE_PERMISSIONS } from '../warehouse/permissions';
 import { holds, ruleObject, type PermissionRule } from './rules';
 
@@ -26,6 +27,7 @@ const OPERATIONS = {
   ...ORDER_PERMISSIONS,
   ...ROLES_PERMISSIONS,
   ...WAREHOUSE_PERMISSIONS,
+  ...TAX_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 
 export type GuardedOperation = keyof typeof OPERATIONS;

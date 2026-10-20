@@ -244,7 +244,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.22/);
+    expect(text).toMatch(/version: 0\.4\.23/);
     for (const tag of [
       'registry',
       'catalog',
@@ -975,7 +975,7 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(131); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504)
+    expect(ops.length).toBe(135); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1107,7 +1107,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
-    expect(adminOps.length).toBe(131); // +getCustomerIdentity at 0.4.21 (#504)
+    expect(adminOps.length).toBe(135); // +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522)
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
     );
@@ -1156,9 +1156,9 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
       .slice(1);
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.22$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.23$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.8$/m); // Store API unchanged (#504)
-    expect(adminOps.length).toBe(131); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504)
+    expect(adminOps.length).toBe(135); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
     // next to /admin/users
@@ -1199,7 +1199,102 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
   const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
   it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.22$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.23$/m);
     expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
+  });
+});
+
+describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', () => {
+  const admin = read('admin-api.yaml');
+  const store = read('store-api.yaml');
+  const adminOps = operations(admin);
+  const abody = (id: string) => adminOps.find((o) => o.id === id)!.body;
+  const permission = (id: string) =>
+    abody(id)
+      .match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+  const pathItem = (path: string, next: string) =>
+    admin.slice(admin.indexOf(`\n  ${path}:\n`), admin.indexOf(`\n  ${next}:\n`));
+
+  it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
+    expect(admin).toMatch(/^ {2}version: 0\.4\.23$/m);
+    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m); // Store API unchanged (#522)
+    expect(adminOps.length).toBe(135); // 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate
+    const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
+    expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
+    expect(list).toBeLessThan(admin.indexOf('\n  /admin/stores/{storeId}/api-keys:\n'));
+    const coll = pathItem(
+      '/admin/stores/{storeId}/tax-rates',
+      '/admin/stores/{storeId}/tax-rates/{taxRateId}',
+    );
+    expect(coll).toMatch(/^ {4}get:\n {6}tags: \[registry\]\n {6}operationId: listTaxRates$/m);
+    expect(coll).toMatch(/^ {4}post:\n {6}tags: \[registry\]\n {6}operationId: createTaxRate$/m);
+    expect(coll).not.toMatch(/^ {4}(put|patch|delete):$/m);
+    const one = pathItem(
+      '/admin/stores/{storeId}/tax-rates/{taxRateId}',
+      '/admin/stores/{storeId}/api-keys',
+    );
+    expect(one).toMatch(/name: taxRateId, in: path, required: true/);
+    expect(one).toMatch(/^ {4}patch:\n {6}tags: \[registry\]\n {6}operationId: updateTaxRate$/m);
+    expect(one).toMatch(/^ {4}delete:\n {6}tags: \[registry\]\n {6}operationId: deleteTaxRate$/m);
+    expect(one).not.toMatch(/^ {4}(get|post|put):$/m);
+
+    const expected: Record<string, { perm: [string, string]; codes: string[] }> = {
+      listTaxRates: { perm: ['viewer', 'store:{storeId}'], codes: ['200', '400', '401', '403'] },
+      createTaxRate: {
+        perm: ['store_admin', 'store:{storeId}'],
+        codes: ['201', '400', '401', '403', '404', '409'],
+      },
+      updateTaxRate: {
+        perm: ['store_admin', 'store:{storeId}'],
+        codes: ['200', '400', '401', '403', '404'],
+      },
+      deleteTaxRate: {
+        perm: ['store_admin', 'store:{storeId}'],
+        codes: ['204', '401', '403', '404', '409'],
+      },
+    };
+    for (const [id, { perm, codes }] of Object.entries(expected)) {
+      expect(permission(id), id).toEqual(perm);
+      for (const code of codes) expect(abody(id), `${id} ${code}`).toContain(`'${code}':`);
+    }
+    expect(abody('listTaxRates')).toContain(
+      "items: { type: array, items: { $ref: '#/components/schemas/TaxRate' } }",
+    );
+    expect(abody('listTaxRates')).toMatch(/- id: 47000000-0000-4000-8000-000000000001\n/);
+    expect(abody('createTaxRate')).toMatch(/required: \[country, name, rate_bp\]/);
+    expect(abody('createTaxRate')).toMatch(/enforced by the database/);
+    expect(abody('createTaxRate')).toMatch(/`details\.tax_rate_id`/);
+    expect(abody('updateTaxRate')).toMatch(/minProperties: 1/);
+    // the identity (country, region, category) is not editable: the REQUEST body names only name / rate_bp
+    // (the 200's example row shows the whole TaxRate, so the check stops at `responses:`)
+    expect(abody('updateTaxRate').split('responses:')[0]).not.toMatch(
+      /country:|region:|product_category_id:/,
+    );
+    expect(abody('createTaxRate')).toMatch(/'201':[\s\S]*example:/);
+    expect(abody('updateTaxRate')).toMatch(/'200':[\s\S]*example:/);
+    expect(abody('deleteTaxRate')).toMatch(/last_rate_of_market_country/);
+    for (const id of ['createTaxRate', 'updateTaxRate', 'deleteTaxRate']) {
+      expect(abody(id), id).toMatch(/`store\.updated`\s+\(`changed_fields: \[tax_rates\]`\)/);
+    }
+  });
+
+  it('the TaxRate schema, and activateStore / ActivationBlocked name the tax_rates prerequisite', () => {
+    expect(admin).toMatch(
+      /\n {4}TaxRate:\n {6}type: object\n {6}required: \[id, country, region, name, rate_bp, product_category_id, created_at, updated_at\]\n/,
+    );
+    const start = admin.indexOf('\n    TaxRate:\n');
+    const schema = admin.slice(start, admin.indexOf('\n    ApiKey:\n', start));
+    expect(schema).toMatch(/region: \{ type: \[string, 'null'\] \}/);
+    expect(schema).toMatch(/rate_bp: \{ type: integer, minimum: 0, maximum: 10000 \}/);
+    expect(schema).toMatch(/product_category_id: \{ type: \[string, 'null'\], format: uuid \}/);
+    expect(abody('activateStore')).toMatch(/`details\.missing_tax_countries`/);
+    expect(abody('activateStore')).toMatch(/market\s+countries \(`tax_rates`\)/);
+    const blocked = admin.slice(
+      admin.indexOf('\n    ActivationBlocked:\n'),
+      admin.indexOf('\n    InvalidSettings:\n'),
+    );
+    expect(blocked).toMatch(/missing: \[primary_domain, publishable_key, tax_rates\]/);
+    expect(blocked).toMatch(/missing_tax_countries: \[BE, DE\]/);
   });
 });

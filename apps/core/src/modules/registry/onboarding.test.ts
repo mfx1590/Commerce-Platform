@@ -7,6 +7,8 @@ import { AppError } from '../../lib/errors';
 import {
   activateStore,
   createStore,
+  createTaxRate,
+  deleteTaxRate,
   inMemoryStoreRegistrar,
   onboardStore,
   updateStore,
@@ -383,17 +385,40 @@ describe('activateStore and the readiness gate (#413)', () => {
       registrar,
       actor,
     );
+    // #520: onboarding creates no tax rate — the store would sell at 0 bp, so readiness refuses it
+    await expect(activateStore(hq, result.store.id, registrar, actor)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { missing: ['tax_rates'], missing_tax_countries: ['NL'] },
+    });
+    const vat = await createTaxRate(
+      hq,
+      result.store.id,
+      { country: 'NL', name: 'VAT 21%', rate_bp: 2100 },
+      actor,
+    );
     const active = await activateStore(hq, result.store.id, registrar, actor);
     expect(active.status).toBe('active');
     const again = await activateStore(hq, result.store.id, registrar, actor);
     expect(again.status).toBe('active');
+    // an active store keeps a rate for each market country: the last NL row cannot go (#522 delete guard)
+    await expect(deleteTaxRate(hq, result.store.id, vat.id, actor)).rejects.toMatchObject({
+      code: 'conflict',
+      details: { country: 'NL', reason: 'last_rate_of_market_country' },
+    });
 
     const events = await db.owner.query<{ topic: string; payload: { changed_fields: string[] } }>(
       'SELECT topic, payload FROM outbox WHERE aggregate_id = $1 ORDER BY seq',
       [result.store.id],
     );
-    expect(events.rows.map((r) => r.topic)).toEqual(['store.created', 'store.updated']);
-    expect(events.rows[1]!.payload.changed_fields).toEqual(['status']);
+    expect(events.rows.map((r) => r.topic)).toEqual([
+      'store.created',
+      'store.updated',
+      'store.updated',
+    ]);
+    expect(events.rows.slice(1).map((r) => r.payload.changed_fields)).toEqual([
+      ['tax_rates'],
+      ['status'],
+    ]);
     const audit = await db.owner.query<{ action: string }>(
       'SELECT action FROM audit_log WHERE entity_id = $1 ORDER BY created_at',
       [result.store.id],
@@ -418,11 +443,17 @@ describe('activateStore and the readiness gate (#413)', () => {
     await expect(activateStore(hq, bare.id, registrar, actor)).rejects.toMatchObject({
       code: 'conflict',
       status: 409,
-      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+      details: {
+        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing_tax_countries: ['NL'],
+      },
     });
     // the same gate on updateStore; without a registrar the OpenFGA object counts as missing
     await expect(updateStore(hq, bare.id, { status: 'active' }, actor)).rejects.toMatchObject({
-      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+      details: {
+        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing_tax_countries: ['NL'],
+      },
     });
     expect((await updateStore(hq, bare.id, { name: 'Brand I!' }, actor)).name).toBe('Brand I!'); // other patches pass
   });
@@ -438,6 +469,12 @@ describe('activateStore and the readiness gate (#413)', () => {
         legal_entity: { ...brandC.legal_entity!, code: 'brand-j-bv' },
       },
       registrar,
+      actor,
+    );
+    await createTaxRate(
+      hq,
+      result.store.id,
+      { country: 'NL', name: 'VAT 21%', rate_bp: 2100 },
       actor,
     );
     await updateStore(hq, result.store.id, { status: 'paused' }, actor);

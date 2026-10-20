@@ -942,3 +942,43 @@ describe('Admin API mock (0.4.21 customer identity, #504)', () => {
     }
   });
 });
+
+describe('Admin API mock (0.4.23 store tax rates, #522)', () => {
+  const base = `${ADMIN}/admin/stores/${STORE_ID}/tax-rates`;
+
+  it('listTaxRates answers the example; createTaxRate answers 201 and the 409 conflict', async () => {
+    const list = await fetch(base, { headers: adminHeaders });
+    expect(list.status).toBe(200);
+    const items = (await json(list)).items as Array<{
+      id: string;
+      country: string;
+      rate_bp: number;
+    }>;
+    expect(items[0]).toMatchObject({
+      id: '47000000-0000-4000-8000-000000000001',
+      country: 'NL',
+      rate_bp: 2100,
+    });
+
+    const body = JSON.stringify({ country: 'DE', name: 'VAT 19%', rate_bp: 1900 });
+    // the 201 documents no example (the issue's yaml, verbatim): Prism's static sample ("string") fails the country
+    // pattern, so the created row is generated from the TaxRate schema and still validated against it
+    const created = await fetch(base, {
+      method: 'POST',
+      headers: { ...adminHeaders, prefer: 'dynamic=true' },
+      body,
+    });
+    expect(created.status).toBe(201);
+    const row = await json(created);
+    expect(typeof row.id).toBe('string');
+    expect(row.country).toMatch(/^[A-Z]{2}$/);
+
+    const conflict = await fetch(base, {
+      method: 'POST',
+      headers: { ...adminHeaders, prefer: 'code=409' },
+      body,
+    });
+    expect(conflict.status).toBe(409);
+    expect((await json(conflict)).code).toBe('conflict');
+  });
+});

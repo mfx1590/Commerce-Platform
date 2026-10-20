@@ -89,7 +89,7 @@ const STATUS_TONE = { recorded: 'neutral', flagged: 'warning', applied: 'success
  * the pool numbers per warehouse, "pool this variant onto this item") and cycle counts (record,
  * reconcile, approve). Every mutation is re-checked server-side before the API
  * (`src/app/actions/warehouse.ts`); the section guard and the buttons are a convenience.
- * The movement ledger and the reservations of an item wait for CONTRACT CHANGE #469.
+ * An item's ledger and reservations open under the list (`?item=&view=`, the #469 reads).
  */
 export default async function WarehousePage({ searchParams }: { searchParams: Promise<Params> }) {
   const raw = await searchParams;

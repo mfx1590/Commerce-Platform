@@ -17,21 +17,23 @@ Every function takes a `ScopedClient` from `@platform/db` (see apps/core README 
 and an optional `Actor` (`{ id, type, requestId }`, default `system`), and runs **one transaction**: the row change,
 the `audit_log` row and the outbox rows commit or roll back together.
 
-| Function                                                                                 | Scope        | Audit action                                          | Event                                                                     |
-| ---------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| `listStores(client, { page, limit, sort, order })` → `Page<Store>` (sort `code           | name         | status                                                | created_at`, default `created_at desc`; `order`only with`sort`)           | any | —   | —   |
-| `getStore(client, id)` → `Store`                                                         | any          | —                                                     | —                                                                         |
-| `createStore(client, StoreInput, actor)` → `Store`                                       | organization | `store.create`                                        | `store.created`                                                           |
-| `updateStore(client, id, StoreInput, actor)` → `Store`                                   | any visible  | `store.update`                                        | `store.updated` (`changed_fields`, sorted; no event when nothing changed) |
-| `listDomains(client, storeId)` → `Domain[]`                                              | any visible  | —                                                     | —                                                                         |
-| `addDomain(client, storeId, { hostname, is_primary })`                                   | any visible  | `store_domain.create`                                 | —                                                                         |
-| `updateDomain(client, storeId, domainId, { is_primary })` → `Domain` (moves the primary) | any visible  | `store_domain.update`                                 | `store.updated` (`changed_fields: ['domains']`)                           |
-| `listLocales` / `addLocale(client, storeId, locale, { isDefault })`                      | any visible  | `store_locale.create` (`store.update` when default)   | `store.updated` when default                                              |
-| `listCurrencies` / `addCurrency(client, storeId, ccy, { isDefault })`                    | any visible  | `store_currency.create` (`store.update` when default) | `store.updated` when default                                              |
-| `listSalesChannels` / `createSalesChannel(client, storeId, { code, name, type })`        | any visible  | `sales_channel.create`                                | —                                                                         |
-| `listApiKeys(client, storeId)` → `ApiKey[]` (never the key)                              | any visible  | —                                                     | —                                                                         |
-| `createApiKey(client, storeId, { name, type, sales_channel_id })` → `ApiKey & { key }`   | any visible  | `store_api_key.create`                                | —                                                                         |
-| `revokeApiKey(client, storeId, keyId)` → `ApiKey` (idempotent; 409 `last_live_key`)      | any visible  | `store_api_key.revoke`                                | `store.updated` (`changed_fields: ['api_keys']`)                          |
+| Function                                                                                   | Scope        | Audit action                                          | Event                                                                     |
+| ------------------------------------------------------------------------------------------ | ------------ | ----------------------------------------------------- | ------------------------------------------------------------------------- |
+| `listStores(client, { page, limit, sort, order })` → `Page<Store>` (sort `code             | name         | status                                                | created_at`, default `created_at desc`; `order`only with`sort`)           | any | —   | —   |
+| `getStore(client, id)` → `Store`                                                           | any          | —                                                     | —                                                                         |
+| `createStore(client, StoreInput, actor)` → `Store`                                         | organization | `store.create`                                        | `store.created`                                                           |
+| `updateStore(client, id, StoreInput, actor)` → `Store`                                     | any visible  | `store.update`                                        | `store.updated` (`changed_fields`, sorted; no event when nothing changed) |
+| `listDomains(client, storeId)` → `Domain[]`                                                | any visible  | —                                                     | —                                                                         |
+| `addDomain(client, storeId, { hostname, is_primary })`                                     | any visible  | `store_domain.create`                                 | —                                                                         |
+| `updateDomain(client, storeId, domainId, { is_primary })` → `Domain` (moves the primary)   | any visible  | `store_domain.update`                                 | `store.updated` (`changed_fields: ['domains']`)                           |
+| `listLocales` / `addLocale(client, storeId, locale, { isDefault })`                        | any visible  | `store_locale.create` (`store.update` when default)   | `store.updated` when default                                              |
+| `listCurrencies` / `addCurrency(client, storeId, ccy, { isDefault })`                      | any visible  | `store_currency.create` (`store.update` when default) | `store.updated` when default                                              |
+| `listSalesChannels` / `createSalesChannel(client, storeId, { code, name, type })`          | any visible  | `sales_channel.create`                                | —                                                                         |
+| `listApiKeys(client, storeId)` → `ApiKey[]` (never the key)                                | any visible  | —                                                     | —                                                                         |
+| `createApiKey(client, storeId, { name, type, sales_channel_id })` → `ApiKey & { key }`     | any visible  | `store_api_key.create`                                | —                                                                         |
+| `revokeApiKey(client, storeId, keyId)` → `ApiKey` (idempotent; 409 `last_live_key`)        | any visible  | `store_api_key.revoke`                                | `store.updated` (`changed_fields: ['api_keys']`)                          |
+| `listTaxRates(client, storeId, { country? })` → `TaxRate[]` (#520)                         | any visible  | —                                                     | —                                                                         |
+| `createTaxRate` / `updateTaxRate` (name, rate_bp) / `deleteTaxRate` (#520, `tax-rates.ts`) | any visible  | `tax_rate.create` / `.update` / `.delete`             | `store.updated` (`changed_fields: ['tax_rates']`)                         |
 
 Return types are the contract schemas (`AdminComponents['schemas']['Store' | 'Domain' | 'SalesChannel' | 'ApiKey']`).
 
@@ -90,8 +92,20 @@ that differ (`details.differs`). A failure anywhere inside the transaction leave
 is present, with an audit row (`store.activate`) and `store.updated` (`changed_fields: ['status']`); an active
 store is a no-op 200; `archived` is a 409 with `details.status`. The prerequisites, reported in this order in
 `details.missing` (409 `conflict`): `legal_entity`, `locale`, `currency`, `primary_domain`, `publishable_key`
-(a live one), `fga_object`. `updateStore` with `status: 'active'` runs the SAME gate (`refuseUnlessReady`) —
+(a live one), `fga_object`, `tax_rates` (#520). `updateStore` with `status: 'active'` runs the SAME gate (`refuseUnlessReady`) —
 pass `{ registrar }` to it; without one the OpenFGA object counts as missing, never as present.
+
+**`tax_rates` (#520, CONTRACT CHANGE #522).** A store must have at least one `tax_rate` row for each of its
+MARKET COUNTRIES — `default_country` plus every country of its active shipping options (`marketCountries`), the
+only destinations a cart of the store can check out to; any row for the country counts (any region, any
+category). Without one the `table` provider taxes that country at 0 bp. The 409 then also carries
+`details.missing_tax_countries` (sorted). Onboarding creates no rate: an onboarded store is activated after
+`createTaxRate` for its default country. The rates (`tax-rates.ts`): one row per (country, region, category) —
+the database's unique index `tax_rate_identity_key` (0201, NULLS NOT DISTINCT), whose 23505 is 409 `conflict`
+`{ tax_rate_id }` (a savepoint keeps the transaction usable to name it); a category must be the store's (400);
+`updateTaxRate` changes `name` / `rate_bp` only; every write locks the store row first (`lockStore`), and an
+ACTIVE store cannot delete the last rate of a market country (409 `{ country, reason:
+'last_rate_of_market_country' }`) — decided under that lock, so two deletes cannot both pass.
 
 **`StoreRegistrar`** (`{ ensureStoreObject(storeId), hasStoreObject(storeId) }`): the registry never talks to
 OpenFGA itself. The HTTP layer hands in `src/http/store-registrar.ts`, which writes through window 2's
@@ -143,7 +157,7 @@ that every group has its leaves listed).
   fields that differ, `currencies` / `locales` included when the enabled set really changed (compared as sets,
   so a repeat of the same set emits nothing). Also on every other registry mutation — audit alone is not enough: `addDomain` (`['domains']`), `addLocale` /
   `addCurrency` without a new default (`['locales']` / `['currencies']`; nothing when it was already enabled),
-  `createSalesChannel` (`['sales_channels']`), `createApiKey` (`['api_keys']`), `revokeApiKey` (`['api_keys']`) and on a primary move
+  `createSalesChannel` (`['sales_channels']`), `createApiKey` (`['api_keys']`), `revokeApiKey` (`['api_keys']`), every tax-rate write (`['tax_rates']`, no rate in the payload) and on a primary move
   by `updateDomain` (`['domains']`): the payload names the area only — never key material, never a hostname —
   and an idempotent repeat emits nothing.
 
@@ -153,7 +167,8 @@ Both go through `src/outbox/withEvents` (validated against `@platform/events` sc
 
 `listStores` viewer `store:*` · `createStore` owner `organization:hq` · `getStore`/`listDomains`/`listSalesChannels`
 viewer `store:{id}` · `updateStore`/`createSalesChannel`/`listApiKeys`/`createApiKey` store_admin `store:{id}` ·
-`addDomain` / `updateDomain` owner `organization:hq` · `revokeApiKey` store_admin `store:{id}`.
+`addDomain` / `updateDomain` owner `organization:hq` · `revokeApiKey` store_admin `store:{id}` · `listTaxRates`
+viewer `store:{id}` · `createTaxRate` / `updateTaxRate` / `deleteTaxRate` store_admin `store:{id}` (#520).
 
 ## How to test
 

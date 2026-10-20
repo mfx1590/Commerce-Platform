@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.16.
+ * Contract: Admin API 0.4.23.
  */
 
 import 'server-only';
@@ -870,5 +870,59 @@ export async function previewCycleCountReconcile(
 ): Promise<ApiResult<AdminResponse<'previewCycleCountReconcile'>>> {
   return adminCall<'previewCycleCountReconcile'>({
     path: buildPath('/admin/cycle-counts/{cycleCountId}/reconcile-preview', { cycleCountId }),
+  });
+}
+
+// ---------------------------------------------------------------------------- tax rates (#520, Admin API 0.4.23)
+
+/** The store's tax rates (`viewer` on the store), optionally one country's. */
+export async function listTaxRates(
+  storeId: string,
+  query: Query = {},
+): Promise<ApiResult<AdminResponse<'listTaxRates'>>> {
+  return adminCall<'listTaxRates'>({
+    path: buildPath('/admin/stores/{storeId}/tax-rates', { storeId }),
+    query,
+  });
+}
+
+export type TaxRateCreateBody =
+  operations['createTaxRate']['requestBody']['content']['application/json'];
+export type TaxRateUpdateBody =
+  operations['updateTaxRate']['requestBody']['content']['application/json'];
+
+/** One row per (country, region, category); 409 when that row exists (`details.tax_rate_id`). */
+export async function createTaxRate(
+  storeId: string,
+  body: TaxRateCreateBody,
+): Promise<ApiResult<AdminResponse<'createTaxRate'>>> {
+  return adminCall<'createTaxRate'>({
+    path: buildPath('/admin/stores/{storeId}/tax-rates', { storeId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Name and basis points only; country, region and category are the row's identity. */
+export async function updateTaxRate(
+  storeId: string,
+  taxRateId: string,
+  body: TaxRateUpdateBody,
+): Promise<ApiResult<AdminResponse<'updateTaxRate'>>> {
+  return adminCall<'updateTaxRate'>({
+    path: buildPath('/admin/stores/{storeId}/tax-rates/{taxRateId}', { storeId, taxRateId }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+/** 204; 409 `last_rate_of_market_country` for an active store's last row of a market country. */
+export async function deleteTaxRate(
+  storeId: string,
+  taxRateId: string,
+): Promise<ApiResult<AdminResponse<'deleteTaxRate'>>> {
+  return adminCall<'deleteTaxRate'>({
+    path: buildPath('/admin/stores/{storeId}/tax-rates/{taxRateId}', { storeId, taxRateId }),
+    method: 'DELETE',
   });
 }

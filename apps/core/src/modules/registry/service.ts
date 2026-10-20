@@ -453,8 +453,18 @@ export async function refuseUnlessReady(
   if (store.status === 'archived') {
     throw conflict('an archived store cannot be activated', { status: 'archived' });
   }
-  const { missing } = await storeReadiness(tx, store, registrar ?? UNKNOWN_REGISTRAR);
-  if (missing.length) throw conflict('store is not ready to activate', { missing });
+  const { missing, missing_tax_countries } = await storeReadiness(
+    tx,
+    store,
+    registrar ?? UNKNOWN_REGISTRAR,
+  );
+  if (missing.length) {
+    throw conflict('store is not ready to activate', {
+      missing,
+      // #520: which market countries still need a tax rate (only when `tax_rates` is missing)
+      ...(missing_tax_countries.length ? { missing_tax_countries } : {}),
+    });
+  }
 }
 
 /** No registrar given: the OpenFGA object is unknown, so it is reported missing and never written. */

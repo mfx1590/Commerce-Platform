@@ -19,6 +19,13 @@ const child = spawn('sanity', ['dev', ...process.argv.slice(2)], {
   cwd: new URL('..', import.meta.url),
   stdio: 'inherit',
   shell: true,
-  env: { ...process.env, SANITY_STUDIO_PROJECT_ID: projectId, SANITY_STUDIO_ROOT: ROOT },
+  env: {
+    ...process.env,
+    SANITY_STUDIO_PROJECT_ID: projectId,
+    SANITY_STUDIO_ROOT: ROOT,
+    // Optional extra workspaces for brands onboarded from the admin UI (#521); validated in
+    // sanity.config.ts, so a bad entry fails here with the entry named rather than silently.
+    ...(process.env.SANITY_DATASETS ? { SANITY_STUDIO_DATASETS: process.env.SANITY_DATASETS } : {}),
+  },
 });
 child.on('exit', (code) => process.exit(code ?? 0));

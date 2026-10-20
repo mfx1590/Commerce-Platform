@@ -5,7 +5,7 @@ import type {
   NavigationDocument,
   PageDocument,
 } from '@platform/cms';
-import { BRAND_DATASETS, datasetForStore } from '@platform/cms';
+import { BRAND_DATASETS, resolveDataset } from '@platform/cms';
 import { CmsClient, CmsError, type GroqQuery, type GroqParams } from './client';
 import type { CmsConfig } from './config';
 import { isCmsConfigured } from './config';
@@ -88,6 +88,13 @@ export interface ReaderOptions {
   config: CmsConfig;
   /** `store.code` from `GET /store`, or `null` when the store is unknown. */
   storeCode: string | null;
+  /**
+   * `store.content_space_id` from the same `GET /store` answer (#521): the dataset by contract,
+   * set by the onboarding wizard for a brand that is not in the seeded list. Used when it is a
+   * valid dataset name (`isDatasetName`), else the seeded list by store code, else no content.
+   * The dataset comes from the store row and nothing else — never a header, path or query.
+   */
+  contentSpaceId?: string | null | undefined;
   /** Whether the request carries a valid preview cookie. Drafts still need `readToken`. */
   preview?: boolean | undefined;
   fetchImpl?: typeof fetch | undefined;
@@ -128,18 +135,16 @@ export function createReader(options: ReaderOptions): CmsReader {
     warnOnce(warn, '[cms] SANITY_PROJECT_ID is not set: rendering without CMS content');
     return empty;
   }
-  if (storeCode === null) {
-    warnOnce(warn, '[cms] store unknown (GET /store failed): rendering without CMS content');
-    return empty;
-  }
-  let dataset: string;
-  try {
-    dataset = datasetForStore(storeCode);
-  } catch {
-    warnOnce(
-      warn,
-      `[cms] no dataset for store "${storeCode}" (known: ${BRAND_DATASETS.map((b) => b.storeCode).join(', ')}): rendering without CMS content`,
-    );
+  const dataset = resolveDataset({ storeCode, contentSpaceId: options.contentSpaceId });
+  if (dataset === null) {
+    if (storeCode === null) {
+      warnOnce(warn, '[cms] store unknown (GET /store failed): rendering without CMS content');
+    } else {
+      warnOnce(
+        warn,
+        `[cms] no dataset for store "${storeCode}": content_space_id is unset or not a dataset name and the store is not in the seeded list (${BRAND_DATASETS.map((b) => b.storeCode).join(', ')}): rendering without CMS content`,
+      );
+    }
     return empty;
   }
 

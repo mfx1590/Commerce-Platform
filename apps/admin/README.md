@@ -645,6 +645,18 @@ the Status field of the Store view's General form (store_admin cannot call `acti
 owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
 other fields first and then calls `activateStore`.
 
+**Integration 3 G1 (#518) — proven from the UI, core mode.** The owner journey in
+`e2e/hq-onboarding.spec.ts` goes on after Activate, on the same single owner sign-in (a TOTP code
+is refused twice). (a) The key the wizard showed answers `GET /store` on the core as the new store,
+checked from the test with the key in a header, never logged. (b) On HQ · Roles the seeded
+`store-staff` user (`store_staff` on brand-a only, no OTP, used by no other spec) gets
+`store_staff` on the new store, and the Relations list shows it. (c) That user's own token, from
+the staff realm's dev/CI `test-cli` password grant (`staffToken` in `e2e/staff.ts`), lists the new
+store's products: 200 with an empty list, so the token reads the new store and not brand-a. The same
+token is refused on brand-b, where it holds nothing: 403. Each proven step prints one `G1 …` line;
+mock mode skips with its reason. A run adds only its own stamped store and one `store_staff`
+tuple on it; the seeded stores are untouched.
+
 ## HQ warehouse and store inventory (task 3.4, issue #468; Admin API 0.4.15)
 
 **HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs. The page loads the
@@ -711,6 +723,33 @@ Every mutation is refused server-side before the API unless the principal is ope
 writes no stock (the dev database is pooled and shared): the store admin's refusal and the
 inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
 to its confirmation and cancels, and reads the counts.
+
+## Tax rates (#520, CONTRACT CHANGE #522; Admin API 0.4.23)
+
+**Store · Settings → Tax rates** lists the store's rates (`listTaxRates`, viewer on the store):
+country, region (country-wide when empty), product category (all when empty), name, and the rate in
+basis points with its percentage (2100 bp = 21%). A row is one (country, region, category); the most
+specific wins and no row means 0%. Store admins edit a rate's name and basis points (`updateTaxRate`
+— country, region and category are its identity: delete and add instead), delete one after a
+confirmation (`deleteTaxRate`), and add one (`createTaxRate`: country, optional region, optional
+category of this store, name, basis points). Refusals in words (`describeTaxRateError` in
+`src/lib/tax-rates`): 409 a row with the same three exists; 409 `last_rate_of_market_country` —
+the last rate for a market country of an active store, which would tax that country at 0%: add
+another first; 404; 400 under its field (a category of another store lands on Category).
+
+**Activation needs a rate per market country.** `activateStore` (and the Store view's status →
+active) answers 409 with `tax_rates` in `details.missing` and the uncovered countries in
+`details.missing_tax_countries` (the store's default country plus its active shipping options'
+countries). The HQ readiness panel says "a tax rate for NL", offers one "Create a rate for NL"
+form per country (name, basis points), ticks each off, and Activate is pressed again — the core
+re-checks; the panel never guesses the market countries itself. The core-mode onboarding journey
+proves it: the first Activate is refused for NL, the rate is created from the panel, the second
+Activate succeeds (`G1 tax: …`).
+
+Every mutation is refused server-side before the API below `store_admin` on the store
+(`TAX_PERMISSIONS` in the shared guard, pinned against the yaml). The Prism contract suite
+walks list, create, update and delete through the actions plus every documented refusal (the
+201/200 examples were added to the spec for it, 9d39673).
 
 ## When a screen cannot show what was asked for
 

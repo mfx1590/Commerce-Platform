@@ -5,6 +5,20 @@ export type Store = AdminComponents['schemas']['Store'];
 export type StoreInput = AdminComponents['schemas']['StoreInput'];
 export type Domain = AdminComponents['schemas']['Domain'];
 export type SalesChannel = AdminComponents['schemas']['SalesChannel'];
+export type TaxRate = AdminComponents['schemas']['TaxRate'];
+/** `createTaxRate` body (#522). */
+export interface TaxRateInput {
+  country: string;
+  region?: string | null | undefined;
+  name: string;
+  rate_bp: number;
+  product_category_id?: string | null | undefined;
+}
+/** `updateTaxRate` body: the identity (country, region, category) is not editable. */
+export interface TaxRatePatch {
+  name?: string | undefined;
+  rate_bp?: number | undefined;
+}
 export type ApiKey = AdminComponents['schemas']['ApiKey'];
 export type ApiKeyCreated = ApiKey & { key: string };
 

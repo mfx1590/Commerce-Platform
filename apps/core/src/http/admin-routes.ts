@@ -27,17 +27,21 @@ import {
   createApiKey,
   createSalesChannel,
   createStore,
+  createTaxRate,
+  deleteTaxRate,
   getStore,
   listApiKeys,
   listDomains,
   listLegalEntities,
   listSalesChannels,
   listStores,
+  listTaxRates,
   listWarehouses,
   onboardStore,
   revokeApiKey,
   updateDomain,
   updateStore,
+  updateTaxRate,
   type StoreRegistrar,
   STORE_SORT_FIELDS,
 } from '../modules/registry';
@@ -651,6 +655,44 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
     handle(async (req, res) => {
       const { p, client, storeId } = storeClient(req);
       res.status(201).json(await createSalesChannel(client, storeId, req.body, p.actor));
+    }),
+  );
+  // ---- tax rates (#520, CONTRACT CHANGE #522): the table the `table` tax provider reads -------------------
+  r.get(
+    '/admin/stores/:storeId/tax-rates',
+    permission('listTaxRates'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      const country = one(req.query.country);
+      res.json({ items: await listTaxRates(client, storeId, { country }) });
+    }),
+  );
+  r.post(
+    '/admin/stores/:storeId/tax-rates',
+    permission('createTaxRate'),
+    body('createTaxRate'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      res.status(201).json(await createTaxRate(client, storeId, req.body, p.actor));
+    }),
+  );
+  r.patch(
+    '/admin/stores/:storeId/tax-rates/:taxRateId',
+    permission('updateTaxRate'),
+    body('updateTaxRate'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      const taxRateId = uuidParam(req.params, 'taxRateId');
+      res.json(await updateTaxRate(client, storeId, taxRateId, req.body, p.actor));
+    }),
+  );
+  r.delete(
+    '/admin/stores/:storeId/tax-rates/:taxRateId',
+    permission('deleteTaxRate'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      await deleteTaxRate(client, storeId, uuidParam(req.params, 'taxRateId'), p.actor);
+      res.status(204).end();
     }),
   );
   r.get(
