@@ -1,6 +1,6 @@
 # Memory 14 — Event bus & outbox relay
 Window: 14 · Key: `events` · Branch prefix: `events/` · Model: strongest
-Last updated: 2026-10-20 (window 14, session 1) · Contracts: contracts-v0.4.26 · Last commit: 2a7510e (code, #530) · Status: #530 PR #535 up, waiting for the manager's review; #531 next (no push until #535 is merged)
+Last updated: 2026-10-20 (window 14, session 1) · Contracts: contracts-v0.4.26 · Last commit: 992abc1 (code, #530) · Status: #530 PR #535 up (plan approved by the manager, addition (a) in 992abc1, addition (b) = REQUEST #536 filed), waiting for checks + review; #531 next (no push until #535 is merged)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,7 +16,7 @@ Never touches:
 Redpanda config, outbox relay with idempotent delivery, schema registry, replay CLI, consumer SDK with dead-letter pattern. Replay 10k historical orders in tests. No other Phase 4 window starts before events-v1 is tagged.
 
 ## Done
-- #530 14.1 Redpanda topics + local/CI config — PR #535 (code commit 2a7510e; head = this memory commit). events 0.4.0: `planTopics`/`ensureTopics`/`createKafka`/`partitionKey`/`dlqTopicName`; infra/redpanda (create-topics.mjs, topics.policy.json, README). 34/34 events tests, three consecutive green local runs; local broker now carries the 38 real topics (1 partition each). Follow-up REQUEST to file after the merge: CI broker in the auth-e2e job (see infra/redpanda/README.md "What CI needs").
+- #530 14.1 Redpanda topics + local/CI config — PR #535 (code commits 2a7510e + 992abc1 (the live block deletes its topics in a try/finally and prints them, manager addition a); head = this memory commit). REQUEST #536 = the exact CI diff for a broker in the auth-e2e job (manager addition b; the manager lands it on main before #531 merges). events 0.4.0: `planTopics`/`ensureTopics`/`createKafka`/`partitionKey`/`dlqTopicName`; infra/redpanda (create-topics.mjs, topics.policy.json, README). 34/34 events tests, three consecutive green local runs; local broker now carries the 38 real topics (1 partition each). Follow-up REQUEST to file after the merge: CI broker in the auth-e2e job (see infra/redpanda/README.md "What CI needs").
 
 ## In progress
 - (nothing — #531 starts after #535 merges; the design below stays as the record of #530's plan)
