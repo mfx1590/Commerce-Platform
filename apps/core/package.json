@@ -11,6 +11,8 @@
     "test": "vitest run --passWithNoTests",
     "db:medusa:migrate": "tsx scripts/db-medusa-migrate.ts",
     "db:medusa:grants": "tsx scripts/db-medusa-migrate.ts --grants-only",
+    "outbox:relay": "tsx src/outbox/relay-cli.ts",
+    "outbox:replay": "tsx src/outbox/replay-cli.ts",
     "clean": "rm -rf .medusa dist .turbo",
     "lint": "eslint . --max-warnings 0",
     "bootstrap": "tsx scripts/bootstrap.ts"

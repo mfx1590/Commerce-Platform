@@ -67,7 +67,7 @@ Window 1 owns the order lifecycle and the core side of the chain. Current task: 
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49 **merged** (merge commit `a0c02c9`). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
-- Nothing. IDLE until the manager sends Phase 4 work.
+- **REQUEST #538 (window 14): two script lines in apps/core/package.json — `outbox:relay` / `outbox:replay` (tsx src/outbox/{relay,replay}-cli.ts; the files are window 14's, #531 / #534). One PR "Closes #538"; the manager reads it (no Opus review).**
 - On wake: read this file, `git fetch`, `git merge origin/main`, `pnpm install --frozen-lockfile`, rebuild the workspace packages (+ `pnpm --filter @platform/cms build`) before any typecheck; make sure the worktree `.env` has every line of `.env.example` (2026-10-12: `STRIPE_WEBHOOK_SECRET*` are absent — not needed for the suite, the provider live tests skip), and source it before a full local run.
 
 ## Next — Phase 3 backlog for this window
