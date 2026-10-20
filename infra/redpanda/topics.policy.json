@@ -1,0 +1,27 @@
+{
+  "$comment": "Redpanda topic policy (issue #530, ADR 0003). The topic LIST is derived from packages/events EVENT_TOPICS; this file only holds the numbers and the retention classes. Every event topic must match exactly one retention prefix — packages/events/test/topics.test.ts fails otherwise. Read by infra/redpanda/create-topics.mjs; every choice is explained in infra/redpanda/README.md.",
+  "environments": {
+    "local": { "partitions": 1, "replication": 1 },
+    "ci": { "partitions": 1, "replication": 1 },
+    "production": { "partitions": 12, "replication": 3, "min_insync_replicas": 2 }
+  },
+  "retention": {
+    "forever": ["order.", "payment.", "refund.", "shipment.", "return.", "stock.", "stock_item."],
+    "days_30": [
+      "store.",
+      "product.",
+      "customer.",
+      "fulfillment.",
+      "campaign.",
+      "feed.",
+      "attribution.",
+      "referral.",
+      "review.",
+      "cart."
+    ]
+  },
+  "dlq": {
+    "prefix": "dlq.",
+    "consumer_groups": []
+  }
+}

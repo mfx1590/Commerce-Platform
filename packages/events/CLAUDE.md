@@ -11,7 +11,8 @@ campaign.{launched,ended}, feed.published, attribution.recorded, referral.conver
 since 0.3.0 fulfillment.{requested,picking,packed}, since 0.3.1 shipment.label_created, since 0.3.2 customer.export_requested,
 since 0.3.3 stock_item.mapped plus stock.moved v2 (keyed by the stock item; `makeEvent` writes v2, v1 stays frozen),
 since 0.3.5 customer.export_requested v2 (`requested_by_type` staff | customer; v1 stays frozen),
-and since 0.3.6 customer.export_ready (ids and `expires_at` only).
+and since 0.3.6 customer.export_ready (ids and `expires_at` only). Since 0.4.0 (#530) also the Redpanda topic plan
+(`planTopics`, `ensureTopics`, `createKafka`; `src/topics.ts`) with the policy in infra/redpanda/topics.policy.json.
 
 ## Owner
 
@@ -24,6 +25,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `pnpm --filter @platform/events test` — Vitest: every schema compiles, sample envelopes validate, PII/float/extra-field guards
 - `pnpm --filter @platform/events build | typecheck`
 - `pnpm db:migrate` applies `migrations/0100_outbox.sql` together with packages/db migrations.
+- `pnpm --filter @platform/events topics:create [-- --env ci --dry-run]` — creates every topic on the broker idempotently (`infra/redpanda/create-topics.mjs`; `KAFKA_BROKERS`, default 127.0.0.1:19092). `test/topics.test.ts` has a live block that skips with a printed reason when the broker is down.
 
 ## Public API (`@platform/events`)
 
@@ -32,13 +34,14 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `createValidator()` → `{ validateEnvelope(event), validatePayload(topic, version, payload), ajv }`; one instance per process
 - `makeEvent({ topic, organizationId, storeId, aggregateType, aggregateId, payload, actor?, trace? })` → envelope for the latest version
 - `toOutboxRow(envelope)` → the column map for `INSERT INTO outbox`
+- Topics (0.4.0): `planTopics(policy, opts)`, `ensureTopics(admin, plan, { dryRun })`, `createKafka(opts)`, `brokersFromEnv()`, `dlqTopicName(groupId)`, `partitionKey(envelope)`, `retentionClassOf(topic, policy)`, `RETENTION_MS`, `DEFAULT_BROKERS`; types `TopicPolicy`, `TopicSpec`, `EnsureResult`
 
 ## Rules for producers and consumers
 
 - Producers (apps/core) write the outbox row in the same transaction as the state change; never publish to the bus directly.
 - Payloads carry ids, hashes, amounts, countries — never names, emails, addresses, or card data. `email_hash` = sha256(lowercased email).
 - Money is integer minor units + ISO-4217 currency. Timestamps are RFC-3339 UTC.
-- `event_id` is the Kafka key and the idempotency key for every consumer. Envelope `version` selects the payload schema.
+- `event_id` (= the outbox id) is the idempotency key for every consumer and travels as a message header; the Kafka _partition_ key is `store_id` (or `organization_id` for organization-scope events) so per-store order is kept (#530, `partitionKey`). Envelope `version` selects the payload schema.
 - Consumers accept unknown topics and higher versions gracefully (log and skip); they never crash on them.
 
 ## Constraints
