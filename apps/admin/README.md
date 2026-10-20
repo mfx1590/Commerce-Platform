@@ -645,6 +645,18 @@ the Status field of the Store view's General form (store_admin cannot call `acti
 owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
 other fields first and then calls `activateStore`.
 
+**Integration 3 G1 (#518) — proven from the UI, core mode.** The owner journey in
+`e2e/hq-onboarding.spec.ts` goes on after Activate, on the same single owner sign-in (a TOTP code
+is refused twice). (a) The key the wizard showed answers `GET /store` on the core as the new store,
+checked from the test with the key in a header, never logged. (b) On HQ · Roles the seeded
+`store-staff` user (`store_staff` on brand-a only, no OTP, used by no other spec) gets
+`store_staff` on the new store, and the Relations list shows it. (c) That user's own token, from
+the staff realm's dev/CI `test-cli` password grant (`staffToken` in `e2e/staff.ts`), lists the new
+store's products: 200 with an empty list, so the token reads the new store and not brand-a. The same
+token is refused on brand-b, where it holds nothing: 403. Each proven step prints one `G1 …` line;
+mock mode skips with its reason. A run adds only its own stamped store and one `store_staff`
+tuple on it; the seeded stores are untouched.
+
 ## HQ warehouse and store inventory (task 3.4, issue #468; Admin API 0.4.15)
 
 **HQ · Warehouse** (`/warehouse`, operations on `organization:hq`) has two tabs. The page loads the

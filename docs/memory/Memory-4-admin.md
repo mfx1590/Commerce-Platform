@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #518 (Integration 3 G1) — plan sent
+Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #518 (Integration 3 G1) — built; gate + core e2e next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -566,10 +566,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   back; (c) store-staff token (staff test-cli password grant) → products 200 [] on the new store,
   403 on brand-b. One printed line per step. Ask the manager before the core e2e; check the 5 h
   usage first (stop at 80%). Full admin suite. Parked nits below ride in this PR.
-- **Parked comment-only nits (#481 review) — ride in the NEXT PR, never a PR on their own:**
-  `src/app/(hq)/warehouse/page.tsx` ~92 doc comment still says the ledger and reservations "wait
-  for CONTRACT CHANGE #469" (they shipped in #481); `src/lib/api/admin.ts` header says
-  "Admin API 0.4.16" while the code uses 0.4.17 (warehouse_code).
+  PLAN APPROVED (+ assert the new store's product list is EMPTY). BUILT: spec steps + `staffToken`
+  (staff test-cli password grant) in e2e/staff.ts; nits fixed (warehouse/page.tsx comment,
+  admin.ts → Admin API 0.4.22). Next: gate, ask the manager for the machine, core run of
+  hq-onboarding + hq-roles + warehouse.
+- (#481 review nits: fixed in the #518 PR.)
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
   #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles
