@@ -14,4 +14,13 @@ export {
   type RelayOptions,
   type RelayPassResult,
   type RelayPublisher,
+  type RelayLoopTotals,
+  type RelayPassError,
+  RelayPublishTimeout,
+  guardPoolClients,
+  type GuardablePool,
+  type RelayConnectionError,
+  DEFAULT_PUBLISH_TIMEOUT_MS,
+  DEFAULT_STATEMENT_TIMEOUT_MS,
+  DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT_MS,
 } from './relay';

@@ -236,6 +236,11 @@ export function createKafka(opts: CreateKafkaOptions = {}): Kafka {
     brokers: opts.brokers ?? brokersFromEnv(),
     logLevel: opts.logLevel ?? logLevel.ERROR,
     socketFactory: ipv4LoopbackSocketFactory,
+    // A broker that accepts the connection and never answers must fail a request, not hang it (the relay holds
+    // a database transaction while it waits): bounded connect and request times, enforced client-side.
+    connectionTimeout: 3_000,
+    requestTimeout: 10_000,
+    enforceRequestTimeout: true,
     ...opts.config,
   });
 }

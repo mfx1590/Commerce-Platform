@@ -101,3 +101,4 @@
 - `ensureTopics` takes the narrow `TopicAdmin` interface instead of kafkajs's `Admin` (#535 review); kafkajs's client satisfies it unchanged.
 - `infra/redpanda/create-topics.mjs --env production` refuses to run without `--brokers` naming a non-loopback cluster (#535 review): it would otherwise raise the shared local topics to 12 partitions.
 - No schema change.
+- `createKafka` sets bounded client timeouts (`connectionTimeout` 3 s, `requestTimeout` 10 s, enforced client-side), overridable through `config`: a broker that accepts the connection and never answers fails the request instead of hanging the relay's pass (#531 review).

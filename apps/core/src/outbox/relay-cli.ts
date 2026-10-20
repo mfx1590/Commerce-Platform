@@ -16,9 +16,15 @@ import {
   planTopics,
   type TopicPolicy,
 } from '@platform/events';
-import { closePool, initDb, organizationClient } from '../lib/db';
+import { closePool, getPool, initDb, organizationClient } from '../lib/db';
 import { coreOrganizationId } from '../http/tenant';
-import { DEFAULT_BATCH_SIZE, DEFAULT_INTERVAL_MS, relayOnce, runRelayLoop } from './relay';
+import {
+  DEFAULT_BATCH_SIZE,
+  DEFAULT_INTERVAL_MS,
+  guardPoolClients,
+  relayOnce,
+  runRelayLoop,
+} from './relay';
 
 export const POLICY_PATH = resolve(__dirname, '../../../../infra/redpanda/topics.policy.json');
 
@@ -55,6 +61,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const args = parseArgs(argv);
   const organizationId = coreOrganizationId();
   await initDb({ startDir: __dirname });
+  guardPoolClients(getPool());
   const kafka = createKafka({ clientId: 'core-outbox-relay' });
   const admin = kafka.admin();
   const publisher = createKafkaPublisher(kafka);

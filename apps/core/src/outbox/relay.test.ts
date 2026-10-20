@@ -23,6 +23,7 @@ import { createStore } from '../modules/registry';
 import { buildEvent, withEvents } from './index';
 import {
   errorClass,
+  guardPoolClients,
   relayOnce,
   runRelayLoop,
   type RelayPassResult,
@@ -40,6 +41,7 @@ let hq: ReturnType<typeof createOrganizationClient>;
 let hqB: ReturnType<typeof createOrganizationClient>;
 let storeA: string;
 let storeB: string;
+const connectionErrors: string[] = [];
 const quiet = () => {};
 
 const policy: TopicPolicy = JSON.parse(
@@ -118,6 +120,8 @@ beforeAll(async () => {
       [LE, ORG, LE_B, ORG_B],
     );
   });
+  // what relay-cli does with the core's pool: a dropped connection is logged, not an uncaught exception
+  guardPoolClients(db.app, (l) => connectionErrors.push(l.error_class));
   hq = createOrganizationClient(db.app, { organizationId: ORG });
   hqB = createOrganizationClient(db.app, { organizationId: ORG_B });
   const mk = (client: typeof hq, le: string, code: string) =>
@@ -344,9 +348,160 @@ describe('relayOnce (database, recording publisher)', () => {
       signal: controller.signal,
       log,
     });
-    expect(totals).toEqual({ passes: 3, published: 5, failed: 0 });
+    expect(totals).toEqual({ passes: 3, published: 5, failed: 0, failed_passes: 0 });
     expect(sent.map((s) => s.messages.length)).toEqual([2, 2, 1]);
   });
+
+  it('a publish that never answers is cut off by the relay deadline (attempts + 1, RelayPublishTimeout) and the loop goes on', async () => {
+    const ids = await emit(hq, [storeA, storeB], 'hang');
+    let calls = 0;
+    const hangOnce: RelayPublisher = {
+      send: () =>
+        ++calls === 1 ? new Promise<void>(() => {}) /* never answers */ : Promise.resolve(),
+    };
+    const controller = new AbortController();
+    const lines: RelayPassResult[] = [];
+    const started = Date.now();
+    const totals = await runRelayLoop(hq, hangOnce, {
+      organizationId: ORG,
+      publishTimeoutMs: 200,
+      intervalMs: 10,
+      signal: controller.signal,
+      log: (l) => {
+        lines.push(l);
+        if (l.published === 2) controller.abort();
+      },
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(totals).toEqual({ passes: 2, published: 2, failed: 2, failed_passes: 0 });
+    expect(lines[0]).toMatchObject({
+      batch: 2,
+      published: 0,
+      failed: 2,
+      failed_topics: ['store.updated'],
+    });
+    const rows = (
+      await hq.query<{ attempts: number; last_error: string | null; published: boolean }>(
+        'SELECT attempts, last_error, published_at IS NOT NULL AS published FROM outbox WHERE id = ANY($1::uuid[]) ORDER BY seq',
+        [ids],
+      )
+    ).rows;
+    expect(rows).toEqual([
+      { attempts: 2, last_error: null, published: true },
+      { attempts: 2, last_error: null, published: true },
+    ]);
+    // the first pass recorded the deadline class before the second pass cleared it
+    expect(lines[0]!.failed).toBe(2);
+  });
+
+  it('the database backstop (idle_in_transaction_session_timeout) aborts a pass whose publish outlives it: nothing marked, the loop continues', async () => {
+    const ids = await emit(hq, [storeA], 'backstop');
+    const slow: RelayPublisher = {
+      send: () => new Promise<void>((resolve) => setTimeout(resolve, 1_500)),
+    };
+    const opts = {
+      organizationId: ORG,
+      log: quiet,
+      idleInTransactionTimeoutMs: 300,
+      publishTimeoutMs: 5_000,
+    };
+    // Postgres ends the session with FATAL 25P03 (idle_in_transaction_session_timeout); pg reports the dead
+    // connection on the next statement.
+    await expect(relayOnce(hq, slow, opts)).rejects.toThrow(
+      /idle-in-transaction|terminat|closed|not queryable/i,
+    );
+    expect(await unpublished(hq)).toEqual([{ id: ids[0]!, attempts: 0, last_error: null }]);
+    // pg emits the FATAL (DatabaseError, name 'error') and then the socket close ('Error'): logged, not thrown
+    expect(connectionErrors.length).toBeGreaterThanOrEqual(1);
+    expect(connectionErrors[0]).toBe('error');
+
+    const errors: string[] = [];
+    const controller = new AbortController();
+    let passes = 0;
+    const totals = await runRelayLoop(
+      hq,
+      { send: async () => {} },
+      {
+        ...opts,
+        intervalMs: 10,
+        signal: controller.signal,
+        log: () => {
+          if (++passes >= 1) controller.abort();
+        },
+        onPassError: (l) => errors.push(l.error_class),
+      },
+    );
+    expect(totals).toMatchObject({ published: 1, failed_passes: 0 });
+    expect(errors).toEqual([]);
+    expect(await unpublished(hq)).toEqual([]);
+  });
+
+  it('a pass that throws is logged by class and the loop continues', async () => {
+    await drain(hq);
+    const ids = await emit(hq, [storeA], 'throws');
+    let calls = 0;
+    const errors: string[] = [];
+    const controller = new AbortController();
+    const totals = await runRelayLoop(
+      hq,
+      { send: async () => {} },
+      {
+        organizationId: ORG,
+        intervalMs: 10,
+        signal: controller.signal,
+        log: () => controller.abort(),
+        onPassError: (l) => errors.push(l.error_class),
+        onPublished: () => {
+          if (++calls === 1) {
+            const e = new Error('connection terminated unexpectedly');
+            e.name = 'ConnectionDropped';
+            throw e;
+          }
+        },
+      },
+    );
+    expect(totals).toEqual({ passes: 2, published: 1, failed: 0, failed_passes: 1 });
+    expect(errors).toEqual(['ConnectionDropped']);
+    expect(await unpublished(hq)).toEqual([]);
+    expect(ids).toHaveLength(1);
+  });
+
+  it('kafkajs against a broker that accepts the connection and never answers: bounded by the client timeouts, no hang', async () => {
+    const sockets = new Set<net.Socket>();
+    const silent = net.createServer((s) => {
+      // accepts, never writes; remembered so the teardown can destroy what kafkajs left open
+      sockets.add(s);
+      s.on('close', () => sockets.delete(s));
+    });
+    await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve));
+    const port = (silent.address() as net.AddressInfo).port;
+    const kafka = createKafka({
+      clientId: 'relay-test-silent',
+      brokers: [`127.0.0.1:${port}`],
+      config: {
+        connectionTimeout: 500,
+        requestTimeout: 500,
+        retry: { retries: 0, initialRetryTime: 50 },
+      },
+    });
+    const publisher = createKafkaPublisher(kafka, { retries: 0, requestTimeoutMs: 500 });
+    const started = Date.now();
+    let cls = '';
+    try {
+      await publisher.connect();
+      await publisher.send('store.updated', []);
+    } catch (err) {
+      cls = errorClass(err);
+    } finally {
+      await publisher.disconnect().catch(() => {});
+      for (const s of sockets) s.destroy();
+      await new Promise<void>((resolve) => silent.close(() => resolve()));
+    }
+    // ApiVersions times out → KafkaJSNumberOfRetriesExceeded in ~0.6 s with retries off (with retries on,
+    // kafkajs "connects" with assumed API versions and every later request times out the same way)
+    expect(cls).toMatch(/^KafkaJS/);
+    expect(Date.now() - started).toBeLessThan(10_000);
+  }, 20_000);
 
   it('errorClass gives the class and the protocol type, never the message', () => {
     expect(errorClass(new Error('secret@example.com'))).toBe('Error');

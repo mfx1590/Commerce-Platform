@@ -102,3 +102,24 @@ the CLI arguments); the bus part against the local Redpanda on a prefixed `store
 partitions (every row arrives, per store in `seq` order on one partition, organization scope keyed by the
 organization, a republish after a crash reaches the bus twice with the same `outbox_id` and dedupes to once;
 skipped with the reason when the broker is down, deletes its topic afterwards).
+
+### Timeouts (a hung broker never holds the lock)
+
+The pass transaction holds the advisory lock and the row set while the broker is awaited, so every wait is bounded
+twice. Broker side: the kafkajs client has `connectionTimeout` 3 s and `requestTimeout` 10 s (enforced
+client-side; a broker that accepts the connection and never answers fails the request), the producer retries 3
+times, and the relay puts its own deadline on every send (`publishTimeoutMs`, default 15 s): a topic that is not
+acknowledged in time counts as failed (`attempts + 1`, `last_error = RelayPublishTimeout`) and the pass completes.
+Database side, the backstop: `SET LOCAL statement_timeout` (30 s) and `SET LOCAL idle_in_transaction_session_timeout`
+(60 s) on the pass transaction, so a pass that outlives them is aborted by Postgres — nothing is marked, the
+rows are still unpublished — and the loop logs `{ relay, state: "pass_failed", organization_id, error_class }`
+and goes on after the interval. Tests: a send that never answers (cut off by the relay deadline, the loop goes
+on), a publish that outlives the idle backstop (the pass is aborted, nothing marked, the next pass drains), a
+pass that throws (logged by class, the loop continues), and kafkajs against a TCP server that accepts and never
+answers (fails within the client timeouts).
+
+One more thing the backstop needs: pg-pool keeps an error listener on idle clients only, so when Postgres ends
+the session of a client that is checked out for a pass, the client's `error` event has no listener and the process
+dies. `guardPoolClients(pool)` (called once by `relay-cli.ts` on the core's pool, and by the test on its own)
+attaches one to every connection the pool opens: the drop is logged as `{ state: "connection_error", error_class }`
+and the pass fails through its next statement, which the loop handles.

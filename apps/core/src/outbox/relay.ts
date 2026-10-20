@@ -24,6 +24,35 @@ import type { Queryable, ScopedClient } from '@platform/db';
 export const RELAY_PRODUCER = 'core-outbox-relay/1';
 export const DEFAULT_BATCH_SIZE = 500;
 export const DEFAULT_INTERVAL_MS = 1000;
+/** The relay's own deadline per send: a hung broker fails the topic (attempts + 1) instead of holding the pass. */
+export const DEFAULT_PUBLISH_TIMEOUT_MS = 15_000;
+/** Database backstops on the pass transaction (SET LOCAL): a stuck pass is aborted by Postgres, nothing is marked. */
+export const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
+export const DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT_MS = 60_000;
+
+export class RelayPublishTimeout extends Error {
+  constructor(
+    readonly topic: string,
+    readonly ms: number,
+  ) {
+    super(`publish to ${topic} not acknowledged within ${ms} ms`);
+    this.name = 'RelayPublishTimeout';
+  }
+}
+
+function withDeadline<T>(p: Promise<T>, ms: number, topic: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new RelayPublishTimeout(topic, ms)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
+
+function wholeMs(name: string, value: number): number {
+  if (!Number.isInteger(value) || value <= 0)
+    throw new Error(`${name} must be a positive integer (ms)`);
+  return value;
+}
 
 /** What the relay needs: `send` resolves once the broker acknowledged every message (see @platform/events). */
 export type RelayPublisher = Pick<MessagePublisher, 'send'>;
@@ -39,6 +68,12 @@ export interface RelayOptions {
   /** Where the per-pass line goes. Default: console.info as one JSON line. */
   log?: (line: RelayPassResult) => void;
   now?: () => Date;
+  /** Per-topic send deadline. Default 15 s. */
+  publishTimeoutMs?: number;
+  /** `SET LOCAL statement_timeout` on the pass transaction. Default 30 s. */
+  statementTimeoutMs?: number;
+  /** `SET LOCAL idle_in_transaction_session_timeout` on the pass transaction (the backstop while a publish is awaited). Default 60 s. */
+  idleInTransactionTimeoutMs?: number;
 }
 
 export interface RelayPassResult {
@@ -112,9 +147,26 @@ export async function relayOnce(
   const started = now();
   const batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
   const prefix = opts.topicPrefix ?? '';
+  const publishTimeoutMs = wholeMs(
+    'publishTimeoutMs',
+    opts.publishTimeoutMs ?? DEFAULT_PUBLISH_TIMEOUT_MS,
+  );
+  const statementTimeoutMs = wholeMs(
+    'statementTimeoutMs',
+    opts.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS,
+  );
+  const idleTimeoutMs = wholeMs(
+    'idleInTransactionTimeoutMs',
+    opts.idleInTransactionTimeoutMs ?? DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+  );
   const v = getValidator();
 
   const result = await client.transaction(async (tx): Promise<RelayPassResult> => {
+    // Backstops: the transaction holds the advisory lock while the broker is awaited; Postgres aborts it if a
+    // statement or the idle wait outlives these (nothing is marked, the next pass starts clean). SET takes no
+    // bind parameters, hence the validated integer literals.
+    await tx.query(`SET LOCAL statement_timeout = ${statementTimeoutMs}`);
+    await tx.query(`SET LOCAL idle_in_transaction_session_timeout = ${idleTimeoutMs}`);
     await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
       `outbox-relay:${opts.organizationId}`,
     ]);
@@ -139,7 +191,11 @@ export async function relayOnce(
     const failedTopics: string[] = [];
     for (const [topic, group] of byTopic) {
       try {
-        await publisher.send(`${prefix}${topic}`, group.messages);
+        await withDeadline(
+          publisher.send(`${prefix}${topic}`, group.messages),
+          publishTimeoutMs,
+          topic,
+        );
         published.push(...group.ids);
       } catch (err) {
         const cls = errorClass(err);
@@ -192,23 +248,89 @@ export interface RelayLoopOptions extends RelayOptions {
   intervalMs?: number;
   /** Stops after the current pass. */
   signal?: AbortSignal;
+  /** A pass that threw (the database backstop fired, the connection dropped): logged by class, the loop goes on. */
+  onPassError?: (line: RelayPassError) => void;
 }
 
-/** Runs passes until `signal` aborts: back to back while a pass fills the batch, every `intervalMs` otherwise. */
+export interface RelayPassError {
+  relay: 'outbox';
+  state: 'pass_failed';
+  organization_id: string;
+  error_class: string;
+}
+
+export interface RelayConnectionError {
+  relay: 'outbox';
+  state: 'connection_error';
+  error_class: string;
+}
+
+/** The slice of a pg Pool the guard needs (the core imports `pg` only in src/lib/db). */
+export interface GuardablePool {
+  on(
+    event: 'connect',
+    listener: (client: { on(event: 'error', l: (err: Error) => void): unknown }) => void,
+  ): unknown;
+}
+
+/**
+ * pg-pool keeps an error listener on IDLE clients only; a client checked out for a pass has none. When Postgres
+ * ends the session (the idle-in-transaction backstop: FATAL 25P03) while the pass awaits the broker, the client
+ * emits `error` with nobody listening and the process dies. This attaches a listener to every connection the pool
+ * opens, so the event is logged by class and the pass fails through its next statement instead. Call it once
+ * per pool, before the first pass (relay-cli does; so does the test).
+ */
+export function guardPoolClients(
+  pool: GuardablePool,
+  log: (line: RelayConnectionError) => void = (line) => console.error(JSON.stringify(line)),
+): void {
+  pool.on('connect', (client) => {
+    client.on('error', (err) =>
+      log({ relay: 'outbox', state: 'connection_error', error_class: errorClass(err) }),
+    );
+  });
+}
+
+export interface RelayLoopTotals {
+  passes: number;
+  published: number;
+  failed: number;
+  /** Passes that threw (nothing of them was marked). */
+  failed_passes: number;
+}
+
+/**
+ * Runs passes until `signal` aborts: back to back while a pass fills the batch, every `intervalMs` otherwise
+ * (also after a pass with failures or one that threw — the broker gets a breather, the rows are still there).
+ */
 export async function runRelayLoop(
   client: ScopedClient,
   publisher: RelayPublisher,
   opts: RelayLoopOptions,
-): Promise<{ passes: number; published: number; failed: number }> {
+): Promise<RelayLoopTotals> {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
-  const totals = { passes: 0, published: 0, failed: 0 };
+  const onPassError =
+    opts.onPassError ?? ((line: RelayPassError) => console.error(JSON.stringify(line)));
+  const totals: RelayLoopTotals = { passes: 0, published: 0, failed: 0, failed_passes: 0 };
   while (!opts.signal?.aborted) {
-    const r = await relayOnce(client, publisher, opts);
-    totals.passes += 1;
-    totals.published += r.published;
-    totals.failed += r.failed;
-    if (r.batch < batchSize || r.failed > 0) {
+    let r: RelayPassResult | undefined;
+    try {
+      r = await relayOnce(client, publisher, opts);
+      totals.passes += 1;
+      totals.published += r.published;
+      totals.failed += r.failed;
+    } catch (err) {
+      totals.passes += 1;
+      totals.failed_passes += 1;
+      onPassError({
+        relay: 'outbox',
+        state: 'pass_failed',
+        organization_id: opts.organizationId,
+        error_class: errorClass(err),
+      });
+    }
+    if (!r || r.batch < batchSize || r.failed > 0) {
       await new Promise<void>((resolve) => {
         const t = setTimeout(done, intervalMs);
         function done() {
