@@ -4121,6 +4121,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "47000000-0000-4000-8000-000000000001",
+                     *       "country": "NL",
+                     *       "region": null,
+                     *       "name": "VAT 21%",
+                     *       "rate_bp": 2100,
+                     *       "product_category_id": null,
+                     *       "created_at": "2026-10-20T09:00:00Z",
+                     *       "updated_at": "2026-10-20T09:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["TaxRate"];
                 };
             };
@@ -4181,6 +4193,18 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "47000000-0000-4000-8000-000000000001",
+                     *       "country": "NL",
+                     *       "region": null,
+                     *       "name": "VAT 21% (standard)",
+                     *       "rate_bp": 2100,
+                     *       "product_category_id": null,
+                     *       "created_at": "2026-10-20T09:00:00Z",
+                     *       "updated_at": "2026-10-20T10:00:00Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["TaxRate"];
                 };
             };

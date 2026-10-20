@@ -1266,7 +1266,13 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
     expect(abody('createTaxRate')).toMatch(/enforced by the database/);
     expect(abody('createTaxRate')).toMatch(/`details\.tax_rate_id`/);
     expect(abody('updateTaxRate')).toMatch(/minProperties: 1/);
-    expect(abody('updateTaxRate')).not.toMatch(/country:|region:|product_category_id:/);
+    // the identity (country, region, category) is not editable: the REQUEST body names only name / rate_bp
+    // (the 200's example row shows the whole TaxRate, so the check stops at `responses:`)
+    expect(abody('updateTaxRate').split('responses:')[0]).not.toMatch(
+      /country:|region:|product_category_id:/,
+    );
+    expect(abody('createTaxRate')).toMatch(/'201':[\s\S]*example:/);
+    expect(abody('updateTaxRate')).toMatch(/'200':[\s\S]*example:/);
     expect(abody('deleteTaxRate')).toMatch(/last_rate_of_market_country/);
     for (const id of ['createTaxRate', 'updateTaxRate', 'deleteTaxRate']) {
       expect(abody(id), id).toMatch(/`store\.updated`\s+\(`changed_fields: \[tax_rates\]`\)/);
